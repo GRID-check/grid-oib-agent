@@ -330,6 +330,9 @@ describe('deleteArchivDocument', () => {
       storageKey: 'org/org-1/archiv/archiv-doc-1/norm.pdf',
       storageBucket: 'test-bucket',
       fileSize: 500,
+      contentHash: null,
+      folderId: null,
+      status: 'ready',
     })
 
     vi.mocked(canManageArchiv).mockReturnValue(true)

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
+  Copy,
   FilePlus2,
   FolderInput,
   FolderPlus,
@@ -50,7 +51,14 @@ import {
  * add only what is new — is a checkbox rather than a second dialog. Everything
  * else on this surface is a statement, not a question: which folders were
  * matched, which will be created, what is being skipped because the bytes are
- * identical, and which files the project cannot hold two of.
+ * identical, which documents move because the tree files them elsewhere, which
+ * files the project already holds under another name, and which files it cannot
+ * hold two of.
+ *
+ * Where a document has been renamed here, the row carries BOTH names. The plan
+ * speaks in the names the drop uses and the corpus speaks in the names people
+ * gave it; asking somebody to approve replacing a document they cannot find in
+ * their own file list is not asking.
  *
  * The counts are the headline because they are what the answer turns on. The
  * lists are there because a count without names is not something a person can
@@ -202,14 +210,44 @@ export function FolderUploadDialog({
               </label>
             )}
 
-            {/* A re-file is the part of an update a reader does not see coming:
-                the document exists, it is simply filed somewhere else, and the
-                upload moves it to where the tree puts it. */}
-            {counts.refiled > 0 && (
+            {/* Where documents END UP, which is the part a reader does not see
+                coming: the document exists, it is simply filed somewhere else,
+                and this drop puts it where its tree says it belongs. */}
+            {(counts.refiled > 0 || counts.moving > 0) && (
               <Alert data-testid="folder-upload-refiled">
                 <MoveRight aria-hidden />
-                <AlertDescription>
-                  {t('folderUpload.refiled', { count: String(counts.refiled) })}
+                <AlertDescription className="space-y-1">
+                  {counts.refiled > 0 && (
+                    <span className="block">
+                      {t('folderUpload.refiled', { count: String(counts.refiled) })}
+                    </span>
+                  )}
+                  {/* The unchanged ones send no bytes, so nothing about the
+                      upload would move them — they are moved on their own, and
+                      that is a different sentence. */}
+                  {counts.moving > 0 && (
+                    <span className="block">
+                      {t('folderUpload.moving', { count: String(counts.moving) })}
+                    </span>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* ALREADY HERE UNDER ANOTHER NAME.
+                Not an update — the server replaces by filename and these do not
+                share one, so uploading would add a second copy of a document
+                the project already holds. Named with what it is called here,
+                because that is the only way the reader can go and look. */}
+            {counts.duplicate > 0 && (
+              <Alert variant="warning" data-testid="folder-upload-duplicates">
+                <Copy aria-hidden />
+                <AlertTitle>
+                  {t('folderUpload.duplicates', { count: String(counts.duplicate) })}
+                </AlertTitle>
+                <AlertDescription className="space-y-1">
+                  <span className="block">{t('folderUpload.duplicatesExplain')}</span>
+                  <FileNameList files={plan.files.filter((file) => file.action === 'duplicate')} />
                 </AlertDescription>
               </Alert>
             )}
@@ -243,17 +281,26 @@ export function FolderUploadDialog({
           </Button>
           <Button
             onClick={() => void onConfirm(includeUpdates)}
-            // Nothing to send is not a reason to hide the dialog's answer — the
-            // reader still wants to read "everything here is already up to
-            // date" — but it is a reason not to offer an upload button that
-            // would do nothing.
-            disabled={pending || !counts || counts.uploading === 0}
+            /*
+             * Nothing to send is not a reason to hide the dialog's answer — the
+             * reader still wants to read "everything here is already up to
+             * date" — but it is a reason not to offer a button that would do
+             * nothing.
+             *
+             * "Nothing" includes the moves. A re-sync of a folder somebody has
+             * since reorganised in Piloti uploads not one byte and still has
+             * work to do, and a disabled button there would say the tree is
+             * already reproduced when it is not.
+             */
+            disabled={pending || !counts || counts.uploading + counts.moving === 0}
             data-testid="folder-upload-confirm"
           >
             {pending && <Spinner size="sm" />}
-            {counts && counts.uploading > 0
-              ? t('folderUpload.confirm', { count: String(counts.uploading) })
-              : t('folderUpload.nothingToDo')}
+            {!counts || counts.uploading + counts.moving === 0
+              ? t('folderUpload.nothingToDo')
+              : counts.uploading > 0
+                ? t('folderUpload.confirm', { count: String(counts.uploading) })
+                : t('folderUpload.confirmMoveOnly', { count: String(counts.moving) })}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -304,11 +351,15 @@ function PlanCount({
 
 /** Names, because a count nobody can check is a number to be believed. */
 function FileNameList({ files }: { files: readonly PlannedFile[] }): JSX.Element {
+  const t = useTranslations('files')
   return (
     <ul className="mt-1 space-y-0.5 text-xs">
       {files.slice(0, 6).map((file) => (
-        <li key={file.originPath} className="truncate font-mono opacity-90">
-          {file.originPath}
+        <li key={file.originPath} className="truncate opacity-90">
+          <span className="font-mono">{file.originPath}</span>
+          {file.existingName && (
+            <span className="opacity-80"> — {t('folderUpload.alreadyHereAs', { name: file.existingName })}</span>
+          )}
         </li>
       ))}
       {files.length > 6 && <li className="opacity-70">+{files.length - 6}</li>}
@@ -349,6 +400,15 @@ function PlanDetails({
               <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
                 {file.originPath}
               </span>
+              {/* The document this row is about to touch, when the project
+                  calls it something else — a rename here is invisible to the
+                  drop, and approving a replacement you cannot locate is not
+                  approval. */}
+              {file.existingName && (
+                <span className="max-w-[45%] shrink-0 truncate text-muted-foreground/80">
+                  {t('folderUpload.alreadyHereAs', { name: file.existingName })}
+                </span>
+              )}
             </li>
           ))}
         </ul>
@@ -372,7 +432,7 @@ function ActionTag({
   const effective = action === 'update' && !includeUpdates ? 'skipped' : action
   const label = t(`folderUpload.action.${effective}`)
   return (
-    <CountPill tone={effective === 'new' || effective === 'update' ? 'attention' : 'muted'}>
+    <CountPill tone={effective === 'new' || effective === 'update' ? 'attention' : 'muted'} data-testid={`folder-upload-action-${effective}`}>
       {label}
     </CountPill>
   )

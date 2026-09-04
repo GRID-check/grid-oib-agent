@@ -14,6 +14,7 @@ import 'server-only'
 import { and, count, desc, eq, inArray, ne } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
+import { documentNameVariants } from './name-match'
 import {
   documents,
   projectFolders,
@@ -392,6 +393,9 @@ export async function findLiveDocumentByFilename(
   storageKey: string
   storageBucket: string | null
   fileSize: number | null
+  contentHash: string | null
+  folderId: string | null
+  status: string | null
 } | null> {
   const db = getDb()
   const [row] = await withTenant({ organizationId }, () =>
@@ -401,13 +405,29 @@ export async function findLiveDocumentByFilename(
         storageKey: documents.storageKey,
         storageBucket: documents.storageBucket,
         fileSize: documents.fileSize,
+        contentHash: documents.contentHash,
+        folderId: documents.folderId,
+        status: documents.status,
       })
       .from(documents)
       .where(
         and(
           eq(documents.organizationId, organizationId),
           eq(documents.collectionName, collectionName),
-          eq(documents.filename, filename),
+          /*
+           * Either Unicode form of the name, not just the one the caller holds.
+           *
+           * A name off a Mac is decomposed and the same name typed here is
+           * composed; they render identically, and `= $1` matches one of them.
+           * Rows written since `documentNameKey` reached the upload path are all
+           * composed, but the ones written before it are whatever arrived — and
+           * a miss here is not a null result, it is a SECOND document under a
+           * name a person cannot tell apart from the first.
+           *
+           * Two exact candidates rather than `normalize(filename, NFC) = $1`,
+           * which no index can serve.
+           */
+          inArray(documents.filename, documentNameVariants(filename)),
           eq(documents.authoredBy, 'user'),
         ),
       )

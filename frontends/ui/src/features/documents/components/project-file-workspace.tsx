@@ -834,12 +834,20 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     async (includeUpdates: boolean) => {
       if (!folderPlan) return
       const selected = filesToUpload(folderPlan, includeUpdates)
-      if (selected.length === 0) return
+      const moves = folderPlan.moves
+      if (selected.length === 0 && moves.length === 0) return
       setFolderPlanPending(true)
-      try {
-        const paths = folderPlan.folders.map((folder) => folder.path)
-        let folderIdByPath: Record<string, string> = {}
-        if (paths.length > 0) {
+
+      const paths = folderPlan.folders.map((folder) => folder.path)
+      let folderIdByPath: Record<string, string> = {}
+      // The folders FIRST, and on their own, because their failure is the one
+      // that must stop everything: nothing below can be filed correctly without
+      // them, and a half-applied tree is the state that is hardest to reason
+      // about afterwards. Reported as a folder failure, which is what it is —
+      // the old single catch said "the folders could not be created" over an
+      // upload that had failed for its own reasons.
+      if (paths.length > 0) {
+        try {
           const res = await fetch(`/api/projects/${projectId}/folders/ensure`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -848,8 +856,17 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           if (!res.ok) throw new Error(`Folders failed (${res.status})`)
           const data = (await res.json()) as { folderIdByPath?: Record<string, string> }
           folderIdByPath = data.folderIdByPath ?? {}
+        } catch {
+          // The dialog STAYS OPEN. Nothing was uploaded, the plan is still the
+          // plan, and closing it would leave a toast as the only account of a
+          // gesture the reader is entitled to simply retry.
+          setFolderPlanPending(false)
+          toast.error(t('folderUpload.foldersError'))
+          return
         }
+      }
 
+      try {
         // Resolved per file rather than per batch — that is the whole point of
         // reproducing the tree. A file at the top of the drop has no path of
         // its own and belongs in the level the reader is standing in.
@@ -862,25 +879,69 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         }
 
         setFolderPlanOpen(false)
-        await uploadFiles(
-          selected.map((planned) => planned.file),
-          { folderIdFor: (file) => folderIdByFile.get(file) ?? null }
-        )
+
+        /*
+         * The documents that are already here, already correct, and filed
+         * somewhere the tree does not put them.
+         *
+         * Nothing is uploaded for these — that is what „unverändert" means — so
+         * without this the promise on the dialog ("the folder structure is
+         * recreated") is false for exactly the files a re-sync is mostly made
+         * of. `Promise.allSettled`: one refused move must not take the upload
+         * down with it, and the listing reload below is what tells the truth
+         * about which of them landed.
+         */
+        if (moves.length > 0) {
+          await Promise.allSettled(
+            moves.map((move) =>
+              fetch(`/api/documents/${move.documentId}/folder`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  // Resolved through the SAME map the uploads are resolved
+                  // through, and only now, because the folder a document is
+                  // moving into may have been created a moment ago.
+                  folderId: move.targetPath
+                    ? (folderIdByPath[move.targetPath] ?? selectedFolderId)
+                    : selectedFolderId,
+                }),
+              })
+            )
+          )
+        }
+
+        if (selected.length > 0) {
+          await uploadFiles(
+            selected.map((planned) => planned.file),
+            { folderIdFor: (file) => folderIdByFile.get(file) ?? null }
+          )
+        }
         // The tree just grew; the breadcrumb and the folder tiles have to know.
         await loadFolders()
+        // A move writes a row this page is showing, and `uploadFiles` only
+        // refreshes the listing when it actually uploaded something.
+        await loadFiles(true)
+        // A move-only apply uploads nothing, and „0 Dateien hochgeladen" alone
+        // would read as a failed gesture over work that was actually done.
         toast.success(
-          t('folderUpload.done', {
-            uploaded: String(selected.length),
-            skipped: String(folderPlan.counts.unchanged),
-          })
+          moves.length > 0
+            ? t('folderUpload.doneMoved', {
+                uploaded: String(selected.length),
+                skipped: String(folderPlan.counts.unchanged),
+                moved: String(moves.length),
+              })
+            : t('folderUpload.done', {
+                uploaded: String(selected.length),
+                skipped: String(folderPlan.counts.unchanged),
+              })
         )
       } catch {
-        toast.error(t('folderUpload.foldersError'))
+        toast.error(t('folderUpload.applyError'))
       } finally {
         setFolderPlanPending(false)
       }
     },
-    [folderPlan, projectId, selectedFolderId, uploadFiles, loadFolders, t]
+    [folderPlan, projectId, selectedFolderId, uploadFiles, loadFolders, loadFiles, t]
   )
 
   // Drag-and-drop onto the workspace routes dropped files into the SAME upload

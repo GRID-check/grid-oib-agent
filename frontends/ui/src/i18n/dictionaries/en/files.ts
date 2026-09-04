@@ -373,10 +373,19 @@ export const files = {
       foldersCreated: 'folders created',
       foldersMatched: '{count} matched',
     },
+    // What the project calls the document a row is about to touch, when
+    // somebody has renamed it here and the name in the drop no longer says so.
+    alreadyHereAs: 'here as “{name}”',
     updatePrompt: 'Update the {count} document(s) that already exist',
     updateExplain:
       'They keep their name, their citations and everything assigned to them — only the file behind them is replaced.',
     refiled: '{count} of them are filed elsewhere at the moment and move to where this folder puts them.',
+    // The unchanged ones send no bytes, so nothing about the upload would move
+    // them — they are moved on their own, or the tree is not really recreated.
+    moving: '{count} unchanged document(s) are filed elsewhere and are moved to where this folder puts them.',
+    duplicates: '{count} file(s) are already in the project under a different name',
+    duplicatesExplain:
+      'Uploading them would add a second copy rather than replace anything, so they are not sent. Rename the document here, or the file on disk, so the two agree.',
     collisions: '{count} files share a name with another file in this upload',
     collisionsExplain:
       'A project holds one document per filename, so these are not uploaded. Rename them and drop them again.',
@@ -386,14 +395,21 @@ export const files = {
       update: 'Update',
       unchanged: 'Unchanged',
       collision: 'Conflict',
+      duplicate: 'Already here',
       skipped: 'Skipped',
     },
     confirm: 'Upload {count} file(s)',
+    // Nothing to upload, but the tree still says these belong elsewhere.
+    confirmMoveOnly: 'Move {count} document(s)',
     nothingToDo: 'Nothing to upload',
     cancel: 'Cancel',
     // The summary after the plan has been applied.
     done: '{uploaded} file(s) uploaded, {skipped} unchanged.',
+    doneMoved: '{uploaded} file(s) uploaded, {skipped} unchanged, {moved} moved.',
     foldersError: 'The folders for this upload could not be created. Nothing was uploaded.',
+    // Distinct from `foldersError`: the folders were made and the upload itself
+    // is what went wrong, which is a different thing to retry.
+    applyError: 'This folder could not be uploaded completely. Check the list and try again.',
   },
   upload: {
     uploading: 'Uploading…',

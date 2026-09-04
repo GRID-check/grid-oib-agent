@@ -186,9 +186,13 @@ export const documents = pgTable('documents', {
   // name and size already match a document here and sends the ones whose
   // digest differs, so a 500-file re-sync of an Einreichung uploads the eight
   // that changed. NULL means "unknown" — a file matching such a row is treated
-  // as CHANGED, never as unchanged. Not an identity (a document is still
-  // identified by its filename within a collection, 0074) and not a trust
-  // boundary. Migration 0078.
+  // as CHANGED, never as unchanged; `uploadDocument` then compares the digest
+  // it computes from the bytes against this column and, when they agree and the
+  // row has landed in the right folder, returns without writing the object or
+  // re-ingesting, which is what stops a corpus older than this column paying
+  // for the same re-sync twice. Not an identity (a document is still identified
+  // by its filename within a collection, 0074) and not a trust boundary.
+  // Migration 0078.
   contentHash: text('content_hash'),
   status: text('status').notNull().default('pending'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

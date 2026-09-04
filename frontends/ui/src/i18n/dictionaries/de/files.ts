@@ -348,10 +348,15 @@ export const files: typeof en.files = {
       foldersCreated: 'Ordner angelegt',
       foldersMatched: '{count} zugeordnet',
     },
+    alreadyHereAs: 'hier als „{name}“',
     updatePrompt: '{count} vorhandene(s) Dokument(e) aktualisieren',
     updateExplain:
       'Name, Zitate und Zuweisungen bleiben — ersetzt wird nur die Datei dahinter.',
     refiled: '{count} davon liegen derzeit woanders und wandern dorthin, wo dieser Ordner sie ablegt.',
+    moving: '{count} unveränderte(s) Dokument(e) liegen woanders und werden dorthin verschoben, wo dieser Ordner sie ablegt.',
+    duplicates: '{count} Datei(en) liegen bereits unter einem anderen Namen im Projekt',
+    duplicatesExplain:
+      'Ein Upload legte eine zweite Kopie an, statt etwas zu ersetzen — deshalb werden sie nicht gesendet. Benennen Sie das Dokument hier oder die Datei auf der Platte um, damit beide übereinstimmen.',
     collisions: '{count} Dateien teilen sich einen Namen mit einer anderen Datei in diesem Upload',
     collisionsExplain:
       'Ein Projekt hält pro Dateiname ein Dokument, deshalb werden diese nicht hochgeladen. Benennen Sie sie um und legen Sie sie erneut ab.',
@@ -361,13 +366,17 @@ export const files: typeof en.files = {
       update: 'Aktualisieren',
       unchanged: 'Unverändert',
       collision: 'Konflikt',
+      duplicate: 'Schon vorhanden',
       skipped: 'Übersprungen',
     },
     confirm: '{count} Datei(en) hochladen',
+    confirmMoveOnly: '{count} Dokument(e) verschieben',
     nothingToDo: 'Nichts hochzuladen',
     cancel: 'Abbrechen',
     done: '{uploaded} Datei(en) hochgeladen, {skipped} unverändert.',
+    doneMoved: '{uploaded} Datei(en) hochgeladen, {skipped} unverändert, {moved} verschoben.',
     foldersError: 'Die Ordner für diesen Upload konnten nicht angelegt werden. Es wurde nichts hochgeladen.',
+    applyError: 'Dieser Ordner konnte nicht vollständig hochgeladen werden. Prüfen Sie die Liste und versuchen Sie es erneut.',
   },
   upload: {
     uploading: 'Wird hochgeladen …',

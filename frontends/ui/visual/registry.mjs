@@ -462,6 +462,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="folder-upload-collisions"]',
   },
   {
+    id: 'folder-upload-plan-known',
+    path: '/dev/folder-upload?variant=known',
+    description:
+      'The same folder against a corpus somebody has worked on since the last sync \u2014 the half the plan used to get wrong. One document was renamed here, so the row says what the project calls it: approving a replacement you cannot find in your own file list is not approval. One file matches a document under a name the SERVER would not treat as the same, so it is reported as already here instead of being uploaded into a second copy nobody can tell apart. And one byte-identical document has been re-filed in Piloti, so it is MOVED \u2014 without it, \u201edie Ordnerstruktur wird nachgebildet\u201c is false for exactly the files a re-sync is mostly made of, and the button would read \u201eNichts hochzuladen\u201c over work still to do.',
+    waitFor: '[data-testid="folder-upload-duplicates"]',
+  },
+  {
     id: 'upload-tray',
     mobile: true,
     path: '/dev/upload-tray',
