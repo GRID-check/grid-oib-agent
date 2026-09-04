@@ -655,6 +655,17 @@ export interface CitationSource {
   /** Retrieval score (cosine similarity) for this passage, when the wire carried one. */
   score?: number
   /**
+   * The retrieved PASSAGE — the words the answer read, as the backend captured
+   * them (`SourceEntry.chunk_text`, bounded on the wire).
+   *
+   * Distinct from `content`, which is a human-readable locator line, and it is
+   * the field every passage surface should read: the viewer's highlight, the
+   * Fundstelle rail, the "Zitierte Stelle" box, "Zitat kopieren". Deriving one
+   * out of `content` is the fallback for messages persisted before this field
+   * travelled — and it is only ever a locator, so it derives nothing.
+   */
+  snippet?: string
+  /**
    * Coarse source kind (baurecht | buero | projekt | web) — the canonical
    * taxonomy that drives the chip color family (ADR-0026). Absent on older
    * persisted messages, which fall back to origin/URL heuristics.
@@ -716,6 +727,8 @@ export interface WireCitationSource {
   punkt?: string | null
   /** Retrieval score (cosine similarity) the knowledge layer printed for this passage. */
   score?: number | null
+  /** The retrieved passage text, bounded by the serializer. */
+  snippet?: string | null
   kind?: string | null
   /** Shelf the chunk came from: `archiv | project | session | base` (ADR-0047). */
   shelf?: string | null

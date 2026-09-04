@@ -509,12 +509,26 @@ class TestSharedWireFixturesAreCurrent:
         assert (FIXTURE_DIR / "verified_report.md").read_text(encoding="utf-8") == sanitization.sanitized_report
 
     def test_wire_sources_fixture_matches_the_serializer(self):
-        """Counterpart: wire-citation.ts (`citationFromWire`)."""
+        """Counterpart: wire-citation.ts (`citationFromWire`).
+
+        EXACT, not a subset. It was ``sampled.items() <= live.items()``, which
+        pins that the fixture's fields still mean what they did and says nothing
+        about fields the serializer stopped sending — so ``snippet``, the
+        retrieved passage every reading surface is built around, could be
+        captured, merged and then dropped at serialization with this contract
+        green and nothing on either side failing. A missing snippet is a
+        supported outcome everywhere it is read, which is what made the loss
+        invisible rather than loud.
+
+        The key sets must therefore agree too: a field that only one side knows
+        about is the defect this file exists to catch.
+        """
         _, _, _, wire = run_golden_path()
         fixture = json.loads((FIXTURE_DIR / "wire_sources.json").read_text(encoding="utf-8"))
         assert len(fixture) == len(wire)
         for sampled, live in zip(fixture, wire, strict=True):
-            assert sampled.items() <= live.items()
+            assert set(sampled) == set(live)
+            assert sampled == live
 
     def test_every_origin_is_one_the_frontend_token_regex_accepts(self):
         """``SOURCE_KIND_TOKEN_RE`` and ``normalizeOrigin`` know exactly three tokens."""

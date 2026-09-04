@@ -139,7 +139,11 @@ const addWireCitations = (
         // send for THIS answer, so it counts as used; `isCited === false` is
         // only ever set deliberately (discovery events on the deep path).
         isCited: citation.isCited !== false,
-        snippet: citationSnippet(citation),
+        // The STATED passage wins. `citationSnippet` derives one out of the
+        // human-readable locator line, which is what a message persisted before
+        // the wire carried `snippet` has — and for a live turn it derives
+        // nothing, because a locator is not a passage.
+        snippet: citation.snippet?.trim() || citationSnippet(citation),
         citationKey: citation.citationKey,
       },
     })
@@ -300,18 +304,29 @@ const addLegalBasisCards = (
 const MAX_SNIPPET_LENGTH = 600
 
 /**
- * Cited-passage text carried by a citation, if any.
+ * Cited-passage text carried by a citation's `content` line, if any.
  *
- * The deep-research SSE events set `content` to the URL itself and KB locators
- * are pure "file, p.N" references — neither is a passage, so both yield
- * undefined rather than putting a reference where a quote belongs.
+ * A LAST RESORT, not the source of truth: the wire states the passage on its own
+ * `snippet` field now, and this only reads messages persisted before it did.
+ *
+ * `content` is a locator — `origin_token + (citation_key or title or url)` — so
+ * for a live citation it holds a reference and never a quotation. Every shape it
+ * can take must therefore be rejected, or a reference ends up rendered under
+ * „Zitierte Stelle" and, worse, handed to the passage matcher as the sentence to
+ * mark: a RIS source's `content` is its TITLE, and a title occurs throughout the
+ * document it titles, so the first match is marked with full confidence in the
+ * wrong place. The audit's own rule is that over a legal quotation a
+ * confidently wrong mark is worse than none.
  */
 export const citationSnippet = (
-  citation: Pick<CitationSource, 'url' | 'content'>
+  citation: Pick<CitationSource, 'url' | 'content' | 'title' | 'citationKey'>
 ): string | undefined => {
   const text = stripOriginToken(citation.content ?? '')
   const url = citation.url?.trim() ?? ''
   if (!text || (url && text === url)) return undefined
+  // The three other things `content` is built from. Compared whole, because a
+  // passage that merely CONTAINS the title is still a passage.
+  if (text === citation.title?.trim() || text === citation.citationKey?.trim()) return undefined
   const lines = text.split('\n')
   const firstLine = lines[0]?.trim() ?? ''
   // A leading locator line ("file.pdf, p.3") is a reference, not a passage.

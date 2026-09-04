@@ -1862,8 +1862,48 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
         # producer did not state them — a web source has neither.
         "punkt": entry.punkt,
         "score": entry.score,
+        # THE PASSAGE ITSELF — the one thing a reader checking a citation is
+        # actually after, and the one field this serializer used to drop.
+        #
+        # It was captured (``SourceEntry.chunk_text``), deduplicated and merged
+        # across the chunks of a page, and then left behind here. The frontend
+        # therefore had no passage for any knowledge-layer citation, and every
+        # surface built to show one was inert against real traffic: the viewer's
+        # text-layer highlight, the Fundstelle rail, the "Zitierte Stelle" box,
+        # and "Zitat kopieren", which fell back to a bare bibliography line.
+        # Nothing failed — a missing snippet is a supported outcome everywhere —
+        # so the whole apparatus looked healthy and marked nothing.
+        #
+        # It is bounded here rather than at the reader: this travels on every
+        # SSE frame and into ``messages.metadata``, and the client only needs
+        # enough to locate a sentence in a document it already has.
+        "snippet": _wire_snippet(entry.chunk_text),
     }
     return {key: value for key, value in payload.items() if value is not None}
+
+
+#: How much of a retrieved passage travels to the client.
+#:
+#: A passage is located by matching it against the document's own text, and the
+#: matchers anchor on the ends of the snippet — so what is needed is a faithful
+#: excerpt, not the whole chunk. 1200 characters is longer than any sentence a
+#: legal answer quotes and short enough that a turn citing a dozen passages does
+#: not put a novel on the wire or into ``messages.metadata``.
+_WIRE_SNIPPET_MAX_CHARS = 1200
+
+
+def _wire_snippet(chunk_text: str | None) -> str | None:
+    """The retrieved passage, bounded, or None when the producer carried none."""
+    text = (chunk_text or "").strip()
+    if not text:
+        return None
+    if len(text) <= _WIRE_SNIPPET_MAX_CHARS:
+        return text
+    # Cut on a word boundary: a snippet ending mid-word cannot anchor a match on
+    # its own tail, which is one of the two ends the matchers rely on.
+    clipped = text[:_WIRE_SNIPPET_MAX_CHARS]
+    boundary = clipped.rfind(" ")
+    return clipped[:boundary] if boundary > _WIRE_SNIPPET_MAX_CHARS // 2 else clipped
 
 
 # A leading origin token on the post-``[N]`` text of a source line, e.g. the
