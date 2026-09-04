@@ -43,8 +43,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Which images this PR can actually affect. Without it every PR built all
+  # three: a README-only PR spent four minutes and three runners rebuilding the
+  # backend, frontend and web images it could not have changed (run 1008).
+  #
+  # The scopes are NARROWER than CI's test scopes and separate from them on
+  # purpose — a test file is not in the image — which is what the `*-image`
+  # family in .github/filters.yml is for. Job-level `if` rather than a
+  # workflow-level `paths:` filter, deliberately: a skipped job still posts its
+  # check (as skipped, which satisfies branch protection), while a filtered-out
+  # WORKFLOW posts nothing at all and a required check that never appears blocks
+  # the PR forever. CI relies on the same distinction.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend_image }}
+      frontend: ${{ steps.filter.outputs.frontend_image }}
+      web: ${{ steps.filter.outputs.web_image }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: .github/filters.yml
+
   backend:
     name: Build backend image
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       # No persisted checkout token: images are pushed via docker/login-action
@@ -73,6 +102,8 @@ jobs:
 
   frontend:
     name: Build frontend image
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -96,6 +127,8 @@ jobs:
 
   web:
     name: Build web image (landing site)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

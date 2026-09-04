@@ -34,69 +34,9 @@ jobs:
       - uses: dorny/paths-filter@v4
         id: filter
         with:
-          filters: |
-            # Every filter also watches the shared tooling each job depends on:
-            # the root Taskfile (which defines the commands the jobs run) and the
-            # composite setup actions. Otherwise a change to `fe:verify`,
-            # `infra:types` or a setup action merges without its job running.
-            backend:
-              - 'src/**'
-              - 'frontends/aiq_api/**'
-              - 'sources/**'
-              - 'tests/**'
-              - 'ci/**'
-              - 'configs/**'
-              # `scripts/release_notes.py` is covered by tests/test_release_notes.py;
-              # without this a change to it merges without those tests running.
-              - 'scripts/**'
-              - 'releasenotes/**'
-              - 'pyproject.toml'
-              - 'uv.lock'
-              - 'Taskfile.yml'
-              - '.github/workflows/ci.yml'
-              - '.github/actions/**'
-            # The retrieval regression gate: everything that decides how a
-            # Punkt is cut, located or excluded, plus the harness and corpus.
-            retrieval:
-              - 'sources/knowledge_layer/**'
-              - 'src/aiq_agent/common/german_text.py'
-              - 'src/aiq_agent/common/legal_terms.py'
-              - 'frontends/benchmarks/oib_retrieval/**'
-              - 'data/oib/**'
-              - 'Taskfile.yml'
-              - '.github/workflows/ci.yml'
-            frontend:
-              - 'frontends/ui/**'
-              # The BFF's model-config tests read the workflow config (the agent
-              # groups it seeds are derived from `llms:`), so a PR touching only
-              # `configs/` must still run them — otherwise a drift between the
-              # two lands green because no frontend job ran at all.
-              - 'configs/**'
-              - 'Taskfile.yml'
-              - '.github/workflows/ci.yml'
-              - '.github/actions/**'
-              # `scripts/rls-test-db.sh` IS the tenant-isolation gate. Without
-              # this line a change to it leaves `frontend` false, the gate job
-              # is skipped, and `ci-ok` counts skipped as passed — so a broken
-              # row-level-security harness merges unverified.
-              - 'scripts/**'
-              # The card schema is generated from these two into the Zod module
-              # the UI validates with, and `task fe:cards:check` is the only gate
-              # that sees the Zod half (repo-lint has no node_modules). Without
-              # these lines a models-only PR skips this job and ships a stale
-              # `generated.ts`, which type-checks.
-              - 'src/aiq_agent/cards/models.py'
-              - 'shared/cards/schemas.json'
-            web:
-              - 'frontends/web/**'
-              - 'Taskfile.yml'
-              - '.github/workflows/ci.yml'
-              - '.github/actions/**'
-            infra:
-              - 'deploy/**'
-              - 'Taskfile.yml'
-              - '.github/workflows/ci.yml'
-              - '.github/actions/**'
+          # One definition, read by this workflow and by Docker Build. What each
+          # family means, and why the image scopes are separate: .github/filters.yml
+          filters: .github/filters.yml
 
   backend-lint:
     name: Backend lint
