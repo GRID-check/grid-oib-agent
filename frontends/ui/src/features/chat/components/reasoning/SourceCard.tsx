@@ -30,7 +30,7 @@ import { AuthorityTag } from '../AuthorityTag'
 import { KIND_TO_SIGNAL } from '../../lib/source-kinds'
 import {
   citationNumbers,
-  citedPages,
+  documentPages,
   documentTabLabel,
   isCited,
   type CitedDocument,
@@ -70,7 +70,11 @@ export const SourceCard: FC<{
   const tint = sourceSignalStyle(doc.tint)
   const used = isCited(doc)
   const numbers = citationNumbers(doc)
-  const pages = citedPages(doc)
+  // `documentPages`, not `citedPages`: this card also stands for a document
+  // labelled „abgerufen, nicht zitiert", every locus of which is uncited, and
+  // the precise claim is empty for exactly those — silently deleting the pages
+  // retrieval actually read from the one surface whose job is to show them.
+  const pages = documentPages(doc)
   const hitsText = doc.loci.length > 0 ? hitLabel : gapLabel
   // The badge earns its space only when it names a tier the label does not
   // already say: "OIB · OIB-Richtlinie" repeated itself and pushed the label

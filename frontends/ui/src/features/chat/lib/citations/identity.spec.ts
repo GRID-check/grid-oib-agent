@@ -18,6 +18,7 @@ import {
   type CitationTarget,
   type StoredDocumentRef,
 } from './index'
+import type { GridCard } from '@/shared/cards/schemas'
 import type { CitationSource } from '../../types'
 
 const citation = (overrides: Partial<CitationSource>): CitationSource => ({
@@ -156,7 +157,11 @@ describe('citationSnippet', () => {
 describe('resolveCitationTarget', () => {
   const storedDocuments: StoredDocumentRef[] = [
     { id: 'doc-1', filename: 'Brandschutzkonzept.pdf', contentType: 'application/pdf' },
-    { id: 'doc-2', filename: 'Vermessung.docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+    {
+      id: 'doc-2',
+      filename: 'Vermessung.docx',
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    },
     { id: 'doc-3', filename: 'Lageplan.png', contentType: 'image/png' },
   ]
   const baseCorpusFiles = ['oib-rl_2_ausgabe_mai_2023.pdf']
@@ -169,19 +174,23 @@ describe('resolveCitationTarget', () => {
   }
 
   test('http(s) URLs link out — except RIS, which Piloti reads itself', () => {
-    expect(
-      targetFor({ url: 'https://example.com/article', content: '' })
-    ).toEqual({ kind: 'url', url: 'https://example.com/article' })
+    expect(targetFor({ url: 'https://example.com/article', content: '' })).toEqual({
+      kind: 'url',
+      url: 'https://example.com/article',
+    })
     // A RIS source resolves to the in-app reader (#622) and carries the
     // authoritative URL with it — the publication of record is never dropped,
     // it moves into the reader's header.
-    expect(
-      targetFor({ url: 'https://www.ris.bka.gv.at/Norm', content: '' })
-    ).toMatchObject({ kind: 'ris', url: 'https://www.ris.bka.gv.at/Norm' })
+    expect(targetFor({ url: 'https://www.ris.bka.gv.at/Norm', content: '' })).toMatchObject({
+      kind: 'ris',
+      url: 'https://www.ris.bka.gv.at/Norm',
+    })
   })
 
   test('KB locator matching a previewable project document opens it', () => {
-    const target = targetFor({ url: '', content: '[KB] Brandschutzkonzept.pdf, p.3' }, storedDocuments,
+    const target = targetFor(
+      { url: '', content: '[KB] Brandschutzkonzept.pdf, p.3' },
+      storedDocuments,
       baseCorpusFiles
     )
 
@@ -206,7 +215,9 @@ describe('resolveCitationTarget', () => {
     // index only ever listed project uploads and the base corpus, so every
     // Archiv citation degraded to a dead info popover even though the
     // scope-aware preview route would have served it.
-    const target = targetFor({ url: '', content: '[KB] Bueroe_Detail_Attika.pdf, p.2' }, [...storedDocuments, archivDocument],
+    const target = targetFor(
+      { url: '', content: '[KB] Bueroe_Detail_Attika.pdf, p.2' },
+      [...storedDocuments, archivDocument],
       baseCorpusFiles
     )
 
@@ -223,7 +234,9 @@ describe('resolveCitationTarget', () => {
       filename: 'Brandschutzkonzept.pdf',
       contentType: 'application/pdf',
     }
-    const target = targetFor({ url: '', content: '[KB] Brandschutzkonzept.pdf' }, [...storedDocuments, shadowed],
+    const target = targetFor(
+      { url: '', content: '[KB] Brandschutzkonzept.pdf' },
+      [...storedDocuments, shadowed],
       baseCorpusFiles
     )
 
@@ -250,7 +263,9 @@ describe('resolveCitationTarget', () => {
     })
 
     test("a LEGACY key's qualifier resolves it too, with no shelf on the wire", () => {
-      const target = targetFor({ url: '', content: '[KB] Plan.pdf (Büroarchiv), p.2' }, shelvedDocuments
+      const target = targetFor(
+        { url: '', content: '[KB] Plan.pdf (Büroarchiv), p.2' },
+        shelvedDocuments
       )
 
       expect(target).toMatchObject({ fileName: 'Plan.pdf', document: { id: 'archiv-9' } })
@@ -331,7 +346,9 @@ describe('resolveCitationTarget', () => {
       // The base corpus has no StoredDocumentRef row, so `base` was the one shelf
       // that resolved to the wrong document whenever a project upload shared the
       // filename.
-      const target = targetFor({ url: '', content: '[KB] Plan.pdf, p.2', shelf: 'base' }, shelvedDocuments,
+      const target = targetFor(
+        { url: '', content: '[KB] Plan.pdf, p.2', shelf: 'base' },
+        shelvedDocuments,
         ['Plan.pdf']
       )
 
@@ -339,7 +356,9 @@ describe('resolveCitationTarget', () => {
     })
 
     test('a legacy Basiswissen key opens the base corpus too', () => {
-      const target = targetFor({ url: '', content: '[KB] Plan.pdf (Basiswissen), p.2' }, shelvedDocuments,
+      const target = targetFor(
+        { url: '', content: '[KB] Plan.pdf (Basiswissen), p.2' },
+        shelvedDocuments,
         ['Plan.pdf']
       )
 
@@ -349,7 +368,9 @@ describe('resolveCitationTarget', () => {
     test('a base-shelf citation with no base-corpus copy is UNAVAILABLE', () => {
       // `base` is the one shelf `storedDocuments` can never represent, so there
       // is no second place to look — and a same-named project upload is not it.
-      const target = targetFor({ url: '', content: '[KB] Plan.pdf, p.2', shelf: 'base' }, shelvedDocuments,
+      const target = targetFor(
+        { url: '', content: '[KB] Plan.pdf, p.2', shelf: 'base' },
+        shelvedDocuments,
         ['oib-rl_2.pdf']
       )
 
@@ -361,7 +382,9 @@ describe('resolveCitationTarget', () => {
       // it is not evidence of a different shelf, which is the only thing the
       // narrowing above rejects. Refusing these would break every caller that
       // passes a plain list.
-      const target = targetFor({ url: '', content: '[KB] Brandschutzkonzept.pdf', shelf: 'project' }, storedDocuments
+      const target = targetFor(
+        { url: '', content: '[KB] Brandschutzkonzept.pdf', shelf: 'project' },
+        storedDocuments
       )
 
       expect(target).toMatchObject({ document: { id: 'doc-1' } })
@@ -369,8 +392,7 @@ describe('resolveCitationTarget', () => {
   })
 
   test('project filename matching is case-insensitive', () => {
-    const target = targetFor({ url: '', content: '[KB] brandschutzkonzept.PDF' }, storedDocuments
-    )
+    const target = targetFor({ url: '', content: '[KB] brandschutzkonzept.PDF' }, storedDocuments)
 
     expect(target.kind).toBe('document')
   })
@@ -388,7 +410,9 @@ describe('resolveCitationTarget', () => {
     // It used to degrade to `info`, which said nothing and offered nothing —
     // and the reader concluded the product had lost their file (#623). It had
     // not; it cannot DRAW a .docx. The two are different answers.
-    const target = targetFor({ url: '', content: '[KB] Vermessung.docx' }, storedDocuments,
+    const target = targetFor(
+      { url: '', content: '[KB] Vermessung.docx' },
+      storedDocuments,
       baseCorpusFiles
     )
 
@@ -401,14 +425,15 @@ describe('resolveCitationTarget', () => {
         type: 'stored',
         id: 'doc-2',
         filename: 'Vermessung.docx',
-        contentType:
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       },
     })
   })
 
   test('a citation that resolves to no document at all is still info', () => {
-    const target = targetFor({ url: '', content: '[KB] Nirgendwo.docx' }, storedDocuments,
+    const target = targetFor(
+      { url: '', content: '[KB] Nirgendwo.docx' },
+      storedDocuments,
       baseCorpusFiles
     )
 
@@ -416,7 +441,9 @@ describe('resolveCitationTarget', () => {
   })
 
   test('KB locator matching a base-corpus PDF opens the corpus viewer', () => {
-    const target = targetFor({ url: '', content: '[KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12' }, storedDocuments,
+    const target = targetFor(
+      { url: '', content: '[KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12' },
+      storedDocuments,
       baseCorpusFiles
     )
 
@@ -433,14 +460,15 @@ describe('resolveCitationTarget', () => {
   })
 
   test('a pseudo-URL basename resolves when the content carries no locator', () => {
-    const target = targetFor({ url: 'kb://Brandschutzkonzept.pdf', content: '' }, storedDocuments
-    )
+    const target = targetFor({ url: 'kb://Brandschutzkonzept.pdf', content: '' }, storedDocuments)
 
     expect(target).toMatchObject({ kind: 'document', document: { id: 'doc-1' } })
   })
 
   test('unresolvable citations become info with title and snippet', () => {
-    const target = targetFor({ url: '', content: '[KB] unbekannt.pdf, p.4\nZitierter Absatz.' }, storedDocuments,
+    const target = targetFor(
+      { url: '', content: '[KB] unbekannt.pdf, p.4\nZitierter Absatz.' },
+      storedDocuments,
       baseCorpusFiles
     )
 
@@ -455,5 +483,113 @@ describe('resolveCitationTarget', () => {
     const target = targetFor({ url: '', content: '[KB] Brandschutzkonzept.pdf' })
 
     expect(target.kind).toBe('info')
+  })
+})
+
+/**
+ * The canonical OIB key is a MERGE HINT, not an identity.
+ *
+ * It deliberately discards edition, revision and everything after the number,
+ * which is right for the one thing it is for — joining a `legal_basis` card
+ * that knows only „OIB-Richtlinie 2" to the citation of that Richtlinie — and
+ * catastrophic as an identity: every document whose name merely mentions OIB or
+ * "Richtlinie" was identified by its number alone.
+ */
+describe('two documents are not one because their names share a Richtlinie', () => {
+  const corpusHit = (fileName: string, page: number): CitationSource =>
+    citation({
+      url: '',
+      content: `${fileName}, p.${page}`,
+      fileName,
+      citationKey: `${fileName}, p.${page}`,
+      collection: 'oib_knowledge',
+      shelf: 'base',
+      page,
+      isCited: true,
+    })
+
+  test('a corpus list and its Rev. 1 stay two documents', () => {
+    // Both ship in `data/oib/`. They are two different tables of normative
+    // references, and they collapsed into one — so a citation to Rev. 1 at
+    // p. 14 opened the superseded list at p. 14, with nothing on screen
+    // suggesting the reader was looking at the wrong document.
+    const base = 'oib-rl_zitierte_normen_und_sonstige_technische_regelwerke_ausgabe_mai_2023.pdf'
+    const rev =
+      'oib-rl_zitierte_normen_und_sonstige_technische_regelwerke_ausgabe_mai_2023_rev.1.pdf'
+
+    const docs = buildCitationModel({ citations: [corpusHit(base, 3), corpusHit(rev, 14)] })
+
+    expect(docs).toHaveLength(2)
+    expect(docs.map((doc) => doc.fileName).sort()).toEqual([base, rev].sort())
+  })
+
+  test('a project upload that mentions a Richtlinie is not swallowed by the corpus', () => {
+    // The cross-shelf half, and the worse one: the reader's own document did
+    // not merely get mislabelled, it disappeared from the answer — one chip,
+    // the corpus filename, the base shelf — while its page carried on pointing
+    // into the Richtlinie. That is the collapse ADR-0047 exists to prevent.
+    const docs = buildCitationModel({
+      citations: [
+        corpusHit('oib-rl_6_ausgabe_mai_2023.pdf', 2),
+        citation({
+          url: '',
+          content: 'OIB-Richtlinie 6 Kommentar.pdf, p.9',
+          fileName: 'OIB-Richtlinie 6 Kommentar.pdf',
+          citationKey: 'OIB-Richtlinie 6 Kommentar.pdf, p.9',
+          collection: 'proj_1',
+          shelf: 'project',
+          page: 9,
+          isCited: true,
+        }),
+      ],
+    })
+
+    expect(docs).toHaveLength(2)
+    expect(docs.map((doc) => doc.shelf).sort()).toEqual(['base', 'project'])
+  })
+
+  test('the merge the key IS for still happens: a card joins its Richtlinie', () => {
+    const card = { type: 'legal_basis', law: 'OIB-Richtlinie 6' } as unknown as GridCard
+    const docs = buildCitationModel({
+      citations: [corpusHit('oib-rl_6_ausgabe_mai_2023.pdf', 2)],
+      cards: [card],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(docs[0]!.fileName).toBe('oib-rl_6_ausgabe_mai_2023.pdf')
+  })
+
+  test('but a card never attaches itself to a non-base document', () => {
+    // A Richtlinie is base law. A card naming one must not bind to a project
+    // upload or a private attachment that merely mentions it.
+    const card = { type: 'legal_basis', law: 'OIB-Richtlinie 6' } as unknown as GridCard
+    const docs = buildCitationModel({
+      citations: [
+        citation({
+          url: '',
+          content: 'OIB-Richtlinie 6 Kommentar.pdf, p.9',
+          fileName: 'OIB-Richtlinie 6 Kommentar.pdf',
+          citationKey: 'OIB-Richtlinie 6 Kommentar.pdf, p.9',
+          collection: 'proj_1',
+          shelf: 'project',
+          page: 9,
+          isCited: true,
+        }),
+      ],
+      cards: [card],
+    })
+
+    expect(docs).toHaveLength(2)
+  })
+
+  test('a written-list-only OIB source still renders as one', () => {
+    // The lane inference used to be read off the identity, which no longer
+    // starts with `oib:` for a document that names a file.
+    const [doc] = buildCitationModel({
+      entries: [{ number: 1, markdown: '[KB] oib-rl_2.1_ausgabe_mai_2023.pdf, p.9' }],
+    })
+
+    expect(doc!.lane).toBe('baurecht_oib')
+    expect(doc!.authority).toBe('OIB')
   })
 })
