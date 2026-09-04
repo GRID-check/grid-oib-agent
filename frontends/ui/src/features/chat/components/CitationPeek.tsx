@@ -22,12 +22,7 @@ import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { SectionLabel } from '@/components/ui/section-label'
 import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
-import {
-  citedPages,
-  refPage,
-  type CitationRef,
-  type CitedDocument,
-} from '../lib/citations'
+import { documentPages, refPage, type CitationRef, type CitedDocument } from '../lib/citations'
 import type { Shelf } from '../lib/source-kinds'
 import { useChatStore } from '../store'
 import { CopySourceCitationButton } from './CopyCitation'
@@ -109,14 +104,22 @@ const BindingStatusChip: FC<{ status?: string }> = ({ status }) => {
 const LocusLine: FC<{ citation: CitationRef }> = ({ citation }) => {
   const t = useTranslations('chat')
   const page = refPage(citation)
-  const pages = citedPages(citation.document)
+  const pages = documentPages(citation.document)
 
+  // A PUNKT IS A PLACE. It was nested inside "has a page", so a locus that knew
+  // its Punkt and not its page read „Gesamtes Dokument" — dropping the one
+  // identifier Austrian building law actually cites by, in favour of saying
+  // nothing. The chunker measures it against the corpus's contents pages
+  // precisely so it can be shown.
+  const punkt = citation.locus?.punkt?.trim()
   const text = citation.locus
     ? page != null
-      ? citation.locus.punkt
-        ? t('answerSources.punktPage', { punkt: citation.locus.punkt, page })
+      ? punkt
+        ? t('answerSources.punktPage', { punkt, page })
         : t('answerSources.page', { page })
-      : t('citationPeek.wholeDocument')
+      : punkt
+        ? t('answerSources.punkt', { punkt })
+        : t('citationPeek.wholeDocument')
     : pages.length === 1
       ? t('answerSources.page', { page: pages[0]! })
       : pages.length > 1

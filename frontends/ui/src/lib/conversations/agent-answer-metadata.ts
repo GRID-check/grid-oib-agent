@@ -101,6 +101,17 @@ const MAX_TEXT = 500
 /** `document_id` / `citation_key` are identifiers, not prose. */
 const MAX_IDENTIFIER = 256
 
+/**
+ * Longest retrieved PASSAGE kept per source.
+ *
+ * Sized to the serializer's own bound rather than to `MAX_CONTENT`: the two are
+ * different things, and clipping this one hard is not a saving, it is a silent
+ * downgrade. The passage matchers anchor on BOTH ends of a snippet, so a
+ * truncated tail turns "the sentence is marked" into "the page is open" with
+ * nothing on screen saying why.
+ */
+const MAX_SNIPPET = 1200
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
@@ -144,6 +155,10 @@ export type StoredCitationSource = Partial<
     | 'lane'
     | 'lane_label'
     | 'binding_note'
+    | 'binding_status'
+    | 'punkt'
+    | 'score'
+    | 'snippet'
   >
 > & {
   /** Whether the answer cited this source, as opposed to merely retrieving it. */
@@ -190,7 +205,21 @@ function normalizeSource(input: unknown): StoredCitationSource | null {
     lane: text(input.lane, MAX_IDENTIFIER),
     lane_label: text(input.lane_label, MAX_TEXT),
     binding_note: text(input.binding_note, MAX_TEXT),
+    binding_status: text(input.binding_status, MAX_IDENTIFIER),
     tool: text(input.tool, MAX_IDENTIFIER),
+    // WHERE in the document, and the words themselves.
+    //
+    // This normalizer enumerates the wire, so a field it does not list is
+    // dropped — and it is applied to every row the PYTHON side persists:
+    // an answer whose client was gone mid-turn, and every deep-research answer,
+    // since nobody holds a socket for a job that finishes tomorrow. So the
+    // passage reached a live tab and was lost on exactly the turns a reader
+    // comes back to, and the loss was invisible because a citation with no
+    // passage opens the page and marks nothing, which is a supported outcome.
+    punkt: text(input.punkt, MAX_IDENTIFIER),
+    score:
+      typeof input.score === 'number' && Number.isFinite(input.score) ? input.score : undefined,
+    snippet: text(input.snippet, MAX_SNIPPET),
     // The `[N]` label this source carries in the answer prose. The one fact the
     // frontend cannot recover on its own: the number→source binding exists only
     // in the backend's citation verification.
