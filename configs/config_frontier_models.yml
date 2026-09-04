@@ -98,13 +98,6 @@ functions:
     top_k: 5
     chroma_dir: ${AIQ_CHROMA_DIR:-/tmp/chroma_data}
 
-  # Paper Search (optional - requires SERPER_API_KEY)
-  # Uncomment the block below and set SERPER_API_KEY to enable academic paper search.
-  # paper_search_tool:
-  #   _type: paper_search
-  #   max_results: 5
-  #   serper_api_key: ${SERPER_API_KEY}
-
   clarifier_agent:
     _type: clarifier_agent
     llm: openai_gpt_5_2
@@ -137,7 +130,6 @@ functions:
     writer_llm: openai_gpt_5_2
     verbose: true
     tools:
-      # - paper_search_tool  # Uncomment if SERPER_API_KEY is set
       - advanced_web_search_tool
       - knowledge_search
 

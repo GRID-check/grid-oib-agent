@@ -83,7 +83,7 @@ def test_research_plan_contract_accepts_prediction_answer_type():
                 {
                     "query": "Example election forecast evidence",
                     "subqueries": [],
-                    "preferred_tools": ["polymarket_search_tool"],
+                    "preferred_tools": ["market_search_tool"],
                     "fallback_tools": [],
                     "target_components": ["programming_model"],
                     "rationale": "Supports the forecast evidence component.",
@@ -93,7 +93,7 @@ def test_research_plan_contract_accepts_prediction_answer_type():
     )
 
     assert plan.answer_strategy.answer_type == "prediction"
-    assert plan.queries[0].preferred_tools == ["polymarket_search_tool"]
+    assert plan.queries[0].preferred_tools == ["market_search_tool"]
 
 
 def test_reduced_answer_strategy_contract_validates():
@@ -286,7 +286,7 @@ def test_source_routing_plan_contract_validates_expected_shape():
             "recommendations": [
                 {
                     "source_id": "news_search",
-                    "tool_names": ["duckduckgo_news_search_tool"],
+                    "tool_names": ["news_search_tool"],
                     "priority": 1,
                     "rationale": "Best fit for recent news.",
                 }
@@ -304,7 +304,7 @@ def test_source_routing_plan_contract_validates_expected_shape():
     )
 
     assert route.domain_id == "current_news"
-    assert route.recommendations[0].tool_names == ["duckduckgo_news_search_tool"]
+    assert route.recommendations[0].tool_names == ["news_search_tool"]
 
 
 def test_subagent_contracts_reject_extra_fields_and_old_plan_shape():

@@ -199,10 +199,7 @@ dev = [
     "fakeredis>=2.20.0",
     "dask[distributed]>=2024.1.0",
     # Workspace packages for testing
-    "google-scholar-paper-search",
     "tavily-web-search",
-    "duckduckgo-news-search",
-    "polymarket-prediction-market",
     "ris-adapter",
     "knowledge-layer[all]",
     "aiq-api",
@@ -242,10 +239,7 @@ members = [
 
 [tool.uv.sources]
 aiq-agent = { workspace = true }
-google-scholar-paper-search = { workspace = true }
 tavily-web-search = { workspace = true }
-duckduckgo-news-search = { workspace = true }
-polymarket-prediction-market = { workspace = true }
 ris-adapter = { workspace = true }
 knowledge-layer = { workspace = true }
 aiq-api = { workspace = true }

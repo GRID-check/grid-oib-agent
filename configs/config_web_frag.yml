@@ -122,13 +122,6 @@ functions:
     ingest_url: ${RAG_INGEST_URL:-http://localhost:8082}
     timeout: 300
 
-  # Paper Search (optional - requires SERPER_API_KEY)
-  # Uncomment the block below and set SERPER_API_KEY to enable academic paper search.
-  # paper_search_tool:
-  #   _type: paper_search
-  #   max_results: 5
-  #   serper_api_key: ${SERPER_API_KEY}
-
   clarifier_agent:
     _type: clarifier_agent
     llm: nemotron_super_llm

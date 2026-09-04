@@ -29,8 +29,8 @@ Agent Toolkit (NAT) function package under `sources/`, registered in the
 
 - `docs/source/extending/adding-a-data-source.md`: canonical package and
   registration walkthrough (the steps below mirror it).
-- `sources/google_scholar_paper_search/`: complete example package with a
-  client, a config + registration, a graceful missing-secret stub, and tests.
+- `sources/ris_adapter/`: complete example package with a client, a cache, a
+  config + registration, and tests for each layer.
 - `sources/tavily_web_search/`: minimal source package for comparison.
 - `src/aiq_agent/common/data_source_registry.py`: the `data_source_registry`
   config (`name="data_source_registry"`) that drives `GET /v1/data_sources`.

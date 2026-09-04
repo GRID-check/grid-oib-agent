@@ -113,27 +113,18 @@ functions:
         tools:
           - web_search_tool
           - advanced_web_search_tool
-      - id: news_search
-        name: "News Search"
-        description: "Search recent news articles and current events."
-        tools:
-          - duckduckgo_news_search_tool
-      - id: prediction_market
-        name: "Prediction Markets"
-        description: "Search Polymarket events and market-implied probabilities."
-        tools:
-          - polymarket_search_tool
       - id: knowledge_layer
         name: "Knowledge Base"
         description: "Search uploaded documents and files."
         tools:
           - knowledge_search
-      # Uncomment when paper_search_tool is enabled (requires SERPER_API_KEY)
-      - id: paper_search
-        name: "Academic Papers"
-        description: "Search academic papers and scientific publications."
+      - id: ris
+        name: "RIS (Rechtsinformationssystem)"
+        description: "Search Austrian federal and state law, and fetch a Bestimmung in full."
         tools:
-          - paper_search_tool
+          - ris_search_tool
+          - ris_fetch_tool
+          - ris_catalog_lookup_tool
 
   web_search_tool:
     _type: tavily_web_search
@@ -144,15 +135,6 @@ functions:
     _type: tavily_web_search
     max_results: 2
     advanced_search: true
-
-  duckduckgo_news_search_tool:
-    _type: duckduckgo_news_search
-    max_results: 5
-    timelimit: w
-
-  polymarket_search_tool:
-    _type: polymarket_search
-    max_results: 5
 
   # Knowledge Retrieval (see sources/knowledge_layer/KNOWLEDGE-LAYER-SETUP.md)
   knowledge_search:
@@ -165,12 +147,22 @@ functions:
     top_k: 5
     chroma_dir: ${AIQ_CHROMA_DIR:-/tmp/chroma_data}
 
-  # Paper Search (optional - requires SERPER_API_KEY)
-  # Uncomment the block below and set SERPER_API_KEY to enable academic paper search.
-  paper_search_tool:
-    _type: paper_search
-    max_results: 5
-    serper_api_key: ${SERPER_API_KEY}
+  # RIS: the Austrian legal corpus. No API key — the OGD-RIS API is public — and
+  # `planner_llm` is deliberately left unset here, so the demo runs with the
+  # agent's raw arguments rather than needing a query-planner model.
+  ris_search_tool:
+    _type: ris_search
+    page_size: 20
+    max_results: 20
+
+  ris_fetch_tool:
+    _type: ris_fetch_document
+    max_chars: 40000
+    ingest_into_knowledge: false
+
+  ris_catalog_lookup_tool:
+    _type: ris_catalog_lookup
+    max_matches: 8
 
   deep_research_skills:
     _type: deep_research_skills

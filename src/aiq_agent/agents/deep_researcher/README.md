@@ -147,7 +147,7 @@ functions:
     enable_source_router: true            # set false to skip advisory source routing
     verbose: true                    # Enable detailed logging
     tools:
-      - web_search_tool              # Search tools (e.g. tavily_web_search, paper_search)
+      - web_search_tool              # Search tools (e.g. tavily_web_search, ris_search)
 ```
 
 **Parameters:**

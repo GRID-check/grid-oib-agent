@@ -32,14 +32,14 @@ helper. The tool is a package under `sources/`, registered with
 - `docs/source/extending/adding-a-tool.md`: canonical 8-step walkthrough; the
   workflow below mirrors it.
 - `sources/tavily_web_search/`: minimal tool package.
-- `sources/google_scholar_paper_search/`: tool package with a separate client,
-  a graceful missing-secret stub, and tests.
+- `sources/ris_adapter/`: tool package with a separate client, its own cache
+  layer, and tests for each.
 - `docs/source/extending/adding-a-data-source.md`: "Data Source vs. Tool" — a
   data source is architecturally identical to a tool; only the registry wiring
   differs.
 
-Existing tools to model on: `tavily_web_search`, `paper_search`
-(Google Scholar), `ris_search`, `knowledge_retrieval`.
+Existing tools to model on: `tavily_web_search`, `ris_search`,
+`ris_fetch_document`, `knowledge_retrieval`.
 
 Longer procedures live in this bundle:
 

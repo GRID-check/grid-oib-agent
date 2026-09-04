@@ -1,7 +1,7 @@
 # NAT function pattern
 
 Authoritative source: `docs/source/extending/adding-a-tool.md`. Model new tools
-on `sources/google_scholar_paper_search/` (has tests) or `sources/tavily_web_search/`
+on `sources/ris_adapter/` (client + cache + tests) or `sources/tavily_web_search/`
 (minimal).
 
 ## Package layout

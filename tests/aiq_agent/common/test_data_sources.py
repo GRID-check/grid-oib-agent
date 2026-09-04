@@ -34,10 +34,10 @@ def _setup_registry():
                 "tools": ["knowledge_search", "knowledge_retrieval"],
             },
             {
-                "id": "paper_search",
+                "id": "scholar_search",
                 "name": "Academic Papers",
                 "description": "Search academic papers.",
-                "tools": ["paper_search_tool"],
+                "tools": ["scholar_search_tool"],
             },
         ]
     )

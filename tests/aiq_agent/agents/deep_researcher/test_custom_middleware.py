@@ -29,7 +29,7 @@ class TestToolNameSanitizationMiddleware:
 
     @pytest.fixture
     def valid_tool_names(self):
-        return ["advanced_web_search_tool", "paper_search_tool", "read_file", "write_file", "grep", "glob", "think"]
+        return ["advanced_web_search_tool", "scholar_search_tool", "read_file", "write_file", "grep", "glob", "think"]
 
     @pytest.fixture
     def middleware(self, valid_tool_names):
@@ -54,9 +54,9 @@ class TestToolNameSanitizationMiddleware:
         """Strip .exec suffix when base name is valid."""
         assert middleware._sanitize_tool_name("advanced_web_search_tool.exec") == "advanced_web_search_tool"
 
-    def test_sanitize_paper_search_channel(self, middleware):
-        """Strip channel suffix from paper_search_tool too."""
-        assert middleware._sanitize_tool_name("paper_search_tool<|channel|>commentary") == "paper_search_tool"
+    def test_sanitize_scholar_search_channel(self, middleware):
+        """Strip channel suffix from scholar_search_tool too."""
+        assert middleware._sanitize_tool_name("scholar_search_tool<|channel|>commentary") == "scholar_search_tool"
 
     def test_map_open_file_to_read_file(self, middleware):
         """Map hallucinated open_file to read_file."""
@@ -353,7 +353,7 @@ class TestSourceRegistryMiddleware:
 
     @pytest.fixture
     def source_tools(self):
-        return {"advanced_web_search_tool", "knowledge_search", "paper_search_tool"}
+        return {"advanced_web_search_tool", "knowledge_search", "scholar_search_tool"}
 
     @pytest.fixture(autouse=True)
     def _reset_data_source_registry(self):
@@ -385,10 +385,10 @@ class TestSourceRegistryMiddleware:
                     "tools": ["knowledge_search"],
                 },
                 {
-                    "id": "paper_search",
+                    "id": "scholar_search",
                     "name": "Academic Papers",
                     "description": "Search academic papers.",
-                    "tools": ["paper_search_tool"],
+                    "tools": ["scholar_search_tool"],
                 },
             ]
         )
@@ -556,7 +556,7 @@ class TestSourceRegistryMiddleware:
         h2 = AsyncMock(return_value=self._make_tool_result("See https://b.com"))
 
         await middleware.awrap_tool_call(self._make_request("advanced_web_search_tool"), h1)
-        await middleware.awrap_tool_call(self._make_request("paper_search_tool"), h2)
+        await middleware.awrap_tool_call(self._make_request("scholar_search_tool"), h2)
 
         urls = {s.url for s in middleware.registry.all_sources()}
         assert urls == {"https://a.com", "https://b.com"}

@@ -1,6 +1,6 @@
 # Data source package layout
 
-Model new sources on `sources/google_scholar_paper_search/`. The layout is:
+Model new sources on `sources/ris_adapter/`. The layout is:
 
 ```text
 sources/my_data_source/
@@ -9,15 +9,17 @@ sources/my_data_source/
   src/
     __init__.py
     register.py        # config class + NAT registration
-    search.py          # NAT-independent client/tool implementation
+    client.py          # NAT-independent client/tool implementation
   tests/
     __init__.py
     conftest.py
-    test_search.py
+    test_client.py
 ```
 
-Keep the client (`search.py`) free of NAT imports so it is unit-testable on its
-own; `register.py` adapts it into a NAT function.
+Keep the client (`client.py`) free of NAT imports so it is unit-testable on its
+own; `register.py` adapts it into a NAT function. `ris_adapter` splits one layer
+further — `cache.py` beside the client — which is worth copying as soon as the
+source talks to an API you should not hit twice for the same question.
 
 ## pyproject.toml
 

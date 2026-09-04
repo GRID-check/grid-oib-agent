@@ -1,7 +1,7 @@
 # Testing a tool
 
 Authoritative source: `docs/source/extending/adding-a-tool.md` (Step 8). Model
-tests on `sources/google_scholar_paper_search/tests/test_paper_search.py`.
+tests on `sources/ris_adapter/tests/test_client.py`.
 
 ## Unit tests
 
