@@ -25,7 +25,7 @@ import {
   type FC,
   type ReactNode,
 } from 'react'
-import { citationNumbers, type CitedDocument, type CitationRef } from '../lib/citations'
+import { referencesByNumber, type CitedDocument, type CitationRef } from '../lib/citations'
 
 interface CitationScopeValue {
   documents: CitedDocument[]
@@ -66,20 +66,7 @@ export const CitationScope: FC<{
   )
 
   const value = useMemo<CitationScopeValue>(() => {
-    // `[N]` → the document carrying it, and the locus that carries it exactly.
-    // Built once per document set rather than scanned per marker, because an
-    // answer can hold a lot of markers and they all resolve on render.
-    const byNumber = new Map<number, CitationRef>()
-    for (const document of documents) {
-      for (const locus of document.loci) {
-        if (typeof locus.number === 'number') byNumber.set(locus.number, { document, locus })
-      }
-      // A document whose number is known only at the document level (no locus
-      // carries it) still resolves — to the document as a whole.
-      for (const number of citationNumbers(document)) {
-        if (!byNumber.has(number)) byNumber.set(number, { document })
-      }
-    }
+    const byNumber = referencesByNumber(documents)
     return {
       documents,
       anchorPrefix,

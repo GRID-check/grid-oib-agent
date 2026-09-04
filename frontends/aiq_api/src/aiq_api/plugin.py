@@ -60,6 +60,7 @@ from .routes.maintenance import add_maintenance_routes
 from .routes.norms import add_norm_routes
 from .routes.note_embeddings import add_note_embedding_routes
 from .routes.oib import add_oib_routes
+from .routes.ris import add_ris_routes
 from .routes.skill_review import add_skill_review_routes
 from .routes.skills import add_skill_routes
 from .websocket_reconnect import configure_websocket_auth
@@ -235,6 +236,10 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         add_ingest_routes(knowledge_router)
         add_oib_routes(knowledge_router)
         add_norm_routes(knowledge_router)
+        # A RIS document as text, so a RIS citation opens INSIDE Piloti rather
+        # than in a browser tab (#622). Same client, same allow-list, same cache
+        # as the agent's own ris_fetch_document.
+        add_ris_routes(knowledge_router)
         add_maintenance_routes(knowledge_router)
         # Internal skills submit route (Agent Skills, successor of the ADR-0023
         # workflows submit route): same router/middleware treatment as

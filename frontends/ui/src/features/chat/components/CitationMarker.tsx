@@ -29,7 +29,11 @@ import { citationSnippet, type CitationRef } from '../lib/citations'
 import { useHoverPopover } from '@/hooks/use-hover-popover'
 import { useCitationScope } from './CitationScope'
 import { CitationPeek } from './CitationPeek'
-import { SourceDocumentDialog, useSourcePreviewIndex } from './SourcePreview'
+import {
+  SourceDocumentDialog,
+  useCitationDownload,
+  useSourcePreviewIndex,
+} from './SourcePreview'
 import { resolveCitationTarget } from '../lib/citations/target'
 import { useChatStore } from '../store'
 
@@ -185,27 +189,34 @@ const ResolvedCitationPeek: FC<{
   const projectId = useChatStore((s) => s.projectId)
   const conversationId = useChatStore((s) => s.currentConversation?.id ?? null)
   const url = citation.document.url
+  // A URL source needs no stored-document index — but it still needs RESOLVING,
+  // because a RIS URL now opens in the app rather than only linking out (#622).
   const previewIndex = useSourcePreviewIndex(projectId, conversationId, !url)
 
-  const target = url
-    ? null
-    : resolveCitationTarget(citation.document, {
-        locus: citation.locus,
-        storedDocuments: previewIndex?.storedDocuments,
-        baseCorpusFiles: previewIndex?.baseCorpusFiles,
-      })
+  const target = resolveCitationTarget(citation.document, {
+    locus: citation.locus,
+    storedDocuments: previewIndex?.storedDocuments,
+    baseCorpusFiles: previewIndex?.baseCorpusFiles,
+  })
 
   // While the index is still loading the answer is not yet known, and the peek
   // says nothing rather than promising an open it may not be able to keep.
   const resolving = !url && previewIndex === null
+  const downloadTarget = target.kind === 'download' ? target : null
+  const { isDownloading, download } = useCitationDownload(downloadTarget)
+  const openable = target.kind === 'document' || target.kind === 'ris'
 
   return (
     <CitationPeek
       citation={citation}
       snippet={snippet}
       url={url}
-      onOpen={target?.kind === 'document' ? onOpen : undefined}
-      unavailable={!url && !resolving && target?.kind !== 'document'}
+      onOpen={openable ? onOpen : undefined}
+      // A document with no in-app viewer is reachable, just not renderable —
+      // the file is offered instead of the open, and the popover says which.
+      onDownload={downloadTarget ? () => void download() : undefined}
+      downloadPending={isDownloading}
+      unavailable={!url && !resolving && !downloadTarget && !openable}
     />
   )
 }

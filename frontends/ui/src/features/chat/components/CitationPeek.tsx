@@ -17,7 +17,7 @@
 
 import { type FC } from 'react'
 import Link from 'next/link'
-import { ExternalLink, FileSearch, FolderOpen, Link2 } from 'lucide-react'
+import { Download, ExternalLink, FileSearch, FolderOpen, Link2 } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -50,6 +50,18 @@ interface CitationPeekProps {
    * popover and does nothing is not.
    */
   unavailable?: boolean
+  /**
+   * The document EXISTS but this app cannot draw its format — hand it over
+   * instead, and say which of the two is happening.
+   *
+   * A cited `.docx` used to arrive here as `unavailable`, which is a claim
+   * about the citation and was false: nothing was missing, the file was in the
+   * project's Dateiablage and the reader was entitled to it. Absent when the
+   * source is genuinely unreachable.
+   */
+  onDownload?: () => void
+  /** The download is being presigned — the control says so rather than repeating. */
+  downloadPending?: boolean
 }
 
 /**
@@ -165,6 +177,8 @@ export const CitationPeek: FC<CitationPeekProps> = ({
   onOpen,
   url,
   unavailable,
+  onDownload,
+  downloadPending,
 }) => {
   const t = useTranslations('chat')
   const { document: doc } = citation
@@ -226,6 +240,17 @@ export const CitationPeek: FC<CitationPeekProps> = ({
         </div>
       )}
 
+      {/* WHY there is no viewer, before the control that works around it. Said
+          in the popover rather than left to the reader's inference: "this
+          format opens outside Piloti" is a fact about the file, and without it
+          a download button beside a document chip reads as an arbitrary second
+          choice. */}
+      {onDownload && !onOpen && (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {t('citationPeek.noInlineViewer')}
+        </p>
+      )}
+
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-2">
         {onOpen && (
           <button
@@ -241,7 +266,20 @@ export const CitationPeek: FC<CitationPeekProps> = ({
             {t('citationPeek.openAtPage')}
           </button>
         )}
-        {unavailable && !onOpen && (
+        {onDownload && !onOpen && (
+          <button
+            type="button"
+            onClick={onDownload}
+            disabled={downloadPending}
+            data-citation-download=""
+            className="inline-flex items-center gap-1 text-xs font-medium hover:underline disabled:cursor-progress disabled:opacity-70"
+            style={{ color: `var(--source-${tint}-text, var(--foreground))` }}
+          >
+            <Download aria-hidden="true" className="size-3.5" />
+            {t(downloadPending ? 'citationPeek.downloading' : 'citationPeek.download')}
+          </button>
+        )}
+        {unavailable && !onOpen && !onDownload && (
           <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
             <FileSearch aria-hidden="true" className="size-3.5" />
             {t('citationPeek.notOpenable')}

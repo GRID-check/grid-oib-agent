@@ -113,7 +113,7 @@ describe('SourcePreviewChip', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  test('a RIS source with a bindingness note opens a popover (note + tier + open-in-RIS) instead of linking out', async () => {
+  test('a RIS source peeks its bindingness and opens in Piloti, never as a bare link', async () => {
     const user = userEvent.setup()
     render(
       <SourcePreviewChip
@@ -129,18 +129,23 @@ describe('SourcePreviewChip', () => {
       />
     )
 
-    // Not a bare link — it is a popover trigger, so the bindingness is reachable.
+    // Not a bare link — it is a peek trigger, so the bindingness is reachable
+    // AND the click can mean something better than leaving the product (#622).
     expect(screen.queryByRole('link')).toBeNull()
-    await user.click(screen.getByRole('button', { name: 'Preview source: WBTV' }))
+    const chip = screen.getByRole('button', { name: 'Preview source: WBTV' })
+    await user.hover(chip)
 
     expect(await screen.findByText('Binding effect')).toBeInTheDocument()
     expect(screen.getByText('Macht die OIB-Richtlinien in Wien verbindlich.')).toBeInTheDocument()
     expect(screen.getByText('Landesrecht')).toBeInTheDocument()
-    // The outbound RIS link lives inside the popover as an explicit action.
+    // The authoritative RIS publication stays one explicit action away — a
+    // legal citation must always be able to reach it.
     expect(screen.getByRole('link', { name: /Open in RIS/i })).toHaveAttribute(
       'href',
       'https://www.ris.bka.gv.at/x'
     )
+    // And the peek offers the in-app reader, which is what the click commits to.
+    expect(screen.getByText('Open at this passage')).toBeInTheDocument()
   })
 
   test('a KB citation resolving to a project document opens the document dialog', async () => {

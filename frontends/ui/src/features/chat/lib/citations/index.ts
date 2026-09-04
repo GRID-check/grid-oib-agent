@@ -65,6 +65,7 @@ export {
 export { buildCitationModel, citationSnippet, type CitationInputs } from './build'
 
 export {
+  openAtLocus,
   resolveCitationTarget,
   type CitationTarget,
   type StoredDocumentRef,
@@ -78,6 +79,7 @@ export {
   bibliographyRows,
   documentShelfLabel,
   documentTabLabel,
+  referencesByNumber,
   splitAnswerBody,
   totalHits,
   unusedDocuments,

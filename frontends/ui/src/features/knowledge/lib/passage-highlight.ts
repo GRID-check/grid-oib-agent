@@ -522,6 +522,61 @@ export function findPassage(index: PassageIndex, snippet: string): PassageMatch 
   return null
 }
 
+/**
+ * The same search, over a PLAIN STRING, answering in that string's own offsets.
+ *
+ * The RIS reader has no geometry: it renders text, so what it needs is a
+ * character range to wrap, not rectangles to draw. Everything else about the
+ * problem is identical — the snippet was produced by the retrieval extractor
+ * and the text by the RIS HTML converter, so the two disagree about
+ * hyphenation, ligatures, quotes and whitespace in exactly the ways this
+ * module's folding exists to absorb.
+ *
+ * Which is why it lives here rather than beside the reader. A second
+ * normalisation written for text would be a fork of these rules: locally
+ * correct, silently divergent, and impossible to notice — the two would agree
+ * on every passage anyone tested and disagree on the wrapped compound nobody
+ * did.
+ *
+ * Only the two confident tiers apply. `windowMatch` and `partialMatch` earn
+ * their place on a PDF page, where the alternative is a reader hunting a
+ * paragraph on a rendered sheet; here the passage is in a scrollable text and a
+ * confidently wrong highlight over a legal quotation is worse than none.
+ */
+export function locatePassageInText(
+  text: string,
+  snippet: string
+): { start: number; end: number } | null {
+  const needle = normalizePassage(snippet)
+  if (needle.length < 8 || !text) return null
+
+  // One chunk, so every surviving character carries its offset in `text`.
+  const raw: IndexedChar[] = []
+  for (let offset = 0; offset < text.length; offset += 1) {
+    for (const ch of foldChar(text[offset]!)) raw.push({ ch, chunk: 0, offset })
+  }
+  const chars = collapse(raw)
+  const haystack = chars.map((entry) => entry.ch).join('')
+  if (!haystack.length) return null
+
+  const exact = haystack.indexOf(needle)
+  const range =
+    exact !== -1 ? { start: exact, end: exact + needle.length } : anchorMatch(haystack, needle)
+  if (!range) return null
+
+  // Back to source offsets, skipping the synthetic boundaries `collapse`
+  // inserts (which carry no offset of their own).
+  let start = -1
+  let end = -1
+  for (let i = range.start; i < range.end && i < chars.length; i += 1) {
+    const offset = chars[i]!.offset
+    if (offset < 0) continue
+    if (start === -1) start = offset
+    end = offset + 1
+  }
+  return start === -1 ? null : { start, end }
+}
+
 /** Convenience wrapper for callers holding raw runs. */
 export function locatePassage(chunks: TextChunk[], snippet: string): PassageMatch | null {
   return findPassage(buildPassageIndex(chunks), snippet)

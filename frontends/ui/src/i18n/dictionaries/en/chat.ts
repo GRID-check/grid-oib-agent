@@ -10,6 +10,7 @@ export const chat = {
     // Document-type chip in the preview dialog header.
     projectDocument: 'Project document',
     corpusDocument: 'Building law & guidelines',
+    risDocument: 'Legal source (RIS)',
     // Tinted box with the passage the answer cites.
     citedPassage: 'Cited passage',
     // Marks a source the report actually cited (vs. merely discovered).
@@ -250,6 +251,10 @@ export const chat = {
     wholeDocument: 'Whole document',
     openAtPage: 'Open at this passage',
     notOpenable: 'Cannot be opened in Piloti',
+    noInlineViewer:
+      'This file format cannot be shown inside Piloti. Download the document and open it in your own application.',
+    download: 'Download document',
+    downloading: 'Preparing…',
     copyLink: 'Copy link',
     copyLinkAria: 'Copy a link to this passage: {label}',
     markerAria: 'Source {number}: {label} — open preview',

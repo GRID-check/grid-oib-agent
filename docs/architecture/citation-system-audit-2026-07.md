@@ -80,7 +80,7 @@ FE MODEL         lib/citations — buildCitationModel(inputs) → CitedDocument[
 FE PROJECTIONS   answerDocuments()   → chips        (document level, one per source)
                  bibliographyRows()  → report list  (locus level, one per [N])
                  unusedDocuments()   → "gelesen, nicht verwendet"
-                 resolveCitationTarget(doc, {locus}) → url | document@page | info
+                 resolveCitationTarget(doc, {locus}) → url | ris | document@page | download | info
 
 FE RENDER        SourcePreviewChip (variant: chip | card; detail: full | name-only)
                  AnswerSourcesRow · SourceCard (Herleitung) · ReportTab · CitationCard
@@ -158,6 +158,42 @@ Two properties are load-bearing and are what the tests pin:
 This is also why the viewer renders the PDF itself rather than framing the
 browser's. `#page=N` was the entire vocabulary an `<iframe>` offered; a text
 layer is not reachable through it at any price.
+
+### Which locus a click opens at (2026-09-04)
+
+`openAt` prefers a locus that names a PAGE over one that does not, even when the
+page-less one is the locus the reader clicked. A document routinely carries
+both: the retrieval payload states the page it read, and the answer's written
+`## Quellen` list states the same `[N]` and frequently names no page. Both
+become loci of one document, and the `[N]`→locus binding used to keep whichever
+came last in locus order — the page-less one. Clicking a citation that knew it
+was page 18 opened the viewer at page 1 (#621).
+
+The rule is stated twice on purpose, at both places the loss could happen:
+`referencesByNumber` (`lib/citations/views.ts`) prefers a located locus when two
+carry the same `[N]`, and `openAt` (`lib/citations/target.ts`) falls back to a
+located locus on the same document when the binding is honestly page-less. Only
+a document read nowhere in particular still opens at its start.
+
+### Sources with no PDF to open
+
+Two target kinds exist beside `document`, and both replace an `info` popover
+that said nothing:
+
+- **`download`** — a stored document the reader may have and this app cannot
+  draw (a `.docx`, a `.xlsx`, a `.dwg`). It used to resolve to `info`, which
+  offered no way in and gave no reason, and readers concluded the product had
+  lost their file (#623). The popover now says which format cannot be shown and
+  hands over `/api/documents/{id}/download`.
+- **`ris`** — an Austrian RIS document, read INSIDE the product
+  (`RisDocumentDialog`) rather than opened in a browser tab (#622). No PDF and
+  no geometry: the text comes from `/api/ris/document` (the agent's own
+  `RisClient`, so it is the text the answer was grounded on) and
+  `locatePassageInText` marks the cited passage using the same normalisation the
+  PDF matcher uses — which is why it lives in `passage-highlight.ts` rather than
+  beside the reader. Only the two confident matcher tiers apply: over a legal
+  quotation, a confidently wrong mark is worse than none. The authoritative RIS
+  link stays in the header; this is a reading copy.
 
 ## Contract tests
 

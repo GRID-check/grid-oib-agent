@@ -71,6 +71,17 @@ export const knowledge: typeof en.knowledge = {
     highlightUnavailable:
       'Die Fundstelle kann in diesem Browser nicht markiert werden — das Dokument wird ohne Hervorhebung angezeigt.',
   },
+  // Der RIS-Leser: eine Rechtsquelle wird IN Piloti gelesen statt im Browser-Tab.
+  risViewer: {
+    // „Lesefassung", nicht „Originaldokument": maßgeblich bleibt die
+    // Veröffentlichung im RIS, und der Link daneben führt dorthin.
+    description: 'Lesefassung aus dem RIS.',
+    openAtRis: 'Im RIS öffnen',
+    loading: 'Rechtsquelle wird geladen…',
+    failed:
+      'Diese Rechtsquelle lässt sich gerade nicht in Piloti anzeigen. Über „Im RIS öffnen" erreichen Sie das Dokument weiterhin.',
+    truncated: 'Gekürzt — der vollständige Text steht im RIS.',
+  },
   error: {
     title: 'Wissensbasis nicht verfügbar',
     description: 'Der Wissensstatus konnte nicht geladen werden.',

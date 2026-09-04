@@ -168,13 +168,16 @@ describe('resolveCitationTarget', () => {
     contentType: 'application/pdf',
   }
 
-  test('http(s) URLs always link out, with origin from the host', () => {
+  test('http(s) URLs link out — except RIS, which Piloti reads itself', () => {
     expect(
       targetFor({ url: 'https://example.com/article', content: '' })
     ).toEqual({ kind: 'url', url: 'https://example.com/article' })
+    // A RIS source resolves to the in-app reader (#622) and carries the
+    // authoritative URL with it — the publication of record is never dropped,
+    // it moves into the reader's header.
     expect(
       targetFor({ url: 'https://www.ris.bka.gv.at/Norm', content: '' })
-    ).toEqual({ kind: 'url', url: 'https://www.ris.bka.gv.at/Norm' })
+    ).toMatchObject({ kind: 'ris', url: 'https://www.ris.bka.gv.at/Norm' })
   })
 
   test('KB locator matching a previewable project document opens it', () => {
@@ -381,16 +384,35 @@ describe('resolveCitationTarget', () => {
     })
   })
 
-  test('non-previewable project documents degrade to info — never a broken viewer', () => {
+  test('a non-previewable project document is offered as a download, never as a broken viewer', () => {
+    // It used to degrade to `info`, which said nothing and offered nothing —
+    // and the reader concluded the product had lost their file (#623). It had
+    // not; it cannot DRAW a .docx. The two are different answers.
     const target = targetFor({ url: '', content: '[KB] Vermessung.docx' }, storedDocuments,
       baseCorpusFiles
     )
 
     expect(target).toEqual({
-      kind: 'info',
+      kind: 'download',
       title: 'Vermessung',
+      fileName: 'Vermessung.docx',
       snippet: undefined,
+      document: {
+        type: 'stored',
+        id: 'doc-2',
+        filename: 'Vermessung.docx',
+        contentType:
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      },
     })
+  })
+
+  test('a citation that resolves to no document at all is still info', () => {
+    const target = targetFor({ url: '', content: '[KB] Nirgendwo.docx' }, storedDocuments,
+      baseCorpusFiles
+    )
+
+    expect(target).toEqual({ kind: 'info', title: 'Nirgendwo', snippet: undefined })
   })
 
   test('KB locator matching a base-corpus PDF opens the corpus viewer', () => {
