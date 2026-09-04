@@ -237,6 +237,7 @@ export default function FileBrowserDevPage(): JSX.Element {
   if (variant === 'folder-rename') return <FolderCrudFixture mode="rename" />
   if (variant === 'folder-menu') return <FolderCrudFixture mode="menu" />
   if (variant === 'folders-list') return <FoldersInListViewFixture />
+  if (variant === 'folder-drop') return <FolderDropTargetFixture />
   return <FileBrowserFixtures />
 }
 
@@ -251,6 +252,69 @@ function useFixtureFolderNav(): FolderNavigation & { currentFolderId: string | n
     onRenameFolder: async () => true,
     onDeleteFolder: async () => true,
   }
+}
+
+/**
+ * A folder lit up as a drop target, mid-drag.
+ *
+ * The state only exists THROUGH a drag, so the fixture performs one rather than
+ * setting a flag: a `dragover` carrying our own folder MIME type, dispatched at
+ * a folder card after mount. Setting the highlight directly would be a picture
+ * of the state rather than the tile arriving in it, and it is the arriving that
+ * this pins — the target has to decide, during the drag and before the release,
+ * whether it can take what is over it.
+ *
+ * The shot is worth having because two surfaces used to answer this gesture at
+ * once. The workspace's upload overlay reacted to any drag with items on it, so
+ * dragging INSIDE the page covered the folder being aimed at in „Dateien hier
+ * ablegen". What this shows is one answer: the folder, ringed.
+ */
+function FolderDropTargetFixture(): JSX.Element {
+  const folderNav = useFixtureFolderNav()
+  const search = useFileSearch({ projectId: 'proj-demo' })
+
+  useEffect(() => {
+    const card = document.querySelector('[data-testid="folder-card-f-statik"]')
+    if (!card) return
+    const types = ['application/x-grid-folder-id', 'application/x-grid-folder-id:f-brand']
+    const event = new Event('dragover', { bubbles: true, cancelable: true })
+    // jsdom and the browser both refuse a constructed `DataTransfer` here, so
+    // the one fact the target reads is attached directly.
+    Object.defineProperty(event, 'dataTransfer', {
+      value: { types, getData: () => 'f-brand', dropEffect: 'none' },
+    })
+    const raf = window.requestAnimationFrame(() => card.dispatchEvent(event))
+    return () => window.cancelAnimationFrame(raf)
+  }, [])
+
+  return (
+    <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
+      <div>
+        <h1 className="text-lg font-semibold">Files browser — a folder as a drop target</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          „Brandschutz“ dragged over „Statik“. One answer to the gesture: the folder, ringed.
+        </p>
+      </div>
+      <div
+        className="flex h-[420px] flex-col overflow-hidden rounded-xl border"
+        data-testid="file-browser-folder-drop"
+      >
+        <div className="flex-1 overflow-y-auto">
+          <FileBrowserPane
+            files={[]}
+            searchFiles={FILES}
+            selectedFileId={null}
+            onSelectFile={() => {}}
+            isLoading={false}
+            search={search}
+            folderNav={folderNav}
+            onDropDocumentInFolder={() => {}}
+            onDropFolderInFolder={() => {}}
+          />
+        </div>
+      </div>
+    </main>
+  )
 }
 
 /**

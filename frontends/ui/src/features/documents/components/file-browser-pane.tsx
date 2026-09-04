@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, type ReactNode } from 'react'
+import { useCallback, useMemo, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
 import { Search, SearchX, FilterX, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -72,6 +72,12 @@ interface FileBrowserPaneProps {
    * this surface cannot make.
    */
   onDropDocumentInFolder?: (documentId: string, folderId: string | null) => void
+  /**
+   * Re-parent one folder into another by dragging it there. Absent turns the
+   * folder drag off entirely — the Archiv is flat, so a folder tile that lifted
+   * under the finger would promise a move that surface cannot make.
+   */
+  onDropFolderInFolder?: (draggedFolderId: string, parentId: string | null) => void
   /** Upload control rendered inside the first-run empty state. */
   uploadControl?: ReactNode
   /** Dashed upload card rendered as the last tile of the grid (project corpus). */
@@ -121,6 +127,7 @@ export function FileBrowserPane({
   showAssignment = false,
   filterEmptyNotice,
   onDropDocumentInFolder,
+  onDropFolderInFolder,
   renderActions,
   sort = DEFAULT_FILE_SORT,
   onSortChange,
@@ -181,6 +188,40 @@ export function FileBrowserPane({
   }, [folderNav, currentFolderId])
 
   const navDirection = useLevelDirection(folderDepth)
+
+  /**
+   * Whether a folder may be dropped on a given target — asked DURING the drag,
+   * so a target that cannot take it never highlights.
+   *
+   * Three refusals, and the third is the one that matters. A folder is not its
+   * own parent; a move into the parent it already has is a no-op dressed up as
+   * a gesture; and a folder cannot go inside its own descendant, which would
+   * cut the subtree off from the tree entirely. `updateProjectFolder` refuses
+   * all three server-side — this is what stops the reader being invited to make
+   * a move that will be rejected.
+   *
+   * The ancestor walk is bounded by the folder count rather than trusting the
+   * tree to be acyclic: `parentId` comes off the wire, and a cycle here would
+   * be an infinite loop inside a `dragover` handler.
+   */
+  const canAcceptFolder = useCallback(
+    (draggedId: string, targetId: string | null): boolean => {
+      if (draggedId === targetId) return false
+      const all = folderNav?.folders ?? []
+      const dragged = all.find((folder) => folder.id === draggedId)
+      if (!dragged) return false
+      if ((dragged.parentId ?? null) === targetId) return false
+      if (targetId === null) return true
+      const byId = new Map(all.map((folder) => [folder.id, folder]))
+      let cursor: string | null = targetId
+      for (let step = 0; cursor !== null && step <= all.length; step += 1) {
+        if (cursor === draggedId) return false
+        cursor = byId.get(cursor)?.parentId ?? null
+      }
+      return true
+    },
+    [folderNav?.folders]
+  )
 
   /** The folders directly inside the current level — the drill-down tiles. */
   const childFolders = useMemo(
@@ -351,6 +392,8 @@ export function FileBrowserPane({
           onNavigate={folderNav.onNavigate}
           onCreateFolder={folderNav.onCreateFolder}
           onDropDocument={onDropDocumentInFolder}
+          onDropFolder={onDropFolderInFolder}
+          canAcceptFolder={canAcceptFolder}
         />
       )}
 
@@ -534,6 +577,8 @@ export function FileBrowserPane({
                     onRenameFolder={folderNav.onRenameFolder}
                     onDeleteFolder={folderNav.onDeleteFolder}
                     onDropDocument={onDropDocumentInFolder}
+                    onDropFolder={onDropFolderInFolder}
+                    canAcceptFolder={canAcceptFolder}
                   />
                 ))}
               </div>
@@ -546,6 +591,7 @@ export function FileBrowserPane({
                 renderActions={renderActions}
                 sort={sort}
                 onSortChange={onSortChange}
+                draggable={Boolean(onDropDocumentInFolder)}
               />
             )}
         </motion.div>
@@ -599,6 +645,8 @@ export function FileBrowserPane({
                     onRenameFolder={folderNav.onRenameFolder}
                     onDeleteFolder={folderNav.onDeleteFolder}
                     onDropDocument={onDropDocumentInFolder}
+                    onDropFolder={onDropFolderInFolder}
+                    canAcceptFolder={canAcceptFolder}
                   />
                 ))}
               {orderedFiles.map((file) => (

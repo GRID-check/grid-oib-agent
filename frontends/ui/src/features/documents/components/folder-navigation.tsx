@@ -28,7 +28,7 @@ import { AnimatePresence, motion, motionQuick } from '@/components/motion'
 import { BackControl } from '@/components/shell/back-link'
 import { useTranslations } from '@/i18n'
 import { useLocale } from '@/i18n'
-import { useFolderDropTarget } from '../hooks/use-document-drag'
+import { folderDragProps, useFolderDropTarget } from '../hooks/use-document-drag'
 import { cn } from '@/lib/utils'
 import { TimeAgo } from '@/components/ui/time-ago'
 import { GridTileBody, GridTileFooter, GridTileMedia, GridTileShell } from './grid-tile'
@@ -79,10 +79,22 @@ export function FolderBreadcrumbRow({
   /** Right-aligned extras (the Archiv has none; Files adds nothing yet). */
   children,
   onDropDocument,
+  onDropFolder,
+  canAcceptFolder,
 }: Pick<FolderNavProps, 'folders' | 'currentFolderId' | 'onNavigate' | 'onCreateFolder'> & {
   children?: ReactNode
   /** Dropping a document on „Alle Dateien" moves it back to the project root. */
   onDropDocument?: (documentId: string, folderId: string | null) => void
+  /**
+   * Dropping a FOLDER there moves it out to the project root.
+   *
+   * This is the only way OUT. Every other target nests one folder inside
+   * another, so without it a folder could be dragged deeper and never back —
+   * the same half-a-gesture the document drag shipped with before the root
+   * became a target for it.
+   */
+  onDropFolder?: (draggedFolderId: string, parentId: string | null) => void
+  canAcceptFolder?: (draggedFolderId: string, targetFolderId: string | null) => boolean
 }): JSX.Element {
   const t = useTranslations('files')
   const path = useMemo(() => folderPath(folders, currentFolderId), [folders, currentFolderId])
@@ -91,7 +103,11 @@ export function FolderBreadcrumbRow({
   const rootDrop = useFolderDropTarget({
     folderId: null,
     onDropDocument: onDropDocument ?? (() => {}),
-    disabled: !onDropDocument || currentFolderId === null,
+    onDropFolder,
+    canAcceptFolder,
+    // Only offered while there is somewhere to come back FROM. At the root the
+    // segment is a label, not a link, and it has nothing to receive.
+    disabled: (!onDropDocument && !onDropFolder) || currentFolderId === null,
   })
 
   /**
@@ -274,6 +290,14 @@ interface FolderTileProps {
    * here. Absent on surfaces that do not (the Archiv has no folders at all).
    */
   onDropDocument?: (documentId: string, folderId: string | null) => void
+  /**
+   * Re-parent another folder into this one. Absent turns the folder drag OFF
+   * for this tile in both directions: a tile that lifts under the finger where
+   * nothing can receive it promises a move the surface cannot make.
+   */
+  onDropFolder?: (draggedFolderId: string, parentId: string | null) => void
+  /** Whether this tile may receive that folder — see `useFolderDropTarget`. */
+  canAcceptFolder?: (draggedFolderId: string, targetFolderId: string | null) => boolean
 }
 
 /** Shared inline rename field — same in-place contract the tree pane had. */
@@ -400,6 +424,8 @@ export function FolderCard({
   onRenameFolder,
   onDeleteFolder,
   onDropDocument,
+  onDropFolder,
+  canAcceptFolder,
 }: FolderTileProps): JSX.Element {
   const t = useTranslations('files')
   const { locale } = useLocale()
@@ -407,17 +433,21 @@ export function FolderCard({
   const drop = useFolderDropTarget({
     folderId: folder.id,
     onDropDocument: onDropDocument ?? (() => {}),
-    disabled: !onDropDocument,
+    onDropFolder,
+    canAcceptFolder,
+    disabled: !onDropDocument && !onDropFolder,
   })
 
   return (
     <GridTileShell
-      variant="file"
       interactive
       // A drag has to say where it will land, or it is a guess with a cursor.
       className={cn('group', drop.isOver && 'ring-ring bg-accent ring-2')}
       data-testid={`folder-card-${folder.id}`}
       data-drop-over={drop.isOver ? '' : undefined}
+      // Source as well as target: a folder is moved by dragging it onto
+      // another, which is the same gesture that moves a document.
+      {...(onDropFolder ? folderDragProps(folder.id) : {})}
       {...drop.dropProps}
     >
       <div
@@ -498,6 +528,8 @@ export function FolderRow({
   onRenameFolder,
   onDeleteFolder,
   onDropDocument,
+  onDropFolder,
+  canAcceptFolder,
 }: FolderTileProps): JSX.Element {
   const t = useTranslations('files')
   const { locale } = useLocale()
@@ -505,7 +537,9 @@ export function FolderRow({
   const drop = useFolderDropTarget({
     folderId: folder.id,
     onDropDocument: onDropDocument ?? (() => {}),
-    disabled: !onDropDocument,
+    onDropFolder,
+    canAcceptFolder,
+    disabled: !onDropDocument && !onDropFolder,
   })
 
   if (editing) {
@@ -557,6 +591,7 @@ export function FolderRow({
       )}
       data-testid={`folder-row-${folder.id}`}
       data-drop-over={drop.isOver ? '' : undefined}
+      {...(onDropFolder ? folderDragProps(folder.id) : {})}
       {...drop.dropProps}
     >
       <button
@@ -613,7 +648,7 @@ export function FolderRow({
 /** A {@link FolderCard} before its name arrives. */
 export function FolderCardSkeleton(): JSX.Element {
   return (
-    <GridTileShell variant="folder" interactive={false} data-testid="folder-card-skeleton">
+    <GridTileShell interactive={false} data-testid="folder-card-skeleton">
       <GridTileBody className="flex-1 p-0">
         <GridTileMedia className="flex h-[124px] items-center justify-center bg-muted/30">
           <Folder className="size-10 text-muted-foreground/25" strokeWidth={1.4} aria-hidden />

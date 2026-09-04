@@ -239,7 +239,6 @@ export function FileCard({
 
   return (
     <GridTileShell
-      variant="file"
       interactive
       className={cn(
         'group/card',

@@ -10,6 +10,7 @@ import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatBytes, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { documentDisplayName } from '@/lib/documents/display-name'
+import { documentDragProps } from '../hooks/use-document-drag'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 
@@ -57,6 +58,17 @@ interface FileListViewProps {
    */
   sort?: FileSort
   onSortChange?: (next: FileSort) => void
+  /**
+   * Whether a row can be dragged into a folder.
+   *
+   * The card grid had this and the detail view did not, so the same corpus was
+   * re-fileable by drag in one view and not the other — and the detail view is
+   * the one people switch to when there are enough documents for the filing to
+   * matter. Opt-in for the same reason the card's is: a row that lifts under
+   * the finger where nothing can receive it promises a move the surface (the
+   * flat Archiv) cannot make.
+   */
+  draggable?: boolean
 }
 
 /** A 0..1 backend score as the whole percent the reader sees. */
@@ -74,6 +86,7 @@ export function FileListView({
   semantic = false,
   sort: controlledSort,
   onSortChange,
+  draggable = false,
 }: FileListViewProps) {
   const t = useTranslations('files')
   const { locale } = useLocale()
@@ -227,6 +240,7 @@ export function FileListView({
                 key={file.id}
                 data-file-row
                 data-testid="file-list-row"
+                {...(draggable ? documentDragProps(file.id) : {})}
                 data-state={isSelected ? 'selected' : undefined}
                 // Roving tabindex: one stop for the whole list, then arrows.
                 tabIndex={index === tabStop ? 0 : -1}

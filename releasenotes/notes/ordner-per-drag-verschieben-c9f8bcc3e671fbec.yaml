@@ -1,0 +1,24 @@
+---
+features:
+  - >
+    Ordner lassen sich jetzt per Drag & Drop verschieben — auf einen anderen
+    Ordner, oder auf „Alle Dateien“, um sie wieder nach oben zu holen. Ein
+    Ordner, der in sich selbst oder in einen seiner eigenen Unterordner
+    gezogen wird, leuchtet gar nicht erst auf: Die Ablehnung steht vor dem
+    Loslassen, nicht danach.
+  - >
+    In der Listenansicht lassen sich Dokumente jetzt ebenfalls per Drag & Drop
+    in einen Ordner ziehen. Bisher ging das nur in der Kachelansicht — also
+    gerade nicht in der Ansicht, zu der man wechselt, wenn es genug Dokumente
+    gibt, dass die Ablage zählt.
+fixes:
+  - >
+    Beim Ziehen einer Datei auf einen Ordner legte sich der Hinweis „Dateien
+    hier ablegen“ über die ganze Fläche und damit über den Ordner, den man
+    gerade anvisierte. Das Verschieben funktionierte darunter, sah aber aus wie
+    ein Upload, der nicht ankommt. Der Upload-Hinweis erscheint jetzt nur noch
+    für Dateien vom Rechner.
+  - >
+    Der Ordner unter dem Zeiger flackerte während des Ziehens, weil jede
+    Bewegung über ein Element in der Kachel als „verlassen“ zählte. Die
+    Markierung bleibt jetzt, solange der Zeiger im Ordner ist.

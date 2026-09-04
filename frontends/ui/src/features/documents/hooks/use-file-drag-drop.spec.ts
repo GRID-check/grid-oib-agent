@@ -25,15 +25,35 @@ vi.mock('@/shared/context', () => ({
 import { checkDraggedFilesSupported } from '../validation'
 
 /**
- * Create a mock DragEvent with configurable dataTransfer
+ * A drag carrying files from the desktop.
+ *
+ * `types: ['Files']` is not decoration — it is the fact this hook discriminates
+ * on, and the browser sets it for every drag that carries real files and for no
+ * drag started inside the page. The fixture omitted it, which is how the hook
+ * came to answer for in-app drags too: nothing here could tell the two apart, so
+ * nothing here noticed that the hook could not either.
  */
 function createMockDragEvent(files: File[] = [], items: DataTransferItem[] = []): React.DragEvent {
   return {
     preventDefault: vi.fn(),
     stopPropagation: vi.fn(),
     dataTransfer: {
+      types: ['Files'],
       files,
       items: items.length > 0 ? items : files.map(() => ({ kind: 'file', type: 'application/pdf' })),
+    },
+  } as unknown as React.DragEvent
+}
+
+/** A drag started inside the page — a document being moved into a folder. */
+function createInternalDragEvent(type = 'application/x-grid-document-id'): React.DragEvent {
+  return {
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
+    dataTransfer: {
+      types: [type],
+      files: [],
+      items: [{ kind: 'string', type }],
     },
   } as unknown as React.DragEvent
 }
@@ -273,5 +293,68 @@ describe('useFileDragDrop', () => {
 
     expect(onDrop).toHaveBeenCalledWith(files)
     expect(onDrop).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * THE UPLOAD SURFACE MUST NOT ANSWER FOR A MOVE.
+ *
+ * Dragging a document at a folder raised the full-surface "drop files to upload
+ * to this project" overlay over the folder it was aimed at, because this hook
+ * reacted to any drag with items on it — and an in-app drag has one, our own
+ * MIME type. The move underneath still worked; nothing on screen said so.
+ */
+describe('useFileDragDrop — an in-app drag is not an upload', () => {
+  test('ignores a document drag entirely', () => {
+    const onDrop = vi.fn()
+    const { result } = renderHook(() => useFileDragDrop({ onDrop }))
+
+    act(() => result.current.dragHandlers.onDragEnter(createInternalDragEvent()))
+
+    expect(result.current.isDragging).toBe(false)
+    expect(result.current.isUnsupportedDrag).toBe(false)
+  })
+
+  test('ignores a folder drag entirely', () => {
+    const onDrop = vi.fn()
+    const { result } = renderHook(() => useFileDragDrop({ onDrop }))
+
+    act(() =>
+      result.current.dragHandlers.onDragEnter(
+        createInternalDragEvent('application/x-grid-folder-id'),
+      ),
+    )
+
+    expect(result.current.isDragging).toBe(false)
+  })
+
+  test('leaves the drop to the folder under the pointer', () => {
+    const onDrop = vi.fn()
+    const { result } = renderHook(() => useFileDragDrop({ onDrop }))
+    const event = createInternalDragEvent()
+
+    act(() => result.current.dragHandlers.onDrop(event))
+
+    expect(onDrop).not.toHaveBeenCalled()
+    // Not claimed as a drop target either: `preventDefault` here would make the
+    // whole workspace accept a move, so a document released between two folder
+    // tiles would look accepted and do nothing.
+    expect(event.preventDefault).not.toHaveBeenCalled()
+  })
+
+  test('an uncounted leave cannot strand the overlay on the next real upload', () => {
+    const onDrop = vi.fn()
+    const { result } = renderHook(() => useFileDragDrop({ onDrop }))
+
+    // A move crosses the workspace and leaves it. Neither event is this hook's.
+    act(() => result.current.dragHandlers.onDragLeave(createInternalDragEvent()))
+    act(() => result.current.dragHandlers.onDragLeave(createInternalDragEvent()))
+
+    // Then a genuine upload arrives. If the leaves above had been subtracted,
+    // the counter would be at -2 and one leave would never bring it back to 0.
+    act(() => result.current.dragHandlers.onDragEnter(createMockDragEvent([new File(['x'], 'a.pdf')])))
+    expect(result.current.isDragging).toBe(true)
+    act(() => result.current.dragHandlers.onDragLeave(createMockDragEvent([new File(['x'], 'a.pdf')])))
+    expect(result.current.isDragging).toBe(false)
   })
 })

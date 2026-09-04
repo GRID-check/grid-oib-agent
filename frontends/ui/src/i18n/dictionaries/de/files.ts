@@ -251,6 +251,8 @@ export const files: typeof en.files = {
     items: '{count} Element(e)',
     openFolder: 'Ordner „{name}“ öffnen',
     breadcrumb: 'Ordnerpfad',
+    movedFolder: '„{name}“ nach „{parent}“ verschoben.',
+    moveFolderError: 'Der Ordner konnte nicht verschoben werden. Bitte erneut versuchen.',
   },
   workspace: {
     renameFolderError: 'Der Ordner konnte nicht umbenannt werden. Bitte versuchen Sie es erneut.',
