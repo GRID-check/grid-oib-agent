@@ -100,6 +100,27 @@ describe('remarkFileReferences', () => {
     expect(references(parse('Siehe irgendwas.', ['.*']))).toEqual([])
   })
 
+  // Case-insensitive search runs over a lowercased copy, which is only sound
+  // while the fold preserves length. `İ` (U+0130) folds to two code units, so a
+  // name carrying one takes the slower path that compares slices of the
+  // original. Getting it wrong would not lose the match — it would slide every
+  // later index and draw the chip over the WRONG span, so the prose either side
+  // is what this asserts.
+  it('keeps the span right for a name whose lowercase is longer than itself', () => {
+    const turkish = 'İstanbul-Lageplan.pdf'
+    expect(turkish.toLowerCase().length).toBeGreaterThan(turkish.length)
+
+    const tree = parse(`Siehe ${turkish} bitte.`, [turkish])
+    expect(references(tree)).toEqual([[turkish, turkish]])
+
+    const paragraph = tree.children[0]
+    const values =
+      paragraph.type === 'paragraph'
+        ? paragraph.children.map((c) => ('value' in c ? c.value : 'LINK'))
+        : []
+    expect(values).toEqual(['Siehe ', 'LINK', ' bitte.'])
+  })
+
   it('is a no-op with no names', () => {
     const markdown = 'Beginnen Sie mit pd8280-2.pdf.'
     const before = unified().use(remarkParse).parse(markdown)
