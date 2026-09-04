@@ -1001,10 +1001,12 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    *     turn that actually finished server-side still surfaces as the answer.
    *  2. **The socket is open and a deep-research job owns this turn** — its
    *     progress travels on SSE, not on frames, so silence here means nothing
-   *     at all. Re-armed, but NOT indefinitely: the research panel's own
-   *     recovery notice covers a stalled stream, and an exemption with no
-   *     bound would lock the composer forever the first time a terminal event
-   *     is lost.
+   *     at all. Re-armed, but NOT indefinitely — the budget in (3) is checked
+   *     first, because an exemption with no ceiling locks the composer forever
+   *     the first time a terminal job event is lost. The research panel's own
+   *     recovery notice covers a stalled stream in the meantime; that one is
+   *     evidence-based already, since the backend heartbeats the SSE channel
+   *     every 30s and the client resets on it.
    *  3. **The socket is open and quiet** — re-arm until the whole silence
    *     budget is spent, then accuse the turn.
    *
@@ -1022,35 +1024,75 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     const state = useChatStore.getState()
     if (!state.isStreaming) return
 
-    const accuse = (): void => {
+    const conversation = state.currentConversation ?? null
+
+    /**
+     * End the turn — but ASK THE SERVER FIRST.
+     *
+     * The turn being over on this socket does not mean it is over: the backend
+     * finishes and persists its answer whether or not anyone is listening, and
+     * the recovery fetch is HTTP, so it works precisely when the WebSocket does
+     * not. Skipping it meant a socket death mid-turn deleted the partial answer
+     * and told the reader to resend a turn that was already complete in
+     * Postgres — worse than the banner it replaced, which at least left the
+     * streamed prose on screen. The reconnect handler cannot cover this: it runs
+     * on a `connected` event, and there is none when the client gives up.
+     */
+    const endTurn = (): void => {
+      const lastUserMessage = conversation
+        ? [...conversation.messages].reverse().find((m) => m.messageType === 'user')
+        : undefined
+      if (!conversation || !lastUserMessage) {
+        endSilentTurn()
+        addErrorCard(
+          'agent.response_interrupted',
+          'The assistant stopped responding. Please resend your message.'
+        )
+        return
+      }
+      // `endSilentTurn` first: the recovery refuses to fold server history over
+      // a live stream, and this turn's stream is what has just been declared
+      // over. It is also what stops the partial bubble blinking beside whatever
+      // comes back.
       endSilentTurn()
-      addErrorCard(
-        'agent.response_interrupted',
-        'The assistant stopped responding. Please resend your message.'
-      )
+      void useChatStore
+        .getState()
+        ._recoverInterruptedAssistantMessage(conversation.id, lastUserMessage.id)
+        .then((recovered) => {
+          if (recovered) return
+          addErrorCard(
+            'agent.response_interrupted',
+            'The assistant stopped responding. Please resend your message.'
+          )
+        })
     }
 
     // (1) The socket is the only hard evidence available on this side.
     if (!wsClientRef.current?.isConnected()) {
-      accuse()
+      endTurn()
       return
     }
 
     // (2) A deep-research job carries this turn on a channel of its own. Scoped
     // to the conversation that owns it: these store fields are global, so an
     // unscoped read let a run in one thread exempt a stuck turn in another.
-    const conversationId = state.currentConversation?.id ?? null
-    if (conversationId && isDeepResearchLive(state, conversationId)) {
+    //
+    // Bounded by the same budget as branch (3), and checked BEFORE it: an
+    // exemption with no ceiling locks the composer forever the first time a
+    // terminal job event is lost, which is a failure the reader cannot even
+    // describe.
+    const spent = Date.now() - lastFrameAtRef.current >= STREAMING_SILENCE_BUDGET_MS
+    if (!spent && conversation && isDeepResearchLive(state, conversation.id)) {
       armStreamingWatchdogRef.current?.(false)
       return
     }
 
     // (3) Open, quiet, and nothing claims to be working. Spend the budget.
-    if (Date.now() - lastFrameAtRef.current < STREAMING_SILENCE_BUDGET_MS) {
+    if (!spent) {
       armStreamingWatchdogRef.current?.(false)
       return
     }
-    accuse()
+    endTurn()
   }, [addErrorCard, clearStreamingWatchdog, endSilentTurn])
 
   /**
