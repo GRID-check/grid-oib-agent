@@ -11,6 +11,7 @@ import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { useFileSearch } from '../hooks/use-file-search'
+import { toFileItem, type DocumentWireRow } from '../lib/file-item'
 import { inferDocumentKind } from '../document-kind'
 import { FileBrowserPane } from './file-browser-pane'
 import { FileSearchField } from './file-search-bar'
@@ -75,6 +76,21 @@ interface ProjectFileWorkspaceProps {
   /** Faces, Unvergeben, Zuweisen — behind the collaboration flag. */
   canCollaborate?: boolean
   currentUserId?: string
+  /**
+   * The folder tree and the corpus as the SERVER already read them, for the
+   * first paint.
+   *
+   * Absent means "ask for them" — which is what every other caller of this
+   * component does, and what the page itself did until the two reads moved
+   * into it. Present means the first frame is the listing rather than a grid
+   * of grey rectangles waiting on three round trips behind the bundle.
+   *
+   * They seed state; they do not own it. Everything after the first frame — a
+   * filter, a settling poll, an upload landing, a retry — goes through the
+   * same loaders it always did.
+   */
+  initialFolders?: readonly FolderItem[]
+  initialFiles?: readonly DocumentWireRow[]
 }
 
 /**
@@ -156,26 +172,6 @@ export interface FileAssignee {
 }
 
 /**
- * A `/api/documents` row as it arrives over the wire — the JSON projection of
- * `listDocuments`. Everything ingestion derives (summary, page/chunk counts,
- * content types, tags) is absent until the backend has produced it, which is
- * why each is normalized to `null` when the response is mapped to `FileItem`.
- */
-type DocumentWireRow = Omit<FileItem, OptionalWireField> & Partial<Pick<FileItem, OptionalWireField>>
-
-type OptionalWireField =
-  | 'authoredBy'
-  | 'displayName'
-  | 'folderId'
-  | 'errorMessage'
-  | 'summary'
-  | 'pageCount'
-  | 'chunkCount'
-  | 'contentTypes'
-  | 'tags'
-  | 'assignees'
-
-/**
  * Presentation of the file browser.
  *
  * `cards` browses, `list` is the explorer detail view for a corpus too large
@@ -187,7 +183,7 @@ type FileView = 'cards' | 'list'
 
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
-export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, previewFirst = true, canCollaborate = false, currentUserId }: ProjectFileWorkspaceProps) {
+export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, previewFirst = true, canCollaborate = false, currentUserId, initialFolders, initialFiles }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const router = useRouter()
   const pathname = usePathname()
@@ -295,10 +291,12 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     [pathname, router, searchParams]
   )
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null)
-  const [folders, setFolders] = useState<FolderItem[]>([])
-  const [files, setFiles] = useState<FileItem[]>([])
-  const [isLoadingFolders, setIsLoadingFolders] = useState(true)
-  const [isLoadingFiles, setIsLoadingFiles] = useState(true)
+  const [folders, setFolders] = useState<FolderItem[]>(() => [...(initialFolders ?? [])])
+  const [files, setFiles] = useState<FileItem[]>(() => (initialFiles ?? []).map(toFileItem))
+  // Seeded means loaded. Starting these at `true` with the answer already in
+  // state would draw the skeleton over a listing this render could paint.
+  const [isLoadingFolders, setIsLoadingFolders] = useState(initialFolders === undefined)
+  const [isLoadingFiles, setIsLoadingFiles] = useState(initialFiles === undefined)
   const [foldersError, setFoldersError] = useState(false)
   const [filesError, setFilesError] = useState(false)
 
@@ -362,25 +360,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       })
       .then((data) => {
         if (isStale()) return
-        const docs: FileItem[] = (data.documents ?? []).map((d) => ({
-          id: d.id,
-          filename: d.filename,
-          displayName: d.displayName ?? null,
-          fileSize: d.fileSize,
-          contentType: d.contentType,
-          status: d.status,
-          folderId: d.folderId ?? null,
-          createdAt: d.createdAt,
-          errorMessage: d.errorMessage ?? null,
-          summary: d.summary ?? null,
-          pageCount: d.pageCount ?? null,
-          chunkCount: d.chunkCount ?? null,
-          contentTypes: d.contentTypes ?? null,
-          tags: d.tags ?? null,
-          assignees: d.assignees ?? [],
-          authoredBy: d.authoredBy ?? 'user',
-        }))
-        setFiles(docs)
+        setFiles((data.documents ?? []).map(toFileItem))
       })
       .catch(() => {
         // A failed POLL must not empty a list the user is looking at; only a
@@ -406,6 +386,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
   const { uploadFiles, isUploading, trackedFiles, error, clearError, retryFile, cancelFile, cancelUpload, dismissFiles } =
     useProjectDocuments({
       projectId,
+      // The page resolved this server-side; the hook used to fetch it again.
+      collectionName,
       folderId: selectedFolderId ?? undefined,
       // Refresh the durable file list once ingestion of an upload completes so
       // new documents appear without a manual reload. Wrapped rather than passed
@@ -431,12 +413,33 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       .finally(() => setIsLoadingFolders(false))
   }, [projectId])
 
+  /**
+   * The seeded first render is already the answer, so the mount load is
+   * skipped once — and only once.
+   *
+   * A ref rather than a `hasLoaded` state: this must not re-render, and it
+   * must be consumed by the FIRST run of each effect rather than by a
+   * condition that could still be true when `loadFiles` changes identity. It
+   * changes identity when the „Von Piloti" chip flips, and that is a request
+   * for a different listing which has to reach the server.
+   */
+  const seededFolders = useRef(initialFolders !== undefined)
+  const seededFiles = useRef(initialFiles !== undefined)
+
   useEffect(() => {
+    if (seededFolders.current) {
+      seededFolders.current = false
+      return
+    }
     void loadFolders()
   }, [loadFolders])
 
   // Fetch files
   useEffect(() => {
+    if (seededFiles.current) {
+      seededFiles.current = false
+      return
+    }
     void loadFiles()
   }, [loadFiles])
 

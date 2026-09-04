@@ -187,6 +187,129 @@ describe('ProjectFileWorkspace', () => {
 })
 
 /**
+ * The listing the SERVER already read.
+ *
+ * Dateien used to paint a skeleton, boot its bundle and only then ask for the
+ * folders and the documents — three round trips stacked behind the JavaScript,
+ * on a page whose whole job is to show a list the page request could already
+ * have had. The page reads both now and hands them down; what these pin is that
+ * the seed is a first paint and not a second source of truth: the corpus is on
+ * screen in the first frame, and nothing goes back out to fetch what it was
+ * just given.
+ */
+describe('ProjectFileWorkspace — server-seeded first paint', () => {
+  const seededFile = {
+    id: 'doc-seed',
+    filename: 'Einreichplan.pdf',
+    displayName: null,
+    fileSize: 2048,
+    contentType: 'application/pdf',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00.000Z',
+    errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
+    tags: null,
+    assignees: [],
+    authoredBy: 'user' as const,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+  })
+
+  it('renders the seeded corpus without asking for it again', async () => {
+    const documentsRequests: string[] = []
+    const folderRequests: string[] = []
+    server.use(
+      http.get('/api/documents', ({ request }) => {
+        documentsRequests.push(request.url)
+        return HttpResponse.json({ documents: [] })
+      }),
+      http.get('/api/projects/:projectId/folders', ({ request }) => {
+        folderRequests.push(request.url)
+        return HttpResponse.json({ folders: [] })
+      }),
+    )
+
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[seededFile]}
+        initialFolders={[{ id: 'folder-1', parentId: null, name: 'Brandschutz', path: 'Brandschutz' }]}
+      />,
+    )
+
+    // The file and the folder are there to be found immediately — no skeleton
+    // frame to wait through, which is the whole point of the seed.
+    expect(await findFileButton(/Einreichplan\.pdf/)).toBeInTheDocument()
+    expect(screen.getByTestId('folder-card-folder-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('file-browser-skeleton')).not.toBeInTheDocument()
+
+    // And neither listing is re-requested on mount. A refetch here would be
+    // invisible on a fast connection and would still cost every reader two
+    // round trips for an answer they can already see.
+    await waitFor(() => expect(mockUploadFiles).not.toHaveBeenCalled())
+    expect(documentsRequests).toHaveLength(0)
+    expect(folderRequests).toHaveLength(0)
+  })
+
+  it('still fetches when the caller has nothing to seed with', async () => {
+    let documentsRequests = 0
+    server.use(
+      http.get('/api/documents', () => {
+        documentsRequests += 1
+        return HttpResponse.json({ documents: [seededFile] })
+      }),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+    )
+
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />,
+    )
+
+    expect(await findFileButton(/Einreichplan\.pdf/)).toBeInTheDocument()
+    expect(documentsRequests).toBe(1)
+  })
+
+  it('re-reads the listing when the „Von Piloti" chip narrows it server-side', async () => {
+    const requested: string[] = []
+    server.use(
+      http.get('/api/documents', ({ request }) => {
+        requested.push(new URL(request.url).searchParams.get('authoredBy') ?? '')
+        return HttpResponse.json({ documents: [] })
+      }),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+    )
+
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[seededFile]}
+        initialFolders={[]}
+      />,
+    )
+    expect(await findFileButton(/Einreichplan\.pdf/)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /filter/i }))
+    await userEvent.click(await screen.findByLabelText('By Piloti'))
+
+    // The seed is spent by the mount, not by the component's lifetime: a filter
+    // that only the server can apply must still reach it.
+    await waitFor(() => expect(requested).toEqual(['agent']))
+  })
+})
+
+/**
  * „Bisher keine Möglichkeit, Dateien per Drag & Drop in Ordner zu verschieben."
  *
  * The move itself already existed — `PATCH /api/documents/[id]/folder`, offered

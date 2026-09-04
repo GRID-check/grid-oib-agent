@@ -443,6 +443,16 @@ function SortHeader({
 export function FileListSkeleton({ rows = 6 }: { rows?: number }) {
   return (
     <div className="space-y-1 px-4 pb-4 pt-6" data-testid="file-list-skeleton">
+      {/*
+        THE COLUMN HEADINGS ARE PART OF THE SHAPE.
+        This drew rows and no header, so the detail view's first frame was six
+        grey lines that then jumped down by a header's height the moment the
+        answer arrived — on the one view a reader chooses precisely because it
+        is dense and stable. The headings are real words, not grey bars: they
+        are known before the listing is, and they tell a reader what they are
+        about to be looking at while they wait for it.
+      */}
+      <FileListSkeletonHeader />
       {Array.from({ length: rows }).map((_, index) => (
         <div key={index} className="flex items-center gap-2.5 px-2 py-1.5">
           <Skeleton className="size-6 shrink-0 rounded-sm" />
@@ -455,6 +465,20 @@ export function FileListSkeleton({ rows = 6 }: { rows?: number }) {
           <Skeleton className="hidden h-3 w-16 shrink-0 md:block" />
         </div>
       ))}
+    </div>
+  )
+}
+
+/** The heading strip above the placeholder rows — same widths as the real columns. */
+function FileListSkeletonHeader(): JSX.Element {
+  const t = useTranslations('files')
+  return (
+    <div className="text-muted-foreground flex items-center gap-2.5 border-b px-2 pb-1.5 text-[10.5px] font-medium tracking-wider">
+      <span className="min-w-0 flex-1">{t('list.columns.name')}</span>
+      <span className="w-[104px] shrink-0">{t('list.columns.status')}</span>
+      <span className="hidden w-[76px] shrink-0 text-right lg:block">{t('list.columns.pages')}</span>
+      <span className="hidden w-[104px] shrink-0 text-right sm:block">{t('list.columns.size')}</span>
+      <span className="hidden w-[104px] shrink-0 text-right sm:block">{t('list.columns.added')}</span>
     </div>
   )
 }

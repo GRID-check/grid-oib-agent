@@ -507,3 +507,119 @@ describe('FileBrowserPane — a filter emptied the level', () => {
     expect(screen.queryByText(notice.title)).not.toBeInTheDocument()
   })
 })
+
+/**
+ * THE SKELETON IS A PROMISE ABOUT THE NEXT FRAME.
+ *
+ * The one it replaced drew a full-width `h-9` bar — a search field the page had
+ * moved into its header a release earlier and was never bringing back — above a
+ * full-width grid of six card placeholders. What then arrived was a breadcrumb
+ * row over a 1200px column that starts with folder tiles and ends with a dashed
+ * upload cell. Every load ended in a jump, and the loading state described a
+ * layout that had not existed for months.
+ *
+ * These pin the parts that made it wrong, so the next person to move a control
+ * out of this pane finds out here rather than in a screenshot.
+ */
+describe('FileBrowserPane — loading', () => {
+  const folderNav = {
+    folders: [] as FolderItem[],
+    currentFolderId: null,
+    onNavigate: vi.fn(),
+    onCreateFolder: vi.fn(),
+    onRenameFolder: vi.fn(),
+    onDeleteFolder: vi.fn(),
+  }
+
+  it('draws the breadcrumb row, the folder tiles and the upload cell it is about to be replaced by', () => {
+    renderPane({
+      isLoading: true,
+      folderNav,
+      uploadCard: <button type="button">Drop files</button>,
+    })
+
+    const skeleton = screen.getByTestId('file-browser-skeleton')
+    expect(within(skeleton).getByTestId('folder-breadcrumb-skeleton')).toBeInTheDocument()
+    expect(within(skeleton).getAllByTestId('folder-card-skeleton').length).toBeGreaterThan(0)
+    // The dashed cell is the last tile of a project's grid; a skeleton without
+    // it is one tile shorter than the answer.
+    expect(within(skeleton).getByText('Drop files')).toBeInTheDocument()
+  })
+
+  it('leaves the breadcrumb out on a surface that has no folders', () => {
+    renderPane({ isLoading: true })
+    const skeleton = screen.getByTestId('file-browser-skeleton')
+    expect(within(skeleton).queryByTestId('folder-breadcrumb-skeleton')).not.toBeInTheDocument()
+    expect(within(skeleton).queryByTestId('folder-card-skeleton')).not.toBeInTheDocument()
+  })
+
+  it('takes the shape of the view the reader chose', () => {
+    renderPane({ isLoading: true, view: 'list', folderNav })
+    const skeleton = screen.getByTestId('file-browser-skeleton')
+    expect(within(skeleton).getByTestId('file-list-skeleton')).toBeInTheDocument()
+    // The detail view's column headings are known before the listing is, so the
+    // rows do not jump down by a header when the answer lands.
+    expect(within(skeleton).getByText('Status')).toBeInTheDocument()
+  })
+})
+
+/**
+ * A folder card carries two aggregates — how much is inside, and how recently
+ * anything under it changed. Both used to be computed per card by re-scanning
+ * the corpus, and the second recursed while doing it. They are one pass now;
+ * these say the answers did not move.
+ */
+describe('FileBrowserPane — folder aggregates', () => {
+  const tree: FolderItem[] = [
+    { id: 'root-a', parentId: null, name: 'Einreichung', path: 'Einreichung' },
+    { id: 'child-a', parentId: 'root-a', name: 'Plaene', path: 'Einreichung/Plaene' },
+  ]
+  const corpus: FileItem[] = [
+    { ...files[0], id: 'in-root', folderId: 'root-a', createdAt: '2026-01-01T00:00:00Z' },
+    { ...files[1], id: 'in-child', folderId: 'child-a', createdAt: '2026-03-09T00:00:00Z' },
+  ]
+
+  it('counts direct children only, and reports the newest date from the whole subtree', () => {
+    renderPane({
+      files: [],
+      searchFiles: corpus,
+      folderNav: {
+        folders: tree,
+        currentFolderId: null,
+        onNavigate: vi.fn(),
+        onCreateFolder: vi.fn(),
+        onRenameFolder: vi.fn(),
+        onDeleteFolder: vi.fn(),
+      },
+    })
+
+    const card = screen.getByTestId('folder-card-root-a')
+    // One document + one subfolder directly inside: two items, not the three
+    // things that exist underneath it.
+    expect(within(card).getByText('2 item(s)')).toBeInTheDocument()
+    // The newest thing under it is in the SUBFOLDER, so the walk has to reach
+    // it — the folder's own document is two months older.
+    expect(within(card).getByRole('time')).toHaveAttribute('datetime', '2026-03-09T00:00:00Z')
+  })
+
+  it('survives a parent cycle in the folder rows rather than overflowing the stack', () => {
+    const cyclic: FolderItem[] = [
+      { id: 'a', parentId: 'b', name: 'A', path: 'A' },
+      { id: 'b', parentId: 'a', name: 'B', path: 'B' },
+    ]
+    expect(() =>
+      renderPane({
+        files: [],
+        searchFiles: [],
+        folderNav: {
+          folders: cyclic,
+          currentFolderId: null,
+          onNavigate: vi.fn(),
+          onCreateFolder: vi.fn(),
+          onRenameFolder: vi.fn(),
+          onDeleteFolder: vi.fn(),
+        },
+      }),
+    ).not.toThrow()
+  })
+})

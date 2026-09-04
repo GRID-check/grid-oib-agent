@@ -21,6 +21,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon } from '@/components/ui/input-group'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { AnimatePresence, motion, motionQuick } from '@/components/motion'
 import { BackControl } from '@/components/shell/back-link'
@@ -548,5 +549,78 @@ export function FolderRow({
       />
       <ChevronRight className="size-3.5 shrink-0 text-amber-400/60 group-hover:text-amber-500 transition-colors" aria-hidden />
     </motion.div>
+  )
+}
+
+/**
+ * The three folder placeholders, kept in this file on purpose.
+ *
+ * A skeleton is a promise about the layout that is one frame away, and the only
+ * way it keeps that promise is by being edited in the same breath as the thing
+ * it stands for. The Files skeleton drifted precisely because it lived
+ * somewhere else: it drew a full-width search bar the page had moved into its
+ * header a release earlier, and no folder tiles at all, so the first paint
+ * showed a shape that was never going to arrive.
+ *
+ * Each one reuses the REAL wrapper — the same shell, the same row chrome, the
+ * same padding — so a change to the tile moves its placeholder with it and only
+ * the ink inside is grey.
+ */
+
+/** A {@link FolderCard} before its name arrives. */
+export function FolderCardSkeleton(): JSX.Element {
+  return (
+    <GridTileShell variant="folder" interactive={false} data-testid="folder-card-skeleton">
+      <GridTileBody className="flex-1 p-0">
+        <GridTileMedia className="flex h-[124px] items-center justify-center bg-muted/30">
+          <Folder className="size-10 text-muted-foreground/25" strokeWidth={1.4} aria-hidden />
+        </GridTileMedia>
+        <div className="px-3.5 pb-3 pt-[11px]">
+          <Skeleton className="h-4 w-24" />
+        </div>
+      </GridTileBody>
+      <GridTileFooter className="gap-1.5 px-3.5 pb-2.5 pt-[9px]">
+        <Skeleton className="h-3 w-12" />
+      </GridTileFooter>
+    </GridTileShell>
+  )
+}
+
+/** A {@link FolderRow} before its name arrives. */
+export function FolderRowSkeleton(): JSX.Element {
+  return (
+    <div
+      className="flex w-full items-center gap-2 rounded-lg border border-amber-200/40 bg-amber-50/40 px-3 py-2 dark:border-amber-800/20 dark:bg-amber-950/10"
+      data-testid="folder-row-skeleton"
+    >
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-amber-100 dark:bg-amber-900/30">
+        <Folder className="size-3.5 text-amber-600/50 dark:text-amber-400/50" aria-hidden />
+      </span>
+      <Skeleton className="h-3.5 w-40" />
+      <Skeleton className="h-3.5 w-8 rounded-full" />
+    </div>
+  )
+}
+
+/**
+ * The path row before the tree is known.
+ *
+ * The same chrome as {@link FolderBreadcrumbRow} — border, tint, height — so
+ * the listing below it does not shift down by a row when the real one replaces
+ * it. „Alle Dateien" is drawn rather than greyed out: it is the one segment
+ * that is true before anything has loaded, at every level, and a reader who
+ * lands mid-load should see where they are rather than a grey pill where the
+ * word will be.
+ */
+export function FolderBreadcrumbRowSkeleton(): JSX.Element {
+  const t = useTranslations('files')
+  return (
+    <div
+      className="flex shrink-0 items-center justify-between gap-2 border-b bg-card/50 px-4 py-2.5 backdrop-blur-sm"
+      data-testid="folder-breadcrumb-skeleton"
+    >
+      <span className="text-sm font-medium text-muted-foreground">{t('folders.allFiles')}</span>
+      <Skeleton className="h-8 w-28 rounded-md" />
+    </div>
   )
 }

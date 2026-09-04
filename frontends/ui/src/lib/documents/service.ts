@@ -37,7 +37,7 @@ import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { FEATURE_FLAGS, isCollaborationEnabled, isFeatureEnabled, isIfcModelsEnabled } from '@/lib/authz/feature-flags'
-import { listResourceAssignments } from '@/lib/assignments/service'
+import { listResourceAssignments, type AssignedPerson } from '@/lib/assignments/service'
 import { deleteAssignmentsForResource } from '@/lib/assignments/repository'
 import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -369,7 +369,7 @@ export async function listDocuments(
    * reconcile and assignment-hydrate every row of it — to return a handful.
    */
   options: { authoredBy?: DocumentAuthor } = {},
-): Promise<Array<Omit<DocumentListRow, 'metadata'> & DocumentMetadata>> {
+): Promise<ListedDocument[]> {
   await requireProjectAccess(session, projectId, 'project:view')
 
   const rows = await listProjectDocuments(
@@ -398,6 +398,19 @@ export async function listDocuments(
   )
   return listed.map((row) => ({ ...row, assignees: grouped[row.id] ?? [] }))
 }
+
+/**
+ * One row of a document listing.
+ *
+ * `assignees` is part of it. It used to be added by the two `return`s below and
+ * left out of the signature, which type-checks (nothing rejects an extra
+ * property on a spread) and is a lie every caller then has to work around: the
+ * wire projection could not see the field it is required to serialize, and
+ * anything reading a listing had to re-widen the type to find the faces it
+ * renders.
+ */
+export type ListedDocument = Omit<DocumentListRow, 'metadata'> &
+  DocumentMetadata & { assignees: AssignedPerson[] }
 
 /**
  * A single hit from the backend's document-centric semantic search
