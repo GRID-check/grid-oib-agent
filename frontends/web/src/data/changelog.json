@@ -39,6 +39,27 @@
       "summary": null,
       "sections": [
         {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Nennt eine Antwort eine Datei beim Namen — „Beginnen Sie mit pd8280-2.pdf\" —, ist dieser Name jetzt anklickbar und öffnet das Dokument neben der Antwort. Bisher war er reiner Text: Der Weg dorthin führte über die Dateien, das Suchfeld und den abgetippten Namen.",
+              "de": "Nennt eine Antwort eine Datei beim Namen — „Beginnen Sie mit pd8280-2.pdf\" —, ist dieser Name jetzt anklickbar und öffnet das Dokument neben der Antwort. Bisher war er reiner Text: Der Weg dorthin führte über die Dateien, das Suchfeld und den abgetippten Namen."
+            },
+            {
+              "en": "Verlinkt wird nur, was Sie tatsächlich haben. Ein Name, hinter dem in Projektdateien, Büroarchiv und den Beilagen dieses Chats kein Dokument steht, bleibt gewöhnlicher Text — ein Verweis, der ins Leere führt, wäre schlechter als gar keiner.",
+              "de": "Verlinkt wird nur, was Sie tatsächlich haben. Ein Name, hinter dem in Projektdateien, Büroarchiv und den Beilagen dieses Chats kein Dokument steht, bleibt gewöhnlicher Text — ein Verweis, der ins Leere führt, wäre schlechter als gar keiner."
+            },
+            {
+              "en": "Beim Überfahren mit der Maus sagt der Name, wofür man sich entscheidet: aus welchem Bestand die Datei stammt (Projekt, Büroarchiv oder Beilage in diesem Chat), Format, Größe und Seitenzahl, die Kurzbeschreibung — und ob Piloti das Dokument gelesen hat.",
+              "de": "Beim Überfahren mit der Maus sagt der Name, wofür man sich entscheidet: aus welchem Bestand die Datei stammt (Projekt, Büroarchiv oder Beilage in diesem Chat), Format, Größe und Seitenzahl, die Kurzbeschreibung — und ob Piloti das Dokument gelesen hat."
+            },
+            {
+              "en": "Der Name ist auch in Tabellen anklickbar — etwa in der Zeile „Wichtigste Datei\" einer Vergleichstabelle, die genau dazu da ist, auf Unterlagen zu verweisen.",
+              "de": "Der Name ist auch in Tabellen anklickbar — etwa in der Zeile „Wichtigste Datei\" einer Vergleichstabelle, die genau dazu da ist, auf Unterlagen zu verweisen."
+            }
+          ]
+        },
+        {
           "key": "fixes",
           "notes": [
             {
@@ -48,6 +69,14 @@
             {
               "en": "Every finished answer can now be copied. An answer that cites no source — a clarifying question, a short conversational reply — offered only the Word download before, so there was no way to take a sentence from it into an e-mail.",
               "de": "Every finished answer can now be copied. An answer that cites no source — a clarifying question, a short conversational reply — offered only the Word download before, so there was no way to take a sentence from it into an e-mail."
+            },
+            {
+              "en": "Eine Datei, die Sie in diesem Chat als Beilage hochgeladen haben, wird jetzt auch dann gefunden, wenn die Antwort sie beim Namen nennt. Bisher kannte die Auflösung nur Projektdateien und Büroarchiv.",
+              "de": "Eine Datei, die Sie in diesem Chat als Beilage hochgeladen haben, wird jetzt auch dann gefunden, wenn die Antwort sie beim Namen nennt. Bisher kannte die Auflösung nur Projektdateien und Büroarchiv."
+            },
+            {
+              "en": "Schreibt eine Antwort einen Dateinamen anders groß als die Datei selbst, wird sie trotzdem gefunden — sowohl beim Verweis im Text als auch in den Dokumentkarten, wo dieselbe Datei bisher als nicht auffindbar angezeigt wurde.",
+              "de": "Schreibt eine Antwort einen Dateinamen anders groß als die Datei selbst, wird sie trotzdem gefunden — sowohl beim Verweis im Text als auch in den Dokumentkarten, wo dieselbe Datei bisher als nicht auffindbar angezeigt wurde."
             },
             {
               "en": "Keyword matching now ignores words that appear in nearly every document, so a search no longer spends part of its results on a term that matches everything. Answers cite more of the documents that actually differ on the question, and searches that used to run an extra pointless lookup return a little sooner.",
