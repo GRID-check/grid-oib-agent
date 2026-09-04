@@ -83,6 +83,23 @@ describe('remarkFileReferences', () => {
     expect(references(tree)).toEqual([])
   })
 
+  // The matching used to compile the names into a regex alternation, so every
+  // one of these characters had to be escaped by hand and correctly. There is
+  // no pattern any more, so there is nothing left to escape wrongly — these pin
+  // that the names are treated as literal text.
+  it('treats regex metacharacters in a filename as literal text', () => {
+    const awkward = 'Plan (Rev.2) [final] +neu $1.pdf'
+    expect(references(parse(`Siehe ${awkward} bitte.`, [awkward]))).toEqual([[awkward, awkward]])
+  })
+
+  it('does not let a filename act as a pattern against the prose', () => {
+    // `.` would match any character, `.*` would swallow the sentence.
+    expect(references(parse('Siehe PlanXpdf und Plan.pdf.', ['Plan.pdf']))).toEqual([
+      ['Plan.pdf', 'Plan.pdf'],
+    ])
+    expect(references(parse('Siehe irgendwas.', ['.*']))).toEqual([])
+  })
+
   it('is a no-op with no names', () => {
     const markdown = 'Beginnen Sie mit pd8280-2.pdf.'
     const before = unified().use(remarkParse).parse(markdown)

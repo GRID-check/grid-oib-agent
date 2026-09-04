@@ -18,6 +18,23 @@
  * Order matters and is the caller's: names arrive longest-first, so
  * `Grundriss Plan.pdf` claims its text before `Plan.pdf` can take the tail of
  * it.
+ *
+ * ## No regex, deliberately
+ *
+ * The obvious implementation of "find any of these strings" is one alternation
+ * compiled with `new RegExp(names.map(escape).join('|'), 'gi')`, and that is
+ * what this was. Semgrep blocked it (`detect-non-literal-regexp`) and it was
+ * right to, even though the ReDoS it names cannot actually happen here: an
+ * alternation of escaped literals has no quantifier to backtrack on. The rule
+ * is pointing at the shape rather than the exploit, and the shape is real —
+ * the pattern was built at runtime out of FILENAMES, which are whatever
+ * somebody typed into an upload dialog, so its safety rested entirely on one
+ * hand-written escape function staying correct forever.
+ *
+ * Nothing here needs a regex engine. Finding a literal string in another
+ * literal string is `indexOf`, which cannot be talked into interpreting its
+ * input as a pattern, is faster than compiling and running an alternation, and
+ * deletes the escaping question rather than answering it.
  */
 
 import type { Link, Parent, PhrasingContent, Root, Text } from 'mdast'
@@ -46,27 +63,10 @@ export interface FileReferenceOptions {
 export const remarkFileReferences =
   ({ fileNames }: FileReferenceOptions) =>
   (tree: Root): void => {
-    if (fileNames.length === 0) return
-    const matcher = buildMatcher(fileNames)
-    if (!matcher) return
-    linkFileNames(tree, matcher)
+    const names = fileNames.filter((name) => name.trim().length > 0)
+    if (names.length === 0) return
+    linkFileNames(tree, names)
   }
-
-/** Escape a filename for use as a regex literal. */
-const escapeLiteral = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-/**
- * One alternation over every candidate name, rather than one pass per name.
- *
- * The candidate list is already narrowed to names this body contains, so it is
- * a handful in practice; the alternation keeps the walk linear in the length of
- * the prose either way.
- */
-const buildMatcher = (fileNames: readonly string[]): RegExp | null => {
-  const alternatives = fileNames.filter((name) => name.trim().length > 0).map(escapeLiteral)
-  if (alternatives.length === 0) return null
-  return new RegExp(alternatives.join('|'), 'gi')
-}
 
 /**
  * A filename occurrence is a REFERENCE only when it stands on its own.
@@ -93,20 +93,20 @@ const standsAlone = (value: string, start: number, end: number): boolean => {
 }
 
 /** Rewrite every standalone filename below `parent`, in place. */
-const linkFileNames = (parent: Parent, matcher: RegExp): void => {
+const linkFileNames = (parent: Parent, fileNames: readonly string[]): void => {
   const rewritten: PhrasingContent[] = []
   let changed = false
 
   for (const child of parent.children) {
     if (child.type === 'text') {
-      const parts = splitFileNames(child, matcher)
+      const parts = splitFileNames(child, fileNames)
       if (parts) {
         rewritten.push(...parts)
         changed = true
         continue
       }
     } else if ('children' in child && !OPAQUE_TO_MARKERS.has(child.type)) {
-      linkFileNames(child, matcher)
+      linkFileNames(child, fileNames)
     }
     rewritten.push(child as PhrasingContent)
   }
@@ -116,38 +116,90 @@ const linkFileNames = (parent: Parent, matcher: RegExp): void => {
   if (changed) parent.children = rewritten as Parent['children']
 }
 
+/** Where one filename sits in a run of literal text. */
+interface Span {
+  start: number
+  /** Offset just past the last character. */
+  end: number
+}
+
+/**
+ * Every position in `value` where `needle` occurs, case-insensitively.
+ *
+ * Lowercasing the whole string once and searching THAT is the fast path, and it
+ * is only sound while the fold preserves length — which it does for every
+ * character these filenames realistically contain, and does not for a few
+ * (U+0130 `İ` lowercases to two code units). A fold that changed the length
+ * would slide every index after it, and the chip would then be drawn over the
+ * wrong span of the sentence — a visible corruption rather than a missed match,
+ * so it is worth the second path rather than a comment saying it is unlikely.
+ */
+const occurrences = (value: string, needle: string): number[] => {
+  const found: number[] = []
+  const lowerNeedle = needle.toLowerCase()
+  const lowerValue = value.toLowerCase()
+
+  if (lowerValue.length === value.length && lowerNeedle.length === needle.length) {
+    let from = 0
+    for (;;) {
+      const at = lowerValue.indexOf(lowerNeedle, from)
+      if (at === -1) return found
+      found.push(at)
+      // One past the start, not past the match: two occurrences of a name may
+      // legitimately touch, and the overlap rule below is what decides.
+      from = at + 1
+    }
+  }
+
+  // A length-changing fold. Compare slices of the ORIGINAL, so an index always
+  // means the same thing to `standsAlone` and to the slicing below.
+  for (let at = 0; at + needle.length <= value.length; at += 1) {
+    if (value.slice(at, at + needle.length).toLowerCase() === lowerNeedle) found.push(at)
+  }
+  return found
+}
+
+/**
+ * The spans this text node gives up to file references, in reading order and
+ * never overlapping.
+ *
+ * Names arrive longest-first, and a name claims its span before any shorter one
+ * is considered — so in „Grundriss Plan.pdf" the longer name wins and the
+ * `Plan.pdf` inside it is not a second reference. That is the same precedence
+ * the alternation used to get from leftmost-first matching, made explicit.
+ */
+const claimedSpans = (value: string, fileNames: readonly string[]): Span[] => {
+  const claimed: Span[] = []
+
+  for (const name of fileNames) {
+    for (const start of occurrences(value, name)) {
+      const end = start + name.length
+      if (!standsAlone(value, start, end)) continue
+      // Linear: a text node yields a handful of references, never a list worth
+      // an interval tree.
+      if (claimed.some((span) => start < span.end && end > span.start)) continue
+      claimed.push({ start, end })
+    }
+  }
+
+  return claimed.sort((a, b) => a.start - b.start)
+}
+
 /**
  * A text node split into its file references and the prose between them, or
  * `null` when it names none.
  */
-const splitFileNames = (node: Text, matcher: RegExp): PhrasingContent[] | null => {
-  matcher.lastIndex = 0
+const splitFileNames = (node: Text, fileNames: readonly string[]): PhrasingContent[] | null => {
+  const spans = claimedSpans(node.value, fileNames)
+  if (spans.length === 0) return null
+
   const parts: PhrasingContent[] = []
   let cursor = 0
-  let match: RegExpExecArray | null
-
-  while ((match = matcher.exec(node.value)) !== null) {
-    const start = match.index
-    const end = start + match[0].length
-    // A zero-length alternative would loop forever; a filename cannot be empty,
-    // but the guard costs nothing and the alternation is built from input.
-    if (end === start) {
-      matcher.lastIndex = start + 1
-      continue
-    }
-    if (!standsAlone(node.value, start, end)) {
-      // Resume one character in, so a name that begins inside the rejected
-      // token can still match on its own.
-      matcher.lastIndex = start + 1
-      continue
-    }
+  for (const { start, end } of spans) {
     if (start > cursor) parts.push({ type: 'text', value: node.value.slice(cursor, start) })
-    parts.push(fileReferenceLink(match[0]))
+    parts.push(fileReferenceLink(node.value.slice(start, end)))
     cursor = end
-    matcher.lastIndex = end
   }
-
-  if (parts.length === 0) return null
   if (cursor < node.value.length) parts.push({ type: 'text', value: node.value.slice(cursor) })
   return parts
 }
