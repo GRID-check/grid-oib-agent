@@ -183,6 +183,32 @@ const BIM_EXPORT_LIMIT = {
 }
 
 /**
+ * A RIS document, read for a citation (`GET /api/ris/document`).
+ *
+ * A read, and reads are not defaulted — so this one had no bound at all, which
+ * was the wrong answer for the only read in this product that makes a
+ * THIRD-PARTY network call per request. The cost of one unbounded request is
+ * not a database row: `RisClient._get_with_retries` will spend three attempts
+ * with a 30 s timeout each plus 1 s and 2 s of backoff before it gives up, and
+ * a Gesamtfassung is megabytes — so a loop here is a self-DoS on backend
+ * workers AND an amplifier pointed at a government service that has done
+ * nothing to deserve it.
+ *
+ * Sized for what a person does. Checking a citation is one open; reading an
+ * answer with a dozen RIS sources and opening every one is a dozen. Sixty a
+ * minute leaves that untouched and stops a loop dead; the burst clause is what
+ * actually catches the loop, since a human cannot open six documents in five
+ * seconds and a script does nothing else.
+ * @type {LimitRule}
+ */
+const RIS_DOCUMENT_LIMIT = {
+  name: 'ris-document',
+  limit: 60,
+  windowMs: 60 * 1000,
+  burst: { limit: 6, windowMs: 5 * 1000 },
+}
+
+/**
  * The default budget for a mutating API route that has not declared one.
  *
  * `apiRoute` applies this to every POST/PUT/PATCH/DELETE unless the route says
@@ -206,6 +232,7 @@ const DEFAULT_MUTATION_LIMIT = {
 module.exports = {
   BIM_QUERY_LIMIT,
   BIM_EXPORT_LIMIT,
+  RIS_DOCUMENT_LIMIT,
   SHARE_LIMIT,
   TYPING_LIMIT,
   MENTION_LIMIT,

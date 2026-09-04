@@ -175,6 +175,41 @@ class TestHtmlToText:
         assert "Stellplätze sind vorzusehen." in text
         assert "\n\n\n" not in text
 
+    def test_drops_the_ris_page_furniture_when_the_document_container_is_present(self):
+        # The shape of a real ``GeltendeFassung.wxe`` page: an accesskey menu and
+        # a navigation bar BEFORE ``#content``. Measured against the Bauordnung
+        # für Wien (2026-09-04) the furniture is only ~672 characters against
+        # 759,015 of law — and all of it sits at the FRONT, which is where it does
+        # the damage: it is what the in-app reader opens on, what the agent reads
+        # first inside its ``max_chars`` window, and what gets ingested into the
+        # session collection as retrievable text that is not law.
+        html = (
+            "<html><head><title>Bauordnung für Wien</title></head><body>"
+            "<div id='skiplinks'>Seitenbereiche: Zum Inhalt (Accesskey 0)</div>"
+            "<ul id='nav'><li>Startseite</li><li>Bund</li><li>Länder</li></ul>"
+            "<div id='content'><h1>§ 108</h1><p>Lagerung gefährlicher Stoffe</p></div>"
+            "<div id='footer'>Impressum</div>"
+            "</body></html>"
+        )
+
+        _, text = html_to_text(html)
+
+        assert "Lagerung gefährlicher Stoffe" in text
+        assert "Accesskey" not in text
+        assert "Startseite" not in text
+        assert "Impressum" not in text
+
+    def test_keeps_the_whole_document_when_there_is_no_container(self):
+        # A ``/Dokumente/…`` page, an XML payload, or a future RIS template may
+        # carry no ``#content``. Absence is not an error — the whole document is
+        # then the answer, exactly as it was before.
+        html = "<html><body><h1>§ 5</h1><p>Stellplätze sind vorzusehen.</p></body></html>"
+
+        _, text = html_to_text(html)
+
+        assert "Stellplätze sind vorzusehen." in text
+        assert "§ 5" in text
+
 
 class TestBuildDocumentUrl:
     def test_infers_segment_from_prefix(self):
@@ -325,6 +360,56 @@ class TestRisClientFetch:
 
         with pytest.raises(RisError, match="Only https"):
             await client.fetch_document_text("http://www.ris.bka.gv.at/doc.html")
+
+    async def test_a_redirect_off_ris_is_refused_before_it_is_followed(self):
+        """The allow-list bounds the FETCH, not just the request.
+
+        The client follows redirects, and the URL check used to run once, on the
+        caller's string. So a RIS endpoint that reflects a query parameter into
+        ``Location`` — and the citizen application is query-driven WebForms
+        throughout — reduced the allow-list to a formality: the second hop went
+        wherever the response said, and its body came back to the caller. From
+        inside the cluster that reaches cloud metadata, the backend's own
+        internal API, Dragonfly and the object store.
+
+        It was survivable while only the agent called this, with URLs it had
+        just received FROM RIS. ``GET /v1/ris/document`` takes the URL from a
+        signed-in user, which is what makes this a gate rather than a nicety.
+        """
+        hops: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            hops.append(str(request.url))
+            if "ris.bka.gv.at" in str(request.url):
+                return httpx.Response(302, headers={"Location": "http://169.254.169.254/latest/meta-data/"})
+            return httpx.Response(200, headers={"content-type": "text/plain"}, text="AWS_SECRET=hunter2")
+
+        client = RisClient(transport=_transport(handler))
+
+        with pytest.raises(RisError, match="Only https"):
+            await client.fetch_document_text("https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=x")
+
+        # The point is not only that it raised — it is that the second request
+        # was never made. A check that ran after the fetch would still have the
+        # response in hand, and an SSRF is the request, not the return value.
+        assert hops == ["https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=x"]
+
+    async def test_a_redirect_within_ris_is_still_followed(self):
+        """RIS redirects between its own hosts; the gate must not break that."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.host == "ris.bka.gv.at":
+                return httpx.Response(301, headers={"Location": "https://www.ris.bka.gv.at/Dokumente/x/y.html"})
+            return httpx.Response(
+                200, headers={"content-type": "text/html"}, text="<html><body><p>§ 5</p></body></html>"
+            )
+
+        client = RisClient(transport=_transport(handler))
+
+        document = await client.fetch_document_text("https://ris.bka.gv.at/Dokumente/x/y.html")
+
+        assert "§ 5" in document.text
+        assert document.url == "https://www.ris.bka.gv.at/Dokumente/x/y.html"
 
     async def test_rejects_binary_content(self):
         def handler(request: httpx.Request) -> httpx.Response:
