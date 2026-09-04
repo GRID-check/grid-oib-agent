@@ -96,4 +96,3 @@ export function GridTileFooter({ className, children, ...rest }: ComponentProps<
     </div>
   )
 }
-

@@ -733,4 +733,3 @@ export function FileBrowserSkeleton({
  * content centres inside the toolbars, which keep spanning the full width.
  */
 const CONTENT_MAX = 'mx-auto w-full max-w-[1200px]'
-
