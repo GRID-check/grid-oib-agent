@@ -35,7 +35,7 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { documentFileUrl } from '@/lib/documents/urls'
-import { onDocumentsChanged } from '@/lib/documents/document-changes'
+import { onDocumentsChanged, useDocumentsGeneration } from '@/lib/documents/document-changes'
 import { startDocumentDownload } from '@/lib/documents/download'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
@@ -196,6 +196,10 @@ export const useSourcePreviewIndex = (
   enabled: boolean
 ): SourcePreviewIndex | null => {
   const [index, setIndex] = useState<SourcePreviewIndex | null>(null)
+  // Reload after a document was added, renamed or deleted. Dropping the cache
+  // above invalidates the next MOUNT; this is what reaches the chips already on
+  // screen, which for a rename or a delete is all of them.
+  const generation = useDocumentsGeneration()
 
   useEffect(() => {
     if (!enabled) return
@@ -210,7 +214,7 @@ export const useSourcePreviewIndex = (
     return () => {
       cancelled = true
     }
-  }, [projectId, conversationId, enabled])
+  }, [projectId, conversationId, enabled, generation])
 
   return enabled ? index : null
 }

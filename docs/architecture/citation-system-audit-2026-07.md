@@ -115,8 +115,12 @@ revision of one Richtlinie, and putting it first collapsed two corpus documents
 that the wire had already told apart by `document_id`. It is a last resort for
 the one producer that has no better identity to offer. Collapsing a card onto
 the retrieved document is then a MERGE (`findOibCounterpart`), not a shared
-identity: exactly one side must be the label-only card, and neither may sit on a
-shelf other than the base corpus.
+identity: exactly one side must be the label-only card, neither may sit on a
+shelf other than the base corpus, and the FILE side has to be an OIB corpus
+document rather than a document that merely mentions one. That last rule is the
+residue test in `oibCorpusKey`, and it is what the shelf rule cannot do:
+„OIB-Richtlinie 6 Kommentar.pdf" is somebody's commentary, and a source known
+only from the answer's written list carries no shelf to judge it by.
 
 On the backend side of step 1, `citation_verification.document_key` has the same
 "identifies nothing" case: a source with no collection, filename, URL *or* label.

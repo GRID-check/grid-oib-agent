@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FileItem } from '../components/project-file-workspace'
-import { onDocumentsChanged } from '@/lib/documents/document-changes'
+import { onDocumentsChanged, useDocumentsGeneration } from '@/lib/documents/document-changes'
 
 /**
  * One document surfaced by the backend `surface_documents` tool: a real indexed
@@ -257,6 +257,10 @@ export function useSurfacedDocuments(
   const [index, setIndex] = useState<SurfacedIndex | null>(null)
   // Bumped by `retry` to re-run the load effect after evicting the cache.
   const [reloadTick, setReloadTick] = useState(0)
+  // The same re-run, for a change somebody else made: a rename or a delete
+  // happens while the card showing that document is already mounted, so
+  // clearing the module cache alone would not reach it until a remount.
+  const generation = useDocumentsGeneration()
 
   useEffect(() => {
     let cancelled = false
@@ -275,7 +279,7 @@ export function useSurfacedDocuments(
     return () => {
       cancelled = true
     }
-  }, [projectId, conversationId, reloadTick])
+  }, [projectId, conversationId, reloadTick, generation])
 
   const retry = useCallback(() => {
     indexCache.delete(cacheKey(projectId, conversationId))

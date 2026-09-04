@@ -229,6 +229,53 @@ const oibKeyFrom = (nameOrLabel: string | undefined | null): string | null => {
   return key ? `${OIB_IDENTITY_PREFIX}${key}` : null
 }
 
+/**
+ * Words a corpus OIB filename may carry beyond its own number — everything the
+ * key already models (role, Leitfaden, subject), plus edition and date noise.
+ */
+const OIB_NAME_NOISE_RE =
+  /\b(?:oib|richtlinien?|rl|ausgabe|fassung|vom|leitfaden|erl(?:ae|ä)uterung(?:en)?|(?:ae|ä)nderung(?:en)?|begriffsbestimmung(?:en)?|zitierte|normen|jan(?:uar)?|feb(?:ruar)?|m(?:ae|ä)rz|apr(?:il)?|mai|jun[i]?|jul[i]?|aug(?:ust)?|sep(?:tember)?|okt(?:ober)?|nov(?:ember)?|dez(?:ember)?)\b/g
+
+/**
+ * The OIB key of a name that IS an OIB corpus document, or null.
+ *
+ * `oibDocumentKey` answers "does this name mention OIB-Richtlinie 6", which is
+ * the right question for a `legal_basis` card — a card's `law` field IS the law
+ * — and the wrong one for a FILE. „OIB-Richtlinie 6 Kommentar.pdf" is a project
+ * upload ABOUT a Richtlinie, and merging it into the card that names the
+ * Richtlinie made two sources one chip whose page-9 locus opened somebody's
+ * commentary in place of the base-law document. The shelf rule does not save it:
+ * a source known only from the answer's written list carries no shelf at all.
+ *
+ * So the file side has to survive a residue test — strip the number and every
+ * word the key already models, and what is left must be nothing.
+ */
+const oibCorpusKey = (nameOrLabel: string | undefined | null): string | null => {
+  const key = oibKeyFrom(nameOrLabel)
+  if (!key) return null
+  const residue = (nameOrLabel ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\.[a-z0-9]{2,5}$/, '')
+    // Separators to spaces FIRST, so the word tests below have boundaries to
+    // find: a corpus filename spells them `_`, which is a word character, and
+    // `\bausgabe\b` never matches inside `…_ausgabe_…`. The dot survives — it
+    // is part of the number in `oib-rl_2.1`.
+    .replace(/[_\-]+/g, ' ')
+    .replace(OIB_NUMBER_RE, ' ')
+    .replace(OIB_NAME_NOISE_RE, ' ')
+    // Only LETTERS decide. Digits, punctuation and separators are edition and
+    // filename noise; a residue check that kept them failed on the perfectly
+    // ordinary „OIB-Richtlinie 2.1, Ausgabe Mai 2023" over a stray comma.
+    .replace(/[^a-zäöüß]+/g, '')
+  return residue === '' ? key : null
+}
+
+/** Base law, or a document that has not said — never another shelf. */
+const isBaseOrUnknownShelf = (shelf: Shelf | undefined): boolean =>
+  shelf === undefined || shelf === 'base'
+
+
 /** URL reduced to a comparison form (scheme/host lowercased, trailing slash dropped). */
 export const normalizeUrl = (url: string): string => url.trim().toLowerCase().replace(/\/+$/, '')
 
@@ -648,7 +695,7 @@ export class CitationAccumulator {
       url: observation.url,
       label: observation.identity.label,
     })
-    const existing = this.find(id, incomingTitle)
+    const existing = this.find(id, incomingTitle, observation.shelf ?? observation.shelfFallback, observation.fileName)
     // A document whose NAME yields the canonical OIB key is an OIB document.
     // Inferring the lane from it is what lets a source known ONLY from the
     // answer's written list ("oib-rl_2.1_….pdf, p.9", no wire, no lane) still
@@ -798,7 +845,12 @@ export class CitationAccumulator {
    *    URL. Same document, two identities — and without this it rendered twice
    *    in the fan-out, once cited and once "abgerufen, nicht zitiert".
    */
-  private find(id: string, title: string): CitedDocument | undefined {
+  private find(
+    id: string,
+    title: string,
+    shelf?: Shelf,
+    fileName?: string | null
+  ): CitedDocument | undefined {
     const exact = this.docs.get(id)
     if (exact) return exact
     for (const doc of this.docs.values()) {
@@ -812,7 +864,7 @@ export class CitationAccumulator {
       if (incomingLabel && doc.title.trim().toLowerCase() === incomingLabel) return doc
       if (name && labelOf(doc.id) === name) return doc
     }
-    return this.findOibCounterpart(id, title)
+    return this.findOibCounterpart(id, title, shelf, fileName)
   }
 
   /**
@@ -836,18 +888,29 @@ export class CitationAccumulator {
    * document whose shelf is UNKNOWN stays eligible — it contradicts nothing —
    * exactly as `resolveCitationTarget` treats an untagged row.
    */
-  private findOibCounterpart(id: string, title: string): CitedDocument | undefined {
+  private findOibCounterpart(
+    id: string,
+    title: string,
+    shelf: Shelf | undefined,
+    fileName: string | null | undefined
+  ): CitedDocument | undefined {
     const incomingOib = id.startsWith(OIB_IDENTITY_PREFIX) ? id : null
     // The incoming observation names a file; look for a card holding its key.
-    const incomingKey = incomingOib ?? oibKeyFrom(title)
+    const incomingKey = incomingOib ?? oibCorpusKey(fileName ?? title)
     if (!incomingKey) return undefined
+    // The shelf rule applies to BOTH sides. Cards run last today, so the
+    // incoming side is always the label-only one and this cannot fire through
+    // `buildCitationModel` — it is here so that reordering the producers is a
+    // reordering rather than a silent reintroduction of the defect, and
+    // `build.spec.ts` drives the accumulator directly to keep it honest.
+    if (!isBaseOrUnknownShelf(shelf)) return undefined
 
     for (const doc of this.docs.values()) {
       const heldIsLabelOnly = doc.id.startsWith(OIB_IDENTITY_PREFIX)
       // One side, and only one side, must be the label-only card.
       if (heldIsLabelOnly === Boolean(incomingOib)) continue
-      if (doc.shelf !== undefined && doc.shelf !== 'base') continue
-      const heldKey = heldIsLabelOnly ? doc.id : oibKeyFrom(doc.fileName ?? doc.title)
+      if (!isBaseOrUnknownShelf(doc.shelf)) continue
+      const heldKey = heldIsLabelOnly ? doc.id : oibCorpusKey(doc.fileName ?? doc.title)
       if (heldKey && heldKey === incomingKey) return doc
     }
     return undefined

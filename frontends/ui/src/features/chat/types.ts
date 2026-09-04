@@ -102,6 +102,24 @@ export type ErrorCode =
   | 'system.unknown'
 
 /** Prompt types for agent prompts requiring user response */
+/**
+ * What happened when the client asked the server for a turn's finished answer.
+ *
+ * A boolean could not carry this, and the missing distinction was a bug: two
+ * different "false"s meant "the server has nothing" and "the answer is already
+ * on screen, someone else fetched it". Recovery runs from three places — on
+ * mount, on reconnect, and when the streaming watchdog gives up — and any two
+ * of them can be in flight at once, so the second one back would print
+ * „bitte erneut senden" underneath the answer the first had just recovered.
+ *
+ * - `recovered`  — the server had it and it is now in the conversation.
+ * - `superseded` — do not tell the reader anything: either the answer is
+ *                  already local, or a newer turn is streaming over it.
+ * - `nothing`    — no answer exists for this turn. This is the only outcome
+ *                  that earns the interrupted banner.
+ */
+export type RecoveryOutcome = 'recovered' | 'superseded' | 'nothing'
+
 export type PromptType = 'clarification' | 'approval' | 'choice' | 'text-input' | 'plan_approval'
 
 /**
@@ -1366,13 +1384,15 @@ export interface ChatActions {
   /**
    * Refetch server-persisted history for a seemingly-interrupted turn and, if
    * the backend persisted the assistant reply while the client was disconnected,
-   * append it locally. Returns true when a reply was recovered (so the caller
-   * can skip the "response interrupted" banner).
+   * append it locally.
+   *
+   * Three outcomes rather than a boolean, because only ONE of them means the
+   * reader should be told their turn was interrupted. See {@link RecoveryOutcome}.
    */
   _recoverInterruptedAssistantMessage: (
     conversationId: string,
     afterUserMessageId: string
-  ) => Promise<boolean>
+  ) => Promise<RecoveryOutcome>
 
   // Session busy checks (for disabling UI controls)
 

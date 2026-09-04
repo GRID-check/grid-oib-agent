@@ -135,11 +135,18 @@ def _clip_around_passage(text: str, passage: str) -> tuple[str, bool]:
 #: the pool until GC. Created lazily so importing this module needs no event
 #: loop, and never closed on purpose — its lifetime is the process's.
 #:
-#: The client's own in-memory cache is turned OFF here. This route reads through
-#: the shared one (``fetch_document_cached``), so a second copy would hold up to
-#: 64 documents of up to ``MAX_DOCUMENT_TEXT_CHARS`` each resident per worker,
-#: for bytes Dragonfly already has — and, being per-worker, would serve a
-#: different generation of the same document depending on which one answered.
+#: The client's own in-memory cache is kept, and kept SMALL. This route reads
+#: through the shared one (``fetch_document_cached``), so the default 64 entries
+#: were a second copy of bytes Dragonfly already has — and a bigger one than the
+#: response: the client caches the UNCLIPPED ``RisDocument``, bounded by
+#: ``max_document_bytes`` (10 MB) rather than by ``MAX_DOCUMENT_TEXT_CHARS``, so
+#: a worker could hold well over half a gigabyte of consolidated law.
+#:
+#: Not zero, though, which is where this first landed. ``cache.py`` fails OPEN
+#: when Dragonfly is absent: every read is a miss and every write a no-op, so on
+#: a deployment without it an empty client cache turns each dialog open into a
+#: live fetch from ris.bka.gv.at. A few entries keep that deployment working and
+#: still bound the memory.
 _RIS_CLIENT: "RisClient | None" = None
 
 
@@ -148,7 +155,7 @@ def _client() -> "RisClient":
     if _RIS_CLIENT is None:
         from ris_adapter.client import RisClient
 
-        _RIS_CLIENT = RisClient(cache_max_entries=0)
+        _RIS_CLIENT = RisClient(cache_max_entries=4)
     return _RIS_CLIENT
 
 

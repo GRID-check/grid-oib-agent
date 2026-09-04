@@ -1050,16 +1050,23 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         )
         return
       }
-      // `endSilentTurn` first: the recovery refuses to fold server history over
-      // a live stream, and this turn's stream is what has just been declared
-      // over. It is also what stops the partial bubble blinking beside whatever
-      // comes back.
+      // `endSilentTurn` first, and it takes the partial bubble with it. That is
+      // required rather than tidy: the recovery refuses to fold server history
+      // over a live stream, so the stream has to be over before it is asked.
+      // The partial goes either way — half a legal answer left on screen with
+      // no marker is worse than none, and if the server does have the finished
+      // one it would sit above it looking like a separate reply.
       endSilentTurn()
       void useChatStore
         .getState()
         ._recoverInterruptedAssistantMessage(conversation.id, lastUserMessage.id)
-        .then((recovered) => {
-          if (recovered) return
+        .then((outcome) => {
+          // ONLY `nothing` earns the banner. `superseded` means another
+          // recovery already put the answer on screen (mount and reconnect both
+          // run this, and a reconnect can land inside this very round trip), or
+          // the reader has already resent — accusing there prints
+          // "please resend" underneath a live answer.
+          if (outcome !== 'nothing') return
           addErrorCard(
             'agent.response_interrupted',
             'The assistant stopped responding. Please resend your message.'

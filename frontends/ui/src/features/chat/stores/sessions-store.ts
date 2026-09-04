@@ -9,6 +9,7 @@ import type {
   Conversation,
   ChatMessage,
   PendingInteraction,
+  RecoveryOutcome,
 } from '../types'
 import { useLayoutStore } from '@/features/layout/store'
 import { useDocumentsStore } from '@/features/documents/store'
@@ -79,7 +80,7 @@ export type SessionsSlice = {
   _recoverInterruptedAssistantMessage: (
     conversationId: string,
     afterUserMessageId: string
-  ) => Promise<boolean>
+  ) => Promise<RecoveryOutcome>
   isSessionBusy: (conversationId: string) => boolean
   hasAnyBusySession: () => boolean
   _ensureConversationExists: () => Promise<void>
@@ -1315,11 +1316,11 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         // refetch yields nothing do we fall back to today's interrupted banner.
         const interruptedUserId = lastMeaningful.id
         void (async () => {
-          const recovered = await get()._recoverInterruptedAssistantMessage(
+          const outcome = await get()._recoverInterruptedAssistantMessage(
             conversation.id,
             interruptedUserId
           )
-          if (!recovered) {
+          if (outcome === 'nothing') {
             // No explicit message: ErrorBanner localizes the registry default
             // via `agent.response_interrupted`'s messageKey.
             get().addErrorCard('agent.response_interrupted')
@@ -1332,7 +1333,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   _recoverInterruptedAssistantMessage: async (
     conversationId: string,
     afterUserMessageId: string
-  ): Promise<boolean> => {
+  ): Promise<RecoveryOutcome> => {
     // Signal the "checking for a finished answer" UI (FIX 3) for the duration
     // of the fetch. Both callers (restoreSessionState on mount, and the
     // reconnect handler in use-websocket-chat) go through here, so the calmer
@@ -1348,7 +1349,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       const target = conversations.find((c) => c.id === conversationId)
       // A live stream (or a deleted session) supersedes recovery: never fold
       // stale server history over newer local state.
-      if (!target || isStreaming) return false
+      if (!target || isStreaming) return 'superseded'
 
       const localIds = new Set(target.messages.map((m) => m.id))
 
@@ -1357,10 +1358,14 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       // already in local history.
       const userIdx = mapped.findIndex((m) => m.id === afterUserMessageId)
       const searchSpace = userIdx >= 0 ? mapped.slice(userIdx + 1) : mapped
-      const recovered = searchSpace.find(
-        (m) => m.role === 'assistant' && !localIds.has(m.id)
-      )
-      if (!recovered) return false
+      const answers = searchSpace.filter((m) => m.role === 'assistant')
+      const recovered = answers.find((m) => !localIds.has(m.id))
+      // The server HAS an answer for this turn and it is already on screen —
+      // a concurrent recovery got there first (mount and reconnect can both run
+      // this within a second of each other). That is not "nothing to show", and
+      // reporting it as one puts „bitte erneut senden" directly under the
+      // answer the other call had just recovered.
+      if (!recovered) return answers.length > 0 ? 'superseded' : 'nothing'
 
       const merged: Conversation = {
         ...target,
@@ -1374,10 +1379,13 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         false,
         'recoverInterruptedAssistantMessage'
       )
-      return true
+      return 'recovered'
     } catch (err) {
       console.warn('[recoverInterruptedAssistantMessage] Failed:', err)
-      return false
+      // Could not establish that an answer exists. The turn really did stall on
+      // this side, so the banner stands — but say `nothing` rather than invent
+      // a fourth outcome nobody would branch on.
+      return 'nothing'
     } finally {
       set({ isRecoveryPending: false }, false, 'recoveryPending:end')
     }

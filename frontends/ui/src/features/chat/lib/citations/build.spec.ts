@@ -19,7 +19,7 @@ import {
   splitAnswerBody,
   unusedDocuments,
 } from './views'
-import { citationNumbers, citedPages, isCited } from './model'
+import { CitationAccumulator, citationNumbers, citedPages, isCited } from './model'
 
 const OIB_FILE = 'oib-rl_2.1_ausgabe_mai_2023.pdf'
 const OIB_TITLE = 'OIB-Richtlinie 2.1, Ausgabe Mai 2023'
@@ -125,6 +125,87 @@ describe('buildCitationModel', () => {
     // The card must not overwrite the structured document's own title.
     expect(docs[0]!.title).toBe(OIB_TITLE)
     expect(docs[0]!.fileName).toBe(OIB_FILE)
+  })
+
+  it('does not collapse a file that merely MENTIONS a Richtlinie onto the card naming it', () => {
+    // „OIB-Richtlinie 6 Kommentar.pdf" is somebody's commentary ABOUT a
+    // Richtlinie, not the Richtlinie. Merging them made two sources one chip
+    // whose page-9 locus opened the commentary in place of the base-law
+    // document — and the shelf rule cannot catch it, because a source known
+    // only from the answer's written list carries no shelf at all.
+    const docs = buildCitationModel({
+      entries: [
+        { number: 1, markdown: 'OIB-Richtlinie 6', sourceKind: 'kb' },
+        { number: 2, markdown: '[KB] OIB-Richtlinie 6 Kommentar.pdf, p.9', sourceKind: 'kb' },
+      ],
+    })
+
+    expect(docs).toHaveLength(2)
+    expect(docs.map((doc) => doc.title).sort()).toEqual([
+      'OIB-Richtlinie 6',
+      'OIB-Richtlinie 6 Kommentar',
+    ])
+  })
+
+  it('refuses the merge when the citation sits on another shelf', () => {
+    // A Richtlinie is base law. A card naming one must never attach itself to a
+    // project upload that carries the corpus filename — that is somebody's own
+    // copy, and the card would hand its `[N]` to it.
+    const card = { type: 'legal_basis', law: 'OIB-Richtlinie 2' } as unknown as GridCard
+    const projectCopy = {
+      id: 'c-9',
+      content: '',
+      timestamp: new Date(),
+      fileName: OIB_FILE,
+      collection: 'p_1234',
+      shelf: 'project' as const,
+      page: 3,
+      isCited: true,
+    }
+
+    expect(buildCitationModel({ citations: [projectCopy], cards: [card] })).toHaveLength(2)
+  })
+
+  it('tells a corpus Richtlinie apart from a file that merely mentions one', () => {
+    // The residue test, at the boundary it exists to hold. A name is the
+    // Richtlinie when nothing is left after removing its number and the words
+    // the key already models (role, Leitfaden, edition, month); anything else
+    // is a document ABOUT it, and merging the two hands the card's `[N]` to
+    // somebody's commentary.
+    const merges = (fileName: string, law: string): boolean => {
+      const accumulator = new CitationAccumulator()
+      accumulator.add({ identity: { fileName, collection: 'base' }, fileName })
+      accumulator.add({ identity: { label: law }, title: law })
+      return accumulator.build().length === 1
+    }
+
+    expect(merges('oib-rl_2.1_ausgabe_mai_2023.pdf', 'OIB-Richtlinie 2.1')).toBe(true)
+    expect(merges('OIB-Richtlinie 2.1, Ausgabe Mai 2023', 'OIB-Richtlinie 2.1')).toBe(true)
+    expect(merges('oib_richtlinie_3_erlaeuterungen.pdf', 'OIB-Richtlinie 3 Erläuterungen')).toBe(
+      true
+    )
+    expect(merges('oib-rl_4_leitfaden_ausgabe_2023.pdf', 'OIB-Richtlinie 4 Leitfaden')).toBe(true)
+
+    expect(merges('OIB-Richtlinie 6 Kommentar.pdf', 'OIB-Richtlinie 6')).toBe(false)
+    expect(merges('Brandschutzkonzept nach OIB-Richtlinie 2.pdf', 'OIB-Richtlinie 2')).toBe(false)
+    expect(merges('Sanierung Karlsplatz OIB 2.pdf', 'OIB-Richtlinie 2')).toBe(false)
+  })
+
+  it('applies the shelf rule to the INCOMING side too, not only the held one', () => {
+    // Producer order decides which side is which — cards run last today, so
+    // only the held side can be the file, and the incoming check cannot fire
+    // through `buildCitationModel`. Driving the accumulator directly is what
+    // makes the symmetry testable: reorder the producers and the guard that
+    // used to be one-sided is the one that keeps this from merging.
+    const accumulator = new CitationAccumulator()
+    accumulator.add({ identity: { label: 'OIB-Richtlinie 2' }, title: 'OIB-Richtlinie 2' })
+    accumulator.add({
+      identity: { fileName: OIB_FILE, collection: 'p_1234' },
+      fileName: OIB_FILE,
+      shelf: 'project',
+    })
+
+    expect(accumulator.build()).toHaveLength(2)
   })
 
   it('separates what was read from what was used', () => {

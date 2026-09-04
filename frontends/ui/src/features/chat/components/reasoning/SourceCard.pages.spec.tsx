@@ -48,7 +48,7 @@ describe('SourceCard — pages', () => {
       { key: 'p:12', page: 12, isCited: false },
     ])
 
-    expect(screen.getByText('pp. 9')).toBeInTheDocument()
+    expect(screen.getByText('p. 9')).toBeInTheDocument()
     expect(screen.queryByText('retrieved, not cited')).not.toBeInTheDocument()
   })
 })

@@ -365,11 +365,6 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
                 // event happened to say.
                 bytesUploaded: file.size,
               })
-              // The document listings held for the page lifetime are now stale.
-              // Until this fired, a file uploaded mid-conversation was invisible
-              // to the citation resolver: the answer cited it and the chip said
-              // there was nothing to open (#623, on the path its fix missed).
-              notifyDocumentsChanged()
             } catch (err) {
               if (isAbort(err)) {
                 updateTrackedFile(tracked.id, { status: 'canceled' })
@@ -385,6 +380,16 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
               abortControllersRef.current.delete(tracked.id)
             }
           })
+
+          // Once, after the batch — not per file inside the fan-out. The
+          // document listings held for the page lifetime are now stale: until
+          // something fired this, a file uploaded mid-conversation was
+          // invisible to the citation resolver, and the answer cited it while
+          // the chip said there was nothing to open (#623, on the path its fix
+          // missed). Firing it fifty times for a fifty-file folder upload would
+          // make every surface that mounts during the batch refetch four
+          // listings again for each one.
+          notifyDocumentsChanged()
 
           const firstFailure = results.find((result) => result.status === 'rejected')
           if (firstFailure && firstFailure.status === 'rejected') {
@@ -435,7 +440,8 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
                 bytesUploaded: file.size,
               })
             })
-            // Same staleness, the other upload path.
+            // Same staleness, the other upload path — which is already one
+            // request for the whole batch, so one notification.
             notifyDocumentsChanged()
           } finally {
             abortControllersRef.current.delete(batchKey)

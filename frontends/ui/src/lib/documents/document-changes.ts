@@ -16,13 +16,29 @@
  * without knowing who is listening, which is also what keeps the third cache —
  * whenever it appears — from being the one nobody remembers to invalidate.
  *
- * Deliberately not a store: nothing renders off it, and the caches want an
- * imperative "drop what you have", not a value to subscribe a component to.
+ * Two shapes, because dropping a cache is only half of it. The caches are
+ * module-scope Maps and clearing one re-renders nothing, so a surface that was
+ * ALREADY MOUNTED when the change happened kept serving what it had loaded —
+ * which is every rename and every delete, since the citation chip and the
+ * document card showing that document are on screen at the time. Upload got
+ * away with it only because a new answer mounts new chips.
+ *
+ * So `onDocumentsChanged` drops the cache, and `useDocumentsGeneration` is the
+ * number a component puts in its effect deps to reload after it. One counter
+ * for the whole estate rather than per-corpus invalidation: the refetch is four
+ * cheap listings, and a signal nobody can subscribe to incorrectly is worth
+ * more than one that avoids a request.
  */
+
+import { useSyncExternalStore } from 'react'
 
 type Listener = () => void
 
 const listeners = new Set<Listener>()
+
+/** Bumped by every change — the value `useDocumentsGeneration` hands out. */
+let generation = 0
+const generationListeners = new Set<Listener>()
 
 /**
  * Register a cache to be dropped when documents change. Returns the
@@ -53,4 +69,30 @@ export function notifyDocumentsChanged(): void {
       console.warn('[documents] a change listener threw', error)
     }
   }
+  // After the caches have been dropped, never before: a subscriber that
+  // re-reads on this tick must not be handed the stale index it just invalidated.
+  generation += 1
+  for (const listener of [...generationListeners]) listener()
+}
+
+const subscribeGeneration = (listener: Listener): (() => void) => {
+  generationListeners.add(listener)
+  return () => {
+    generationListeners.delete(listener)
+  }
+}
+
+/**
+ * A number that changes whenever the document estate does.
+ *
+ * Put it in the deps of the effect that loads a document listing. On the server
+ * it is 0 and never moves, which is the honest answer there — nothing has
+ * changed during a render that has not happened yet.
+ */
+export function useDocumentsGeneration(): number {
+  return useSyncExternalStore(
+    subscribeGeneration,
+    () => generation,
+    () => 0
+  )
 }
