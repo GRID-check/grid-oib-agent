@@ -191,7 +191,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
       // Pass the (possibly just-created) session explicitly: the hook's
       // memoized collectionName still reflects the previous render, so the
       // first upload in a fresh session would otherwise abort.
-      await uploadFiles(files, sessionId)
+      await uploadFiles(files, { collectionOverride: sessionId })
     },
     [ensureSession, isProjectTarget, projectCollectionName, uploadFiles]
   )

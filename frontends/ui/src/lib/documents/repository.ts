@@ -54,6 +54,15 @@ export interface DocumentListRow {
    * reader wants from it, which is a per-file question.
    */
   originPath: string | null
+  /**
+   * A digest of the stored bytes (`sha256:<hex>`), or null when unknown.
+   *
+   * On the LIST row because the folder-upload planner runs in the browser: it
+   * compares what the reader just dropped against the corpus it already has on
+   * screen, and a second request per candidate file would be a round trip to
+   * learn that nothing needs uploading.
+   */
+  contentHash: string | null
   createdAt: Date
   updatedAt: Date
   errorMessage: string | null
@@ -99,6 +108,7 @@ export async function listProjectDocuments(
         collectionName: documents.collectionName,
         folderId: documents.folderId,
         originPath: documents.originPath,
+        contentHash: documents.contentHash,
         createdAt: documents.createdAt,
         updatedAt: documents.updatedAt,
         errorMessage: documents.errorMessage,

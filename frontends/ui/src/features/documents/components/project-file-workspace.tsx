@@ -12,6 +12,14 @@ import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { useFileSearch } from '../hooks/use-file-search'
 import { toFileItem, type DocumentWireRow } from '../lib/file-item'
+import { digestFiles } from '../lib/content-digest'
+import {
+  buildFolderUploadPlan,
+  filesToUpload,
+  isFolderUpload,
+  type FolderUploadPlan,
+} from '../lib/folder-upload-plan'
+import { FolderUploadDialog } from './folder-upload-dialog'
 import { inferDocumentKind } from '../document-kind'
 import { FileBrowserPane } from './file-browser-pane'
 import { FileSearchField } from './file-search-bar'
@@ -139,6 +147,15 @@ export interface FileItem {
    * downloaded duplicate.
    */
   originPath?: string | null
+  /**
+   * A digest of the stored bytes (`sha256:<hex>`), or null when unknown.
+   *
+   * Read by the folder-upload planner and by nothing else on screen. It is on
+   * the row so the plan can be computed from the listing the reader is already
+   * looking at, instead of a request per candidate file to discover that
+   * nothing needs uploading.
+   */
+  contentHash?: string | null
   createdAt: string
   /** Server-persisted reason a document is in `failed` status, if any. */
   errorMessage: string | null
@@ -754,12 +771,125 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     [trackedFiles, collectionName]
   )
 
+  /*
+   * A FOLDER IS NOT A LONGER LIST OF FILES.
+   *
+   * Every upload on this page — the button, the folder item in its menu, the
+   * dashed tile, a drop onto the workspace — comes through here, and this is
+   * where the two gestures part company. A handful of picked files goes
+   * straight to `uploadFiles`, exactly as before. A directory tree does not:
+   * it carries a structure, it usually overlaps what is already in the project,
+   * and applying it silently was costing work.
+   *
+   * Three things were wrong with the silent path, and the plan answers all
+   * three. The tree collapsed into whichever folder the reader stood in. Files
+   * whose names already existed replaced live documents with no statement that
+   * they would. And two files of one name inside a single drop both uploaded,
+   * one overwriting the other, because a project holds one document per
+   * filename (migration 0074) — a loss nothing on screen mentioned.
+   */
+  const [folderPlan, setFolderPlan] = useState<FolderUploadPlan | null>(null)
+  const [folderPlanOpen, setFolderPlanOpen] = useState(false)
+  const [folderPlanPending, setFolderPlanPending] = useState(false)
+  /**
+   * The plan's own generation, so a second drop while the first is still being
+   * hashed cannot land on top of it. Hashing a folder of models is seconds
+   * long, which is ample time to drop another folder.
+   */
+  const planGeneration = useRef(0)
+
+  const handleUpload = useCallback(
+    (incoming: File[]) => {
+      if (!isFolderUpload(incoming)) {
+        void uploadFiles(incoming)
+        return
+      }
+      const generation = ++planGeneration.current
+      setFolderPlan(null)
+      setFolderPlanPending(false)
+      setFolderPlanOpen(true)
+      void (async () => {
+        const base = { files: incoming, documents: files, folders, currentFolderId: selectedFolderId }
+        // First pass names the plausible duplicates; only those are read into
+        // memory. Everything else is an upload either way.
+        const first = buildFolderUploadPlan(base)
+        const digests = await digestFiles(first.hashCandidates)
+        if (generation !== planGeneration.current) return
+        setFolderPlan(buildFolderUploadPlan({ ...base, digests }))
+      })()
+    },
+    [uploadFiles, files, folders, selectedFolderId]
+  )
+
+  /**
+   * Apply the plan: make the folders, then send the files into them.
+   *
+   * The folders first and in ONE request, because a file cannot be filed into a
+   * folder that does not exist yet and forty sequential creates from the browser
+   * would be forty chances to end up with half a tree. If that request fails
+   * nothing is uploaded at all — a half-applied plan is the state that is hardest
+   * to reason about afterwards, and the whole thing is safely repeatable.
+   */
+  const applyFolderPlan = useCallback(
+    async (includeUpdates: boolean) => {
+      if (!folderPlan) return
+      const selected = filesToUpload(folderPlan, includeUpdates)
+      if (selected.length === 0) return
+      setFolderPlanPending(true)
+      try {
+        const paths = folderPlan.folders.map((folder) => folder.path)
+        let folderIdByPath: Record<string, string> = {}
+        if (paths.length > 0) {
+          const res = await fetch(`/api/projects/${projectId}/folders/ensure`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ parentId: selectedFolderId, paths }),
+          })
+          if (!res.ok) throw new Error(`Folders failed (${res.status})`)
+          const data = (await res.json()) as { folderIdByPath?: Record<string, string> }
+          folderIdByPath = data.folderIdByPath ?? {}
+        }
+
+        // Resolved per file rather than per batch — that is the whole point of
+        // reproducing the tree. A file at the top of the drop has no path of
+        // its own and belongs in the level the reader is standing in.
+        const folderIdByFile = new Map<File, string | null>()
+        for (const planned of selected) {
+          folderIdByFile.set(
+            planned.file,
+            planned.targetPath ? (folderIdByPath[planned.targetPath] ?? selectedFolderId) : selectedFolderId
+          )
+        }
+
+        setFolderPlanOpen(false)
+        await uploadFiles(
+          selected.map((planned) => planned.file),
+          { folderIdFor: (file) => folderIdByFile.get(file) ?? null }
+        )
+        // The tree just grew; the breadcrumb and the folder tiles have to know.
+        await loadFolders()
+        toast.success(
+          t('folderUpload.done', {
+            uploaded: String(selected.length),
+            skipped: String(folderPlan.counts.unchanged),
+          })
+        )
+      } catch {
+        toast.error(t('folderUpload.foldersError'))
+      } finally {
+        setFolderPlanPending(false)
+      }
+    },
+    [folderPlan, projectId, selectedFolderId, uploadFiles, loadFolders, t]
+  )
+
   // Drag-and-drop onto the workspace routes dropped files into the SAME upload
-  // path the button uses (uploadFiles), which already targets the selected folder
-  // via the hook's folderId. Validation/limits stay in uploadFiles; the drag hook
-  // only surfaces a supported/unsupported affordance using the shared AppConfig.
+  // path the button uses, which is `handleUpload` — so a folder DRAGGED in gets
+  // the same plan a folder PICKED in the menu does. Validation and limits stay
+  // in `uploadFiles`; the drag hook only surfaces a supported/unsupported
+  // affordance using the shared AppConfig.
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
-    onDrop: uploadFiles,
+    onDrop: handleUpload,
     disabled: isUploading,
   })
 
@@ -922,7 +1052,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
           <ProjectUppyUpload
             projectId={projectId}
             folderId={selectedFolderId}
-            onUpload={(files) => uploadFiles(files)}
+            onUpload={handleUpload}
             isUploading={isUploading}
             // The durable corpus is where a büro brings a whole project in.
             allowFolders
@@ -1014,7 +1144,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                 <ProjectUppyUpload
                   projectId={projectId}
                   folderId={selectedFolderId}
-                  onUpload={(files) => uploadFiles(files)}
+                  onUpload={handleUpload}
                   isUploading={isUploading}
                   variant="default"
                   size="default"
@@ -1025,7 +1155,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
                 <ProjectUppyUpload
                   projectId={projectId}
                   folderId={selectedFolderId}
-                  onUpload={(files) => uploadFiles(files)}
+                  onUpload={handleUpload}
                   isUploading={isUploading}
                   variant="dropcard"
                 />
@@ -1035,6 +1165,22 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         </div>
 
       </div>
+
+      {/* „Wollen Sie aktualisieren?" — the plan a dropped folder opens, before
+          anything moves. Rendered unconditionally so its own exit transition
+          runs; `open` is what decides. */}
+      <FolderUploadDialog
+        open={folderPlanOpen}
+        onOpenChange={setFolderPlanOpen}
+        plan={folderPlan}
+        currentFolderName={
+          selectedFolderId
+            ? (folders.find((folder) => folder.id === selectedFolderId)?.name ?? null)
+            : null
+        }
+        onConfirm={applyFolderPlan}
+        pending={folderPlanPending}
+      />
 
       {/*
         The model, when the URL names one. Full screen inside a popup — the

@@ -77,6 +77,7 @@ export async function admitReplacementOrDiscard(
     storageBucket: string | null
     fileSize: number
     contentType: string | null
+    contentHash: string | null
     folderId: string | null
     createdBy: string
   },

@@ -164,6 +164,7 @@ describe('replaceDocumentWithinQuota', () => {
     storageBucket: 'b',
     fileSize,
     contentType: 'application/pdf',
+    contentHash: 'sha256:beef',
     folderId: null,
     createdBy: 'user-1',
   })

@@ -331,6 +331,44 @@ export const files: typeof en.files = {
     success: '„{name}“ wurde aus dem Projekt entfernt',
     error: 'Das Dokument konnte nicht gelöscht werden',
   },
+  /**
+   * Der Ordner-Upload-Plan — der Dialog, den ein abgelegter Ordnerbaum öffnet,
+   * bevor sich etwas bewegt. Siehe die englische Fassung für das Warum.
+   */
+  folderUpload: {
+    title: '„{name}“ hochladen?',
+    titleGeneric: 'Diesen Ordner hochladen?',
+    destination: 'Die Ordnerstruktur wird in „{folder}“ nachgebildet.',
+    destinationMerged: 'Der Inhalt kommt direkt in „{folder}“ — die Ordner darin werden zugeordnet.',
+    planning: 'Wird mit dem Bestand verglichen…',
+    counts: {
+      new: 'neue Dokumente',
+      update: 'vorhanden, geändert',
+      unchanged: 'unverändert, übersprungen',
+      foldersCreated: 'Ordner angelegt',
+      foldersMatched: '{count} zugeordnet',
+    },
+    updatePrompt: '{count} vorhandene(s) Dokument(e) aktualisieren',
+    updateExplain:
+      'Name, Zitate und Zuweisungen bleiben — ersetzt wird nur die Datei dahinter.',
+    refiled: '{count} davon liegen derzeit woanders und wandern dorthin, wo dieser Ordner sie ablegt.',
+    collisions: '{count} Dateien teilen sich einen Namen mit einer anderen Datei in diesem Upload',
+    collisionsExplain:
+      'Ein Projekt hält pro Dateiname ein Dokument, deshalb werden diese nicht hochgeladen. Benennen Sie sie um und legen Sie sie erneut ab.',
+    showAll: 'Alle {count} Dateien anzeigen',
+    action: {
+      new: 'Neu',
+      update: 'Aktualisieren',
+      unchanged: 'Unverändert',
+      collision: 'Konflikt',
+      skipped: 'Übersprungen',
+    },
+    confirm: '{count} Datei(en) hochladen',
+    nothingToDo: 'Nichts hochzuladen',
+    cancel: 'Abbrechen',
+    done: '{uploaded} Datei(en) hochgeladen, {skipped} unverändert.',
+    foldersError: 'Die Ordner für diesen Upload konnten nicht angelegt werden. Es wurde nichts hochgeladen.',
+  },
   upload: {
     uploading: 'Wird hochgeladen …',
     upload: 'Hochladen',

@@ -123,6 +123,7 @@ describe('admitReplacementOrDiscard', () => {
     storageBucket: BUCKET,
     fileSize: 5_000,
     contentType: 'application/pdf',
+    contentHash: 'sha256:beef',
     folderId: null,
     createdBy: 'user-1',
   }

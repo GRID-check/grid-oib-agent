@@ -440,6 +440,28 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[role="dialog"]',
   },
   {
+    id: 'folder-upload-plan',
+    mobile: true,
+    path: '/dev/folder-upload',
+    description:
+      'The question a dropped folder now asks before anything moves, in the case it exists for: a b\u00fcro re-syncing an Einreichung a fortnight later. Most of the tree is byte-identical and is skipped, five drawings have been corrected and are offered as one update, and every folder the tree needs was MATCHED to a folder already here rather than created beside it. Before this, the same gesture flattened the tree into whichever folder the reader stood in, replaced live documents by name with no statement that it would, and re-uploaded five hundred unchanged files to do it. The shot has to show that the four counts read as one sentence and that the checkbox is visibly the only decision on the surface.',
+    waitFor: '[data-testid="folder-upload-dialog"]',
+  },
+  {
+    id: 'folder-upload-plan-first',
+    path: '/dev/folder-upload?variant=first',
+    description:
+      'The first time a project sees the folder: nothing matches, every folder is a creation, and there is no update question at all \u2014 so the checkbox is ABSENT rather than present and unticked, which is the difference between \u201cnothing to decide\u201d and \u201cdecided for you\u201d. Pinned beside the re-sync shot because the two are the same dialog and must not look like the same answer.',
+    waitFor: '[data-testid="folder-upload-dialog"]',
+  },
+  {
+    id: 'folder-upload-plan-collisions',
+    path: '/dev/folder-upload?variant=collisions',
+    description:
+      'Two files in one drop sharing a filename. A project holds one document per name (migration 0074), so both used to upload and one silently overwrote the other \u2014 a loss nothing on screen mentioned. Neither is sent now and the pair is named by its full path, while the one file that IS unambiguous still uploads \u2014 a collision is somebody else\u2019s problem to rename, not a reason to refuse the rest of the tree. This is the state the plan exists to make visible.',
+    waitFor: '[data-testid="folder-upload-collisions"]',
+  },
+  {
     id: 'upload-tray',
     mobile: true,
     path: '/dev/upload-tray',

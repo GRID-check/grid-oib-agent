@@ -1,0 +1,32 @@
+---
+features:
+  - >
+    Ein hochgeladener Ordner wird jetzt abgeglichen, statt flach abgelegt zu
+    werden. Piloti erkennt die Ordner, die es im Projekt schon gibt — auch wenn
+    sie anders geschrieben sind oder vom Mac mit anders kodierten Umlauten
+    kommen —, legt nur die fehlenden an und legt jede Datei dorthin, wo sie im
+    Ordnerbaum stand.
+  - >
+    Vor dem Hochladen fragt Piloti nach: Wie viele Dokumente sind neu, wie viele
+    gibt es schon und haben sich geändert, wie viele sind unverändert. Ob die
+    vorhandenen aktualisiert werden, entscheiden Sie mit einem Häkchen — vorher
+    wurden sie ohne Rückfrage ersetzt.
+  - >
+    Unveränderte Dateien werden übersprungen. Wer denselben Ordner zwei Wochen
+    später erneut hochlädt, überträgt nur noch das, was tatsächlich anders ist,
+    statt fünfhundert Dateien ein zweites Mal.
+fixes:
+  - >
+    Zwei Dateien mit gleichem Namen aus verschiedenen Unterordnern haben sich
+    beim Ordner-Upload gegenseitig überschrieben, ohne dass es irgendwo stand —
+    am Ende fehlten Dateien, und niemand konnte sagen, welche. Beide werden
+    jetzt zurückgehalten und im Dialog namentlich genannt.
+  - >
+    Die Dateiliste eines Projekts wird jetzt mit der Seite ausgeliefert. Bisher
+    lud die Seite erst ihr Programm und fragte danach nacheinander Ordner und
+    Dokumente ab — sichtbar als graue Platzhalter, obwohl die Liste längst
+    bereitstand.
+  - >
+    Die Platzhalter beim Laden zeigen jetzt dieselbe Anordnung wie die Liste,
+    die danach erscheint: Pfadzeile, Ordner, Dateien, in derselben Breite.
+    Bisher sprang die Ansicht beim Fertigladen um.

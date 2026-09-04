@@ -30,6 +30,7 @@ import { buildGridRequestContextWireHeaders } from '@/lib/request-context'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { ApiError, BadRequestError, ConflictError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { ALLOWED_TAGS } from './tag-vocabulary'
+import { contentDigest } from './content-digest'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
@@ -772,6 +773,21 @@ export async function uploadDocument(
   const storageBucket = await ensureTenantBucketChecked(bucketAdminS3Client, session.organizationId)
 
   const bytes = Buffer.from(await file.arrayBuffer())
+  /*
+   * The digest, taken here because the bytes are already in hand.
+   *
+   * It is what makes a folder RE-upload cheap: the browser hashes only the
+   * files whose name and size already match something in the project, and sends
+   * the ones whose digest differs. Hashing on this side rather than trusting
+   * the client's is not a security stance — the client's digest is only ever
+   * compared, never stored — it is so that the recorded value describes the
+   * bytes this tier actually wrote.
+   *
+   * The value's shape — algorithm and all — lives in `./content-digest`,
+   * because the Archiv and a conversation's attachments write the same column
+   * and a digest only one of them changed would classify every file as changed.
+   */
+  const contentHash = contentDigest(bytes)
   await s3Client.send(
     new PutObjectCommand({
       Bucket: storageBucket,
@@ -798,6 +814,7 @@ export async function uploadDocument(
       storageBucket,
       fileSize: file.size,
       contentType: file.type || null,
+      contentHash,
       folderId: folderId ?? null,
       createdBy: session.userId,
     })
@@ -822,6 +839,7 @@ export async function uploadDocument(
       collectionName,
       fileSize: file.size,
       contentType: file.type || null,
+      contentHash,
       originPath,
       status: 'uploaded',
     })

@@ -38,6 +38,7 @@ import {
 } from '@/lib/documents/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
+import { contentDigest } from '@/lib/documents/content-digest'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { findLiveDocumentByFilename, type DocumentListRow } from '@/lib/documents/repository'
 import { deleteDocumentObjects, discardSupersededObjects } from '@/lib/documents/object-cleanup'
@@ -151,6 +152,9 @@ export async function uploadSessionDocument(
   const storageBucket = await ensureTenantBucketChecked(bucketAdminS3Client, session.organizationId)
 
   const bytes = Buffer.from(await file.arrayBuffer())
+  // The same digest the other two shelves record, from the same helper — see
+  // `@/lib/documents/content-digest` for why it is not written out here.
+  const contentHash = contentDigest(bytes)
 
   // The LAST thing before a single byte is written, and the reason it is here
   // rather than folded into the authorization above.
@@ -188,6 +192,7 @@ export async function uploadSessionDocument(
       storageBucket,
       fileSize: file.size,
       contentType: file.type || null,
+      contentHash,
       folderId: null,
       createdBy: session.userId,
     })
@@ -213,6 +218,7 @@ export async function uploadSessionDocument(
       collectionName,
       fileSize: file.size,
       contentType: file.type || null,
+      contentHash,
       status: 'uploaded',
     })
   }

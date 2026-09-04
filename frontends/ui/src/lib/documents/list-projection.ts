@@ -47,6 +47,7 @@ export function toDocumentWireRow(row: ListedDocument): DocumentWireRow & {
     collectionName: row.collectionName,
     folderId: row.folderId,
     originPath: row.originPath,
+    contentHash: row.contentHash,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     errorMessage: row.errorMessage,

@@ -1,6 +1,6 @@
 'use client'
 
-import { useFileUpload } from '@/features/documents/hooks/use-file-upload'
+import { useFileUpload, type UploadFilesOptions } from '@/features/documents/hooks/use-file-upload'
 
 interface UseProjectDocumentsOptions {
   projectId?: string
@@ -22,7 +22,12 @@ interface UseProjectDocumentsOptions {
 }
 
 interface UseProjectDocumentsReturn {
-  uploadFiles: (files: File[]) => Promise<void>
+  /**
+   * `options` carries the per-file folder targeting a FOLDER upload needs — see
+   * {@link UploadFilesOptions}. A plain batch passes nothing and lands in the
+   * folder this hook was given.
+   */
+  uploadFiles: (files: File[], options?: UploadFilesOptions) => Promise<void>
   cancelUpload: () => void
   cancelFile: (fileId: string) => void
   dismissFiles: (fileIds: string[]) => void

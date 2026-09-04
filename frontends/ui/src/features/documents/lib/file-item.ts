@@ -33,6 +33,7 @@ type OptionalWireField =
   | 'contentTypes'
   | 'tags'
   | 'originPath'
+  | 'contentHash'
   | 'assignees'
 
 /** Normalize one wire row into the shape every file surface reads. */
@@ -46,6 +47,7 @@ export function toFileItem(row: DocumentWireRow): FileItem {
     status: row.status,
     folderId: row.folderId ?? null,
     originPath: row.originPath ?? null,
+    contentHash: row.contentHash ?? null,
     createdAt: row.createdAt,
     errorMessage: row.errorMessage ?? null,
     summary: row.summary ?? null,
