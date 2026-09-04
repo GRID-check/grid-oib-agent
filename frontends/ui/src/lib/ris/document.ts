@@ -49,7 +49,17 @@ export class RisDocumentUnavailableError extends Error {
 
 export async function fetchRisDocument(
   reference: string,
-  application?: string
+  application?: string,
+  /**
+   * The cited passage, when the caller has it.
+   *
+   * Used for ONE thing: choosing which window of an over-long document comes
+   * back. A Gesamtfassung can be millions of characters (the ASVG is 4.3M) and a
+   * document clipped at its head is the one shape the answer must never take —
+   * it drops the very paragraph the reader clicked. It is never matched for
+   * display; that happens in the browser, against the text this returns.
+   */
+  passage?: string
 ): Promise<RisDocument> {
   const base = (process.env.BACKEND_URL ?? 'http://localhost:8000').replace(/\/$/, '')
   const headers: Record<string, string> = { Accept: 'application/json' }
@@ -63,6 +73,9 @@ export async function fetchRisDocument(
 
   const params = new URLSearchParams({ reference })
   if (application) params.set('application', application)
+  // Bounded here as well as in the backend schema: this is a URL, and a whole
+  // retrieved chunk in a query string helps nobody.
+  if (passage) params.set('passage', passage.slice(0, 2000))
 
   const response = await fetch(`${base}/v1/ris/document?${params.toString()}`, {
     headers,

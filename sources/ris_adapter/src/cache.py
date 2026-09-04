@@ -25,7 +25,12 @@ import asyncio
 import hashlib
 import logging
 import os
+from typing import TYPE_CHECKING
 from typing import Any
+
+if TYPE_CHECKING:  # a type import only — cache.py stays free of client.py at runtime
+    from .client import RisClient
+    from .client import RisDocument
 
 logger = logging.getLogger(__name__)
 
@@ -103,3 +108,38 @@ async def cache_set_json(key: str, value: Any, ttl_seconds: int) -> None:
         await asyncio.to_thread(_set_json, key, value, ttl_seconds)
     except Exception:
         logger.debug("RIS cache write failed for %s", key, exc_info=True)
+
+
+async def fetch_document_cached(client: RisClient, url: str) -> RisDocument:
+    """Fetch a RIS document, through the shared cache.
+
+    THE READ-THROUGH LIVES HERE BECAUSE IT HAS TWO CALLERS. It used to be
+    written inline in ``ris_fetch_document``, so when ``GET /v1/ris/document``
+    was added — the reader that opens a citation in the app — it fetched live
+    every time while its own docstring claimed the cache. A helper only one
+    caller applies is a helper the next caller forgets; this is that class of
+    defect, caught once.
+
+    Fail-open in both directions: a cache miss, an unavailable cache or a read
+    error all fall through to the live fetch, and a write failure is ignored.
+    RIS text is fully reconstructible, which is the cache-only contract ADR-0020
+    asks for.
+    """
+    from .client import RisDocument
+
+    key = doc_cache_key(url)
+    cached = await cache_get_json(key)
+    if isinstance(cached, dict) and cached.get("text"):
+        return RisDocument(
+            url=cached.get("url", url),
+            title=cached.get("title", ""),
+            text=cached["text"],
+        )
+
+    document = await client.fetch_document_text(url)
+    await cache_set_json(
+        key,
+        {"url": document.url, "title": document.title, "text": document.text},
+        ris_cache_ttl_seconds(),
+    )
+    return document

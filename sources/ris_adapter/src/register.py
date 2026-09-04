@@ -32,7 +32,7 @@ from pydantic import Field
 from pydantic import ValidationError
 from ris_adapter.cache import cache_get_json
 from ris_adapter.cache import cache_set_json
-from ris_adapter.cache import doc_cache_key
+from ris_adapter.cache import fetch_document_cached
 from ris_adapter.cache import ingested_marker_key
 from ris_adapter.cache import ris_cache_ttl_seconds
 from ris_adapter.cache import search_cache_key
@@ -40,7 +40,6 @@ from ris_adapter.client import CONTROLLER_FOR_APPLICATION
 from ris_adapter.client import DEFAULT_BASE_URL
 from ris_adapter.client import PAGE_SIZES
 from ris_adapter.client import RisClient
-from ris_adapter.client import RisDocument
 from ris_adapter.client import RisError
 from ris_adapter.client import RisHit
 from ris_adapter.client import build_document_url
@@ -868,22 +867,10 @@ async def ris_fetch_document(tool_config: RisFetchDocumentToolConfig, builder: B
             # Shared-cache read-through: an identical document fetched earlier
             # (this turn, an earlier turn, another replica, before a restart) is
             # served without the network download. Fail-open — a cache miss/error
-            # just falls through to the live fetch.
-            cache_key = doc_cache_key(url)
-            cached_doc = await cache_get_json(cache_key)
-            if isinstance(cached_doc, dict) and cached_doc.get("text"):
-                document = RisDocument(
-                    url=cached_doc.get("url", url),
-                    title=cached_doc.get("title", ""),
-                    text=cached_doc["text"],
-                )
-            else:
-                document = await client.fetch_document_text(url)
-                await cache_set_json(
-                    cache_key,
-                    {"url": document.url, "title": document.title, "text": document.text},
-                    ris_cache_ttl_seconds(),
-                )
+            # just falls through to the live fetch. Shared with the reader route
+            # (`GET /v1/ris/document`), which is why it is a function and not
+            # written out here; see `fetch_document_cached`.
+            document = await fetch_document_cached(client, url)
         except RisError as exc:
             return f"Error: RIS document fetch failed - {exc}"
         except Exception as exc:  # a tool must always hand the agent a string

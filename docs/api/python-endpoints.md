@@ -145,6 +145,12 @@ These routes are **not registered by custom code** — they are provided by the 
 
 **Internal token header (fixed).** `_require_internal_token` (`aiq_api.routes.internal_auth`) accepts **both** `x-grid-internal-token` and `x-internal-token`, constant-time and with every candidate compared even after one matches. It previously accepted `x-internal-token` only, while every caller in the repo sends `x-grid-internal-token` — so this route 403'd every real request and scheduled runs never worked in a deployment. It went unnoticed because the two sides are tested separately and each pinned its own spelling, and because the ASGI envelope middleware (`context_envelope._INTERNAL_TOKEN_HEADER_NAMES`) already accepted both, letting a request look healthy right up to the route guard.
 
+## Legal sources (RIS; internal)
+
+| Method | Path | Auth | Description | Request | Response | Source |
+|---|---|---|---|---|---|---|
+| `GET` | `/v1/ris/document` | Internal token matching `GRID_INTERNAL_API_TOKEN`, sent as `X-Grid-Internal-Token` (`X-Internal-Token` also accepted); dev-default refused outside dev; **not** on the external-path allowlist | A RIS document as plain TEXT, so a RIS citation opens in Piloti's own reader instead of a browser tab (#622 — RIS sends `Content-Security-Policy: frame-ancestors 'none'` on every page, so an iframe is not an option and never was). Reads through the SAME `RisClient` and the same `fetch_document_cached` read-through the agent's `ris_fetch_document` tool uses: one host allow-list (`www.ris.bka.gv.at`, `ris.bka.gv.at`, `data.bka.gv.at`, https only, **re-validated on every redirect hop**), one size ceiling, one shared Dragonfly cache — so a document the answer was grounded on is usually served without touching RIS, and there is no second extractor to keep in step. The client is held for the process, not built per request. Text is bounded at 2,000,000 characters; over that the window is centred on `passage` when it can be located, because a document clipped at its head drops the very paragraph the citation points at (measured: the Bauordnung für Wien is 759,595 characters and its § 108 sits at 524,079; the ASVG is 4,294,779). | `?reference=<RIS URL or document number>&application=&passage=` | `{ url, title, text, truncated }`; 400 (a reference the client refuses — non-RIS host, PDF-only document, unparseable number), 502 (RIS unreachable), 403 (token) | `add_ris_routes` in `aiq_api.routes.ris` |
+
 ## OIB Admin
 
 | Method | Path | Auth | Description | Request | Response | Handler |

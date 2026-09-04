@@ -83,7 +83,12 @@ export function RisDocumentDialog({
     if (!open) return
     let cancelled = false
     setState({ status: 'loading' })
-    fetch(`/api/ris/document?reference=${encodeURIComponent(url)}`)
+    // The passage travels WITH the request, not only into the match afterwards:
+    // a Gesamtfassung can be millions of characters, and which window comes back
+    // has to be decided by where the citation points.
+    const query = new URLSearchParams({ reference: url })
+    if (highlight) query.set('passage', highlight.slice(0, 2000))
+    fetch(`/api/ris/document?${query.toString()}`)
       .then(async (response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         return (await response.json()) as LoadedDocument
@@ -99,7 +104,7 @@ export function RisDocumentDialog({
     return () => {
       cancelled = true
     }
-  }, [open, url])
+  }, [open, url, highlight])
 
   const text = state.status === 'ready' ? state.document.text : ''
   // Matched through the SAME normalisation the PDF viewer uses, so a passage

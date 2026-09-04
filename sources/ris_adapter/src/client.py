@@ -332,11 +332,33 @@ def parse_search_response(payload: dict[str, Any]) -> RisSearchResult:
 _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 
 
+#: The RIS page element that holds the document, and nothing else.
+#:
+#: Measured against ``GeltendeFassung.wxe`` for the Bauordnung für Wien
+#: (2026-09-04): the page is 759,687 characters of extracted text and ``#content``
+#: holds 759,015 of them. The 672 characters outside it are the site's own
+#: furniture — an accesskey menu ("Zum Inhalt (Accesskey 0)"), the navigation
+#: bar, the footer — and they sit at the FRONT, which is where they do the most
+#: damage: they are the first thing the in-app reader shows, the first thing the
+#: agent reads inside its ``max_chars`` window, and they are ingested into the
+#: session collection where they become retrievable text that is not law.
+#:
+#: Absence is not an error. A ``/Dokumente/…`` document page, an XML payload, or
+#: a future RIS template may carry no such container, and then the whole document
+#: is the answer exactly as it was before.
+_RIS_CONTENT_SELECTOR = "#content"
+
+
 def html_to_text(markup: str) -> tuple[str, str]:
     """Convert an HTML/XML document to (title, plain text).
 
     Uses BeautifulSoup when available; falls back to a regex tag stripper so
     the adapter degrades gracefully rather than failing the whole tool call.
+
+    The RIS page's own navigation is dropped when the document container can be
+    found (see :data:`_RIS_CONTENT_SELECTOR`); everything else is kept verbatim,
+    because this text is what a legal answer is grounded on and what a reader
+    checks it against.
     """
     title = ""
     title_match = _TITLE_RE.search(markup)
@@ -349,7 +371,8 @@ def html_to_text(markup: str) -> tuple[str, str]:
         soup = BeautifulSoup(markup, "html.parser")
         for tag in soup(["script", "style", "noscript", "head"]):
             tag.decompose()
-        text = soup.get_text("\n")
+        root = soup.select_one(_RIS_CONTENT_SELECTOR) or soup
+        text = root.get_text("\n")
     except ImportError:  # pragma: no cover - bs4 is a declared dependency
         text = re.sub(r"(?is)<(script|style|head)[^>]*>.*?</\1>", " ", markup)
         text = unescape(re.sub(r"<[^>]+>", "\n", text))
@@ -403,12 +426,37 @@ class RisClient:
                 timeout=self.timeout,
                 follow_redirects=True,
                 transport=self._transport,
+                # EVERY HOP IS CHECKED, NOT THE FIRST ONE.
+                #
+                # `fetch_document_text` validates the URL it is given and then
+                # hands it to a client that follows up to twenty redirects. So
+                # the allow-list bound the REQUEST and not the FETCH: a RIS
+                # endpoint that reflects a query parameter into `Location` —
+                # and the citizen application is query-driven WebForms
+                # throughout — turned the check into a formality, and the
+                # response body came back to the caller from wherever the last
+                # hop pointed. Cloud metadata, the backend's own internal API,
+                # Dragonfly, the object store: all reachable from inside the
+                # cluster, all http, none of them RIS.
+                #
+                # That was survivable while the only caller was the agent
+                # passing URLs it had just received FROM RIS. It stopped being
+                # survivable when `GET /v1/ris/document` began taking the URL
+                # from a signed-in user, which is what made it worth closing
+                # here rather than at that route: a hook on the client covers
+                # `search()` and every future caller too, and it cannot be
+                # forgotten by one of them.
+                event_hooks={"request": [self._reject_non_ris_hop]},
                 headers={
                     "Accept": "application/json, text/html;q=0.9, */*;q=0.8",
                     "User-Agent": "grid-oib-agent-ris-adapter/1.0 (+https://data.bka.gv.at/ris/api/v2.6)",
                 },
             )
         return self._client
+
+    async def _reject_non_ris_hop(self, request: httpx.Request) -> None:
+        """Refuse a request — original or redirected — that has left RIS."""
+        self._validate_document_url(str(request.url))
 
     async def aclose(self) -> None:
         """Close the pooled HTTP connection (idempotent)."""

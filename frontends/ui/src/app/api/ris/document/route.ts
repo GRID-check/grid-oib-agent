@@ -11,12 +11,18 @@
  * has to prevent is this origin becoming a free fetcher for the internet, which
  * authentication does — and the reference is confined to RIS hosts by the
  * backend client's allow-list, on the far side of the internal token, so a
- * caller cannot aim it at anything else. The rate limit is the factory's
- * `DEFAULT_READ_LIMIT`, declared by omission.
+ * caller cannot aim it at anything else.
+ *
+ * It carries its OWN rate limit rather than inheriting one, because there is
+ * none to inherit: `resolveLimitRule` defaults mutations and leaves reads to
+ * the edge's per-IP budget. That is the right default for a read that touches a
+ * database, and the wrong one for the only read here that makes a third-party
+ * network call — see `RIS_DOCUMENT_LIMIT` for what one unbounded request costs.
  */
 
 import { z } from 'zod'
 import { apiRoute, parseQuery } from '@/lib/api/handler'
+import { RIS_DOCUMENT_LIMIT } from '@/lib/limits/catalog'
 import { NotFoundError, UpstreamError } from '@/lib/api/errors'
 import { fetchRisDocument, RisDocumentUnavailableError } from '@/lib/ris/document'
 
@@ -29,13 +35,19 @@ const risDocumentQuerySchema = z.object({
   reference: z.string().min(1).max(2048),
   /** RIS application code, when a bare document number needs disambiguating. */
   application: z.string().max(32).optional(),
+  /**
+   * The cited passage, so an over-long document is windowed AROUND it rather
+   * than clipped at its head. Published law either way — this is the same text
+   * the answer already shows the reader.
+   */
+  passage: z.string().max(2000).optional(),
 })
 
 export const GET = apiRoute(
   async ({ request }) => {
-    const { reference, application } = parseQuery(request, risDocumentQuerySchema)
+    const { reference, application, passage } = parseQuery(request, risDocumentQuerySchema)
     try {
-      return await fetchRisDocument(reference, application)
+      return await fetchRisDocument(reference, application, passage)
     } catch (error) {
       if (error instanceof RisDocumentUnavailableError) {
         // 404 is the honest answer for a reference RIS will not serve as text
@@ -48,6 +60,7 @@ export const GET = apiRoute(
     }
   },
   {
+    limits: { rule: RIS_DOCUMENT_LIMIT },
     authz: {
       sessionOnly: true,
       why: 'reads a public RIS page through the agent’s host-allow-listed client — no tenant resource to authorize against, only an origin that must not be a free fetcher for the internet',
