@@ -19,6 +19,10 @@
  *              authoritative publication is still there. A viewer that spins
  *              forever would be the worse answer, and it is the one this route
  *              exists to make impossible to ship by accident.
+ *   `busy`     Rate-limited. A reader who opened six sources in five seconds is
+ *              not looking at a broken source, and „lässt sich nicht anzeigen"
+ *              told them they were. Separate because the two failures ask for
+ *              opposite things: wait a moment, or give up on the reading copy.
  *
  * Not linked from anywhere and 404s outside development.
  */
@@ -71,6 +75,9 @@ export default function RisSourcePreview() {
       if (!url.startsWith('/api/ris/document')) return original(input, init)
       if (variant === 'failed') {
         return new Response('{"error":"upstream"}', { status: 502 })
+      }
+      if (variant === 'busy') {
+        return new Response('{"error":"rate limited"}', { status: 429 })
       }
       return new Response(
         JSON.stringify({

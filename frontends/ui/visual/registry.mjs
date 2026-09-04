@@ -879,6 +879,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[role="dialog"]',
   },
   {
+    id: 'ris-source-busy',
+    path: '/dev/ris-source?variant=busy',
+    description:
+      'Too many sources opened at once. The rate limit is a different sentence to the reader than an unreachable RIS \u2014 the source is fine and the way out is to wait a moment \u2014 and rendering both as \u201elässt sich nicht anzeigen\u201c sent someone to the browser tab this reader exists to replace.',
+    waitFor: '[role="dialog"]',
+  },
+  {
     id: 'citation-interaction',
     mobile: true,
     path: '/dev/citation-interaction',
