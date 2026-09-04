@@ -69,6 +69,15 @@ export const knowledge = {
     highlightUnavailable:
       'The passage cannot be marked in this browser — showing the document without the highlight.',
   },
+  // The RIS reader: a legal source read INSIDE Piloti, not in a browser tab.
+  risViewer: {
+    description: 'Reading copy from RIS.',
+    openAtRis: 'Open at RIS',
+    loading: 'Loading legal source…',
+    failed:
+      'This legal source cannot be shown in Piloti right now. “Open at RIS” still reaches the document.',
+    truncated: 'Shortened — the full text is at RIS.',
+  },
   error: {
     title: 'Knowledge base unavailable',
     description: 'The knowledge status could not be loaded.',

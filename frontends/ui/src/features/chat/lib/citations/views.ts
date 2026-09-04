@@ -18,6 +18,42 @@ import {
   type CitedDocument,
 } from './model'
 
+/**
+ * `[N]` → the reference that marker stands for.
+ *
+ * A projection rather than a scan per marker: an answer can hold a lot of
+ * markers and they all resolve on one render.
+ *
+ * ONE `[N]` CAN BE CARRIED BY TWO LOCI OF THE SAME DOCUMENT, and they are not
+ * equally good answers. The retrieval payload states the page the passage was
+ * read at; the answer's written source list states the same `[N]` and often
+ * names no page — so the document ends up with a located locus and a page-less
+ * one, both numbered. Taking whichever came last handed the marker the
+ * page-less one, and clicking a citation that knew it was page 18 opened the
+ * viewer at page 1 (#621).
+ *
+ * So a locus that names a page wins, and among two that do the first stands
+ * (loci arrive ordered by `[N]`, then by page). A document whose number is
+ * known only at the document level still resolves — to the document as a whole.
+ */
+export const referencesByNumber = (
+  docs: CitedDocument[]
+): Map<number, { document: CitedDocument; locus?: CitationLocus }> => {
+  const byNumber = new Map<number, { document: CitedDocument; locus?: CitationLocus }>()
+  for (const document of docs) {
+    for (const locus of document.loci) {
+      if (typeof locus.number !== 'number') continue
+      const held = byNumber.get(locus.number)
+      if (held && (held.locus?.page != null || locus.page == null)) continue
+      byNumber.set(locus.number, { document, locus })
+    }
+    for (const number of citationNumbers(document)) {
+      if (!byNumber.has(number)) byNumber.set(number, { document })
+    }
+  }
+  return byNumber
+}
+
 /** DOM id prefix for a numbered source row under an answer. */
 export const ANSWER_SOURCE_ANCHOR_PREFIX = 'answer-source-'
 

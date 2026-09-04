@@ -10,6 +10,7 @@ export const chat: typeof en.chat = {
     view: 'Ansehen',
     projectDocument: 'Projektunterlage',
     corpusDocument: 'Baurecht & Richtlinien',
+    risDocument: 'Rechtsquelle (RIS)',
     citedPassage: 'Fundstelle',
     cited: 'Zitiert',
     loadFailed: 'Die Quellenvorschau konnte nicht geladen werden. Bitte versuchen Sie es erneut.',
@@ -239,6 +240,13 @@ export const chat: typeof en.chat = {
     wholeDocument: 'Gesamtes Dokument',
     openAtPage: 'An dieser Stelle öffnen',
     notOpenable: 'In Piloti nicht zu öffnen',
+    // Das Dokument IST da — nur sein Format kann Piloti nicht zeichnen. Ohne
+    // diesen Satz las sich das Fehlen der Öffnen-Schaltfläche als „die Datei
+    // ist weg", und genau das wurde gemeldet.
+    noInlineViewer:
+      'Dieses Dateiformat lässt sich in Piloti nicht anzeigen. Sie können das Dokument herunterladen und in Ihrem Programm öffnen.',
+    download: 'Dokument herunterladen',
+    downloading: 'Wird vorbereitet…',
     copyLink: 'Link kopieren',
     copyLinkAria: 'Link zu dieser Fundstelle kopieren: {label}',
     markerAria: 'Quelle {number}: {label} — Vorschau öffnen',

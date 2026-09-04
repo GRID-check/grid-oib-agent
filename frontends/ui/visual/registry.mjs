@@ -864,6 +864,21 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="platform-nav"]',
   },
   {
+    id: 'ris-source',
+    mobile: true,
+    path: '/dev/ris-source',
+    description:
+      'A legal source read INSIDE Piloti: the RIS document as text, with the cited passage found and marked in the tint of the chip that opened it, the provenance badge in the header beside the document\u2019s own title, and the link to the authoritative publication kept where a legal citation always needs it. The chip used to open a browser tab, which took the reader out of the answer and left the Fundstelle for them to find.',
+    waitFor: 'mark',
+  },
+  {
+    id: 'ris-source-unreachable',
+    path: '/dev/ris-source?variant=failed',
+    description:
+      'RIS unreachable. The reading copy is what failed, so the dialog says so in one sentence and keeps „Im RIS \u00f6ffnen" \u2014 the authoritative document is still reachable, and a viewer that spun forever would hide that.',
+    waitFor: '[role="dialog"]',
+  },
+  {
     id: 'citation-interaction',
     mobile: true,
     path: '/dev/citation-interaction',

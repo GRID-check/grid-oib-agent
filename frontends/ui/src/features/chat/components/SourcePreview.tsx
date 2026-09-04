@@ -23,14 +23,16 @@
 'use client'
 
 import { useEffect, useState, type CSSProperties, type FC, type ReactNode } from 'react'
-import { ChevronDown, ChevronUp, ExternalLink, FileSearch, Link2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Download, ExternalLink, FileSearch, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { documentFileUrl } from '@/lib/documents/urls'
+import { startBrowserDownload } from '@/lib/browser-download'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
+import { RisDocumentDialog } from '@/features/knowledge/components/ris-document-dialog'
 import {
   SourceSignalChip,
   SourceSignalChipLink,
@@ -47,7 +49,7 @@ import { CopyCitationLinkButton } from './CopyCitationLink'
 import {
   buildCitationModel,
   citationNumbers,
-  citedLoci,
+  openAtLocus,
   resolveCitationTarget,
   type CitationLocus,
   type CitationRef,
@@ -429,6 +431,48 @@ const CitationFace: FC<CitationFaceProps> = ({
 // ---------------------------------------------------------------------------
 
 type DocumentTarget = Extract<CitationTarget, { kind: 'document' }>
+type DownloadTarget = Extract<CitationTarget, { kind: 'download' }>
+type RisTarget = Extract<CitationTarget, { kind: 'ris' }>
+
+/**
+ * Hand a resolved-but-unrenderable document to the reader as a file.
+ *
+ * The presign is the same one the Files route's download action uses, and it
+ * answers with JSON rather than bytes — so the link is fetched first and the
+ * browser download started from it. Never `location.assign` the presigned URL:
+ * an object store that ignores `Content-Disposition` replaces the whole app
+ * with the file (#434).
+ *
+ * The target is nullable because the caller learns whether there IS one only
+ * after resolution, and a hook cannot be called conditionally. A null target
+ * yields a `download` that does nothing, which no caller renders a control for.
+ */
+export const useCitationDownload = (
+  target: DownloadTarget | null
+): { isDownloading: boolean; download: () => Promise<void> } => {
+  const t = useTranslations('chat')
+  const [isDownloading, setIsDownloading] = useState(false)
+
+  const download = async (): Promise<void> => {
+    if (!target) return
+    setIsDownloading(true)
+    try {
+      const res = await fetch(`/api/documents/${target.document.id}/download`)
+      const data = res.ok ? await res.json() : null
+      if (typeof data?.downloadUrl === 'string' && data.downloadUrl !== '') {
+        startBrowserDownload(data.downloadUrl, target.fileName)
+      } else {
+        toast.error(t('sourcePreview.loadFailed'))
+      }
+    } catch {
+      toast.error(t('sourcePreview.loadFailed'))
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
+  return { isDownloading, download }
+}
 
 /**
  * An image opens in the same dialog as a PDF but on a different path — it is
@@ -799,20 +843,30 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
   // viewer still opens at the first cited passage, and the rail must say so.
   // Leaving it unset marked nothing, so the reader could not tell which of four
   // Fundstellen they were looking at.
-  const [activeLocus, setActiveLocus] = useState<CitationLocus | undefined>(
-    () => citation?.locus ?? (citation ? citedLoci(citation.document)[0] : undefined)
+  //
+  // Resolved through `openAtLocus`, the same rule the target used to pick its
+  // page: a reference bound to a page-less locus opens at a Fundstelle the
+  // document actually has. Picking the locus separately here is how the header
+  // and rail came to mark one place while the document showed another.
+  const [activeLocus, setActiveLocus] = useState<CitationLocus | undefined>(() =>
+    citation ? openAtLocus(citation.document, citation.locus) : undefined
   )
 
   // A deep link (or a second click on a different marker) can change which
   // locus this dialog should be showing while it is already mounted.
   useEffect(() => {
-    if (citation?.locus) setActiveLocus(citation.locus)
+    if (citation?.locus) setActiveLocus(openAtLocus(citation.document, citation.locus))
+    // The document is identified by the locus this effect reacts to; re-running
+    // on a new object identity for the same reference would fight the reader's
+    // own rail selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [citation?.locus])
 
   const isImage = isImageTarget(target)
 
   const openPreview = async (locus?: CitationLocus): Promise<void> => {
-    if (locus) setActiveLocus(locus)
+    if (locus && citation) setActiveLocus(openAtLocus(citation.document, locus))
+    else if (locus) setActiveLocus(locus)
     if (target.document.type === 'base') {
       setIsOpen(true)
       return
@@ -948,6 +1002,224 @@ const DocumentPreviewChip: FC<{
   )
 }
 
+/**
+ * A cited document with no in-app viewer — offered as a file, with the reason.
+ *
+ * Same face as every other citation chip, because it is the same kind of thing:
+ * the reader must not have to learn that a `.docx` source is a different
+ * species of chip. What differs is the one control the popover holds — a
+ * download rather than an open — and the line above it saying why.
+ */
+const DownloadPreviewChip: FC<{
+  target: DownloadTarget
+  signal: SourceTint
+  label: string
+  authority?: string
+  className?: string
+  /** The marker(s) this source carries in the answer prose. */
+  index?: string
+  variant?: CitationVariant
+  /** The reference this chip stands for — powers the peek and "copy citation". */
+  citation?: CitationRef
+  trailing?: ReactNode
+  detail?: CitationDetail
+  kind: SourceKind
+  /** Fine authority tier, for the fallback popover. */
+  tier?: string
+  bindingNote?: string
+  meta?: string
+}> = ({
+  target,
+  signal,
+  label,
+  authority,
+  className,
+  index,
+  variant = 'chip',
+  citation,
+  trailing,
+  detail,
+  kind,
+  tier,
+  bindingNote,
+  meta,
+}) => {
+  const t = useTranslations('chat')
+  const { isDownloading, download } = useCitationDownload(target)
+  const peek = useHoverPopover()
+
+  // Without a reference there is no peek to fill, so the popover the info chip
+  // already draws is the right one; it gains the download and the reason.
+  if (!citation) {
+    return (
+      <InfoPreviewChip
+        target={{ kind: 'info', title: target.title, snippet: target.snippet }}
+        signal={signal}
+        label={label}
+        authority={authority}
+        tier={tier}
+        bindingNote={bindingNote}
+        kind={kind}
+        className={className}
+        index={index}
+        meta={meta}
+        variant={variant}
+        trailing={trailing}
+        detail={detail}
+        onDownload={() => void download()}
+        downloadPending={isDownloading}
+      />
+    )
+  }
+
+  return (
+    <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
+      <PopoverAnchor asChild>
+        <button
+          type="button"
+          className={cn(faceClasses(variant), className)}
+          style={faceStyle(variant, signal)}
+          {...peek.triggerProps}
+          aria-label={t('sourcePreview.chipAria', { label })}
+          title={t('sourcePreview.chipAria', { label })}
+        >
+          <CitationFace
+            variant={variant}
+            signal={signal}
+            label={label}
+            authority={authority}
+            index={index}
+            citation={citation}
+            trailing={trailing}
+            detail={detail}
+          />
+        </button>
+      </PopoverAnchor>
+      <PopoverContent align="start" className="w-80 p-3" {...peek.contentProps}>
+        <CitationPeek
+          citation={citation}
+          snippet={target.snippet}
+          onDownload={() => void download()}
+          downloadPending={isDownloading}
+        />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+/**
+ * A RIS source, read inside Piloti.
+ *
+ * Behaves like the document chip and not like the web link it used to be:
+ * hovering answers "what is this?", clicking commits to the document. The
+ * outbound link is not lost — it moves into the dialog's header, where it is
+ * the authoritative publication rather than the only way in.
+ */
+const RisPreviewChip: FC<{
+  target: RisTarget
+  signal: SourceTint
+  label: string
+  authority?: string
+  className?: string
+  index?: string
+  variant?: CitationVariant
+  citation?: CitationRef
+  trailing?: ReactNode
+  detail?: CitationDetail
+}> = ({
+  target,
+  signal,
+  label,
+  authority,
+  className,
+  index,
+  variant = 'chip',
+  citation,
+  trailing,
+  detail,
+}) => {
+  const t = useTranslations('chat')
+  const [isOpen, setIsOpen] = useState(false)
+  const peek = useHoverPopover()
+
+  const open = (): void => {
+    peek.dismiss()
+    setIsOpen(true)
+  }
+
+  const dialog = (
+    <RisDocumentDialog
+      open={isOpen}
+      onOpenChange={setIsOpen}
+      url={target.url}
+      title={target.title}
+      highlight={target.snippet}
+      highlightColor={`var(--source-${signal})`}
+      headerChip={
+        <SourceSignalChip signal={signal}>{t('sourcePreview.risDocument')}</SourceSignalChip>
+      }
+      headerActions={
+        citation && (
+          <span className="flex shrink-0 items-center gap-2">
+            <CopyCitationLinkButton citation={citation} icon={<Link2 className="size-3" />} />
+            <CopySourceCitationButton citation={citation} />
+          </span>
+        )
+      }
+    />
+  )
+
+  const face = (
+    <button
+      type="button"
+      className={cn(faceClasses(variant), className)}
+      style={faceStyle(variant, signal)}
+      {...peek.triggerProps}
+      onClick={open}
+      aria-haspopup="dialog"
+      aria-label={t('sourcePreview.chipAria', { label })}
+      title={t('sourcePreview.chipAria', { label })}
+    >
+      <CitationFace
+        variant={variant}
+        signal={signal}
+        label={label}
+        authority={authority}
+        index={index}
+        citation={citation}
+        trailing={trailing}
+        detail={detail}
+      />
+    </button>
+  )
+
+  if (!citation) {
+    return (
+      <>
+        {face}
+        {dialog}
+      </>
+    )
+  }
+
+  return (
+    <>
+      <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
+        <PopoverAnchor asChild>{face}</PopoverAnchor>
+        <PopoverContent align="start" className="w-80 p-3" {...peek.contentProps}>
+          <CitationPeek
+            citation={citation}
+            snippet={target.snippet}
+            onOpen={open}
+            url={target.url}
+          />
+        </PopoverContent>
+      </Popover>
+      {dialog}
+    </>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Info popover (title + origin + snippet — no resolvable document)
 // ---------------------------------------------------------------------------
@@ -982,6 +1254,13 @@ const InfoPreviewChip: FC<{
   citation?: CitationRef
   trailing?: ReactNode
   detail?: CitationDetail
+  /**
+   * The document exists but has no in-app viewer — hand it over instead.
+   * Set only by {@link DownloadPreviewChip}; a genuinely unresolvable source
+   * leaves it unset and keeps saying nothing can be opened.
+   */
+  onDownload?: () => void
+  downloadPending?: boolean
 }> = ({
   target,
   signal,
@@ -998,6 +1277,8 @@ const InfoPreviewChip: FC<{
   trailing,
   kind,
   detail,
+  onDownload,
+  downloadPending,
 }) => {
   const t = useTranslations('chat')
   const peek = useHoverPopover()
@@ -1056,8 +1337,26 @@ const InfoPreviewChip: FC<{
           </div>
         )}
         {target.snippet && <CitedPassageBox snippet={target.snippet} signal={signal} />}
+        {/* Why there is no viewer, before the control that works around it. */}
+        {onDownload && (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {t('citationPeek.noInlineViewer')}
+          </p>
+        )}
         <div className="flex items-center justify-between gap-2">
-          {url ? (
+          {onDownload ? (
+            <button
+              type="button"
+              onClick={onDownload}
+              disabled={downloadPending}
+              data-citation-download=""
+              className="inline-flex items-center gap-1 text-xs font-medium hover:underline disabled:cursor-progress disabled:opacity-70"
+              style={{ color: `var(--source-${signal}-text, var(--foreground))` }}
+            >
+              <Download aria-hidden="true" className="size-3" />
+              {t(downloadPending ? 'citationPeek.downloading' : 'citationPeek.download')}
+            </button>
+          ) : url ? (
             <a
               href={url}
               target="_blank"
@@ -1214,8 +1513,28 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
     )
   }
 
+  // RIS is read INSIDE Piloti now (#622) — the outbound link moves into the
+  // reader's header rather than being the only way in.
+  if (target.kind === 'ris') {
+    return <RisPreviewChip {...shared} target={target} />
+  }
+
   if (target.kind === 'document') {
     return <DocumentPreviewChip {...shared} target={target} />
+  }
+
+  // Resolved, and unrenderable. Not the same as unresolvable — see the
+  // `download` variant on `CitationTarget`.
+  if (target.kind === 'download') {
+    return (
+      <DownloadPreviewChip
+        {...shared}
+        target={target}
+        tier={doc.laneLabel}
+        bindingNote={doc.bindingNote}
+        meta={meta}
+      />
+    )
   }
 
   // Resolution is still in flight: this document MAY yet turn out to be
@@ -1356,6 +1675,7 @@ export const SourceDocumentDialog: FC<{
     baseCorpusFiles: previewIndex?.baseCorpusFiles,
   })
   const isDocument = target.kind === 'document'
+  const isRis = target.kind === 'ris'
   const { openPreview, dialog, isOpen } = useDocumentPreview(
     isDocument ? target : EMPTY_DOCUMENT_TARGET,
     citation
@@ -1371,13 +1691,44 @@ export const SourceDocumentDialog: FC<{
   }, [isDocument])
 
   useEffect(() => {
+    if (isRis) return
     if (isDocument && previewIndex && !isOpen) return
     // Nothing openable and the index has answered: there is no viewer to show.
     if (previewIndex && !isDocument) onClose()
-  }, [previewIndex, isDocument, isOpen, onClose])
+  }, [previewIndex, isDocument, isRis, isOpen, onClose])
+
+  // A RIS source opens its own reader — no stored-document index, no presign,
+  // and no page: the reader marks the passage in the text instead.
+  if (isRis && target.kind === 'ris') {
+    return (
+      <RisDocumentDialog
+        open
+        onOpenChange={(open) => {
+          if (!open) onClose()
+        }}
+        url={target.url}
+        title={target.title}
+        highlight={target.snippet}
+        highlightColor={`var(--source-${citation.document.tint})`}
+        headerChip={<RisHeaderChip signal={citation.document.tint} />}
+        headerActions={
+          <span className="flex shrink-0 items-center gap-2">
+            <CopyCitationLinkButton citation={citation} icon={<Link2 className="size-3" />} />
+            <CopySourceCitationButton citation={citation} />
+          </span>
+        }
+      />
+    )
+  }
 
   if (!isDocument) return null
   return <>{dialog}</>
+}
+
+/** The RIS provenance chip, so the reader's header matches the chip that opened it. */
+const RisHeaderChip: FC<{ signal: SourceTint }> = ({ signal }) => {
+  const t = useTranslations('chat')
+  return <SourceSignalChip signal={signal}>{t('sourcePreview.risDocument')}</SourceSignalChip>
 }
 
 /** Placeholder while a target has not resolved — never rendered. */
