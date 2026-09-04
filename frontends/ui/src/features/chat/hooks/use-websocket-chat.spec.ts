@@ -1128,7 +1128,7 @@ describe('useWebSocketChat', () => {
       // and the recovery fetch is HTTP — so it works precisely when the socket
       // does not. Skipping it deleted the partial answer and told the reader to
       // resend a turn that was already complete in Postgres.
-      const recover = vi.fn().mockResolvedValue(true)
+      const recover = vi.fn().mockResolvedValue('recovered')
       mockStoreState = {
         ...mockStoreState,
         _recoverInterruptedAssistantMessage: recover,
@@ -1162,7 +1162,7 @@ describe('useWebSocketChat', () => {
     vi.useFakeTimers()
     try {
       mockWsClient.isConnected.mockReturnValue(true)
-      const recover = vi.fn().mockResolvedValue(false)
+      const recover = vi.fn().mockResolvedValue('nothing')
       mockStoreState = {
         ...mockStoreState,
         _recoverInterruptedAssistantMessage: recover,
@@ -1185,6 +1185,45 @@ describe('useWebSocketChat', () => {
       expect(mockAddErrorCard).toHaveBeenCalledWith(
         'agent.response_interrupted',
         'The assistant stopped responding. Please resend your message.',
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('says nothing when another recovery already put the answer on screen', async () => {
+    vi.useFakeTimers()
+    try {
+      mockWsClient.isConnected.mockReturnValue(true)
+      // Recovery runs from three places and any two can be in flight at once —
+      // this one and the reconnect handler's, which can land inside this very
+      // round trip. `superseded` is the second one back finding the answer
+      // already local; a boolean could not say that, so it reported "nothing"
+      // and printed „bitte erneut senden" directly under the recovered answer.
+      const recover = vi.fn().mockResolvedValue('superseded')
+      mockStoreState = {
+        ...mockStoreState,
+        _recoverInterruptedAssistantMessage: recover,
+        currentConversation: {
+          id: 'conv-1',
+          userId: 'user-1',
+          messages: [{ id: 'u-1', messageType: 'user', content: 'Frage' }],
+        },
+      }
+      useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+
+      const { result } = renderWebSocketHook()
+      startStreamingTurn(result)
+      mockWsClient.isConnected.mockReturnValue(false)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(WATCHDOG_MS)
+      })
+
+      expect(recover).toHaveBeenCalledWith('conv-1', 'u-1')
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        expect.anything(),
       )
     } finally {
       vi.useRealTimers()

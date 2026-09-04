@@ -16,6 +16,10 @@ export {
   CitationAccumulator,
   citationNumbers,
   citedLoci,
+  // The two specific claims, exported deliberately: `documentPages` is what a
+  // SURFACE prints, and these are what it is made of. Kept nameable so a caller
+  // that means "cited" or "read" can say so rather than reaching for the
+  // display rule and then explaining why.
   citedPages,
   documentPages,
   readPages,

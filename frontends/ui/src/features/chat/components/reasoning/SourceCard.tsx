@@ -156,7 +156,13 @@ export const SourceCard: FC<{
           </span>
           {pages.length > 0 && (
             <span className="text-xs tabular-nums text-muted-foreground">
-              {t('answerSources.pages', { pages: pages.join(', ') })}
+              {/* Singular and plural are two keys, as every other page line in
+                  the product already knows. German „S." is number-agnostic, so
+                  always taking the plural was invisible here and read „pp. 9"
+                  in English. */}
+              {pages.length === 1
+                ? t('answerSources.page', { page: pages[0]! })
+                : t('answerSources.pages', { pages: pages.join(', ') })}
             </span>
           )}
           {/* Which markers in the answer this document carries — the link
