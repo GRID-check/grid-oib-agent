@@ -51,6 +51,16 @@ export interface CslItem {
   'container-title'?: string
   edition?: string
   page?: string
+  /**
+   * CSL `section` — the Punkt, which is how Austrian building law is cited.
+   *
+   * „OIB-Richtlinie 2, Pkt. 3.5.2" is what an architect writes into a Befund; a
+   * page is where that Punkt happens to be printed in one edition's PDF. The
+   * chunker establishes the Punkt, the knowledge layer states it, the wire
+   * carries it and the model holds it — and every export dropped it, so the
+   * copied citation named the page and not the requirement.
+   */
+  section?: string
   number?: string
   issued?: CslDate
   accessed?: CslDate
@@ -181,6 +191,10 @@ export const toCslItem = (ref: CitationRef, now: Date): CslItem => {
   // otherwise only a page the whole document unambiguously sits at.
   const pageNumber = refPage(ref)
   const page = pageNumber != null ? String(pageNumber) : undefined
+  // The Punkt of THIS reference. Document-level references have none: a Punkt
+  // is a place inside a document, and claiming one the citation does not name
+  // would be the same overstatement `refPage` refuses for pages.
+  const section = ref.locus?.punkt?.trim() || undefined
   const url = ref.document.url
   const id = cslId(ref)
 
@@ -195,6 +209,7 @@ export const toCslItem = (ref: CitationRef, now: Date): CslItem => {
         : {}),
       ...(edition ? { edition } : {}),
       ...(issued ? { issued } : {}),
+      ...(section ? { section } : {}),
       ...(page ? { page } : {}),
       ...(url ? { URL: url, accessed: accessedDate(now) } : {}),
     }
@@ -208,6 +223,7 @@ export const toCslItem = (ref: CitationRef, now: Date): CslItem => {
       ...(ref.document.laneLabel ? { authority: ref.document.laneLabel } : {}),
       'container-title': RIS_CONTAINER,
       ...(issued ? { issued } : {}),
+      ...(section ? { section } : {}),
       ...(page ? { page } : {}),
       ...(url ? { URL: url, accessed: accessedDate(now) } : {}),
     }
@@ -232,6 +248,7 @@ export const toCslItem = (ref: CitationRef, now: Date): CslItem => {
     title,
     ...(fileName && fileName !== title ? { note: fileName } : {}),
     ...(issued ? { issued } : {}),
+    ...(section ? { section } : {}),
     ...(page ? { page } : {}),
   }
 }
@@ -255,6 +272,11 @@ export const toFachtext = (ref: CitationRef, now: Date): string => {
   if (csl.edition && !csl.title.toLowerCase().includes(csl.edition.toLowerCase())) {
     parts.push(csl.edition)
   }
+  // Punkt before page. „OIB-Richtlinie 2, Pkt. 3.5.2, S. 12" is the order the
+  // profession writes: the requirement identifies itself, the page only says
+  // where this edition prints it. The Punkt was dropped entirely, so the copied
+  // citation named a page in a document architects cite by Punkt.
+  if (csl.section) parts.push(`Pkt. ${csl.section}`)
   if (csl.page) parts.push(`S. ${csl.page}`)
 
   let text = parts.join(', ')

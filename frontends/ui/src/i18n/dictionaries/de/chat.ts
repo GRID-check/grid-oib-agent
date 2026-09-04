@@ -147,6 +147,7 @@ export const chat: typeof en.chat = {
     pages: 'S. {pages}',
     // Die Fundstelle in der Zählung des Gesetzes selbst: ein Punkt der
     // Richtlinie, wenn der Chunker einen ermittelt hat, sonst nur die Seite.
+    punkt: 'Pkt. {punkt}',
     punktPage: 'Pkt. {punkt} · S. {page}',
     // Zitate zum Weiterverwenden — je Quelle als Fachtext, für die ganze
     // Antwort in den Formaten, die externe Werkzeuge einlesen.
