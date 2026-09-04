@@ -7,6 +7,16 @@ features:
     im RIS steht weiterhin im Kopf des Fensters.
 fixes:
   - >
+    Die zitierte Stelle wird im Dokument wieder markiert. Der Wortlaut der
+    gelesenen Passage hat es bisher gar nicht bis zur Oberfläche geschafft — das
+    Quellenfenster öffnete die richtige Seite, hob aber nichts hervor, die
+    Fundstellenliste blieb ohne Text, und „Zitat kopieren" lieferte nur die
+    Literaturangabe statt des Zitats.
+  - >
+    Eine Quelle nennt jetzt nur noch die Seiten, auf die sich die Antwort
+    wirklich bezieht. Bisher standen dort auch Seiten, die nur gelesen wurden —
+    und beim Kopieren fehlte die Seitenzahl dafür ganz.
+  - >
     Ein Klick auf eine Fundstelle öffnet das Dokument wieder an der Stelle, auf
     die sich die Antwort bezieht. Nennt die Quellenliste einer Antwort das
     Dokument ohne Seitenzahl, wurde bisher Seite 1 geöffnet, obwohl die Seite
@@ -21,6 +31,12 @@ fixes:
     gemeldet, während sie noch läuft. Bleibt eine Antwort still, sucht Piloti
     erst beim Server nach dem fertigen Ergebnis und zeigt es an, statt zum
     erneuten Senden aufzufordern.
+  - >
+    Rechtsquellen im RIS-Leser werden vollständig angezeigt. Die Textgrenze lag
+    unter der Länge der Wiener Bauordnung, sodass ausgerechnet § 108 außerhalb
+    des angezeigten Ausschnitts lag; bei sehr langen Gesetzen wird der Ausschnitt
+    jetzt um die zitierte Stelle herum gewählt. Die Navigationsleiste der
+    RIS-Seite steht nicht mehr über dem Gesetzestext.
   - >
     Lange Deep-Research-Berichte lassen sich wieder als PDF herunterladen. Die
     Obergrenze richtet sich jetzt nach dem Aufwand der Darstellung statt nach
