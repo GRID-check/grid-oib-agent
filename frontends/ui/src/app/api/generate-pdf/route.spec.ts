@@ -118,12 +118,28 @@ describe('POST /api/generate-pdf', () => {
  * finished after ten minutes, at 300 permitted mutations per member per minute.
  */
 describe('the body bounds', () => {
-  it('refuses markdown past the render bound, and renders nothing for it', async () => {
-    const response = await post({ markdown: 'x'.repeat(64 * 1024 + 1) })
+  it('refuses a document past the render bound, and renders nothing for it', async () => {
+    // A table-heavy document, because the bound is a COST now: the same byte
+    // count as prose is admitted and lays out in seconds, and pricing it as a
+    // table is what used to refuse a long Deep-Research-Bericht (#624).
+    const table = '| a | b | c | d |\n'.repeat(2_000)
+    const response = await post({ markdown: table })
 
-    expect(response.status).toBe(400)
+    expect(response.status).toBe(413)
+    expect(await response.json()).toMatchObject({ code: 'REPORT_TOO_LONG' })
     expect(response.headers.get('Content-Type')).not.toBe('application/pdf')
   })
+
+  it('renders a long PROSE report, which the character cap used to refuse', async () => {
+    // 80 KiB of prose: past the old 64 KiB ceiling and well inside what the
+    // renderer lays out comfortably. This is the report in #624.
+    const response = await post({
+      markdown: '# Bericht\n\n' + 'Die Fluchtwegbreite betraegt 1,20 m. '.repeat(2_300),
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toBe('application/pdf')
+  }, 60_000)
 
   it('still renders markdown at the bound, so the limit is not a ban', async () => {
     // The pair is the test: only the refusal above would also pass with the

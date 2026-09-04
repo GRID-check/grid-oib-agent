@@ -881,8 +881,16 @@ describe('useWebSocketChat', () => {
   // The 7s delivery-ack timeout above only covers the gap before the FIRST
   // frame. Once a frame lands it is cleared, so a mid-stream stall (or a
   // backend that dies without a terminal frame) is caught by the 180s
-  // inactivity watchdog instead.
+  // inactivity probe instead.
+  //
+  // SILENCE IS NOT A VERDICT. The probe asks two questions before it accuses a
+  // turn — is a deep-research job carrying it, and has the answer already been
+  // persisted — and only spends the whole silence budget on a turn that
+  // answers neither (#624). The cases in this block cover both the fast path
+  // (a conversation with no user turn to recover, which reaches the banner on
+  // the first fire) and the two questions, below.
   const WATCHDOG_MS = 180_000
+  const SILENCE_BUDGET_MS = 900_000
 
   test('ends the turn with an interrupted banner when the stream goes silent past the watchdog window', () => {
     vi.useFakeTimers()
@@ -994,6 +1002,150 @@ describe('useWebSocketChat', () => {
       expect(mockAddErrorCard).not.toHaveBeenCalledWith(
         'agent.response_interrupted',
         expect.anything(),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  /**
+   * #624: a Deep-Research-Bericht takes twelve minutes and the turn carrying it
+   * is silent on THIS channel for most of them — its progress travels on an SSE
+   * stream and its lifecycle on the job status, neither of which is a WebSocket
+   * frame. The watchdog was reading that silence as death and telling readers
+   * their answer had been interrupted while the research panel beside it was
+   * still filling in.
+   */
+  test('never accuses a turn a live deep-research job is carrying (#624)', async () => {
+    vi.useFakeTimers()
+    try {
+      mockWsClient.isConnected.mockReturnValue(true)
+      const recover = vi.fn().mockResolvedValue(false)
+      mockStoreState = {
+        ...mockStoreState,
+        isDeepResearchStreaming: true,
+        _recoverInterruptedAssistantMessage: recover,
+        currentConversation: {
+          id: 'conv-1',
+          userId: 'user-1',
+          messages: [{ id: 'u-1', messageType: 'user', content: 'Recherchiere' }],
+        },
+      }
+      useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+
+      const { result } = renderWebSocketHook()
+      act(() => {
+        result.current.sendMessage('Recherchiere')
+      })
+      mockStoreState.isStreaming = true
+      act(() => {
+        capturedCallbacks.onIntermediateStep?.('Planning…', 'in_progress', 'internal-step-id')
+      })
+      mockAddErrorCard.mockClear()
+
+      // Twenty minutes of WebSocket silence — well past the whole budget.
+      act(() => {
+        vi.advanceTimersByTime(SILENCE_BUDGET_MS + WATCHDOG_MS * 2)
+      })
+
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        expect.anything(),
+      )
+      // And it does not go looking for a persisted answer either: the turn is
+      // not finished, it is running somewhere else.
+      expect(recover).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('asks the server for the answer before it accuses the turn', async () => {
+    vi.useFakeTimers()
+    try {
+      mockWsClient.isConnected.mockReturnValue(true)
+      // The turn finished server-side; its terminal frame was lost. Recovering
+      // it renders the ANSWER, where the banner was a dead end.
+      const recover = vi.fn().mockResolvedValue(true)
+      mockStoreState = {
+        ...mockStoreState,
+        _recoverInterruptedAssistantMessage: recover,
+        currentConversation: {
+          id: 'conv-1',
+          userId: 'user-1',
+          messages: [{ id: 'u-1', messageType: 'user', content: 'Frage' }],
+        },
+      }
+      useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+
+      const { result } = renderWebSocketHook()
+      act(() => {
+        result.current.sendMessage('Frage')
+      })
+      mockStoreState.isStreaming = true
+      act(() => {
+        capturedCallbacks.onIntermediateStep?.('Thinking…', 'in_progress', 'internal-step-id')
+      })
+      mockAddErrorCard.mockClear()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(WATCHDOG_MS)
+      })
+
+      expect(recover).toHaveBeenCalledWith('conv-1', 'u-1')
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        expect.anything(),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('accuses the turn only once the whole silence budget is spent', async () => {
+    vi.useFakeTimers()
+    try {
+      mockWsClient.isConnected.mockReturnValue(true)
+      const recover = vi.fn().mockResolvedValue(false)
+      mockStoreState = {
+        ...mockStoreState,
+        _recoverInterruptedAssistantMessage: recover,
+        currentConversation: {
+          id: 'conv-1',
+          userId: 'user-1',
+          messages: [{ id: 'u-1', messageType: 'user', content: 'Frage' }],
+        },
+      }
+      useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+
+      const { result } = renderWebSocketHook()
+      act(() => {
+        result.current.sendMessage('Frage')
+      })
+      mockStoreState.isStreaming = true
+      act(() => {
+        capturedCallbacks.onIntermediateStep?.('Thinking…', 'in_progress', 'internal-step-id')
+      })
+      mockAddErrorCard.mockClear()
+
+      // One probe short of the budget: nothing said yet.
+      for (let spent = WATCHDOG_MS; spent < SILENCE_BUDGET_MS; spent += WATCHDOG_MS) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(WATCHDOG_MS)
+        })
+      }
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        expect.anything(),
+      )
+
+      // The probe that crosses it does.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(WATCHDOG_MS)
+      })
+      expect(mockAddErrorCard).toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        'The assistant stopped responding. Please resend your message.',
       )
     } finally {
       vi.useRealTimers()

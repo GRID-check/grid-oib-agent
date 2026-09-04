@@ -101,7 +101,83 @@ export const PDF_MEDIA_TYPE = 'application/pdf'
  * three findings, with nothing on the page saying so, is worse than a report
  * that was never filed — the second failure is visible to somebody.
  */
-export const MAX_MARKDOWN_PDF_CHARS = 64 * 1024
+export const MAX_MARKDOWN_PDF_CHARS = 440 * 1024
+
+/**
+ * ## Why 64 KiB became a cost, and 440 KiB
+ *
+ * The paragraph above says it: "the cap cannot see shape, so it has to be
+ * sized for the worst shape". A flat character count therefore priced every
+ * document as if it were a table, and the document this product exists to
+ * produce is not one — a Deep-Research-Bericht is prose, and twelve minutes of
+ * research writes past 64 KiB of it. The reader who waited those twelve minutes
+ * then pressed „PDF" and got a 400 (#624). The bound was doing its job on a
+ * cost the document did not have.
+ *
+ * So the cap sees shape now. Same method as the table above — Node 22, this
+ * repository, one render per fresh process, `rssDelta` sampled around the
+ * render:
+ *
+ *   | chars    | prose            | 4-column tables    |
+ *   |----------|------------------|--------------------|
+ *   | 32 KiB   | 0.6 s /  24 MB   |  5.6 s / 224 MB    |
+ *   | 64 KiB   | 1.2 s /  49 MB   | 20.4 s /  ~16 MB\* |
+ *   | 96 KiB   | —                | 41.0 s / 223 MB    |
+ *   | 128 KiB  | 2.6 s / 118 MB   | —                  |
+ *   | 192 KiB  | 5.0 s /  79 MB   | —                  |
+ *   | 256 KiB  | 7.6 s / 137 MB   | —                  |
+ *
+ * \* RSS deltas are noisy across a shared heap (a GC between two samples can
+ * make a delta smaller than the render); the TIMES are the stable signal and
+ * the shape ratio in them reproduces the earlier table exactly — ~10x at equal
+ * size, growing superlinearly on both curves.
+ *
+ * The number that matters: **256 KiB of prose renders in 7.6 s, and the old cap
+ * already admitted 64 KiB of tables at 20.4 s.** The most expensive document
+ * this bound has ever let through is a table-heavy one at the old ceiling, so
+ * that is the budget, expressed in the unit the ceiling was already in — and
+ * anything predicted to cost no more than it is admitted whatever its shape.
+ *
+ * 64 KiB of 4-column tables is ~6,050 cells. Extrapolating the prose curve,
+ * 20.4 s of prose is roughly 500 KiB, so a cell costs about
+ * `(500 - 64) KiB / 6050 ≈ 74` characters of prose. {@link TABLE_CELL_COST_CHARS}
+ * rounds that DOWN to 64 — a cell that is cheaper on paper than it is in
+ * practice makes the estimate conservative in the wrong direction, so it is
+ * rounded down, which prices tables slightly HIGHER per character and keeps the
+ * refusal early. The budget is then `65536 + 6050 x 64 = 452,736`, and
+ * {@link MAX_MARKDOWN_PDF_CHARS} is the round number just below it.
+ *
+ * A table-heavy document is therefore refused at very nearly the size it was
+ * refused at before, and 400 KiB of prose — a long report — renders in about
+ * twelve seconds and gets built.
+ */
+export const TABLE_CELL_COST_CHARS = 64
+
+/**
+ * What this document will cost to lay out, in prose-character equivalents.
+ *
+ * Counted off the RAW MARKDOWN rather than off parsed blocks, deliberately:
+ * this runs before anything is parsed (see {@link renderMarkdownPdf}), it is a
+ * single linear scan, and a table row in markdown is unambiguous — a line whose
+ * first non-space character is a pipe. The delimiter row (`|---|---|`) is
+ * counted like any other; it is one row in a document that has at least two, so
+ * naming it a special case would buy nothing.
+ *
+ * It is an ESTIMATE and does not have to be exact. What it has to be is
+ * shape-aware, because the thing it replaced was not.
+ */
+export function markdownRenderCost(markdown: string): number {
+  let cells = 0
+  for (const line of markdown.split('\n')) {
+    const trimmed = line.trimStart()
+    if (!trimmed.startsWith('|')) continue
+    // Cells are the gaps between pipes: `| a | b |` is two.
+    let pipes = 0
+    for (let i = 0; i < trimmed.length; i += 1) if (trimmed[i] === '|') pipes += 1
+    cells += Math.max(0, pipes - 1)
+  }
+  return markdown.length + cells * TABLE_CELL_COST_CHARS
+}
 
 /**
  * The refusal, as a named error rather than a generic one.
@@ -116,10 +192,11 @@ export const MAX_MARKDOWN_PDF_CHARS = 64 * 1024
  */
 export class MarkdownTooLongError extends Error {
   constructor(
+    /** The document's estimated layout cost — see {@link markdownRenderCost}. */
     readonly length: number,
     readonly limit: number = MAX_MARKDOWN_PDF_CHARS,
   ) {
-    super(`markdown is ${length} characters; the renderer accepts at most ${limit}`)
+    super(`markdown costs ${length} to lay out; the renderer accepts at most ${limit}`)
     this.name = 'MarkdownTooLongError'
   }
 }
@@ -208,8 +285,9 @@ export async function renderMarkdownPdf(
   // redundant with this, it is EARLIER and better-shaped for a request (a 400
   // naming the field, before a render is attempted); this is the floor under
   // every caller that has no request to shape an answer for.
-  if (markdown.length > MAX_MARKDOWN_PDF_CHARS) {
-    throw new MarkdownTooLongError(markdown.length)
+  const cost = markdownRenderCost(markdown)
+  if (cost > MAX_MARKDOWN_PDF_CHARS) {
+    throw new MarkdownTooLongError(cost)
   }
 
   const element = React.createElement(ReportPDF, {

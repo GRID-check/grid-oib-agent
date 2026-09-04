@@ -1,0 +1,29 @@
+---
+features:
+  - >
+    Rechtsquellen aus dem RIS öffnen jetzt in Piloti statt in einem neuen
+    Browser-Tab. Die zitierte Stelle ist im Text markiert, die Fundstelle lässt
+    sich als Zitat kopieren, und der Link auf die maßgebliche Veröffentlichung
+    im RIS steht weiterhin im Kopf des Fensters.
+fixes:
+  - >
+    Ein Klick auf eine Fundstelle öffnet das Dokument wieder an der Stelle, auf
+    die sich die Antwort bezieht. Nennt die Quellenliste einer Antwort das
+    Dokument ohne Seitenzahl, wurde bisher Seite 1 geöffnet, obwohl die Seite
+    bekannt war.
+  - >
+    Referenzierte Dateien, die Piloti nicht anzeigen kann — Word-Dokumente,
+    Tabellen, Zeichnungen —, lassen sich jetzt aus der Quellenangabe
+    herunterladen. Bisher gab es weder einen Weg hinein noch einen Hinweis,
+    warum.
+  - >
+    Eine laufende Recherche wird nicht mehr als „Antwort unterbrochen"
+    gemeldet, während sie noch läuft. Bleibt eine Antwort still, sucht Piloti
+    erst beim Server nach dem fertigen Ergebnis und zeigt es an, statt zum
+    erneuten Senden aufzufordern.
+  - >
+    Lange Deep-Research-Berichte lassen sich wieder als PDF herunterladen. Die
+    Obergrenze richtet sich jetzt nach dem Aufwand der Darstellung statt nach
+    der reinen Zeichenzahl, sodass ein umfangreicher Fließtext-Bericht nicht
+    mehr abgelehnt wird. Schlägt ein Export doch fehl, steht dort jetzt der
+    Grund statt „Bad Request".

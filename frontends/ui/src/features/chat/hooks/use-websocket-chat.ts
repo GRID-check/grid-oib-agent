@@ -50,6 +50,7 @@ import { useDocumentsStore } from '@/features/documents/store'
 import { isLikelyAuthRelatedTransportError } from '../lib/transport-auth-signals'
 import { validateGridCards } from '@/shared/cards/schemas'
 import { citationsFromWireList } from '../lib/wire-citation'
+import { hasActiveDeepResearchJob } from '../lib/session-activity'
 import type { GridCard } from '@/shared/cards/schemas'
 import type {
   ChatMessage,
@@ -311,12 +312,42 @@ const UNACKNOWLEDGED_OUTGOING_ACK_TIMEOUT_MS = 7_000
  * frame) would leave `isStreaming=true` forever -- a spinner that never stops
  * with the composer and session list locked.
  *
- * This watchdog fires when NO frame has arrived for this long while streaming.
- * It is (re)armed on send and reset on every incoming frame, and cleared on
- * completion / error / disconnect / HITL pause / unmount. On fire it ends the
- * turn, marks it interrupted, and surfaces a retryable timeout banner.
+ * This timer fires when NO frame has arrived for this long while streaming. It
+ * is (re)armed on send and reset on every incoming frame, and cleared on
+ * completion / error / disconnect / HITL pause / unmount.
+ *
+ * IT IS A PROBE, NOT A VERDICT. Silence is not death, and treating it as one
+ * is what put „Antwort unterbrochen — bitte erneut senden" in front of readers
+ * whose research was still running (#624). The arithmetic was never in the
+ * turn's favour: `configs/config_oib_openrouter.yml` gives a single LLM call up
+ * to `request_timeout: 600`, and a turn is silent for the whole of one — so a
+ * 180s budget declares a healthy turn dead with seven minutes of its own
+ * backend's allowance still to run. On fire this now looks for evidence
+ * (see {@link STREAMING_SILENCE_BUDGET_MS}) rather than concluding from the
+ * absence of it.
  */
 const STREAMING_INACTIVITY_TIMEOUT_MS = 180_000
+
+/**
+ * How long a turn may be silent in TOTAL before the UI concludes it is gone.
+ *
+ * Derived from what the backend is allowed to spend without saying anything:
+ * the longest `request_timeout` in `configs/config_oib_openrouter.yml` is 600s,
+ * and a call that times out is retried, so a live turn can legitimately hold
+ * its tongue for roughly twice that. 900s sits between the two — long enough
+ * that a healthy slow turn is never accused, short enough that a genuinely dead
+ * one does not hold the composer for a quarter of an hour past hope.
+ *
+ * The budget is spent in {@link STREAMING_INACTIVITY_TIMEOUT_MS} probes rather
+ * than waited out in one go, because each probe does something useful: it asks
+ * the server whether the answer has already been persisted, which is how a
+ * turn whose terminal frame was lost finishes as an ANSWER instead of as a
+ * warning banner.
+ *
+ * A turn with a live deep-research job is outside this entirely — see the
+ * watchdog handler.
+ */
+const STREAMING_SILENCE_BUDGET_MS = 900_000
 
 /**
  * Debounce window for reconnect-triggered answer recovery (FIX 2). A burst of
@@ -533,6 +564,14 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    * See `STREAMING_INACTIVITY_TIMEOUT_MS`.
    */
   const streamingWatchdogTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /**
+   * When the turn last showed a sign of life — set by an inbound frame, never
+   * by the watchdog re-arming itself. `STREAMING_SILENCE_BUDGET_MS` is measured
+   * from here, so the budget is spent by real silence rather than renewed by
+   * the timer that measures it.
+   */
+  const lastFrameAtRef = useRef(0)
 
   /**
    * Set by the soft timer when it fires while streaming; consumed by the
@@ -899,29 +938,22 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   }, [])
 
   /**
-   * Fired when a streaming turn goes silent for too long. End the turn the
-   * same way an interrupt does (complete the open thinking step, reset
-   * streaming/loading/status, clear any HITL prompt), drop the resend buffers
-   * so nothing replays behind the user's back, and surface the existing
-   * timeout banner so the user can retry.
+   * End a silent turn: complete the open thinking step, reset
+   * streaming/loading/status, clear any HITL prompt, and drop the resend
+   * buffers so nothing replays behind the user's back.
+   *
+   * Separate from the banner, because the two outcomes of a silent turn need
+   * the same teardown and must not carry the same message: a turn whose answer
+   * turned out to be sitting on the server finishes as that ANSWER, and telling
+   * the reader it was interrupted while it renders under the notice is the
+   * defect, not the cure.
    */
-  const handleStreamingWatchdogTimeout = useCallback((): void => {
-    clearStreamingWatchdog()
-    // Only act if we're still streaming -- a terminal frame may have landed
-    // in the same tick the timer fired.
-    if (!useChatStore.getState().isStreaming) return
-
+  const endSilentTurn = useCallback((): void => {
     if (currentThinkingStepIdRef.current) {
       completeThinkingStep(currentThinkingStepIdRef.current)
       currentThinkingStepIdRef.current = null
       currentStatusRef.current = null
     }
-
-    // Reuse the interrupted-turn banner: warning status, "please resend".
-    addErrorCard(
-      'agent.response_interrupted',
-      'The assistant stopped responding. Please resend your message.',
-    )
     setCurrentStatus(null)
     setStreaming(false)
     setLoading(false)
@@ -930,9 +962,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     pendingOutgoingRef.current = null
     clearUnacknowledgedOutgoing()
   }, [
-    addErrorCard,
     clearPendingInteraction,
-    clearStreamingWatchdog,
     clearUnacknowledgedOutgoing,
     completeThinkingStep,
     setCurrentStatus,
@@ -941,16 +971,110 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   ])
 
   /**
+   * Fired when a streaming turn has said nothing for
+   * {@link STREAMING_INACTIVITY_TIMEOUT_MS}.
+   *
+   * SILENCE IS EVIDENCE OF NOTHING ON ITS OWN, so this asks before it answers:
+   *
+   *  1. **A live deep-research job owns its own turn.** Its progress travels on
+   *     an SSE stream and its lifecycle on the job status, neither of which is a
+   *     WebSocket frame — so a research run of twelve minutes is silent HERE by
+   *     construction, and this timer was the thing telling its reader it had
+   *     been interrupted while the research panel beside it was still filling
+   *     in (#624). That turn is not this watchdog's to end; the research
+   *     panel's own stall notice and job polling are.
+   *  2. **The answer may already exist.** A turn whose terminal frame was lost
+   *     is finished server-side, and `_recoverInterruptedAssistantMessage`
+   *     appends it. That is a real answer where the banner was a dead end, and
+   *     it is checked on the FIRST probe rather than after the whole budget.
+   *  3. **Only then, and only once the whole silence budget is spent, is the
+   *     turn declared interrupted** — the behaviour this always had, moved
+   *     behind the two questions that had never been asked.
+   */
+  const handleStreamingWatchdogTimeout = useCallback((): void => {
+    clearStreamingWatchdog()
+    // Only act if we're still streaming -- a terminal frame may have landed
+    // in the same tick the timer fired.
+    const state = useChatStore.getState()
+    if (!state.isStreaming) return
+
+    // (1) A deep-research job carries this turn on a channel of its own.
+    const conversation = state.currentConversation
+    const researchIsLive =
+      state.isDeepResearchStreaming ||
+      (state.deepResearchStatus !== null &&
+        ['submitted', 'running'].includes(state.deepResearchStatus)) ||
+      (conversation ? hasActiveDeepResearchJob(conversation.messages) : false)
+    if (researchIsLive) {
+      armStreamingWatchdogRef.current?.(false)
+      return
+    }
+
+    // (2) Ask the server whether the answer landed while the socket was quiet.
+    if (conversation) {
+      const lastUserMessage = [...conversation.messages]
+        .reverse()
+        .find((m) => m.messageType === 'user')
+      if (lastUserMessage) {
+        void (async () => {
+          // `isStreaming` is what the recovery fetch refuses to fold over, so
+          // the turn is closed first: this probe runs precisely because the
+          // stream is no longer producing anything.
+          endSilentTurn()
+          const recovered = await useChatStore
+            .getState()
+            ._recoverInterruptedAssistantMessage(conversation.id, lastUserMessage.id)
+          if (recovered) return
+          if (Date.now() - lastFrameAtRef.current < STREAMING_SILENCE_BUDGET_MS) {
+            // Nothing yet, and the turn still has budget: keep the socket's
+            // turn open and probe again rather than accusing it.
+            setStreaming(true)
+            armStreamingWatchdogRef.current?.(false)
+            return
+          }
+          // (3) The budget is spent. Reuse the interrupted-turn banner:
+          // warning status, "please resend".
+          addErrorCard(
+            'agent.response_interrupted',
+            'The assistant stopped responding. Please resend your message.',
+          )
+        })()
+        return
+      }
+    }
+
+    endSilentTurn()
+    addErrorCard(
+      'agent.response_interrupted',
+      'The assistant stopped responding. Please resend your message.',
+    )
+  }, [addErrorCard, clearStreamingWatchdog, endSilentTurn, setStreaming])
+
+  /**
    * (Re)arm the watchdog. Called when a turn starts and on every inbound
    * frame so the deadline is measured from the last sign of life.
+   *
+   * `progress` says whether a frame prompted this. Only a frame resets the
+   * SILENCE clock — a re-arm from the watchdog itself must not, or the budget
+   * above would renew forever and the turn would never resolve.
    */
-  const armStreamingWatchdog = useCallback((): void => {
-    clearStreamingWatchdog()
-    streamingWatchdogTimeoutRef.current = setTimeout(
-      handleStreamingWatchdogTimeout,
-      STREAMING_INACTIVITY_TIMEOUT_MS,
-    )
-  }, [clearStreamingWatchdog, handleStreamingWatchdogTimeout])
+  const armStreamingWatchdog = useCallback(
+    (progress = true): void => {
+      clearStreamingWatchdog()
+      if (progress) lastFrameAtRef.current = Date.now()
+      streamingWatchdogTimeoutRef.current = setTimeout(
+        handleStreamingWatchdogTimeout,
+        STREAMING_INACTIVITY_TIMEOUT_MS,
+      )
+    },
+    [clearStreamingWatchdog, handleStreamingWatchdogTimeout],
+  )
+
+  // The watchdog handler re-arms itself, and the two callbacks would otherwise
+  // be mutually recursive dependencies. A ref breaks the cycle without either
+  // being rebuilt on the other's identity.
+  const armStreamingWatchdogRef = useRef<((progress?: boolean) => void) | null>(null)
+  armStreamingWatchdogRef.current = armStreamingWatchdog
 
   const handleUnacknowledgedOutgoingTimeout = useCallback((): void => {
     const unacknowledged = unacknowledgedOutgoingRef.current
