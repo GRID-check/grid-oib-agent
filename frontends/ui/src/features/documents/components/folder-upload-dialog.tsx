@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   FilePlus2,
@@ -11,6 +11,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -205,9 +206,12 @@ export function FolderUploadDialog({
                 the document exists, it is simply filed somewhere else, and the
                 upload moves it to where the tree puts it. */}
             {counts.refiled > 0 && (
-              <PlanNote icon={MoveRight} testId="folder-upload-refiled">
-                {t('folderUpload.refiled', { count: String(counts.refiled) })}
-              </PlanNote>
+              <Alert data-testid="folder-upload-refiled">
+                <MoveRight aria-hidden />
+                <AlertDescription>
+                  {t('folderUpload.refiled', { count: String(counts.refiled) })}
+                </AlertDescription>
+              </Alert>
             )}
 
             {/* THE ONE THING THAT IS NOT MERELY INFORMATION.
@@ -217,13 +221,16 @@ export function FolderUploadDialog({
                 Neither is sent; the reader is told which, so they can rename or
                 pick. */}
             {counts.collision > 0 && (
-              <PlanNote icon={AlertTriangle} tone="warning" testId="folder-upload-collisions">
-                <span className="block font-medium">
+              <Alert variant="warning" data-testid="folder-upload-collisions">
+                <AlertTriangle aria-hidden />
+                <AlertTitle>
                   {t('folderUpload.collisions', { count: String(counts.collision) })}
-                </span>
-                <span className="block text-xs opacity-90">{t('folderUpload.collisionsExplain')}</span>
-                <FileNameList files={plan.files.filter((file) => file.action === 'collision')} />
-              </PlanNote>
+                </AlertTitle>
+                <AlertDescription className="space-y-1">
+                  <span className="block">{t('folderUpload.collisionsExplain')}</span>
+                  <FileNameList files={plan.files.filter((file) => file.action === 'collision')} />
+                </AlertDescription>
+              </Alert>
             )}
 
             <PlanDetails plan={plan} includeUpdates={includeUpdates} />
@@ -254,7 +261,16 @@ export function FolderUploadDialog({
   )
 }
 
-/** One number, its glyph and what it means. */
+/**
+ * One number, its glyph and what it means.
+ *
+ * `StatCard` is the kit's stat tile and is the wrong size here: `p-5` and a
+ * `text-2xl` figure, four of them, inside a dialog that also has to hold a
+ * decision and a file list. Its icon slot also wraps whatever it is given in a
+ * fixed muted disc, so a toned glyph would be a disc inside a disc. The atom
+ * that matters — the tinted well — IS the kit's (`StatCardIcon`); what is local
+ * is the cell around it, which is layout.
+ */
 function PlanCount({
   icon,
   tone,
@@ -285,33 +301,6 @@ function PlanCount({
   )
 }
 
-/** A sentence with a glyph, for the two facts that are not counts. */
-function PlanNote({
-  icon: Icon,
-  tone = 'muted',
-  children,
-  testId,
-}: {
-  icon: LucideIcon
-  tone?: 'muted' | 'warning'
-  children: ReactNode
-  testId: string
-}): JSX.Element {
-  return (
-    <div
-      className={cn(
-        'flex items-start gap-2.5 rounded-lg border p-3 text-sm',
-        tone === 'warning'
-          ? 'border-warning bg-warning-subtle text-warning'
-          : 'bg-muted/40 text-muted-foreground',
-      )}
-      data-testid={testId}
-    >
-      <Icon className="mt-0.5 size-4 shrink-0" aria-hidden />
-      <div className="min-w-0 space-y-1">{children}</div>
-    </div>
-  )
-}
 
 /** Names, because a count nobody can check is a number to be believed. */
 function FileNameList({ files }: { files: readonly PlannedFile[] }): JSX.Element {
