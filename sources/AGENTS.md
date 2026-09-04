@@ -4,19 +4,26 @@ NAT data-source packages: web search, scholarly search, prediction markets, the
 RIS legal adapter, and the knowledge layer. Each is its own uv workspace member
 with its own `pyproject.toml` and tests, installed into the shared venv.
 
-## No CI job runs these tests
+## Running these tests
 
-`be:test:ci` covers `tests/`, `be:test:api:ci` covers the aiq_api suite. The one
-command that covers `sources/` is the `pytest` pre-commit hook, which is
-`stages: [push]`, and CI's repo-lint job SKIPs it. A change here can go green
-through every gate with its own suite never executed.
+`task be:test:sources` runs them, and the backend CI job runs the same task, so
+a package under `sources/` is covered the day it lands — the glob picks it up
+with no list to update.
 
 ```bash
-PYTHONPATH=src pytest sources -q   # nothing sets PYTHONPATH for you here
+task be:test:sources          # what CI runs
+PYTHONPATH=src pytest sources/<package>/tests -q   # one package
 ```
 
-Adding a source? Put its tests where CI already looks, or wire `sources/` into
-`Taskfile.yml` in the same change and say so in the PR.
+`pytest sources` as a single run does NOT work: every package ships a
+`tests/__init__.py`, so pytest derives the module name `tests.conftest` for each
+of them and the second one aborts collection with "Plugin already registered
+under a different name". That is why the task runs one pytest per package.
+
+This suite went uncovered for a long time — only the `stages: [push]` pre-commit
+hook touched it, and CI's repo-lint job skips that — which is how
+`google_scholar_paper_search` came to assert a `_fetch_serper_page(offset=...)`
+signature the implementation had already replaced with `page`.
 
 ## Obligations
 

@@ -311,7 +311,7 @@ class TestFetchSerperPage:
             await paper_search_tool._fetch_serper_page(  # noqa: SLF001
                 query="test query",
                 num=10,
-                offset=0,
+                page=0,
                 start_year="2020",
                 end_year="2023",
             )
@@ -323,7 +323,7 @@ class TestFetchSerperPage:
 
         assert payload["q"] == "test query"
         assert payload["num"] == 10
-        assert payload["start"] == 0
+        assert payload["page"] == 1
         assert payload["as_ylo"] == "2020"
         assert payload["as_yhi"] == "2023"
 
@@ -348,7 +348,7 @@ class TestFetchSerperPage:
             await paper_search_tool._fetch_serper_page(  # noqa: SLF001
                 query="test",
                 num=50,  # More than limit
-                offset=0,
+                page=0,
                 start_year=None,
                 end_year=None,
             )
@@ -378,7 +378,7 @@ class TestFetchSerperPage:
             await paper_search_tool._fetch_serper_page(  # noqa: SLF001
                 query="test",
                 num=10,
-                offset=0,
+                page=0,
                 start_year=None,
                 end_year=None,
             )

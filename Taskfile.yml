@@ -326,6 +326,20 @@ tasks:
     cmds:
       - '{{.PY}} -X faulthandler -m pytest tests/ -q'
 
+  be:test:sources:
+    desc: The sources/ package suites, which no CI job used to run
+    cmds:
+      # One pytest per package, not `pytest sources`, and the glob rather than a
+      # list so a new package is covered the day it lands.
+      #
+      # Every package ships a `tests/__init__.py`, so one run over all of them
+      # derives the module name `tests.conftest` for each and the second one
+      # aborts collection with "Plugin already registered under a different
+      # name". Splitting the invocation is what makes this suite runnable at
+      # all; merging it into one run needs those conftest names disambiguated
+      # first.
+      - 'for d in sources/*/tests; do "{{.PY}}" -X faulthandler -m pytest "$d" -q || exit 1; done'
+
   be:eval:retrieval:
     desc: Retrieval regression gate — the Punkt arm must keep its citable-unit share (model-free, offline)
     env:
@@ -396,6 +410,10 @@ tasks:
       - task: be:lint
       - task: be:test:ci
       - task: be:test:api:ci
+      # sources/ used to be covered only by the push-stage pre-commit hook,
+      # which CI's repo-lint job skips — a stale test there stayed green
+      # through every gate. Now it is part of the tier.
+      - task: be:test:sources
 
   # ── infra (deploy/pulumi) ───────────────────────────────────────────────────
 

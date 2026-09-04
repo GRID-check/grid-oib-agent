@@ -18,7 +18,6 @@ import {
   signGridRequestContextEnvelope,
   type GridRequestContextInput,
 } from './request-context'
-import { encodeModelOverridesHeader as reExportedEncodeModelOverridesHeader } from './model-config/header-encoding'
 
 /**
  * Cross-language contract fixture (backlog T3-9): the canonical wire values
@@ -169,12 +168,6 @@ describe('low-level encoders', () => {
   it('encodeModelOverridesHeader is a JSON encoding of the overrides map', () => {
     const overrides = { deep_research: 'openrouter/anthropic/claude-3.7-sonnet' }
     expect(encodeModelOverridesHeader(overrides)).toBe(encodeGridJsonHeader(overrides))
-  })
-})
-
-describe('model-config/header-encoding re-export', () => {
-  it('re-exports the exact same function as @/lib/request-context (no drift between the two import paths)', () => {
-    expect(reExportedEncodeModelOverridesHeader).toBe(encodeModelOverridesHeader)
   })
 })
 

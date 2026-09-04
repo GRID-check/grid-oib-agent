@@ -134,6 +134,12 @@ jobs:
         run: task be:test:ci
       - name: aiq_api plugin suite
         run: task be:test:api:ci
+      # sources/ was covered only by the push-stage pre-commit hook, which the
+      # repo-lint job skips — so a stale test there stayed green through every
+      # gate until someone ran pytest by hand. Same definition as the local
+      # `task be:verify`.
+      - name: sources/ package suites
+        run: task be:test:sources
       - name: Coverage comment (backend)
         if: github.event_name == 'pull_request' && matrix.python == '3.13'
         continue-on-error: true # never fail CI on a comment hiccup

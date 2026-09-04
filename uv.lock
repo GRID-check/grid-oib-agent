@@ -15,7 +15,6 @@ members = [
     "aiq-research-cli",
     "deepsearch-qa-evaluator",
     "duckduckgo-news-search",
-    "exa-web-search",
     "freshqa-eval",
     "google-scholar-paper-search",
     "knowledge-layer",
@@ -236,7 +235,6 @@ dev = [
     { name = "aiq-research-cli" },
     { name = "dask", extra = ["distributed"] },
     { name = "duckduckgo-news-search" },
-    { name = "exa-web-search" },
     { name = "fakeredis" },
     { name = "google-scholar-paper-search" },
     { name = "knowledge-layer", extra = ["all"] },
@@ -302,7 +300,6 @@ dev = [
     { name = "aiq-research-cli", editable = "frontends/cli" },
     { name = "dask", extras = ["distributed"], specifier = ">=2024.1.0" },
     { name = "duckduckgo-news-search", editable = "sources/duckduckgo_news_search" },
-    { name = "exa-web-search", editable = "sources/exa_web_search" },
     { name = "fakeredis", specifier = ">=2.20.0" },
     { name = "google-scholar-paper-search", editable = "sources/google_scholar_paper_search" },
     { name = "knowledge-layer", extras = ["all"], editable = "sources/knowledge_layer" },
@@ -1503,21 +1500,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/4e/b0/d035d8e56ca7d9192daf4a3bf4d4fc4a64d427d29df700868dd91ffc0a69/exa_py-1.16.2.tar.gz", hash = "sha256:1808a82ef9f25271ffd238d7b9e2ed279a96de89f140de401887866fc8b54ced", size = 41380, upload-time = "2026-04-24T19:08:07.982Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/98/27/934d9750e4f3c888a0cc8e702c2424069abb7d86b67602229c44083c3d25/exa_py-1.16.2-py3-none-any.whl", hash = "sha256:7a574e978a50dd458b07e8bbb8b1da9543b8f8e57191b7bd1086546414686689", size = 56642, upload-time = "2026-04-24T19:08:09.052Z" },
-]
-
-[[package]]
-name = "exa-web-search"
-version = "1.0.0"
-source = { editable = "sources/exa_web_search" }
-dependencies = [
-    { name = "langchain-exa" },
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "langchain-exa", specifier = ">=1.1.0" },
-    { name = "pydantic", specifier = ">=2.0.0" },
 ]
 
 [[package]]

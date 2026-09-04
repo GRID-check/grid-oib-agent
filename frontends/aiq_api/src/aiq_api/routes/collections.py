@@ -49,22 +49,6 @@ def add_collection_routes(router: APIRouter):
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.get(
-        "/v1/collections",
-        response_model=list[CollectionInfo],
-        tags=["collections"],
-        summary="List all collections",
-    )
-    async def list_collections(
-        ingestor: BaseIngestor = Depends(_require_ingestor),
-    ) -> list[CollectionInfo]:
-        """List all available collections."""
-        try:
-            return ingestor.list_collections()
-        except Exception as e:
-            logger.error(f"Failed to list collections: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @router.get(
         "/v1/collections/{name}",
         response_model=CollectionInfo,
         tags=["collections"],
@@ -100,23 +84,3 @@ def add_collection_routes(router: APIRouter):
         except Exception as e:
             logger.error(f"Failed to delete collection '{name}': {e}")
             raise HTTPException(status_code=500, detail=str(e))
-
-    @router.get(
-        "/v1/knowledge/health",
-        tags=["health"],
-        summary="Check knowledge backend health",
-    )
-    async def health_check(
-        ingestor: BaseIngestor = Depends(_require_ingestor),
-    ) -> dict:
-        """Check if the knowledge backend is healthy and reachable."""
-        try:
-            healthy = await ingestor.health_check()
-            if not healthy:
-                raise HTTPException(status_code=503, detail="Knowledge backend unhealthy")
-            return {"status": "healthy", "backend": ingestor.backend_name}
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(f"Health check failed: {e}")
-            raise HTTPException(status_code=503, detail=str(e))
