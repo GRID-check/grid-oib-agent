@@ -145,23 +145,41 @@ describe('useDownloadPdfRoute', () => {
     expect(mockAnchor.download).toBe('market-analysis-report.pdf')
   })
 
-  test('handles fetch error', async () => {
+  test('says something a reader can act on when the render fails', async () => {
     const { result } = renderHook(() => useDownloadPdfRoute())
 
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,
       statusText: 'Internal Server Error',
+      json: () => Promise.resolve({ code: 'INTERNAL' }),
     }))
-
-    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     await act(async () => {
       await result.current.downloadPdf('# Test')
     })
 
-    expect(result.current.error).toBe('Failed to generate PDF: Internal Server Error')
+    // NOT `statusText`. „Bad Request" in front of a German reader who has just
+    // waited twelve minutes for a report is the defect this replaced (#624).
+    expect(result.current.error).toBe('The PDF could not be created. Please try again.')
     expect(result.current.isLoading).toBe(false)
-    expect(consoleErrorSpy).toHaveBeenCalled()
+  })
+
+  test('names the document, not the transport, when the report is too long', async () => {
+    const { result } = renderHook(() => useDownloadPdfRoute())
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      statusText: 'Payload Too Large',
+      json: () => Promise.resolve({ code: 'REPORT_TOO_LONG' }),
+    }))
+
+    await act(async () => {
+      await result.current.downloadPdf('# Test')
+    })
+
+    // The one refusal the reader can do something about, so it says what.
+    expect(result.current.error).toContain('too large to export as a PDF')
+    expect(result.current.error).toContain('Markdown')
   })
 
   test('handles network error', async () => {
@@ -173,7 +191,7 @@ describe('useDownloadPdfRoute', () => {
       await result.current.downloadPdf('# Test')
     })
 
-    expect(result.current.error).toBe('Network error')
+    expect(result.current.error).toBe('The PDF could not be created. Please try again.')
     expect(result.current.isLoading).toBe(false)
   })
 
@@ -186,7 +204,7 @@ describe('useDownloadPdfRoute', () => {
       await result.current.downloadPdf('# Test')
     })
 
-    expect(result.current.error).toBe('Failed to download PDF')
+    expect(result.current.error).toBe('The PDF could not be created. Please try again.')
     expect(result.current.isLoading).toBe(false)
   })
 
@@ -197,13 +215,14 @@ describe('useDownloadPdfRoute', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,
       statusText: 'Error',
+      json: () => Promise.resolve({ code: 'INTERNAL' }),
     }))
 
     await act(async () => {
       await result.current.downloadPdf('# Test')
     })
 
-    expect(result.current.error).toBe('Failed to generate PDF: Error')
+    expect(result.current.error).toBe('The PDF could not be created. Please try again.')
 
     // Second call succeeds - need to mock document methods
     const mockBlob = new Blob(['pdf content'], { type: 'application/pdf' })

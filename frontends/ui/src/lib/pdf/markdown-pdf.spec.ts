@@ -23,6 +23,8 @@ import { answerExport as de } from '@/i18n/dictionaries/de/answer-export'
 import { answerExport as en } from '@/i18n/dictionaries/en/answer-export'
 import {
   MAX_MARKDOWN_PDF_CHARS,
+  TABLE_CELL_COST_CHARS,
+  markdownRenderCost,
   MarkdownTooLongError,
   PDF_MEDIA_TYPE,
   renderMarkdownPdf,
@@ -239,26 +241,57 @@ describe('renderMarkdownPdf', () => {
         Math.ceil(size / 72)
       ).slice(0, size)
 
-    it('renders markdown of exactly the limit', async () => {
-      // The boundary is inclusive, and it is asserted by rendering rather than
-      // by reading the constant: an off-by-one here refuses a document that is
-      // legal by the number the comment and the route both quote.
-      const bytes = await renderMarkdownPdf(proseOf(MAX_MARKDOWN_PDF_CHARS), BASE)
+    /** `rows` markdown table rows of four columns — the expensive shape. */
+    const tableOf = (rows: number) =>
+      `| Bauteil | Anforderung | Nachweis | Quelle |\n|---|---|---|---|\n` +
+      '| Trennwand | REI 90 | Pruefzeugnis | OIB-RL 2 |\n'.repeat(rows)
 
-      expect(new TextDecoder('latin1').decode(bytes.subarray(0, 5))).toBe('%PDF-')
+    it('prices a table cell above a prose character', () => {
+      // The whole argument for the bound being a COST: the same byte count
+      // costs about ten times more as a table than as prose, so a cap that
+      // counted characters priced every report as a table and refused the one
+      // shape this product actually writes (#624).
+      const prose = proseOf(4000)
+      const table = tableOf(40)
+
+      expect(markdownRenderCost(prose)).toBe(prose.length)
+      expect(markdownRenderCost(table)).toBeGreaterThan(table.length * 2)
+      // 42 rows (a header, its delimiter, and 40 body rows) x 4 cells x the
+      // per-cell price.
+      expect(markdownRenderCost(table) - table.length).toBe(42 * 4 * TABLE_CELL_COST_CHARS)
     })
 
-    it('refuses one character more, by name', async () => {
+    it('renders a report the old character cap refused', async () => {
+      // 128 KiB of prose: twice the ceiling this bound used to have, and 2.6 s
+      // to lay out against the 20.4 s that same ceiling admitted as tables. It
+      // is the Deep-Research-Bericht in #624, and the assertion is that it
+      // comes back as a PDF rather than as a 400.
+      const bytes = await renderMarkdownPdf(proseOf(128 * 1024), BASE)
+
+      expect(new TextDecoder('latin1').decode(bytes.subarray(0, 5))).toBe('%PDF-')
+    }, 60_000)
+
+    it('refuses one unit of cost more than the limit, by name', async () => {
       const markdown = proseOf(MAX_MARKDOWN_PDF_CHARS + 1)
 
       await expect(renderMarkdownPdf(markdown, BASE)).rejects.toThrow(MarkdownTooLongError)
-      // The length and the limit are both on the error because the caller that
+      // The cost and the limit are both on the error because the caller that
       // swallows this (`fileReportIfCommissioned`) logs it and nothing else —
       // "too long" without "how long" tells an operator nothing they can act on.
       await expect(renderMarkdownPdf(markdown, BASE)).rejects.toMatchObject({
         length: MAX_MARKDOWN_PDF_CHARS + 1,
         limit: MAX_MARKDOWN_PDF_CHARS,
       })
+    })
+
+    it('still refuses a table-heavy document at very nearly its old size', async () => {
+      // The budget IS the cost of the most expensive document the old cap ever
+      // admitted — 64 KiB of four-column tables — so raising the ceiling for
+      // prose must not have raised it for tables. ~64 KiB of them is refused.
+      const markdown = tableOf(1500)
+
+      expect(markdown.length).toBeLessThan(96 * 1024)
+      await expect(renderMarkdownPdf(markdown, BASE)).rejects.toThrow(MarkdownTooLongError)
     })
 
     it('refuses without rendering, which is the only place a refusal can be', async () => {

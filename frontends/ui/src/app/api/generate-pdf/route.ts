@@ -53,8 +53,8 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getTranslations } from '@/i18n/server'
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
-import { PayloadTooLargeError } from '@/lib/api/errors'
-import { MAX_MARKDOWN_PDF_CHARS, PDF_MEDIA_TYPE, renderMarkdownPdf } from '@/lib/pdf/markdown-pdf'
+import { ApiError, PayloadTooLargeError } from '@/lib/api/errors'
+import { MarkdownTooLongError, PDF_MEDIA_TYPE, renderMarkdownPdf } from '@/lib/pdf/markdown-pdf'
 
 /**
  * The largest JSON body this route will read: the ceiling the Pages Router
@@ -70,13 +70,13 @@ import { MAX_MARKDOWN_PDF_CHARS, PDF_MEDIA_TYPE, renderMarkdownPdf } from '@/lib
  *
  * It bounds the TRANSPORT and not the work. A 1 MiB body of markdown is minutes
  * of one blocked worker and over a gigabyte of peak RSS, so the render has its
- * own, much smaller bound — see {@link MAX_MARKDOWN_PDF_CHARS}.
+ * own, much smaller bound — see `MAX_MARKDOWN_PDF_CHARS` in `@/lib/pdf/markdown-pdf`.
  */
 const MAX_PDF_REQUEST_BYTES = 1024 * 1024
 
 /**
  * The largest markdown this route will RENDER is not this route's number any
- * more: it is {@link MAX_MARKDOWN_PDF_CHARS}, and it lives with the renderer.
+ * more: it is `MAX_MARKDOWN_PDF_CHARS`, and it lives with the renderer.
  *
  * It was declared here, and the second caller of `renderMarkdownPdf` — a filed
  * research report — was written without it, which is the whole argument for
@@ -86,22 +86,25 @@ const MAX_PDF_REQUEST_BYTES = 1024 * 1024
  * superlinear curve, the shape sensitivity, and why a timeout cannot be the
  * bound instead).
  *
- * The schema keeps refusing at the same threshold rather than deferring to the
- * throw, because the two refusals are not the same answer: this one is a 400
- * with the field named, before any render is attempted, which is what a client
- * posting a body can act on. The renderer's is the floor underneath it.
+ * The schema no longer restates it. It used to carry the same number, which
+ * made a table-heavy document a 413 and a long one a 400 for the same reason —
+ * two codes for one answer, and the client would have had to know both. The
+ * schema now bounds only what a REQUEST may be (a string no larger than the
+ * body ceiling, for a client that sent no `Content-Length`); whether a document
+ * can be laid out is the renderer's judgement and comes back as one code.
  */
 const generatePdfSchema = z.object({
   /**
    * Non-empty, because an empty string renders a blank page and a blank page
    * downloads as a file the user then has to open to discover is empty.
    *
-   * Bounded above because the schema stands directly in front of
-   * `renderToStream`, whose cost is superlinear in its input and whose layout
-   * pass blocks the event loop for the whole of it — with
-   * `DEFAULT_MUTATION_LIMIT` admitting 300 mutations a minute per member.
+   * Bounded by the TRANSPORT ceiling rather than the render ceiling: this is the
+   * floor under `refuseOversizedBody` for a request that declared no length, and
+   * a character is at least a byte, so a string this long cannot have arrived in
+   * a body that fits. What it costs to LAY OUT is a different question, asked
+   * once, by the renderer's own `MAX_MARKDOWN_PDF_CHARS`.
    */
-  markdown: z.string().min(1).max(MAX_MARKDOWN_PDF_CHARS),
+  markdown: z.string().min(1).max(MAX_PDF_REQUEST_BYTES),
 })
 
 /**
@@ -137,9 +140,29 @@ export const POST = apiRoute(
     // reason `research-report.ts` does: the file leaves the product, and the
     // reader's language is the one the answer was read in.
     const t = await getTranslations('answerExport')
-    const bytes = await renderMarkdownPdf(markdown, {
-      diagramPlaceholder: t('diagramPlaceholder'),
-    })
+    let bytes: Uint8Array
+    try {
+      bytes = await renderMarkdownPdf(markdown, {
+        diagramPlaceholder: t('diagramPlaceholder'),
+      })
+    } catch (error) {
+      // A DOCUMENT-shaped refusal, named so the caller can say something true
+      // about it. `useDownloadPdfRoute` used to print `response.statusText`,
+      // so a reader who had waited twelve minutes for a Deep-Research-Bericht
+      // pressed „PDF" and was told „Bad Request" (#624) — a string that is
+      // neither German nor an explanation nor actionable. The schema catches
+      // most of these first; this is the floor under it, and the two share
+      // the code so the client has one thing to recognise.
+      if (error instanceof MarkdownTooLongError) {
+        throw new ApiError(
+          413,
+          'REPORT_TOO_LONG',
+          'This report is too long to render as a PDF',
+          { limit: error.limit, cost: error.length }
+        )
+      }
+      throw error
+    }
 
     return new NextResponse(new Uint8Array(bytes), {
       status: 200,
