@@ -252,3 +252,31 @@ async def test_reads_through_the_shared_cache_rather_than_refetching(client, mon
 
     assert response.json()["text"] == "§ 108. Gecacht"
     fetch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_an_ambiguous_passage_gets_the_head_rather_than_a_guess(client):
+    """A phrase that occurs twice points at two places at once.
+
+    Legal text repeats its own phrasing constantly — „Die Anforderungen dieser
+    Richtlinie sind sinngemäß anzuwenden" prefaces a dozen sections. Centring
+    the window on the first occurrence would be a guess presented as an answer,
+    and the reader has no way to tell it apart from a real hit.
+    """
+    clause = "Die Anforderungen dieser Verordnung sind sinngemaess anzuwenden auf"
+    text = f"{clause} Neubauten. " + ("x " * 1_500_000) + f"{clause} Zubauten. " + ("y " * 1_000_000)
+
+    with patch(
+        "ris_adapter.client.RisClient.fetch_document_text",
+        new=AsyncMock(return_value=_document(text=text)),
+    ):
+        async with client as http:
+            response = await http.get(
+                "/v1/ris/document",
+                params={"reference": URL, "passage": clause},
+                headers={"x-grid-internal-token": TOKEN},
+            )
+
+    body = response.json()
+    assert body["truncated"] is True
+    assert body["text"].startswith(clause)

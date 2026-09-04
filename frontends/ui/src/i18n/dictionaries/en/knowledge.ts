@@ -76,6 +76,7 @@ export const knowledge = {
     loading: 'Loading legal source…',
     failed:
       'This legal source cannot be shown in Piloti right now. “Open at RIS” still reaches the document.',
+    busy: 'Too many requests in a row. Wait a moment, then open the source again.',
     truncated: 'Shortened — the full text is at RIS.',
   },
   error: {

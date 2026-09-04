@@ -61,7 +61,16 @@ interface LoadedDocument {
 }
 
 type LoadState =
-  { status: 'loading' } | { status: 'ready'; document: LoadedDocument } | { status: 'failed' }
+  | { status: 'loading' }
+  | { status: 'ready'; document: LoadedDocument }
+  | { status: 'failed' }
+  /**
+   * Rate-limited, which is a different sentence to the reader. „Lässt sich
+   * gerade nicht anzeigen" tells someone who opened six chips in five seconds
+   * that the source is broken; it is not, and the way out is to wait a moment
+   * rather than to give up on the reading copy.
+   */
+  | { status: 'busy' }
 
 export function RisDocumentDialog({
   open,
@@ -90,11 +99,13 @@ export function RisDocumentDialog({
     if (highlight) query.set('passage', highlight.slice(0, 2000))
     fetch(`/api/ris/document?${query.toString()}`)
       .then(async (response) => {
+        if (response.status === 429) return 'busy' as const
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         return (await response.json()) as LoadedDocument
       })
       .then((document) => {
-        if (!cancelled) setState({ status: 'ready', document })
+        if (cancelled) return
+        setState(document === 'busy' ? { status: 'busy' } : { status: 'ready', document })
       })
       .catch(() => {
         // The outbound link is still in the header, so a failure here costs the
@@ -153,10 +164,10 @@ export function RisDocumentDialog({
               {t('risViewer.loading')}
             </div>
           )}
-          {state.status === 'failed' && (
+          {(state.status === 'failed' || state.status === 'busy') && (
             <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-sm">
               <AlertTriangle className="size-5" aria-hidden />
-              <p>{t('risViewer.failed')}</p>
+              <p>{t(state.status === 'busy' ? 'risViewer.busy' : 'risViewer.failed')}</p>
             </div>
           )}
           {state.status === 'ready' && (

@@ -96,20 +96,29 @@ TELEMETRY        citation_events → POST /api/internal/citation-events
 
 Most specific first (`documentIdentity`):
 
-1. **canonical OIB key** (`oibDocumentKey`) — the only key that can collapse a
-   corpus filename and a `legal_basis` card's human law name onto one document;
-2. the backend's **`document_id`** — computed by `citation_verification.document_key`
+1. the backend's **`document_id`** — computed by `citation_verification.document_key`
    from the same `(collection, filename)` the registry groups on, so the two ends
    no longer derive identity independently;
-3. `(collection, fileName)` — the true primary key, and the only pair that is
+2. `(collection, fileName)` — the true primary key, and the only pair that is
    unique: one search fans out across the base corpus, the session collection and
    the project collections at once;
-4. bare `fileName` (matched permissively against a collection-bearing key);
-5. normalized URL;
+3. bare `fileName` (matched permissively against a collection-bearing key);
+4. normalized URL;
+5. the **canonical OIB key** (`oibDocumentKey`), for an observation that has
+   nothing but a law name — which is what a `legal_basis` card is;
 6. the label — and an observation with **none of these identifies nothing** and is
    dropped rather than rendered as a nameless card.
 
-On the backend side of step 2, `citation_verification.document_key` has the same
+The OIB key used to sit at the TOP of that list, and that was wrong: it is
+derived from a law name, so it is the same key for every edition and every
+revision of one Richtlinie, and putting it first collapsed two corpus documents
+that the wire had already told apart by `document_id`. It is a last resort for
+the one producer that has no better identity to offer. Collapsing a card onto
+the retrieved document is then a MERGE (`findOibCounterpart`), not a shared
+identity: exactly one side must be the label-only card, and neither may sit on a
+shelf other than the base corpus.
+
+On the backend side of step 1, `citation_verification.document_key` has the same
 "identifies nothing" case: a source with no collection, filename, URL *or* label.
 It answers with a deterministic `anon:<fingerprint>` derived from the source's own
 content rather than a bare `label:` sentinel, so two unrelated anonymous sources
@@ -158,6 +167,27 @@ Two properties are load-bearing and are what the tests pin:
 This is also why the viewer renders the PDF itself rather than framing the
 browser's. `#page=N` was the entire vocabulary an `<iframe>` offered; a text
 layer is not reachable through it at any price.
+
+### The passage has to survive storage (2026-09-04)
+
+`locus.snippet` reaching a live tab is only half of it. Two normalizers stand
+between the wire and what a reload reads back, and both ENUMERATE the fields
+they keep:
+
+- `lib/conversations/agent-answer-metadata.ts` — every row the PYTHON side
+  persists: deep research, and any answer whose socket was gone mid-turn;
+- `features/chat/lib/prune-message-for-storage.ts` — the localStorage copy.
+
+A field listed in neither is dropped in silence, on exactly the turns a reader
+comes back to, and nothing on screen says so: a citation with no passage opens
+the page and marks nothing, which is a supported outcome (above). Both were
+missing `snippet`, `punkt` and `score`.
+
+Their BOUNDS matter as much as their presence. The matchers anchor on both ends
+of a snippet, so clipping one to a locator-sized 300 characters quietly demotes
+"the sentence is marked" to "the page is open". The cap is 1200 on both sides
+and on the producer (`_WIRE_SNIPPET_MAX_CHARS`), which is where it belongs — a
+bound the wire does not enforce is one every consumer has to remember.
 
 ### Which locus a click opens at (2026-09-04)
 
@@ -279,4 +309,6 @@ Kept because the reasoning is worth more than the conclusions were:
   `LEGACY_KIND_TO_SIGNAL` table is gone: `resolveKind` falls back through
   lane → origin → URL, and a document whose identity resolves to the canonical
   OIB key infers the OIB lane, so a source known only from the answer's written
-  list renders identically to the same source with a full structured wire.
+  list renders identically to the same source with a full structured wire. (The
+  lane is inferred from the document's NAME rather than from its identity — see
+  the note under *Identity* on why the OIB key stopped being one.)

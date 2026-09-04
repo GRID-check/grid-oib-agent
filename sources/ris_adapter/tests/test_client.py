@@ -349,6 +349,30 @@ class TestRisClientFetch:
 
         assert calls["count"] == 1
 
+    async def test_cache_max_entries_zero_disables_the_in_process_cache(self):
+        """Turning the cache off must not crash, and must actually turn it off.
+
+        ``GET /v1/ris/document`` reads through the SHARED cache, so its
+        process-global client asks for no second copy — up to 64 documents of
+        up to two million characters each, resident per worker, for bytes
+        Dragonfly already holds. The eviction branch ran unguarded on
+        ``len({}) >= 0`` and ``min`` over an empty dict raises, so the only way
+        to ask for that failed on the first fetch.
+        """
+        calls = {"count": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["count"] += 1
+            return httpx.Response(200, headers={"content-type": "text/html"}, text="<p>content</p>")
+
+        client = RisClient(transport=_transport(handler), cache_max_entries=0)
+        url = "https://www.ris.bka.gv.at/Dokumente/x/y.html"
+        await client.fetch_document_text(url)
+        await client.fetch_document_text(url)
+
+        assert calls["count"] == 2
+        assert client._doc_cache == {}
+
     async def test_rejects_non_ris_host(self):
         client = RisClient(transport=_transport(lambda request: httpx.Response(200)))
 

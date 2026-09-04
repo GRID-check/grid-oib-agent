@@ -406,6 +406,8 @@ class RisClient:
         timeout: float = 30.0,
         max_document_bytes: int = 10 * 1024 * 1024,
         cache_ttl_seconds: float = 3600.0,
+        #: 0 disables the in-process cache entirely — for callers that already
+        #: read through a shared one (see ``cache.fetch_document_cached``).
         cache_max_entries: int = 64,
         max_retries: int = 3,
         transport: httpx.AsyncBaseTransport | None = None,
@@ -580,6 +582,13 @@ class RisClient:
         return document
 
     def _cache_document(self, url: str, document: RisDocument) -> None:
+        # ``cache_max_entries=0`` means "do not cache in this process" — the
+        # caller has a shared one and does not want a second copy of the same
+        # megabyte per worker. Without this clause that argument evicted from an
+        # empty dict, and ``min(())`` raises: the way to turn the cache off
+        # crashed the first fetch that used it.
+        if self.cache_max_entries <= 0:
+            return
         if len(self._doc_cache) >= self.cache_max_entries:
             oldest = min(self._doc_cache, key=lambda key: self._doc_cache[key][0])
             del self._doc_cache[oldest]
