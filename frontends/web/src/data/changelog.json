@@ -134,6 +134,30 @@
             {
               "en": "Das Öffnen eines Ordners läuft in einer Bewegung statt in zweien: Bisher lief die verlassene Ebene erst vollständig hinaus, bevor die neue begann, mit einem leeren Bild dazwischen. Die Richtung der Bewegung stimmt außerdem wieder — hinein und hinaus sahen zuletzt gleich aus.",
               "de": "Das Öffnen eines Ordners läuft in einer Bewegung statt in zweien: Bisher lief die verlassene Ebene erst vollständig hinaus, bevor die neue begann, mit einem leeren Bild dazwischen. Die Richtung der Bewegung stimmt außerdem wieder — hinein und hinaus sahen zuletzt gleich aus."
+            },
+            {
+              "en": "Beim erneuten Hochladen eines Ordners hat Piloti zwar den Ordner wiedererkannt, aber jede Datei darin als neu gemeldet, sobald ein Umlaut im Namen stand — vom Mac kommen Umlaute anders kodiert als von Windows. Der ganze Bestand wurde dann erneut übertragen und jedes Dokument ein zweites Mal angelegt. Dateinamen werden jetzt in derselben Schreibweise verglichen.",
+              "de": "Beim erneuten Hochladen eines Ordners hat Piloti zwar den Ordner wiedererkannt, aber jede Datei darin als neu gemeldet, sobald ein Umlaut im Namen stand — vom Mac kommen Umlaute anders kodiert als von Windows. Der ganze Bestand wurde dann erneut übertragen und jedes Dokument ein zweites Mal angelegt. Dateinamen werden jetzt in derselben Schreibweise verglichen."
+            },
+            {
+              "en": "Wurde ein Dokument in Piloti umbenannt, nannte der Upload-Dialog nur den Namen aus dem Ordner — das Dokument, das ersetzt werden sollte, war in der eigenen Dateiliste nicht zu finden. Der Dialog nennt jetzt beide Namen.",
+              "de": "Wurde ein Dokument in Piloti umbenannt, nannte der Upload-Dialog nur den Namen aus dem Ordner — das Dokument, das ersetzt werden sollte, war in der eigenen Dateiliste nicht zu finden. Der Dialog nennt jetzt beide Namen."
+            },
+            {
+              "en": "Eine Datei, die ein vorhandenes Dokument nur unter einer anderen Schreibung trifft, wird nicht mehr stillschweigend als zweites Dokument angelegt. Sie wird zurückgehalten und im Dialog neben dem Dokument genannt, auf das sie passt.",
+              "de": "Eine Datei, die ein vorhandenes Dokument nur unter einer anderen Schreibung trifft, wird nicht mehr stillschweigend als zweites Dokument angelegt. Sie wird zurückgehalten und im Dialog neben dem Dokument genannt, auf das sie passt."
+            },
+            {
+              "en": "Unveränderte Dokumente, die jemand in Piloti in einen anderen Ordner gelegt hat, wandern beim erneuten Hochladen dorthin, wo der Ordnerbaum sie ablegt. Bisher blieben sie liegen, obwohl der Dialog zusagte, die Ordnerstruktur nachzubilden.",
+              "de": "Unveränderte Dokumente, die jemand in Piloti in einen anderen Ordner gelegt hat, wandern beim erneuten Hochladen dorthin, wo der Ordnerbaum sie ablegt. Bisher blieben sie liegen, obwohl der Dialog zusagte, die Ordnerstruktur nachzubilden."
+            },
+            {
+              "en": "Dieselbe Datei ein zweites Mal hochzuladen kostet keinen erneuten Ingest mehr: Piloti vergleicht die Bytes und lässt das Dokument stehen, wenn sich nichts geändert hat. Das betrifft vor allem Projekte, die älter sind als die Prüfsumme in der Dateiliste.",
+              "de": "Dieselbe Datei ein zweites Mal hochzuladen kostet keinen erneuten Ingest mehr: Piloti vergleicht die Bytes und lässt das Dokument stehen, wenn sich nichts geändert hat. Das betrifft vor allem Projekte, die älter sind als die Prüfsumme in der Dateiliste."
+            },
+            {
+              "en": "Schlägt der Upload nach dem Anlegen der Ordner fehl, meldet Piloti das jetzt als das, was es ist. Bisher stand dort, die Ordner hätten nicht angelegt werden können — und der Dialog war bereits geschlossen, obwohl nichts übertragen worden war.",
+              "de": "Schlägt der Upload nach dem Anlegen der Ordner fehl, meldet Piloti das jetzt als das, was es ist. Bisher stand dort, die Ordner hätten nicht angelegt werden können — und der Dialog war bereits geschlossen, obwohl nichts übertragen worden war."
             }
           ]
         }
