@@ -4,9 +4,11 @@ name: Security
 # licence required on this private repo):
 #   - Semgrep     -> SAST for Python + TS/JS + GitHub Actions (replaces CodeQL
 #                    and Sonar's security rules)
-#   - OSV-Scanner -> dependency vulnerabilities from lockfiles (replaces Sonar SCA;
-#                    Dependabot opens the fix PRs, see .github/dependabot.yml)
-#   - dependency-audit -> pip-audit + bun audit (UI) + npm audit (web), complementary advisory sources
+#   - OSV-Scanner -> dependency vulnerabilities from EVERY lockfile in the tree
+#                    (replaces Sonar SCA; Dependabot opens the fix PRs, see
+#                    .github/dependabot.yml). This is the ONLY dependency
+#                    scanner here — see the note on the job below for why the
+#                    pip-audit / bun audit / npm audit job was deleted.
 #   - gitleaks    -> secret scanning across full history
 #   - image-scan  -> trivy on the digest-pinned observability images (ADR-0029)
 #                    deployed via deploy/pulumi (these images are not part of
@@ -15,8 +17,7 @@ name: Security
 # Runs on every PR and push to the integration branches, plus a weekly scheduled
 # full scan to catch newly-disclosed advisories in code that has not changed.
 #
-# Phase 1 (current): Semgrep, OSV-Scanner and both dependency audits (pip-audit,
-# bun audit) are non-blocking (continue-on-error)
+# Phase 1 (current): Semgrep and OSV-Scanner are non-blocking (continue-on-error)
 # so findings surface in the job log without blocking merges while we tune noise
 # (see .semgrepignore / .gitleaks.toml). Once trusted, drop continue-on-error to
 # make them required checks.
@@ -113,8 +114,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # Reads the lockfiles in the tree (uv.lock, frontends/ui/bun.lock)
-      # and reports known-vulnerable versions against the OSV database.
+      # Reads EVERY lockfile in the tree and reports known-vulnerable versions
+      # against the OSV database. Measured in run 33849146177 — eight lockfiles,
+      # 4292 packages, 4 seconds:
+      #
+      #   frontends/ui/package-lock.json          1218   frontends/ui/bun.lock        1235
+      #   frontends/web/package-lock.json          687   packages/ifc-spatial/…        188
+      #   packages/ifc-spatial-py/uv.lock           64   uv.lock                       342
+      #   deploy/pulumi/policy/package-lock.json   216   deploy/pulumi/…               342
+      #
+      # That list is why this is the only dependency scanner in the workflow: the
+      # `Dependency audit` job deleted alongside this comment covered three of
+      # those eight and nothing else. See the note below.
       # The runnable action lives in a subdirectory (the repo root action.yml is
       # metadata only), and there is no floating v2 tag, so pin an exact release.
       # The reusable workflow is intentionally avoided: it uploads SARIF to code
@@ -131,62 +142,37 @@ jobs:
         # Advisory until the reported lockfile CVEs are triaged; then remove to block.
         continue-on-error: true
 
-  dependency-audit:
-    name: Dependency audit
-    runs-on: ubuntu-latest
-    steps:
-      # No persisted checkout token: the steps below run PR-controlled setup
-      # actions and dependency install scripts, which must never find a
-      # repository credential in the workspace git config.
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-python-env
-      # Informational (does not block merges on transitive advisories); surfaces
-      # in the job log and can be promoted to blocking once the baseline is clean.
-      - name: pip-audit (Python)
-        continue-on-error: true
-        run: |
-          . .venv/bin/activate
-          uv pip install pip-audit
-          pip-audit --strict || true
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-      - uses: ./.github/actions/setup-bun
-      # NEITHER audit installs anything. Both read the LOCKFILE — that is what a
-      # dependency audit is — and the installs that used to sit here were the
-      # slowest thing in this workflow by a wide margin, for a tree neither
-      # command opens:
-      #
-      #   bun install --frozen-lockfile  4m37s  |  npm ci --ignore-scripts  2m46s
-      #
-      # (run 33812594801, the one whose 16 minutes stranded a staging deploy —
-      # a cancelled Security run reads to deploy.yml's gate as "superseded",
-      # so cancelling this job out of impatience silently blocks the release.)
-      # Registry variance is the whole risk here: those two steps have no upper
-      # bound, and on a bad afternoon they were 3-4x the numbers above. The way
-      # to not pay it is to not talk to the registry.
-      #
-      # Informational for the same reason as pip-audit above: Phase 1 keeps both
-      # audits advisory (docs/compliance/external-dependencies.md §C) so a new
-      # transitive advisory does not block unrelated merges. Promote both together
-      # once the baseline is clean.
-      - name: Dependency audit (frontend)
-        continue-on-error: true
-        working-directory: frontends/ui
-        # `bun audit` resolves bun.lock against the registry's advisory API; it
-        # needs no node_modules and says so by working in a directory holding
-        # nothing but package.json and bun.lock.
-        run: bun audit --audit-level=high || true
-      # The Astro microservice (frontends/web) installs with npm, so its
-      # lockfile needs npm audit rather than bun audit. `--package-lock-only`
-      # is npm's own name for the same idea: audit package-lock.json where it
-      # lies, install nothing. Verified to report the identical advisory set.
-      - name: Dependency audit (web)
-        continue-on-error: true
-        working-directory: frontends/web
-        run: npm audit --package-lock-only --audit-level=high || true
+  # There WAS a `dependency-audit` job here: pip-audit over the synced venv,
+  # `bun audit` over frontends/ui, `npm audit --package-lock-only` over
+  # frontends/web. It was deleted because it WAS this workflow's critical path
+  # and contributed no finding OSV-Scanner above did not already have. Measured
+  # in run 33849146177, the run that prompted this — every other job had
+  # finished by 07:34:24 and this one ran to 07:41:40, so it alone is the
+  # difference between a 2m36s workflow and a 9m53s one:
+  #
+  #   npm audit (web)       7m01s  →  503 from registry.npmjs.org, 0 findings
+  #   bun audit (ui)        1m48s  →  "No vulnerabilities found"
+  #   pip-audit                5s  →  aborted: "aiq-agent: Dependency not found
+  #                                    on PyPI and could not be audited" — after
+  #                                    19s of `uv sync` to build the venv it reads
+  #
+  # Two of the three reported NOTHING, and the workflow was green anyway,
+  # because every step ended `|| true` under `continue-on-error`. On that same
+  # commit OSV reported 23 advisories (2 Critical, 16 High) across 8 packages —
+  # four of them HIGH in the very frontends/web/package-lock.json npm audit had
+  # just spent seven minutes failing to read.
+  #
+  # The claim these steps rested on ("complementary advisory sources") does not
+  # survive being checked. `npm audit` and `bun audit` resolve against the
+  # GitHub Advisory Database, and OSV ingests GHSA — the OSV report literally
+  # prints GHSA ids. pip-audit's default PyPI service is fed by the PyPA
+  # advisory database, which OSV also ingests. Same advisories, one query to
+  # osv.dev instead of three synchronous, unbounded, per-ecosystem round trips
+  # to registries that answer 503 under load.
+  #
+  # If a second opinion is ever wanted, it needs a source OSV does not already
+  # import, and it belongs on a schedule rather than on the path of every push —
+  # this workflow is what deploy.yml's gate waits for.
 
   secret-scan:
     name: Secret scan (gitleaks)

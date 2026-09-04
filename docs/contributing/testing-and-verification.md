@@ -120,14 +120,24 @@ Advanced Security licence and no SonarQube subscription.
 | Tool | Covers | Blocking |
 |---|---|---|
 | Semgrep | SAST for Python, TS/JS and Actions. Replaces CodeQL and Sonar's security rules | **Yes on a PR.** `semgrep ci` is diff-aware, so it blocks a *new* finding without failing on the existing backlog. Push and schedule runs stay advisory |
-| OSV-Scanner | Dependency CVEs from lockfiles. Replaces Sonar SCA | No, phase 1 |
-| pip-audit, bun audit, npm audit | Dependency advisories | **No.** Each step is `continue-on-error: true` *and* the command ends `\|\| true`, so findings only reach the log |
+| OSV-Scanner | Dependency CVEs from **every** lockfile in the tree — the two npm ones, `bun.lock`, and both `uv.lock`s. Replaces Sonar SCA, and as of Sep 2026 the `pip-audit`/`bun audit`/`npm audit` job too | No, phase 1 |
 | gitleaks | Secret scan over full history | Yes |
 | trivy (`image-scan`) | The digest-pinned observability and Langfuse images from `deploy/pulumi/src/config.ts` | Yes, on **fixable** HIGH and CRITICAL findings (it runs `--ignore-unfixed`) |
 
-The dependency audits being advisory is worth knowing before you rely on them: a
-vulnerable dependency passes CI today. Making them block means removing both the
-`continue-on-error` and the `|| true`, not just one.
+OSV-Scanner being advisory is worth knowing before you rely on it: a vulnerable
+dependency passes CI today. Making it block means removing its
+`continue-on-error`.
+
+There is deliberately **no** second dependency scanner. A `Dependency audit` job
+ran `pip-audit`, `bun audit` and `npm audit` until it was measured: it was the
+whole difference between a 2m36s Security run and a 9m53s one, and two of its
+three steps reported nothing (a registry 503 and a pip-audit abort), both
+swallowed by `|| true`, while OSV-Scanner found 23 advisories in the same commit
+in 4 seconds. `npm audit` and `bun audit` query
+the GitHub Advisory Database and pip-audit's PyPI service is fed by the PyPA
+one; OSV ingests both, so "complementary sources" was never true. The rationale
+sits in [`security.yml`](../../.github/workflows/security.yml) where the job
+used to be, so it is read before anyone adds it back.
 
 Three things about the trivy job that are not obvious:
 
