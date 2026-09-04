@@ -273,6 +273,8 @@ export const files = {
     items: '{count} item(s)',
     openFolder: 'Open folder “{name}”',
     breadcrumb: 'Folder path',
+    movedFolder: '“{name}” moved to “{parent}”.',
+    moveFolderError: 'The folder could not be moved. Please try again.',
   },
   workspace: {
     renameFolderError: 'The folder could not be renamed. Please try again.',

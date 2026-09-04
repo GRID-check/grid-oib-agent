@@ -691,6 +691,51 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     [files, folders, t]
   )
 
+  /**
+   * A folder dragged onto another folder — or onto „Alle Dateien", which is the
+   * way back out to the project root.
+   *
+   * Optimistic on the PARENT and then re-read, which is the same split
+   * `handleRenameFolder` makes and for the same reason: `path` is materialised
+   * on every row, so moving a folder rewrites the path of everything beneath
+   * it. The parent is what decides where the tile is drawn, so changing it here
+   * moves the tile in the frame the finger let go; the paths are the server's
+   * rule and are read back rather than guessed at.
+   *
+   * The pane refuses a move into a folder's own subtree before the drop, so the
+   * failure this puts back is a network one, not a rejected move.
+   */
+  const handleDropFolderInFolder = useCallback(
+    async (draggedFolderId: string, parentId: string | null) => {
+      const folder = folders.find((candidate) => candidate.id === draggedFolderId)
+      if (!folder || (folder.parentId ?? null) === parentId) return
+      const previousParentId = folder.parentId ?? null
+      const parentName = parentId
+        ? (folders.find((candidate) => candidate.id === parentId)?.name ?? '')
+        : t('folders.allFiles')
+
+      setFolders((prev) =>
+        prev.map((f) => (f.id === draggedFolderId ? { ...f, parentId } : f))
+      )
+      try {
+        const res = await fetch(`/api/projects/${projectId}/folders/${draggedFolderId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ parentId }),
+        })
+        if (!res.ok) throw new Error(`Move failed (${res.status})`)
+        await loadFolders()
+        toast.success(t('folders.movedFolder', { name: folder.name, parent: parentName }))
+      } catch {
+        setFolders((prev) =>
+          prev.map((f) => (f.id === draggedFolderId ? { ...f, parentId: previousParentId } : f))
+        )
+        toast.error(t('folders.moveFolderError'))
+      }
+    },
+    [folders, projectId, loadFolders, t]
+  )
+
   const handleSelectFile = useCallback(
     (id: string | null) => {
       if (id === null) {
@@ -1118,6 +1163,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               showAssignment={canCollaborate}
               filterEmptyNotice={filterEmptyNotice}
               onDropDocumentInFolder={handleDropInFolder}
+              onDropFolderInFolder={handleDropFolderInFolder}
               renderActions={(file) => (
                 <DocumentActionsMenu
                   document={file}

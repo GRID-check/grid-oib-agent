@@ -567,6 +567,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-list-relevance"]',
   },
   {
+    id: 'file-browser-folder-drop',
+    path: '/dev/file-browser?variant=folder-drop',
+    description:
+      'A folder lit as a drop target, mid-drag \u2014 „Brandschutz\u201c held over „Statik\u201c. Two surfaces used to answer this gesture at once: the workspace\u2019s upload overlay reacted to any drag with items on it, and an in-app drag has one, so aiming a document (or now a folder) at a tile covered that tile in \u201edrop files to upload to this project\u201c. The shot is of ONE answer \u2014 the ring on the folder that will receive it \u2014 and of a highlight that survives the pointer crossing the tile\u2019s own children, which used to flicker it off and on for the whole drag.',
+    waitFor: '[data-drop-over]',
+  },
+  {
     id: 'file-browser-folders-list',
     mobile: true,
     path: '/dev/file-browser?variant=folders-list',

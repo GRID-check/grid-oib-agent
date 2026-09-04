@@ -497,10 +497,21 @@ describe('ProjectFileWorkspace — server-seeded first paint', () => {
  * `dataTransfer.types` contains `Files` only for a drag carrying real files.
  */
 describe('ProjectFileWorkspace — dragging a file into a folder', () => {
+  /**
+   * A drag started inside the page.
+   *
+   * `items` is here because a real browser puts it there — every entry set with
+   * `setData` is an item — and its absence is what let the upload overlay's
+   * defect hide. The overlay used to raise itself for any drag with items at
+   * all; this fixture had none, so the assertion below passed while the product
+   * covered the folder in „Dateien hier ablegen" the moment a document moved
+   * over it.
+   */
   const dragTransfer = (documentId: string) => {
     const store: Record<string, string> = { 'application/x-grid-document-id': documentId }
     return {
       types: ['application/x-grid-document-id'],
+      items: [{ kind: 'string', type: 'application/x-grid-document-id' }],
       getData: (key: string) => store[key] ?? '',
       setData: (key: string, value: string) => {
         store[key] = value
@@ -573,6 +584,130 @@ describe('ProjectFileWorkspace — dragging a file into a folder', () => {
 
     expect(screen.queryByTestId('workspace-drop-overlay')).not.toBeInTheDocument()
     expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  it('still raises it for a real upload', async () => {
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+    const dropzone = screen.getByTestId('workspace-dropzone')
+    fireEvent.dragEnter(dropzone, {
+      dataTransfer: makeDataTransfer([new File(['x'], 'plan.pdf', { type: 'application/pdf' })]),
+    })
+
+    // The other half of the discriminator: narrowing it must not have taken the
+    // upload affordance with it.
+    expect(screen.getByTestId('workspace-drop-overlay')).toBeInTheDocument()
+  })
+})
+
+/**
+ * MOVING A FOLDER, by the same gesture that moves a document.
+ *
+ * `PATCH .../folders/[folderId]` with a `parentId` already re-parented a
+ * folder — it is what the tree needed to be nestable at all — and nothing in
+ * the UI reached it. A folder could be created inside another one and never
+ * moved afterwards.
+ */
+describe('ProjectFileWorkspace — dragging a folder into a folder', () => {
+  const folders = [
+    { id: 'f-a', name: 'Brandschutz', parentId: null, path: 'Brandschutz' },
+    { id: 'f-b', name: 'Statik', parentId: null, path: 'Statik' },
+    { id: 'f-a1', name: 'Fluchtwege', parentId: 'f-a', path: 'Brandschutz/Fluchtwege' },
+  ]
+
+  const folderDragTransfer = (folderId: string) => {
+    const store: Record<string, string> = { 'application/x-grid-folder-id': folderId }
+    return {
+      types: ['application/x-grid-folder-id', `application/x-grid-folder-id:${folderId}`],
+      items: [{ kind: 'string', type: 'application/x-grid-folder-id' }],
+      getData: (key: string) => store[key] ?? '',
+      setData: (key: string, value: string) => {
+        store[key] = value
+      },
+    }
+  }
+
+  let patched: Array<{ url: string; body: unknown }>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+    patched = []
+    server.use(
+      http.get('/api/documents', () => HttpResponse.json({ documents: [] })),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders })),
+      http.patch('/api/projects/:projectId/folders/:folderId', async ({ request, params }) => {
+        patched.push({ url: String(params.folderId), body: await request.json() })
+        return HttpResponse.json({ folder: { id: params.folderId } })
+      }),
+    )
+  })
+
+  function renderWithFolders() {
+    return renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[]}
+        initialFolders={folders}
+      />,
+    )
+  }
+
+  it('re-parents the dragged folder', async () => {
+    renderWithFolders()
+    const target = screen.getByTestId('folder-card-f-b')
+
+    fireEvent.dragOver(target, { dataTransfer: folderDragTransfer('f-a') })
+    fireEvent.drop(target, { dataTransfer: folderDragTransfer('f-a') })
+
+    await waitFor(() => expect(patched).toHaveLength(1))
+    expect(patched[0]).toMatchObject({ url: 'f-a', body: { parentId: 'f-b' } })
+  })
+
+  it('refuses a folder dropped on itself', async () => {
+    renderWithFolders()
+    const target = screen.getByTestId('folder-card-f-a')
+
+    fireEvent.dragOver(target, { dataTransfer: folderDragTransfer('f-a') })
+    // Not even a highlight: the refusal has to be visible before the release,
+    // or the gesture promises a move the server will reject.
+    expect(target).not.toHaveAttribute('data-drop-over')
+
+    fireEvent.drop(target, { dataTransfer: folderDragTransfer('f-a') })
+    await waitFor(() => expect(patched).toHaveLength(0))
+  })
+
+  it('refuses a folder dropped into its own descendant', async () => {
+    // Standing in `Brandschutz`, where `Fluchtwege` is a tile. Dragging
+    // `Brandschutz` onto it would cut the subtree off from the tree.
+    searchParams = new URLSearchParams('folder=f-a')
+    renderWithFolders()
+    const target = screen.getByTestId('folder-card-f-a1')
+
+    fireEvent.dragOver(target, { dataTransfer: folderDragTransfer('f-a') })
+    expect(target).not.toHaveAttribute('data-drop-over')
+
+    fireEvent.drop(target, { dataTransfer: folderDragTransfer('f-a') })
+    await waitFor(() => expect(patched).toHaveLength(0))
+  })
+
+  it('moves a nested folder back out through the breadcrumb root', async () => {
+    searchParams = new URLSearchParams('folder=f-a')
+    renderWithFolders()
+
+    // „Alle Dateien" is the only way OUT: every other target nests one folder
+    // inside another, so without it a folder goes deeper and never back.
+    const root = screen.getByRole('button', { name: 'All Files' })
+    fireEvent.dragOver(root, { dataTransfer: folderDragTransfer('f-a1') })
+    fireEvent.drop(root, { dataTransfer: folderDragTransfer('f-a1') })
+
+    await waitFor(() => expect(patched).toHaveLength(1))
+    expect(patched[0]).toMatchObject({ url: 'f-a1', body: { parentId: null } })
   })
 })
 
