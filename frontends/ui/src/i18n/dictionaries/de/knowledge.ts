@@ -80,6 +80,7 @@ export const knowledge: typeof en.knowledge = {
     loading: 'Rechtsquelle wird geladen…',
     failed:
       'Diese Rechtsquelle lässt sich gerade nicht in Piloti anzeigen. Über „Im RIS öffnen" erreichen Sie das Dokument weiterhin.',
+    busy: 'Zu viele Anfragen kurz hintereinander. Bitte einen Moment warten und die Quelle erneut öffnen.',
     truncated: 'Gekürzt — der vollständige Text steht im RIS.',
   },
   error: {

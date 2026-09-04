@@ -160,6 +160,22 @@ const isLetter = (ch: string): boolean => /\p{L}/u.test(ch)
  * compound, and is turned into a boundary there once that decision is made.
  */
 const foldChar = (raw: string): string => {
+  // Latin-1 is a lookup, and the lookup is built BY the slow path below, so it
+  // cannot drift from it: the table is the same function, memoized over the
+  // 256 code points that make up essentially all of an Austrian legal text.
+  //
+  // It is the difference between a dialog opening and a tab freezing. The slow
+  // path runs `normalize` and two Unicode regexes PER CHARACTER, which is free
+  // on a PDF page and is two million of each on a consolidated law — 700 ms on
+  // the main thread, inside the `useMemo` that renders the reader.
+  if (raw.length === 1) {
+    const code = raw.charCodeAt(0)
+    if (code < 256) return LATIN1_FOLDED[code]!
+  }
+  return foldSlowly(raw)
+}
+
+const foldSlowly = (raw: string): string => {
   const folded = CHARACTER_FOLDING[raw]
   if (folded !== undefined) return folded
   // NFKD, not NFKC. Folding happens one SOURCE character at a time, so a
@@ -175,6 +191,11 @@ const foldChar = (raw: string): string => {
   // reader typed, and dropping it lets `ﬀ`-style expansions stay aligned.
   return normalized.replace(/\p{M}/gu, '').replace(/[^\p{L}\p{N}\s-]/gu, ' ')
 }
+
+/** Every Latin-1 code point, folded once at import. See {@link foldChar}. */
+const LATIN1_FOLDED: readonly string[] = Array.from({ length: 256 }, (_, code) =>
+  foldSlowly(String.fromCharCode(code))
+)
 
 /**
  * Collapse the raw folded stream into letters, digits and single spaces, and
@@ -550,13 +571,7 @@ export function locatePassageInText(
   const needle = normalizePassage(snippet)
   if (needle.length < 8 || !text) return null
 
-  // One chunk, so every surviving character carries its offset in `text`.
-  const raw: IndexedChar[] = []
-  for (let offset = 0; offset < text.length; offset += 1) {
-    for (const ch of foldChar(text[offset]!)) raw.push({ ch, chunk: 0, offset })
-  }
-  const chars = collapse(raw)
-  const haystack = chars.map((entry) => entry.ch).join('')
+  const { haystack, offsets } = foldWholeText(text)
   if (!haystack.length) return null
 
   const exact = haystack.indexOf(needle)
@@ -564,17 +579,99 @@ export function locatePassageInText(
     exact !== -1 ? { start: exact, end: exact + needle.length } : anchorMatch(haystack, needle)
   if (!range) return null
 
-  // Back to source offsets, skipping the synthetic boundaries `collapse`
-  // inserts (which carry no offset of their own).
+  // Back to source offsets, skipping the synthetic boundaries the fold inserts
+  // (which carry no offset of their own).
   let start = -1
   let end = -1
-  for (let i = range.start; i < range.end && i < chars.length; i += 1) {
-    const offset = chars[i]!.offset
+  for (let i = range.start; i < range.end && i < offsets.length; i += 1) {
+    const offset = offsets[i]!
     if (offset < 0) continue
     if (start === -1) start = offset
     end = offset + 1
   }
   return start === -1 ? null : { start, end }
+}
+
+/**
+ * `foldChar` + `collapse` over one contiguous string, into parallel arrays.
+ *
+ * Same rules as the chunked path, and deliberately not the same DATA STRUCTURE.
+ * A PDF page is a few thousand characters, so an `IndexedChar[]` there costs
+ * nothing; this path is handed a whole consolidated law. At the two
+ * million characters the reader route used to return, two million
+ * three-property objects — twice, raw and then collapsed — measured 670 ms and
+ * ~317 MB of heap, on the main thread, inside the `useMemo` that renders the
+ * dialog. That is a freeze on a laptop and an out-of-memory tab on a phone, and
+ * it was invisible in review because the same code is correct and cheap on
+ * every input the tests use. (`MAX_DOCUMENT_TEXT_CHARS` came down to one
+ * million on the strength of these numbers; this side had to come down too, or
+ * the cap would be the only thing holding it up.)
+ *
+ * A character plus a number, in two flat arrays, is the same information
+ * without the object headers. The rules stay in one place: the two passes below
+ * are `foldChar` and `collapse` verbatim — if you change either there, change
+ * it here, and `passage-highlight.spec.ts` pins the two against each other.
+ */
+const foldWholeText = (text: string): { haystack: string; offsets: number[] } => {
+  const rawChars: string[] = []
+  const rawOffsets: number[] = []
+  for (let offset = 0; offset < text.length; offset += 1) {
+    // `charCodeAt` rather than `text[offset]`: indexing allocates a fresh
+    // one-character string per source character, and the table entry it would
+    // be compared against already exists. Same UTF-16 unit either way, so a
+    // lone surrogate behaves exactly as it did.
+    const code = text.charCodeAt(offset)
+    const folded = code < 256 ? LATIN1_FOLDED[code]! : foldChar(text[offset]!)
+    // The overwhelmingly common case, kept out of the iterator: `for…of` over a
+    // one-character string yields a NEW string, so the array ends up holding
+    // two million distinct objects instead of two million pointers to the 256
+    // in the table. Multi-character folds (a ligature, a decomposition) still
+    // go the long way.
+    if (folded.length === 1) {
+      rawChars.push(folded)
+      rawOffsets.push(offset)
+      continue
+    }
+    for (const ch of folded) {
+      rawChars.push(ch)
+      rawOffsets.push(offset)
+    }
+  }
+
+  const chars: string[] = []
+  const offsets: number[] = []
+  const pushBoundary = (): void => {
+    if (!chars.length || chars[chars.length - 1] === ' ') return
+    chars.push(' ')
+    offsets.push(-1)
+  }
+
+  for (let i = 0; i < rawChars.length; i += 1) {
+    const ch = rawChars[i]!
+    if (ch === '-') {
+      let j = i + 1
+      while (j < rawChars.length && isWhitespace(rawChars[j]!)) j += 1
+      const broke = j > i + 1
+      const previous = chars[chars.length - 1]
+      if (broke && previous && isLetter(previous) && j < rawChars.length && isLetter(rawChars[j]!)) {
+        i = j - 1
+        continue
+      }
+      pushBoundary()
+      continue
+    }
+    if (isWhitespace(ch)) {
+      pushBoundary()
+      continue
+    }
+    chars.push(ch)
+    offsets.push(rawOffsets[i]!)
+  }
+  while (chars.length && chars[chars.length - 1] === ' ') {
+    chars.pop()
+    offsets.pop()
+  }
+  return { haystack: chars.join(''), offsets }
 }
 
 /** Convenience wrapper for callers holding raw runs. */

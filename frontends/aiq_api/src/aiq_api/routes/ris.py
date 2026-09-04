@@ -57,19 +57,23 @@ logger = logging.getLogger(__name__)
 #: Bauordnung für Wien 759,595 · ABGB 971,067 · ASVG 4,294,779. So the building
 #: law this product is for tops out under a million characters.
 #:
-#: The BROWSER is not the constraint — measured in Chromium at 70ch/14px, a
-#: `white-space: pre-wrap` text node lays out in 226 ms at 760k, 299 ms at 1M,
-#: 630 ms at 2M and 903 ms at 4.3M, with the passage mark and scroll costing
-#: about the same again. The constraint is the RESPONSE: 2M characters of German
-#: is roughly 2 MB of JSON, which is the most worth putting behind one click on
-#: a slow connection.
+#: What bounds it is the CLIENT, and specifically the passage matcher — which
+#: the first version of this comment asserted was not the constraint, having
+#: measured the wrong thing. Chromium lays a `white-space: pre-wrap` text node
+#: out in 226 ms at 760k and 630 ms at 2M, which is survivable; but
+#: `locatePassageInText` folds every character before that, on the main thread,
+#: inside the `useMemo` that renders the dialog — 68 ms at 400k, 106 ms at 600k,
+#: 160 ms at 1M and 386 ms at 2M on a server CPU, so several times that on a
+#: phone, with the intermediate arrays to match. The response size says the same
+#: thing more cheaply: 2M characters of German is roughly 2 MB of JSON.
 #:
-#: Two million therefore covers every consolidated building law measured with
-#: better than twice the headroom, and only the genuinely enormous federal codes
-#: are clipped — and those are clipped AROUND THE CITED PASSAGE (see
+#: One million covers every consolidated building law measured — the Wiener
+#: Bauordnung with 30% headroom, the ABGB whole — and clips only the genuinely
+#: enormous federal codes. Those are clipped AROUND THE CITED PASSAGE (see
 #: :func:`_clip_around_passage`), so no citation can land outside its own text
-#: whatever this number is set to.
-MAX_DOCUMENT_TEXT_CHARS = 2_000_000
+#: whatever this number is set to; that is what makes lowering it safe, and it
+#: is why the number may be tuned to the client rather than to the corpus.
+MAX_DOCUMENT_TEXT_CHARS = 1_000_000
 
 #: How much of the cited passage is used to find it. Enough to be distinctive in
 #: a statute that repeats its own phrasing; short enough that the extractors'
@@ -99,6 +103,11 @@ def _passage_offset(text: str, passage: str) -> int | None:
     first = pattern.search(text)
     if first is None:
         return None
+    # Legal text repeats its own phrasing constantly, and a phrase that occurs
+    # twice points at two places: centring the window on one of them silently
+    # would be a guess presented as an answer. The head is the honest fallback.
+    if pattern.search(text, first.end()) is not None:
+        return None
     return first.start()
 
 
@@ -122,10 +131,15 @@ def _clip_around_passage(text: str, passage: str) -> tuple[str, bool]:
 
 #: One client for the process.
 #:
-#: ``httpx.AsyncClient`` owns a connection pool and an in-memory document cache;
-#: building one per request leaks the pool until GC and makes the cache useless
-#: by construction. Created lazily so importing this module needs no event loop,
-#: and never closed on purpose — its lifetime is the process's.
+#: ``httpx.AsyncClient`` owns a connection pool; building one per request leaks
+#: the pool until GC. Created lazily so importing this module needs no event
+#: loop, and never closed on purpose — its lifetime is the process's.
+#:
+#: The client's own in-memory cache is turned OFF here. This route reads through
+#: the shared one (``fetch_document_cached``), so a second copy would hold up to
+#: 64 documents of up to ``MAX_DOCUMENT_TEXT_CHARS`` each resident per worker,
+#: for bytes Dragonfly already has — and, being per-worker, would serve a
+#: different generation of the same document depending on which one answered.
 _RIS_CLIENT: "RisClient | None" = None
 
 
@@ -134,7 +148,7 @@ def _client() -> "RisClient":
     if _RIS_CLIENT is None:
         from ris_adapter.client import RisClient
 
-        _RIS_CLIENT = RisClient()
+        _RIS_CLIENT = RisClient(cache_max_entries=0)
     return _RIS_CLIENT
 
 
