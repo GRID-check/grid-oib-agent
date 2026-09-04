@@ -14,7 +14,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { isRisUrl } from './target'
+import { RIS_DOCUMENT_HOSTS, isRisUrl } from './target'
 
 /** Repo root, from this spec's own location. */
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..', '..', '..', '..')
@@ -36,6 +36,12 @@ describe('RIS reader host contract', () => {
         true
       )
     }
+    // EQUALITY, not coverage. Iterating the backend's list only catches the
+    // promise being NARROWER than the enforcement, and the failure this spec
+    // exists to prevent is the opposite one: a host added to the frontend set
+    // alone makes a chip promise a viewer that answers 404 — after the reader
+    // has already spent the click. So the frontend set is read out too.
+    expect(new Set(RIS_DOCUMENT_HOSTS)).toEqual(new Set(hosts))
   })
 
   it('refuses anything else, however RIS-shaped', () => {

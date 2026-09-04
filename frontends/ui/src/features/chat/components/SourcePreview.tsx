@@ -3,7 +3,14 @@
  * chip opens a preview of the source instead of doing nothing.
  *
  * Behavior by resolved target (see `resolveCitationTarget`):
- *  - `url`      — Web / RIS chips keep linking out to the real source.
+ *  - `url`      — Web chips keep linking out to the real source.
+ *  - `ris`      — an Austrian RIS source opens the in-app reader
+ *                 (`RisDocumentDialog`), with the authoritative RIS link kept in
+ *                 its header. It used to link out like any web source, which
+ *                 took the reader out of the answer to check it (#622).
+ *  - `download` — a stored document with no in-app viewer (.docx, .xlsx, .dwg).
+ *                 The file is offered and the reason is stated; it is NOT the
+ *                 same answer as `info` (#623).
  *  - `document` — knowledge-layer citations that resolve to a project upload
  *                 or a base-corpus PDF open the EXISTING PdfViewerDialog
  *                 (presigned preview URL for project docs, the corpus stream
@@ -22,13 +29,13 @@
 
 'use client'
 
-import { useEffect, useState, type CSSProperties, type FC, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type FC, type ReactNode } from 'react'
 import { ChevronDown, ChevronUp, Download, ExternalLink, FileSearch, Link2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { documentFileUrl } from '@/lib/documents/urls'
-import { startBrowserDownload } from '@/lib/browser-download'
+import { startDocumentDownload } from '@/lib/documents/download'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
@@ -107,9 +114,9 @@ const loadSourcePreviewIndex = (
       // matched nothing — and, before the shelf became part of a document's
       // identity, quietly opened the project's unrelated file of the same name.
       conversationId
-        ? fetch(
-            `/api/session/documents?conversationId=${encodeURIComponent(conversationId)}`
-          ).then((r) => (r.ok ? r.json() : null))
+        ? fetch(`/api/session/documents?conversationId=${encodeURIComponent(conversationId)}`).then(
+            (r) => (r.ok ? r.json() : null)
+          )
         : Promise.resolve(null),
       // The org Archiv (ADR-0024). Feature-gated, so a 403 here is normal and
       // simply yields no Archiv entries — never a failed index. Without this
@@ -382,7 +389,7 @@ const CitationFace: FC<CitationFaceProps> = ({
     <>
       {full && index && (
         <span
-          className="mt-0.5 flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md border bg-muted px-1 font-mono text-xs tabular-nums text-muted-foreground"
+          className="bg-muted text-muted-foreground mt-0.5 flex h-5 min-w-5 shrink-0 items-center justify-center rounded-md border px-1 font-mono text-xs tabular-nums"
           aria-hidden="true"
         >
           {index}
@@ -391,7 +398,10 @@ const CitationFace: FC<CitationFaceProps> = ({
       <span className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="flex items-center gap-2">
           {full && (
-            <span className="shrink-0" style={{ color: `var(--source-${signal}, var(--muted-foreground))` }}>
+            <span
+              className="shrink-0"
+              style={{ color: `var(--source-${signal}, var(--muted-foreground))` }}
+            >
               <Icon className="size-4" aria-hidden="true" />
             </span>
           )}
@@ -401,7 +411,7 @@ const CitationFace: FC<CitationFaceProps> = ({
             // OIB-Richtlinie 2.1, Ausgabe Mai 2023") and the distinguishing
             // part is usually at the END, so a single truncated line makes two
             // different Richtlinien read identically.
-            className="line-clamp-2 min-w-0 flex-1 text-sm font-semibold leading-snug text-foreground"
+            className="text-foreground line-clamp-2 min-w-0 flex-1 text-sm font-semibold leading-snug"
             // Storage identity belongs on the tooltip, never in the reading
             // line — a user must not have to read `oib-rl_2_….pdf` to know
             // which document a card stands for.
@@ -412,12 +422,12 @@ const CitationFace: FC<CitationFaceProps> = ({
           {trailing}
         </span>
         {showExcerpt && (
-          <span className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">
+          <span className="text-muted-foreground line-clamp-3 text-sm leading-relaxed">
             {excerpt}
           </span>
         )}
         {showLocator && (
-          <span className="truncate break-all font-mono text-xs text-muted-foreground/80">
+          <span className="text-muted-foreground/80 truncate break-all font-mono text-xs">
             {locator}
           </span>
         )}
@@ -437,11 +447,9 @@ type RisTarget = Extract<CitationTarget, { kind: 'ris' }>
 /**
  * Hand a resolved-but-unrenderable document to the reader as a file.
  *
- * The presign is the same one the Files route's download action uses, and it
- * answers with JSON rather than bytes — so the link is fetched first and the
- * browser download started from it. Never `location.assign` the presigned URL:
- * an object store that ignores `Content-Disposition` replaces the whole app
- * with the file (#434).
+ * The mechanics are shared with the Files workspace (`lib/documents/download.ts`);
+ * this hook adds only the pending state and how a failure reads in a chat — a
+ * toast, where the Files pane shows an inline line.
  *
  * The target is nullable because the caller learns whether there IS one only
  * after resolution, and a hook cannot be called conditionally. A null target
@@ -457,15 +465,9 @@ export const useCitationDownload = (
     if (!target) return
     setIsDownloading(true)
     try {
-      const res = await fetch(`/api/documents/${target.document.id}/download`)
-      const data = res.ok ? await res.json() : null
-      if (typeof data?.downloadUrl === 'string' && data.downloadUrl !== '') {
-        startBrowserDownload(data.downloadUrl, target.fileName)
-      } else {
+      if (!(await startDocumentDownload(target.document.id, target.fileName))) {
         toast.error(t('sourcePreview.loadFailed'))
       }
-    } catch {
-      toast.error(t('sourcePreview.loadFailed'))
     } finally {
       setIsDownloading(false)
     }
@@ -495,9 +497,7 @@ const isImageTarget = (target: DocumentTarget): boolean =>
  * into showing it twice or not at all.
  */
 const navigableLoci = (doc: CitedDocument): CitationLocus[] =>
-  doc.loci
-    .filter((locus) => typeof locus.page === 'number')
-    .sort((a, b) => a.page! - b.page!)
+  doc.loci.filter((locus) => typeof locus.page === 'number').sort((a, b) => a.page! - b.page!)
 
 /** Tinted "Fundstelle" / cited-passage box shown above the document frame. */
 const CitedPassageBox: FC<{ snippet: string; signal: SourceTint }> = ({ snippet, signal }) => {
@@ -514,7 +514,7 @@ const CitedPassageBox: FC<{ snippet: string; signal: SourceTint }> = ({ snippet,
       >
         {t('sourcePreview.citedPassage')}
       </SectionLabel>
-      <p className="mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap text-sm text-foreground">
+      <p className="text-foreground mt-1 max-h-24 overflow-y-auto whitespace-pre-wrap text-sm">
         {snippet}
       </p>
     </div>
@@ -593,7 +593,7 @@ const LocusRail: FC<{
             over the only entry. */}
         {loci.length > 1 && (
           <>
-            <span className="text-xs tabular-nums text-muted-foreground">
+            <span className="text-muted-foreground text-xs tabular-nums">
               {t('citationPeek.lociPosition', {
                 index: activeIndex >= 0 ? activeIndex + 1 : 0,
                 count: loci.length,
@@ -621,7 +621,7 @@ const LocusRail: FC<{
         )}
       </div>
 
-      <ol className="flex min-h-0 gap-1.5 overflow-x-auto pb-1 md:flex-1 md:flex-col md:overflow-x-hidden md:overflow-y-auto md:pb-0">
+      <ol className="flex min-h-0 gap-1.5 overflow-x-auto pb-1 md:flex-1 md:flex-col md:overflow-y-auto md:overflow-x-hidden md:pb-0">
         {loci.map((locus) => {
           const isActive = locus.key === activeKey
           return (
@@ -641,11 +641,9 @@ const LocusRail: FC<{
                 onClick={() => onSelect(locus)}
                 aria-current={isActive ? 'true' : undefined}
                 className={cn(
-                  'w-full rounded-lg border px-2.5 py-2 text-left transition-colors duration-snap ease-out',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-                  isActive
-                    ? 'border-transparent'
-                    : 'border-border bg-card hover:bg-accent'
+                  'duration-snap w-full rounded-lg border px-2.5 py-2 text-left transition-colors ease-out',
+                  'focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2',
+                  isActive ? 'border-transparent' : 'border-border bg-card hover:bg-accent'
                 )}
                 // The active entry wears the SOURCE's colour, the same tint the
                 // chip that opened this dialog wore — so "where am I" is
@@ -685,7 +683,7 @@ const LocusRail: FC<{
                       // a full quotation would take the screen.
                       isActive
                         ? 'line-clamp-3 opacity-80 md:line-clamp-none md:max-h-48 md:overflow-y-auto'
-                        : 'line-clamp-2 text-muted-foreground'
+                        : 'text-muted-foreground line-clamp-2'
                     )}
                   >
                     {locus.snippet}
@@ -856,11 +854,13 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
   // locus this dialog should be showing while it is already mounted.
   useEffect(() => {
     if (citation?.locus) setActiveLocus(openAtLocus(citation.document, citation.locus))
-    // The document is identified by the locus this effect reacts to; re-running
-    // on a new object identity for the same reference would fight the reader's
-    // own rail selection.
+    // THE KEY, NOT THE OBJECT. `AgentResponse` rebuilds the whole citation model
+    // whenever the turn's citations change, so during a streaming turn every
+    // locus is a new object for the same reference — and depending on identity
+    // meant this effect fired on each rebuild and threw away the Fundstelle the
+    // reader had just chosen in the rail.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [citation?.locus])
+  }, [citation?.locus?.key])
 
   const isImage = isImageTarget(target)
 
@@ -1308,17 +1308,15 @@ const InfoPreviewChip: FC<{
       <PopoverContent align="start" className="w-80 space-y-2 p-3" {...peek.contentProps}>
         <div className="flex flex-wrap items-center gap-1.5">
           <SourceSignalChip signal={signal}>{t(`sourcePreview.kinds.${kind}`)}</SourceSignalChip>
-          {tier && (
-            <span className="text-xs font-medium text-muted-foreground">{tier}</span>
-          )}
+          {tier && <span className="text-muted-foreground text-xs font-medium">{tier}</span>}
         </div>
         {/* The written source list's payload, one click away: the citation
             number, the untruncated title and the locator. */}
-        <p className="break-words text-sm font-medium text-foreground">
-          {index && <span className="mr-1 text-muted-foreground">[{index}]</span>}
+        <p className="text-foreground break-words text-sm font-medium">
+          {index && <span className="text-muted-foreground mr-1">[{index}]</span>}
           {target.title}
         </p>
-        {meta && <p className="text-xs text-muted-foreground">{meta}</p>}
+        {meta && <p className="text-muted-foreground text-xs">{meta}</p>}
         {bindingNote && (
           <div
             className="rounded-md border-l-2 py-1.5 pl-2.5 pr-2"
@@ -1333,13 +1331,13 @@ const InfoPreviewChip: FC<{
             >
               {t('sourcePreview.bindingLabel')}
             </SectionLabel>
-            <p className="mt-0.5 text-xs leading-relaxed text-foreground">{bindingNote}</p>
+            <p className="text-foreground mt-0.5 text-xs leading-relaxed">{bindingNote}</p>
           </div>
         )}
         {target.snippet && <CitedPassageBox snippet={target.snippet} signal={signal} />}
         {/* Why there is no viewer, before the control that works around it. */}
         {onDownload && (
-          <p className="text-xs leading-relaxed text-muted-foreground">
+          <p className="text-muted-foreground text-xs leading-relaxed">
             {t('citationPeek.noInlineViewer')}
           </p>
         )}
@@ -1449,7 +1447,9 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   // A chip stands for a DOCUMENT, so it names every marker that document
   // carries — "2, 7", not an arbitrary one of them. A chip narrowed to a locus
   // names only that locus's marker.
-  const numbers = locus ? [locus.number].filter((n): n is number => n != null) : citationNumbers(doc)
+  const numbers = locus
+    ? [locus.number].filter((n): n is number => n != null)
+    : citationNumbers(doc)
   const index = numbers.length > 0 ? numbers.join(', ') : undefined
   const shared = {
     signal: doc.tint,
@@ -1676,6 +1676,8 @@ export const SourceDocumentDialog: FC<{
   })
   const isDocument = target.kind === 'document'
   const isRis = target.kind === 'ris'
+  const downloadTarget = target.kind === 'download' ? target : null
+  const { download } = useCitationDownload(downloadTarget)
   const { openPreview, dialog, isOpen } = useDocumentPreview(
     isDocument ? target : EMPTY_DOCUMENT_TARGET,
     citation
@@ -1690,12 +1692,23 @@ export const SourceDocumentDialog: FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDocument])
 
+  // A `?cite=` link to a document with no in-app viewer hands over the FILE.
+  // It used to fall through to "nothing openable" and close silently — the same
+  // dead control #623 removed from the chip, left behind on the one path a
+  // reader arrives at from outside the conversation.
+  const downloadStartedRef = useRef(false)
   useEffect(() => {
-    if (isRis) return
+    if (!downloadTarget || downloadStartedRef.current) return
+    downloadStartedRef.current = true
+    void download().finally(onClose)
+  }, [downloadTarget, download, onClose])
+
+  useEffect(() => {
+    if (isRis || downloadTarget) return
     if (isDocument && previewIndex && !isOpen) return
     // Nothing openable and the index has answered: there is no viewer to show.
     if (previewIndex && !isDocument) onClose()
-  }, [previewIndex, isDocument, isRis, isOpen, onClose])
+  }, [previewIndex, isDocument, isRis, downloadTarget, isOpen, onClose])
 
   // A RIS source opens its own reader — no stored-document index, no presign,
   // and no page: the reader marks the passage in the text instead.
@@ -1721,6 +1734,7 @@ export const SourceDocumentDialog: FC<{
     )
   }
 
+  if (downloadTarget) return null
   if (!isDocument) return null
   return <>{dialog}</>
 }

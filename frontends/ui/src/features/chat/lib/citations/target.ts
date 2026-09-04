@@ -16,6 +16,7 @@
 import type { Shelf } from '../source-kinds'
 import { citedLoci, isHttpUrl, type CitationLocus, type CitedDocument } from './model'
 import { parseKbLocator, type KbCitationLocator } from './locator'
+import { isInlinePreviewable } from '@/lib/documents/preview-types'
 
 /**
  * The minimal shape of a STORED document a citation can resolve against — a
@@ -122,21 +123,15 @@ export type CitationTarget =
   | { kind: 'info'; title: string; snippet?: string }
 
 /**
- * Content types the existing preview machinery can render inline (mirrors
- * PREVIEW_TYPES in the Files preview pane — PDF iframe + browser image types).
+ * Whether a stored document opens in the viewer, from the ONE list.
+ *
+ * This used to be a third private copy, and it had already lost BMP and TIFF —
+ * so a cited image the product renders perfectly well resolved to "this format
+ * cannot be shown inside Piloti", which is the false half of the answer #623
+ * added. `file-preview-pane.tsx` carries a written record of the same drift, on
+ * the same two types, from the time before.
  */
-const PREVIEWABLE_CONTENT_TYPES = new Set([
-  'application/pdf',
-  'image/png',
-  'image/jpeg',
-  'image/jpg',
-  'image/gif',
-  'image/webp',
-  'image/svg+xml',
-])
-
-const isPreviewableContentType = (contentType: string | null | undefined): boolean =>
-  contentType != null && PREVIEWABLE_CONTENT_TYPES.has(contentType.toLowerCase())
+const isPreviewableContentType = isInlinePreviewable
 
 /** The document's filename + shelf, however it can be recovered. */
 const documentLocator = (doc: CitedDocument): KbCitationLocator | null => {
@@ -162,7 +157,7 @@ const documentLocator = (doc: CitedDocument): KbCitationLocator | null => {
  * one is the promise, and the two are pinned together by
  * `ris-hosts-contract.spec.ts`.
  */
-const RIS_DOCUMENT_HOSTS: ReadonlySet<string> = new Set([
+export const RIS_DOCUMENT_HOSTS: ReadonlySet<string> = new Set([
   'www.ris.bka.gv.at',
   'ris.bka.gv.at',
   'data.bka.gv.at',
@@ -179,30 +174,40 @@ export const isRisUrl = (url: string | undefined | null): boolean => {
   }
 }
 
-/** A locus that names a page — the only kind the viewer can act on. */
-const isLocated = (locus: CitationLocus | undefined): locus is CitationLocus =>
-  locus != null && typeof locus.page === 'number' && Number.isFinite(locus.page)
-
 /**
  * The locus a click should open at: the one given, else the first cited one —
- * but never a page-less one while the same document knows a page.
+ * but never one the viewer cannot act on while the same document holds one it
+ * can.
  *
- * A locus without a page is not a lesser Fundstelle, it is NO Fundstelle: the
- * viewer opens at page 1 and the reader is left doing the search the citation
- * exists to spare them. And a page-less locus is routine, because the `[N]` in
- * the prose is bound from the answer's WRITTEN source list, which names the
- * document and frequently not the page, while the retrieval payload for the
- * same document carries the page exactly. One document, two loci, and the click
- * used to land on whichever one carried the number.
+ * A locus is ACTIONABLE when it names a place: a page, or the passage text
+ * itself, which the viewer locates in the document without being told a page
+ * (`locatePassage`). A locus with neither is not a lesser Fundstelle, it is NO
+ * Fundstelle — the viewer opens at page 1 and the reader does the search the
+ * citation exists to spare them.
  *
- * So a located locus on the same document supersedes a page-less one — a cited
- * one first, then any. Only a document that was genuinely read nowhere in
- * particular still opens at its start, which is the honest answer there.
+ * And such a locus is routine, because the `[N]` in the prose is bound from the
+ * answer's WRITTEN source list, which names the document and frequently neither
+ * page nor passage, while the retrieval payload for the same document carries
+ * both exactly. One document, two loci, and the click used to land on whichever
+ * one carried the number (#621).
+ *
+ * THE PASSAGE IS NEVER BORROWED, only the place. An earlier draft of this rule
+ * treated "has a page" as the test, which discarded a locus that carried the
+ * quoted passage and no page — and then handed the reader ANOTHER locus's
+ * sentence, marked in the document under the `[N]` they clicked. Opening at the
+ * wrong page is a nuisance; marking the wrong sentence as the cited one, in a
+ * product whose answers are checked by architects against building law, is a
+ * false claim about the source. So the caller's own passage always wins (see
+ * {@link resolveCitationTarget}), and this only ever supplies a PLACE.
  */
+const isActionable = (locus: CitationLocus | undefined): locus is CitationLocus =>
+  locus != null &&
+  ((typeof locus.page === 'number' && Number.isFinite(locus.page)) || !!locus.snippet?.trim())
+
 const openAt = (doc: CitedDocument, locus?: CitationLocus): CitationLocus | undefined => {
   const asked = locus ?? citedLoci(doc)[0] ?? doc.loci[0]
-  if (isLocated(asked)) return asked
-  return citedLoci(doc).find(isLocated) ?? doc.loci.find(isLocated) ?? asked
+  if (isActionable(asked)) return asked
+  return citedLoci(doc).find(isActionable) ?? doc.loci.find(isActionable) ?? asked
 }
 
 /**
@@ -213,22 +218,20 @@ const openAt = (doc: CitedDocument, locus?: CitationLocus): CitationLocus | unde
  * the target resolved to: the two disagreeing is how a header said "S. 18" over
  * a document showing page 1.
  */
-export const openAtLocus = (
-  doc: CitedDocument,
-  locus?: CitationLocus
-): CitationLocus | undefined => openAt(doc, locus)
+export const openAtLocus = (doc: CitedDocument, locus?: CitationLocus): CitationLocus | undefined =>
+  openAt(doc, locus)
 
 /**
  * Resolve a document (optionally at a specific locus) to its preview target.
  *
- *  1. A real http(s) URL always links out (Web stays web, RIS keeps hitting the
- *     real RIS).
+ *  1. A RIS URL resolves to the in-app reader; any other http(s) URL links out.
  *  2. Otherwise the filename is matched case-insensitively against the stored
  *     documents — project uploads, private chat attachments AND the org Archiv —
- *     then the base corpus, NARROWED to the shelf the citation names. Stored
- *     matches must be inline-previewable (PDF/image); anything else degrades to
- *     `info`.
- *  3. Anything unresolvable becomes an `info` target.
+ *     then the base corpus, NARROWED to the shelf the citation names. A stored
+ *     match the viewer can render is a `document`; one it cannot is a
+ *     `download`, which is a different answer and not a lesser one.
+ *  3. Anything unresolvable becomes an `info` target — and `info` means the
+ *     citation resolved to NOTHING, never "we have it and cannot draw it".
  */
 export const resolveCitationTarget = (
   doc: CitedDocument,
@@ -248,7 +251,9 @@ export const resolveCitationTarget = (
   }
 
   const locus = openAt(doc, options?.locus)
-  const snippet = locus?.snippet ?? doc.snippet
+  // The PLACE may be borrowed from another locus of the same document; the
+  // cited PASSAGE never is. See `isActionable`.
+  const snippet = options?.locus?.snippet ?? locus?.snippet ?? doc.snippet
   const locator = documentLocator(doc)
 
   if (locator) {
