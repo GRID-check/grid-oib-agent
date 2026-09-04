@@ -327,6 +327,54 @@ vulnerabilities:
       `go version -m otelcol-contrib` on the candidate image rather than
       assuming a tag bump carries it.
 
+  # ── github.com/rabbitmq/amqp091-go inside otelcol-contrib (ADR-0029) ──────
+  #
+  # Separate from every block above: a toolchain rebuild does not clear it, and
+  # neither does the x/mod, x/crypto or grpc fix. Same image, same reachability
+  # posture, and the same verification rule — read the candidate binary, do not
+  # trust the tag.
+
+  - id: CVE-2026-79921
+    expired_at: 2026-10-01
+    statement: |
+      github.com/rabbitmq/amqp091-go 1.12.0 — HIGH, a denial of service via
+      oversized AMQP payloads, marked fixed in 1.13.0. Compiled into
+      otelcol-contrib inside the digest-pinned 0.157.0 image; not a package
+      this repo references, and it appears in no lockfile we own.
+
+      No published tag clears it. Checked rather than assumed, because the
+      x/mod entries above were written after exactly this assumption failed:
+      0.160.0 (newest stable) was pulled from the registry and its build info
+      read with `go version -m otelcol-contrib`, which reports
+      `dep github.com/rabbitmq/amqp091-go v1.12.0` — unchanged. So no digest
+      bump available today can currently clear it.
+
+      Not exploitable here, structurally: `otelcol-contrib` is the OMNIBUS
+      build and links every contrib component, so the RabbitMQ client is
+      compiled in whether or not anything uses it. Nothing uses it. The
+      collector configuration in
+      deploy/pulumi/src/platform/otel-collector.ts declares exactly one
+      receiver (`otlp`), the `health_check` extension, and OTLP/HTTP exporters
+      to the Aspire dashboard and Langfuse; every pipeline reads `[otlp]`.
+      There is no rabbitmq receiver, exporter or extension — `rabbitmq` and
+      `amqp` do not appear anywhere under deploy/ or configs/. An AMQP payload
+      parser is reachable only through a component that is instantiated, and
+      this one never is.
+
+      Independently, the shared collector posture applies: the pod is the
+      cluster's single OTLP ingestion point, is not on the public internet,
+      and its peers are our own pods plus the OIDC-gated Aspire dashboard
+      under a NetworkPolicy. Availability-only (C:N/I:N), and the prize would
+      be a denial of service against telemetry rather than against the
+      product.
+
+      Boxed to 2026-10-01 with the x/crypto and grpc entries rather than to
+      the 2026-09-17 stdlib block, because it clears on the same terms those
+      two do: an upstream dependency bump in contrib, not a Go toolchain
+      rebuild. Drop as soon as a collector-contrib image ships amqp091-go >=
+      1.13.0 — re-verify with `go version -m otelcol-contrib` on the
+      candidate image rather than assuming a tag bump carries it.
+
   # ── Langfuse web/worker images (ADR-0044) ─────────────────────────────────
   #
   # All seven are npm dependencies bundled INSIDE ghcr.io/langfuse/langfuse, not
