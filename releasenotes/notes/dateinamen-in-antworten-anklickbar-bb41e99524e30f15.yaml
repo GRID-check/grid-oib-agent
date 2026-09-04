@@ -5,6 +5,13 @@ features:
     Bisher war er reiner Text: Der Weg dorthin führte über die Dateien, das
     Suchfeld und den abgetippten Namen.
   - >
+    Mit dem Öffnen bezieht sich auch Ihre nächste Frage auf dieses Dokument: Die
+    Eingabezeile sagt „Fragen zu …", und gesucht wird in dieser Datei statt im
+    ganzen Projekt — genauso wie beim Öffnen aus den Dateien oder über eine
+    Quellenangabe. Das ✕ an der Leiste beendet den Bezug wieder. Bei einem
+    Dokument, das Piloti nicht gelesen hat, wird die Datei nur geöffnet: Ein
+    Bezug darauf würde eine Suche versprechen, die es nicht gibt.
+  - >
     Verlinkt wird nur, was Sie tatsächlich haben. Ein Name, hinter dem in
     Projektdateien, Büroarchiv und den Beilagen dieses Chats kein Dokument
     steht, bleibt gewöhnlicher Text — ein Verweis, der ins Leere führt, wäre

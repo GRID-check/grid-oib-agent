@@ -832,7 +832,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/file-reference',
     description:
-      'Filenames the answer writes into its own prose, as controls: nine names across three shelves (project files, B\u00fcroarchiv, a document attached to this chat), each a chip that opens the document in the pane beside the answer instead of sending the reader to Dateien with a name to retype. Includes a name in a table cell (the reading-order table the agent actually writes), a name that resolves to nothing and correctly stays prose, and a citation pill in the same paragraph \u2014 the two must not read as the same affordance.',
+      'Filenames the answer writes into its own prose, as controls: nine names across three shelves (project files, B\u00fcroarchiv, a document attached to this chat), each a chip that opens the document in the pane beside the answer AND points the next question at it, instead of sending the reader to Dateien with a name to retype. Includes a name in a table cell (the reading-order table the agent actually writes), a name that resolves to nothing and correctly stays prose, and a citation pill in the same paragraph \u2014 the two must not read as the same affordance.',
     waitFor: '[data-testid="file-reference"]',
   },
   {
@@ -846,7 +846,7 @@ export const SCREENSHOT_TARGETS = [
     // for it here would be waiting for something the capture has not done yet.
     waitFor: '[data-file-reference]',
     description:
-      'The file-reference peek OPEN \u2014 the second-order answer a resting screenshot can never show. The chip\u2019s click opens the document, so this panel answers the question that decides WHICH of five recommended documents to open first: which shelf it came from, its format, size and page count, its summary, and whether Piloti has actually indexed it.',
+      'The file-reference peek OPEN \u2014 the second-order answer a resting screenshot can never show. The chip\u2019s click opens the document and makes it what the composer is asking about \u2014 which this panel\u2019s own action names \u2014 so it answers the question that decides WHICH of five recommended documents to open first: which shelf it came from, its format, size and page count, its summary, and whether Piloti has actually indexed it.',
   },
   {
     id: 'citation-peek',

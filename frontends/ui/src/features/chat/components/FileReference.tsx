@@ -34,6 +34,20 @@
  * control that silently does nothing on half the devices is the failure mode
  * this product has already written down once.
  *
+ * ## Opening it is also asking about it
+ *
+ * The click does not stop at the viewer: the document becomes what the
+ * composer is asking about, so the next question is retrieved against that
+ * file and its shelf rather than against the whole project. That is not a
+ * second behaviour bolted onto the first — it is what a document in this pane
+ * has always meant. A citation's auto-peek binds it, a document card binds it,
+ * and Fragen in Dateien binds it; the preview pane hides its own Ask button
+ * while a conversation is on screen precisely because the peek has already
+ * made the commitment. This chip was the one door into the pane that did not,
+ * and the reader who walked through it was left looking at a document beside a
+ * composer that had never heard of it, with Dateien and the filename typed
+ * back in as the way to say what they were plainly already asking about.
+ *
  * ## Never a dead control
  *
  * Only a name that resolved to a real row is a chip; anything else renders as
@@ -52,7 +66,7 @@ import { useHoverPopover } from '@/hooks/use-hover-popover'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { useLayoutStore } from '@/features/layout/store'
 import { openFilePeek } from '@/features/documents/lib/open-file-peek'
-import { fileTypeIcon } from '@/features/documents/components/document-status'
+import { fileTypeIcon, isCitable } from '@/features/documents/components/document-status'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 import type { StoredFile } from '@/features/documents/hooks/use-surfaced-documents'
 import { fileNameFromHref } from '../lib/file-references'
@@ -120,11 +134,20 @@ export const useOpenStoredFile = (): ((stored: StoredFile) => void) => {
         source: stored.corpus === 'buero' ? 'buero' : stored.corpus === 'session' ? 'session' : 'projekt',
         projectId,
         presentation: isMobile ? 'modal' : 'peek',
-        // Reading is not redirecting. The reader clicked a name in a sentence to
-        // LOOK at the document; committing their next question to it is a
-        // decision they have not made, and the pane carries its own „Fragen"
-        // for the moment they do.
-        bindComposerSubject: false,
+        // Every other door into this pane binds the subject, and the reader
+        // pointing at a filename in a sentence has said which document they
+        // mean at least as clearly as clicking a card does. Hide keeps the
+        // bar, close drops it — the rule stated in `open-file-peek`, unchanged
+        // and not special-cased here.
+        //
+        // Except when the document cannot answer. `isCitable` is the same
+        // predicate the preview pane greys its Ask button on, and binding a
+        // never-indexed or failed row would promise a retrieval that cannot
+        // happen — the argument `open-filed-document` already makes for the
+        // reports Piloti writes. The document still OPENS; the hover peek has
+        // said in words why it cannot be asked about, so the composer staying
+        // where it was agrees with what the reader was just told.
+        bindComposerSubject: isCitable(stored.file),
       })
     },
     [projectId, isMobile]
@@ -139,6 +162,11 @@ const FileReferenceChip: FC<{
   const t = useTranslations('chat')
   const peek = useHoverPopover()
   const openFile = useOpenStoredFile()
+  // The label has to name the whole act, and for most files the act is two
+  // things. A screen-reader user who is told only „Datei öffnen" and then finds
+  // the composer asking about that file has been surprised by a control that
+  // described half of itself.
+  const askable = isCitable(stored.file)
 
   return (
     <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
@@ -161,7 +189,7 @@ const FileReferenceChip: FC<{
             peek.dismiss()
             openFile(stored)
           }}
-          aria-label={t('fileReference.openAria', { name: stored.file.filename })}
+          aria-label={t(askable ? 'fileReference.openAskAria' : 'fileReference.openAria', { name: stored.file.filename })}
           className={cn(
             // `inline`, not `inline-flex`. A flex box is unbreakable, and these
             // names are long: on a phone `Wien-Lacknergasse-Grundrisse-\
