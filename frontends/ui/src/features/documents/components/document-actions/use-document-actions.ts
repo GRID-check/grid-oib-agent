@@ -26,6 +26,7 @@ import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslations } from '@/i18n'
 import { startDocumentDownload } from '@/lib/documents/download'
+import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
 import { documentDisplayName, type NamedDocument } from '@/lib/documents/display-name'
 
 /** Which corpus the document belongs to — and so which words and which route. */
@@ -117,6 +118,9 @@ export function useDocumentActions({
           body !== null && typeof body === 'object' && 'displayName' in body
             ? ((body as { displayName: string | null }).displayName ?? null)
             : displayName
+        // A rename changes the display name a citation chip carries, and the
+        // listings that hold it are cached for the page lifetime.
+        notifyDocumentsChanged()
         onRenamed?.(document.id, stored)
         toast.success(
           stored === null
@@ -143,6 +147,9 @@ export function useDocumentActions({
           : `/api/documents/${document.id}`
       const res = await fetch(url, { method: 'DELETE' })
       if (!res.ok && res.status !== 204) throw new Error(`Delete failed (${res.status})`)
+      // A citation to a document that no longer exists must degrade honestly
+      // rather than keep offering a viewer onto a deleted object.
+      notifyDocumentsChanged()
       toast.success(t('delete.success', { name }))
       onDeleted?.(document.id)
       return true
