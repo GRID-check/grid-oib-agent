@@ -498,7 +498,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/file-browser',
     description:
-      'Files browser with the Finder-style folder drill-down — the breadcrumb path row ("All Files"), folder cards with item counts beside the file cards, the New-folder control, and the content column capped and centred now that the tree band is gone. It also pins that FORMAT beats the filename in the thumbnail: `Projektplan_Sanierung.md` draws a note and `Zeitplan_Gewerke.csv` a table, although the heuristic matches „plan" anywhere in a name and drew both as floor plans — walls and a door swing over prose. `Statik_Positionsplan.pdf` is the control: a PDF really can be a drawing, and it still reads as one.',
+      'Files browser with the Finder-style folder drill-down — the breadcrumb path row ("All Files"), folder cards with item counts beside the file cards, the New-folder control, and the content column capped and centred now that the tree band is gone. A folder tile is told apart from a document tile by what fills its well \u2014 a folder glyph where a document shows its first page \u2014 and not by a tint: the amber wash these used to carry was invisible at its own opacity here and read as a warning strip in the detail view, and gold is `--source-office` on the extension chips two rows down. It also pins that FORMAT beats the filename in the thumbnail: `Projektplan_Sanierung.md` draws a note and `Zeitplan_Gewerke.csv` a table, although the heuristic matches „plan" anywhere in a name and drew both as floor plans — walls and a door swing over prose. `Statik_Positionsplan.pdf` is the control: a PDF really can be a drawing, and it still reads as one.',
     waitFor: '[data-testid="file-card"]',
   },
   {
@@ -565,6 +565,14 @@ export const SCREENSHOT_TARGETS = [
     description:
       'A semantic search answered in the DETAIL view. The card/list toggle was read only on the un-searched branch, so pressing Enter threw a reader who had deliberately chosen the list back into cards, and clearing the query threw them back again. The ranking comes with it: relevance is the column the list opens sorted by \u2014 its own default is newest-first, which would have silently discarded the order the backend ranked \u2014 and every row carries the passage that matched, with its page, in the slot the summary usually holds.',
     waitFor: '[data-testid="file-list-relevance"]',
+  },
+  {
+    id: 'file-browser-folders-list',
+    mobile: true,
+    path: '/dev/file-browser?variant=folders-list',
+    description:
+      'The level\u2019s folders as rows above the sortable file table \u2014 the one composition of this pane that had no shot, which is how its rows came to be drawn in raw `amber-*`: a band of tinted rows over a neutral listing, reading as a warning strip where nothing is wrong. Chroma in this product belongs to provenance and nothing else, so a folder is told apart by its glyph and its shape. What this pins is that the band still reads as folders-then-files without borrowing a signal colour to do it.',
+    waitFor: '[data-testid="file-browser-folders-list"]',
   },
   {
     id: 'file-browser-folder-menu',

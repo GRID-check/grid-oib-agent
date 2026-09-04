@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { render, screen, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { FileBrowserPane } from './file-browser-pane'
@@ -621,5 +622,41 @@ describe('FileBrowserPane — folder aggregates', () => {
         },
       }),
     ).not.toThrow()
+  })
+})
+
+/**
+ * THE LISTING MUST BE VISIBLE IN THE HTML THE SERVER SENDS.
+ *
+ * The Files page reads its documents server-side so the first paint is the
+ * corpus rather than a skeleton. motion writes an `initial` prop into the
+ * SERVER's markup — `initial={{opacity: 0}}` really does render
+ * `style="opacity:0"` — so every per-tile entrance animation this pane had was
+ * quietly undoing that: the cards were in the document and invisible until the
+ * bundle booted and hydration released them, which is the exact wait the server
+ * render exists to remove.
+ *
+ * This renders the pane the way the server does and asserts the markup carries
+ * no hidden content. It is the only place that catches it: in a browser the
+ * animation completes in 240ms and everything looks fine.
+ */
+describe('FileBrowserPane — server-rendered markup', () => {
+  const folderNav = {
+    folders: [{ id: 'f1', parentId: null, name: 'Brandschutz', path: 'Brandschutz' }],
+    currentFolderId: null,
+    onNavigate: vi.fn(),
+    onCreateFolder: vi.fn(),
+    onRenameFolder: vi.fn(),
+    onDeleteFolder: vi.fn(),
+  }
+
+  it('paints the level and its tiles at full opacity before any JavaScript runs', () => {
+    const html = renderToStaticMarkup(<Harness folderNav={folderNav} />)
+    // No navigation has happened, so nothing may be mid-transition.
+    expect(html).not.toMatch(/opacity:\s*0(?![.\d])/)
+    // And the content really is in there, so the assertion above is not passing
+    // on an empty render.
+    expect(html).toContain('site-plan.pdf')
+    expect(html).toContain('Brandschutz')
   })
 })

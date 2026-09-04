@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, type ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
 import { Search, SearchX, FilterX, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import type { FileSearch } from '../hooks/use-file-search'
-import { AnimatePresence, motion, motionEntrance, motionQuick } from '@/components/motion'
+import { useLevelDirection } from '../hooks/use-level-direction'
+import { motion, motionEntrance } from '@/components/motion'
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
 import { FileListSkeleton, FileListView } from './file-list-view'
@@ -156,11 +157,16 @@ export function FileBrowserPane({
 
   const currentFolderId = folderNav?.currentFolderId ?? null
 
-  // Direction for the folder-level transition: deeper (entering) slides left,
-  // shallower (leaving) slides right. Tracked so the AnimatePresence can pick
-  // the right variant without guessing from the DOM.
-  const prevFolderRef = useRef<string | null>(currentFolderId)
-  const prevDepthRef = useRef(0)
+  /**
+   * Which way the level moved: deeper slides in from the right, shallower from
+   * the left. Zero is the first paint and every render that is not a level
+   * change, which is what keeps a server-rendered listing from sliding in under
+   * a reader who has not navigated anywhere.
+   *
+   * The derivation lives in {@link useLevelDirection} because the version that
+   * did not — two refs written during render — was wrong in a way that only
+   * showed up as "the animation goes the wrong way sometimes".
+   */
   const folderDepth = useMemo(() => {
     if (!folderNav || currentFolderId === null) return 0
     let depth = 0
@@ -173,9 +179,8 @@ export function FileBrowserPane({
     }
     return depth
   }, [folderNav, currentFolderId])
-  const navDirection = folderDepth > prevDepthRef.current ? 1 : folderDepth < prevDepthRef.current ? -1 : 0
-  prevFolderRef.current = currentFolderId
-  prevDepthRef.current = folderDepth
+
+  const navDirection = useLevelDirection(folderDepth)
 
   /** The folders directly inside the current level — the drill-down tiles. */
   const childFolders = useMemo(
@@ -501,10 +506,7 @@ export function FileBrowserPane({
            the "New folder" control stay where the reader expects them. */
         <motion.div
           key={`empty-${currentFolderId ?? 'root'}`}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={motionEntrance}
+          {...levelTransition(navDirection, 16)}
           className="flex flex-1 items-center justify-center p-8"
         >
           <EmptyState
@@ -515,15 +517,11 @@ export function FileBrowserPane({
           />
         </motion.div>
       ) : view === 'list' ? (
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={`list-${currentFolderId ?? 'root'}`}
-            initial={{ opacity: 0, x: navDirection * 16 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: navDirection * -16 }}
-            transition={motionQuick}
-            className={CONTENT_MAX}
-          >
+        <motion.div
+          key={`list-${currentFolderId ?? 'root'}`}
+          {...levelTransition(navDirection, 16)}
+          className={CONTENT_MAX}
+        >
             {folderNav && childFolders.length > 0 && (
               <div className="border-b px-2 py-2" role="group" aria-label={t('folders.heading')}>
                 {childFolders.map((folder) => (
@@ -550,18 +548,13 @@ export function FileBrowserPane({
                 onSortChange={onSortChange}
               />
             )}
-          </motion.div>
-        </AnimatePresence>
+        </motion.div>
       ) : (
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={`grid-${currentFolderId ?? 'root'}`}
-            initial={{ opacity: 0, x: navDirection * 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: navDirection * -20 }}
-            transition={motionQuick}
-            className={`${CONTENT_MAX} p-4`}
-          >
+        <motion.div
+          key={`grid-${currentFolderId ?? 'root'}`}
+          {...levelTransition(navDirection, 20)}
+          className={`${CONTENT_MAX} p-4`}
+        >
             {/* Section label — "Recently uploaded" at the corpus root, matching
                 the click-dummy. Hidden inside a folder (the breadcrumb already
                 names it) and while searching (the query is the context). */}
@@ -570,61 +563,91 @@ export function FileBrowserPane({
                 {t('browser.recentlyUploaded')}
               </SectionLabel>
             )}
+            {/*
+              ONE ENTRANCE FOR THE LEVEL, NOT ONE PER TILE.
+
+              Every cell used to be wrapped in its own `motion.div` rising 10px
+              on a per-index delay. Two things were wrong with that, and the
+              second is the serious one.
+
+              It compounded: the level was already sliding in sideways, so a
+              navigation played N+1 animations at once, each tile drifting up
+              through a container drifting across. And the delay was unbounded
+              until it was capped, which put the last tile of a full Einreichung
+              ten seconds out.
+
+              The serious one is that motion writes `initial` into the SERVER's
+              HTML. The listing is rendered on the server now, so every card
+              shipped with `opacity: 0` and stayed invisible until the bundle
+              booted and hydration released it — the exact wait the server
+              render exists to remove, reintroduced as a blank grid over data
+              that was already in the document.
+
+              The level's own transition carries the whole grid, which is one
+              animation, is what a Finder-style drill actually looks like, and
+              renders at full opacity when nothing has navigated.
+            */}
             <FileGrid>
               {folderNav &&
-                childFolders.map((folder, idx) => (
-                  <motion.div
+                childFolders.map((folder) => (
+                  <FolderCard
                     key={folder.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ ...motionEntrance, delay: staggerDelay(idx, 0.03) }}
-                  >
-                    <FolderCard
-                      folder={folder}
-                      itemCount={folderItemCount(folder.id)}
-                      lastModified={folderLastModified(folder.id)}
-                      onOpen={folderNav.onNavigate}
-                      onRenameFolder={folderNav.onRenameFolder}
-                      onDeleteFolder={folderNav.onDeleteFolder}
-                      onDropDocument={onDropDocumentInFolder}
-                    />
-                  </motion.div>
-                ))}
-              {orderedFiles.map((file, idx) => (
-                <motion.div
-                  key={file.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ ...motionEntrance, delay: staggerDelay(childFolders.length + idx, 0.02) }}
-                >
-                  <FileCard
-                    file={file}
-                    isSelected={selectedFileId === file.id}
-                    onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
-                    locale={locale}
-                    footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
-                    actions={renderActions?.(file)}
-                    draggable={Boolean(onDropDocumentInFolder)}
+                    folder={folder}
+                    itemCount={folderItemCount(folder.id)}
+                    lastModified={folderLastModified(folder.id)}
+                    onOpen={folderNav.onNavigate}
+                    onRenameFolder={folderNav.onRenameFolder}
+                    onDeleteFolder={folderNav.onDeleteFolder}
+                    onDropDocument={onDropDocumentInFolder}
                   />
-                </motion.div>
+                ))}
+              {orderedFiles.map((file) => (
+                <FileCard
+                  key={file.id}
+                  file={file}
+                  isSelected={selectedFileId === file.id}
+                  onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
+                  locale={locale}
+                  footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
+                  actions={renderActions?.(file)}
+                  draggable={Boolean(onDropDocumentInFolder)}
+                />
               ))}
-              {uploadCard && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ ...motionEntrance, delay: staggerDelay(childFolders.length + files.length, 0.02) }}
-                >
-                  {uploadCard}
-                </motion.div>
-              )}
+              {uploadCard}
             </FileGrid>
-          </motion.div>
-        </AnimatePresence>
+        </motion.div>
       )}
     </div>
   )
 }
 
+
+
+/**
+ * ENTERING A FOLDER IS AN ARRIVAL, NOT A HANDOVER.
+ *
+ * This was an `AnimatePresence mode="wait"`, and `wait` means exactly what it
+ * says: the level you are leaving plays its exit to completion, and only then
+ * does the level you asked for begin to appear. Two 180ms tweens end to end,
+ * with a frame in the middle where the pane holds nothing and collapses to the
+ * height of its own padding — on the gesture this page is built around, and one
+ * a person repeats a dozen times walking a tree.
+ *
+ * Nothing needed the outgoing level to be watched on its way out. Dropping the
+ * presence wrapper makes the swap instant and leaves the arrival, which is the
+ * half that carries the direction: the new level slides in from the side it
+ * came from, in one 240ms entrance, over content that is already there.
+ *
+ * `initial: false` when the direction is 0 — no navigation happened, so this is
+ * the first paint (which, since the page now server-renders its listing, is a
+ * real listing that must not slide) or a re-render the key did not change.
+ */
+const levelTransition = (direction: number, distance: number) =>
+  ({
+    initial: direction === 0 ? false : { opacity: 0, x: direction * distance },
+    animate: { opacity: 1, x: 0 },
+    transition: motionEntrance,
+  }) as const
 
 /**
  * THE FIRST FRAME, SHAPED LIKE THE SECOND ONE.
@@ -711,17 +734,3 @@ export function FileBrowserSkeleton({
  */
 const CONTENT_MAX = 'mx-auto w-full max-w-[1200px]'
 
-/**
- * The cards arrive in a wave, and the wave has an end.
- *
- * A per-index delay is a nice touch at twelve tiles and a defect at five
- * hundred: `index * 0.02s` puts the last card of a full Einreichung ten seconds
- * out, so a reader who scrolls immediately scrolls into blank cells that fade in
- * under them one by one. The cap is the whole listing's budget — past it every
- * remaining tile enters together, which is what a reader who has already
- * scrolled past the wave sees anyway.
- */
-const MAX_STAGGER_SECONDS = 0.4
-
-const staggerDelay = (index: number, step: number): number =>
-  Math.min(index * step, MAX_STAGGER_SECONDS)

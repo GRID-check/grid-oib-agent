@@ -30,3 +30,14 @@ fixes:
     Die Platzhalter beim Laden zeigen jetzt dieselbe Anordnung wie die Liste,
     die danach erscheint: Pfadzeile, Ordner, Dateien, in derselben Breite.
     Bisher sprang die Ansicht beim Fertigladen um.
+  - >
+    Ordner sind in der Listenansicht nicht mehr gelb hinterlegt. Die getönten
+    Zeilen lasen sich wie ein Warnhinweis über einer Liste, in der nichts
+    verkehrt ist — und derselbe Gelbton steht in derselben Tabelle für die
+    Herkunft „Büro" auf den Dateityp-Kürzeln. Ein Ordner ist jetzt an seinem
+    Symbol zu erkennen, nicht an seiner Farbe.
+  - >
+    Das Öffnen eines Ordners läuft in einer Bewegung statt in zweien: Bisher
+    lief die verlassene Ebene erst vollständig hinaus, bevor die neue begann,
+    mit einem leeren Bild dazwischen. Die Richtung der Bewegung stimmt
+    außerdem wieder — hinein und hinaus sahen zuletzt gleich aus.
