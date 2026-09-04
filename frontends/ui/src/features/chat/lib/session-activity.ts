@@ -136,9 +136,16 @@ export const getPersistedActivityFlags = (
  * shows its own reconnect notice for that state. Treating it as liveness here
  * would hand a permanently-open turn to anyone whose stream dropped.
  *
- * Written once because three callers need it: the composer's busy check, the
- * per-session busy check, and the inactivity watchdog, which had a byte-shaped
- * copy of the first.
+ * One caller today: the streaming watchdog, which decides whether a silent
+ * socket is a stalled turn or a long research run and so may only be answered
+ * about THIS conversation. It is deliberately not wired into the two busy
+ * checks beside it, which ask a wider question — `isSessionBusy` also counts
+ * shallow streaming, and `useIsCurrentSessionBusy` reads the deep-research
+ * signals unscoped ON PURPOSE, because an attached panel run
+ * (`attachToDeepResearchJob`, which owns no conversation) still occupies the
+ * surface it locks. Narrowing those two to this predicate would unlock file
+ * operations and session deletion during an attached run; that is a product
+ * decision, not a cleanup, and it does not belong in a watchdog fix.
  */
 export const isDeepResearchLive = (
   state: {
