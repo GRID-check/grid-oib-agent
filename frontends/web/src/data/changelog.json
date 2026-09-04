@@ -58,6 +58,14 @@
               "de": "Der Name ist auch in Tabellen anklickbar — etwa in der Zeile „Wichtigste Datei\" einer Vergleichstabelle, die genau dazu da ist, auf Unterlagen zu verweisen."
             },
             {
+              "en": "Ordner lassen sich jetzt per Drag & Drop verschieben — auf einen anderen Ordner, oder auf „Alle Dateien“, um sie wieder nach oben zu holen. Ein Ordner, der in sich selbst oder in einen seiner eigenen Unterordner gezogen wird, leuchtet gar nicht erst auf: Die Ablehnung steht vor dem Loslassen, nicht danach.",
+              "de": "Ordner lassen sich jetzt per Drag & Drop verschieben — auf einen anderen Ordner, oder auf „Alle Dateien“, um sie wieder nach oben zu holen. Ein Ordner, der in sich selbst oder in einen seiner eigenen Unterordner gezogen wird, leuchtet gar nicht erst auf: Die Ablehnung steht vor dem Loslassen, nicht danach."
+            },
+            {
+              "en": "In der Listenansicht lassen sich Dokumente jetzt ebenfalls per Drag & Drop in einen Ordner ziehen. Bisher ging das nur in der Kachelansicht — also gerade nicht in der Ansicht, zu der man wechselt, wenn es genug Dokumente gibt, dass die Ablage zählt.",
+              "de": "In der Listenansicht lassen sich Dokumente jetzt ebenfalls per Drag & Drop in einen Ordner ziehen. Bisher ging das nur in der Kachelansicht — also gerade nicht in der Ansicht, zu der man wechselt, wenn es genug Dokumente gibt, dass die Ablage zählt."
+            },
+            {
               "en": "Ein hochgeladener Ordner wird jetzt abgeglichen, statt flach abgelegt zu werden. Piloti erkennt die Ordner, die es im Projekt schon gibt — auch wenn sie anders geschrieben sind oder vom Mac mit anders kodierten Umlauten kommen —, legt nur die fehlenden an und legt jede Datei dorthin, wo sie im Ordnerbaum stand.",
               "de": "Ein hochgeladener Ordner wird jetzt abgeglichen, statt flach abgelegt zu werden. Piloti erkennt die Ordner, die es im Projekt schon gibt — auch wenn sie anders geschrieben sind oder vom Mac mit anders kodierten Umlauten kommen —, legt nur die fehlenden an und legt jede Datei dorthin, wo sie im Ordnerbaum stand."
             },
@@ -114,6 +122,14 @@
             {
               "en": "A standard or product code typed in lowercase now matches the documents that write it in capitals, so a question about a specific code finds the same sources whichever way it is typed.",
               "de": "A standard or product code typed in lowercase now matches the documents that write it in capitals, so a question about a specific code finds the same sources whichever way it is typed."
+            },
+            {
+              "en": "Beim Ziehen einer Datei auf einen Ordner legte sich der Hinweis „Dateien hier ablegen“ über die ganze Fläche und damit über den Ordner, den man gerade anvisierte. Das Verschieben funktionierte darunter, sah aber aus wie ein Upload, der nicht ankommt. Der Upload-Hinweis erscheint jetzt nur noch für Dateien vom Rechner.",
+              "de": "Beim Ziehen einer Datei auf einen Ordner legte sich der Hinweis „Dateien hier ablegen“ über die ganze Fläche und damit über den Ordner, den man gerade anvisierte. Das Verschieben funktionierte darunter, sah aber aus wie ein Upload, der nicht ankommt. Der Upload-Hinweis erscheint jetzt nur noch für Dateien vom Rechner."
+            },
+            {
+              "en": "Der Ordner unter dem Zeiger flackerte während des Ziehens, weil jede Bewegung über ein Element in der Kachel als „verlassen“ zählte. Die Markierung bleibt jetzt, solange der Zeiger im Ordner ist.",
+              "de": "Der Ordner unter dem Zeiger flackerte während des Ziehens, weil jede Bewegung über ein Element in der Kachel als „verlassen“ zählte. Die Markierung bleibt jetzt, solange der Zeiger im Ordner ist."
             },
             {
               "en": "Zwei Dateien mit gleichem Namen aus verschiedenen Unterordnern haben sich beim Ordner-Upload gegenseitig überschrieben, ohne dass es irgendwo stand — am Ende fehlten Dateien, und niemand konnte sagen, welche. Beide werden jetzt zurückgehalten und im Dialog namentlich genannt.",
