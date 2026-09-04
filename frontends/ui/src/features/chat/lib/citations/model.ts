@@ -221,8 +221,7 @@ export const oibDocumentKey = (nameOrLabel: string | undefined | null): string |
 }
 
 /** URL reduced to a comparison form (scheme/host lowercased, trailing slash dropped). */
-export const normalizeUrl = (url: string): string =>
-  url.trim().toLowerCase().replace(/\/+$/, '')
+export const normalizeUrl = (url: string): string => url.trim().toLowerCase().replace(/\/+$/, '')
 
 /** Minimal facts needed to identify a document, from any producer. */
 export interface DocumentIdentityInput {
@@ -432,15 +431,36 @@ export const citationNumbers = (doc: CitedDocument): number[] =>
     )
   ).sort((a, b) => a - b)
 
-/** The pages this document was read at, ascending. Empty for whole-document hits. */
-export const citedPages = (doc: CitedDocument): number[] =>
+/** Pages of the given loci, deduplicated and ascending. */
+const pagesOf = (loci: readonly CitationLocus[]): number[] =>
   Array.from(
     new Set(
-      doc.loci
+      loci
         .map((locus) => locus.page)
         .filter((p): p is number => typeof p === 'number' && Number.isFinite(p))
     )
   ).sort((a, b) => a - b)
+
+/**
+ * The pages the answer CITED this document at, ascending.
+ *
+ * `isCited` is the distinction this whole model exists to carry — "read" and
+ * "used" are different claims — and this function used to ignore it. The
+ * `## Trace-Lanes` fan-out contributes a locus per RETRIEVED page with
+ * `isCited: false`, so a document retrieved at pp. 5, 12 and 18 and cited only
+ * at 5 rendered "S. 5, 12, 18" under the heading „Belegt durch". Worse, `refPage`
+ * names a page only when there is exactly one, so the same document's copied
+ * Fachtext citation carried NO page at all — the model held the right answer and
+ * the surface printed a wrong one and a missing one from the same call.
+ *
+ * Empty for a document cited only as a whole. Use {@link readPages} for the
+ * Herleitung's honest wider claim.
+ */
+export const citedPages = (doc: CitedDocument): number[] =>
+  pagesOf(doc.loci.filter((locus) => locus.isCited))
+
+/** Every page this document was READ at, cited or not — the Herleitung's claim. */
+export const readPages = (doc: CitedDocument): number[] => pagesOf(doc.loci)
 
 /** Total evidence count for a document — what "N Treffer" means. */
 export const hitCount = (doc: CitedDocument): number => Math.max(doc.loci.length, 1)
@@ -483,7 +503,13 @@ export const refKey = (ref: CitationRef): string =>
  * `[N]` the document carries, then by title. Documents the prose numbered
  * always precede unnumbered ones within their family.
  */
-const KIND_ORDER: Record<SourceKind, number> = { baurecht: 0, buero: 1, projekt: 2, messung: 3, web: 4 }
+const KIND_ORDER: Record<SourceKind, number> = {
+  baurecht: 0,
+  buero: 1,
+  projekt: 2,
+  messung: 3,
+  web: 4,
+}
 
 export const compareDocuments = (a: CitedDocument, b: CitedDocument): number => {
   const numbersA = citationNumbers(a)
@@ -686,7 +712,11 @@ export class CitationAccumulator {
       // Several chunks of one page fold onto one locus; the page keeps the
       // best match any of them earned, mirroring the backend registry.
       existing.score =
-        existing.score === undefined ? score : score === undefined ? existing.score : Math.max(existing.score, score)
+        existing.score === undefined
+          ? score
+          : score === undefined
+            ? existing.score
+            : Math.max(existing.score, score)
       return
     }
     doc.loci.push({

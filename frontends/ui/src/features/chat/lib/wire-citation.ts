@@ -11,7 +11,10 @@ const trimmed = (value: unknown): string | undefined =>
 
 export const normalizeOrigin = (value: unknown): CitationSource['origin'] | undefined => {
   if (typeof value !== 'string') return undefined
-  const lower = value.trim().toLowerCase().replace(/^\[|\]$/g, '')
+  const lower = value
+    .trim()
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
   if (lower === 'kb' || lower === 'ris' || lower === 'web') return lower
   return undefined
 }
@@ -55,6 +58,7 @@ export const citationFromWire = (
     fileName: wire.file_name?.trim() || undefined,
     page: typeof wire.page === 'number' && Number.isFinite(wire.page) ? wire.page : undefined,
     punkt: trimmed(wire.punkt),
+    snippet: trimmed(wire.snippet),
     score: typeof wire.score === 'number' && Number.isFinite(wire.score) ? wire.score : undefined,
     number:
       typeof wire.number === 'number' && Number.isInteger(wire.number) && wire.number > 0

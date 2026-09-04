@@ -17,6 +17,7 @@ export {
   citationNumbers,
   citedLoci,
   citedPages,
+  readPages,
   compareDocuments,
   documentIdentity,
   hitCount,
