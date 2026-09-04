@@ -236,6 +236,7 @@ export default function FileBrowserDevPage(): JSX.Element {
   if (variant === 'search-list') return <SearchInListViewFixture />
   if (variant === 'folder-rename') return <FolderCrudFixture mode="rename" />
   if (variant === 'folder-menu') return <FolderCrudFixture mode="menu" />
+  if (variant === 'folders-list') return <FoldersInListViewFixture />
   return <FileBrowserFixtures />
 }
 
@@ -250,6 +251,51 @@ function useFixtureFolderNav(): FolderNavigation & { currentFolderId: string | n
     onRenameFolder: async () => true,
     onDeleteFolder: async () => true,
   }
+}
+
+/**
+ * Folders in the DETAIL view — the one composition of this pane that had no
+ * shot at all.
+ *
+ * Every existing file-browser target photographs the card grid, or a search. The
+ * detail view's folder band was captured nowhere, which is how it came to be
+ * drawn in raw `amber-*` — a band of tinted rows above a neutral table, reading
+ * as a warning strip over a listing where nothing is wrong. The shot exists so
+ * the next change to either half is seen against the other.
+ */
+function FoldersInListViewFixture(): JSX.Element {
+  const [selected, setSelected] = useState<string | null>(null)
+  const folderNav = useFixtureFolderNav()
+  const search = useFileSearch({ projectId: 'proj-demo' })
+  const levelFiles = FILES.filter((f) => (f.folderId ?? null) === folderNav.currentFolderId)
+
+  return (
+    <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
+      <div>
+        <h1 className="text-lg font-semibold">Files browser — folders in the detail view</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          The level’s folders as rows above the sortable file table, at the root.
+        </p>
+      </div>
+      <div
+        className="flex h-[560px] flex-col overflow-hidden rounded-xl border"
+        data-testid="file-browser-folders-list"
+      >
+        <div className="flex-1 overflow-y-auto">
+          <FileBrowserPane
+            files={levelFiles}
+            searchFiles={FILES}
+            selectedFileId={selected}
+            onSelectFile={setSelected}
+            isLoading={false}
+            search={search}
+            view="list"
+            folderNav={folderNav}
+          />
+        </div>
+      </div>
+    </main>
+  )
 }
 
 /**

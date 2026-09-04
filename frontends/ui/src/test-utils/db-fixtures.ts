@@ -110,6 +110,7 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   // Null is the honest default: only a folder upload records where a file came
   // from, and the fixture is a single picked file.
   originPath: null,
+  contentHash: null,
   status: 'completed',
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-02T00:00:00Z'),

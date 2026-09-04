@@ -64,10 +64,12 @@ vi.mock('next/navigation', () => ({
  * an upload finally lands is the only place the app says what the file became.
  */
 const toastSuccess = vi.fn()
+/** A failure that stops an upload is an assertion too — see the folder plan. */
+const toastError = vi.fn()
 vi.mock('sonner', () => ({
   toast: {
     success: (...args: unknown[]) => toastSuccess(...args),
-    error: vi.fn(),
+    error: (...args: unknown[]) => toastError(...args),
   },
 }))
 
@@ -183,6 +185,302 @@ describe('ProjectFileWorkspace', () => {
     fireEvent.drop(dropzone, { dataTransfer })
     // Same contract as the button: files still flow to uploadFiles, which validates.
     await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([badFile]))
+  })
+})
+
+/**
+ * A FOLDER IS NOT A LONGER LIST OF FILES.
+ *
+ * It used to be treated as one: every file landed in whichever folder the
+ * reader stood in, the tree survived only as a string on the row, and two files
+ * of the same name inside one drop both uploaded — one silently overwriting the
+ * other, because a project holds one document per filename (0074). These pin
+ * the plan that replaced that: what it says, what the reader decides, and where
+ * the files actually go.
+ */
+describe('ProjectFileWorkspace — a dropped folder', () => {
+  const existing = {
+    id: 'doc-eg',
+    filename: 'EG.pdf',
+    displayName: null,
+    fileSize: 10,
+    contentType: 'application/pdf',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00.000Z',
+    errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
+    tags: null,
+    assignees: [],
+    authoredBy: 'user' as const,
+  }
+
+  /** A `File` carrying the path a folder input reports. */
+  function pathed(relativePath: string, size = 10): File {
+    const name = relativePath.split('/').pop()!
+    const file = new File(['x'.repeat(size)], name, { type: 'application/pdf' })
+    Object.defineProperty(file, 'webkitRelativePath', { value: relativePath, configurable: true })
+    return file
+  }
+
+  let ensureRequests: Array<{ parentId: string | null; paths: string[] }>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+    ensureRequests = []
+    server.use(
+      http.get('/api/documents', () => HttpResponse.json({ documents: [] })),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.post('/api/projects/:projectId/folders/ensure', async ({ request }) => {
+        const body = (await request.json()) as { parentId: string | null; paths: string[] }
+        ensureRequests.push(body)
+        return HttpResponse.json({
+          folders: [],
+          folderIdByPath: Object.fromEntries(body.paths.map((path) => [path, `folder-for-${path}`])),
+        })
+      }),
+    )
+  })
+
+  function renderWithCorpus() {
+    return renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[existing]}
+        initialFolders={[]}
+      />,
+    )
+  }
+
+  async function dropFolder(files: File[]) {
+    const input = screen.getByTestId('project-upload-folder-input') as HTMLInputElement
+    // `userEvent.upload` rebuilds the FileList and would drop the paths we just
+    // stamped, which are the only thing that makes this a folder at all.
+    Object.defineProperty(input, 'files', { value: files, configurable: true })
+    fireEvent.change(input)
+    return screen.findByTestId('folder-upload-dialog')
+  }
+
+  it('asks before it touches anything, and says what it is about to do', async () => {
+    renderWithCorpus()
+    await dropFolder([pathed('Wohnbau/Plaene/EG.pdf'), pathed('Wohnbau/Plaene/OG.pdf')])
+
+    // Nothing has been uploaded on the strength of the gesture alone.
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    // One file is new; the other already exists under that name, project-wide,
+    // which is the rule the server enforces.
+    expect(within(dialog).getByTestId('folder-upload-count-new')).toHaveTextContent('1')
+    expect(within(dialog).getByTestId('folder-upload-count-update')).toHaveTextContent('1')
+    // Two folders in the tree, neither of which exists here yet.
+    expect(within(dialog).getByTestId('folder-upload-count-folders')).toHaveTextContent('2')
+  })
+
+  it('creates the tree and files each document into its own folder', async () => {
+    renderWithCorpus()
+    await dropFolder([pathed('Wohnbau/Plaene/EG.pdf'), pathed('Wohnbau/Statik/Bericht.pdf')])
+
+    await userEvent.click(await screen.findByTestId('folder-upload-confirm'))
+
+    await waitFor(() => expect(ensureRequests).toHaveLength(1))
+    expect(ensureRequests[0]).toEqual({
+      parentId: null,
+      paths: ['Wohnbau', 'Wohnbau/Plaene', 'Wohnbau/Statik'],
+    })
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
+    const [sent, options] = mockUploadFiles.mock.calls[0] as [
+      File[],
+      { folderIdFor: (file: File) => string | null },
+    ]
+    expect(sent.map((file) => file.name).sort()).toEqual(['Bericht.pdf', 'EG.pdf'])
+    // The whole point: two files from one drop, two different folders.
+    const targets = sent.map((file) => options.folderIdFor(file))
+    expect(new Set(targets)).toEqual(
+      new Set(['folder-for-Wohnbau/Plaene', 'folder-for-Wohnbau/Statik']),
+    )
+  })
+
+  it('leaves the existing documents alone when the reader unticks the update', async () => {
+    renderWithCorpus()
+    await dropFolder([pathed('Wohnbau/EG.pdf'), pathed('Wohnbau/New.pdf')])
+
+    const toggle = await screen.findByTestId('folder-upload-include-updates')
+    await userEvent.click(within(toggle).getByRole('checkbox'))
+    await userEvent.click(screen.getByTestId('folder-upload-confirm'))
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
+    const [sent] = mockUploadFiles.mock.calls[0] as [File[]]
+    expect(sent.map((file) => file.name)).toEqual(['New.pdf'])
+  })
+
+  it('sends neither of two files that share a name inside one drop', async () => {
+    renderWithCorpus()
+    await dropFolder([pathed('W/A/Deckblatt.pdf'), pathed('W/B/Deckblatt.pdf')])
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    // Before this, both uploaded and one overwrote the other with nothing said.
+    expect(within(dialog).getByTestId('folder-upload-collisions')).toBeInTheDocument()
+    expect(screen.getByTestId('folder-upload-confirm')).toBeDisabled()
+  })
+
+  it('uploads nothing when the folders could not be created', async () => {
+    server.use(
+      http.post('/api/projects/:projectId/folders/ensure', () =>
+        HttpResponse.json({ error: 'nope' }, { status: 500 }),
+      ),
+    )
+    renderWithCorpus()
+    await dropFolder([pathed('Wohnbau/New.pdf')])
+
+    await userEvent.click(await screen.findByTestId('folder-upload-confirm'))
+
+    // A half-applied plan is the state that is hardest to reason about
+    // afterwards; the whole thing is repeatable instead.
+    await waitFor(() => expect(toastError).toHaveBeenCalled())
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  it('still takes a handful of picked files straight to the upload path', async () => {
+    renderWithCorpus()
+    const input = screen.getByTestId('project-upload-input') as HTMLInputElement
+    const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    fireEvent.change(input)
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([file]))
+    expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * The listing the SERVER already read.
+ *
+ * Dateien used to paint a skeleton, boot its bundle and only then ask for the
+ * folders and the documents — three round trips stacked behind the JavaScript,
+ * on a page whose whole job is to show a list the page request could already
+ * have had. The page reads both now and hands them down; what these pin is that
+ * the seed is a first paint and not a second source of truth: the corpus is on
+ * screen in the first frame, and nothing goes back out to fetch what it was
+ * just given.
+ */
+describe('ProjectFileWorkspace — server-seeded first paint', () => {
+  const seededFile = {
+    id: 'doc-seed',
+    filename: 'Einreichplan.pdf',
+    displayName: null,
+    fileSize: 2048,
+    contentType: 'application/pdf',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00.000Z',
+    errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
+    tags: null,
+    assignees: [],
+    authoredBy: 'user' as const,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+  })
+
+  it('renders the seeded corpus without asking for it again', async () => {
+    const documentsRequests: string[] = []
+    const folderRequests: string[] = []
+    server.use(
+      http.get('/api/documents', ({ request }) => {
+        documentsRequests.push(request.url)
+        return HttpResponse.json({ documents: [] })
+      }),
+      http.get('/api/projects/:projectId/folders', ({ request }) => {
+        folderRequests.push(request.url)
+        return HttpResponse.json({ folders: [] })
+      }),
+    )
+
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[seededFile]}
+        initialFolders={[{ id: 'folder-1', parentId: null, name: 'Brandschutz', path: 'Brandschutz' }]}
+      />,
+    )
+
+    // The file and the folder are there to be found immediately — no skeleton
+    // frame to wait through, which is the whole point of the seed.
+    expect(await findFileButton(/Einreichplan\.pdf/)).toBeInTheDocument()
+    expect(screen.getByTestId('folder-card-folder-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('file-browser-skeleton')).not.toBeInTheDocument()
+
+    // And neither listing is re-requested on mount. A refetch here would be
+    // invisible on a fast connection and would still cost every reader two
+    // round trips for an answer they can already see.
+    await waitFor(() => expect(mockUploadFiles).not.toHaveBeenCalled())
+    expect(documentsRequests).toHaveLength(0)
+    expect(folderRequests).toHaveLength(0)
+  })
+
+  it('still fetches when the caller has nothing to seed with', async () => {
+    let documentsRequests = 0
+    server.use(
+      http.get('/api/documents', () => {
+        documentsRequests += 1
+        return HttpResponse.json({ documents: [seededFile] })
+      }),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+    )
+
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />,
+    )
+
+    expect(await findFileButton(/Einreichplan\.pdf/)).toBeInTheDocument()
+    expect(documentsRequests).toBe(1)
+  })
+
+  it('re-reads the listing when the „Von Piloti" chip narrows it server-side', async () => {
+    const requested: string[] = []
+    server.use(
+      http.get('/api/documents', ({ request }) => {
+        requested.push(new URL(request.url).searchParams.get('authoredBy') ?? '')
+        return HttpResponse.json({ documents: [] })
+      }),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+    )
+
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[seededFile]}
+        initialFolders={[]}
+      />,
+    )
+    expect(await findFileButton(/Einreichplan\.pdf/)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /filter/i }))
+    await userEvent.click(await screen.findByLabelText('By Piloti'))
+
+    // The seed is spent by the mount, not by the component's lifetime: a filter
+    // that only the server can apply must still reach it.
+    await waitFor(() => expect(requested).toEqual(['agent']))
   })
 })
 

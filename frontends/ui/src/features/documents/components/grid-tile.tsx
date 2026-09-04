@@ -15,21 +15,36 @@ export interface GridTileShellProps extends Omit<ComponentProps<'div'>, 'ref'> {
 /**
  * Single rewrite point for the file grid's tiles.
  *
- * `file` keeps the existing raised-card look (white body on muted tray).
- * `folder` renders the amber folder silhouette (tab + warm wash) so a folder
- * never looks like a document, yet both share the same outer sizing, shadow
- * lifecycle, hover lift, and footer alignment — changing `gap` or `rounded-xl`
- * here moves both.
+ * `file` keeps the existing raised-card look: a white body on a muted tray.
+ * `folder` is the same shell on a plain card surface, so the two are told apart
+ * by the tile's own contents — a folder glyph filling the well where a document
+ * shows its first page — rather than by a tint. Both share the outer sizing, the
+ * shadow lifecycle, the hover lift and the footer alignment, so changing `gap`
+ * or `rounded-xl` here moves both.
+ *
+ * ## Why the folder is not amber any more
+ *
+ * It was `border-amber-200/60` over a `from-amber-50/80 … to-orange-50/30`
+ * wash, and that was wrong twice. Chroma in this product belongs to the source
+ * signal system and to nothing else (`grid-design-language.md`: "provenance
+ * signals are the only chroma… a control that wants to stand out wants
+ * contrast, not chroma"), and gold in particular is `--source-office` — the tint
+ * on the `JPG` and `PNG` chips in the same listing. One hue meant two unrelated
+ * things on one screen.
+ *
+ * It also was not paint that did anything: at those opacities the wash is
+ * indistinguishable from the card surface in the grid, while the same palette
+ * on the detail view's full-width folder ROWS read as a warning strip over a
+ * table where nothing is wrong. That is the report this came out of.
  */
 export function GridTileShell({ variant = 'file', interactive = true, className, children, ...rest }: GridTileShellProps): JSX.Element {
   const shell =
     variant === 'folder' ? (
       <div
         className={cn(
-          'relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl border shadow-xs',
-          'border-amber-200/60 bg-gradient-to-br from-amber-50/80 via-amber-50/40 to-orange-50/30',
-          'transition-[box-shadow,border-color,transform] duration-quick ease-out motion-reduce:transition-none',
-          interactive && 'hover:border-amber-300/60 hover:shadow-md',
+          'border-border bg-card shadow-xs relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl border',
+          'transition-shadow duration-quick ease-out motion-reduce:transition-none',
+          interactive && 'hover:shadow-md',
           className,
         )}
         {...rest}
@@ -78,15 +93,6 @@ export function GridTileFooter({ className, children, ...rest }: ComponentProps<
   return (
     <div className={cn('text-muted-foreground mt-auto flex w-full items-center gap-1.5 px-3.5 py-2 text-xs', className)} {...rest}>
       {children}
-    </div>
-  )
-}
-
-/** Folder tab bar — visual cue before any icon loads. */
-export function GridTileFolderTab(): JSX.Element {
-  return (
-    <div className="flex h-6 shrink-0 items-end px-3 pt-1" aria-hidden>
-      <div className="h-3 w-16 rounded-t-md bg-amber-200/70 dark:bg-amber-800/40" />
     </div>
   )
 }

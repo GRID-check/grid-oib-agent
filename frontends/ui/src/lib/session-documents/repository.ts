@@ -47,6 +47,7 @@ export async function listSessionDocuments(
         displayName: documents.displayName,
         fileSize: documents.fileSize,
         contentType: documents.contentType,
+        contentHash: documents.contentHash,
         status: documents.status,
         authoredBy: documents.authoredBy,
         collectionName: documents.collectionName,

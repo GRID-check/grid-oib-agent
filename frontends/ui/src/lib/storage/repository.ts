@@ -209,6 +209,7 @@ export async function replaceDocumentWithinQuota(
     storageBucket: string | null
     fileSize: number
     contentType: string | null
+    contentHash: string | null
     folderId: string | null
     createdBy: string
   },
@@ -242,6 +243,10 @@ export async function replaceDocumentWithinQuota(
         storageBucket: next.storageBucket,
         fileSize: next.fileSize,
         contentType: next.contentType,
+        // Rewritten with the bytes it describes. Leaving the previous digest in
+        // place would tell the next folder upload that a document it just
+        // replaced is unchanged, and the correction would never be sent again.
+        contentHash: next.contentHash,
         folderId: next.folderId,
         createdBy: next.createdBy,
         status: 'uploaded',

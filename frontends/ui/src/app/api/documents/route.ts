@@ -6,6 +6,7 @@
 import { z } from 'zod'
 import { apiRoute, parseQuery } from '@/lib/api/handler'
 import { listDocuments } from '@/lib/documents/service'
+import { toDocumentWireRow } from '@/lib/documents/list-projection'
 import { DOCUMENT_AUTHORS } from '@/lib/documents/document-authors'
 
 const listDocumentsQuerySchema = z.object({
@@ -25,7 +26,11 @@ const listDocumentsQuerySchema = z.object({
 export const GET = apiRoute(
   async ({ session, request }) => {
     const { projectId, authoredBy } = parseQuery(request, listDocumentsQuerySchema)
-    return { documents: await listDocuments(session, projectId, { authoredBy }) }
+    const documents = await listDocuments(session, projectId, { authoredBy })
+    // Serialized explicitly rather than left to `JSON.stringify`, because the
+    // Files page reads this same listing server-side and hands it across the
+    // RSC boundary, which does not stringify a `Date` — see the module header.
+    return { documents: documents.map(toDocumentWireRow) }
   },
   { authz: { enforcedBy: 'listDocuments (requireProjectAccess project:view)' } }
 )

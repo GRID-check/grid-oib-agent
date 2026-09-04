@@ -291,6 +291,27 @@ export const documents = pgTable('documents', {
    */
   originPath: text('origin_path'),
   /**
+   * A digest of the stored bytes — `sha256:<64 hex>` — or NULL when unknown
+   * (migration 0078).
+   *
+   * It exists to answer one question, at the one moment it is asked: a folder
+   * re-upload arrives carrying 500 files, and this is how the browser learns
+   * that 492 of them are byte-identical to what is already filed and need not
+   * cross the wire at all. Written with the bytes, rewritten when the bytes
+   * are replaced.
+   *
+   * NULL means "unknown", not "empty": every row written before 0078 has none,
+   * and the planner must treat such a file as an UPDATE rather than assume it
+   * unchanged. Getting that backwards would silently drop a corrected plan.
+   *
+   * NOT an identity. Two documents in one project may hold identical bytes —
+   * the same DIN sheet filed under two disciplines is a filing decision, not a
+   * duplicate — and a document is still identified by its filename within a
+   * collection (migration 0074). This column decides only whether an upload has
+   * anything new to say.
+   */
+  contentHash: text('content_hash'),
+  /**
    * Where ingestion got to: `pending → processing → processed | error`, plus
    * `stored`, which is none of those (migration 0063).
    *

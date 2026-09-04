@@ -440,6 +440,28 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[role="dialog"]',
   },
   {
+    id: 'folder-upload-plan',
+    mobile: true,
+    path: '/dev/folder-upload',
+    description:
+      'The question a dropped folder now asks before anything moves, in the case it exists for: a b\u00fcro re-syncing an Einreichung a fortnight later. Most of the tree is byte-identical and is skipped, five drawings have been corrected and are offered as one update, and every folder the tree needs was MATCHED to a folder already here rather than created beside it. Before this, the same gesture flattened the tree into whichever folder the reader stood in, replaced live documents by name with no statement that it would, and re-uploaded five hundred unchanged files to do it. The shot has to show that the four counts read as one sentence and that the checkbox is visibly the only decision on the surface.',
+    waitFor: '[data-testid="folder-upload-dialog"]',
+  },
+  {
+    id: 'folder-upload-plan-first',
+    path: '/dev/folder-upload?variant=first',
+    description:
+      'The first time a project sees the folder: nothing matches, every folder is a creation, and there is no update question at all \u2014 so the checkbox is ABSENT rather than present and unticked, which is the difference between \u201cnothing to decide\u201d and \u201cdecided for you\u201d. Pinned beside the re-sync shot because the two are the same dialog and must not look like the same answer.',
+    waitFor: '[data-testid="folder-upload-dialog"]',
+  },
+  {
+    id: 'folder-upload-plan-collisions',
+    path: '/dev/folder-upload?variant=collisions',
+    description:
+      'Two files in one drop sharing a filename. A project holds one document per name (migration 0074), so both used to upload and one silently overwrote the other \u2014 a loss nothing on screen mentioned. Neither is sent now and the pair is named by its full path, while the one file that IS unambiguous still uploads \u2014 a collision is somebody else\u2019s problem to rename, not a reason to refuse the rest of the tree. This is the state the plan exists to make visible.',
+    waitFor: '[data-testid="folder-upload-collisions"]',
+  },
+  {
     id: 'upload-tray',
     mobile: true,
     path: '/dev/upload-tray',
@@ -476,7 +498,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/file-browser',
     description:
-      'Files browser with the Finder-style folder drill-down — the breadcrumb path row ("All Files"), folder cards with item counts beside the file cards, the New-folder control, and the content column capped and centred now that the tree band is gone. It also pins that FORMAT beats the filename in the thumbnail: `Projektplan_Sanierung.md` draws a note and `Zeitplan_Gewerke.csv` a table, although the heuristic matches „plan" anywhere in a name and drew both as floor plans — walls and a door swing over prose. `Statik_Positionsplan.pdf` is the control: a PDF really can be a drawing, and it still reads as one.',
+      'Files browser with the Finder-style folder drill-down — the breadcrumb path row ("All Files"), folder cards with item counts beside the file cards, the New-folder control, and the content column capped and centred now that the tree band is gone. A folder tile is told apart from a document tile by what fills its well \u2014 a folder glyph where a document shows its first page \u2014 and not by a tint: the amber wash these used to carry was invisible at its own opacity here and read as a warning strip in the detail view, and gold is `--source-office` on the extension chips two rows down. It also pins that FORMAT beats the filename in the thumbnail: `Projektplan_Sanierung.md` draws a note and `Zeitplan_Gewerke.csv` a table, although the heuristic matches „plan" anywhere in a name and drew both as floor plans — walls and a door swing over prose. `Statik_Positionsplan.pdf` is the control: a PDF really can be a drawing, and it still reads as one.',
     waitFor: '[data-testid="file-card"]',
   },
   {
@@ -543,6 +565,14 @@ export const SCREENSHOT_TARGETS = [
     description:
       'A semantic search answered in the DETAIL view. The card/list toggle was read only on the un-searched branch, so pressing Enter threw a reader who had deliberately chosen the list back into cards, and clearing the query threw them back again. The ranking comes with it: relevance is the column the list opens sorted by \u2014 its own default is newest-first, which would have silently discarded the order the backend ranked \u2014 and every row carries the passage that matched, with its page, in the slot the summary usually holds.',
     waitFor: '[data-testid="file-list-relevance"]',
+  },
+  {
+    id: 'file-browser-folders-list',
+    mobile: true,
+    path: '/dev/file-browser?variant=folders-list',
+    description:
+      'The level\u2019s folders as rows above the sortable file table \u2014 the one composition of this pane that had no shot, which is how its rows came to be drawn in raw `amber-*`: a band of tinted rows over a neutral listing, reading as a warning strip where nothing is wrong. Chroma in this product belongs to provenance and nothing else, so a folder is told apart by its glyph and its shape. What this pins is that the band still reads as folders-then-files without borrowing a signal colour to do it.',
+    waitFor: '[data-testid="file-browser-folders-list"]',
   },
   {
     id: 'file-browser-folder-menu',

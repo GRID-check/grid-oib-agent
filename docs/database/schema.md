@@ -181,6 +181,15 @@ export const documents = pgTable('documents', {
   // (ADR-0049), which are Piloti's own filing and are meant to be rearranged.
   // Migration 0072.
   originPath: text('origin_path'),
+  // A digest of the stored bytes, `sha256:<hex>`, or NULL when unknown. What
+  // makes a folder RE-upload cheap: the browser hashes only the files whose
+  // name and size already match a document here and sends the ones whose
+  // digest differs, so a 500-file re-sync of an Einreichung uploads the eight
+  // that changed. NULL means "unknown" — a file matching such a row is treated
+  // as CHANGED, never as unchanged. Not an identity (a document is still
+  // identified by its filename within a collection, 0074) and not a trust
+  // boundary. Migration 0078.
+  contentHash: text('content_hash'),
   status: text('status').notNull().default('pending'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

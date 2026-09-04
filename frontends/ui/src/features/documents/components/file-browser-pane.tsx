@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, type ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
 import { Search, SearchX, FilterX, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,12 +10,20 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import type { FileSearch } from '../hooks/use-file-search'
-import { AnimatePresence, motion, motionEntrance, motionQuick } from '@/components/motion'
+import { useLevelDirection } from '../hooks/use-level-direction'
+import { motion, motionEntrance } from '@/components/motion'
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
 import { FileListSkeleton, FileListView } from './file-list-view'
 import { DEFAULT_FILE_SORT, sortFiles, type FileSort } from '../lib/file-sort'
-import { FolderBreadcrumbRow, FolderCard, FolderRow } from './folder-navigation'
+import {
+  FolderBreadcrumbRow,
+  FolderBreadcrumbRowSkeleton,
+  FolderCard,
+  FolderCardSkeleton,
+  FolderRow,
+  FolderRowSkeleton,
+} from './folder-navigation'
 import { AssignmentFaces } from './assignment-faces'
 
 /** Finder-style drill-down wiring — see `folder-navigation.tsx`. */
@@ -149,11 +157,16 @@ export function FileBrowserPane({
 
   const currentFolderId = folderNav?.currentFolderId ?? null
 
-  // Direction for the folder-level transition: deeper (entering) slides left,
-  // shallower (leaving) slides right. Tracked so the AnimatePresence can pick
-  // the right variant without guessing from the DOM.
-  const prevFolderRef = useRef<string | null>(currentFolderId)
-  const prevDepthRef = useRef(0)
+  /**
+   * Which way the level moved: deeper slides in from the right, shallower from
+   * the left. Zero is the first paint and every render that is not a level
+   * change, which is what keeps a server-rendered listing from sliding in under
+   * a reader who has not navigated anywhere.
+   *
+   * The derivation lives in {@link useLevelDirection} because the version that
+   * did not — two refs written during render — was wrong in a way that only
+   * showed up as "the animation goes the wrong way sometimes".
+   */
   const folderDepth = useMemo(() => {
     if (!folderNav || currentFolderId === null) return 0
     let depth = 0
@@ -166,9 +179,8 @@ export function FileBrowserPane({
     }
     return depth
   }, [folderNav, currentFolderId])
-  const navDirection = folderDepth > prevDepthRef.current ? 1 : folderDepth < prevDepthRef.current ? -1 : 0
-  prevFolderRef.current = currentFolderId
-  prevDepthRef.current = folderDepth
+
+  const navDirection = useLevelDirection(folderDepth)
 
   /** The folders directly inside the current level — the drill-down tiles. */
   const childFolders = useMemo(
@@ -176,49 +188,100 @@ export function FileBrowserPane({
     [folderNav?.folders, currentFolderId]
   )
 
+  /**
+   * The two numbers every folder card shows — its item count and the newest
+   * thing under it — for the WHOLE tree, in one pass.
+   *
+   * They were two functions called per rendered card, and each one re-scanned
+   * the corpus: the count filtered every document and every folder, and the
+   * timestamp did that AND recursed into each subtree, re-filtering the corpus
+   * again at every level. A project with 500 documents and 30 folders paid
+   * roughly 30 × (530 + subtree) comparisons on every render — every keystroke
+   * in the search field, every poll that replaces the listing, every folder
+   * card's hover state.
+   *
+   * Nothing about the answer needs a scan per card. Both facts are aggregates
+   * over the same two groupings, so they are built once: documents by folder,
+   * folders by parent, then one post-order walk that hands each parent what its
+   * children already computed. Linear in the corpus, and memoized on the inputs
+   * it actually reads.
+   *
+   * The walk is iterative and marks visited nodes rather than recursing, because
+   * `parentId` comes off the wire and a cycle in it would otherwise be a stack
+   * overflow in a render.
+   */
+  const folderAggregates = useMemo(() => {
+    const corpus = searchFiles ?? files
+    const allFolders = folderNav?.folders ?? []
+
+    const docsByFolder = new Map<string, FileItem[]>()
+    for (const file of corpus) {
+      const key = file.folderId ?? null
+      if (key === null) continue
+      const bucket = docsByFolder.get(key)
+      if (bucket) bucket.push(file)
+      else docsByFolder.set(key, [file])
+    }
+
+    const childrenByParent = new Map<string, FolderItem[]>()
+    for (const folder of allFolders) {
+      const key = folder.parentId
+      if (key === null) continue
+      const bucket = childrenByParent.get(key)
+      if (bucket) bucket.push(folder)
+      else childrenByParent.set(key, [folder])
+    }
+
+    /** Direct children only — what the card's "N items" line counts. */
+    const counts = new Map<string, number>()
+    /** Newest `createdAt` anywhere in the subtree, or null for an empty one. */
+    const lastModified = new Map<string, string | null>()
+
+    const visited = new Set<string>()
+    for (const root of allFolders) {
+      if (visited.has(root.id)) continue
+      // Post-order: a folder is settled only once every child of it is, so the
+      // stack carries each node twice — once to expand, once to fold up.
+      const stack: Array<{ id: string; expanded: boolean }> = [{ id: root.id, expanded: false }]
+      while (stack.length > 0) {
+        const frame = stack.pop()!
+        if (!frame.expanded) {
+          if (visited.has(frame.id)) continue
+          visited.add(frame.id)
+          stack.push({ id: frame.id, expanded: true })
+          for (const child of childrenByParent.get(frame.id) ?? []) {
+            if (!visited.has(child.id)) stack.push({ id: child.id, expanded: false })
+          }
+          continue
+        }
+        const docs = docsByFolder.get(frame.id) ?? []
+        const children = childrenByParent.get(frame.id) ?? []
+        counts.set(frame.id, docs.length + children.length)
+        let latest: string | null = null
+        for (const doc of docs) {
+          if (doc.createdAt && (latest === null || doc.createdAt > latest)) latest = doc.createdAt
+        }
+        for (const child of children) {
+          const nested = lastModified.get(child.id) ?? null
+          if (nested && (latest === null || nested > latest)) latest = nested
+        }
+        lastModified.set(frame.id, latest)
+      }
+    }
+
+    return { counts, lastModified }
+  }, [files, searchFiles, folderNav?.folders])
+
   /** Documents + subfolders directly inside `folderId`, for the count line. */
-  const folderItemCount = (folderId: string): number => {
-    const docs = (searchFiles ?? files).filter((f) => (f.folderId ?? null) === folderId).length
-    const subs = (folderNav?.folders ?? []).filter((f) => f.parentId === folderId).length
-    return docs + subs
-  }
+  const folderItemCount = (folderId: string): number => folderAggregates.counts.get(folderId) ?? 0
 
   /** Most recent child timestamp — the folder's "last change", like file cards show. */
-  const folderLastModified = (folderId: string): string | null => {
-    const childDocs = (searchFiles ?? files).filter((f) => (f.folderId ?? null) === folderId)
-    if (childDocs.length === 0) return null
-    let latest: string | null = null
-    for (const doc of childDocs) {
-      if (!doc.createdAt) continue
-      if (latest === null || doc.createdAt > latest) latest = doc.createdAt
-    }
-    // Include nested folders' children recursively — deepest newest wins
-    const childFolderIds = (folderNav?.folders ?? []).filter((f) => f.parentId === folderId).map((f) => f.id)
-    for (const childId of childFolderIds) {
-      const nested = folderLastModified(childId)
-      if (nested && (latest === null || nested > latest)) latest = nested
-    }
-    return latest
-  }
+  const folderLastModified = (folderId: string): string | null =>
+    folderAggregates.lastModified.get(folderId) ?? null
 
   if (isLoading) {
-    // Same rule as the search skeleton below: placeholders take the shape of the
-    // view the reader chose, so the first paint is not a layout that was never
-    // going to be there.
-    return view === 'list' ? (
-      <div className="space-y-3 p-4">
-        <Skeleton className="h-9 w-full rounded-lg" />
-        <FileListSkeleton />
-      </div>
-    ) : (
-      <div className="space-y-3 p-4">
-        <Skeleton className="h-9 w-full rounded-lg" />
-        <FileGrid>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <FileCardSkeleton key={i} />
-          ))}
-        </FileGrid>
-      </div>
+    return (
+      <FileBrowserSkeleton view={view} withFolders={folderNav !== undefined} uploadCard={uploadCard} />
     )
   }
 
@@ -300,9 +363,14 @@ export function FileBrowserPane({
           // skeletons were drawn whatever the reader had chosen, so a search
           // from the list flashed a wall of tiles and then snapped to a table.
           view === 'list' ? (
-            <FileListSkeleton />
+            <div className={CONTENT_MAX}>
+              <FileListSkeleton />
+            </div>
           ) : (
-            <div className="p-4">
+            // The cap the answer will be drawn inside. Without it the running
+            // search filled the full width and the results snapped to 1200px
+            // under the reader the instant they arrived.
+            <div className={`${CONTENT_MAX} p-4`}>
               <FileGrid>
                 {Array.from({ length: 6 }).map((_, i) => (
                   <FileCardSkeleton key={i} />
@@ -438,10 +506,7 @@ export function FileBrowserPane({
            the "New folder" control stay where the reader expects them. */
         <motion.div
           key={`empty-${currentFolderId ?? 'root'}`}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={motionEntrance}
+          {...levelTransition(navDirection, 16)}
           className="flex flex-1 items-center justify-center p-8"
         >
           <EmptyState
@@ -452,15 +517,11 @@ export function FileBrowserPane({
           />
         </motion.div>
       ) : view === 'list' ? (
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={`list-${currentFolderId ?? 'root'}`}
-            initial={{ opacity: 0, x: navDirection * 16 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: navDirection * -16 }}
-            transition={motionQuick}
-            className={CONTENT_MAX}
-          >
+        <motion.div
+          key={`list-${currentFolderId ?? 'root'}`}
+          {...levelTransition(navDirection, 16)}
+          className={CONTENT_MAX}
+        >
             {folderNav && childFolders.length > 0 && (
               <div className="border-b px-2 py-2" role="group" aria-label={t('folders.heading')}>
                 {childFolders.map((folder) => (
@@ -487,18 +548,13 @@ export function FileBrowserPane({
                 onSortChange={onSortChange}
               />
             )}
-          </motion.div>
-        </AnimatePresence>
+        </motion.div>
       ) : (
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={`grid-${currentFolderId ?? 'root'}`}
-            initial={{ opacity: 0, x: navDirection * 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: navDirection * -20 }}
-            transition={motionQuick}
-            className={`${CONTENT_MAX} p-4`}
-          >
+        <motion.div
+          key={`grid-${currentFolderId ?? 'root'}`}
+          {...levelTransition(navDirection, 20)}
+          className={`${CONTENT_MAX} p-4`}
+        >
             {/* Section label — "Recently uploaded" at the corpus root, matching
                 the click-dummy. Hidden inside a folder (the breadcrumb already
                 names it) and while searching (the query is the context). */}
@@ -507,60 +563,169 @@ export function FileBrowserPane({
                 {t('browser.recentlyUploaded')}
               </SectionLabel>
             )}
+            {/*
+              ONE ENTRANCE FOR THE LEVEL, NOT ONE PER TILE.
+
+              Every cell used to be wrapped in its own `motion.div` rising 10px
+              on a per-index delay. Two things were wrong with that, and the
+              second is the serious one.
+
+              It compounded: the level was already sliding in sideways, so a
+              navigation played N+1 animations at once, each tile drifting up
+              through a container drifting across. And the delay was unbounded
+              until it was capped, which put the last tile of a full Einreichung
+              ten seconds out.
+
+              The serious one is that motion writes `initial` into the SERVER's
+              HTML. The listing is rendered on the server now, so every card
+              shipped with `opacity: 0` and stayed invisible until the bundle
+              booted and hydration released it — the exact wait the server
+              render exists to remove, reintroduced as a blank grid over data
+              that was already in the document.
+
+              The level's own transition carries the whole grid, which is one
+              animation, is what a Finder-style drill actually looks like, and
+              renders at full opacity when nothing has navigated.
+            */}
             <FileGrid>
               {folderNav &&
-                childFolders.map((folder, idx) => (
-                  <motion.div
+                childFolders.map((folder) => (
+                  <FolderCard
                     key={folder.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ ...motionEntrance, delay: idx * 0.03 }}
-                  >
-                    <FolderCard
-                      folder={folder}
-                      itemCount={folderItemCount(folder.id)}
-                      lastModified={folderLastModified(folder.id)}
-                      onOpen={folderNav.onNavigate}
-                      onRenameFolder={folderNav.onRenameFolder}
-                      onDeleteFolder={folderNav.onDeleteFolder}
-                      onDropDocument={onDropDocumentInFolder}
-                    />
-                  </motion.div>
-                ))}
-              {orderedFiles.map((file, idx) => (
-                <motion.div
-                  key={file.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ ...motionEntrance, delay: (childFolders.length + idx) * 0.02 }}
-                >
-                  <FileCard
-                    file={file}
-                    isSelected={selectedFileId === file.id}
-                    onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
-                    locale={locale}
-                    footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
-                    actions={renderActions?.(file)}
-                    draggable={Boolean(onDropDocumentInFolder)}
+                    folder={folder}
+                    itemCount={folderItemCount(folder.id)}
+                    lastModified={folderLastModified(folder.id)}
+                    onOpen={folderNav.onNavigate}
+                    onRenameFolder={folderNav.onRenameFolder}
+                    onDeleteFolder={folderNav.onDeleteFolder}
+                    onDropDocument={onDropDocumentInFolder}
                   />
-                </motion.div>
+                ))}
+              {orderedFiles.map((file) => (
+                <FileCard
+                  key={file.id}
+                  file={file}
+                  isSelected={selectedFileId === file.id}
+                  onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
+                  locale={locale}
+                  footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
+                  actions={renderActions?.(file)}
+                  draggable={Boolean(onDropDocumentInFolder)}
+                />
               ))}
-              {uploadCard && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ ...motionEntrance, delay: (childFolders.length + files.length) * 0.02 }}
-                >
-                  {uploadCard}
-                </motion.div>
-              )}
+              {uploadCard}
             </FileGrid>
-          </motion.div>
-        </AnimatePresence>
+        </motion.div>
       )}
     </div>
   )
 }
+
+
+
+/**
+ * ENTERING A FOLDER IS AN ARRIVAL, NOT A HANDOVER.
+ *
+ * This was an `AnimatePresence mode="wait"`, and `wait` means exactly what it
+ * says: the level you are leaving plays its exit to completion, and only then
+ * does the level you asked for begin to appear. Two 180ms tweens end to end,
+ * with a frame in the middle where the pane holds nothing and collapses to the
+ * height of its own padding — on the gesture this page is built around, and one
+ * a person repeats a dozen times walking a tree.
+ *
+ * Nothing needed the outgoing level to be watched on its way out. Dropping the
+ * presence wrapper makes the swap instant and leaves the arrival, which is the
+ * half that carries the direction: the new level slides in from the side it
+ * came from, in one 240ms entrance, over content that is already there.
+ *
+ * `initial: false` when the direction is 0 — no navigation happened, so this is
+ * the first paint (which, since the page now server-renders its listing, is a
+ * real listing that must not slide) or a re-render the key did not change.
+ */
+const levelTransition = (direction: number, distance: number) =>
+  ({
+    initial: direction === 0 ? false : { opacity: 0, x: direction * distance },
+    animate: { opacity: 1, x: 0 },
+    transition: motionEntrance,
+  }) as const
+
+/**
+ * THE FIRST FRAME, SHAPED LIKE THE SECOND ONE.
+ *
+ * This is the placeholder the whole pane renders while the listing is being
+ * read, and it lives beside the listing rather than in a components-of-loading
+ * file, because the failure it fixes is drift: the old skeleton drew a
+ * full-width `h-9` bar — a search field that had moved into the page header a
+ * release earlier and was never coming back — over a full-width grid, and then
+ * the answer arrived as a breadcrumb row above a 1200px column of folder tiles
+ * and cards. Nothing about the loading state predicted the loaded one, so every
+ * load ended in a jump.
+ *
+ * What it mirrors, in the order the real pane renders them:
+ *
+ *   - the breadcrumb row, at its real height, when this surface has folders;
+ *   - the content cap, so the grid does not start full-width and then narrow;
+ *   - the „Zuletzt hochgeladen" eyebrow, which is always there at the root;
+ *   - folder tiles BEFORE file tiles, which is the order the grid fills in;
+ *   - the dashed upload tile, which is the last cell of a project's grid.
+ *
+ * It cannot know how many of each are coming. It draws a plausible few — the
+ * point of a skeleton is the shape of the page, not a forecast of its contents.
+ */
+export function FileBrowserSkeleton({
+  view = 'cards',
+  withFolders = false,
+  uploadCard,
+  /** Placeholder folder tiles. Two: enough to read as "folders come first". */
+  folders = 2,
+  files = 6,
+}: {
+  view?: 'cards' | 'list'
+  withFolders?: boolean
+  /**
+   * The REAL dashed upload tile, not a grey stand-in for it.
+   *
+   * It is the one cell of this grid whose content does not depend on the answer
+   * being fetched, and it opens a file picker: greying it out would hide a
+   * working control and make the grid one tile shorter than it is about to be.
+   */
+  uploadCard?: ReactNode
+  folders?: number
+  files?: number
+}): JSX.Element {
+  const folderCount = withFolders ? folders : 0
+  return (
+    <div className="flex h-full flex-col" data-testid="file-browser-skeleton">
+      {withFolders && <FolderBreadcrumbRowSkeleton />}
+      {view === 'list' ? (
+        <div className={CONTENT_MAX}>
+          {folderCount > 0 && (
+            <div className="space-y-1 border-b px-2 py-2">
+              {Array.from({ length: folderCount }).map((_, index) => (
+                <FolderRowSkeleton key={index} />
+              ))}
+            </div>
+          )}
+          <FileListSkeleton rows={files} />
+        </div>
+      ) : (
+        <div className={`${CONTENT_MAX} p-4`}>
+          <Skeleton className="mb-3 h-3 w-36" />
+          <FileGrid>
+            {Array.from({ length: folderCount }).map((_, index) => (
+              <FolderCardSkeleton key={`folder-${index}`} />
+            ))}
+            {Array.from({ length: files }).map((_, index) => (
+              <FileCardSkeleton key={`file-${index}`} />
+            ))}
+            {uploadCard}
+          </FileGrid>
+        </div>
+      )}
+    </div>
+  )
+}
+
 
 /**
  * The listing's width cap. With the tree band gone the browser owns the whole

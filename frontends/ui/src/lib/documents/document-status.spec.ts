@@ -145,6 +145,9 @@ const OPAQUE_STATUS_WRITES: Readonly<Record<string, string>> = {
   'src/lib/documents/service.ts: ingestStatus': "the dispatcher's job status, returned to the caller",
   'src/lib/documents/service.ts: doc.status': 'the row being read back, returned to the caller',
   'src/lib/documents/service.ts: reconciled.status': 'a reconciled status, returned to the caller',
+  // The wire projection: the row's own status copied into the JSON the browser
+  // reads. It writes a response body, never the column.
+  'src/lib/documents/list-projection.ts: row.status': 'a row being serialized, not a write',
   // Shorthand `{ status }` in a service's RETURN value — the dispatcher's job
   // status on its way back to the caller. Shorthand is worth listing separately
   // from the rest: the name is all there is, so even the expression a reader

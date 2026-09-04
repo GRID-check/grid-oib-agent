@@ -38,6 +38,7 @@ import {
   type SearchedDocument,
 } from '@/lib/documents/service'
 import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
+import { contentDigest } from '@/lib/documents/content-digest'
 import { deleteBimDerivedObjects } from '@/lib/bim/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
@@ -137,6 +138,11 @@ export async function uploadArchivDocument(
   const storageBucket = await ensureTenantBucketChecked(bucketAdminS3Client, session.organizationId)
 
   const bytes = Buffer.from(await file.arrayBuffer())
+  // The same digest the project corpus records, from the same helper. The
+  // Archiv has no folder upload of its own today; the column still describes
+  // the bytes on every shelf, so a row here is not the one that has to be
+  // explained later.
+  const contentHash = contentDigest(bytes)
   await s3Client.send(
     new PutObjectCommand({
       Bucket: storageBucket,
@@ -156,6 +162,7 @@ export async function uploadArchivDocument(
       storageBucket,
       fileSize: file.size,
       contentType: file.type || null,
+      contentHash,
       folderId: null,
       createdBy: session.userId,
     })
@@ -177,6 +184,7 @@ export async function uploadArchivDocument(
       collectionName,
       fileSize: file.size,
       contentType: file.type || null,
+      contentHash,
       status: 'uploaded',
     })
   }

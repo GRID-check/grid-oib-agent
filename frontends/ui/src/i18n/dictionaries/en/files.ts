@@ -352,6 +352,49 @@ export const files = {
     success: '“{name}” was removed from the project',
     error: 'The document could not be deleted',
   },
+  /**
+   * The folder-upload plan — the dialog a dropped directory tree opens before
+   * anything moves. `folderUpload.*` rather than under `upload.*` because it
+   * describes a PLAN, not the transfer: the words here name what is about to
+   * happen to documents that already exist.
+   */
+  folderUpload: {
+    title: 'Upload “{name}”?',
+    titleGeneric: 'Upload this folder?',
+    destination: 'Its folder structure is recreated inside “{folder}”.',
+    // The re-sync fold: the dropped folder IS the folder they are standing in,
+    // so its contents go in rather than a folder of the same name inside it.
+    destinationMerged: 'Its contents go straight into “{folder}” — the folders inside it are matched.',
+    planning: 'Comparing with what is already here…',
+    counts: {
+      new: 'new documents',
+      update: 'already here, changed',
+      unchanged: 'unchanged, skipped',
+      foldersCreated: 'folders created',
+      foldersMatched: '{count} matched',
+    },
+    updatePrompt: 'Update the {count} document(s) that already exist',
+    updateExplain:
+      'They keep their name, their citations and everything assigned to them — only the file behind them is replaced.',
+    refiled: '{count} of them are filed elsewhere at the moment and move to where this folder puts them.',
+    collisions: '{count} files share a name with another file in this upload',
+    collisionsExplain:
+      'A project holds one document per filename, so these are not uploaded. Rename them and drop them again.',
+    showAll: 'Show all {count} files',
+    action: {
+      new: 'New',
+      update: 'Update',
+      unchanged: 'Unchanged',
+      collision: 'Conflict',
+      skipped: 'Skipped',
+    },
+    confirm: 'Upload {count} file(s)',
+    nothingToDo: 'Nothing to upload',
+    cancel: 'Cancel',
+    // The summary after the plan has been applied.
+    done: '{uploaded} file(s) uploaded, {skipped} unchanged.',
+    foldersError: 'The folders for this upload could not be created. Nothing was uploaded.',
+  },
   upload: {
     uploading: 'Uploading…',
     upload: 'Upload',
