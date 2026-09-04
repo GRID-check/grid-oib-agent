@@ -68,7 +68,12 @@ export const chat: typeof en.chat = {
   // Leserin besitzt. Der Klick öffnet es neben der Antwort.
   fileReference: {
     openAria: 'Datei öffnen: {name}',
+    // Das Dokument, das Piloti lesen kann: Öffnen heißt hier zugleich, dass
+    // sich die nächste Frage darauf bezieht — eine Beschriftung, die nur die
+    // Hälfte davon nennt, überrascht genau die Leserin, für die sie da ist.
+    openAskAria: '{name} öffnen und dazu fragen',
     open: 'Neben der Antwort öffnen',
+    openAsk: 'Öffnen und dazu fragen',
     pages: '{count, plural, one {# Seite} other {# Seiten}}',
     // Wenn die Antwort den Namen anders geschrieben hat als die Datei heißt.
     writtenAs: 'Im Text: {name}',

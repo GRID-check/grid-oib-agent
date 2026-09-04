@@ -202,7 +202,7 @@ export default function FileReferencePreview() {
         <Stage />
         <Block
           title="Filenames the answer names are openable"
-          note="Nine names across three shelves — project files, the Büroarchiv and a document attached to this chat — each a chip that opens the document in the pane beside the answer. Konzept-Entwurf.pdf resolves to nothing and stays prose, which is the rule: a control that opens nothing is worse than plain text. The tinted [1] beside them is a citation and deliberately does not look the same: it carries a claim about a passage, a file reference carries none."
+          note="Nine names across three shelves — project files, the Büroarchiv and a document attached to this chat — each a chip that opens the document in the pane beside the answer and makes it what the composer is asking about. Konzept-Entwurf.pdf resolves to nothing and stays prose, which is the rule: a control that opens nothing is worse than plain text. The tinted [1] beside them is a citation and deliberately does not look the same: it carries a claim about a passage, a file reference carries none."
         >
           <AgentResponse
             content={answer}

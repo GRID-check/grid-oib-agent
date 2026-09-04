@@ -75,7 +75,12 @@ export const chat = {
   // opens the document beside the answer.
   fileReference: {
     openAria: 'Open file: {name}',
+    // The document the agent can read: opening it is also the composer saying
+    // the next question is about it, and a label naming only half of that is a
+    // control that surprises the reader it was written for.
+    openAskAria: 'Open {name} and ask about it',
     open: 'Open beside the answer',
+    openAsk: 'Open and ask about it',
     pages: '{count, plural, one {# page} other {# pages}}',
     // Shown when the answer spelled the name differently from the file itself.
     writtenAs: 'In the text: {name}',
