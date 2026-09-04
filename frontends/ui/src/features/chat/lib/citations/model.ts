@@ -220,6 +220,15 @@ export const oibDocumentKey = (nameOrLabel: string | undefined | null): string |
   return ['oib', role, subject, leitfaden].filter(Boolean).join(':')
 }
 
+/** Identity prefix of a document known only as a law name — see `documentIdentity`. */
+const OIB_IDENTITY_PREFIX = 'oib:'
+
+/** The `oib:` identity a name would produce, or null. */
+const oibKeyFrom = (nameOrLabel: string | undefined | null): string | null => {
+  const key = oibDocumentKey(nameOrLabel)
+  return key ? `${OIB_IDENTITY_PREFIX}${key}` : null
+}
+
 /** URL reduced to a comparison form (scheme/host lowercased, trailing slash dropped). */
 export const normalizeUrl = (url: string): string => url.trim().toLowerCase().replace(/\/+$/, '')
 
@@ -242,9 +251,8 @@ export interface DocumentIdentityInput {
 /**
  * The key a document is unique under, most specific first:
  *
- *  1. the canonical OIB key — collapses corpus filename and human law label,
- *     which is the ONLY way a `legal_basis` card and a KB citation naming the
- *     same Richtlinie can become one document;
+ *  1. `document_id` — the backend's own identity, computed from the same
+ *     `(collection, filename)` the registry groups on;
  *  2. `(collection, fileName)` — the true primary key, and the only pair that
  *     is actually unique: one search fans out across the base corpus, the
  *     session collection and the project collections at once, so two different
@@ -252,14 +260,30 @@ export interface DocumentIdentityInput {
  *  3. bare `fileName` — when the collection is unknown (written source entries
  *     and legacy persisted messages carry no collection);
  *  4. normalized URL;
- *  5. the label, as a last resort so a source is never silently dropped.
+ *  5. the canonical OIB key, for an observation that names a Richtlinie and
+ *     nothing else — a `legal_basis` card;
+ *  6. the label, as a last resort so a source is never silently dropped.
+ *
+ * THE OIB KEY IS LAST, NOT FIRST. It used to win outright, and it deliberately
+ * discards edition, revision and everything after the number — so every
+ * document whose name merely mentions OIB or "Richtlinie" was identified by its
+ * Richtlinie number alone, and two different documents became one. Both are in
+ * the shipped corpus: `oib-rl_zitierte_normen_…_ausgabe_mai_2023.pdf` and the
+ * same list `_rev.1`, two different tables of normative references, one
+ * identity — so a citation to Rev. 1 at p. 14 opened the superseded list at
+ * p. 14, with nothing on screen suggesting anything was wrong.
+ *
+ * Worse across shelves: a project upload called `OIB-Richtlinie 6 Kommentar.pdf`
+ * was absorbed into the base-corpus Richtlinie 6 outright — one chip, the base
+ * filename, the base shelf, and the reader's own document gone from the answer
+ * while its page carried on pointing into the Richtlinie. That is the identity
+ * collapse ADR-0047 exists to prevent.
+ *
+ * The one thing the key was actually FOR — letting a card that knows only
+ * „OIB-Richtlinie 2" join the citation of that Richtlinie — is a MERGE, not an
+ * identity, and it is done as one (see `CitationAccumulator.find`).
  */
 export const documentIdentity = (input: DocumentIdentityInput): string => {
-  // The canonical OIB key still wins over the backend's: it is the only key
-  // that can collapse a corpus filename and a `legal_basis` card's human law
-  // name onto one document, and the card has no `document_id` to offer.
-  const oib = oibDocumentKey(input.fileName || input.label)
-  if (oib) return `oib:${oib}`
   const supplied = input.documentId?.trim()
   if (supplied) return supplied
   const fileName = input.fileName?.trim().toLowerCase()
@@ -269,6 +293,11 @@ export const documentIdentity = (input: DocumentIdentityInput): string => {
   }
   const url = input.url?.trim()
   if (url) return `url:${normalizeUrl(url)}`
+  // Nothing structured: this is a card naming a law. The OIB key is its
+  // identity because the law name is all it has, and it is what lets the same
+  // Richtlinie cited from retrieval find it (`CitationAccumulator.find`).
+  const oib = oibDocumentKey(input.label)
+  if (oib) return `oib:${oib}`
   const label = (input.label ?? '').trim().toLowerCase().slice(0, 120)
   // Empty rather than `label:` — an observation that names no document, no
   // link and no label identifies NOTHING, and must not be able to occupy a
@@ -462,6 +491,24 @@ export const citedPages = (doc: CitedDocument): number[] =>
 /** Every page this document was READ at, cited or not — the Herleitung's claim. */
 export const readPages = (doc: CitedDocument): number[] => pagesOf(doc.loci)
 
+/**
+ * The pages to PRINT beside a document, on any surface.
+ *
+ * `citedPages` is the precise claim and the right one whenever the turn has a
+ * binding to be precise about. But two real populations have no binding at all:
+ * messages persisted before `isCited` existed, and turns whose backend never
+ * resolved a `[N]`. {@link answerDocuments} already meets those by widening —
+ * "everything retrieved" is a weaker claim than "these are the sources", and an
+ * honest one — and the page line has to widen with it or the row it belongs to
+ * silently loses its pages. Same rule, read once here rather than four times at
+ * the call sites: be precise when precision exists, be honest when it does not.
+ *
+ * A document cited only as a whole (a cited locus carrying no page) keeps an
+ * empty list. Its binding IS resolved, and it says the answer used no page.
+ */
+export const documentPages = (doc: CitedDocument): number[] =>
+  isCited(doc) ? citedPages(doc) : readPages(doc)
+
 /** Total evidence count for a document — what "N Treffer" means. */
 export const hitCount = (doc: CitedDocument): number => Math.max(doc.loci.length, 1)
 
@@ -479,13 +526,13 @@ export const refNumber = (ref: CitationRef): number | undefined =>
  */
 export const refPage = (ref: CitationRef): number | undefined => {
   if (ref.locus) return ref.locus.page
-  const pages = citedPages(ref.document)
+  const pages = documentPages(ref.document)
   return pages.length === 1 ? pages[0] : undefined
 }
 
 /** Every page a reference covers — for the "S. 5, 12, 18" meta line. */
 export const refPages = (ref: CitationRef): number[] =>
-  ref.locus?.page != null ? [ref.locus.page] : citedPages(ref.document)
+  ref.locus?.page != null ? [ref.locus.page] : documentPages(ref.document)
 
 /** Host of a reference's outbound link, when it has one. */
 export const refHost = (ref: CitationRef): string | undefined =>
@@ -602,13 +649,20 @@ export class CitationAccumulator {
       label: observation.identity.label,
     })
     const existing = this.find(id, incomingTitle)
-    // A document whose identity resolved to the canonical OIB key IS an OIB
-    // corpus document — the key is only ever produced for one. Inferring the
-    // lane from it is what lets a source known ONLY from the answer's written
-    // list ("oib-rl_2.1_….pdf, p.9", no wire, no lane) still render with the
-    // OIB accent and the OIB badge, instead of sitting next to an identical
-    // structured citation in a different colour with no badge at all.
-    const laneFromIdentity = id.startsWith('oib:') ? 'baurecht_oib' : undefined
+    // A document whose NAME yields the canonical OIB key is an OIB document.
+    // Inferring the lane from it is what lets a source known ONLY from the
+    // answer's written list ("oib-rl_2.1_….pdf, p.9", no wire, no lane) still
+    // render with the OIB accent and the OIB badge, instead of sitting next to
+    // an identical structured citation in a different colour with no badge.
+    //
+    // Read off the NAME rather than off `id`, which is where it used to come
+    // from: the OIB key is no longer an identity (it collapsed two revisions of
+    // one corpus document into each other), so an identity that starts with
+    // `oib:` is now only the label-only card. The name is what the inference
+    // always actually meant.
+    const laneFromIdentity = oibKeyFrom(observation.fileName || observation.identity.label)
+      ? 'baurecht_oib'
+      : undefined
     const kind = resolveKind({
       kind: observation.kind,
       lane: observation.lane ?? laneFromIdentity,
@@ -757,6 +811,44 @@ export class CitationAccumulator {
     for (const doc of this.docs.values()) {
       if (incomingLabel && doc.title.trim().toLowerCase() === incomingLabel) return doc
       if (name && labelOf(doc.id) === name) return doc
+    }
+    return this.findOibCounterpart(id, title)
+  }
+
+  /**
+   * The corpus document a `legal_basis` card's law name refers to, or the card
+   * a corpus citation should join.
+   *
+   * This is what the canonical OIB key is FOR: a card knows „OIB-Richtlinie 2"
+   * and no filename, retrieval knows `oib-rl_2_ausgabe_mai_2023.pdf` and no law
+   * name, and they are one document. Doing it here rather than in
+   * `documentIdentity` is the whole point — as an IDENTITY the key also
+   * collapsed two revisions of one corpus list, and swallowed a project upload
+   * whose name happened to mention a Richtlinie.
+   *
+   * EXACTLY ONE SIDE MAY BE LABEL-ONLY. Two observations that both name a FILE
+   * are two documents, whatever their names suggest; a match here requires one
+   * of them to have nothing but a law name to go on.
+   *
+   * And only against the base corpus. A Richtlinie is base law: a card naming
+   * one must never attach itself to a project upload or a private attachment
+   * that mentions it, which is the cross-shelf half of the same defect. A
+   * document whose shelf is UNKNOWN stays eligible — it contradicts nothing —
+   * exactly as `resolveCitationTarget` treats an untagged row.
+   */
+  private findOibCounterpart(id: string, title: string): CitedDocument | undefined {
+    const incomingOib = id.startsWith(OIB_IDENTITY_PREFIX) ? id : null
+    // The incoming observation names a file; look for a card holding its key.
+    const incomingKey = incomingOib ?? oibKeyFrom(title)
+    if (!incomingKey) return undefined
+
+    for (const doc of this.docs.values()) {
+      const heldIsLabelOnly = doc.id.startsWith(OIB_IDENTITY_PREFIX)
+      // One side, and only one side, must be the label-only card.
+      if (heldIsLabelOnly === Boolean(incomingOib)) continue
+      if (doc.shelf !== undefined && doc.shelf !== 'base') continue
+      const heldKey = heldIsLabelOnly ? doc.id : oibKeyFrom(doc.fileName ?? doc.title)
+      if (heldKey && heldKey === incomingKey) return doc
     }
     return undefined
   }

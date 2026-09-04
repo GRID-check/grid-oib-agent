@@ -31,7 +31,7 @@ import { cn } from '@/lib/utils'
 import {
   answerDocuments,
   citationNumbers,
-  citedPages,
+  documentPages,
   refHost,
   type CitationRef,
   type CitedDocument,
@@ -78,7 +78,7 @@ const MAX_ANSWER_SOURCES = 8
 const useSourceMeta = (): ((doc: CitedDocument) => string | undefined) => {
   const t = useTranslations('chat')
   return (doc) => {
-    const pages = citedPages(doc)
+    const pages = documentPages(doc)
     if (pages.length === 1) return t('answerSources.page', { page: pages[0]! })
     if (pages.length > 1) return t('answerSources.pages', { pages: pages.join(', ') })
     return refHost({ document: doc })

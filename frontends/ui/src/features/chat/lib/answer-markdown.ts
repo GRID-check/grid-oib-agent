@@ -25,7 +25,7 @@
 import {
   answerDocuments,
   bibliographyRows,
-  citedPages,
+  documentPages,
   isHttpUrl,
   type CitedDocument,
 } from './citations'
@@ -94,7 +94,7 @@ const describeSource = (
 
 /** The page phrase for a document-level entry, or undefined for a whole-document hit. */
 const pageTextFor = (doc: CitedDocument, labels: AnswerSourceLabels): string | undefined => {
-  const pages = citedPages(doc)
+  const pages = documentPages(doc)
   if (pages.length === 1) return labels.page(pages[0]!)
   if (pages.length > 1) return labels.pages(pages)
   return undefined
