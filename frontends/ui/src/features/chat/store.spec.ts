@@ -2032,8 +2032,11 @@ describe('useChatStore', () => {
       expect(useChatStore.getState().isRecoveryPending).toBe(true)
 
       resolveList([]) // nothing persisted → genuinely lost
-      const recovered = await recovery
-      expect(recovered).toBe(false)
+      const outcome = await recovery
+      // `nothing` and not a bare false: the caller has to tell "the server has
+      // no answer" apart from "someone else already put it on screen", and only
+      // this one earns the interrupted banner.
+      expect(outcome).toBe('nothing')
       // Only after the fetch settles does the flag clear (so the lost UI shows).
       expect(useChatStore.getState().isRecoveryPending).toBe(false)
     })
@@ -2060,14 +2063,57 @@ describe('useChatStore', () => {
       const conv = createConversation([{ id: 'msg-0', role: 'user', messageType: 'user', content: 'Q' }])
       useChatStore.setState({ currentConversation: conv, conversations: [conv], isRecoveryPending: false })
 
-      const recovered = await useChatStore
+      const outcome = await useChatStore
         .getState()
         ._recoverInterruptedAssistantMessage(conv.id, 'msg-0')
 
-      expect(recovered).toBe(true)
+      expect(outcome).toBe('recovered')
       expect(useChatStore.getState().isRecoveryPending).toBe(false)
       const messages = useChatStore.getState().currentConversation?.messages ?? []
       expect(messages.some((m) => m.id === 'server-assistant-1')).toBe(true)
+    })
+
+    test('reports `superseded`, not `nothing`, when the answer is already on screen', async () => {
+      // Recovery runs on mount, on reconnect and from the streaming watchdog,
+      // and any two can be in flight at once. A boolean collapsed "the server
+      // has nothing" and "somebody already recovered it" into one `false`, so
+      // the second call back printed „bitte erneut senden" directly underneath
+      // the answer the first had just put on screen.
+      mockConversationsClient.listMessages.mockResolvedValueOnce([
+        {
+          id: 'msg-0',
+          role: 'user',
+          content: 'Q',
+          metadata: { messageType: 'user' },
+          createdAt: '2026-07-01T10:00:00.000Z',
+        },
+        {
+          id: 'server-assistant-1',
+          role: 'assistant',
+          content: 'The finished answer.',
+          metadata: { messageType: 'agent_response' },
+          createdAt: '2026-07-01T10:00:05.000Z',
+        },
+      ] as never)
+      const conv = createConversation([
+        { id: 'msg-0', role: 'user', messageType: 'user', content: 'Q' },
+        {
+          id: 'server-assistant-1',
+          role: 'assistant',
+          messageType: 'agent_response',
+          content: 'The finished answer.',
+        },
+      ])
+      useChatStore.setState({ currentConversation: conv, conversations: [conv] })
+
+      const outcome = await useChatStore
+        .getState()
+        ._recoverInterruptedAssistantMessage(conv.id, 'msg-0')
+
+      expect(outcome).toBe('superseded')
+      // And it did not append a second copy of the answer it already had.
+      const ids = (useChatStore.getState().currentConversation?.messages ?? []).map((m) => m.id)
+      expect(ids.filter((id) => id === 'server-assistant-1')).toHaveLength(1)
     })
 
     test('does NOT add error card when last message is an assistant response', () => {
