@@ -13,10 +13,8 @@ These routes manage knowledge collections (logical groupings of documents for re
 | Method | Path | Description | Request | Response | Handler |
 |--------|------|-------------|---------|----------|---------|
 | `POST` | `/v1/collections` | Create a collection | `{ name, description?, metadata? }` | `CollectionInfo` (201) | `add_collection_routes` in `aiq_api.routes.collections` |
-| `GET` | `/v1/collections` | List all collections | — | `[CollectionInfo]` | Same |
 | `GET` | `/v1/collections/{name}` | Get collection details | — | `CollectionInfo` (404 if missing) | Same |
 | `DELETE` | `/v1/collections/{name}` | Delete a collection | — | `{ success, collection }` | Same |
-| `GET` | `/v1/knowledge/health` | Check knowledge backend health | — | `{ status, backend }` (503 if unhealthy) | Same |
 
 **Config**: Knowledge backend is configured in the NAT workflow YAML (`knowledge_retrieval` function). Supports `llamaindex` (ChromaDB) and `foundational_rag` backends.
 

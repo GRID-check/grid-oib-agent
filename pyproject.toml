@@ -201,7 +201,6 @@ dev = [
     # Workspace packages for testing
     "google-scholar-paper-search",
     "tavily-web-search",
-    "exa-web-search",
     "duckduckgo-news-search",
     "polymarket-prediction-market",
     "ris-adapter",
@@ -245,7 +244,6 @@ members = [
 aiq-agent = { workspace = true }
 google-scholar-paper-search = { workspace = true }
 tavily-web-search = { workspace = true }
-exa-web-search = { workspace = true }
 duckduckgo-news-search = { workspace = true }
 polymarket-prediction-market = { workspace = true }
 ris-adapter = { workspace = true }

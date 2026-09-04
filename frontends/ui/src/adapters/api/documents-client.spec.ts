@@ -18,9 +18,6 @@ vi.mock('./documents-schemas', () => ({
   CollectionInfoSchema: {
     parse: (data: unknown) => data,
   },
-  CollectionListResponseSchema: {
-    parse: (data: unknown) => data,
-  },
   FileInfoSchema: {
     parse: (data: unknown) => data,
   },
@@ -97,27 +94,6 @@ describe('createDocumentsClient', () => {
       const client = createDocumentsClient()
 
       await expect(client.createCollection('test')).rejects.toThrow('Invalid collection name')
-    })
-  })
-
-  describe('listCollections', () => {
-    test('lists collections successfully', async () => {
-      const mockCollections = {
-        collections: [
-          { name: 'collection-1' },
-          { name: 'collection-2' },
-        ],
-      }
-
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockCollections),
-      })
-
-      const client = createDocumentsClient()
-      const result = await client.listCollections()
-
-      expect(result).toEqual(mockCollections.collections)
     })
   })
 

@@ -14,6 +14,7 @@ string you are seeing.
 | Symptom | Cause | Do this |
 |---|---|---|
 | Backend tests pass, but the code you changed is clearly not running | `pytest` resolved `aiq_agent` from whatever the venv installed, possibly another worktree | Set `PYTHONPATH=src`. `Taskfile.yml` does it for you; call `pytest` directly and you own it |
+| `pytest` dies with `Plugin already registered under a different name: .../conftest.py` | Two suites whose `tests/` both hold an `__init__.py` were collected in one run, so both resolve to the module name `tests.conftest`. Hits `pytest sources` and any run that mixes `tests/` with `frontends/aiq_api/tests/` | Run one suite per invocation. `task be:test:sources` does that for `sources/`; `be:test` and `be:test:api` are separate tasks for the same reason |
 | `uv run` fails to import a knowledge-layer module | `uv run` resolves an environment without the `sources/` workspace packages | Use the venv `uv sync --group dev` builds, which is what the Taskfile does |
 | Turbopack's PostCSS step dies spawning `node` | Someone added `--bun`, which exports `NODE_OPTIONS=--bun`, and real `node` rejects the flag | Bun is the installer and script runner here, never the runtime. Do not add `--bun` |
 | `next build` fails on a file that is only a test | The UI `tsconfig` includes spec files, so a spec type error blocks the production build | Run `task fe:types`; it is the signal that the build will typecheck |

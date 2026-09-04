@@ -38,8 +38,8 @@ helper. The tool is a package under `sources/`, registered with
   data source is architecturally identical to a tool; only the registry wiring
   differs.
 
-Existing tools to model on: `tavily_web_search`, `exa_web_search`,
-`paper_search` (Google Scholar), `knowledge_retrieval`.
+Existing tools to model on: `tavily_web_search`, `paper_search`
+(Google Scholar), `ris_search`, `knowledge_retrieval`.
 
 Longer procedures live in this bundle:
 

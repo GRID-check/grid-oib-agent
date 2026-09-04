@@ -140,8 +140,9 @@ strong evidence rather than a guarantee. `task verify:fast` skips two production
 builds, `fe:build` and `web:build`.
 
 Two gates sit outside `task verify` and are still required: `task db:test:rls`
-whenever you touch the tenant boundary, and the suites under `sources/` and
-`packages/`, which no CI job runs at all.
+whenever you touch the tenant boundary, and the suites under `packages/`, which
+no CI job runs at all. (`sources/` used to be in that sentence; it is covered
+now, by `task be:test:sources` in both `be:verify` and CI.)
 
 ## Two rules that span services
 
