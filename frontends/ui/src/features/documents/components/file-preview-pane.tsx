@@ -1,5 +1,7 @@
 'use client'
 
+import { INLINE_PREVIEW_CONTENT_TYPES } from '@/lib/documents/preview-types'
+
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { FileTextPage, isTextPageType } from './file-text-page'
 import Image from 'next/image'
@@ -105,24 +107,8 @@ interface FilePreviewPaneProps {
   onAssigneesChanged?: (assignees: FileItem['assignees']) => void
 }
 
-/**
- * Kept in step with `PREVIEW_CONTENT_TYPES` in `lib/documents/service.ts`, which
- * is the authority — this list only decides whether the pane ASKS. The two had
- * drifted: BMP and TIFF passed the service and were missing here, so the BFF
- * would have presigned bytes the pane never requested and the reader got the
- * "no inline preview" mock for a file the product could show.
- */
-const PREVIEW_TYPES = [
-  'application/pdf',
-  'image/png',
-  'image/jpeg',
-  'image/jpg',
-  'image/gif',
-  'image/webp',
-  'image/svg+xml',
-  'image/bmp',
-  'image/tiff',
-]
+/** The one list (`lib/documents/preview-types.ts`); this pane no longer keeps a copy. */
+const PREVIEW_TYPES: readonly string[] = INLINE_PREVIEW_CONTENT_TYPES
 
 /**
  * The building itself, in the well where a PDF shows its pages.

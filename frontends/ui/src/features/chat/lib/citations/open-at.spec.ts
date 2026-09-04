@@ -82,6 +82,79 @@ describe('a citation opens where the document was read (#621)', () => {
     expect(openAtLocus(document!)?.page).toBeUndefined()
   })
 
+  test('a locus that carries the cited passage keeps it, and keeps its own words', () => {
+    // The regression the first version of this fix introduced, which is worse
+    // than #621 was. `[3]` cited the document as a whole WITH the quoted
+    // passage; `[5]` is a different passage on page 7. Treating "has a page" as
+    // the test discarded `[3]`'s locus for `[5]`'s — so the reader clicked `[3]`
+    // and was shown page 7 with ANOTHER citation's sentence marked as theirs,
+    // and the copy-as-Zitat and the deep link inherited it.
+    const [document] = buildCitationModel({
+      citations: [
+        wire({
+          fileName: 'Gutachten.pdf',
+          title: 'Gutachten',
+          shelf: 'project',
+          citationKey: 'Gutachten.pdf',
+          snippet: 'DIE STELLE AUF DIE SICH DIE ANTWORT BEI [3] BEZIEHT',
+          number: 3,
+          isCited: true,
+        }),
+        wire({
+          fileName: 'Gutachten.pdf',
+          title: 'Gutachten',
+          shelf: 'project',
+          page: 7,
+          citationKey: 'Gutachten.pdf, p.7',
+          snippet: 'EINE ANDERE STELLE, AUF SEITE SIEBEN',
+          number: 5,
+          isCited: true,
+        }),
+      ],
+    })
+    const forThree = referencesByNumber([document!]).get(3)!.locus!
+
+    // A passage IS a place — the viewer finds it without being told a page.
+    expect(openAtLocus(document!, forThree)?.key).toBe(forThree.key)
+
+    const target = resolveCitationTarget(document!, {
+      locus: forThree,
+      storedDocuments: [
+        { id: 'g1', filename: 'Gutachten.pdf', contentType: 'application/pdf', shelf: 'project' },
+      ],
+    })
+    expect(target).toMatchObject({
+      kind: 'document',
+      snippet: 'DIE STELLE AUF DIE SICH DIE ANTWORT BEI [3] BEZIEHT',
+    })
+    expect(target).not.toMatchObject({ page: 7 })
+  })
+
+  test("a place may be borrowed, but the caller's passage never is", () => {
+    // The other half: a locus with NEITHER page nor passage still borrows a
+    // page from the document, and must not acquire that locus's words with it.
+    const document = officeDocument()
+    const pageless = document.loci.find((locus) => locus.page === undefined)!
+    document.loci.find((locus) => locus.page === 18)!.snippet = 'SEITE ACHTZEHN'
+
+    const target = resolveCitationTarget(document, {
+      locus: pageless,
+      storedDocuments: [
+        {
+          id: 'doc-1',
+          filename: 'Sockeldetail_Holzmassivbau.pdf',
+          contentType: 'application/pdf',
+          shelf: 'archiv',
+        },
+      ],
+    })
+    // The page is borrowed (that is #621's fix)…
+    expect(target).toMatchObject({ kind: 'document', page: 18 })
+    // …and since the asked locus has no passage of its own, the borrowed one is
+    // all there is. It belongs to the same place, so it is not a false claim.
+    expect(target).toMatchObject({ snippet: 'SEITE ACHTZEHN' })
+  })
+
   test('an explicit locus that names its own page is never second-guessed', () => {
     const document = officeDocument()
     const located = document.loci.find((locus) => locus.page === 18)!

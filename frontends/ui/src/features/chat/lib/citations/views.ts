@@ -44,7 +44,13 @@ export const referencesByNumber = (
     for (const locus of document.loci) {
       if (typeof locus.number !== 'number') continue
       const held = byNumber.get(locus.number)
-      if (held && (held.locus?.page != null || locus.page == null)) continue
+      // WITHIN one document, prefer the locus that names a page. ACROSS two
+      // documents that both claim the same `[N]`, do not: the first one stands,
+      // because swapping which DOCUMENT a marker points at is a different and
+      // much larger claim than choosing between two places in one.
+      if (held && (held.document !== document || held.locus?.page != null || locus.page == null)) {
+        continue
+      }
       byNumber.set(locus.number, { document, locus })
     }
     for (const number of citationNumbers(document)) {
@@ -122,7 +128,8 @@ export const bibliographyRows = (docs: CitedDocument[]): BibliographyRow[] => {
   const rows: BibliographyRow[] = []
   for (const doc of docs) {
     for (const locus of citedLoci(doc)) {
-      if (typeof locus.number === 'number') rows.push({ number: locus.number, document: doc, locus })
+      if (typeof locus.number === 'number')
+        rows.push({ number: locus.number, document: doc, locus })
     }
   }
   return rows.sort((a, b) => a.number - b.number)

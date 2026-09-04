@@ -3,6 +3,7 @@ import {
   buildPassageIndex,
   findPassage,
   locatePassage,
+  locatePassageInText,
   MIN_PARTIAL_HALF,
   MIN_WINDOW_SCORE,
   normalizePassage,
@@ -38,7 +39,7 @@ describe('normalizePassage', () => {
 
   it('turns punctuation into word boundaries rather than characters to agree about', () => {
     expect(normalizePassage('Die „Auﬂage“, so § 3 Abs. 1, gilt.')).toBe(
-      'die auflage so 3 abs 1 gilt',
+      'die auflage so 3 abs 1 gilt'
     )
   })
 
@@ -65,7 +66,7 @@ describe('normalizePassage', () => {
     // carrying the decomposed one.
     expect(
       locatePassage(page('Die Auflage ist zu erf\u00fcllen'), 'die auflage ist zu erfu\u0308llen')
-        ?.matcher,
+        ?.matcher
     ).toBe('exact')
   })
 
@@ -93,7 +94,7 @@ describe('buildPassageIndex', () => {
 describe('findPassage — exact', () => {
   const chunks = page(
     'Der Bescheid ist dem Antragsteller zuzustellen',
-    'Die Frist betraegt vier Wochen ab Zustellung',
+    'Die Frist betraegt vier Wochen ab Zustellung'
   )
 
   it('scores an exact hit at 1 and covers only the matched words', () => {
@@ -122,7 +123,10 @@ describe('findPassage — exact', () => {
   })
 
   it('returns one merged band per line rather than one per run', () => {
-    const match = locatePassage(page('Der Bescheid ist dem Antragsteller zuzustellen'), 'Bescheid ist dem')
+    const match = locatePassage(
+      page('Der Bescheid ist dem Antragsteller zuzustellen'),
+      'Bescheid ist dem'
+    )
     expect(match!.rects).toHaveLength(1)
     expect(match!.rects[0]!.width).toBeCloseTo(16 * CHAR_WIDTH, 5)
   })
@@ -141,13 +145,13 @@ describe('findPassage — anchored', () => {
   it('spans between the ends when the middle of the snippet drifted', () => {
     const chunks = page(
       'Der Antrag auf Erteilung einer Bewilligung ist schriftlich',
-      'unter Anschluss der Unterlagen bei der Behoerde einzubringen',
+      'unter Anschluss der Unterlagen bei der Behoerde einzubringen'
     )
     // The snippet's middle says "sammt" where the page says "unter Anschluss der" —
     // no substring search finds this, both ends are intact.
     const match = locatePassage(
       chunks,
-      'einer Bewilligung ist schriftlich sammt Unterlagen bei der Behoerde einzubringen',
+      'einer Bewilligung ist schriftlich sammt Unterlagen bei der Behoerde einzubringen'
     )
     expect(match).not.toBeNull()
     expect(match!.matcher).toBe('anchored')
@@ -161,7 +165,7 @@ describe('findPassage — anchored', () => {
     const chunks = page(
       'die Behoerde entscheidet ueber den Antrag',
       'ein weiterer Absatz ohne jeden Bezug dazu',
-      'die Behoerde entscheidet ueber den Einspruch',
+      'die Behoerde entscheidet ueber den Einspruch'
     )
     // Both the opening anchor and the whole snippet are ambiguous, and the two
     // candidate windows tie — so nothing is pointed at.
@@ -173,7 +177,7 @@ describe('findPassage — windowed', () => {
   const chunks = page(
     'Vorbemerkungen zum Verfahren und seinen Beteiligten',
     'Der Sachverstaendige erstattet Befund und Gutachten ueber',
-    'die Standsicherheit des bestehenden Dachstuhls',
+    'die Standsicherheit des bestehenden Dachstuhls'
   )
 
   it('finds the passage when both ends inflect differently', () => {
@@ -182,7 +186,7 @@ describe('findPassage — windowed', () => {
     // Dachstuhls/Dachstuhles. Only stem-level overlap recovers this.
     const match = locatePassage(
       chunks,
-      'Sachverstaendiger erstattete Befund und Gutachten ueber die Standsicherheit des bestehende Dachstuhles',
+      'Sachverstaendiger erstattete Befund und Gutachten ueber die Standsicherheit des bestehende Dachstuhles'
     )
     expect(match).not.toBeNull()
     expect(match!.matcher).toBe('windowed')
@@ -193,7 +197,7 @@ describe('findPassage — windowed', () => {
 
   it('returns null rather than pointing at an unrelated paragraph', () => {
     expect(
-      locatePassage(chunks, 'Die Brandschutzabnahme wurde am fuenfzehnten Maerz durchgefuehrt'),
+      locatePassage(chunks, 'Die Brandschutzabnahme wurde am fuenfzehnten Maerz durchgefuehrt')
     ).toBeNull()
   })
 
@@ -201,10 +205,10 @@ describe('findPassage — windowed', () => {
     const twice = page(
       'Der Bauwerber hat die Fertigstellung der Behoerde anzuzeigen',
       'ein dazwischenliegender Absatz voellig anderen Inhalts',
-      'Der Nachbar hat die Fertigstellung der Behoerde anzuzeigen',
+      'Der Nachbar hat die Fertigstellung der Behoerde anzuzeigen'
     )
     expect(
-      locatePassage(twice, 'Der Eigentuemer hat die Fertigstellung der Behoerde anzuzeigen'),
+      locatePassage(twice, 'Der Eigentuemer hat die Fertigstellung der Behoerde anzuzeigen')
     ).toBeNull()
   })
 })
@@ -218,12 +222,12 @@ describe('findPassage — partial', () => {
     // here is here verbatim.
     const chunks = page(
       'Der Antrag ist bei der Behoerde schriftlich einzubringen und hat die Unterlagen zu enthalten',
-      'Der Antrag ist bei der Behoerde schriftlich einzubringen sobald die Frist verstrichen ist',
+      'Der Antrag ist bei der Behoerde schriftlich einzubringen sobald die Frist verstrichen ist'
     )
     const match = locatePassage(
       chunks,
       'Der Antrag ist bei der Behoerde schriftlich einzubringen und hat die Unterlagen zu enthalten ' +
-        'die in der Verordnung genannt sind und vom Planverfasser stammen',
+        'die in der Verordnung genannt sind und vom Planverfasser stammen'
     )
     expect(match).not.toBeNull()
     expect(match!.matcher).toBe('partial')
@@ -239,7 +243,7 @@ describe('findPassage — partial', () => {
     // half that short is a clause every page has a copy of.
     const chunks = page(
       'Die Frist beginnt mit Zustellung des Bescheids',
-      'Die Frist beginnt mit Ablauf der Kundmachung',
+      'Die Frist beginnt mit Ablauf der Kundmachung'
     )
     const snippet = 'Die Frist beginnt mit Zustellung ohne Aufschub'
     expect(normalizePassage(snippet).length).toBeLessThan(MIN_PARTIAL_HALF * 2)
@@ -272,11 +276,91 @@ describe('passageBounds', () => {
       passageBounds([
         { x: 30, y: 0, width: 60, height: 12 },
         { x: 0, y: 18, width: 40, height: 12 },
-      ]),
+      ])
     ).toEqual({ x: 0, y: 0, width: 90, height: 30 })
   })
 
   it('has nothing to bound when there was no match', () => {
     expect(passageBounds([])).toBeNull()
+  })
+})
+
+/**
+ * `locatePassageInText` — the same search over a plain string, answering in
+ * that string's own offsets.
+ *
+ * It carries the RIS reader's entire correctness: a citation into a
+ * Gesamtfassung is only useful if the passage is found and marked, and a mark in
+ * the wrong place over a legal quotation is worse than none. The offset mapping
+ * is the part that looks obviously right and breaks the moment `CHARACTER_FOLDING`
+ * or `collapse` is touched — one source character can fold into SEVERAL haystack
+ * characters (a ligature through NFKD), `collapse` inserts synthetic boundaries
+ * that carry no source offset at all, and a hyphen-wrapped word has its hyphen
+ * and its line break swallowed entirely. Each of those shifts the two coordinate
+ * spaces apart, silently.
+ */
+describe('locatePassageInText', () => {
+  const span = (text: string, snippet: string) => {
+    const found = locatePassageInText(text, snippet)
+    return found ? text.slice(found.start, found.end) : null
+  }
+
+  it('finds a passage that is simply present, and marks the words rather than the punctuation', () => {
+    const text =
+      'Vorher.\n\nDie nutzbare Breite eines Fluchtweges darf 1,20 m nicht unterschreiten.\n\nNachher.'
+    // The trailing full stop is a boundary on BOTH sides of the comparison, so
+    // the span ends on the last word. That is the honest edge of the match, and
+    // marking one character further would be marking something not compared.
+    expect(
+      span(text, 'Die nutzbare Breite eines Fluchtweges darf 1,20 m nicht unterschreiten.')
+    ).toBe('Die nutzbare Breite eines Fluchtweges darf 1,20 m nicht unterschreiten')
+  })
+
+  it('maps back across a ligature, which folds one source character into two', () => {
+    // NFKD turns `ﬂ` into `fl`, so every offset after it is shifted in the
+    // haystack and not in the source.
+    const text = 'Die Brandschutzpﬂichten des Bauwerkes sind einzuhalten.'
+    expect(span(text, 'Brandschutzpflichten des Bauwerkes')).toBe(
+      'Brandschutzpﬂichten des Bauwerkes'
+    )
+  })
+
+  it('maps back across the synthetic boundaries collapse inserts', () => {
+    // Runs of whitespace, a newline pair and punctuation all become ONE space
+    // in the haystack, and that space belongs to no source character.
+    const text =
+      'Die   nutzbare\n\n  Breite,  eines Fluchtweges  darf   1,20 m nicht unterschreiten.'
+    expect(
+      span(text, 'Die nutzbare Breite eines Fluchtweges darf 1,20 m nicht unterschreiten')
+    ).toBe('Die   nutzbare\n\n  Breite,  eines Fluchtweges  darf   1,20 m nicht unterschreiten')
+  })
+
+  it('maps back across a hyphen-wrapped word, whose hyphen and break vanish', () => {
+    const text = 'Die zustaendige Ver-\nwaltung entscheidet darueber.'
+    expect(span(text, 'zustaendige Verwaltung entscheidet')).toBe(
+      'zustaendige Ver-\nwaltung entscheidet'
+    )
+  })
+
+  it('refuses a passage that is not there rather than guessing', () => {
+    expect(
+      locatePassageInText('Ein ganz anderer Text.', 'Die nutzbare Breite eines Fluchtweges')
+    ).toBeNull()
+  })
+
+  it('refuses an ambiguous anchor — a phrase that occurs twice points at two places', () => {
+    // Legal text repeats its own phrasing constantly. Marking the first
+    // occurrence would be a confidently wrong mark, which is the one outcome
+    // this module treats as worse than no mark at all.
+    const clause = 'Die Anforderungen dieser Richtlinie sind sinngemaess anzuwenden auf alle'
+    const text = `${clause} Neubauten.\n\nAnderes.\n\n${clause} Zubauten.`
+    // The exact substring still matches at the first occurrence (indexOf), which
+    // is correct for an EXACT hit; the guard is on the anchored tier, so use a
+    // snippet that only the anchors can reach.
+    expect(locatePassageInText(text, `${clause} XXXX Neubauten`)).toBeNull()
+  })
+
+  it('says nothing for a snippet too short to identify anything', () => {
+    expect(locatePassageInText('Ein Text mit ja darin.', 'ja')).toBeNull()
   })
 })
