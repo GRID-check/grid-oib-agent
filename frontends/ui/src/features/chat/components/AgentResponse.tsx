@@ -19,6 +19,7 @@ import { useLocale, useTranslations } from '@/i18n'
 import type { Translator } from '@/i18n'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { remarkCitationMarkers } from '@/features/layout/lib/citation-markers'
+import { remarkFileReferences } from '@/features/layout/lib/file-reference-markers'
 import { formatTime } from '@/shared/utils/format-time'
 import { useLayoutStore } from '@/features/layout/store'
 import { GridCardItem, GridCards } from '@/features/grid-cards/components/GridCards'
@@ -41,6 +42,7 @@ import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import { useChatStore } from '../store'
 import { useLoadJobData } from '../hooks'
+import { useAnswerFileReferences } from '../hooks/use-answer-file-references'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
@@ -641,12 +643,27 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // anatomy too, even though it never joins the `cards` array.
   const anatomy = useMemo(() => answerMetaToAnatomy(answerMeta), [answerMeta])
   const ledeClass = opensWithLede(body, stillArriving) && !anatomy?.summary ? LEDE_CLASS : ''
+  // The files this answer NAMES, as opposed to the ones it cites. A sentence
+  // like „Beginnen Sie mit pd8280-2.pdf" is pointing at a document the reader
+  // owns, and until the index below resolved that name it was dead text. The
+  // hook is inert for an answer with no filename in it, which is most of them.
+  const fileReferences = useAnswerFileReferences({
+    body,
+    projectId,
+    // The conversation whose private attachments a named file may live in.
+    conversationId: conversationId ?? null,
+    isStreaming: stillArriving,
+  })
   const markerPlugins = useMemo(
     (): PluggableList => [
       [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix }],
       [remarkCardMarkers, { count: cardCount, callout: Boolean(anatomy?.callout) }],
+      // AFTER the citation pass, so a filename that happens to sit inside a
+      // marker's label is left alone: the pass skips `link` subtrees, and by
+      // this point every `[N]` already is one.
+      [remarkFileReferences, { fileNames: fileReferences.fileNames }],
     ],
-    [citationNumbers, anchorPrefix, cardCount, anatomy]
+    [citationNumbers, anchorPrefix, cardCount, anatomy, fileReferences.fileNames]
   )
   // The cards the prose did NOT claim. Read off the same body the renderer
   // parses, because the block below has to be built before that parse happens.
@@ -858,7 +875,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   if (variant === 'inline') {
     return (
       <DiagramFilingProvider target={diagramFilingTarget}>
-      <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
+      <AnswerCitations
+      documents={documents}
+      anchorPrefix={anchorPrefix}
+      resolveFileReference={fileReferences.resolve}
+    >
       <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
         {/* The answer's masthead — verdict and/or summary, flat above the prose. */}
         {anatomy && (anatomy.verdict || anatomy.summary) && (
@@ -1009,7 +1030,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const isMeta = routingDecision === 'meta'
   return (
     <DiagramFilingProvider target={diagramFilingTarget}>
-    <AnswerCitations documents={documents} anchorPrefix={anchorPrefix}>
+    <AnswerCitations
+      documents={documents}
+      anchorPrefix={anchorPrefix}
+      resolveFileReference={fileReferences.resolve}
+    >
     {/* Full column width, not a fixed 680px: the answer is the thread's main
         content and reads as a centered column (the width itself is set by the
         list's max-w container), rather than a card hugging the left edge with

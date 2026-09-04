@@ -8,6 +8,10 @@
  * evidence; give it a `/dev` preview route that renders the real component. The
  * harness (`visual/capture.mjs`) writes `<id>.light.png` / `<id>.dark.png` into
  * `visual/screenshots/`. See `docs/ux/visual-screenshots.md`.
+ *
+ * A target may also carry `hover: '<selector>'` — a real mouse rest on that
+ * element, held through both shots, for a surface that only exists under the
+ * pointer (a peek, a tooltip). Desktop only; the mobile variant has no hover.
  */
 
 export const SCREENSHOT_TARGETS = [
@@ -822,6 +826,27 @@ export const SCREENSHOT_TARGETS = [
     description:
       'What happens when you USE a citation: inline [N] markers tinted by the provenance family of the source they name (three OIB passages and one binding legal source, distinguishable mid-sentence), each previewing document\u2009\u00b7\u2009authority\u2009\u00b7\u2009page\u2009\u00b7\u2009passage in place and marking the chip it belongs to \u2014 rendered through the real AgentResponse in both shells. Includes a claim carried by two sources, written [2][3], as the two separate pills it must render as.',
     waitFor: '[data-testid="citation-interaction-preview"]',
+  },
+  {
+    id: 'file-reference',
+    mobile: true,
+    path: '/dev/file-reference',
+    description:
+      'Filenames the answer writes into its own prose, as controls: nine names across three shelves (project files, B\u00fcroarchiv, a document attached to this chat), each a chip that opens the document in the pane beside the answer instead of sending the reader to Dateien with a name to retype. Includes a name in a table cell (the reading-order table the agent actually writes), a name that resolves to nothing and correctly stays prose, and a citation pill in the same paragraph \u2014 the two must not read as the same affordance.',
+    waitFor: '[data-testid="file-reference"]',
+  },
+  {
+    id: 'file-reference-peek',
+    // Desktop only: this panel exists under the pointer, and a touch viewport
+    // has none. A tap on a phone opens the document itself, where every fact
+    // this panel states is on the page.
+    path: '/dev/file-reference',
+    hover: '[data-file-reference]',
+    // The chip, not the panel: the panel is what the hover OPENS, so waiting
+    // for it here would be waiting for something the capture has not done yet.
+    waitFor: '[data-file-reference]',
+    description:
+      'The file-reference peek OPEN \u2014 the second-order answer a resting screenshot can never show. The chip\u2019s click opens the document, so this panel answers the question that decides WHICH of five recommended documents to open first: which shelf it came from, its format, size and page count, its summary, and whether Piloti has actually indexed it.',
   },
   {
     id: 'citation-peek',

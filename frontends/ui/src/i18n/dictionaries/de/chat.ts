@@ -63,6 +63,25 @@ export const chat: typeof en.chat = {
     // Ruhige Quittung, wenn die Karte genau eine Datei neben dem Chat geöffnet hat.
     showing: '{label} wird angezeigt',
   },
+  // Eine Datei, die die Antwort im Fließtext beim Namen nennt („Beginnen Sie mit
+  // pd8280-2.pdf") — kein Beleg, sondern ein Zeiger auf ein Dokument, das die
+  // Leserin besitzt. Der Klick öffnet es neben der Antwort.
+  fileReference: {
+    openAria: 'Datei öffnen: {name}',
+    open: 'Neben der Antwort öffnen',
+    pages: '{count, plural, one {# Seite} other {# Seiten}}',
+    // Wenn die Antwort den Namen anders geschrieben hat als die Datei heißt.
+    writtenAs: 'Im Text: {name}',
+    // Regal, aus dem die Datei stammt — dieselbe Unterscheidung wie bei den
+    // Quellen: geteiltes Projektwissen, büroweites Archiv, private Beilage.
+    shelf: {
+      projekt: 'Projektdateien',
+      buero: 'Büroarchiv',
+      session: 'Beilage in diesem Chat',
+    },
+    notIndexed: 'Nicht indexiert — lesbar, aber nicht zitierfähig.',
+    failed: 'Die Verarbeitung dieser Datei ist fehlgeschlagen.',
+  },
   composer: {
     /** Shown when the reader holds project:view but not project:chat. */
     noProjectChatPermission:
