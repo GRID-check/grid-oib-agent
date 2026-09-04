@@ -82,11 +82,16 @@ Backend agents fetch no arbitrary URLs themselves (only internal BFF call in
   unaffected by the switch (it does NOT support the binary `bun.lockb`, which
   this repo does not use).
 - **CI controls:** Semgrep SAST (py+ts/js+actions) + weekly; OSV-Scanner lockfile
-  CVEs; pip-audit + `bun audit`; gitleaks full history; detect-secrets baseline;
-  Dependabot fix PRs. (GitHub dependency-review dropped: it needs GitHub Advanced
-  Security on this private repo; OSV-Scanner + Dependabot cover new-dependency CVEs
-  instead.) Gaps: Semgrep + OSV-Scanner and both dependency audits (pip-audit and
-  `bun audit`) are currently non-blocking in
+  CVEs over all eight lockfiles in the tree; gitleaks full history; detect-secrets
+  baseline; Dependabot fix PRs. (GitHub dependency-review dropped: it needs GitHub
+  Advanced Security on this private repo; OSV-Scanner + Dependabot cover
+  new-dependency CVEs instead. The separate pip-audit / `bun audit` / `npm audit`
+  job was dropped in Sep 2026: it covered three of those eight lockfiles against
+  advisory databases OSV already ingests — GHSA and PyPA — while taking longer
+  than the whole rest of the workflow (9m53s with it, 2m36s without), and two of
+  its three steps were silently reporting nothing. Rationale in
+  [`security.yml`](../../.github/workflows/security.yml).) Gaps: Semgrep and
+  OSV-Scanner are currently non-blocking in
   [`.github/workflows/security.yml`](../../.github/workflows/security.yml)
   (Phase 1 — findings surface in the job log); no clean-as-you-code
   smell gate (CodeQL + Sonar removed — code smells now via ruff/eslint + coverage
