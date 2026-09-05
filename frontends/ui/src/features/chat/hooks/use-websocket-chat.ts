@@ -340,26 +340,34 @@ const UNACKNOWLEDGED_OUTGOING_ACK_TIMEOUT_MS = 7_000
 const STREAMING_INACTIVITY_TIMEOUT_MS = 180_000
 
 /**
- * How long a turn may be silent on an OPEN socket before it is declared gone.
+ * How many of the server's own beats may go missing before the turn is gone.
  *
- * Derived from what the backend is allowed to spend: `DEFAULT_MAX_RUN_SECONDS`
- * in `src/aiq_agent/agents/deep_researcher/agent.py` is 2400, and a synchronous
- * deep-research turn can be quiet on this socket for the whole of it. Anything
- * shorter accuses a turn its own backend still considers healthy, which is the
- * defect this replaces; going past it accuses nothing that is still alive.
+ * The backend states its cadence ON the heartbeat frame (`every_ms`), so this
+ * side holds a TOLERANCE and not an interval — three beats is one lost frame
+ * plus room for a slow network, and nothing here has to be edited when the
+ * server retunes `TURN_HEARTBEAT_SECONDS`.
  *
- * This is a BACKSTOP, not the primary signal. A backend that actually died
- * takes its socket with it, and a half-open path is surfaced by the gateway's
- * `setKeepAlive(true, 15000)` within about two minutes — so the socket check
- * below ends a genuinely dead turn long before this budget matters. The budget
- * only decides the one case the client cannot observe: an open socket with a
- * backend that has stopped working and will never say so.
+ * This replaced a copy of `DEFAULT_MAX_RUN_SECONDS`. The client used to predict
+ * how long the server was allowed to spend and wait exactly that out — two
+ * numbers in two repositories with nothing keeping them in step, and forty
+ * minutes of a locked composer whenever a turn really had died. Now the server
+ * says so itself and the client only listens.
+ */
+const MISSED_HEARTBEATS_BEFORE_GONE = 3
+
+/**
+ * The same question, for a backend that does not beat.
  *
- * It mirrors a server constant with nothing keeping the two in step, which is a
- * fork. The real fix is a heartbeat frame from the turn itself (the backend
- * already has `turn_status.py` and its frames re-arm this timer) — then the
- * client measures liveness instead of predicting it, and this number can go.
- * Tracked as a follow-up rather than smuggled into a bug fix.
+ * A rolling deploy can put a new client in front of an old server, and an old
+ * server tells this side nothing — so the old rule stands there, unchanged and
+ * deliberately generous: wait out the longest run the backend is allowed
+ * (`DEFAULT_MAX_RUN_SECONDS = 2400` in
+ * `src/aiq_agent/agents/deep_researcher/agent.py`), because a synchronous
+ * deep-research turn can be quiet on this socket for the whole of it and
+ * anything shorter accuses a turn its own backend still considers healthy.
+ *
+ * It is a compatibility path, not the design. Once a turn has beaten even once,
+ * this number is never consulted again for it.
  */
 const STREAMING_SILENCE_BUDGET_MS = 2_400_000
 
@@ -581,11 +589,24 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
 
   /**
    * When the turn last showed a sign of life — set by an inbound frame, never
-   * by the watchdog re-arming itself. `STREAMING_SILENCE_BUDGET_MS` is measured
-   * from here, so the budget is spent by real silence rather than renewed by
-   * the timer that measures it.
+   * by the watchdog re-arming itself. Every deadline below is measured from
+   * here, so silence is spent by real silence rather than renewed by the timer
+   * that measures it.
    */
   const lastFrameAtRef = useRef(0)
+
+  /**
+   * How long this turn may now be silent, from the server's own mouth: the
+   * heartbeat's stated cadence times {@link MISSED_HEARTBEATS_BEFORE_GONE}.
+   *
+   * `0` means the turn has never beaten — either it has only just started, or
+   * the backend is older than the frame — and the generous compatibility budget
+   * applies instead. Zeroed where a turn BEGINS (both `doSend`s) and where one
+   * ends badly (`endSilentTurn`), never in `clearStreamingWatchdog`: arming the
+   * probe goes through that, so clearing it there would have the heartbeat
+   * erase the deadline it had just set.
+   */
+  const heartbeatDeadlineRef = useRef(0)
 
   /**
    * Set by the soft timer when it fires while streaming; consumed by the
@@ -976,6 +997,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     lastSentOutgoingRef.current = null
     pendingOutgoingRef.current = null
     clearUnacknowledgedOutgoing()
+    heartbeatDeadlineRef.current = 0
   }, [
     clearPendingInteraction,
     clearUnacknowledgedOutgoing,
@@ -1080,21 +1102,32 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       return
     }
 
-    // (2) A deep-research job carries this turn on a channel of its own. Scoped
+    // (2) The turn's own heartbeat, when the backend sends one: the deadline is
+    // the cadence the SERVER stated, times a tolerance. Beats arriving means the
+    // server still owns this turn and its own run ceiling applies; beats
+    // stopping means the turn is gone, and this side can say so in a minute
+    // instead of waiting out a ceiling it used to keep a copy of.
+    //
+    // A backend that has never beaten falls back to that copy — see
+    // `STREAMING_SILENCE_BUDGET_MS`, which is now only the rolling-deploy path.
+    const silentFor = Date.now() - lastFrameAtRef.current
+    const deadline = heartbeatDeadlineRef.current || STREAMING_SILENCE_BUDGET_MS
+    const spent = silentFor >= deadline
+
+    // (3) A deep-research job carries this turn on a channel of its own. Scoped
     // to the conversation that owns it: these store fields are global, so an
     // unscoped read let a run in one thread exempt a stuck turn in another.
     //
-    // Bounded by the same budget as branch (3), and checked BEFORE it: an
+    // Bounded by the same deadline as branch (4), and checked BEFORE it: an
     // exemption with no ceiling locks the composer forever the first time a
     // terminal job event is lost, which is a failure the reader cannot even
     // describe.
-    const spent = Date.now() - lastFrameAtRef.current >= STREAMING_SILENCE_BUDGET_MS
     if (!spent && conversation && isDeepResearchLive(state, conversation.id)) {
       armStreamingWatchdogRef.current?.(false)
       return
     }
 
-    // (3) Open, quiet, and nothing claims to be working. Spend the budget.
+    // (4) Open, quiet, and nothing claims to be working. Spend the deadline.
     if (!spent) {
       armStreamingWatchdogRef.current?.(false)
       return
@@ -1116,10 +1149,13 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       // `|| === 0` is the floor: an un-initialised clock would make the first
       // probe measure silence from the epoch and accuse a healthy turn at once.
       if (progress || lastFrameAtRef.current === 0) lastFrameAtRef.current = Date.now()
-      streamingWatchdogTimeoutRef.current = setTimeout(
-        () => watchdogHandlerRef.current(),
-        STREAMING_INACTIVITY_TIMEOUT_MS
-      )
+      // Probe at whichever is sooner. Three minutes is the right cadence when
+      // the deadline is forty — but once the turn beats, its deadline is about a
+      // minute, and a three-minute probe would notice a dead turn up to two
+      // minutes after the fact, throwing away most of what the heartbeat buys.
+      const deadline = heartbeatDeadlineRef.current
+      const probeIn = deadline > 0 ? Math.min(STREAMING_INACTIVITY_TIMEOUT_MS, deadline) : STREAMING_INACTIVITY_TIMEOUT_MS
+      streamingWatchdogTimeoutRef.current = setTimeout(() => watchdogHandlerRef.current(), probeIn)
     },
     [clearStreamingWatchdog]
   )
@@ -1515,6 +1551,27 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
             maybeGenerateConversationName(finishedConversationId)
           }
         }
+      },
+
+      /**
+       * The turn said it is still running.
+       *
+       * Two effects, and the second is the point of the frame. It re-arms the
+       * inactivity probe like any other inbound frame — and it records the
+       * deadline the SERVER just stated, which replaces this client's copy of
+       * the server's run ceiling with something it was actually told.
+       *
+       * The deadline is recorded either way; only the ARMING is gated on a turn
+       * being in flight. The backend beats for as long as `_run_workflow` runs,
+       * and that includes a HITL pause — where the reader may take an hour and
+       * the prompt path has deliberately stood the watchdog down. Re-arming
+       * there would put back a timer that exists only to conclude something
+       * about a silence nobody is waiting on.
+       */
+      onTurnHeartbeat: (everyMs: number) => {
+        heartbeatDeadlineRef.current = everyMs * MISSED_HEARTBEATS_BEFORE_GONE
+        const { isStreaming: currentlyStreaming } = useChatStore.getState()
+        if (currentlyStreaming) armStreamingWatchdog()
       },
 
       onStage: (frame: NATStageMessage) => {
@@ -2000,6 +2057,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       callbacks: {
         onResponse: (...args) => latestCallbacksRef.current.onResponse?.(...args),
         onStage: (...args) => latestCallbacksRef.current.onStage?.(...args),
+        onTurnHeartbeat: (...args) => latestCallbacksRef.current.onTurnHeartbeat?.(...args),
         onIntermediateStep: (...args) => latestCallbacksRef.current.onIntermediateStep?.(...args),
         onHumanPrompt: (...args) => latestCallbacksRef.current.onHumanPrompt?.(...args),
         onError: (...args) => latestCallbacksRef.current.onError?.(...args),
@@ -2264,6 +2322,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       // Helper to actually send the message
       const doSend = (): boolean => {
         if (sendOutgoingPayload(outgoingPayload)) {
+          // A NEW turn has not beaten yet, so it is judged by the generous
+          // fallback until it does. Carrying the last turn's deadline over
+          // would apply one backend's promise to another's — and after a
+          // reconnect onto an older replica, to one that never made it.
+          heartbeatDeadlineRef.current = 0
           // Turn is on the wire -- start the overall inactivity deadline.
           armStreamingWatchdog()
           setLoading(false)
@@ -2525,6 +2588,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         if (sendOutgoingPayload(interactionPayload)) {
           setStreaming(true)
           setLoading(true)
+          // The turn resumes from the answer, and what runs after it is as new
+          // as a fresh turn — see the note in `sendMessage`'s `doSend`.
+          heartbeatDeadlineRef.current = 0
           // HITL answer is on the wire -- resume the inactivity deadline.
           armStreamingWatchdog()
         } else {

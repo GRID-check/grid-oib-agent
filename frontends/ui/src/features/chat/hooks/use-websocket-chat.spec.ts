@@ -240,6 +240,7 @@ let capturedCallbacks: {
     status: string
     payload?: unknown
   }) => void
+  onTurnHeartbeat?: (everyMs: number) => void
   onIntermediateStep?: (content: unknown, status: string, parentId?: string) => void
   onHumanPrompt?: (promptId: string, parentId: string, prompt: unknown) => void
   onError?: (error: { code: string; message: string; details?: string }) => void
@@ -889,6 +890,9 @@ describe('useWebSocketChat', () => {
   // falls back to a clock, and that clock is the backend's own run budget.
   const WATCHDOG_MS = 180_000
   const SILENCE_BUDGET_MS = 2_400_000
+  /** The server's stated cadence on a `grid_turn_heartbeat`, and what it buys. */
+  const HEARTBEAT_EVERY_MS = 20_000
+  const HEARTBEAT_DEADLINE_MS = HEARTBEAT_EVERY_MS * 3
 
   /** Put a turn on the wire and land one frame, so the probe is armed. */
   const startStreamingTurn = (result: { current: { sendMessage: (t: string) => void } }) => {
@@ -903,6 +907,114 @@ describe('useWebSocketChat', () => {
     mockSetStreaming.mockClear()
     mockWsClient.rotate.mockClear()
   }
+
+  test('a beating turn is ended a minute after its beats stop, not forty', async () => {
+    vi.useFakeTimers()
+    try {
+      // The whole point of the frame. Without it the client waits out its own
+      // copy of `DEFAULT_MAX_RUN_SECONDS` — forty minutes of a locked composer
+      // for a turn that has been gone since the first missed beat.
+      mockWsClient.isConnected.mockReturnValue(true)
+      const recover = vi.fn().mockResolvedValue('nothing')
+      mockStoreState = {
+        ...mockStoreState,
+        _recoverInterruptedAssistantMessage: recover,
+        currentConversation: {
+          id: 'conv-1',
+          userId: 'user-1',
+          messages: [{ id: 'u-1', messageType: 'user', content: 'Frage' }],
+        },
+      }
+      useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+
+      const { result } = renderWebSocketHook()
+      startStreamingTurn(result)
+      act(() => {
+        capturedCallbacks.onTurnHeartbeat?.(HEARTBEAT_EVERY_MS)
+      })
+
+      // Two beats' worth of silence is within tolerance — a lost frame on a
+      // slow network must not end a turn.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_EVERY_MS * 2)
+      })
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        expect.anything()
+      )
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(HEARTBEAT_DEADLINE_MS)
+      })
+      expect(mockAddErrorCard).toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        'The assistant stopped responding. Please resend your message.'
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('a turn that keeps beating is never accused, however long it runs', () => {
+    vi.useFakeTimers()
+    try {
+      mockWsClient.isConnected.mockReturnValue(true)
+      const { result } = renderWebSocketHook()
+      startStreamingTurn(result)
+
+      // Forty minutes of a turn that says nothing but "still here" — the
+      // synchronous deep-research shape, which is silent on this socket by
+      // construction. Each beat resets the clock the deadline is measured from.
+      for (let elapsed = 0; elapsed < 2_400_000; elapsed += HEARTBEAT_EVERY_MS) {
+        act(() => {
+          capturedCallbacks.onTurnHeartbeat?.(HEARTBEAT_EVERY_MS)
+          vi.advanceTimersByTime(HEARTBEAT_EVERY_MS)
+        })
+      }
+
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        expect.anything()
+      )
+      expect(mockSetStreaming).not.toHaveBeenCalledWith(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('a beat during a HITL pause does not put the watchdog back', () => {
+    vi.useFakeTimers()
+    try {
+      // The backend beats for as long as `_run_workflow` runs, and that
+      // includes waiting on a person. The prompt path stands the watchdog down
+      // on purpose — the reader may take an hour — so a beat must record the
+      // deadline without re-arming the timer that would then conclude something
+      // about a silence nobody is waiting on.
+      mockWsClient.isConnected.mockReturnValue(true)
+      const { result } = renderWebSocketHook()
+      startStreamingTurn(result)
+
+      act(() => {
+        capturedCallbacks.onHumanPrompt?.('prompt-1', 'u-1', {
+          input_type: 'binary_choice',
+          text: 'Sollen wir fortfahren?',
+        })
+      })
+      mockStoreState.isStreaming = false
+
+      act(() => {
+        capturedCallbacks.onTurnHeartbeat?.(HEARTBEAT_EVERY_MS)
+        vi.advanceTimersByTime(HEARTBEAT_DEADLINE_MS * 4)
+      })
+
+      expect(mockAddErrorCard).not.toHaveBeenCalledWith(
+        'agent.response_interrupted',
+        expect.anything()
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
   test('a socket that is gone is real evidence: the turn ends at the first probe', () => {
     vi.useFakeTimers()

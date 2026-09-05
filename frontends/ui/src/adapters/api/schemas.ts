@@ -68,6 +68,16 @@ export const NATMessageType = {
    * response path drops anything that arrives then.
    */
   STAGE: 'grid_stage_message',
+  /**
+   * "This turn is still running" (`websocket_reconnect.GridTurnHeartbeat`).
+   *
+   * Grid-owned and `grid_`-prefixed for the same reason as the stage frame. It
+   * carries no content and renders nothing: it exists so the client can tell a
+   * turn that is silent because it is thinking from one that is silent because
+   * its backend is gone — which the client used to answer by holding a copy of
+   * the server's own run ceiling and waiting it out.
+   */
+  TURN_HEARTBEAT: 'grid_turn_heartbeat',
 } as const
 
 /** NAT workflow schema types */
@@ -497,6 +507,23 @@ export const NATStageMessageSchema = z.object({
   timestamp: z.string().optional(),
 })
 
+/**
+ * The turn's liveness beat.
+ *
+ * `every_ms` is the server's stated cadence, and the client's tolerance is a
+ * multiple of it. That is the whole point of putting it on the frame: a client
+ * that kept the interval in its own source would be predicting the server
+ * again, which is the arrangement this frame replaces.
+ */
+export const NATTurnHeartbeatSchema = z.object({
+  type: z.literal(NATMessageType.TURN_HEARTBEAT),
+  v: z.number(),
+  conversation_id: z.string(),
+  parent_id: z.string().nullish(),
+  every_ms: z.number().int().positive(),
+  timestamp: z.string().optional(),
+})
+
 /** Error content */
 export const NATErrorContentSchema = z.object({
   code: z.string(),
@@ -522,6 +549,7 @@ export const NATIncomingMessageSchema = z.discriminatedUnion('type', [
   NATObservabilityTraceMessageSchema,
   NATErrorMessageSchema,
   NATStageMessageSchema,
+  NATTurnHeartbeatSchema,
 ])
 
 // ----------------------------------------------------------------------------

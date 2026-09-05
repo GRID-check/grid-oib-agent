@@ -133,6 +133,35 @@ The `NATWebSocketClient` (`frontends/ui/src/adapters/api/websocket-client.ts`) s
 
 Auth errors with codes `auth_error`, `token_expired`, `token_invalid`, or `auth_expired` are tracked via `trackAuthEvent()` for RUM monitoring. `auth_expired` triggers a socket rotation with `refreshAuthBeforeReconnect`.
 
+**grid_turn_heartbeat**: the running turn is still running
+
+```json
+{ "type": "grid_turn_heartbeat", "v": 1, "conversation_id": "s_<uuid>", "parent_id": "<user_message_id>", "every_ms": 20000, "timestamp": "2026-09-05T..." }
+```
+
+Emitted every `TURN_HEARTBEAT_SECONDS` by a task that lives exactly as long as
+`_run_workflow` does, so it covers what the answer stream cannot: context
+loading before the graph starts, a ten-minute tool call, and the whole of a
+deep-research turn that runs on this socket because no job dispatcher is
+configured. It sleeps before its first beat, so a turn that answers in two
+seconds sends none.
+
+It renders nothing. Its only job is to let the client tell a turn that is quiet
+because it is thinking from one that is quiet because its backend is gone — a
+question the client used to answer by keeping a copy of the backend's own
+`DEFAULT_MAX_RUN_SECONDS` and waiting it out, which meant forty minutes of a
+locked composer for a turn that had died in the first minute.
+
+`every_ms` is the server's stated cadence and the client's deadline is a
+multiple of it (`MISSED_HEARTBEATS_BEFORE_GONE`), so the interval is retuned on
+the backend alone. A turn that has never beaten — an older replica during a
+rolling deploy — keeps the old generous budget; one beat is enough to switch it
+over, and the switch is per turn.
+
+Grid-owned and `grid_`-prefixed like `grid_stage_message`, and for the same
+reason: NAT resolves a frame's schema through a vendored `StrEnum` that cannot
+gain a member without patching the dependency.
+
 ## Reconnection
 
 The `NATWebSocketClient` implements automatic reconnection with these characteristics:
