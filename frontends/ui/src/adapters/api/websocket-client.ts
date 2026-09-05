@@ -166,6 +166,15 @@ export interface NATWebSocketClientCallbacks {
    * CONTAINS is the stage's own business and is validated downstream.
    */
   onStage?: (frame: NATStageMessage) => void
+  /**
+   * The running turn said it is still there (`grid_turn_heartbeat`).
+   *
+   * `everyMs` is the server's own stated cadence. The consumer's tolerance is a
+   * multiple of it, so the interval can be retuned on the backend without a
+   * matching constant in the frontend — which is the arrangement this frame
+   * exists to end.
+   */
+  onTurnHeartbeat?: (everyMs: number) => void
   /** Called when an error occurs */
   onError?: (error: NATErrorContent) => void
   /** Called when connection status changes */
@@ -708,6 +717,13 @@ export class NATWebSocketClient {
             break
           }
           this.options.callbacks.onStage?.(message)
+          break
+        }
+
+        case NATMessageType.TURN_HEARTBEAT: {
+          // Nothing to render. The only thing that matters about this frame is
+          // that it arrived, and when.
+          this.options.callbacks.onTurnHeartbeat?.(message.every_ms)
           break
         }
 

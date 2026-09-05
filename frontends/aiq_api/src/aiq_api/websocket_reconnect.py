@@ -8,6 +8,8 @@ import logging
 import os
 import time
 import uuid
+from datetime import UTC
+from datetime import datetime
 from typing import Any
 from typing import Literal
 
@@ -421,6 +423,91 @@ class GridStageMessage(BaseModel):
         if data.get("payload") is None:
             data.pop("payload", None)
         return data
+
+
+#: How often a running turn says it is still running, in seconds.
+#:
+#: Fast enough that a client can conclude something from three of them going
+#: missing, slow enough to be nothing on the wire. It travels ON the frame
+#: (``every_ms``) rather than being a number both tiers hold: a client that
+#: derives its deadline from a constant it keeps in its own source is predicting
+#: the server rather than observing it, and that prediction is exactly what this
+#: frame exists to replace.
+TURN_HEARTBEAT_SECONDS = 20.0
+
+
+class GridTurnHeartbeat(BaseModel):
+    """ "This turn is still running."
+
+    A synchronous turn can be legitimately silent on the socket for a very long
+    time — a single LLM call is allowed ``request_timeout: 600`` in
+    ``configs/config_oib_openrouter.yml``, and a deep-research turn that runs on
+    this socket (no job dispatcher configured) produces nothing on it for the
+    whole of its run. The client had no way to tell that from a backend that had
+    died with the socket still open, so it PREDICTED the server's own ceiling —
+    a copy of ``DEFAULT_MAX_RUN_SECONDS`` in the frontend, with nothing keeping
+    the two in step, and forty minutes of a locked composer whenever a turn
+    really was gone.
+
+    With this frame the client measures liveness instead. Beats arriving means
+    the server still owns the turn and its own deadline applies; beats stopping
+    means the turn is gone, and the client can say so in a minute rather than in
+    forty.
+
+    Grid-owned and ``grid_``-prefixed for the same reason as
+    :class:`GridStageMessage`: NAT resolves a frame's schema through a vendored
+    ``StrEnum`` that cannot gain a member without patching the dependency.
+
+    It is deliberately NOT a status line. It says nothing about what the turn is
+    doing — ``turn_status`` is that channel, and it is rightly silent through the
+    phases where nothing an architect would recognise is happening. This frame is
+    for the machine.
+    """
+
+    type: Literal["grid_turn_heartbeat"] = "grid_turn_heartbeat"
+    v: int = 1
+    conversation_id: str
+    #: The WS ``user_message`` id of the running turn, when there is one — the
+    #: same correlation key every other frame of the turn carries.
+    parent_id: str | None = None
+    #: The cadence the server intends to keep, in milliseconds. The client's
+    #: tolerance is a multiple of THIS, so changing the interval above needs no
+    #: matching change in the frontend.
+    every_ms: int
+    timestamp: str
+
+
+async def _beat_while_running(conversation_id: str | None, parent_id: str | None) -> None:
+    """Send a heartbeat for as long as this coroutine is not cancelled.
+
+    Sleeps FIRST, so a turn that answers in two seconds puts nothing extra on
+    the wire — the frame only has to exist for turns long enough to look dead.
+
+    Every send is guarded. A heartbeat is worth strictly less than the answer it
+    accompanies, and the failure it would most likely hit — no socket, because
+    the reader closed the tab — is not a failure at all. ``_registry.send``
+    returning ``False`` is normal and the loop keeps going: the client may
+    reconnect mid-turn, and it needs the beats that come after it does.
+    """
+    if not conversation_id:
+        return
+    every_ms = int(TURN_HEARTBEAT_SECONDS * 1000)
+    while True:
+        await asyncio.sleep(TURN_HEARTBEAT_SECONDS)
+        try:
+            await _registry.send(
+                conversation_id,
+                GridTurnHeartbeat(
+                    conversation_id=conversation_id,
+                    parent_id=parent_id,
+                    every_ms=every_ms,
+                    timestamp=datetime.now(UTC).isoformat(),
+                ),
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # pragma: no cover - the turn must not care
+            logger.debug("Turn heartbeat failed for %s", conversation_id, exc_info=True)
 
 
 async def send_stage_frame(conversation_id: str, frame: dict[str, Any]) -> bool:
@@ -1371,6 +1458,14 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
         socket_scope = getattr(getattr(self, "_socket", None), "scope", {})
         current_user = self._authenticated_user or detect_internal_caller(dict(socket_scope.get("headers", [])))
         with user_context(current_user):
+            # Started before the workflow and stopped in the ``finally`` below,
+            # so it covers the phases the answer stream cannot: context loading
+            # before the graph starts, a tool call that takes ten minutes, and
+            # the whole of a deep-research turn that runs on this socket. A
+            # separate task on purpose — the beat has to keep going while the
+            # turn's own coroutine is inside a single long await, which is the
+            # silence the client cannot otherwise tell from a dead backend.
+            heartbeat = asyncio.create_task(_beat_while_running(conversation_id, user_message_id))
             try:
                 auth_callback = self._flow_handler.authenticate if self._flow_handler else None
                 async with self._session_manager.session(
@@ -1513,6 +1608,14 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                     )
                 except Exception:  # pragma: no cover - socket may already be closed
                     logger.warning("Failed to send workflow error frame", exc_info=True)
+            finally:
+                # The turn is over — by answer, by error, or by the client
+                # disconnecting — and a beat after that would tell the client a
+                # finished turn is still running. Awaited so the cancellation has
+                # actually landed before this frame returns.
+                heartbeat.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await heartbeat
 
 
 def install_reconnectable_handler() -> None:  # TODO: upstream to NAT
