@@ -32,6 +32,85 @@
   },
   "releases": [
     {
+      "id": "2026-09-05",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-05",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Rechtsquellen aus dem RIS öffnen jetzt in Piloti statt in einem neuen Browser-Tab. Die zitierte Stelle ist im Text markiert, die Fundstelle lässt sich als Zitat kopieren, und der Link auf die maßgebliche Veröffentlichung im RIS steht weiterhin im Kopf des Fensters.",
+              "de": "Rechtsquellen aus dem RIS öffnen jetzt in Piloti statt in einem neuen Browser-Tab. Die zitierte Stelle ist im Text markiert, die Fundstelle lässt sich als Zitat kopieren, und der Link auf die maßgebliche Veröffentlichung im RIS steht weiterhin im Kopf des Fensters."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Die zitierte Stelle wird im Dokument wieder markiert. Der Wortlaut der gelesenen Passage hat es bisher gar nicht bis zur Oberfläche geschafft — das Quellenfenster öffnete die richtige Seite, hob aber nichts hervor, die Fundstellenliste blieb ohne Text, und „Zitat kopieren\" lieferte nur die Literaturangabe statt des Zitats.",
+              "de": "Die zitierte Stelle wird im Dokument wieder markiert. Der Wortlaut der gelesenen Passage hat es bisher gar nicht bis zur Oberfläche geschafft — das Quellenfenster öffnete die richtige Seite, hob aber nichts hervor, die Fundstellenliste blieb ohne Text, und „Zitat kopieren\" lieferte nur die Literaturangabe statt des Zitats."
+            },
+            {
+              "en": "Eine Quelle nennt jetzt nur noch die Seiten, auf die sich die Antwort wirklich bezieht. Bisher standen dort auch Seiten, die nur gelesen wurden — und beim Kopieren fehlte die Seitenzahl dafür ganz.",
+              "de": "Eine Quelle nennt jetzt nur noch die Seiten, auf die sich die Antwort wirklich bezieht. Bisher standen dort auch Seiten, die nur gelesen wurden — und beim Kopieren fehlte die Seitenzahl dafür ganz."
+            },
+            {
+              "en": "Ein Klick auf eine Fundstelle öffnet das Dokument wieder an der Stelle, auf die sich die Antwort bezieht. Nennt die Quellenliste einer Antwort das Dokument ohne Seitenzahl, wurde bisher Seite 1 geöffnet, obwohl die Seite bekannt war.",
+              "de": "Ein Klick auf eine Fundstelle öffnet das Dokument wieder an der Stelle, auf die sich die Antwort bezieht. Nennt die Quellenliste einer Antwort das Dokument ohne Seitenzahl, wurde bisher Seite 1 geöffnet, obwohl die Seite bekannt war."
+            },
+            {
+              "en": "Referenzierte Dateien, die Piloti nicht anzeigen kann — Word-Dokumente, Tabellen, Zeichnungen —, lassen sich jetzt aus der Quellenangabe herunterladen. Bisher gab es weder einen Weg hinein noch einen Hinweis, warum.",
+              "de": "Referenzierte Dateien, die Piloti nicht anzeigen kann — Word-Dokumente, Tabellen, Zeichnungen —, lassen sich jetzt aus der Quellenangabe herunterladen. Bisher gab es weder einen Weg hinein noch einen Hinweis, warum."
+            },
+            {
+              "en": "Eine laufende Recherche wird nicht mehr als „Antwort unterbrochen\" gemeldet. Bleibt eine Antwort still, sucht Piloti erst beim Server nach dem fertigen Ergebnis und zeigt es an, statt zum erneuten Senden aufzufordern — und der Hinweis bleibt aus, wenn die Antwort inzwischen da ist.",
+              "de": "Eine laufende Recherche wird nicht mehr als „Antwort unterbrochen\" gemeldet. Bleibt eine Antwort still, sucht Piloti erst beim Server nach dem fertigen Ergebnis und zeigt es an, statt zum erneuten Senden aufzufordern — und der Hinweis bleibt aus, wenn die Antwort inzwischen da ist."
+            },
+            {
+              "en": "Bricht eine Antwort wirklich ab, sagt Piloti das jetzt nach etwa einer Minute statt nach bis zu vierzig. Der Server meldet laufend, dass er noch an der Antwort arbeitet; bleiben diese Meldungen aus, ist das Eingabefeld sofort wieder frei.",
+              "de": "Bricht eine Antwort wirklich ab, sagt Piloti das jetzt nach etwa einer Minute statt nach bis zu vierzig. Der Server meldet laufend, dass er noch an der Antwort arbeitet; bleiben diese Meldungen aus, ist das Eingabefeld sofort wieder frei."
+            },
+            {
+              "en": "Rechtsquellen im RIS-Leser werden vollständig angezeigt. Die Textgrenze lag unter der Länge der Wiener Bauordnung, sodass ausgerechnet § 108 außerhalb des Ausschnitts lag; bei sehr langen Gesetzen wird er jetzt um die zitierte Stelle herum gewählt, und das Fenster öffnet auch dort ohne Verzögerung. Die Navigationsleiste der RIS-Seite steht nicht mehr über dem Gesetzestext.",
+              "de": "Rechtsquellen im RIS-Leser werden vollständig angezeigt. Die Textgrenze lag unter der Länge der Wiener Bauordnung, sodass ausgerechnet § 108 außerhalb des Ausschnitts lag; bei sehr langen Gesetzen wird er jetzt um die zitierte Stelle herum gewählt, und das Fenster öffnet auch dort ohne Verzögerung. Die Navigationsleiste der RIS-Seite steht nicht mehr über dem Gesetzestext."
+            },
+            {
+              "en": "Lange Deep-Research-Berichte lassen sich wieder als PDF herunterladen. Die Obergrenze richtet sich jetzt nach dem Aufwand der Darstellung statt nach der reinen Zeichenzahl, sodass ein umfangreicher Fließtext-Bericht nicht mehr abgelehnt wird. Schlägt ein Export doch fehl, steht dort jetzt der Grund statt „Bad Request\".",
+              "de": "Lange Deep-Research-Berichte lassen sich wieder als PDF herunterladen. Die Obergrenze richtet sich jetzt nach dem Aufwand der Darstellung statt nach der reinen Zeichenzahl, sodass ein umfangreicher Fließtext-Bericht nicht mehr abgelehnt wird. Schlägt ein Export doch fehl, steht dort jetzt der Grund statt „Bad Request\"."
+            },
+            {
+              "en": "Eine Datei, deren Name eine OIB-Richtlinie nennt — etwa ein eigener Kommentar dazu —, wird nicht mehr mit der Richtlinie selbst zu einer Quelle zusammengefasst. Bisher führte die Fundstelle in einem solchen Fall in das falsche Dokument.",
+              "de": "Eine Datei, deren Name eine OIB-Richtlinie nennt — etwa ein eigener Kommentar dazu —, wird nicht mehr mit der Richtlinie selbst zu einer Quelle zusammengefasst. Bisher führte die Fundstelle in einem solchen Fall in das falsche Dokument."
+            },
+            {
+              "en": "Kopierte Zitate nennen jetzt den Punkt, nach dem in Österreich zitiert wird („OIB-Richtlinie 2, Pkt. 3.5.2\"). Bisher stand dort nur die Seite, auf der dieser Punkt in einer Ausgabe abgedruckt ist. Kennt eine Fundstelle den Punkt, aber keine Seite, steht er auch in der Fundstellenangabe, statt „Gesamtes Dokument\".",
+              "de": "Kopierte Zitate nennen jetzt den Punkt, nach dem in Österreich zitiert wird („OIB-Richtlinie 2, Pkt. 3.5.2\"). Bisher stand dort nur die Seite, auf der dieser Punkt in einer Ausgabe abgedruckt ist. Kennt eine Fundstelle den Punkt, aber keine Seite, steht er auch in der Fundstellenangabe, statt „Gesamtes Dokument\"."
+            },
+            {
+              "en": "Eine Datei, die während des Gesprächs hochgeladen wurde, lässt sich aus der Quellenangabe der Antwort öffnen. Bisher meldete die Quelle bis zum Neuladen der Seite, es gebe nichts zu öffnen — obwohl die Antwort genau darauf beruhte. Umbenannte und gelöschte Dokumente werden ebenso sofort berücksichtigt.",
+              "de": "Eine Datei, die während des Gesprächs hochgeladen wurde, lässt sich aus der Quellenangabe der Antwort öffnen. Bisher meldete die Quelle bis zum Neuladen der Seite, es gebe nichts zu öffnen — obwohl die Antwort genau darauf beruhte. Umbenannte und gelöschte Dokumente werden ebenso sofort berücksichtigt."
+            },
+            {
+              "en": "Die zitierte Passage überlebt jetzt das Neuladen. Auf den Wegen, auf denen der Server die Antwort speichert — Deep Research und jede Antwort, deren Fenster währenddessen geschlossen wurde —, ging sie verloren, sodass die Markierung im Dokument nach einem Neuladen fehlte.",
+              "de": "Die zitierte Passage überlebt jetzt das Neuladen. Auf den Wegen, auf denen der Server die Antwort speichert — Deep Research und jede Antwort, deren Fenster währenddessen geschlossen wurde —, ging sie verloren, sodass die Markierung im Dokument nach einem Neuladen fehlte."
+            },
+            {
+              "en": "In der Herleitung nennt eine abgerufene, aber nicht zitierte Quelle wieder die Seiten, die tatsächlich gelesen wurden.",
+              "de": "In der Herleitung nennt eine abgerufene, aber nicht zitierte Quelle wieder die Seiten, die tatsächlich gelesen wurden."
+            },
+            {
+              "en": "Werden mehrere Rechtsquellen sehr schnell hintereinander geöffnet, sagt das Fenster jetzt, dass kurz gewartet werden muss — statt zu melden, die Quelle lasse sich nicht anzeigen.",
+              "de": "Werden mehrere Rechtsquellen sehr schnell hintereinander geöffnet, sagt das Fenster jetzt, dass kurz gewartet werden muss — statt zu melden, die Quelle lasse sich nicht anzeigen."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-09-04",
       "kind": "date",
       "version": null,
