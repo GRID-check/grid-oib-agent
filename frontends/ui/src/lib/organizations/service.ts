@@ -10,6 +10,7 @@ import 'server-only'
 import { findOrganization, upsertOrganization } from './repository'
 import { getWorkOS } from '@/lib/workos/client'
 import { getCached, invalidateCached } from '@/lib/cache'
+import { invalidateBackendModelConfig } from '@/lib/model-config/backend-key'
 import { PLATFORM_OWNED_SETTINGS, type Organization } from '@/lib/db/schema'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
@@ -360,6 +361,8 @@ export async function setOrgZdrOnly(
 ): Promise<boolean> {
   await updateOrgSettings(session.organizationId, { settings: { zdrOnly: enabled } })
   await invalidateCached(zdrOnlyCacheKey(session.organizationId))
+  // The backend folds ZDR into the same cached record as the model overrides.
+  await invalidateBackendModelConfig(session.organizationId)
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },
@@ -385,6 +388,7 @@ export async function saveOrgSettings(
   const settings = await updateOrgSettings(session.organizationId, patch)
   await invalidateCached(webSearchCacheKey(session.organizationId))
   await invalidateCached(zdrOnlyCacheKey(session.organizationId))
+  await invalidateBackendModelConfig(session.organizationId)
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },

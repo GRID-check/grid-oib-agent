@@ -96,7 +96,6 @@ In production, consider:
 
 | Key | Production Format | Dev Format | Purpose |
 |-----|------------------|------------|---------|
-| `KIMI_API_KEY` | `sk-...` (Kimi) | `sk-kimi-...` | LLM inference |
 | `TAVILY_API_KEY` | `tvly-...` | `tvly-dev-...` | Web search |
 | `OPENROUTER_API_KEY` | `sk-or-...` | `sk-or-...` | Embedding models (workaround) |
 

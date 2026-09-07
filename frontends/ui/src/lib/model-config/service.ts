@@ -11,6 +11,7 @@ import 'server-only'
 import { and, desc, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { getCached, invalidateCached } from '@/lib/cache'
+import { invalidateBackendModelConfig } from './backend-key'
 import {
   orgModelConfigs,
   orgModelConfigVersions,
@@ -158,6 +159,7 @@ export async function createAndActivateVersion(params: {
     return inserted
   }).then(async (inserted) => {
     await invalidateCached(overridesCacheKey(params.organizationId))
+    await invalidateBackendModelConfig(params.organizationId)
     return inserted
   })
 }
@@ -200,5 +202,6 @@ export async function activateVersion(params: {
       set: { activeVersionId: params.versionId, updatedBy: params.actorUserId, updatedAt: new Date() },
     })
   await invalidateCached(overridesCacheKey(params.organizationId))
+  await invalidateBackendModelConfig(params.organizationId)
   return version
 }

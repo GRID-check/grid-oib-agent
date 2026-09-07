@@ -4,6 +4,16 @@
  * Called by server.js during the WebSocket upgrade handshake. It resolves the
  * current Grid session from the encrypted WorkOS cookie, builds the ordered
  * collection scope, and returns the base64url-encoded header value.
+ *
+ * Two serial legs, then everything else at once. The session and the
+ * collection scope decide whether the caller may be here at all, so they come
+ * first and alone; the eight lookups after them (flags, settings, model
+ * overrides, budget, project profile, Bundesland, memory) are independent of
+ * each other and used to run one after the other — ten awaited round-trips on
+ * every socket rotation. They now run in one `Promise.all`. Each keeps the
+ * failure posture it had: the ones that were best-effort still degrade to
+ * "absent" with a warning, the two that were not (the reflection flag and the
+ * project prompt view) still fail the upgrade.
  */
 
 import { NextResponse } from 'next/server'
@@ -19,6 +29,16 @@ import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { getBudgetStatus } from '@/lib/budgets/service'
 import { isAuthzError } from '@/lib/auth-utils'
 import { isAuthRequired } from '@/lib/backend-proxy'
+
+/** Run a best-effort lookup: its failure is logged and read as "absent". */
+async function bestEffort<T>(what: string, load: () => Promise<T>): Promise<T | null> {
+  try {
+    return await load()
+  } catch (error) {
+    console.warn(`[WebSocket Scope API] Failed to ${what}:`, error)
+    return null
+  }
+}
 
 export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Response> {
   try {
@@ -55,51 +75,95 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       response.accessToken = session.accessToken
     }
 
-    // Gate the async memory-reflection stage: with WorkOS flag enforcement
-    // on, the per-org "memory-reflection" flag is the source of truth; without
-    // enforcement it follows GRID_MEMORY_REFLECTION_ENABLED (default on) — see
-    // isMemoryReflectionEnabled. server.js forwards this as
-    // x-grid-feature-memory-reflection.
-    response.memoryReflectionEnabled = await isMemoryReflectionEnabled(session?.organizationId)
+    const organizationId = session?.organizationId
 
-    if (session?.organizationId) {
+    const [
+      memoryReflectionEnabled,
+      webSearchEnabled,
+      modelOverrides,
+      budgetStatus,
+      projectContext,
+      bundesland,
+      projectMemory,
+    ] = await Promise.all([
+      // Gate the async memory-reflection stage: with WorkOS flag enforcement
+      // on, the per-org "memory-reflection" flag is the source of truth; without
+      // enforcement it follows GRID_MEMORY_REFLECTION_ENABLED (default on) — see
+      // isMemoryReflectionEnabled. server.js forwards this as
+      // x-grid-feature-memory-reflection.
+      isMemoryReflectionEnabled(organizationId),
       // Org-level web-search setting (ADR-0022): when off, server.js forwards
       // x-grid-disabled-sources and the backend subtracts the source from
       // every tool selection — enforcement, not just UI hiding. Best-effort:
       // a lookup failure must not take chat down (web search stays on).
-      try {
-        if (!(await isWebSearchEnabledForOrg(session.organizationId))) {
-          response.disabledSources = ['web_search']
-        }
-      } catch (error) {
-        console.warn('[WebSocket Scope API] Failed to resolve web-search setting:', error)
-      }
-
+      organizationId
+        ? bestEffort('resolve web-search setting', () => isWebSearchEnabledForOrg(organizationId))
+        : Promise.resolve(null),
       // Effective runtime model selection — the platform defaults
       // (`platform_model_defaults`) with the org's own active
       // org_model_configs version layered on top — forwarded by server.js as
       // x-grid-model-overrides. Best-effort: a config read failure must not
       // block chat; the workflow YAML models apply instead.
-      try {
-        const modelOverrides = await getEffectiveModelOverrides(session.organizationId)
-        if (modelOverrides) {
-          response.modelOverrides = modelOverrides
-        }
-      } catch (error) {
-        console.warn('[WebSocket Scope API] Failed to load model overrides:', error)
-      }
-
+      organizationId
+        ? bestEffort('load model overrides', () => getEffectiveModelOverrides(organizationId))
+        : Promise.resolve(null),
       // Budget enforcement (ADR-0015): refuse the upgrade outright when a
       // budget scope is already exhausted, otherwise forward the remaining
       // budget so the backend tracker can stop a runaway turn mid-flight.
       // Fails OPEN on read errors — a broken budget lookup must not take
       // chat down; enforcement resumes on the next healthy upgrade.
-      try {
-        const budgetStatus = await getBudgetStatus(
-          session.organizationId,
-          session.userId,
-          projectId ?? null
-        )
+      organizationId && session
+        ? bestEffort('compute budget status', () =>
+            getBudgetStatus(organizationId, session.userId, projectId ?? null)
+          )
+        : Promise.resolve(null),
+      // Access is already enforced: buildCollectionScopeFromRequest ran
+      // requireProjectAccess for this exact (session, projectId) under the
+      // same auth-required condition, so re-checking here only repeated the
+      // tenancy query and FGA round-trips.
+      // Residual exposure: when REQUIRE_AUTH is off (anonymous single-tenant
+      // deployments) there is no session, so the caller-supplied projectId
+      // reaches loadProjectPromptView and the memory digest unchecked. The
+      // service layer pins queries to session.organizationId whenever a
+      // session exists (defense-in-depth); fully gating anonymous mode is a
+      // product decision.
+      projectId ? loadProjectPromptView(projectId, organizationId) : Promise.resolve(null),
+      // Structured jurisdiction fact (backlog T3-9 follow-up, 2026-07-16,
+      // user-mandated) — becomes the envelope's `bundesland` field on the WS
+      // upgrade (server.js), a parallel channel alongside the unchanged
+      // `bundesland=<token>` line already inside `projectContext` above.
+      // Best-effort: a lookup failure must not block the chat handshake, it
+      // just means the backend falls back to prompt-text parsing.
+      projectId
+        ? bestEffort('load bundesland fact', () => loadProjectBundesland(projectId, organizationId))
+        : Promise.resolve(null),
+      // Core memory digest (bounded) — becomes x-grid-project-memory on the WS
+      // upgrade. Merges project items with org-wide items; org knowledge applies
+      // even outside a project-scoped chat. What the project decided about
+      // earlier proposals rides the same channel. Best-effort: memory must
+      // never block the chat handshake, and a failed digest drops the whole
+      // block, as it always did.
+      bestEffort('build project memory digest', async () => {
+        const [digest, decisions] = await Promise.all([
+          buildProjectMemoryDigest(projectId, organizationId ?? undefined),
+          projectId && organizationId
+            ? buildProposalDecisionsBlock(projectId, organizationId).catch(() => null)
+            : Promise.resolve(null),
+        ])
+        return composeMemoryContext(digest, decisions)
+      }),
+    ])
+
+    response.memoryReflectionEnabled = memoryReflectionEnabled
+
+    if (organizationId) {
+      if (webSearchEnabled === false) {
+        response.disabledSources = ['web_search']
+      }
+      if (modelOverrides) {
+        response.modelOverrides = modelOverrides
+      }
+      if (budgetStatus) {
         if (budgetStatus.blocked) {
           return NextResponse.json(
             {
@@ -114,61 +178,21 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
           remainingUserUsd: budgetStatus.remainingUserUsd,
           remainingProjectUsd: budgetStatus.remainingProjectUsd,
         }
-      } catch (error) {
-        console.warn('[WebSocket Scope API] Failed to compute budget status:', error)
       }
     }
 
     if (projectId) {
-      // Access is already enforced: buildCollectionScopeFromRequest ran
-      // requireProjectAccess for this exact (session, projectId) under the
-      // same auth-required condition, so re-checking here only repeated the
-      // tenancy query and FGA round-trips.
-      // Residual exposure: when REQUIRE_AUTH is off (anonymous single-tenant
-      // deployments) there is no session, so the caller-supplied projectId
-      // reaches loadProjectPromptView and the memory digest unchecked. The
-      // service layer pins queries to session.organizationId whenever a
-      // session exists (defense-in-depth); fully gating anonymous mode is a
-      // product decision.
       response.projectId = projectId
-      const projectContext = await loadProjectPromptView(projectId, session?.organizationId)
       if (projectContext) {
         response.projectContext = projectContext
       }
-
-      // Structured jurisdiction fact (backlog T3-9 follow-up, 2026-07-16,
-      // user-mandated) — becomes the envelope's `bundesland` field on the WS
-      // upgrade (server.js), a parallel channel alongside the unchanged
-      // `bundesland=<token>` line already inside `projectContext` above.
-      // Best-effort: a lookup failure must not block the chat handshake, it
-      // just means the backend falls back to prompt-text parsing.
-      try {
-        const bundesland = await loadProjectBundesland(projectId, session?.organizationId)
-        if (bundesland) {
-          response.bundesland = bundesland
-        }
-      } catch (error) {
-        console.warn('[WebSocket Scope API] Failed to load bundesland fact:', error)
+      if (bundesland) {
+        response.bundesland = bundesland
       }
     }
 
-    // Core memory digest (bounded) — becomes x-grid-project-memory on the WS
-    // upgrade. Merges project items with org-wide items; org knowledge applies
-    // even outside a project-scoped chat. Best-effort: memory must never block
-    // the chat handshake.
-    try {
-      const digest = await buildProjectMemoryDigest(projectId, session?.organizationId ?? undefined)
-      // What the project decided about earlier proposals, on the same channel.
-      const decisions =
-        projectId && session?.organizationId
-          ? await buildProposalDecisionsBlock(projectId, session.organizationId).catch(() => null)
-          : null
-      const projectMemory = composeMemoryContext(digest, decisions)
-      if (projectMemory) {
-        response.projectMemory = projectMemory
-      }
-    } catch (error) {
-      console.warn('[WebSocket Scope API] Failed to build project memory digest:', error)
+    if (projectMemory) {
+      response.projectMemory = projectMemory
     }
 
     return NextResponse.json(response, { status: 200 })

@@ -145,6 +145,16 @@ class AgentProfiler(BaseCallbackHandler):
             )
         return span_id
 
+    def annotate(self, span_id: str, facts: dict[str, Any]) -> None:
+        """Merge ``facts`` into an OPEN span's metadata; a closed span is left alone."""
+        with self._lock:
+            open_span = self._open.get(span_id)
+            if open_span is None:
+                return
+            if open_span.metadata is None:
+                open_span.metadata = {}
+            open_span.metadata.update(facts)
+
     def end_span(self, span_id: str, *, status: str = "ok", error: str | None = None) -> None:
         with self._lock:
             open_span = self._open.pop(span_id, None)
@@ -370,6 +380,27 @@ def profiled_span(name: str, kind: SpanKind = "node"):
         profiler.end_span(span_id, status="ok")
     finally:
         current_span_var.reset(token)
+
+
+def annotate_current_span(**facts: Any) -> None:
+    """Record facts on the innermost open span, e.g. ``cache_model_config="hit"``.
+
+    The TTL-cached readers on the turn's path (org model config, skills, the
+    norm store, retrieval and reasoning settings, the citation registry) were
+    silent about whether they hit: a warm turn and a cold one wrote the same
+    rows, so no percentile over the waterfall could be read. A no-op without an
+    active profiler, and never raises — the span is a record, not a dependency.
+    ContextVars travel into ``asyncio.to_thread``, so a reader running on a
+    worker thread still lands on the turn's span.
+    """
+    try:
+        profiler = agent_profiler_var.get()
+        span_id = current_span_var.get()
+        if profiler is None or span_id is None:
+            return
+        profiler.annotate(span_id, facts)
+    except Exception:  # noqa: BLE001 - observability must never take a turn down
+        logger.debug("Span annotation failed", exc_info=True)
 
 
 def _read_identity_from_context() -> dict[str, str | None]:

@@ -37,7 +37,7 @@ Set the following keys in `deploy/.env`:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NVIDIA_API_KEY` | Yes | NVIDIA API key for NIM access when using NVIDIA-hosted models. |
+| `OPENROUTER_API_KEY` | Yes | Every model, the embeddings, the VLM and the reranker route through OpenRouter. |
 | `TAVILY_API_KEY` | One required | Web search provider key. |
 | `SERPER_API_KEY` | One required | Web search provider key (alternative to Tavily). |
 

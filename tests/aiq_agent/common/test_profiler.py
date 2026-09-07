@@ -303,3 +303,39 @@ class TestDeferredFlush:
         from aiq_agent.common.profiler import flush_after_answer
 
         await flush_after_answer(None, None)
+
+
+class TestAnnotateCurrentSpan:
+    """A TTL-cached reader says whether it hit, on the span that was open."""
+
+    def test_facts_land_on_the_innermost_open_span(self):
+        from aiq_agent.common.profiler import annotate_current_span
+        from aiq_agent.common.profiler import profiled_span
+
+        with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
+            with track_agent_profile(agent_name="chat_researcher", identity={"organization_id": "org_1"}):
+                with profiled_span("setup.project_context"):
+                    annotate_current_span(cache_model_config="miss")
+                    annotate_current_span(cache_skills="hit")
+        spans = post.call_args.args[0]["spans"]
+        setup = next(s for s in spans if s["name"] == "setup.project_context")
+        assert setup["metadata"] == {"cache_model_config": "miss", "cache_skills": "hit"}
+        root = next(s for s in spans if s["kind"] == "turn")
+        assert root["metadata"] is None
+
+    def test_noop_without_a_profiler(self):
+        from aiq_agent.common.profiler import annotate_current_span
+
+        assert agent_profiler_var.get() is None
+        annotate_current_span(cache_model_config="miss")  # must not raise
+
+    async def test_a_reader_on_a_worker_thread_still_reaches_the_turn_span(self):
+        import asyncio
+
+        from aiq_agent.common.profiler import annotate_current_span
+
+        with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
+            with track_agent_profile(agent_name="chat_researcher", identity={"organization_id": "org_1"}):
+                await asyncio.to_thread(annotate_current_span, cache_model_config="hit")
+        root = next(s for s in post.call_args.args[0]["spans"] if s["kind"] == "turn")
+        assert root["metadata"] == {"cache_model_config": "hit"}

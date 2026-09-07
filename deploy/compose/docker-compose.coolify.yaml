@@ -143,7 +143,6 @@ services:
       - DASK_DISTRIBUTED__LOGGING__DISTRIBUTED=${DASK_DISTRIBUTED__LOGGING__DISTRIBUTED:-warning}
       - PYTHONWARNINGS=${PYTHONWARNINGS:-ignore}
       # ── Optional keys (unused by the OpenRouter config; passthrough if set) ──
-      - KIMI_API_KEY=${KIMI_API_KEY:-}
       # ── Auth / admin control-plane ──
       # Required: gates POST /v1/admin/oib/sync (KB re-ingestion). An empty value
       # makes routes/oib.py fail OPEN, so the deploy fails fast if it is unset

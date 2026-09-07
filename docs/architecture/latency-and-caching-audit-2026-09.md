@@ -324,8 +324,10 @@ here.
 
 ### 3.9 The WebSocket upgrade chain, when a turn pays for it
 
-**[LANDED, the cache]** `GRID_AUTHZ_CACHE_TTL_MS` defaults to 30 000 now;
-tenancy stays uncached. The route's serial awaits are still open.
+**[LANDED]** `GRID_AUTHZ_CACHE_TTL_MS` defaults to 30 000 now, tenancy
+stays uncached, and the route runs its eight independent lookups in one
+`Promise.all` after the two serial legs (session, scope), each keeping its
+failure posture.
 
 `server.js:580-788` resolves the scope through a loopback HTTP call to
 `app/api/auth/websocket-scope/route.ts`, which awaits ten steps in sequence
@@ -432,10 +434,11 @@ Ranked by seconds saved per turn:
    replica and is invisible to the other replicas and the deep workers
    (`collection_version.py:20-24` counts them). One embedding is a JSON list
    small enough for Dragonfly; the key is `(model, sha256(text))`.
-5. **Backend org model overrides, in the shared tier.** The BFF invalidates its
-   own key on save (`lib/model-config/service.ts:160,202`); the backend keeps a
-   60 s per-process copy that the save cannot reach. Public config, no ADR-0022
-   constraint, straightforward move. The credential cache stays per-process.
+5. **Backend org model overrides, in the shared tier.** **[LANDED]** The
+   backend memoises for 10 s in process and keeps `modelconfig:{org}` in
+   Dragonfly for 5 min; the BFF deletes it on config save/rollback, ZDR
+   toggle and (by prefix) platform-defaults save, so a save reaches the fleet
+   within ~10 s. The credential cache stays per-process.
 6. **A semantic result cache.** `rag-system-audit-2026-08.md:369` (F15) already
    names it. Defer until the hit rate of the exact-key cache is measured; it is
    the largest change and the least certain win.
@@ -479,8 +482,8 @@ its own path (`:208-213`); `get_json` and `set_json` do it anyway.
 and outside admission, with `setup.project_context`,
 `setup.available_documents`, `setup.session_registry`, `setup.ingest_status`,
 `setup.ingest_wait` and `admission.wait` spans, and the turn's outcome
-(`admission_refused`, `budget_exceeded`) on the root span's metadata. Steps
-2 to 5 are still open.
+(`admission_refused`, `budget_exceeded`) on the root span's metadata. Step 2 landed
+with the readers' cache annotations; steps 3 to 5 are still open.
 
 The repo has one measured chat-turn number, and it is a YAML comment: the
 synthesis call at ≈ 29 s on a reasoning model at `medium`
@@ -499,9 +502,10 @@ admission queue wait are invisible to it. Minimal additions, in order:
 1. Move the profiler block to wrap the whole of `_run` from the first status
    frame, outside admission, with spans named `setup.context`,
    `setup.documents`, `setup.ingest_wait`, `admission.wait`, `teardown.flush`.
-2. Stamp `{"cache": "hit" | "miss"}` into span metadata at the TTL-cached
-   readers (norm store, model overrides, retrieval settings, skills, the two
-   cache modules). Without it a warm turn and a cold one are the same row.
+2. **[LANDED]** The TTL-cached readers stamp `cache_<name>: hit | hit-shared |
+   miss | error` onto the open span (`profiler.annotate_current_span`): model
+   config, skills, retrieval and reasoning settings, the citation registry.
+   A warm turn and a cold one are now different rows.
 3. One SQL over `agent_profiler_spans`: `percentile_cont(0.5, 0.95)` of
    `duration_ms` grouped by `kind, name` over a window. The indexes are there.
 4. One SQL over `llm_usage_events`: `sum(cached_tokens) / sum(prompt_tokens)`

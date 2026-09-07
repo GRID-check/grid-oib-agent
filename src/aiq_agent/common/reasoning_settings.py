@@ -115,10 +115,14 @@ def _resolve() -> dict[str, str]:
     """Cached resolution of the platform efforts (shared hot path)."""
     global _cache
     now = time.monotonic()
+    from aiq_agent.common.profiler import annotate_current_span
+
     with _cache_lock:
         if _cache is not None and _cache.expires_at > now:
+            annotate_current_span(cache_reasoning_settings="hit")
             return _cache.efforts
 
+    annotate_current_span(cache_reasoning_settings="miss")
     try:
         efforts = _fetch_efforts()
         ttl = _POSITIVE_TTL_SECONDS if efforts else _NEGATIVE_TTL_SECONDS

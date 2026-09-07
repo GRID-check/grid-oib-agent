@@ -620,9 +620,12 @@ def get_or_create_session_registry(session_id: str | None) -> SourceRegistry:
     """
     if session_id is None:
         return SourceRegistry()
+    from aiq_agent.common.profiler import annotate_current_span
+
     with _session_registries_lock:
         if session_id in _session_registries:
             _session_registries.move_to_end(session_id)
+            annotate_current_span(cache_citation_registry="hit")
             return _session_registries[session_id]
 
     # Shared-cache hydration outside the lock (network I/O must not serialize
@@ -636,6 +639,7 @@ def get_or_create_session_registry(session_id: str | None) -> SourceRegistry:
             hydrated = _registry_from_cached_entries(entries)
     except Exception:
         logger.debug("Citation registry hydration failed for %s", session_id, exc_info=True)
+    annotate_current_span(cache_citation_registry="hit-shared" if hydrated is not None else "miss")
 
     with _session_registries_lock:
         if session_id in _session_registries:
