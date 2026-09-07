@@ -24,12 +24,15 @@ export interface ResourceCheckInput {
 }
 
 /**
- * Optional short-TTL cache of `authorization.check` results.
+ * Short-TTL cache of `authorization.check` results.
  *
- * `GRID_AUTHZ_CACHE_TTL_MS` (default `0` = OFF) caches the boolean result for
- * (organizationMembershipId, resourceType, resourceId, permission).
+ * `GRID_AUTHZ_CACHE_TTL_MS` (default `30000`; `0` switches it OFF) caches the
+ * boolean result for (organizationMembershipId, resourceType, resourceId,
+ * permission). On by default since 2026-09: the websocket-scope route and every
+ * project save paid up to three WorkOS round-trips per request for a grant
+ * that changes a few times a year.
  *
- * Security tradeoff, accepted only when explicitly enabled:
+ * Security tradeoff, accepted with the default:
  *   - A grant or revocation propagates up to TTL later. Keep it short (30–60s),
  *     matching the existing feature-flag cache.
  *   - Tenancy is NEVER cached — callers check it on every request against
@@ -38,9 +41,11 @@ export interface ResourceCheckInput {
  *   - Org admins bypass FGA before this cache is consulted, so an admin
  *     grant/revoke is unaffected.
  */
+export const DEFAULT_AUTHZ_CACHE_TTL_MS = 30_000
+
 export function authzCacheTtlMs(): number {
   const raw = process.env.GRID_AUTHZ_CACHE_TTL_MS
-  if (raw === undefined || raw === '') return 0
+  if (raw === undefined || raw === '') return DEFAULT_AUTHZ_CACHE_TTL_MS
   const parsed = Number(raw)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
 }

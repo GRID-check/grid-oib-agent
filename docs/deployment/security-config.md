@@ -131,28 +131,26 @@ This is a simple bearer token. Change it from the default before deploying to pr
 
 ### Current State
 
-The system uses a workaround for VLM and embedding features:
-
-- LlamaIndex's `NVIDIAEmbedding` class reads `NVIDIA_API_KEY` from the environment
-- In the local development `.env`, `NVIDIA_API_KEY` is set to the same value as `OPENROUTER_API_KEY`
-- This works because the embedding base URL is overridden via `AIQ_EMBED_BASE_URL` to point at OpenRouter instead of NVIDIA
+Embeddings and the VLM route through OpenRouter with `OPENROUTER_API_KEY`; the
+embeddings client is LlamaIndex's `NVIDIAEmbedding` class pointed at an
+OpenAI-compatible endpoint, and the key reaches it through the shared credential
+resolver (`AIQ_EMBED_API_KEY`, else the key inferred from `AIQ_EMBED_BASE_URL`).
+`NVIDIA_API_KEY` is not read anywhere.
 
 ### What's Needed For VLM Features
 
-Vision-Language Model features (table extraction, image extraction, chart extraction) require a **real NVIDIA NGC API key**:
+Vision-Language Model features (table extraction, image extraction, chart
+extraction) need only the extraction flags; the model and host default to
+OpenRouter:
 
 ```bash
 AIQ_EXTRACT_TABLES=true
 AIQ_EXTRACT_IMAGES=true
 AIQ_EXTRACT_CHARTS=true
-AIQ_VLM_MODEL=nvidia/nemotron-nano-12b-v2-vl
-AIQ_VLM_BASE_URL=https://integrate.api.nvidia.com/v1
+# defaults, shown for completeness
+AIQ_VLM_MODEL=google/gemma-4-31b-it
+AIQ_VLM_BASE_URL=https://openrouter.ai/api/v1
 ```
-
-To obtain an NVIDIA API key:
-1. Sign up at [build.nvidia.com](https://build.nvidia.com)
-2. Generate an API key from the NVIDIA API Console
-3. For production, set `NVIDIA_API_KEY` to the real key
 
 ## PostgreSQL
 

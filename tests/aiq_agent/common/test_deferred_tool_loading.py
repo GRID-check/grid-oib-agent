@@ -216,7 +216,7 @@ def test_openrouter_plus_responses_api_supports_deferral():
 
 
 def test_chat_completions_does_not_support_deferral():
-    # config_web_kimi.yml's Kimi endpoint: Chat Completions, no namespace tools.
+    # A Kimi endpoint: Chat Completions, no namespace tools.
     assert supports_deferred_tool_loading(FakeOpenRouterLLM(use_responses_api=False)) is False
 
 

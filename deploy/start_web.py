@@ -50,7 +50,7 @@ ENVIRONMENT VARIABLES
 
 This script reads:
 - CONFIG_FILE: Path to the NAT config YAML (default:
-  /app/configs/config_web_frag.yml)
+  /app/configs/config_oib_openrouter.yml)
 - HOST: Bind address (default: 0.0.0.0)
 - PORT: Bind port (default: 8000)
 
@@ -85,7 +85,7 @@ This script is the main entry point for the Docker container:
 
 Or run directly for local development:
 
-    export CONFIG_FILE=/app/configs/config_web_frag.yml
+    export CONFIG_FILE=/app/configs/config_oib_openrouter.yml
     python deploy/start_web.py
 
 =============================================================================
@@ -146,7 +146,7 @@ def main():
     # Read configuration from environment (set by Docker or defaults)
     config_file = os.environ.get(
         "CONFIG_FILE",
-        "/app/configs/config_web_frag.yml",
+        "/app/configs/config_oib_openrouter.yml",
     )
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))

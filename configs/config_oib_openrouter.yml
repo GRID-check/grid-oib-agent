@@ -135,12 +135,12 @@ llms:
     # a simple meta-ish query). Shallow retrieval+synthesis does not need deep
     # deliberation; deep_* roles keep medium for the genuinely hard reasoning.
     reasoning_effort: low
-    # Uncomment TOGETHER WITH shallow_research_agent.deferred_tool_loading below
-    # — that feature needs the Responses API and fails the workflow build without
-    # it, deliberately, rather than sending the tool schemas anyway (ADR-0048).
+    # The Responses API, for `shallow_research_agent.deferred_tool_loading`
+    # below: that feature needs it and fails the workflow build without it,
+    # deliberately, rather than sending the tool schemas anyway (ADR-0048).
     # Nothing else in this file needs it; the default (chat_completion) is what
-    # every other role runs on.
-    # api_type: responses
+    # every other role runs on. Turn both off together.
+    api_type: responses
 
   # HITL Clarification & Planning — clarify ambiguity, generate the research plan.
   clarifier_llm:
@@ -706,12 +706,14 @@ functions:
     #     - surface_documents
     #     - ris_fetch_tool
     #
-    # OpenRouter server-side tool search (ADR-0048). OFF, and the block below is
-    # the measured configuration rather than a suggestion. Orthogonal to
-    # `tool_search` above: that one decides WHICH tools are bound, this one
-    # decides whether their schemas travel with the request. Requires
-    # `api_type: responses` on shallow_llm — enabling it without that fails the
-    # workflow build instead of quietly sending the schemas.
+    # OpenRouter server-side tool search (ADR-0048). ON, with the measured
+    # configuration below. Orthogonal to `tool_search` above: that one decides
+    # WHICH tools are bound, this one decides whether their schemas travel with
+    # the request. Requires `api_type: responses` on shallow_llm — enabling it
+    # without that fails the workflow build instead of quietly sending the
+    # schemas; the build-time probe against the live endpoint is what says the
+    # deferral is honoured, so the first deploy after a model change is where
+    # a silent regression would surface, loudly.
     #
     # Measured live against openai/gpt-5.6-luna with the real ifc_query +
     # ifc_measure + emit_card schemas (59 805 chars, ≈14 000 input tokens):
@@ -753,11 +755,10 @@ functions:
     # An unlisted model is probed ONCE, off the request path, and the verdict
     # cached; until it lands that model gets full schemas. So a new model costs
     # one background request, never a wasted round trip on a live turn.
-    #
-    # deferred_tool_loading:
-    #   enabled: true
-    #   # Floor on Artificial Analysis intelligence_index. 0 disables it.
-    #   min_intelligence_index: 50
+    deferred_tool_loading:
+      enabled: true
+      # Floor on Artificial Analysis intelligence_index. 0 disables it.
+      min_intelligence_index: 50
     #   models:
     #     # Only override these to add a model the shipped lists do not know.
     #     # Every list REPLACES its seeded counterpart rather than extending it

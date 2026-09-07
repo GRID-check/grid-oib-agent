@@ -7,7 +7,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 UI_DIR="$PROJECT_ROOT/frontends/ui"
 
 # Default config file
-CONFIG_FILE="configs/config_web_default_llamaindex.yml"
+CONFIG_FILE="configs/config_oib_openrouter.yml"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -20,11 +20,11 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --config_file <path>  Path to config file (default: configs/config_web_default_llamaindex.yml)"
+            echo "  --config_file <path>  Path to config file (default: configs/config_oib_openrouter.yml)"
             echo "  --help, -h            Show this help message"
             echo ""
             echo "Example:"
-            echo "  $0 --config_file configs/config_web_default_llamaindex.yml"
+            echo "  $0 --config_file configs/config_oib_openrouter.yml"
             exit 0
             ;;
         *)
@@ -39,7 +39,7 @@ done
 if [ ! -f "$PROJECT_ROOT/$CONFIG_FILE" ]; then
     echo "Error: Config file not found: $CONFIG_FILE"
     echo "Usage: $0 --config_file <path>"
-    echo "Example: $0 --config_file configs/config_web_default_llamaindex.yml"
+    echo "Example: $0 --config_file configs/config_oib_openrouter.yml"
     exit 1
 fi
 

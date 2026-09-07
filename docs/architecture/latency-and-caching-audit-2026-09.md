@@ -132,11 +132,11 @@ because each is a few lines.
 `reranker_provider: openrouter` (model `cohere/rerank-v3.5`, the key every
 deployment already holds; the route answers 401 without one, so it exists).
 The judge stays as the fallback and the requery judge still runs beside the
-reranker, so the retrieval hot path is now bounded by that smaller call. Two
-things to know before trusting it: NVIDIA's hosted reranking URL that the
-module defaults to answers 410 Gone, so `nvidia` needs a self-hosted NIM via
-`AIQ_RERANKER_BASE_URL`; and **no offline eval covers reranking** (the
-retrieval harness README says so at its "Reranking" bullet), so the
+reranker, so the retrieval hot path is now bounded by that smaller call. The
+module is OpenRouter-only now: the Cohere, Voyage, Jina and NVIDIA adapters
+were never configured, and NVIDIA's hosted reranking URL answered 410 Gone by
+the time the feature was switched on. **No offline eval covers reranking**
+(the retrieval harness README says so at its "Reranking" bullet), so the
 before/after is the golden compliance eval on live keys and the profiler's
 `knowledge_search` tool spans. The judge cache is still open.
 
@@ -202,12 +202,13 @@ Three things make this cheaper without changing what the model sees:
   engineering in §4.2 is paying off at all. If it is near zero on
   OpenAI-family models, something in the prefix is moving per request; if it is
   high, item 3 drops several places.
-- **Deferred tool loading (ADR-0048)** is implemented and off
-  (`configs/config_oib_openrouter.yml:735`). It withholds the ~36 KB of BIM tool
-  schema server-side for one request. It needs `api_type: responses` (`:138-146`)
-  and the build-time probe already refuses to run it silently. Turning it on
-  for the reference config is a config change guarded by
-  `tests/benchmarks/test_turn_shapes_live.py`.
+- **Deferred tool loading (ADR-0048)** **[LANDED]**: the shipped config sets
+  `api_type: responses` on `shallow_llm` and `deferred_tool_loading.enabled:
+  true`. Measured in the config's own table: a turn that loads a tool pays
+  ~620 tokens more, every other turn (synthesis, meta, answering from a loaded
+  tool) pays ~13 500 fewer. The build-time probe fails the workflow build
+  loudly if the provider stops honouring the deferral, and
+  `tests/benchmarks/test_turn_shapes_live.py` is the drift signal.
 - **Memoise the JSON-mode rung.** The forced synthesis tries
   `json_schema` → `json_object` → plain, each a full round trip
   (`agent.py:636-645`). Which rung a `(model, base_url)` honours is a process
@@ -322,6 +323,9 @@ its markers is already the shippable floor, which is what makes a timeout free
 here.
 
 ### 3.9 The WebSocket upgrade chain, when a turn pays for it
+
+**[LANDED, the cache]** `GRID_AUTHZ_CACHE_TTL_MS` defaults to 30 000 now;
+tenancy stays uncached. The route's serial awaits are still open.
 
 `server.js:580-788` resolves the scope through a loopback HTTP call to
 `app/api/auth/websocket-scope/route.ts`, which awaits ten steps in sequence

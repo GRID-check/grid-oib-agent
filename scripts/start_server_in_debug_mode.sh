@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$REPO_ROOT/.venv"
-CONFIG_FILE="configs/config_web_default_llamaindex.yml"
+CONFIG_FILE="configs/config_oib_openrouter.yml"
 PORT=8000
 
 while [[ $# -gt 0 ]]; do
@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
             echo "Start the NAT FastAPI server for deep research."
             echo ""
             echo "Options:"
-            echo "  --config_file PATH  Config file (default: configs/config_web_default_llamaindex.yml)"
+            echo "  --config_file PATH  Config file (default: configs/config_oib_openrouter.yml)"
             echo "  --port PORT         Server port (default: 8000)"
             echo "  -h, --help          Show this help"
             exit 0
@@ -57,7 +57,7 @@ export PYTHONWARNINGS="${PYTHONWARNINGS:-ignore}"
 if ! grep -q "front_end:" "$REPO_ROOT/$CONFIG_FILE" 2>/dev/null; then
     echo ""
     echo "Error: Config file '$CONFIG_FILE' does not have front_end configured."
-    echo "This script requires a web-enabled config (e.g., config_web_default_llamaindex.yml)"
+    echo "This script requires a web-enabled config (config_oib_openrouter.yml)"
     echo ""
     echo "For CLI mode, use: ./scripts/start_cli.sh --config_file $CONFIG_FILE"
     exit 1

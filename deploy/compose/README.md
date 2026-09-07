@@ -16,9 +16,7 @@ Make sure you have the following before you start:
 The Docker Compose setup uses these files and folders:
 - `deploy/compose/docker-compose.yaml` for the Docker Compose stack.
 - `deploy/.env` for environment variables.
-- `configs/config_web_default_llamaindex.yml` for the web workflow configuration (default).
-- `configs/config_web_frag.yml` for the web workflow configuration (Foundational RAG).
-- `configs/config_cli_default.yml` for the CLI workflow configuration (default).
+- `configs/config_oib_openrouter.yml` for the workflow configuration (the one shipped config).
 - `deploy/compose/init-db.sql` for PostgreSQL initialization.
 
 ## Configure Environment Variables
@@ -31,8 +29,7 @@ Follow these steps to prepare your environment:
 
 Set `BACKEND_CONFIG` in `deploy/.env` to select the backend workflow config:
 
-- LlamaIndex (default): `/app/configs/config_web_default_llamaindex.yml`
-- Foundational RAG (FRAG): `/app/configs/config_web_frag.yml`
+- `/app/configs/config_oib_openrouter.yml` (default, and the only config shipped).
 
 ### Required API Keys
 
@@ -119,37 +116,6 @@ Services started:
 - `aiq-agent` (port 8000)
 - `aiq-blueprint-ui` (port 3000)
 - `postgres` (port 5432)
-
-## Foundational RAG (FRAG) prerequisites
-
-If you switch the backend to `configs/config_web_frag.yml`, you must run a compatible RAG server and ingest server separately and set:
-
-- `RAG_SERVER_URL`
-- `RAG_INGEST_URL`
-
-Use the NVIDIA RAG Blueprint Docker guides to deploy those services:
-
-- [Get Started With the NVIDIA RAG Blueprint (self-hosted)](https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/docs/deploy-docker-self-hosted.md)
-- [Deploy NVIDIA RAG Blueprint with Docker (NVIDIA-hosted models)](https://github.com/NVIDIA-AI-Blueprints/rag/blob/main/docs/deploy-docker-nvidia-hosted.md)
-
-### Networking when AI-Q and RAG run as separate compose stacks
-
-When AI-Q and RAG are deployed as separate Docker Compose stacks, the AI-Q backend cannot resolve RAG service names (`rag-server`, `ingestor-server`) because the containers are on different Docker networks.
-
-Connect the AI-Q backend container to the RAG network after both stacks are running:
-
-```bash
-docker network connect nvidia-rag aiq-agent
-```
-
-Then use the RAG service names directly in `deploy/.env`:
-
-```bash
-RAG_SERVER_URL=http://rag-server:8081/v1
-RAG_INGEST_URL=http://ingestor-server:8082/v1
-```
-
-This must be re-run if the `aiq-agent` container is recreated (for example, after `docker compose down && up`).
 
 ### Frontend runtime variables
 

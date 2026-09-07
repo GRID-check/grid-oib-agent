@@ -21,7 +21,7 @@ If `.venv` is missing, use the repository's documented setup flow before startin
 For a non-default config:
 
 ```bash
-./scripts/start_cli.sh --config_file configs/config_cli_default.yml
+./scripts/start_cli.sh --config_file configs/config_oib_openrouter.yml
 ```
 
 The CLI mode is useful for direct terminal interaction, but it does not provide the local web server expected by `aiq-research`. Use local web or Docker Compose when the user wants deploy-to-research handoff.

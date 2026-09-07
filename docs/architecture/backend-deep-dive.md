@@ -986,9 +986,10 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
 
 3. **Reranker** — a cross-encoder first, the LLM judge as its fallback.
    `reranker_provider` (config field, env default `AIQ_RERANKER_PROVIDER`; the
-   reference config sets `openrouter`, model `cohere/rerank-v3.5`) names a
-   dedicated reranking endpoint (`knowledge_layer/cross_encoder.py`: OpenRouter,
-   Cohere, Voyage, Jina, or a self-hosted NVIDIA NIM) that scores each
+   reference config sets `openrouter`, model `cohere/rerank-v3.5`) names
+   OpenRouter's reranking endpoint (`knowledge_layer/cross_encoder.py`; a
+   self-hosted reranker speaking the same shape fits through
+   `AIQ_RERANKER_BASE_URL`) that scores each
    (query, passage) pair over the full chunk in ~100ms, bounded by
    `AIQ_RERANKER_TIMEOUT_SECONDS` (10s). A key that does not resolve, or any
    provider error, falls back to the judge: `rerank_llm` (an LLM alias from the

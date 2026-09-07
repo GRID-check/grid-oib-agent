@@ -135,7 +135,6 @@ Match the user request, then read the referenced file before acting:
 | Quick local development run, start UI/backend without containers | `references/local-web.md` |
 | Default durable local deployment, Docker Compose, containers, PostgreSQL | `references/docker-compose.md` |
 | Kubernetes, Helm, cluster deployment | `references/kubernetes-helm.md` |
-| Foundational RAG / FRAG integration | `references/frag.md` |
 | Basic health checks, shallow smoke checks, handoff to `aiq-research` | `references/validation.md` |
 | Optional deep research completion validation | `references/end-to-end-validation.md` |
 | Logs, unhealthy services, port conflicts, config failures | `references/troubleshooting.md` |
@@ -263,7 +262,6 @@ Expected output: a successful health response. Then tell the user to keep `AIQ_S
 | Local web deployment | `references/local-web.md` |
 | Docker Compose deployment | `references/docker-compose.md` |
 | Kubernetes and Helm deployment | `references/kubernetes-helm.md` |
-| FRAG integration | `references/frag.md` |
 | Basic validation | `references/validation.md` |
 | End-to-end validation | `references/end-to-end-validation.md` |
 | Troubleshooting | `references/troubleshooting.md` |
@@ -329,7 +327,7 @@ Expected output: a successful health response. Then tell the user to keep `AIQ_S
 **Solutions:**
 
 1. Read `references/configs.md` and confirm the selected config is API-enabled.
-2. For the default Skill backend, use `configs/config_web_default_llamaindex.yml`.
+2. The Skill backend runs the one shipped config, `configs/config_oib_openrouter.yml`.
 3. Restart the backend and rerun `references/validation.md`.
 
 ### Issue: Docker cleanup would remove useful state

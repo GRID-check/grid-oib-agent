@@ -60,7 +60,6 @@ def read_api_key_env(name: str) -> str:
 # :func:`_infer_provider_key_env`) so subdomains/paths do not matter.
 PROVIDER_KEY_ENV_BY_HOST: dict[str, str] = {
     "openrouter.ai": "OPENROUTER_API_KEY",
-    "integrate.api.nvidia.com": "NVIDIA_API_KEY",
     "api.openai.com": "OPENAI_API_KEY",
 }
 

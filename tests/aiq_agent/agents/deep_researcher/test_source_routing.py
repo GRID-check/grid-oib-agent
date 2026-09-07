@@ -208,7 +208,7 @@ def test_shipped_domain_catalog_source_ids_match_domain_routing_config():
     import yaml
 
     repo_root = Path(__file__).resolve().parents[4]
-    config_path = repo_root / "configs" / "config_domain_routing_and_skills.yml"
+    config_path = repo_root / "configs" / "config_oib_openrouter.yml"
     catalog_path = repo_root / "configs" / "domain_catalogs" / "deep_research_domain_catalog.yml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     source_entries = config["functions"]["data_sources"]["sources"]

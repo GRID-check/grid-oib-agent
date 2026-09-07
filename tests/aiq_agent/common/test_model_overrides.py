@@ -140,7 +140,7 @@ class FakeNonOpenRouterModel(BaseModel):
     """Pydantic stand-in for a non-OpenRouter (e.g. NVIDIA-hosted) chat model."""
 
     model_name: str = "meta/llama-3.1"
-    openai_api_base: str = "https://integrate.api.nvidia.com/v1"
+    openai_api_base: str = "https://llm.example.test/v1"
     extra_body: dict = {}
 
 

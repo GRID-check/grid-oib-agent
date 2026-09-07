@@ -8,15 +8,15 @@ This script tests all abstract methods implemented in the LlamaIndex adapter:
 2. File Management: upload, list, get_status, delete
 
 Prerequisites:
-    - NVIDIA_API_KEY environment variable (via export or .env file)
+    - OPENROUTER_API_KEY environment variable (via export or .env file)
     - LlamaIndex dependencies: uv pip install -e "sources/knowledge_layer[llamaindex]"
 
 Usage:
     # Option 1: Export env var
-    export NVIDIA_API_KEY=nvapi-your-key
+    export OPENROUTER_API_KEY=your-openrouter-key
 
     # Option 2: Use .env file (auto-loaded, won't override existing vars)
-    echo 'NVIDIA_API_KEY=nvapi-your-key' >> .env
+    echo 'OPENROUTER_API_KEY=your-openrouter-key' >> .env
 
     # Run with default test file
     python tests/knowledge_layer_tests/run_llamaindex_api.py
@@ -354,9 +354,9 @@ def main():
     args = parser.parse_args()
 
     # Validate environment
-    if not os.environ.get("NVIDIA_API_KEY"):
-        print("ERROR: NVIDIA_API_KEY environment variable not set")
-        print("Export your key: export NVIDIA_API_KEY='nvapi-...'")
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        print("ERROR: OPENROUTER_API_KEY environment variable not set")
+        print("Export your key: export OPENROUTER_API_KEY='your-openrouter-key'")  # pragma: allowlist secret
         sys.exit(1)
 
     # Validate test file

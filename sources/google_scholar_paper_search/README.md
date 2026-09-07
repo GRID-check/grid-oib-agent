@@ -79,9 +79,10 @@ Here is a complete configuration example showing how to integrate the paper sear
 ```yaml
 llms:
   my_llm:
-    _type: nim
-    model_name: nvidia/nemotron-3-nano-30b-a3b
-    base_url: "https://integrate.api.nvidia.com/v1"
+    _type: openai
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
     temperature: 0.7
 
 functions:
@@ -149,7 +150,7 @@ If you don't have a Serper API key or don't need paper search functionality, you
 
 ### Remove from Configuration
 
-Edit your configuration file (for example, `configs/config_cli_default.yml`) and remove or comment out the `paper_search_tool` definition:
+Edit `configs/config_oib_openrouter.yml` and remove or comment out the `paper_search_tool` definition:
 
 ```yaml
 functions:

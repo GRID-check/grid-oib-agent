@@ -57,9 +57,8 @@ functions:
     writer_llm: gpt_oss_llm
 ```
 
-This mirrors the real configs (for example
-`configs/config_domain_routing_and_skills.yml`); copy field names from there
-rather than guessing.
+This mirrors the real config (`configs/config_oib_openrouter.yml`); copy field
+names from there rather than guessing.
 
 ## Swapping to a self-hosted NIM
 

@@ -73,10 +73,6 @@ services:
       # via the shared resolver); explicit here so the OpenRouter key is used even
       # if provider inference is ever disabled.
       - AIQ_EMBED_API_KEY=${OPENROUTER_API_KEY}
-      # NVIDIA_API_KEY alias kept for back-compat (it is the embeddings/VLM
-      # fallback env); provider inference from the openrouter.ai base URL now
-      # covers this natively, so this line is belt-and-suspenders.
-      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-${OPENROUTER_API_KEY}}
       - AIQ_VLM_MODEL=${AIQ_VLM_MODEL:-google/gemma-4-31b-it}
       - AIQ_VLM_BASE_URL=${AIQ_VLM_BASE_URL:-https://openrouter.ai/api/v1}
       # ── Databases (single Postgres, three logical DBs; see init-db.sql) ──

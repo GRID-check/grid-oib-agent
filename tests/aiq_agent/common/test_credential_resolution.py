@@ -9,7 +9,7 @@ from aiq_agent.common.credential_resolution import read_api_key_env
 from aiq_agent.common.credential_resolution import resolve_llm_credential
 from aiq_agent.common.llm_credentials import OrgLLMCredential
 
-_NVIDIA = "https://integrate.api.nvidia.com/v1"
+_OTHER_HOST = "https://llm.example.test/v1"
 _OPENROUTER = "https://openrouter.ai/api/v1"
 
 # Every env var any of these tests touches — cleared before each so the host's
@@ -65,10 +65,10 @@ def test_primary_env_wins(monkeypatch):
     result = resolve_llm_credential(
         primary_env="PRIMARY_KEY",
         fallback_envs=("FALLBACK_A",),
-        default_base_url=_NVIDIA,
+        default_base_url=_OTHER_HOST,
         default_model="m",
     )
-    assert result == ResolvedCredential(api_key="primary", base_url=_NVIDIA, model="m", source="env")
+    assert result == ResolvedCredential(api_key="primary", base_url=_OTHER_HOST, model="m", source="env")
 
 
 def test_fallback_envs_in_order(monkeypatch):
@@ -76,7 +76,7 @@ def test_fallback_envs_in_order(monkeypatch):
     result = resolve_llm_credential(
         primary_env="PRIMARY_KEY",
         fallback_envs=("FALLBACK_A", "FALLBACK_B"),
-        default_base_url=_NVIDIA,
+        default_base_url=_OTHER_HOST,
         default_model="m",
     )
     assert result.api_key == "b"
@@ -89,7 +89,7 @@ def test_first_fallback_beats_later_fallback(monkeypatch):
     result = resolve_llm_credential(
         primary_env="PRIMARY_KEY",
         fallback_envs=("FALLBACK_A", "FALLBACK_B"),
-        default_base_url=_NVIDIA,
+        default_base_url=_OTHER_HOST,
         default_model="m",
     )
     assert result.api_key == "a"
@@ -99,10 +99,10 @@ def test_nothing_resolves_reports_none_source():
     result = resolve_llm_credential(
         primary_env="PRIMARY_KEY",
         fallback_envs=("FALLBACK_A",),
-        default_base_url=_NVIDIA,
+        default_base_url=_OTHER_HOST,
         default_model="m",
     )
-    assert result == ResolvedCredential(api_key="", base_url=_NVIDIA, model="m", source="none")
+    assert result == ResolvedCredential(api_key="", base_url=_OTHER_HOST, model="m", source="none")
 
 
 def test_placeholder_primary_falls_through_to_fallback(monkeypatch):
@@ -111,7 +111,7 @@ def test_placeholder_primary_falls_through_to_fallback(monkeypatch):
     result = resolve_llm_credential(
         primary_env="PRIMARY_KEY",
         fallback_envs=("FALLBACK_A",),
-        default_base_url=_NVIDIA,
+        default_base_url=_OTHER_HOST,
         default_model="m",
     )
     assert result.api_key == "real"
@@ -129,7 +129,7 @@ def test_base_url_and_model_from_env(monkeypatch):
     monkeypatch.setenv("SOME_MODEL", "vendor/model-x")
     result = resolve_llm_credential(
         primary_env="PRIMARY_KEY",
-        default_base_url=_NVIDIA,
+        default_base_url=_OTHER_HOST,
         default_model="default-model",
         base_url_env="SOME_BASE_URL",
         model_env="SOME_MODEL",
@@ -144,11 +144,11 @@ def test_base_url_env_placeholder_falls_back_to_default(monkeypatch):
     monkeypatch.setenv("SOME_BASE_URL", "${AIQ_VLM_BASE_URL}")
     result = resolve_llm_credential(
         primary_env="PRIMARY_KEY",
-        default_base_url=_NVIDIA,
+        default_base_url=_OTHER_HOST,
         default_model="m",
         base_url_env="SOME_BASE_URL",
     )
-    assert result.base_url == _NVIDIA
+    assert result.base_url == _OTHER_HOST
 
 
 # ---------------------------------------------------------------------------
@@ -165,17 +165,6 @@ def test_provider_inference_openrouter(monkeypatch):
         default_model="m",
     )
     assert result.api_key == "or-key"
-    assert result.source == "provider-default"
-
-
-def test_provider_inference_nvidia(monkeypatch):
-    monkeypatch.setenv("NVIDIA_API_KEY", "nv-key")
-    result = resolve_llm_credential(
-        primary_env="AIQ_VLM_API_KEY",
-        default_base_url=_NVIDIA,
-        default_model="m",
-    )
-    assert result.api_key == "nv-key"
     assert result.source == "provider-default"
 
 
@@ -244,7 +233,7 @@ def test_byok_hit_swaps_key_and_base_url_not_model(monkeypatch):
     with patch("aiq_agent.common.llm_credentials.resolve_org_llm_credential", return_value=_BYOK):
         result = resolve_llm_credential(
             primary_env="PRIMARY_KEY",
-            default_base_url=_NVIDIA,
+            default_base_url=_OTHER_HOST,
             default_model="platform-model",
             organization_id="org-1",
         )
@@ -260,7 +249,7 @@ def test_byok_miss_falls_through_to_env(monkeypatch):
     with patch("aiq_agent.common.llm_credentials.resolve_org_llm_credential", return_value=None):
         result = resolve_llm_credential(
             primary_env="PRIMARY_KEY",
-            default_base_url=_NVIDIA,
+            default_base_url=_OTHER_HOST,
             default_model="m",
             organization_id="org-1",
         )
@@ -289,7 +278,7 @@ def test_no_org_id_skips_byok(monkeypatch):
     with patch("aiq_agent.common.llm_credentials.resolve_org_llm_credential") as mock_resolve:
         result = resolve_llm_credential(
             primary_env="PRIMARY_KEY",
-            default_base_url=_NVIDIA,
+            default_base_url=_OTHER_HOST,
             default_model="m",
             organization_id=None,
         )

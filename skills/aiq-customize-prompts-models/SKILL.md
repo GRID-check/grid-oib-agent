@@ -88,9 +88,9 @@ uv run pytest tests/aiq_agent/agents/<agent>         # the agent's tests (a prom
 ```
 
 Expected: the agent loads its templates without a Jinja2 error and runs with the
-configured model. A bare `./scripts/start_cli.sh` uses the fixed default
-(`configs/config_cli_default.yml`), so pass `--config_file` to exercise your
-change. For a prompt-only edit (which often has no dedicated unit test), the
+configured model. A bare `./scripts/start_cli.sh` uses the one shipped config
+(`configs/config_oib_openrouter.yml`); pass `--config_file` to exercise a local
+copy with your change. For a prompt-only edit (which often has no dedicated unit test), the
 smoke run is the real check; a config/prompt-only change needs no Python lint.
 
 ## Common Mistakes

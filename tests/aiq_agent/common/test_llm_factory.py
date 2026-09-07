@@ -50,7 +50,7 @@ def test_preserves_existing_extra_body():
 
 
 def test_non_openrouter_llm_is_untouched():
-    llm = FakeLLM(base_url="https://integrate.api.nvidia.com/v1")
+    llm = FakeLLM(base_url="https://llm.example.test/v1")
     apply_openrouter_structured_defaults(llm)
     assert llm.extra_body is None
 

@@ -58,12 +58,12 @@ boot**, from `instrumentation.ts`.
 It is deliberately *not* a SQL migration. A platform default replaces the model
 id and nothing else — `override_model` leaves `base_url` and `api_key` alone so
 an override can never re-point traffic at another provider — while a migration
-runs on every deployment regardless of which `BACKEND_CONFIG` it loaded. This
-repo ships configs pointing at Kimi (`config_grid_oib.yml`) and NVIDIA
-(`config_web_default_llamaindex.yml`) as well as OpenRouter; seeding an
-OpenRouter id there would send an unknown model to that provider on every
-request, and the admin UI could not repair it because its save path only accepts
-ids the OpenRouter catalog knows.
+runs on every deployment regardless of which `BACKEND_CONFIG` it loaded. The
+repo ships one config, on OpenRouter, but a deployment may hand `BACKEND_CONFIG`
+a config of its own on another provider; seeding an OpenRouter id there would
+send an unknown model to that provider on every request, and the admin UI could
+not repair it because its save path only accepts ids the OpenRouter catalog
+knows.
 
 Running in the application instead buys four things SQL cannot do:
 

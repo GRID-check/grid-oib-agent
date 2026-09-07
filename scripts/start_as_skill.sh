@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$PROJECT_ROOT/.venv"
 
-CONFIG_FILE="configs/config_web_default_llamaindex.yml"
+CONFIG_FILE="configs/config_oib_openrouter.yml"
 HOST="0.0.0.0"
 PORT=8000
 
@@ -30,7 +30,7 @@ while [[ $# -gt 0 ]]; do
             echo "Start the AI-Q API backend for Agent Skill use."
             echo ""
             echo "Options:"
-            echo "  --config_file PATH  Config file (default: configs/config_web_default_llamaindex.yml)"
+            echo "  --config_file PATH  Config file (default: configs/config_oib_openrouter.yml)"
             echo "  --host HOST         Server host (default: 0.0.0.0)"
             echo "  --port PORT         Server port (default: 8000)"
             echo "  -h, --help          Show this help"
@@ -71,7 +71,7 @@ PY
 then
     echo ""
     echo "Error: Config file '$CONFIG_FILE' does not have front_end configured."
-    echo "Agent Skill mode requires an API-enabled config such as configs/config_web_default_llamaindex.yml."
+    echo "Agent Skill mode requires an API-enabled config such as configs/config_oib_openrouter.yml."
     echo ""
     echo "For CLI mode, use: ./scripts/start_cli.sh --config_file $CONFIG_FILE"
     exit 1

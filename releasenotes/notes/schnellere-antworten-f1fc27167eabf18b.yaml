@@ -8,6 +8,16 @@ improvements:
     und liest dabei jede Fundstelle ganz. Fällt es aus, springt der bisherige
     Weg ein.
   - >
+    Beim Öffnen eines Projekts und beim Speichern werden die Berechtigungen
+    kurz zwischengespeichert, statt bei jedem Aufruf neu beim Identitätsdienst
+    nachgefragt zu werden. Ein Chat startet dadurch schneller. Eine geänderte
+    Projektrolle wirkt nach höchstens dreißig Sekunden.
+  - >
+    Einfache Fragen und die Zusammenfassung am Ende einer Recherche schicken
+    die Werkzeugbeschreibungen nicht mehr bei jedem Schritt mit, sondern laden
+    sie nur, wenn ein Werkzeug gebraucht wird. Das macht diese Schritte
+    günstiger und etwas schneller.
+  - >
     Antworten im Chat kommen früher an. Vor der ersten Zeile lud der Assistent
     mehrere Dinge nacheinander, die nichts voneinander wissen: das
     Projektgedächtnis, die Hinweise aus dem Feedback und die Einstellungen der

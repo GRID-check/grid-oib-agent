@@ -7,7 +7,6 @@ from typing import Any
 # Mapping of LLM _type to required API key environment variable names
 # This can be extended as new providers are added
 LLM_API_KEY_MAP = {
-    "nim": ["NVIDIA_API_KEY"],
     "openai": ["OPENAI_API_KEY"],
     "anthropic": ["ANTHROPIC_API_KEY"],
     "google": ["GOOGLE_API_KEY"],
