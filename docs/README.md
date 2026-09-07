@@ -51,7 +51,7 @@ Start with [`system-overview.md`](architecture/system-overview.md), then
 | Failure learning | [`platform-failure-learning.md`](architecture/platform-failure-learning.md), [`semantic-notes.md`](architecture/semantic-notes.md) |
 | Agent surface | [`cards.md`](architecture/cards.md), [`agent-skills.md`](architecture/agent-skills.md), [`llm-providers.md`](architecture/llm-providers.md), [`org-model-configuration.md`](architecture/org-model-configuration.md) |
 | Collaboration and lifecycle | [`collaboration-lifecycle.md`](architecture/collaboration-lifecycle.md), [`adding-a-shareable-resource-type.md`](architecture/adding-a-shareable-resource-type.md), [`deletion-pipeline.md`](architecture/deletion-pipeline.md) |
-| Scale and cost | [`scaling-review-2026-07.md`](architecture/scaling-review-2026-07.md), [`scaling-review-2026-07-phase2.md`](architecture/scaling-review-2026-07-phase2.md), [`rate-limiting-and-load-protection.md`](architecture/rate-limiting-and-load-protection.md), [`usage-budgets.md`](architecture/usage-budgets.md) |
+| Scale and cost | [`latency-and-caching-audit-2026-09.md`](architecture/latency-and-caching-audit-2026-09.md), [`scaling-review-2026-07.md`](architecture/scaling-review-2026-07.md), [`scaling-review-2026-07-phase2.md`](architecture/scaling-review-2026-07-phase2.md), [`rate-limiting-and-load-protection.md`](architecture/rate-limiting-and-load-protection.md), [`usage-budgets.md`](architecture/usage-budgets.md) |
 | Reach | [`country-extensibility.md`](architecture/country-extensibility.md), [`backend-message-localization.md`](architecture/backend-message-localization.md) |
 
 ## Working practices
