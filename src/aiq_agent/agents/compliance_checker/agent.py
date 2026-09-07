@@ -1,43 +1,65 @@
-"""Staged OIB compliance-check pipeline (backlog T4-3, v1).
+"""Staged OIB compliance-check pipeline (backlog T4-3).
 
-This is a DETERMINISTIC STAGED PIPELINE, not an open agent/tool-calling loop.
-See README.md for the full stage breakdown and LLM call-budget math.
+A fixed-shape pipeline, not an agent loop: every LLM call is one structured
+request/response and code decides every retrieval. Per Richtlinie in scope,
+gathered across Richtlinien so no Richtlinie waits for another:
 
-Stage 1 (requirement profile): one structured LLM call per Richtlinie in
-scope, grounded by direct (tool-free) ``knowledge_search`` retrieval of the
-base OIB collection.
+Stage 1 (requirement profile): two ``knowledge_search`` retrievals against the
+base OIB corpus, then ONE structured LLM call -> ``RequirementProfile``.
 
-Stage 2 (evidence check): one structured LLM call per batch of ~8-10
-applicable requirements, grounded by ``knowledge_search`` retrieval scoped to
-the project's document collection.
+Stage 2 (evidence check): one retrieval per Richtlinie plus one per batch of
+``batch_size`` applicable requirements, against the project's own documents
+only, then ONE structured LLM call per batch -> ``EvidenceBatchResult``.
 
-Stage 3 (matrix assembly + report rendering): pure Python, no LLM calls --
-see ``_assemble_matrix`` and ``report.render_compliance_report``.
+Stage 3 (matrix + report): pure Python, see ``assemble_matrix`` and
+``report.render_compliance_report``.
+
+Only the LLM calls share the ``max_concurrency`` semaphore; retrievals are
+local vector queries and run unbounded. A failure anywhere becomes a row with
+status ``nicht_geprueft`` and a notice in the report -- never a silent
+``kein_nachweis``.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import re
+from collections import Counter
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import UTC
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from typing import TypeVar
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 from langchain_core.tools import BaseTool
+from pydantic import BaseModel
 
-from aiq_agent.common import LLMProvider
-from aiq_agent.common import LLMRole
 from aiq_agent.common import extract_json
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common import strict_json_response_format
+from aiq_agent.common.applicability import Facts
+from aiq_agent.common.applicability import facts_from_project_context
+from aiq_agent.common.applicability import resolve_oib_applicability
+
+# The knowledge tool restricts its collection set to these shelves
+# (``_restrict_scope_to_turn`` in sources/knowledge_layer). The public setter
+# ``set_turn_intent`` can only express the composer presets, none of which is
+# "project documents without the law", so the pipeline sets the variable
+# itself, in a copied context that ends with the retrieval task.
+from aiq_agent.common.focus_file import _turn_shelves
+from aiq_agent.common.message_utils import content_to_text
 
 from .models import ALL_RICHTLINIEN
 from .models import RICHTLINIE_NAMES
-from .models import ComplianceCheckAgentState
+from .models import UNJUDGED_STATUS
 from .models import ComplianceCheckRequest
 from .models import ComplianceCheckResult
 from .models import ComplianceMatrix
@@ -51,94 +73,34 @@ from .report import render_compliance_report
 
 logger = logging.getLogger(__name__)
 
-AGENT_DIR = Path(__file__).parent
+PROMPTS_DIR = Path(__file__).parent / "prompts"
+REQUIREMENT_PROFILE_PROMPT = load_prompt(PROMPTS_DIR, "requirement_profile")
+EVIDENCE_BATCH_PROMPT = load_prompt(PROMPTS_DIR, "evidence_batch")
 
 DEFAULT_REQUIREMENT_BATCH_SIZE = 9
 """Requirements grouped per Stage 2 evidence-check LLM call (design target: ~8-10)."""
 
 DEFAULT_MAX_CONCURRENCY = 3
 
-_APPLICABLE_TAGS = ("anwendbar", "zu_pruefen")
+REGULATION_SHELVES: frozenset[str] = frozenset({"base"})
+"""Stage 1 reads the law: the base OIB corpus and nothing the user uploaded."""
+
+EVIDENCE_SHELVES: frozenset[str] = frozenset({"project", "session"})
+"""Stage 2 reads the user's documents: the project collection and this conversation's uploads."""
+
+_APPLICABLE_TAGS = frozenset({"anwendbar", "zu_pruefen"})
 """RequirementItem.applicability values that proceed into Stage 2."""
 
-# Stage 3 deterministic risk scoring: base score per status, refined by
-# confidence. Computed in code -- never by an LLM -- so GapItem.risk_score
-# may freely use Field(ge=0, le=100) (see models/matrix.py).
-_STATUS_BASE_RISK: dict[str, int] = {
-    "nicht_erfuellt": 90,
-    "kein_nachweis": 70,
-    "teilweise": 45,
-    "erfuellt": 0,
-}
-_CONFIDENCE_ADJUSTMENT: dict[str, int] = {"low": 10, "medium": 0, "high": -5}
+_STATUS_RANK: dict[str, int] = {"nicht_erfuellt": 0, "kein_nachweis": 1, "teilweise": 2}
+_CONFIDENCE_RANK: dict[str, int] = {"high": 0, "medium": 1, "low": 2}
 
-_FALLBACK_PROMPTS: dict[str, str] = {
-    "requirement_profile": (
-        "/no_think\n\nDu bist ein Sachverstaendiger fuer OIB-Richtlinie {{ richtlinie }} ({{ richtlinie_name }}). "
-        "Projekt: {{ project_description }}. Wissensbasis: {{ knowledge_overview }} {{ knowledge_applicability }}. "
-        "Antworte als RequirementProfile-JSON mit richtlinie={{ richtlinie }}."
-    ),
-    "evidence_batch": (
-        "/no_think\n\nBeurteile den Nachweisstatus fuer diese Anforderungen: {{ requirements }}. "
-        "Belege: {{ evidence_text }}. Antworte als EvidenceBatchResult-JSON."
-    ),
-}
+_NO_DOCUMENTS_REASON = "Keine Projektunterlagen im Suchbereich (kein Projekt ausgewaehlt, keine Uploads)."
+_OMITTED_REASON = "Keine Bewertung durch die Evidenzpruefung erhalten."
+
+_StructuredT = TypeVar("_StructuredT", bound=BaseModel)
 
 
-def _risk_level(score: int) -> str:
-    if score >= 70:
-        return "hoch"
-    if score >= 40:
-        return "mittel"
-    return "niedrig"
-
-
-def _compute_risk(finding: EvidenceFinding) -> int:
-    base = _STATUS_BASE_RISK.get(finding.status, 50)
-    if base == 0:
-        return 0
-    adjusted = base + _CONFIDENCE_ADJUSTMENT.get(finding.confidence, 0)
-    return max(0, min(100, adjusted))
-
-
-def _batched(items: list[Any], size: int) -> list[list[Any]]:
-    return [items[i : i + size] for i in range(0, len(items), size)]
-
-
-def _content_text(response: Any) -> str:
-    """Normalize an LLM response's content to plain text (string or content blocks)."""
-    content = getattr(response, "content", response)
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and isinstance(block.get("text"), str):
-                parts.append(block["text"])
-        return "\n".join(parts)
-    return str(content) if content is not None else ""
-
-
-def _evidence_queries_for_batch(batch: list[RequirementItem]) -> list[str]:
-    """Build scoped knowledge_search queries for one Stage 2 batch.
-
-    Kept small and deterministic: one combined query naming every
-    requirement's punkt/text, plus one query per distinct Richtlinie
-    represented in the batch, so retrieval stays targeted without adding an
-    unbounded number of tool calls per LLM call. These are knowledge_search
-    (retrieval) calls, not LLM calls -- they do not count against the LLM
-    call budget in README.md.
-    """
-    keyword_parts = "; ".join(f"{r.punkt}: {r.requirement[:80]}" for r in batch)
-    combined = f"Projektunterlagen Nachweis fuer: {keyword_parts}"
-    richtlinien_in_batch = sorted({r.richtlinie for r in batch})
-    per_richtlinie = [
-        f"Projektunterlagen Nachweis OIB-Richtlinie {richtlinie} {RICHTLINIE_NAMES.get(richtlinie, '')}"
-        for richtlinie in richtlinien_in_batch
-    ]
-    return [combined, *per_richtlinie]
+# --- request -----------------------------------------------------------------
 
 
 def _richtlinie_number(code: str) -> int | None:
@@ -147,388 +109,368 @@ def _richtlinie_number(code: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _narrow_scope_with_applicability(richtlinien: list[int], project_context: str | None) -> list[int]:
-    """Narrow the Richtlinie scope to the ones the project's facts flag as relevant.
+def _narrow_scope_with_applicability(richtlinien: list[int], facts: Facts) -> list[int]:
+    """Keep the Richtlinien the project's facts flag as ``required``/``likely``/``check``.
 
-    A Richtlinie is KEPT when it has a verdict of ``required``, ``likely`` OR
-    ``check`` — ``check`` means "needs verification", so the checker must still
-    look at it (review finding H2). Only Richtlinien the facts clearly rule out
-    (no verdict at all) are dropped. Fail-open everywhere: unparseable context,
-    no facts, or an intersection that would empty the scope all return the
-    original scope unchanged.
+    ``check`` means "needs verification", so the checker still looks at it
+    (review finding H2). Fail-open: no facts, or a narrowing that would empty
+    the scope, returns the scope unchanged.
     """
-    if not project_context:
-        return richtlinien
-    try:
-        from aiq_agent.common.applicability import facts_from_project_context
-        from aiq_agent.common.applicability import resolve_oib_applicability
-    except Exception:  # pragma: no cover - defensive import guard
-        return richtlinien
-    facts = facts_from_project_context(project_context)
     if not facts:
         return richtlinien
-    verdicts = resolve_oib_applicability(facts)
     keep = {
         number
-        for verdict in verdicts
-        if verdict.verdict in ("required", "likely", "check")
-        and (number := _richtlinie_number(verdict.code)) is not None
+        for verdict in resolve_oib_applicability(facts)
+        if (number := _richtlinie_number(verdict.code)) is not None
     }
-    if not keep:
-        return richtlinien
-    narrowed = [rl for rl in richtlinien if rl in keep]
+    narrowed = [richtlinie for richtlinie in richtlinien if richtlinie in keep]
     return narrowed or richtlinien
 
 
-def build_request_from_state(
-    state: ComplianceCheckAgentState,
-    *,
-    default_richtlinien: list[int] | None = None,
-) -> ComplianceCheckRequest:
-    """Build a ComplianceCheckRequest from the agent's message-based input state.
+def _descriptor(value: object) -> str:
+    if isinstance(value, bool):
+        return "ja" if value else "nein"
+    return str(value)
 
-    ``state.richtlinien`` overrides ``default_richtlinien`` (the config
-    default) when set; an unset/empty scope on both falls back to all six
-    Richtlinien via ComplianceCheckRequest's own validator. When the scope is
-    NOT an explicit user-provided list and the project context carries parseable
-    intake facts, applicability narrows it to the Richtlinien the facts flag as
-    relevant (verdict `required`/`likely`/`check`). An explicit user scope is
-    used untouched.
+
+def build_request(
+    *,
+    project_context: str | None,
+    richtlinien: Sequence[int] | None = None,
+    default_richtlinien: Sequence[int] = ALL_RICHTLINIEN,
+    project_documents_in_scope: bool = True,
+) -> ComplianceCheckRequest:
+    """Build the request for one run.
+
+    An explicit ``richtlinien`` is used untouched; otherwise the configured
+    default is narrowed by the project's confirmed intake facts. Those facts
+    also become ``project_descriptors`` for the prompts.
     """
-    explicit_scope = bool(state.richtlinien)
-    richtlinien = state.richtlinien if explicit_scope else (default_richtlinien or list(ALL_RICHTLINIEN))
-    if not explicit_scope:
-        richtlinien = _narrow_scope_with_applicability(richtlinien, state.project_context)
+    facts = facts_from_project_context(project_context or "")
+    scope = list(richtlinien) if richtlinien else _narrow_scope_with_applicability(list(default_richtlinien), facts)
     return ComplianceCheckRequest(
-        richtlinien=richtlinien,
-        project_description=state.project_context or "",
-        project_descriptors=state.project_descriptors,
-        collection_name=state.collection_name,
+        richtlinien=scope,
+        project_description=project_context or "",
+        project_descriptors={key: _descriptor(value) for key, value in facts.items()},
+        project_documents_in_scope=project_documents_in_scope,
     )
 
 
-class ComplianceCheckAgent:
-    """Staged OIB compliance-check pipeline (v1).
+# --- collaborators -----------------------------------------------------------
 
-    The agent instance holds only immutable configuration (LLM provider,
-    knowledge_search tool, concurrency knobs, prompts). ``run()`` executes
-    the three stages described in the module docstring and returns a
-    ``ComplianceCheckResult`` with the assembled matrix, the rendered
-    Markdown report, and the exact LLM call counts spent.
+
+@dataclass(frozen=True)
+class _Runtime:
+    """What every stage needs: the model, the retriever, and the LLM concurrency bound."""
+
+    llm: BaseChatModel
+    knowledge_search: BaseTool
+    llm_slots: asyncio.Semaphore
+    batch_size: int
+    callbacks: tuple[Any, ...]
+
+
+async def _search(runtime: _Runtime, query: str, *, shelves: frozenset[str]) -> str:
+    """One knowledge_search retrieval restricted to ``shelves``.
+
+    The restriction lives in a copied context that the retrieval task owns, so
+    the caller's turn intent is untouched. Raises whatever the tool raises.
     """
+    context = contextvars.copy_context()
+    context.run(_turn_shelves.set, shelves)
+    result = await asyncio.create_task(runtime.knowledge_search.ainvoke({"query": query}), context=context)
+    return result if isinstance(result, str) else str(result)
 
-    def __init__(
-        self,
-        llm_provider: LLMProvider,
-        knowledge_search_tool: BaseTool,
-        *,
-        max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
-        requirement_batch_size: int = DEFAULT_REQUIREMENT_BATCH_SIZE,
-        callbacks: list[Any] | None = None,
-    ) -> None:
-        self.llm_provider = llm_provider
-        self.knowledge_search_tool = knowledge_search_tool
-        self.max_concurrency = max(1, max_concurrency)
-        self.requirement_batch_size = max(1, requirement_batch_size)
-        self.callbacks = callbacks or []
 
-        self.requirement_profile_prompt = self._load_prompt("requirement_profile")
-        self.evidence_batch_prompt = self._load_prompt("evidence_batch")
+async def _call_structured_llm(
+    runtime: _Runtime,
+    schema: type[_StructuredT],
+    system_prompt: str,
+    human_prompt: str,
+) -> _StructuredT:
+    """One strict-JSON LLM call, holding one of the ``max_concurrency`` slots while it runs."""
+    messages = [SystemMessage(content=system_prompt), HumanMessage(content=human_prompt)]
+    structured = runtime.llm.bind(response_format=strict_json_response_format(schema))
+    config = {"callbacks": list(runtime.callbacks)} if runtime.callbacks else None
+    async with runtime.llm_slots:
+        response = await structured.ainvoke(messages, config=config)
+    parsed = extract_json(content_to_text(getattr(response, "content", response)))
+    if parsed is None:
+        raise ValueError(f"LLM did not return valid {schema.__name__} JSON")
+    return schema.model_validate(parsed)
 
-    def _load_prompt(self, name: str) -> str:
-        try:
-            return load_prompt(AGENT_DIR / "prompts", name)
-        except Exception:
-            logger.warning("Compliance checker prompt %s not found, using inline default", name)
-            return _FALLBACK_PROMPTS[name]
 
-    def _get_llm(self) -> BaseChatModel:
-        return self.llm_provider.get(LLMRole.RESEARCHER)
+# --- stage 1 -----------------------------------------------------------------
 
-    def _invoke_config(self) -> dict[str, Any] | None:
-        return {"callbacks": self.callbacks} if self.callbacks else None
 
-    async def _search_knowledge(self, query: str) -> str:
-        """Direct, tool-free invocation of the injected knowledge_search tool.
-
-        No LLM is involved in deciding to call this -- the pipeline issues a
-        fixed, code-determined set of queries per stage item.
-        """
-        try:
-            result = await self.knowledge_search_tool.ainvoke({"query": query})
-        except Exception:
-            logger.warning("knowledge_search failed for query %r", query, exc_info=True)
-            return ""
-        return result if isinstance(result, str) else str(result)
-
-    async def _derive_requirement_profile(
-        self,
-        richtlinie: int,
-        request: ComplianceCheckRequest,
-    ) -> RequirementProfile:
-        """Stage 1, one Richtlinie: retrieve OIB context, then exactly ONE structured LLM call."""
-        richtlinie_name = RICHTLINIE_NAMES[richtlinie]
-        overview_query = f"OIB-Richtlinie {richtlinie} {richtlinie_name}: Anforderungen und Pflichtinhalte"
-        applicability_query = f"OIB-Richtlinie {richtlinie} {richtlinie_name}: Anwendungsbereich und Ausnahmen"
-        overview_text, applicability_text = await asyncio.gather(
-            self._search_knowledge(overview_query),
-            self._search_knowledge(applicability_query),
-        )
-
-        system_prompt = render_prompt_template(
-            self.requirement_profile_prompt,
-            richtlinie=richtlinie,
-            richtlinie_name=richtlinie_name,
-            project_description=request.project_description,
-            project_descriptors=request.project_descriptors,
-            knowledge_overview=overview_text,
-            knowledge_applicability=applicability_text,
-        )
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(
-                content=(
-                    f"Leite die anwendbaren Anforderungen der OIB-Richtlinie {richtlinie} fuer "
-                    "dieses Projekt ab und antworte als RequirementProfile-JSON."
-                )
-            ),
-        ]
-        structured_llm = self._get_llm().bind(response_format=strict_json_response_format(RequirementProfile))
-        response = await structured_llm.ainvoke(messages, config=self._invoke_config())
-        parsed = extract_json(_content_text(response))
-        if parsed is None:
-            raise ValueError(f"Stage 1 LLM call for Richtlinie {richtlinie} did not return valid JSON")
-        profile = RequirementProfile.model_validate(parsed)
-        if profile.richtlinie != richtlinie:
-            logger.warning(
-                "Stage 1: LLM returned richtlinie=%s for requested Richtlinie %s; correcting",
-                profile.richtlinie,
-                richtlinie,
-            )
-            profile = profile.model_copy(update={"richtlinie": richtlinie})
+async def _derive_profile(runtime: _Runtime, richtlinie: int, request: ComplianceCheckRequest) -> RequirementProfile:
+    """Retrieve OIB context for one Richtlinie, then exactly ONE structured LLM call."""
+    name = RICHTLINIE_NAMES[richtlinie]
+    overview, applicability = await asyncio.gather(
+        _search(
+            runtime, f"OIB-Richtlinie {richtlinie} {name}: Anforderungen und Pflichtinhalte", shelves=REGULATION_SHELVES
+        ),
+        _search(
+            runtime, f"OIB-Richtlinie {richtlinie} {name}: Anwendungsbereich und Ausnahmen", shelves=REGULATION_SHELVES
+        ),
+    )
+    system_prompt = render_prompt_template(
+        REQUIREMENT_PROFILE_PROMPT,
+        richtlinie=richtlinie,
+        richtlinie_name=name,
+        project_description=request.project_description,
+        project_descriptors=request.project_descriptors,
+        knowledge_overview=overview,
+        knowledge_applicability=applicability,
+    )
+    human_prompt = (
+        f"Leite die anwendbaren Anforderungen der OIB-Richtlinie {richtlinie} fuer "
+        "dieses Projekt ab und antworte als RequirementProfile-JSON."
+    )
+    profile = await _call_structured_llm(runtime, RequirementProfile, system_prompt, human_prompt)
+    if profile.richtlinie == richtlinie:
         return profile
+    logger.warning("Stage 1: LLM returned richtlinie=%s for Richtlinie %s; correcting", profile.richtlinie, richtlinie)
+    return profile.model_copy(update={"richtlinie": richtlinie})
 
-    async def _run_requirement_profiles(
-        self,
-        request: ComplianceCheckRequest,
-    ) -> tuple[list[RequirementProfile], int]:
-        """Run Stage 1 across every scoped Richtlinie with bounded concurrency.
 
-        Returns ``(successful_profiles, attempted_calls)``. ``attempted_calls``
-        equals ``len(request.richtlinien)`` regardless of per-item failures --
-        every Richtlinie in scope issues exactly one LLM call attempt.
-        """
-        semaphore = asyncio.Semaphore(self.max_concurrency)
+# --- stage 2 -----------------------------------------------------------------
 
-        async def _bounded(richtlinie: int) -> RequirementProfile:
-            async with semaphore:
-                return await self._derive_requirement_profile(richtlinie, request)
 
-        results = await asyncio.gather(*(_bounded(r) for r in request.richtlinien), return_exceptions=True)
+def _batched(items: list[RequirementItem], size: int) -> list[list[RequirementItem]]:
+    return [items[i : i + size] for i in range(0, len(items), size)]
 
-        profiles: list[RequirementProfile] = []
-        errors: list[str] = []
-        for richtlinie, result in zip(request.richtlinien, results, strict=False):
-            if isinstance(result, BaseException):
-                errors.append(f"Richtlinie {richtlinie}: {result}")
-            else:
-                profiles.append(result)
-        if errors:
-            logger.warning(
-                "Stage 1: %d/%d Richtlinien failed: %s", len(errors), len(request.richtlinien), "; ".join(errors)
-            )
-        return profiles, len(request.richtlinien)
 
-    async def _judge_evidence_batch(
-        self,
-        batch: list[RequirementItem],
-        request: ComplianceCheckRequest,
-    ) -> EvidenceBatchResult:
-        """Stage 2, one batch: retrieve project-document evidence, then exactly ONE structured LLM call."""
-        queries = _evidence_queries_for_batch(batch)
-        evidence_snippets = await asyncio.gather(*(self._search_knowledge(q) for q in queries))
-        evidence_text = "\n\n".join(
-            f"--- Suchergebnis: {query} ---\n{text}"
-            for query, text in zip(queries, evidence_snippets, strict=False)
-            if text
+def _richtlinie_query(richtlinie: int) -> str:
+    return f"Projektunterlagen Nachweis OIB-Richtlinie {richtlinie} {RICHTLINIE_NAMES[richtlinie]}"
+
+
+def _batch_query(batch: list[RequirementItem]) -> str:
+    punkte = "; ".join(f"{r.punkt}: {r.requirement[:80]}" for r in batch)
+    return f"Projektunterlagen Nachweis fuer: {punkte}"
+
+
+def _evidence_text(snippets: dict[str, str]) -> str:
+    """Retrieved passages keyed by the query that found them, as one prompt block."""
+    return "\n\n".join(f"--- Suchergebnis: {query} ---\n{text}" for query, text in snippets.items() if text)
+
+
+async def _judge_batch(
+    runtime: _Runtime,
+    batch: list[RequirementItem],
+    request: ComplianceCheckRequest,
+    richtlinie_evidence: dict[str, str],
+) -> EvidenceBatchResult:
+    """Retrieve evidence for one batch, then exactly ONE structured LLM call."""
+    query = _batch_query(batch)
+    text = await _search(runtime, query, shelves=EVIDENCE_SHELVES)
+    system_prompt = render_prompt_template(
+        EVIDENCE_BATCH_PROMPT,
+        requirements=[r.model_dump() for r in batch],
+        project_description=request.project_description,
+        evidence_text=_evidence_text({query: text, **richtlinie_evidence}),
+    )
+    human_prompt = (
+        "Bewerte den Nachweisstatus fuer jede Anforderung im Batch anhand der gefundenen "
+        "Projektunterlagen und antworte als EvidenceBatchResult-JSON."
+    )
+    return await _call_structured_llm(runtime, EvidenceBatchResult, system_prompt, human_prompt)
+
+
+@dataclass(frozen=True)
+class _Judged:
+    """Stage 2 outcome for one Richtlinie: judged findings, unjudged requirement ids with a reason, notices."""
+
+    findings: tuple[EvidenceFinding, ...] = ()
+    unjudged: tuple[tuple[str, str], ...] = ()
+    notices: tuple[str, ...] = ()
+
+
+def _merge_batch_results(
+    richtlinie: int,
+    batches: list[list[RequirementItem]],
+    results: list[EvidenceBatchResult | BaseException],
+) -> _Judged:
+    """Keep findings for known ids; a failed batch or an omitted requirement becomes unjudged, with the reason."""
+    findings: list[EvidenceFinding] = []
+    unjudged: list[tuple[str, str]] = []
+    notices: list[str] = []
+    for batch, result in zip(batches, results, strict=True):
+        if isinstance(result, BaseException):
+            unjudged.extend((r.id, f"Evidenzpruefung fehlgeschlagen ({result}).") for r in batch)
+            notices.append(f"OIB-Richtlinie {richtlinie}: Evidenzpruefung fehlgeschlagen ({result}).")
+            continue
+        known = {r.id for r in batch}
+        judged = [finding for finding in result.findings if finding.requirement_id in known]
+        unknown = {finding.requirement_id for finding in result.findings} - known
+        if unknown:
+            logger.warning("Stage 2: dropping findings for unknown requirement ids %s", sorted(unknown))
+        covered = {finding.requirement_id for finding in judged}
+        findings.extend(judged)
+        unjudged.extend((r.id, _OMITTED_REASON) for r in batch if r.id not in covered)
+    return _Judged(tuple(findings), tuple(unjudged), tuple(notices))
+
+
+async def _judge_requirements(
+    runtime: _Runtime,
+    richtlinie: int,
+    applicable: list[RequirementItem],
+    request: ComplianceCheckRequest,
+) -> _Judged:
+    """Stage 2 for one Richtlinie: its evidence query once, then the batches gathered."""
+    query = _richtlinie_query(richtlinie)
+    try:
+        richtlinie_text = await _search(runtime, query, shelves=EVIDENCE_SHELVES)
+    except Exception as exc:  # noqa: BLE001 - typed failure: every requirement is reported as unjudged
+        reason = f"Abruf der Projektunterlagen fehlgeschlagen ({exc})."
+        logger.warning("Stage 2: retrieval failed for Richtlinie %s", richtlinie, exc_info=True)
+        return _Judged(
+            unjudged=tuple((r.id, reason) for r in applicable), notices=(f"OIB-Richtlinie {richtlinie}: {reason}",)
         )
+    batches = _batched(applicable, runtime.batch_size)
+    results = await asyncio.gather(
+        *(_judge_batch(runtime, batch, request, {query: richtlinie_text}) for batch in batches),
+        return_exceptions=True,
+    )
+    return _merge_batch_results(richtlinie, batches, list(results))
 
-        system_prompt = render_prompt_template(
-            self.evidence_batch_prompt,
-            requirements=[r.model_dump() for r in batch],
-            project_description=request.project_description,
-            evidence_text=evidence_text,
+
+# --- per-Richtlinie pipeline -------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RichtlinieOutcome:
+    """Everything one Richtlinie produced; ``profile`` is None when Stage 1 failed."""
+
+    richtlinie: int
+    profile: RequirementProfile | None
+    judged: _Judged = _Judged()
+    notices: tuple[str, ...] = ()
+
+
+async def _check_richtlinie(runtime: _Runtime, richtlinie: int, request: ComplianceCheckRequest) -> RichtlinieOutcome:
+    """Profile -> evidence -> findings for one Richtlinie, independent of the other five."""
+    try:
+        profile = await _derive_profile(runtime, richtlinie, request)
+    except Exception as exc:  # noqa: BLE001 - typed failure: the Richtlinie is reported, not the run aborted
+        logger.warning("Stage 1: Richtlinie %s failed", richtlinie, exc_info=True)
+        return RichtlinieOutcome(
+            richtlinie, None, notices=(f"OIB-Richtlinie {richtlinie}: Anforderungsprofil fehlgeschlagen ({exc}).",)
         )
-        messages = [
-            SystemMessage(content=system_prompt),
-            HumanMessage(
-                content=(
-                    "Bewerte den Nachweisstatus fuer jede Anforderung im Batch anhand der gefundenen "
-                    "Projektunterlagen und antworte als EvidenceBatchResult-JSON."
-                )
-            ),
-        ]
-        structured_llm = self._get_llm().bind(response_format=strict_json_response_format(EvidenceBatchResult))
-        response = await structured_llm.ainvoke(messages, config=self._invoke_config())
-        parsed = extract_json(_content_text(response))
-        if parsed is None:
-            raise ValueError("Stage 2 LLM call did not return valid JSON")
-        return EvidenceBatchResult.model_validate(parsed)
-
-    async def _run_evidence_batches(
-        self,
-        applicable: list[RequirementItem],
-        request: ComplianceCheckRequest,
-    ) -> tuple[list[EvidenceFinding], int]:
-        """Run Stage 2 across every ~batch_size group of applicable requirements.
-
-        Returns ``(findings, attempted_calls)``. Every applicable requirement
-        that a batch call fails (or silently omits from its response) still
-        ends up with a ``kein_nachweis`` finding, so Stage 3 never silently
-        drops a requirement that was in scope.
-        """
-        if not applicable:
-            return [], 0
-
-        batches = _batched(applicable, self.requirement_batch_size)
-        semaphore = asyncio.Semaphore(self.max_concurrency)
-
-        async def _bounded(batch: list[RequirementItem]) -> EvidenceBatchResult:
-            async with semaphore:
-                return await self._judge_evidence_batch(batch, request)
-
-        results = await asyncio.gather(*(_bounded(b) for b in batches), return_exceptions=True)
-
-        known_ids = {r.id for r in applicable}
-        findings: list[EvidenceFinding] = []
-        errors: list[str] = []
-        for result in results:
-            if isinstance(result, BaseException):
-                errors.append(str(result))
-                continue
-            for finding in result.findings:
-                if finding.requirement_id not in known_ids:
-                    logger.warning("Stage 2: dropping finding for unknown requirement_id %r", finding.requirement_id)
-                    continue
-                findings.append(finding)
-        if errors:
-            logger.warning("Stage 2: %d/%d evidence batches failed: %s", len(errors), len(batches), "; ".join(errors))
-
-        covered_ids = {f.requirement_id for f in findings}
-        for requirement in applicable:
-            if requirement.id not in covered_ids:
-                findings.append(
-                    EvidenceFinding(
-                        requirement_id=requirement.id,
-                        status="kein_nachweis",
-                        evidence_quotes=[],
-                        source_files=[],
-                        confidence="low",
-                        reasoning="Keine Bewertung durch die Evidenzpruefung erhalten.",
-                        open_question=None,
-                    )
-                )
-        return findings, len(batches)
-
-    def _assemble_matrix(
-        self,
-        profiles: list[RequirementProfile],
-        findings: list[EvidenceFinding],
-    ) -> ComplianceMatrix:
-        """Stage 3: deterministic, pure-Python assembly. No LLM calls."""
-        all_requirements: dict[str, RequirementItem] = {}
-        not_applicable: list[RequirementItem] = []
-        for profile in profiles:
-            for requirement in profile.requirements:
-                all_requirements[requirement.id] = requirement
-                if requirement.applicability == "nicht_anwendbar":
-                    not_applicable.append(requirement)
-
-        status_counts: dict[str, int] = {}
-        rows: list[ComplianceMatrixRow] = []
-        gaps: list[GapItem] = []
-        open_questions: list[str] = []
-        seen_questions: set[str] = set()
-
-        for finding in findings:
-            requirement = all_requirements.get(finding.requirement_id)
-            richtlinie = requirement.richtlinie if requirement else 0
-            punkt = requirement.punkt if requirement else "?"
-            requirement_text = requirement.requirement if requirement else "(unbekannte Anforderung)"
-
-            status_counts[finding.status] = status_counts.get(finding.status, 0) + 1
-            rows.append(
-                ComplianceMatrixRow(
-                    requirement_id=finding.requirement_id,
-                    richtlinie=richtlinie,
-                    punkt=punkt,
-                    requirement=requirement_text,
-                    status=finding.status,
-                    confidence=finding.confidence,
-                    evidence_quotes=finding.evidence_quotes,
-                    source_files=finding.source_files,
-                    reasoning=finding.reasoning,
-                )
-            )
-            if finding.open_question and finding.open_question not in seen_questions:
-                seen_questions.add(finding.open_question)
-                open_questions.append(finding.open_question)
-            if finding.status == "erfuellt":
-                continue
-            risk_score = _compute_risk(finding)
-            gaps.append(
-                GapItem(
-                    requirement_id=finding.requirement_id,
-                    richtlinie=richtlinie,
-                    punkt=punkt,
-                    requirement=requirement_text,
-                    status=finding.status,
-                    risk_score=risk_score,
-                    risk_level=_risk_level(risk_score),
-                    rationale=finding.reasoning,
-                )
-            )
-
-        rows.sort(key=lambda row: (row.richtlinie, row.punkt))
-        gaps.sort(key=lambda gap: gap.risk_score, reverse=True)
-
-        return ComplianceMatrix(
-            findings=rows,
-            not_applicable=not_applicable,
-            gaps=gaps,
-            open_questions=open_questions,
-            status_counts=status_counts,
+    applicable = [r for r in profile.requirements if r.applicability in _APPLICABLE_TAGS]
+    if not applicable:
+        return RichtlinieOutcome(richtlinie, profile)
+    if not request.project_documents_in_scope:
+        return RichtlinieOutcome(
+            richtlinie, profile, _Judged(unjudged=tuple((r.id, _NO_DOCUMENTS_REASON) for r in applicable))
         )
+    judged = await _judge_requirements(runtime, richtlinie, applicable, request)
+    return RichtlinieOutcome(richtlinie, profile, judged, judged.notices)
 
-    async def run(
-        self,
-        state: ComplianceCheckAgentState,
-        *,
-        request: ComplianceCheckRequest | None = None,
-    ) -> ComplianceCheckResult:
-        """Execute the full three-stage pipeline and return the assembled result.
 
-        ``request`` may be passed explicitly (register.py builds it from the
-        config default plus any per-request override); otherwise it is
-        derived from ``state`` alone via ``build_request_from_state``.
-        """
-        if request is None:
-            request = build_request_from_state(state)
+# --- stage 3 -----------------------------------------------------------------
 
-        profiles, stage1_calls = await self._run_requirement_profiles(request)
-        applicable = [
-            requirement
-            for profile in profiles
-            for requirement in profile.requirements
-            if requirement.applicability in _APPLICABLE_TAGS
-        ]
-        findings, stage2_calls = await self._run_evidence_batches(applicable, request)
-        matrix = self._assemble_matrix(profiles, findings)
-        report_markdown = render_compliance_report(request, matrix)
 
-        return ComplianceCheckResult(
-            matrix=matrix,
-            report_markdown=report_markdown,
-            stage1_llm_calls=stage1_calls,
-            stage2_llm_calls=stage2_calls,
-        )
+def _index_requirements(outcomes: Sequence[RichtlinieOutcome]) -> dict[str, RequirementItem]:
+    return {r.id: r for outcome in outcomes if outcome.profile for r in outcome.profile.requirements}
+
+
+def _row_for(finding: EvidenceFinding, requirements: dict[str, RequirementItem]) -> ComplianceMatrixRow:
+    requirement = requirements[finding.requirement_id]
+    return ComplianceMatrixRow(
+        requirement_id=finding.requirement_id,
+        richtlinie=requirement.richtlinie,
+        punkt=requirement.punkt,
+        requirement=requirement.requirement,
+        status=finding.status,
+        confidence=finding.confidence,
+        evidence_quotes=finding.evidence_quotes,
+        source_files=finding.source_files,
+        reasoning=finding.reasoning,
+    )
+
+
+def _unjudged_row(requirement: RequirementItem, reason: str) -> ComplianceMatrixRow:
+    return ComplianceMatrixRow(
+        requirement_id=requirement.id,
+        richtlinie=requirement.richtlinie,
+        punkt=requirement.punkt,
+        requirement=requirement.requirement,
+        status=UNJUDGED_STATUS,
+        confidence="low",
+        reasoning=reason,
+    )
+
+
+def _gap_for(row: ComplianceMatrixRow) -> GapItem | None:
+    """A gap is a judged, non-'erfuellt' row; an unjudged row is a notice, not a gap."""
+    if row.status not in _STATUS_RANK:
+        return None
+    return GapItem(
+        requirement_id=row.requirement_id,
+        richtlinie=row.richtlinie,
+        punkt=row.punkt,
+        requirement=row.requirement,
+        status=row.status,
+        confidence=row.confidence,
+        rationale=row.reasoning,
+    )
+
+
+def gap_sort_key(gap: GapItem) -> tuple[int, int, int, str]:
+    """Worst first: a confirmed violation outranks a guessed one, and any violation outranks 'teilweise'."""
+    return (
+        _STATUS_RANK[gap.status],
+        _CONFIDENCE_RANK.get(gap.confidence, len(_CONFIDENCE_RANK)),
+        gap.richtlinie,
+        gap.punkt,
+    )
+
+
+def _open_questions(findings: Sequence[EvidenceFinding]) -> list[str]:
+    return list(dict.fromkeys(finding.open_question for finding in findings if finding.open_question))
+
+
+def assemble_matrix(outcomes: Sequence[RichtlinieOutcome], richtlinien: Sequence[int]) -> ComplianceMatrix:
+    """Stage 3: join requirements with findings. Pure Python, no LLM calls."""
+    requirements = _index_requirements(outcomes)
+    findings = [finding for outcome in outcomes for finding in outcome.judged.findings]
+    unjudged = [(requirements[rid], reason) for outcome in outcomes for rid, reason in outcome.judged.unjudged]
+    rows = [_row_for(finding, requirements) for finding in findings] + [_unjudged_row(r, why) for r, why in unjudged]
+    rows.sort(key=lambda row: (row.richtlinie, row.punkt))
+    return ComplianceMatrix(
+        richtlinien=list(richtlinien),
+        findings=rows,
+        not_applicable=[r for r in requirements.values() if r.applicability == "nicht_anwendbar"],
+        gaps=sorted(filter(None, map(_gap_for, rows)), key=gap_sort_key),
+        open_questions=_open_questions(findings),
+        status_counts=dict(Counter(row.status for row in rows)),
+        notices=[notice for outcome in outcomes for notice in outcome.notices],
+    )
+
+
+# --- entry point -------------------------------------------------------------
+
+
+async def run_compliance_check(
+    request: ComplianceCheckRequest,
+    *,
+    llm: BaseChatModel,
+    knowledge_search: BaseTool,
+    max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
+    batch_size: int = DEFAULT_REQUIREMENT_BATCH_SIZE,
+    callbacks: Sequence[Any] = (),
+    generated_at: datetime | None = None,
+) -> ComplianceCheckResult:
+    """Run all three stages for ``request.richtlinien`` and render the report."""
+    runtime = _Runtime(
+        llm=llm,
+        knowledge_search=knowledge_search,
+        llm_slots=asyncio.Semaphore(max(1, max_concurrency)),
+        batch_size=max(1, batch_size),
+        callbacks=tuple(callbacks),
+    )
+    outcomes = await asyncio.gather(*(_check_richtlinie(runtime, r, request) for r in request.richtlinien))
+    matrix = assemble_matrix(outcomes, request.richtlinien)
+    report = render_compliance_report(matrix, generated_at=generated_at or datetime.now(UTC))
+    return ComplianceCheckResult(matrix=matrix, report_markdown=report)

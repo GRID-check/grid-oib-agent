@@ -1,14 +1,17 @@
-"""Tests for the compliance-check agent NAT registration config."""
+"""Tests for the compliance-check NAT registration: the config model and the context reads."""
 
 import pytest
 from pydantic import ValidationError
 
+from aiq_agent.agents.compliance_checker import register
 from aiq_agent.agents.compliance_checker.register import ComplianceCheckAgentConfig
+from aiq_agent.agents.compliance_checker.register import ComplianceCheckInput
+from aiq_agent.agents.compliance_checker.register import project_documents_in_scope
+from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.knowledge.scoping import ScopedCollection
 
 
 class TestComplianceCheckAgentConfig:
-    """Tests for the ComplianceCheckAgentConfig model."""
-
     def test_config_with_required_fields(self):
         config = ComplianceCheckAgentConfig(llm="test_llm", knowledge_search_tool="knowledge_search")
 
@@ -66,3 +69,26 @@ class TestComplianceCheckAgentConfig:
         assert fields["knowledge_search_tool"].description is not None
         assert fields["max_concurrency"].description is not None
         assert fields["richtlinien"].description is not None
+
+
+def test_tool_input_has_no_dead_focus_field():
+    assert set(ComplianceCheckInput.model_fields) == {"richtlinien"}
+
+
+class TestProjectDocumentsInScope:
+    """Defect (a), the guard half: the tool searches everything when a shelf restriction empties its scope."""
+
+    def test_missing_header_means_legacy_layers_and_is_kept(self, monkeypatch):
+        monkeypatch.setattr(register, "get_scoped_collections_from_context", lambda: None)
+        assert project_documents_in_scope() is True
+
+    def test_base_only_scope_has_nothing_to_judge_against(self, monkeypatch):
+        scope = [ScopedCollection("oib_corpus", Shelf.BASE)]
+        monkeypatch.setattr(register, "get_scoped_collections_from_context", lambda: scope)
+        assert project_documents_in_scope() is False
+
+    @pytest.mark.parametrize("shelf", [Shelf.PROJECT, Shelf.SESSION, None])
+    def test_project_session_or_unknown_shelf_counts(self, monkeypatch, shelf):
+        scope = [ScopedCollection("oib_corpus", Shelf.BASE), ScopedCollection("proj_alpha", shelf)]
+        monkeypatch.setattr(register, "get_scoped_collections_from_context", lambda: scope)
+        assert project_documents_in_scope() is True

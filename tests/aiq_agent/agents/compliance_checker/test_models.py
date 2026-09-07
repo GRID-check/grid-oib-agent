@@ -3,10 +3,9 @@
 import pytest
 from pydantic import ValidationError
 
-from aiq_agent.agents.compliance_checker.models import ComplianceCheckAgentState
+from aiq_agent.agents.compliance_checker.models import ALL_RICHTLINIEN
 from aiq_agent.agents.compliance_checker.models import ComplianceCheckRequest
 from aiq_agent.agents.compliance_checker.models import EvidenceBatchResult
-from aiq_agent.agents.compliance_checker.models import GapItem
 from aiq_agent.agents.compliance_checker.models import RequirementItem
 from aiq_agent.agents.compliance_checker.models import RequirementProfile
 
@@ -37,11 +36,9 @@ def test_llm_facing_schemas_have_no_strict_mode_unsupported_constraints(schema_c
     assert hits == [], f"{schema_cls.__name__}: strict-mode-unsupported schema constraints found: {hits}"
 
 
-def test_gap_item_is_not_llm_facing_so_ge_le_is_fine():
-    """GapItem.risk_score is a Stage 3 pure-Python computation -- ge/le is fine here on purpose."""
-    schema = GapItem.model_json_schema()
-    hits = _walk_strict_mode_unsupported_keys(schema)
-    assert sorted(hits) == ["$.properties.risk_score.maximum", "$.properties.risk_score.minimum"]
+def test_all_richtlinien_is_immutable():
+    assert ALL_RICHTLINIEN == (1, 2, 3, 4, 5, 6)
+    assert isinstance(ALL_RICHTLINIEN, tuple)
 
 
 def test_requirement_item_validates_expected_shape():
@@ -76,12 +73,7 @@ def test_requirement_item_rejects_out_of_range_richtlinie():
 def test_requirement_profile_rejects_extra_fields():
     with pytest.raises(ValidationError):
         RequirementProfile.model_validate(
-            {
-                "richtlinie": 1,
-                "scope_notes": "x",
-                "requirements": [],
-                "unexpected": "value",
-            }
+            {"richtlinie": 1, "scope_notes": "x", "requirements": [], "unexpected": "value"}
         )
 
 
@@ -116,19 +108,16 @@ def test_evidence_batch_result_rejects_extra_fields():
 
 
 class TestComplianceCheckRequest:
-    """ComplianceCheckRequest is a pipeline input, not LLM-facing -- ge/le-style validation is fine."""
+    """ComplianceCheckRequest is a pipeline input, not LLM-facing."""
 
     def test_default_richtlinien_is_all_six(self):
-        request = ComplianceCheckRequest()
-        assert request.richtlinien == [1, 2, 3, 4, 5, 6]
+        assert ComplianceCheckRequest().richtlinien == [1, 2, 3, 4, 5, 6]
 
     def test_empty_richtlinien_defaults_to_all(self):
-        request = ComplianceCheckRequest(richtlinien=[])
-        assert request.richtlinien == [1, 2, 3, 4, 5, 6]
+        assert ComplianceCheckRequest(richtlinien=[]).richtlinien == [1, 2, 3, 4, 5, 6]
 
     def test_richtlinien_deduped_and_sorted(self):
-        request = ComplianceCheckRequest(richtlinien=[3, 1, 3, 2])
-        assert request.richtlinien == [1, 2, 3]
+        assert ComplianceCheckRequest(richtlinien=[3, 1, 3, 2]).richtlinien == [1, 2, 3]
 
     def test_rejects_out_of_range_richtlinie(self):
         with pytest.raises(ValidationError):
@@ -136,14 +125,7 @@ class TestComplianceCheckRequest:
         with pytest.raises(ValidationError):
             ComplianceCheckRequest(richtlinien=[7])
 
-    def test_project_descriptors_default_empty_dict(self):
+    def test_defaults(self):
         request = ComplianceCheckRequest()
         assert request.project_descriptors == {}
-
-
-class TestComplianceCheckAgentState:
-    def test_defaults(self):
-        state = ComplianceCheckAgentState()
-        assert state.messages == []
-        assert state.richtlinien is None
-        assert state.project_descriptors == {}
+        assert request.project_documents_in_scope is True

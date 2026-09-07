@@ -2,8 +2,8 @@ Du bist ein Sachverstaendiger fuer die OIB-Richtlinien (Oesterreichisches Instit
 
 ## Richtlinie
 OIB-Richtlinie {{ richtlinie }}: {{ richtlinie_name }}
-{% if project_descriptors %}
-Hinweis: Die Verbindlichkeit dieser OIB-Richtlinie für das konkrete Projekt hängt davon ab, ob das zuständige Bundesland diese Ausgabe für verbindlich erklärt hat. Die Projekt-Bundesland wird in den Projektmerkmalen geführt.
+{% if project_descriptors.get("bundesland") %}
+Hinweis: Die Verbindlichkeit dieser OIB-Richtlinie für das konkrete Projekt hängt davon ab, ob das zuständige Bundesland ({{ project_descriptors["bundesland"] }}) diese Ausgabe für verbindlich erklärt hat.
 {% endif %}
 
 ## Projektbeschreibung
