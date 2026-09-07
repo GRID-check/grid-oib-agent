@@ -6,6 +6,7 @@ import { ApiRequestError } from '@/adapters/api/api-error'
 import {
   getDeepResearchJobLoadFailureKind,
   isUnavailableDeepResearchJobError,
+  readTerminalVerdictFromCancelError,
 } from './deep-research-errors'
 
 describe('deep research error classification', () => {
@@ -72,5 +73,34 @@ describe('deep research error classification', () => {
     const error = new ApiRequestError('Failed to get job status: 401 - Signature has expired', 401)
 
     expect(getDeepResearchJobLoadFailureKind(error)).toBe('other')
+  })
+})
+
+describe('readTerminalVerdictFromCancelError', () => {
+  test.each([
+    ['failure', 'failure'],
+    ['success', 'success'],
+    ['interrupted', 'interrupted'],
+  ] as const)('reads the backend verdict from a not-cancellable cancel: %s', (status, expected) => {
+    // Shape as produced by the BFF proxy wrapping the backend's
+    // {"detail": "Job not cancellable: <id> (status: <verdict>)"}.
+    const error = new ApiRequestError(
+      `Failed to cancel job: 400 - BACKEND_ERROR - Backend returned 400: {"detail":"Job not cancellable: 45cf6ac7 (status: ${status})"}`,
+      400
+    )
+
+    expect(readTerminalVerdictFromCancelError(error)).toBe(expected)
+  })
+
+  test.each([
+    'Failed to cancel job: 404 - job gone',
+    'Failed to cancel job: 500 - PROXY_ERROR: fetch failed',
+    'TypeError: Failed to fetch',
+    // A verdict that is not terminal carries no reconciliation value.
+    'Failed to cancel job: 400 - {"detail":"Job not cancellable: 45cf6ac7 (status: running)"}',
+    // A reworded backend must degrade to the plain stopped marking, never to a guessed verdict.
+    'Failed to cancel job: 400 - {"detail":"cannot cancel job 45cf6ac7"}',
+  ])('returns null without a terminal verdict: %s', (message) => {
+    expect(readTerminalVerdictFromCancelError(new Error(message))).toBeNull()
   })
 })

@@ -1002,6 +1002,18 @@ export interface ChatState {
   deepResearchConnectionLost: boolean
   /** Transient reconnect handler registered by useDeepResearch (not persisted) */
   reconnectDeepResearchFn: (() => void) | null
+  /**
+   * Jobs this browser has terminally settled itself (dismissed from the
+   * history), jobId → terminal status. The backend's status/list endpoints can
+   * serve a stale `running` for a crashed run indefinitely — and the cancel
+   * endpoint can simultaneously report it terminal — so without this record
+   * every status refresh would flip a dismissed thread back to active and the
+   * purge would look like it did nothing. Automatic reconciliation (refresh,
+   * reconnect, banner cleanup) treats these as settled and never re-activates
+   * them; only an explicit re-attach overrides it. Persisted: the staleness
+   * survives reloads, so the record must too. Bounded (see the dismiss path).
+   */
+  resolvedDeepResearchJobs: Record<string, DeepResearchJobStatus>
 
   // Plan state (for chat/HITL restore flows)
   /** Messages for clarification questions, plan previews, and approvals. */
@@ -1311,11 +1323,15 @@ export interface ChatActions {
   refreshDeepResearchSessionStatuses: () => Promise<void>
   /**
    * Dismiss one stuck deep-research run: cancel the backend job best-effort
-   * (a 404 means it is already gone — the case being purged) and always mark
-   * the thread terminal locally, so an abandoned run stops spinning and its
-   * row becomes actionable again. `conversationId` may be null for headless
+   * and always mark the thread terminal locally, so an abandoned run stops
+   * spinning and its row becomes actionable again. `conversationId` may be null for headless
    * runs with no thread to write into. Idempotent — never appends a second
    * terminal banner.
+   *
+   * A cancel that fails 400 with "Job not cancellable (status: …)" carries the
+   * backend's own terminal verdict for an already-finished run; the dismiss
+   * reconciles to that verdict (and records it, see `resolvedDeepResearchJobs`)
+   * instead of merely marking the thread stopped.
    */
   dismissDeepResearchJob: (conversationId: string | null, jobId: string) => Promise<void>
   /**

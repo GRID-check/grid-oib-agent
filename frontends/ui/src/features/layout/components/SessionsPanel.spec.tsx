@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { SessionsPanel } from './SessionsPanel'
 import type { ResearchRun } from '@/adapters/api/research-runs-client'
+import type { DeepResearchJobStatus } from '@/features/chat/types'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { LayoutStore } from '../types'
 import type { ChatStoreWithHydration } from '@/features/chat/store'
@@ -75,6 +76,7 @@ const createMockChatState = (
     refreshDeepResearchSessionStatuses?: () => Promise<void>
     dismissDeepResearchJob?: (conversationId: string | null, jobId: string) => Promise<void>
     purgeAbandonedDeepResearchJobs?: () => Promise<number>
+    resolvedDeepResearchJobs?: Record<string, DeepResearchJobStatus>
   } = {}
 ) => ({
   isSessionBusy: overrides.isSessionBusy ?? (() => false),
@@ -84,6 +86,7 @@ const createMockChatState = (
   refreshDeepResearchSessionStatuses: overrides.refreshDeepResearchSessionStatuses ?? vi.fn(),
   dismissDeepResearchJob: overrides.dismissDeepResearchJob ?? vi.fn(),
   purgeAbandonedDeepResearchJobs: overrides.purgeAbandonedDeepResearchJobs ?? vi.fn(),
+  resolvedDeepResearchJobs: overrides.resolvedDeepResearchJobs ?? {},
 })
 
 const setupChatStoreMock = (overrides: Parameters<typeof createMockChatState>[0] = {}) => {
@@ -1092,9 +1095,29 @@ describe('SessionsPanel - stuck research purge', () => {
     await user.hover(screen.getByRole('button', { name: /chat: stuck research chat/i }))
     fireEvent.click(screen.getByRole('button', { name: 'Stop research' }))
 
+    // Stopping cancels server-side work, so it confirms first through the
+    // shared dialog rather than firing off the icon.
+    expect(await screen.findByText('Stop research?')).toBeInTheDocument()
+    await user.click(screen.getByTestId('stop-research-confirm'))
+
     await waitFor(() => {
       expect(mockDismiss).toHaveBeenCalledWith('conv-stuck', 'job-stuck')
     })
+  })
+
+  test('cancelling the stop confirm dismisses nothing', async () => {
+    const user = userEvent.setup()
+    render(<SessionsPanel sessions={[stuckSession, idleSession]} />)
+
+    await user.hover(screen.getByRole('button', { name: /chat: stuck research chat/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop research' }))
+    expect(await screen.findByText('Stop research?')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    await waitFor(() => {
+      expect(screen.queryByText('Stop research?')).not.toBeInTheDocument()
+    })
+    expect(mockDismiss).not.toHaveBeenCalled()
   })
 
   test('an idle chat row offers no stop action', async () => {
@@ -1112,8 +1135,12 @@ describe('SessionsPanel - stuck research purge', () => {
     render(<SessionsPanel sessions={[stuckSession, idleSession]} />)
 
     await user.click(screen.getByRole('button', { name: /stop all stuck research runs/i }))
+    expect(await screen.findByText('Stop stuck research?')).toBeInTheDocument()
+    await user.click(screen.getByTestId('purge-stuck-research-confirm'))
 
-    expect(mockPurge).toHaveBeenCalledTimes(1)
+    await waitFor(() => {
+      expect(mockPurge).toHaveBeenCalledTimes(1)
+    })
   })
 
   test('the footer shows no purge when nothing is stuck', () => {
@@ -1148,9 +1175,13 @@ describe('SessionsPanel - stuck research purge', () => {
     )
 
     expect(await screen.findByText('Running')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /stop research/i }))
+    await user.click(screen.getByRole('button', { name: 'Stop research' }))
+    expect(await screen.findByText('Stop research?')).toBeInTheDocument()
+    await user.click(screen.getByTestId('stop-research-confirm'))
 
-    expect(mockDismiss).toHaveBeenCalledWith(null, 'job-live')
+    await waitFor(() => {
+      expect(mockDismiss).toHaveBeenCalledWith(null, 'job-live')
+    })
     // Initial fetch plus the refetch after the dismiss landed.
     await waitFor(() => {
       expect(mockListResearchRuns).toHaveBeenCalledTimes(2)
@@ -1180,6 +1211,42 @@ describe('SessionsPanel - stuck research purge', () => {
     )
 
     expect(await screen.findByText('Report ready')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /stop research/i })).not.toBeInTheDocument()
+  })
+
+  test('a dismissed run renders its recorded verdict, not the stale list status', async () => {
+    // The runs list can lag a crashed run indefinitely: the backend declared
+    // this job failed on cancel, but the list still serves it as running.
+    setupChatStoreMock({
+      dismissDeepResearchJob: mockDismiss,
+      purgeAbandonedDeepResearchJobs: mockPurge,
+      isSessionBusy: () => true,
+      resolvedDeepResearchJobs: { 'job-stale': 'failure' },
+    })
+    mockListResearchRuns.mockResolvedValue({
+      jobs: [
+        {
+          job_id: 'job-stale',
+          status: 'running',
+          created_at: today.toISOString(),
+          conversation_id: null,
+          project_collection: 'proj_1',
+        },
+      ],
+      total: 1,
+    })
+    render(
+      <SessionsPanel
+        sessions={[idleSession]}
+        showDeepResearchSection
+        projectId="p1"
+        projectCollection="proj_1"
+      />
+    )
+
+    expect(await screen.findByText('Failed')).toBeInTheDocument()
+    expect(screen.queryByText('Running')).not.toBeInTheDocument()
+    // Settled runs need no stop action.
     expect(screen.queryByRole('button', { name: /stop research/i })).not.toBeInTheDocument()
   })
 })
