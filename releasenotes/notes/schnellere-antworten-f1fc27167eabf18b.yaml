@@ -2,12 +2,11 @@
 improvements:
   - >
     Die Auswahl der Fundstellen für eine Antwort geht deutlich schneller.
-    Bisher las das Sprachmodell bei jeder Suche rund sechzig Kandidaten und
-    bewertete sie in einem einzigen langen Aufruf, was pro Suche gut zehn
-    Sekunden kosten konnte. Jetzt übernimmt ein dafür gebautes Bewertungsmodell
-    diese Auswahl in einem Bruchteil der Zeit und liest dabei jede Fundstelle
-    ganz statt nur einen Ausschnitt. Fällt es aus, springt der bisherige Weg
-    ein.
+    Bisher bewertete das Sprachmodell bei jeder Suche rund sechzig Kandidaten
+    in einem langen Aufruf, der gut zehn Sekunden kosten konnte. Jetzt trifft
+    ein dafür gebautes Bewertungsmodell die Auswahl in einem Bruchteil der Zeit
+    und liest dabei jede Fundstelle ganz. Fällt es aus, springt der bisherige
+    Weg ein.
   - >
     Antworten im Chat kommen früher an. Vor der ersten Zeile lud der Assistent
     mehrere Dinge nacheinander, die nichts voneinander wissen: das
