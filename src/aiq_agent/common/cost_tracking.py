@@ -36,6 +36,7 @@ import logging
 import os
 import urllib.error
 import urllib.request
+from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -349,16 +350,18 @@ class GridCostTracker(BaseCallbackHandler):
         """Completion tokens (reasoning included) across every call tracked."""
         return self._completion_tokens
 
-    def flush(self, *, wait: bool) -> None:
+    def flush(self, *, wait: bool) -> Future[None] | None:
         """Send pending events to the internal ledger endpoint.
 
-        ``wait=False`` hands the batch to the background worker (answer path);
-        ``wait=True`` posts inline (end of turn / job teardown).
+        ``wait=False`` hands the batch to the background worker (answer path)
+        and returns its future, so a caller that wants the post to have landed
+        can await it later; ``wait=True`` posts inline (end of turn / job
+        teardown) and returns ``None``. Nothing pending returns ``None``.
         """
         with self._lock:
             batch, self._pending = self._pending, []
         if not batch:
-            return
+            return None
         payload = {
             "organizationId": self.organization_id,
             "userId": self.user_id,
@@ -369,8 +372,8 @@ class GridCostTracker(BaseCallbackHandler):
         }
         if wait:
             _post_usage_events(payload)
-        else:
-            _flush_executor.submit(_post_usage_events, payload)
+            return None
+        return _flush_executor.submit(_post_usage_events, payload)
 
 
 def _post_usage_events(payload: dict[str, Any]) -> None:
@@ -459,12 +462,19 @@ def track_llm_costs(
     job_id: str | None = None,
     identity: dict[str, str | None] | None = None,
     budget: BudgetSnapshot | None = None,
+    inline_flush: bool = True,
 ):
     """Activate cost tracking for the enclosed request/turn.
 
     Identity and budget default to the live request headers. Yields the
     tracker (also for tests); pending events are flushed on exit. Never lets
     tracking setup/teardown failures break the answer path.
+
+    ``inline_flush=False`` leaves the final batch pending for the caller to
+    post once the answer is on the wire (``profiler.flush_after_answer``);
+    the chat turn uses it so the ledger POST no longer sits on the event loop
+    between the finished answer and its first delta. Every other caller keeps
+    the inline post, which is what a worker about to exit needs.
     """
     tracker: GridCostTracker | None = None
     token = None
@@ -489,7 +499,7 @@ def track_llm_costs(
     finally:
         if token is not None:
             grid_cost_tracker_var.reset(token)
-        if tracker is not None:
+        if tracker is not None and inline_flush:
             try:
                 # Inline post at teardown: a wait=False flush would hand the
                 # final batch to the daemon executor, which a worker exiting

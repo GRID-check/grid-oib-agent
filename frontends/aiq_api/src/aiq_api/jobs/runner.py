@@ -1388,10 +1388,39 @@ async def run_agent_job(
                     # so the UI sees completion before exporter flush and cleanup
                     report = _extract_result(result)
 
-                    # Generate Grid response cards from the final report and
-                    # re-emit the report artifact with the cards attached.
-                    # Best-effort and additive: card failures never fail the job.
-                    cards_result = await _generate_grid_cards(llm, input_text, report)
+                    # Two LLM passes over the finished report, both best-effort
+                    # and independent of each other, so they run together:
+                    #
+                    # - Grid response cards, re-emitted with the report artifact.
+                    #   Additive: card failures never fail the job.
+                    # - Project-memory reflection. The chat path runs this
+                    #   post-answer for shallow/meta turns but skips deep jobs
+                    #   (the report exists only now). Awaited, guarded and
+                    #   fail-open — the user already has the report, so this
+                    #   never affects the job outcome, only its bookkeeping.
+                    #
+                    # They used to run one after the other, and the reflection
+                    # carried no bound of its own, so the job stayed RUNNING (and
+                    # the thread turn and the notification waited) for up to the
+                    # card timeout plus the reflection model's retries after the
+                    # reader already had the report.
+                    cards_result, _ = await asyncio.gather(
+                        _generate_grid_cards(llm, input_text, report),
+                        _run_deep_research_reflection(
+                            builder=builder,
+                            job_id=job_id,
+                            # A scheduled job's submitter (the BFF) knows the flag but
+                            # not the config's LLM ref; the worker has the config.
+                            reflection_llm_ref=memory_reflection_llm or _workflow_reflection_llm_ref(config),
+                            reflection_enabled=memory_reflection_enabled,
+                            query=input_text,
+                            report=report,
+                            usage_context=usage_context,
+                            memory_digest=memory_digest,
+                            org_credential=resolved_org_credential,
+                            model_overrides=model_overrides,
+                        ),
+                    )
                     cards = _merge_job_cards(card_registry.snapshot(), cards_result.cards)
                     if cards:
                         # Card delivery is additive and must never flip an
@@ -1401,26 +1430,6 @@ async def run_agent_job(
                             agent_event_callback.emit_final_report(report, cards=cards)
                         except Exception:
                             logger.warning("Job %s: failed to emit final report with cards (non-fatal)", job_id)
-
-                    # Capture durable project findings from the finished report.
-                    # The chat path runs this post-answer for shallow/meta turns
-                    # but skips deep jobs (the report exists only now). Awaited,
-                    # guarded, and fail-open — the user already has the report, so
-                    # this never affects the job outcome, only its bookkeeping.
-                    await _run_deep_research_reflection(
-                        builder=builder,
-                        job_id=job_id,
-                        # A scheduled job's submitter (the BFF) knows the flag but
-                        # not the config's LLM ref; the worker has the config.
-                        reflection_llm_ref=memory_reflection_llm or _workflow_reflection_llm_ref(config),
-                        reflection_enabled=memory_reflection_enabled,
-                        query=input_text,
-                        report=report,
-                        usage_context=usage_context,
-                        memory_digest=memory_digest,
-                        org_credential=resolved_org_credential,
-                        model_overrides=model_overrides,
-                    )
 
                     # The marks the run left on its own answer (cut off, degraded,
                     # citations stripped). Lifted here, one step before the job is
@@ -1960,6 +1969,13 @@ async def _run_deep_research_reflection(
     context is still open at the call site). It only ever delays the job's
     SUCCESS bookkeeping, never the answer, and never raises — reflection is a
     safety net, not part of the job contract.
+
+    Bounded by the same ``REFLECTION_TIMEOUT_S`` the chat path's stage declares
+    (``stages/memory_reflection.py``). Without it the only bound was the
+    reflection model's own ``request_timeout`` times its retries, close to six
+    minutes, during which the job read RUNNING, the thread turn was not written
+    and the outcome notification did not go out — over a report the reader
+    already had.
     """
     if not reflection_enabled or not reflection_llm_ref or not report:
         return
@@ -1979,6 +1995,7 @@ async def _run_deep_research_reflection(
         from aiq_agent.common.cost_tracking import BudgetSnapshot
         from aiq_agent.common.cost_tracking import track_llm_costs
         from aiq_agent.common.profiler import track_agent_profile
+        from aiq_agent.stages.memory_reflection import REFLECTION_TIMEOUT_S
 
         reflection_llm = await get_langchain_llm(builder, reflection_llm_ref)
         overrides = sanitize_model_overrides(model_overrides) if model_overrides else None
@@ -1991,19 +2008,26 @@ async def _run_deep_research_reflection(
             track_agent_profile(agent_name="project_memory_reflection", job_id=job_id, identity=identity),
             track_llm_costs(job_id=job_id, identity=identity, budget=BudgetSnapshot()),
         ):
-            await run_memory_reflection(
-                llm=reflection_llm,
-                query=query,
-                answer=report,
-                project_id=project_id,
-                organization_id=identity.get("organization_id"),
-                conversation_id=identity.get("conversation_id"),
-                # The MEMORY digest, not the intake profile: the pass compares
-                # the report against what is already remembered, and against
-                # the profile it re-recorded known findings and could never
-                # resolve a supersede quote.
-                memory_digest=memory_digest,
+            await asyncio.wait_for(
+                run_memory_reflection(
+                    llm=reflection_llm,
+                    query=query,
+                    answer=report,
+                    project_id=project_id,
+                    organization_id=identity.get("organization_id"),
+                    conversation_id=identity.get("conversation_id"),
+                    # The MEMORY digest, not the intake profile: the pass compares
+                    # the report against what is already remembered, and against
+                    # the profile it re-recorded known findings and could never
+                    # resolve a supersede quote.
+                    memory_digest=memory_digest,
+                ),
+                timeout=REFLECTION_TIMEOUT_S,
             )
+    except TimeoutError:
+        logger.warning(
+            "Job %s: deep-research memory reflection timed out after %ss (non-fatal)", job_id, REFLECTION_TIMEOUT_S
+        )
     except Exception:
         logger.warning("Job %s: deep-research memory reflection failed (non-fatal)", job_id, exc_info=True)
 

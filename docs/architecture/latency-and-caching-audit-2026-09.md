@@ -209,6 +209,10 @@ latency one.
 
 ### 3.4 Pre-graph setup: serial hops inside a gathered branch
 
+**[LANDED]** The three awaits are gathered; the in-flight ingest read rides
+the outer gather too, and only the wait it may trigger stays after it. The
+digest version cache and the empty-memory shortcut are still open.
+
 `register.py:1143` gathers three branches, which is right. Inside the first
 branch, `_load_project_context` awaits three independent things one after
 another:
@@ -233,6 +237,12 @@ Fixes, all behaviour-identical because each already fails open on its own:
 
 ### 3.5 Two blocking HTTP POSTs between "answer final" and "first delta"
 
+**[LANDED]** Both context managers take `inline_flush=False` on the chat
+turn and `profiler.flush_after_answer` posts the batches after the terminal
+chunk, off the loop, in a `finally` so an early-closed stream still posts.
+The CLI `--input` path flushes before its hard exit. Every other caller
+keeps the inline flush.
+
 At the exit of the `with` block on `register.py:1241`, both context managers
 post their final batch **synchronously on the event loop**:
 `common/profiler.py:410-415` (`profiler.flush(wait=True)`, `urlopen` at `:283`,
@@ -250,6 +260,10 @@ fully async.
 
 ### 3.6 Synchronous BFF lookups on the event loop
 
+**[LANDED]** The skill resolve and the three provider lookups run on a
+thread (`asyncio.to_thread`, ContextVars travel with it). Values and TTLs
+are unchanged.
+
 Three per-turn lookups in `shallow_researcher/register.py` run as plain
 synchronous calls on the loop, each a blocking `httpx` request to the BFF with
 a 5 s timeout, cached in-process for 60 s (30 s negative):
@@ -266,6 +280,9 @@ they are (the credential cache is deliberately per-process, ADR-0022).
 
 ### 3.7 The in-flight ingest hold
 
+**[LANDED, the read]** The read is one of the gathered branches now. The
+narrowing of the wait itself is still open.
+
 `register.py:1168-1182` polls `ingest_status_store.in_flight_files` for up to
 `GRID_INGEST_WAIT_SECONDS` (default 20, `:126`) when anything in scope is still
 ingesting, then reloads the document inventory. The failure it prevents is
@@ -277,6 +294,10 @@ hold fires in production is not knowable from the repo and decides whether
 this is a headline or a footnote.
 
 ### 3.8 The repair pass
+
+**[LANDED, the gather]** The two lookups run together and keep their order.
+The requery skip and the wall-clock bound are still open; both change the
+tail, so they are decisions rather than fixes.
 
 When verification fails, `_repair_answer` (`agent.py:1102-1208`) runs up to two
 retrievals **sequentially** in a `for` loop (`:1154-1163`), each with the full
@@ -308,6 +329,9 @@ and scope first, then everything else) and `GRID_AUTHZ_CACHE_TTL_MS=30000`
 TTL is a security knob (`server.js:470`) and should stay where it is.
 
 ### 3.10 The deep-research job tail
+
+**[LANDED]** Card generation and reflection run together, and the reflection
+is bounded by the chat path's `REFLECTION_TIMEOUT_S`.
 
 After the report has been streamed to the reader, the job runner awaits, in
 sequence, card generation (30 s bound, on the orchestrator model,
@@ -434,6 +458,13 @@ map for 30 s. `eval_script` carries a comment refusing to do exactly that for
 its own path (`:208-213`); `get_json` and `set_json` do it anyway.
 
 ## 5. Measure before optimising
+
+**[LANDED, step 1]** The profiler root span now opens before the setup I/O
+and outside admission, with `setup.project_context`,
+`setup.available_documents`, `setup.session_registry`, `setup.ingest_status`,
+`setup.ingest_wait` and `admission.wait` spans, and the turn's outcome
+(`admission_refused`, `budget_exceeded`) on the root span's metadata. Steps
+2 to 5 are still open.
 
 The repo has one measured chat-turn number, and it is a YAML comment: the
 synthesis call at ≈ 29 s on a reasoning model at `medium`

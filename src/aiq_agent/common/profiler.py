@@ -27,6 +27,7 @@ read it as their parent when they open.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -34,6 +35,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -231,16 +233,18 @@ class AgentProfiler(BaseCallbackHandler):
     def spans_recorded(self) -> int:
         return self._spans_recorded
 
-    def flush(self, *, wait: bool) -> None:
+    def flush(self, *, wait: bool) -> Future[None] | None:
         """Send pending spans to the internal ledger endpoint.
 
         ``wait=False`` hands the batch to the background worker (answer
-        path); ``wait=True`` posts inline (end of turn / job teardown).
+        path) and returns its future, so a caller that wants the post to have
+        landed can await it later; ``wait=True`` posts inline (end of turn /
+        job teardown) and returns ``None``. Nothing pending returns ``None``.
         """
         with self._lock:
             batch, self._pending = self._pending, []
         if not batch:
-            return
+            return None
         payload = {
             "organizationId": self.organization_id,
             "conversationId": self.conversation_id,
@@ -250,8 +254,8 @@ class AgentProfiler(BaseCallbackHandler):
         }
         if wait:
             _post_profiler_spans(payload)
-        else:
-            _flush_executor.submit(_post_profiler_spans, payload)
+            return None
+        return _flush_executor.submit(_post_profiler_spans, payload)
 
 
 def _now_iso() -> str:
@@ -341,6 +345,33 @@ def profiled_node(name: str, fn: Any) -> Any:
     return _wrapped
 
 
+@contextmanager
+def profiled_span(name: str, kind: SpanKind = "node"):
+    """Open one span around a block of turn work that is not a graph node.
+
+    The per-turn setup (context loads, the ingest hold, the admission wait)
+    used to run outside the profiler entirely, so the waterfall started at the
+    first LLM call and the seconds before it had no row. A no-op when no
+    profiler is active, so it is safe at every call site; the block's own
+    ``await``s are unaffected — only the span's parent is set for its duration.
+    """
+    profiler = agent_profiler_var.get()
+    if profiler is None:
+        yield
+        return
+    span_id = profiler.start_span(kind, name)
+    token = current_span_var.set(span_id)
+    try:
+        yield
+    except BaseException as exc:
+        profiler.end_span(span_id, status="error", error=str(exc))
+        raise
+    else:
+        profiler.end_span(span_id, status="ok")
+    finally:
+        current_span_var.reset(token)
+
+
 def _read_identity_from_context() -> dict[str, str | None]:
     from aiq_agent.project_context import get_conversation_id_from_context
     from aiq_agent.project_context import get_organization_id_from_context
@@ -358,6 +389,7 @@ def track_agent_profile(
     job_id: str | None = None,
     identity: dict[str, str | None] | None = None,
     metadata: dict[str, Any] | None = None,
+    inline_flush: bool = True,
 ):
     """Activate span capture for the enclosed agent run.
 
@@ -373,6 +405,13 @@ def track_agent_profile(
     only known once the block is done — which is how a post-answer stage records
     the outcome it reached (``{"stage": …, "outcome": "timeout"}``) on the one
     span it emits.
+
+    ``inline_flush=True`` posts the final batch synchronously at teardown, the
+    right default for a job worker that may exit right after the block. The
+    chat turn passes ``False`` and flushes itself AFTER the answer is on the
+    wire (``flush_after_answer``): the same POST used to run on the event loop
+    between "answer final" and "first delta", where it cost the reader up to
+    the endpoint's timeout and stalled every other turn on the replica.
     """
     profiler: AgentProfiler | None = None
     profiler_token = None
@@ -407,11 +446,49 @@ def track_agent_profile(
             agent_profiler_var.reset(profiler_token)
         if profiler is not None and root_span_id is not None:
             profiler.end_span(root_span_id, status="error" if turn_failed else "ok", error=turn_error)
-            try:
-                # Inline post at teardown, same rationale as
-                # cost_tracking.track_llm_costs: a wait=False flush would hand
-                # the final batch to the daemon executor, which a worker
-                # exiting right after this turn can strand.
-                profiler.flush(wait=True)
-            except Exception:
-                logger.warning("Failed to flush profiler spans at end of turn", exc_info=True)
+            if inline_flush:
+                try:
+                    # Inline post at teardown, same rationale as
+                    # cost_tracking.track_llm_costs: a wait=False flush would hand
+                    # the final batch to the daemon executor, which a worker
+                    # exiting right after this turn can strand.
+                    profiler.flush(wait=True)
+                except Exception:
+                    logger.warning("Failed to flush profiler spans at end of turn", exc_info=True)
+
+
+async def flush_after_answer(*ledgers: Any, timeout_seconds: float | None = None) -> None:
+    """Post the turn's final batches once the answer is already on the wire.
+
+    Each ledger (an ``AgentProfiler``, a ``GridCostTracker``: anything with
+    ``flush(wait=...)``) is handed to its own background worker, and the posts
+    are then awaited off the event loop so the loop keeps serving other turns
+    while the BFF round-trips complete. Best-effort: a failed or slow post
+    logs and never raises, exactly like the inline flush it replaces. The
+    submit is unconditional and the wait is what is bounded, so a consumer
+    that closes the stream early still gets its batches posted by the worker.
+    """
+    futures = []
+    for ledger in ledgers:
+        if ledger is None:
+            continue
+        try:
+            future = ledger.flush(wait=False)
+        except Exception:
+            logger.warning("Failed to flush %s after the answer", type(ledger).__name__, exc_info=True)
+            continue
+        if future is not None:
+            futures.append(future)
+    if not futures:
+        return
+    budget = _REQUEST_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*(asyncio.wrap_future(future) for future in futures), return_exceptions=True),
+            timeout=budget,
+        )
+    except TimeoutError:
+        # The worker still holds the batch; only this turn stops waiting on it.
+        logger.warning("Ledger flush still pending after %.1fs; leaving it to the background worker", budget)
+    except Exception:
+        logger.warning("Ledger flush after the answer failed", exc_info=True)

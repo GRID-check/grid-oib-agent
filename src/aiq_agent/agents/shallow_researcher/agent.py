@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -1150,13 +1151,19 @@ class ShallowResearcherAgent:
         source_id = get_source_id_for_tool(tool.name)
         grounding: list[str] = []
         captured_sources: list[SourceEntry] = []
+
+        async def _lookup(query: str, file_name: str | None) -> str:
+            args: dict[str, Any] = {"query": query}
+            if file_name and scoped_search:
+                args["file_name"] = file_name
+            return str(await tool.ainvoke(args) or "")
+
         try:
-            for query, file_name in lookups:
-                args: dict[str, Any] = {"query": query}
-                if file_name and scoped_search:
-                    args["file_name"] = file_name
-                output = await tool.ainvoke(args)
-                text = str(output or "")
+            # The lookups are independent (one per failure) and each is a full
+            # retrieval, reranker included, so they run together; the results
+            # keep lookup order so the rewrite prompt reads the same as before.
+            outputs = await asyncio.gather(*(_lookup(query, file_name) for query, file_name in lookups))
+            for text in outputs:
                 if not text:
                     continue
                 grounding.append(text)

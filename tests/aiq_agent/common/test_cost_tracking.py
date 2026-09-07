@@ -226,3 +226,33 @@ class TestTrackLlmCosts:
         with track_llm_costs(identity={"organization_id": "org_1"}, budget=BudgetSnapshot()) as tracker:
             manager = CallbackManager.configure(inheritable_callbacks=None, local_callbacks=None)
             assert any(handler is tracker for handler in manager.handlers)
+
+
+class TestDeferredFlush:
+    def test_inline_flush_false_leaves_the_batch_pending(self):
+        """The chat turn posts the usage batch after the deltas, not before."""
+        with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:
+            with track_llm_costs(
+                identity={"organization_id": "org_1"}, budget=BudgetSnapshot(), inline_flush=False
+            ) as tracker:
+                tracker.on_llm_end(_openrouter_result())
+            assert post.call_count == 0
+            tracker.flush(wait=True)
+        assert post.call_count == 1
+        assert len(post.call_args.args[0]["events"]) == 1
+
+    def test_flush_without_wait_returns_the_workers_future(self):
+        tracker = self_tracker = GridCostTracker(
+            organization_id="org_1",
+            user_id=None,
+            project_id=None,
+            conversation_id="conv_1",
+            budget=BudgetSnapshot(),
+        )
+        self_tracker.on_llm_end(_openrouter_result())
+        with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:
+            future = tracker.flush(wait=False)
+            assert future is not None
+            future.result(timeout=5)
+        assert post.call_count == 1
+        assert tracker.flush(wait=False) is None

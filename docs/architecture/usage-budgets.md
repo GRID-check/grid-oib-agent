@@ -74,7 +74,11 @@ track_llm_costs()  ──sets──▶  grid_cost_tracker_var (ContextVar)
 - `on_llm_end` extracts the usage event (model served, requested model from
   invocation params, generation id, tokens, cost); events batch (5) and
   flush to `POST /api/internal/usage` on a single background worker thread —
-  the answer path never blocks on the ledger. Final flush on context exit.
+  the answer path never blocks on the ledger. Final flush on context exit for
+  the job and reflection paths; the chat turn opens its tracker with
+  `inline_flush=False` and posts the final batch through
+  `profiler.flush_after_answer` once the deltas are on the wire, so the POST
+  never sits between the finished answer and its first delta.
 - **Never breaks chat**: extraction, activation, and POST failures log and
   degrade to "not metered"; the endpoint being down loses telemetry, not
   answers.
