@@ -102,6 +102,8 @@ import {
   deriveSearchTopK,
   dispatchDocument,
   getDocumentTextPreview,
+  getDocumentThumbnail,
+  streamDocumentImage,
   AgentAuthoredDocumentNotIndexableError,
   INGEST_DISPATCH_FAILED_MESSAGE,
 } from './service'
@@ -118,6 +120,7 @@ import { s3Client, bucketAdminS3Client } from '@/lib/s3'
 import { __resetBucketCache, tenantBucketName } from '@/lib/storage/bucket'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { buildDocumentImageUrl } from '@/lib/images/signed-image-url'
 
 const session: AuthorizedSession = {
   userId: 'user-1',
@@ -1691,5 +1694,40 @@ describe('re-uploading a filename this collection already holds', () => {
       filename: 'Pr\u00fcfbericht.pdf',
     })
     expect(result.filename).toBe('Pr\u00fcfbericht.pdf')
+  })
+})
+
+/*
+ * An empty object in the thumbnail slot is no thumbnail. A failed ingest
+ * render can leave a 0-byte `_thumb.jpg` behind, which passes the HeadObject
+ * existence check and then fails the image optimizer's decode — "isn't a
+ * valid image … received null", recurring for the same documents across days
+ * (#366, #395).
+ */
+describe('thumbnails ignore empty objects', () => {
+  it('getDocumentThumbnail returns null when the thumbnail object is empty', async () => {
+    vi.mocked(s3Client.send).mockResolvedValue({ ContentLength: 0 } as never)
+
+    await expect(getDocumentThumbnail(session, 'doc-1')).resolves.toEqual({ url: null })
+    // No signing attempted: there is nothing to point at.
+    expect(vi.mocked(getSignedUrl)).not.toHaveBeenCalled()
+  })
+
+  it('getDocumentThumbnail still serves a non-empty thumbnail', async () => {
+    vi.mocked(s3Client.send).mockResolvedValue({ ContentLength: 48211 } as never)
+
+    await expect(getDocumentThumbnail(session, 'doc-1')).resolves.toEqual({
+      url: 'https://seaweedfs.internal/presigned',
+    })
+  })
+
+  it('streamDocumentImage 404s an empty thumbnail object', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'test-secret')
+    const imageUrl = new URL(buildDocumentImageUrl('org-1', 'doc-1', 'thumb')!, 'https://grid.test')
+    vi.mocked(s3Client.send).mockResolvedValue({ ContentLength: 0, Body: undefined } as never)
+
+    await expect(streamDocumentImage('doc-1', imageUrl.searchParams)).rejects.toBeInstanceOf(
+      NotFoundError
+    )
   })
 })

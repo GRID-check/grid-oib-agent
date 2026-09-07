@@ -141,7 +141,14 @@ export function ThumbnailWithFallback({ file }: { file: FileItem }) {
         unoptimized={!isOptimizerEligible(imgUrl)}
         className="object-cover"
         // A url that resolves but won't render is a genuine failure, not "no thumbnail".
-        onError={() => setState('error')}
+        onError={() => {
+          // …but the URL itself may be stale rather than the document imageless
+          // (a thumbnail object replaced after we resolved it): evict it so a
+          // later mount re-resolves instead of replaying the same poisoned URL
+          // on every remount (#366, #395).
+          thumbnailCache.delete(file.id)
+          setState('error')
+        }}
       />
     )
   }
