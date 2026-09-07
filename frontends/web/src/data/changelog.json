@@ -32,6 +32,28 @@
   },
   "releases": [
     {
+      "id": "2026-09-07",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-07",
+      "summary": null,
+      "sections": [
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Documents whose preview image never finished generating now show the regular placeholder instead of a broken image. Once the preview exists, the card picks it up on its own.",
+              "de": "Documents whose preview image never finished generating now show the regular placeholder instead of a broken image. Once the preview exists, the card picks it up on its own."
+            },
+            {
+              "en": "Reacting to an answer's cards no longer fails on answers whose stored content carries invisible control characters from an imported document. The update is saved as before, minus the one character the database cannot hold.",
+              "de": "Reacting to an answer's cards no longer fails on answers whose stored content carries invisible control characters from an imported document. The update is saved as before, minus the one character the database cannot hold."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-09-05",
       "kind": "date",
       "version": null,
