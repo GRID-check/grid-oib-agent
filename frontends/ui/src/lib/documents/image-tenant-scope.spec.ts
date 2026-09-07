@@ -103,7 +103,9 @@ vi.mock('./reconcile-status', () => ({ reconcileDocumentStatuses: vi.fn() }))
 // production one changes.
 vi.mock('@/lib/s3', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/s3')>()),
-  s3Client: { send: vi.fn().mockResolvedValue({ Body: { transformToWebStream: () => new ReadableStream() } }) },
+  // ContentLength is always present on a real GetObject response; the
+  // empty-object guard reads it, so the mock carries it like S3 does.
+  s3Client: { send: vi.fn().mockResolvedValue({ ContentLength: 48211, Body: { transformToWebStream: () => new ReadableStream() } }) },
   signingS3Client: { send: vi.fn() },
   bucketAdminS3Client: { send: vi.fn() },
   bucketName: 'test-bucket',
