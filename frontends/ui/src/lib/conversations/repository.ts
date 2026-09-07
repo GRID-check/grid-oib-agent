@@ -14,6 +14,7 @@
 import 'server-only'
 import { and, desc, eq, exists, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import { stripJsonNullBytes } from '@/lib/text/jsonb'
 import {
   conversationReads,
   conversations,
@@ -500,10 +501,18 @@ export async function findMessageInConversation(
 /**
  * Insert messages, skipping ids that already exist (client retries replay the
  * same client-generated id; a duplicate must not fail the whole batch).
+ *
+ * `metadata` is stripped of NUL bytes first: Postgres `jsonb` rejects U+0000
+ * outright, and agent content carries extracted document text that can hold a
+ * stray one (see `@/lib/text/jsonb`). A poisoned turn must not fail its own
+ * persist.
  */
 export async function insertMessages(values: NewMessage[]): Promise<Message[]> {
   const db = getDb()
-  return db.insert(messages).values(values).onConflictDoNothing().returning()
+  const safe = values.map((value) =>
+    value.metadata == null ? value : { ...value, metadata: stripJsonNullBytes(value.metadata) }
+  )
+  return db.insert(messages).values(safe).onConflictDoNothing().returning()
 }
 
 /**
@@ -558,7 +567,15 @@ export async function mergeMessageMetadata(
       }
     }
 
-    const [row] = await tx.update(messages).set({ metadata: merged }).where(scope).returning()
+    // Stripped of NUL bytes before the write: Postgres `jsonb` rejects U+0000
+    // outright, and the merged payload re-writes stored agent content (cards,
+    // citations from extracted document text) that no PATCH-time sanitizer
+    // ever saw (err2issue #581/#579/#576). See `@/lib/text/jsonb`.
+    const [row] = await tx
+      .update(messages)
+      .set({ metadata: stripJsonNullBytes(merged) })
+      .where(scope)
+      .returning()
     return row ?? null
   })
 }
