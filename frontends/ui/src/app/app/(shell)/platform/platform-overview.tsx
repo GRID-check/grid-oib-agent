@@ -55,11 +55,18 @@ import { SpendTrendChart } from '@/components/charts/spend-trend-chart'
 import { PlatformPricingCard } from './platform-pricing-card'
 
 interface SpendWindowDto {
+  /** USD as OpenRouter charged it, whoever's key it was. */
   costUsd: number
+  /** The share billed to a tenant's own key — not the platform's cost. */
+  ownKeyCostUsd: number
   priceUsd: number
   credits: number
+  tokens: number
   events: number
 }
+
+/** What OpenRouter charged the PLATFORM: everything that was not a tenant's own key. */
+const platformCost = (window: SpendWindowDto): number => window.costUsd - window.ownKeyCostUsd
 
 interface PlatformOrganizationDto {
   id: string
@@ -109,9 +116,9 @@ const compareBy = (
     case 'projects':
       return a.projectCount - b.projectCount
     case 'day':
-      return a.day.costUsd - b.day.costUsd
+      return platformCost(a.day) - platformCost(b.day)
     case 'month':
-      return a.month.costUsd - b.month.costUsd
+      return platformCost(a.month) - platformCost(b.month)
     case 'revenue':
       return a.month.priceUsd - b.month.priceUsd
     case 'created':
@@ -232,7 +239,7 @@ export const PlatformOverview: FC = () => {
   }
 
   const { totals } = overview
-  const monthMargin = totals.month.priceUsd - totals.month.costUsd
+  const monthMargin = totals.month.priceUsd - platformCost(totals.month)
   // Search and sort reset the offset, but a reload does not: if a retry returns
   // fewer organizations than the reader's current page starts at, the offset
   // points past the end and the table renders empty instead of falling back to
@@ -280,7 +287,7 @@ export const PlatformOverview: FC = () => {
             className="min-h-[7.25rem]"
             icon={<Gauge className="size-4" aria-hidden />}
             label={t('stats.costToday')}
-            value={usd(totals.day.costUsd, locale)}
+            value={usd(platformCost(totals.day), locale)}
           />
           <StatCard
             className="min-h-[7.25rem]"
@@ -289,10 +296,16 @@ export const PlatformOverview: FC = () => {
             value={
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="cursor-default">{usd(totals.month.costUsd, locale)}</span>
+                  <span className="cursor-default">{usd(platformCost(totals.month), locale)}</span>
                 </TooltipTrigger>
                 <TooltipContent>{t('stats.requestsMonth', { count: totals.month.events })}</TooltipContent>
               </Tooltip>
+            }
+            // Cost on tenants' own keys is theirs, not ours; say what was left out.
+            hint={
+              totals.month.ownKeyCostUsd > 0
+                ? t('stats.ownKeyExcluded', { amount: usd(totals.month.ownKeyCostUsd, locale) })
+                : undefined
             }
           />
           <StatCard
@@ -312,7 +325,7 @@ export const PlatformOverview: FC = () => {
           <SpendTrendChart
             points={(overview.dailyTrend ?? []).map((point) => ({
               day: point.day,
-              value: point.costUsd,
+              value: platformCost(point),
               events: point.events,
             }))}
             formatValue={(value) => usd(value, locale)}
@@ -379,16 +392,31 @@ export const PlatformOverview: FC = () => {
                                 {t('orgs.platformBadge')}
                               </Badge>
                             ) : null}
+                            {/* Usage on the organization's own key this month:
+                                its cost column is what it paid its provider,
+                                and it is billed nothing here. */}
+                            {org.month.ownKeyCostUsd > 0 ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge variant="outline" className="shrink-0 cursor-default font-normal">
+                                    {t('orgs.ownKeyBadge')}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {t('orgs.ownKeyHint', { amount: usd(org.month.ownKeyCostUsd, locale) })}
+                                </TooltipContent>
+                              </Tooltip>
+                            ) : null}
                           </span>
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
                           {org.projectCount}
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums">
-                          {usd(org.day.costUsd, locale)}
+                          {usd(platformCost(org.day), locale)}
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums">
-                          {usd(org.month.costUsd, locale)}
+                          {usd(platformCost(org.month), locale)}
                         </TableCell>
                         <TableCell className="text-right text-sm tabular-nums">
                           {usd(org.month.priceUsd, locale)}

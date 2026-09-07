@@ -98,9 +98,11 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     metadata: {
       scope: 'string',
       subjectId: 'string',
-      // Credits since 0079 (ADR-0053); the EUR keys were the previous unit.
-      dailyLimitCredits: 'number',
-      monthlyLimitCredits: 'number',
+      // The limit's unit since 0080 (ADR-0053): 'credit' or 'token'. Before
+      // 0079 the keys were dailyLimitEur/monthlyLimitEur.
+      unit: 'string',
+      dailyLimit: 'number',
+      monthlyLimit: 'number',
     },
   },
   'budget.policy.cleared': {

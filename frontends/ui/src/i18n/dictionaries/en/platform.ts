@@ -730,6 +730,7 @@ export const platform = {
     costMonth: 'Cost this month',
     revenueMonth: 'Revenue this month',
     marginHint: 'Gross margin {margin}',
+    ownKeyExcluded: 'Excludes {amount} on organizations’ own keys',
     requestsMonth: '{count} requests this month',
   },
   orgs: {
@@ -743,6 +744,8 @@ export const platform = {
     colRevenue: 'Revenue this month',
     colCreated: 'Created',
     platformBadge: 'Platform',
+    ownKeyBadge: 'Own key',
+    ownKeyHint: '{amount} this month ran on the organization’s own key — its bill, not ours, and not in the cost columns.',
     empty: 'No organizations yet.',
   },
   trend: {

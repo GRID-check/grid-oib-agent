@@ -20,24 +20,26 @@ import { BudgetUsageCard } from './budget-usage-card'
 
 interface ModelFixture {
   model: string
-  day: { credits: number; events: number }
-  month: { credits: number; events: number }
+  day: { amount: number; events: number }
+  month: { amount: number; events: number }
 }
 
 const usageBody = (
   perModel: ModelFixture[],
-  orgBudget: { dailyLimitCredits: number | null; monthlyLimitCredits: number | null } = {
-    dailyLimitCredits: null,
-    monthlyLimitCredits: null,
-  }
+  orgBudget: { dailyLimit: number | null; monthlyLimit: number | null } = {
+    dailyLimit: null,
+    monthlyLimit: null,
+  },
+  unit: 'credit' | 'token' = 'credit'
 ): unknown => ({
+  unit,
   summary: {
     day: {
-      credits: perModel.reduce((sum, m) => sum + m.day.credits, 0),
+      amount: perModel.reduce((sum, m) => sum + m.day.amount, 0),
       events: perModel.reduce((sum, m) => sum + m.day.events, 0),
     },
     month: {
-      credits: perModel.reduce((sum, m) => sum + m.month.credits, 0),
+      amount: perModel.reduce((sum, m) => sum + m.month.amount, 0),
       events: perModel.reduce((sum, m) => sum + m.month.events, 0),
     },
     perModel,
@@ -47,10 +49,10 @@ const usageBody = (
   status: { blocked: false },
 })
 
-const model = (name: string, dayCredits: number, monthCredits: number): ModelFixture => ({
+const model = (name: string, dayAmount: number, monthAmount: number): ModelFixture => ({
   model: name,
-  day: { credits: dayCredits, events: Math.round(dayCredits) },
-  month: { credits: monthCredits, events: Math.round(monthCredits) },
+  day: { amount: dayAmount, events: Math.round(dayAmount) },
+  month: { amount: monthAmount, events: Math.round(monthAmount) },
 })
 
 /** Answers only the two endpoints a non-admin card reaches for. */
@@ -61,7 +63,7 @@ function stubFetch(usage: unknown): void {
       const url = String(input)
       const body = url.includes('/usage')
         ? usage
-        : { organization: { dailyLimitCredits: null, monthlyLimitCredits: null }, policies: [] }
+        : { organization: { dailyLimit: null, monthlyLimit: null }, policies: [] }
       return { ok: true, status: 200, json: async () => body } as unknown as Response
     })
   )
@@ -136,7 +138,7 @@ describe('BudgetUsageCard — spend visualization', () => {
 
   test('the meter carries state: within the limit, then over it with the limit marked', async () => {
     stubFetch(
-      usageBody([model('alpha-model', 2, 120)], { dailyLimitCredits: 10, monthlyLimitCredits: 100 })
+      usageBody([model('alpha-model', 2, 120)], { dailyLimit: 10, monthlyLimit: 100 })
     )
     render(<BudgetUsageCard isAdmin={false} />)
 
@@ -155,7 +157,19 @@ describe('BudgetUsageCard — spend visualization', () => {
     // The overshoot is only legible if the limit is still marked on the track.
     expect(within(month).getByTestId('budget-limit-tick')).toBeDefined()
     expect(within(today).queryByTestId('budget-limit-tick')).toBeNull()
-    expect(screen.getByText('120 of 100 credits')).toBeDefined()
+    expect(screen.getByText('120 credits of 100 credits')).toBeDefined()
+  })
+
+  test('an organization on its own key sees tokens, a note, and never the word credits', async () => {
+    stubFetch(usageBody([model('alpha-model', 812, 48200)], { dailyLimit: null, monthlyLimit: 100000 }, 'token'))
+    render(<BudgetUsageCard isAdmin={false} />)
+
+    await screen.findByTestId('spend-table')
+    expect(screen.getByTestId('budget-own-key-note')).toBeDefined()
+    expect(screen.getByText('48.2K tokens of 100K tokens')).toBeDefined()
+    expect(within(screen.getByTestId('spend-table')).getByText('812 tokens')).toBeDefined()
+    // No amount anywhere is a credit amount; the note may name the word.
+    expect(screen.queryByText(/\d\s?credits/i)).toBeNull()
   })
 
   test('says so in words when nothing was spent, rather than drawing an empty bar', async () => {

@@ -279,17 +279,22 @@ export const organization = {
   budgets: {
     title: 'Usage & budgets',
     description:
-      'Credits used per model against your organization limits. Every request is metered as it runs; limits are enforced before every request.',
+      'Usage per model against your organization limits. Every request is metered as it runs; limits are enforced before every request.',
     memberTitle: 'Your usage',
     memberDescription:
-      'Your own credits against your organization limits. If a budget is exhausted, chat is paused until an admin raises the limit.',
+      'Your own usage against your organization limits. If a budget is exhausted, chat is paused until an admin raises the limit.',
     today: 'Today',
     thisMonth: 'This month',
-    ofLimit: '{spent} of {limit} credits',
-    noLimit: '{spent} credits (no limit)',
+    ofLimit: '{spent} of {limit}',
+    noLimit: '{spent} (no limit)',
     creditsValue: '{value} credits',
+    tokensValue: '{value} tokens',
+    unitCredits: 'credits',
+    unitTokens: 'tokens',
+    ownKeyNote:
+      'Your organization runs on its own provider key. Usage is counted in tokens on your own bill, and Piloti charges no credits for it.',
     overLimit: 'Budget exhausted — new requests are blocked',
-    legendTitle: 'Credits by model',
+    legendTitle: 'Usage by model',
     legendEmpty: 'No LLM usage recorded in this window yet.',
     trendTitle: 'Last 30 days',
     trendEmpty: 'No usage recorded in the last 30 days.',
@@ -298,15 +303,17 @@ export const organization = {
     limitsTitle: 'Organization limits',
     limitsDescription:
       'Your plan’s allowance applies until you set your own limits. Limits are in credits and are enforced before every request.',
-    dailyLimit: 'Daily limit (credits)',
-    monthlyLimit: 'Monthly limit (credits)',
+    limitsDescriptionTokens:
+      'There is no limit until you set one. Limits are in tokens on your own key and are enforced before every request.',
+    dailyLimit: 'Daily limit ({unit})',
+    monthlyLimit: 'Monthly limit ({unit})',
     noLimitPlaceholder: 'No limit',
     saveLimits: 'Save limits',
     limitsSaved: 'Budget limits saved',
     limitsSaveError: 'Could not save the budget limits.',
     membersTitle: 'Members — usage & limits',
     membersDescription:
-      'Credits per member with their optional individual caps. A member limit never exceeds the organization limits and is enforced in addition to them.',
+      'Usage per member with their optional individual caps. A member limit never exceeds the organization limits and is enforced in addition to them.',
     colMember: 'Member',
     limitLabel: 'Limit',
     setLimit: 'Set limit',

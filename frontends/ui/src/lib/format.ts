@@ -19,6 +19,19 @@ export const formatUsd = (value: number, locale?: string): string =>
   new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD' }).format(value)
 
 /**
+ * Tokens — the usage unit of an organization on its own key (ADR-0053). Big
+ * numbers, so compact once past a thousand ("1.2M"), exact below; the unit
+ * word is the caller's, from the dictionary, like `formatCredits`.
+ */
+export const formatTokens = (value: number, locale?: string): string => {
+  const safe = Number.isFinite(value) ? value : 0
+  return new Intl.NumberFormat(locale, {
+    notation: Math.abs(safe) >= 1000 ? 'compact' : 'standard',
+    maximumFractionDigits: Math.abs(safe) >= 1000 ? 1 : 0,
+  }).format(safe)
+}
+
+/**
  * Credits — the tenant's usage unit (ADR-0053). A whole number once it is
  * worth counting, one decimal below ten so a cheap call is "0.4" rather than
  * a misleading "0". The unit word ("credits" / "Punkte") is the caller's,

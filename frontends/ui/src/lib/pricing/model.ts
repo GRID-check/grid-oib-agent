@@ -44,16 +44,16 @@ export interface PricedUsage {
 /**
  * Price one generation.
  *
- * A BYOK generation ran on the tenant's own provider key, so the platform paid
- * nothing for it and takes no margin: the credits then measure the tenant's own
- * spend at the credit rate, so budgets keep working, but they are not an
- * invoice. `isByok` is what OpenRouter reported on the usage object (null when
- * it said nothing, which is treated as platform-billed).
+ * A BYOK generation ran on the tenant's own provider key: the platform paid
+ * nothing for it and bills nothing for it, so its price and credits are zero.
+ * What such an organization sees and limits is tokens, straight off the same
+ * row. `isByok` is what OpenRouter reported on the usage object (null when it
+ * said nothing, which is treated as platform-billed).
  */
 export function priceUsage(costUsd: number, isByok: boolean | null, rates: PricingRates): PricedUsage {
+  if (isByok === true) return { priceUsd: 0, credits: 0 }
   const safeCost = Number.isFinite(costUsd) && costUsd > 0 ? costUsd : 0
-  const margin = isByok === true ? 1 : rates.marginMultiplier
-  const priceUsd = safeCost * margin
+  const priceUsd = safeCost * rates.marginMultiplier
   return { priceUsd, credits: priceUsd / rates.usdPerCredit }
 }
 
@@ -62,9 +62,8 @@ export function priceUsage(costUsd: number, isByok: boolean | null, rates: Prici
  * inverse of {@link priceUsage}, used to hand the backend tracker a remaining
  * budget in the unit it meters (cost), without teaching it about pricing.
  */
-export function creditsToCostUsd(credits: number, rates: PricingRates, isByok = false): number {
-  const margin = isByok ? 1 : rates.marginMultiplier
-  return (credits * rates.usdPerCredit) / margin
+export function creditsToCostUsd(credits: number, rates: PricingRates): number {
+  return (credits * rates.usdPerCredit) / rates.marginMultiplier
 }
 
 /**

@@ -737,6 +737,7 @@ export const platform: typeof en.platform = {
     costMonth: 'Kosten diesen Monat',
     revenueMonth: 'Umsatz diesen Monat',
     marginHint: 'Rohmarge {margin}',
+    ownKeyExcluded: 'Ohne {amount} auf eigenen Schlüsseln von Organisationen',
     requestsMonth: '{count} Anfragen diesen Monat',
   },
   orgs: {
@@ -750,6 +751,8 @@ export const platform: typeof en.platform = {
     colRevenue: 'Umsatz diesen Monat',
     colCreated: 'Erstellt',
     platformBadge: 'Plattform',
+    ownKeyBadge: 'Eigener Schlüssel',
+    ownKeyHint: '{amount} liefen diesen Monat über den eigenen Schlüssel der Organisation — ihre Rechnung, nicht unsere, und nicht in den Kostenspalten.',
     empty: 'Noch keine Organisationen.',
   },
   trend: {

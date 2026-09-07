@@ -12,9 +12,17 @@
 
 | Word | Unit | What it is | Who sees it |
 |---|---|---|---|
-| **cost** | USD | what OpenRouter charged the platform (`usage.cost`), raw | platform owners (Platform → Overview) |
-| **price** | USD | `cost × margin_multiplier`; margin 1 when the generation ran on the tenant's own key (`is_byok`) | platform owners, as revenue |
-| **credits** | credits | `price ÷ usd_per_credit` | tenants, on every surface |
+| **cost** | USD | what OpenRouter charged (`usage.cost`), raw; the share on a tenant's own key (`is_byok`) is kept apart as `own_key_cost_usd`, because it was the tenant's bill | platform owners (Platform → Overview), own-key cost subtracted |
+| **price** | USD | `cost × margin_multiplier`; **0** for a generation on the tenant's own key — the platform bills nothing for it | platform owners, as revenue |
+| **credits** | credits | `price ÷ usd_per_credit` | platform-billed tenants, on every surface |
+| **tokens** | tokens | `total_tokens`, straight off the row | tenants on their own key, on every surface — they see no credits and no price at all |
+
+**One unit per organization**, decided by its key mode and nothing else
+(`getOrgBudgetUnit` → `isOrgOnOwnKey`, cached 60 s): `credit` when the
+platform bills it, `token` when it runs on its own provider key (ADR-0022).
+Usage, limits, the seeded allowance and the model-picker hint all follow that
+unit; an own-key organization is seeded with no limit and sets its own, in
+tokens.
 
 There is no currency conversion anywhere. The old `GRID_BUDGET_EUR_PER_USD`
 rate is gone: a hand-set rate was neither the bank's nor OpenRouter's, and a
@@ -142,8 +150,9 @@ job attribution, `agent_group` (reserved), `requested_model` vs `model`
 `(org, project, time)`, `(org, model, time)` window aggregation.
 
 **`llm_usage_rollups`** (ADR-0019) — the write-through daily aggregate per
-`(org, day, user, project)`, carrying `cost_usd`, `price_usd`, `credits` and
-`events`, incremented in the same transaction as the ledger insert.
+`(org, day, user, project)`, carrying `cost_usd`, `own_key_cost_usd`,
+`price_usd`, `credits`, `tokens` and `events`, incremented in the same
+transaction as the ledger insert.
 
 ## Limits & enforcement
 
@@ -156,11 +165,16 @@ job attribution, `agent_group` (reserved), `requested_model` vs `model`
   unlimited while the org is bounded". Project limits settable by project
   admins (`project:manage`) and org admins; org/member limits org-admin-only.
 - **Windows**: UTC — daily = since 00:00 UTC, monthly = since the 1st.
-- **Unit**: limits and spend are both credits, compared directly from the
-  rollup. The backend tracker still meters in cost, so the remaining credits
-  cross to it converted back to USD of cost — the exact inverse of pricing
-  (`creditsToCostUsd`), without the margin for an organization on its own key
-  (`isOrgOnOwnKey`, cached 60 s).
+- **Unit**: limits and spend are compared in the organization's unit,
+  directly from the rollup (`credits` or `tokens` columns). A limit row names
+  its unit (`budget_policies.currency`, CHECK `credit | token`) and is only
+  honoured while the organization is on that unit; switching key mode leaves
+  the other unit's rows in place, ignored, so switching back restores them.
+- **What the backend enforces**: the tracker meters cost AND tokens off the
+  same usage object, so the `x-grid-budget` snapshot carries whichever family
+  applies — `remaining*Usd` (credits converted back to USD of cost, the exact
+  inverse of pricing) for a credit organization, `remaining*Tokens` for a
+  token organization — and `BudgetSnapshot.exhausted_scope` checks both.
 
 Enforcement points:
 
@@ -185,18 +199,21 @@ Enforcement points:
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/api/organization/usage` | member (own) / admin (org-wide, `?userId`/`?projectId`) | day+month totals, per-model breakdown, budget status — **credits only**, cost and price never leave the tenant projection |
-| GET | `/api/organization/budgets` | member (org limits + own); admin (+ all active policies) | read limits (credits) |
-| PUT | `/api/organization/budgets` | org admin; project scope also project admin | set a policy (supersede), `dailyLimitCredits` / `monthlyLimitCredits` |
-| GET | `/api/organization/model-config/models` | org models admin | model search; carries `creditsPerRequest` (the reference request priced at the active list), never per-token USD |
+| GET | `/api/organization/usage` | member (own) / admin (org-wide, `?userId`/`?projectId`) | `unit` plus day+month totals, per-model breakdown, budget status as `{amount, events}` **in that unit only** — cost, price and the other unit never leave the tenant projection |
+| GET | `/api/organization/budgets` | member (org limits + own); admin (+ all active policies) | `unit` and the limits in it |
+| PUT | `/api/organization/budgets` | org admin; project scope also project admin | set a policy (supersede), bare `dailyLimit` / `monthlyLimit`; the unit follows the key mode, never the caller |
+| GET | `/api/organization/model-config/models` | org models admin | model search; `creditsPerRequest` (the reference request priced at the active list) for a credit organization, `null` on an own key; never per-token USD |
 | POST | `/api/internal/usage` | `x-grid-internal-token` service token | ledger write path (backend tracker); rows are priced here |
 | GET/PUT | `/api/platform/pricing` | `platform:settings:view` / `manage` | the price list, its bounds, the version trail |
-| GET | `/api/platform/overview` | `platform:organizations:view` | cost, revenue (price) and credits per organization and in total, plus the active price list |
+| GET | `/api/platform/overview` | `platform:organizations:view` | cost (with the own-key share apart), revenue (price), credits and tokens per organization and in total, plus the active price list; the UI shows `costUsd − ownKeyCostUsd` as the platform's cost |
 
 ## UI (org page → "Usage & budgets")
 
-Everything on this page is credits (`formatCredits`, unit word from the
-dictionary: "credits" / "Punkte"). No cost, no currency.
+Everything on this page is in the organization's unit — credits
+(`formatCredits`, "credits" / "Punkte") or tokens (`formatTokens`,
+compact above a thousand) — with the unit word from the dictionary. No cost,
+no currency, never the other unit. An own-key organization gets one note
+saying its usage is on its own bill and Piloti charges no credits.
 
 - **Two budget meters** (today / this month): stacked segments per model as
   share of the limit, 2px surface gaps, muted remaining track; exhausted →
@@ -217,10 +234,12 @@ dictionary: "credits" / "Punkte"). No cost, no currency.
 
 ## UI (Platform → Overview)
 
-Cost in USD as charged, revenue at the price list, gross margin as the
-difference; the 30-day cost trend; the price list editor (margin, credit
+Cost in USD as charged to the PLATFORM (own-key usage subtracted, with the
+excluded amount named under the tile), revenue at the price list, gross margin
+as the difference; the 30-day cost trend; the price list editor (margin, credit
 price, seeded allowance, change note, version trail, a live worked example);
-and per-organization cost and revenue in the directory.
+and per-organization cost and revenue in the directory, with an "own key" badge
+on organizations whose usage this month ran on their own key.
 
 ## Observability & audit answers
 

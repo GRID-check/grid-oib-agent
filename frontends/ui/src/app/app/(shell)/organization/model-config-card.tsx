@@ -49,8 +49,12 @@ interface ModelDto {
   id: string
   name: string
   contextLength: number
-  /** The platform's reference request on this model, at the active price list (ADR-0053). */
-  creditsPerRequest: number
+  /**
+   * The platform's reference request on this model, at the active price list
+   * (ADR-0053); null for an organization on its own key, which pays its
+   * provider and is shown no credits at all.
+   */
+  creditsPerRequest: number | null
 }
 
 interface VersionDto {
@@ -140,8 +144,9 @@ const ModelPicker: FC<{
                 >
                   <span className="truncate font-mono text-sm">{model.id}</span>
                   <span className="text-xs text-muted-foreground">
-                    {t('models.contextWindow')} {formatContext(model.contextLength)} ·{' '}
-                    {t('models.creditsPerRequest', { credits: formatCredits(model.creditsPerRequest, locale) })}
+                    {t('models.contextWindow')} {formatContext(model.contextLength)}
+                    {model.creditsPerRequest !== null &&
+                      ` · ${t('models.creditsPerRequest', { credits: formatCredits(model.creditsPerRequest, locale) })}`}
                   </span>
                 </button>
               </Item>

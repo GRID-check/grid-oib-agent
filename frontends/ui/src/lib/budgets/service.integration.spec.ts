@@ -36,7 +36,7 @@ describe.skipIf(!url)('budgets service against live Postgres', () => {
     expect(empty.perModel).toEqual([])
     expect(empty.month.credits).toBe(0)
     const orgBudget = await getOrgBudget(org)
-    expect(orgBudget).toMatchObject({ explicit: false, dailyLimitCredits: 1000, monthlyLimitCredits: 10000 })
+    expect(orgBudget).toMatchObject({ explicit: false, unit: 'credit', dailyLimit: 1000, monthlyLimit: 10000 })
 
     // Ledger rows: two models, shaped exactly like the internal usage endpoint writes them.
     await recordUsageEvents([
@@ -100,6 +100,8 @@ describe.skipIf(!url)('budgets service against live Postgres', () => {
     expect(totals.month.costUsd).toBeCloseTo(0.01214, 6)
     expect(totals.day.costUsd).toBeCloseTo(0.01214, 6)
     expect(totals.month.credits).toBeCloseTo(1.214, 4)
+    expect(totals.month.tokens).toBe(1800)
+    expect(totals.month.ownKeyCostUsd).toBe(0)
     const userTotals = await getSpendTotals(org, { userId: 'user_1' })
     expect(userTotals.month.costUsd).toBeCloseTo(0.00214, 6)
 
@@ -121,8 +123,8 @@ describe.skipIf(!url)('budgets service against live Postgres', () => {
       organizationId: org,
       scope: 'organization',
       subjectId: null,
-      dailyLimitCredits: 0.1,
-      monthlyLimitCredits: 10000,
+      dailyLimit: 0.1,
+      monthlyLimit: 10000,
       actorUserId: 'admin_1',
     })
     const blocked = await getBudgetStatus(org, 'user_1', null)
@@ -135,8 +137,8 @@ describe.skipIf(!url)('budgets service against live Postgres', () => {
         organizationId: org,
         scope: 'member',
         subjectId: 'user_1',
-        dailyLimitCredits: 5,
-        monthlyLimitCredits: 20000,
+        dailyLimit: 5,
+        monthlyLimit: 20000,
         actorUserId: 'admin_1',
       }),
     ).rejects.toThrow(/exceeds the organization/)

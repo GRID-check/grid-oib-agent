@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   date,
   index,
@@ -39,6 +40,9 @@ import {
 export const BUDGET_SCOPES = ['organization', 'member', 'project'] as const
 export type BudgetScope = (typeof BUDGET_SCOPES)[number]
 
+export const BUDGET_UNITS = ['credit', 'token'] as const
+export type BudgetUnit = (typeof BUDGET_UNITS)[number]
+
 export const BUDGET_POLICY_STATUSES = ['active', 'superseded'] as const
 export type BudgetPolicyStatus = (typeof BUDGET_POLICY_STATUSES)[number]
 
@@ -53,8 +57,13 @@ export const budgetPolicies = pgTable(
     /** Limits in credits (ADR-0053); NULL = no limit for that window. */
     dailyLimit: numeric('daily_limit', { precision: 12, scale: 4 }),
     monthlyLimit: numeric('monthly_limit', { precision: 12, scale: 4 }),
-    /** Always `credit` since 0079 (CHECK constraint); the column predates the unit. */
-    currency: text('currency').notNull().default('credit'),
+    /**
+     * The unit the limit is in (CHECK: `credit` | `token`); the column predates
+     * the concept. `credit` for a platform-billed organization, `token` for one
+     * on its own key (0080). A policy is honoured only while the organization
+     * is on that unit.
+     */
+    currency: text('currency').$type<BudgetUnit>().notNull().default('credit'),
     status: text('status').$type<BudgetPolicyStatus>().notNull().default('active'),
     supersedesId: uuid('supersedes_id'),
     /** WorkOS user id of whoever set this policy. */
@@ -159,6 +168,10 @@ export const llmUsageRollups = pgTable(
     costUsd: numeric('cost_usd', { precision: 14, scale: 8 }).notNull().default('0'),
     priceUsd: numeric('price_usd', { precision: 14, scale: 8 }).notNull().default('0'),
     credits: numeric('credits', { precision: 14, scale: 6 }).notNull().default('0'),
+    /** Sum of `total_tokens` — the unit an organization on its own key is limited in (0080). */
+    tokens: bigint('tokens', { mode: 'number' }).notNull().default(0),
+    /** The share of `cost_usd` that was the tenant's own provider bill (`is_byok`). */
+    ownKeyCostUsd: numeric('own_key_cost_usd', { precision: 14, scale: 8 }).notNull().default('0'),
     events: integer('events').notNull().default(0),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

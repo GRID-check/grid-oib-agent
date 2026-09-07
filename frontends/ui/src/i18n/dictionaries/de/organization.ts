@@ -281,17 +281,22 @@ export const organization: typeof en.organization = {
   budgets: {
     title: 'Verbrauch & Budgets',
     description:
-      'Verbrauchte Punkte pro Modell im Verhältnis zu Ihren Organisationslimits. Jede Anfrage wird während der Ausführung erfasst; Limits werden vor jeder Anfrage durchgesetzt.',
+      'Verbrauch pro Modell im Verhältnis zu Ihren Organisationslimits. Jede Anfrage wird während der Ausführung erfasst; Limits werden vor jeder Anfrage durchgesetzt.',
     memberTitle: 'Ihr Verbrauch',
     memberDescription:
-      'Ihre eigenen Punkte im Verhältnis zu Ihren Organisationslimits. Ist ein Budget aufgebraucht, wird der Chat pausiert, bis eine Administratorin oder ein Administrator das Limit erhöht.',
+      'Ihr eigener Verbrauch im Verhältnis zu Ihren Organisationslimits. Ist ein Budget aufgebraucht, wird der Chat pausiert, bis eine Administratorin oder ein Administrator das Limit erhöht.',
     today: 'Heute',
     thisMonth: 'Dieser Monat',
-    ofLimit: '{spent} von {limit} Punkten',
-    noLimit: '{spent} Punkte (kein Limit)',
+    ofLimit: '{spent} von {limit}',
+    noLimit: '{spent} (kein Limit)',
     creditsValue: '{value} Punkte',
+    tokensValue: '{value} Tokens',
+    unitCredits: 'Punkte',
+    unitTokens: 'Tokens',
+    ownKeyNote:
+      'Ihre Organisation arbeitet mit einem eigenen Anbieterschlüssel. Der Verbrauch wird in Tokens auf Ihrer eigenen Rechnung gezählt; Piloti berechnet dafür keine Punkte.',
     overLimit: 'Budget ausgeschöpft — neue Anfragen werden blockiert',
-    legendTitle: 'Punkte nach Modell',
+    legendTitle: 'Verbrauch nach Modell',
     legendEmpty: 'In diesem Zeitraum wurde noch keine LLM-Nutzung erfasst.',
     trendTitle: 'Letzte 30 Tage',
     trendEmpty: 'In den letzten 30 Tagen wurde keine Nutzung erfasst.',
@@ -300,15 +305,17 @@ export const organization: typeof en.organization = {
     limitsTitle: 'Organisationslimits',
     limitsDescription:
       'Bis Sie eigene Limits festlegen, gilt das Kontingent Ihres Plans. Limits werden in Punkten angegeben und vor jeder Anfrage durchgesetzt.',
-    dailyLimit: 'Tageslimit (Punkte)',
-    monthlyLimit: 'Monatslimit (Punkte)',
+    limitsDescriptionTokens:
+      'Es gilt kein Limit, bis Sie eines festlegen. Limits werden in Tokens auf Ihrem eigenen Schlüssel angegeben und vor jeder Anfrage durchgesetzt.',
+    dailyLimit: 'Tageslimit ({unit})',
+    monthlyLimit: 'Monatslimit ({unit})',
     noLimitPlaceholder: 'Kein Limit',
     saveLimits: 'Limits speichern',
     limitsSaved: 'Budgetlimits gespeichert',
     limitsSaveError: 'Die Budgetlimits konnten nicht gespeichert werden.',
     membersTitle: 'Mitglieder — Verbrauch & Limits',
     membersDescription:
-      'Punkte pro Mitglied mit optionalen individuellen Obergrenzen. Ein Mitgliedslimit überschreitet nie die Organisationslimits und gilt zusätzlich zu ihnen.',
+      'Verbrauch pro Mitglied mit optionalen individuellen Obergrenzen. Ein Mitgliedslimit überschreitet nie die Organisationslimits und gilt zusätzlich zu ihnen.',
     colMember: 'Mitglied',
     limitLabel: 'Limit',
     setLimit: 'Limit festlegen',
