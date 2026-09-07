@@ -174,7 +174,8 @@ delete. Reduce complexity, never features. That pass is part of done.
 ## Reference
 
 - Code conventions, the `any` ban, coercing raw `sql<T>`, where a shared helper
-  belongs, capability doctrine:
+  belongs, capability doctrine, and **the shape of a Python function** (two
+  levels of nesting, early exits, sixty lines, pure where it can be):
   [`docs/contributing/code-conventions.md`](docs/contributing/code-conventions.md).
 - Patterns in use and what enforces each:
   [`docs/architecture/patterns-in-use.md`](docs/architecture/patterns-in-use.md).
