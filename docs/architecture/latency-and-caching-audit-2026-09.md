@@ -490,6 +490,34 @@ admission queue wait are invisible to it. Minimal additions, in order:
    `duration_ms` grouped by `kind, name` over a window. The indexes are there.
 4. One SQL over `llm_usage_events`: `sum(cached_tokens) / sum(prompt_tokens)`
    by model and agent group.
+
+The two queries, against `grid_app`, ready to paste:
+
+```sql
+-- Where the last seven days of chat turns went, per span. `turn` rows are the
+-- whole turn; `setup.*` and `admission.wait` are the seconds before the first
+-- model call; `llm`/`tool` rows are per call, named by model or tool.
+select kind, name,
+       count(*)                                                       as n,
+       round(percentile_cont(0.5)  within group (order by duration_ms)) as p50_ms,
+       round(percentile_cont(0.95) within group (order by duration_ms)) as p95_ms
+from agent_profiler_spans
+where created_at > now() - interval '7 days'
+group by kind, name
+order by p95_ms desc;
+
+-- Whether the provider's prompt-prefix cache is landing at all. Near zero on
+-- an OpenAI-family model means something in the prefix moves per request.
+select model,
+       count(*)                                               as calls,
+       sum(prompt_tokens)                                     as prompt_tokens,
+       sum(cached_tokens)                                     as cached_tokens,
+       round(100.0 * sum(cached_tokens) / nullif(sum(prompt_tokens), 0), 1) as cached_pct
+from llm_usage_events
+where created_at > now() - interval '7 days'
+group by model
+order by prompt_tokens desc;
+```
 5. Calibrate the eval bounds from three to five live runs, as the README
    already specifies, and flip the flag.
 
