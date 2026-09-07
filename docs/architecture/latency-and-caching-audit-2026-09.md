@@ -128,6 +128,18 @@ because each is a few lines.
 
 ### 3.2 The LLM-judge reranker is a frontier-model call per search
 
+**[LANDED, the cross-encoder]** The reference config sets
+`reranker_provider: openrouter` (model `cohere/rerank-v3.5`, the key every
+deployment already holds; the route answers 401 without one, so it exists).
+The judge stays as the fallback and the requery judge still runs beside the
+reranker, so the retrieval hot path is now bounded by that smaller call. Two
+things to know before trusting it: NVIDIA's hosted reranking URL that the
+module defaults to answers 410 Gone, so `nvidia` needs a self-hosted NIM via
+`AIQ_RERANKER_BASE_URL`; and **no offline eval covers reranking** (the
+retrieval harness README says so at its "Reranking" bullet), so the
+before/after is the golden compliance eval on live keys and the profiler's
+`knowledge_search` tool spans. The judge cache is still open.
+
 `configs/config_oib_openrouter.yml:296-326` describes the call it configures: a
 60-candidate pool is "~16k input tokens and ~720 output tokens; at a routine 50
 tok/s that is ~14 s of decoding alone", on `rerank_llm`, which resolves to the

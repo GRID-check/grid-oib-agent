@@ -477,6 +477,28 @@ functions:
     # Platform -> Retrieval top_k above this can no longer silently cap a search.
     rerank_llm: rerank_llm
     rerank_candidates: 60
+    # Cross-encoder reranking, PRIMARY; the LLM judge above is the fallback.
+    # A cross-encoder scores each (query, passage) pair with a model built for
+    # exactly that and answers in ~100ms over the FULL chunk, where the judge is
+    # one frontier-model call reading 60 excerpts of 1200 chars: ~16k input
+    # tokens, ~14s of decoding, on the path to the first answer token of every
+    # research turn (docs/architecture/latency-and-caching-audit-2026-09.md §3.2).
+    #
+    # `openrouter` because it is the one key every deployment already holds:
+    # `OPENROUTER_API_KEY` is the credential, `POST /api/v1/rerank` the route
+    # (answers 401 without a key, so it exists). The default model is
+    # `cohere/rerank-v3.5`, multilingual, which a German corpus needs.
+    # `AIQ_RERANKER_MODEL` / `AIQ_RERANKER_BASE_URL` override per deployment.
+    #
+    # Fail-open, in both directions the reader can notice: a key that does not
+    # resolve or any provider error falls back to the judge with one warning per
+    # search; a provider that HANGS costs `AIQ_RERANKER_TIMEOUT_SECONDS` (10s)
+    # before that fallback, so a bad day at the provider is slower than the
+    # judge, not faster. Set `reranker_provider: none` to hand reranking back to
+    # the judge. No offline eval covers reranking (`frontends/benchmarks/
+    # oib_retrieval` stops upstream of it); the golden compliance eval and the
+    # profiler's `tool` spans for `knowledge_search` are the before/after.
+    reranker_provider: openrouter
     # The retrieval loop (rag-system-audit-2026-08 F13): the same judge model
     # reads the head of the fused pool BESIDE the reranker and says whether it
     # can answer the question. A sufficient pool — the common case — costs no
