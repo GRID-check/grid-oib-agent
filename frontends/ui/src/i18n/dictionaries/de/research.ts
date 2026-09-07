@@ -347,6 +347,15 @@ export const research: typeof en.research = {
     deleteAll: 'Alle Chats dieses Projekts löschen',
     cannotDeleteBusy: 'Löschen nicht möglich, während Vorgänge laufen',
     deleteAllButton: 'Alle Chats löschen',
+    /** Stopp-Aktion für einen blockierten Deep-Research-Durchlauf (Chatzeile, Durchlaufzeile). */
+    stopResearch: 'Recherche stoppen',
+    stopResearchTitle: 'Diesen blockierten Recherchedurchlauf stoppen',
+    /** Sammelbereinigung in der Verlaufsfußzeile: stoppt alle abgebrochenen Durchläufe. */
+    purgeStuckRunsButton: 'Blockierte Recherchen stoppen',
+    purgeStuckRuns: 'Alle blockierten Recherchedurchläufe stoppen',
+    purgeDone:
+      '{count, plural, one {# blockierter Recherchedurchlauf gestoppt} other {# blockierte Recherchedurchläufe gestoppt}}',
+    purgeIdle: 'Keine blockierten Recherchedurchläufe gefunden',
     newSessionDisabled: 'Neuen Chat starten (während aktiver Vorgänge deaktiviert)',
     startNewSession: 'Neuen Chat starten',
     cannotCreateActive:

@@ -1,0 +1,7 @@
+---
+features:
+  - >
+    Deep-research runs that never finish can now be stopped from the chat
+    history: every run that is still marked as running gets a stop action, and
+    a single control clears all stuck runs at once. Stopped runs no longer
+    block their chat from being renamed or deleted.

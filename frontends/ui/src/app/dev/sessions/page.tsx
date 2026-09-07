@@ -31,7 +31,9 @@
  *   - `research` — the Deep Research surfaces (FB-10): the All / Chats / Deep
  *                  Research scope filter, the always-open runs section with its
  *                  count pill and status badges, and the per-chat Deep Research
- *                  badges. Runs come from a module-scope fetch shim.
+ *                  badges. A running run carries a stop action, and the footer
+ *                  carries the bulk purge — s-6's stuck run (job-a) is what
+ *                  shows both. Runs come from a module-scope fetch shim.
  *
  * The fetch shim is installed at MODULE SCOPE (browser + development only,
  * idempotent) so it is in place before any effect can fire — the panel fetches
@@ -57,7 +59,7 @@ const SESSIONS = [
   { id: 's-3', title: 'Brandabschnitte Tiefgarage', date: minutesAgo(240), hasCompletedReport: true },
   { id: 's-4', title: 'Sicherheitstreppenhaus — Anforderungen GK5', date: daysAgo(1) },
   { id: 's-5', title: 'Barrierefreiheit Sanitärräume', date: daysAgo(1) },
-  { id: 's-6', title: 'OIB-RL 6 Energieausweis Bestand', date: daysAgo(3), hasActiveDeepResearch: true },
+  { id: 's-6', title: 'OIB-RL 6 Energieausweis Bestand', date: daysAgo(3), hasActiveDeepResearch: true, activeDeepResearchJobId: 'job-a' },
   { id: 's-7', title: 'Schallschutz Trennwände Wohnbau', date: daysAgo(3) },
   { id: 's-8', title: 'Stellplatzverpflichtung Wien Bauordnung', date: daysAgo(6) },
   { id: 's-9', title: 'Belichtung Aufenthaltsräume', date: daysAgo(6) },

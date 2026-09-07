@@ -89,6 +89,36 @@ export type DeepResearchSlice = {
   reconnectToActiveJob: () => Promise<void>
   cleanupOrphanedStartingBanners: () => Promise<void>
   refreshDeepResearchSessionStatuses: () => Promise<void>
+  /**
+   * Dismiss one stuck deep-research run, wherever it lives.
+   *
+   * Abandoned runs — a backend that restarted and forgot the job, an SSE
+   * stream that died before the terminal event — keep their thread spinning
+   * forever: the row shows a loader, rename/delete stay disabled, and
+   * delete-all is blocked while any session is busy. Dismissing cancels the
+   * backend job best-effort (a 404 means the job is already gone, which is
+   * exactly the case being purged) and then always marks the thread terminal
+   * locally, so the history is actionable again whether or not the cancel
+   * landed.
+   *
+   * `conversationId` may be null for headless runs (no thread to write into);
+   * then this is just the cancel plus live-state teardown.
+   *
+   * Idempotent: dismissing twice patches the same values and never appends a
+   * second terminal banner, so the bulk purge below can overlap with per-run
+   * dismissals without duplicating anything.
+   */
+  dismissDeepResearchJob: (conversationId: string | null, jobId: string) => Promise<void>
+  /**
+   * Dismiss every stuck deep-research run of the current user, across all
+   * projects. Scoped to the user but deliberately NOT to the active project:
+   * `hasAnyBusySession` is global, so a stuck run in project B blocks
+   * delete-all in project A — purging only the visible project would leave
+   * the block in place with nothing on screen explaining it.
+   *
+   * @returns how many runs were dismissed.
+   */
+  purgeAbandonedDeepResearchJobs: () => Promise<number>
   addDeepResearchLLMStep: (
     step: Omit<DeepResearchLLMStep, 'id' | 'timestamp' | 'isComplete'>
   ) => string
@@ -1030,6 +1060,156 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
       false,
       'refreshDeepResearchSessionStatuses'
     )
+  },
+
+  dismissDeepResearchJob: async (conversationId: string | null, jobId: string) => {
+    // Best-effort first: an abandoned run's backend job is often already gone
+    // (404 on cancel) — that IS the case being purged, so a failed cancel
+    // never blocks the local cleanup below.
+    try {
+      const { cancelJob } = await import('@/adapters/api/deep-research-client')
+      await cancelJob(jobId)
+    } catch (error) {
+      console.warn('[dismissDeepResearchJob] Backend cancel failed; dismissing locally:', jobId, error)
+    }
+
+    clearDeepResearchSession(jobId)
+
+    if (conversationId) {
+      const conversation = get().conversations.find((c) => c.id === conversationId)
+      if (conversation) {
+        const trackingMessage = [...conversation.messages]
+          .reverse()
+          .find((m) => m.messageType === 'agent_response' && m.deepResearchJobId === jobId)
+
+        if (trackingMessage) {
+          get().patchConversationMessage(conversationId, trackingMessage.id, {
+            deepResearchJobStatus: 'interrupted',
+            isDeepResearchActive: false,
+            showViewReport: Boolean(trackingMessage.reportContent?.trim()),
+          })
+        } else {
+          // Banner-only run: no tracking agent_response ever materialized, so
+          // the starting banner itself carries the stuck flags — clear them so
+          // the thread stops spinning even before the banner is replaced below.
+          for (const message of conversation.messages) {
+            const carriesJob =
+              message.deepResearchJobId === jobId ||
+              message.deepResearchBannerData?.jobId === jobId
+            const looksStuck =
+              message.isDeepResearchActive ||
+              message.deepResearchJobStatus === 'submitted' ||
+              message.deepResearchJobStatus === 'running'
+            if (carriesJob && looksStuck) {
+              get().patchConversationMessage(conversationId, message.id, {
+                deepResearchJobStatus: 'interrupted',
+                isDeepResearchActive: false,
+              })
+            }
+          }
+        }
+
+        // A terminal banner replaces the starting one (the banner helper drops
+        // every banner carrying this jobId), so the thread keeps an honest
+        // record instead of a spinner that will never resolve. Guarded: a
+        // second dismiss of the same run patches the same values, never a
+        // second banner.
+        const latestConversation = get().conversations.find((c) => c.id === conversationId)
+        const hasTerminalBanner = latestConversation?.messages.some(
+          (m) =>
+            m.messageType === 'deep_research_banner' &&
+            m.deepResearchBannerData?.jobId === jobId &&
+            m.deepResearchBannerData.bannerType !== 'starting'
+        )
+        if (!hasTerminalBanner) {
+          get().addDeepResearchBanner('cancelled', jobId, conversationId)
+        }
+      }
+    }
+
+    // If the dismissed run is the live one, stand the panel down the same way
+    // a user-cancelled stream does (see use-deep-research's cancel fallback).
+    const state = get()
+    if (state.deepResearchJobId === jobId) {
+      state.stopAllDeepResearchSpinners()
+      set(
+        {
+          deepResearchJobId: null,
+          deepResearchLastEventId: null,
+          isDeepResearchStreaming: false,
+          deepResearchStartedAt: null,
+          deepResearchStatus: null,
+          deepResearchOwnerConversationId: null,
+          activeDeepResearchMessageId: null,
+          deepResearchCitations: [],
+          deepResearchTodos: [],
+          deepResearchLLMSteps: [],
+          deepResearchAgents: [],
+          deepResearchToolCalls: [],
+          deepResearchFiles: [],
+          deepResearchCards: [],
+          deepResearchStreamLoaded: true,
+          isDeepResearchStalled: false,
+          deepResearchConnectionLost: false,
+          reportContent: '',
+          reportContentCategory: null,
+          currentStatus: null,
+          pendingInteraction: null,
+        },
+        false,
+        'dismissDeepResearchJob:clearLive'
+      )
+    }
+  },
+
+  purgeAbandonedDeepResearchJobs: async () => {
+    const { currentUserId, conversations } = get()
+    if (!currentUserId) return 0
+
+    const stuck: Array<{ conversationId: string; jobId: string }> = []
+    const seen = new Set<string>()
+
+    for (const conversation of conversations) {
+      if (conversation.userId !== currentUserId) continue
+
+      const latest = getLatestDeepResearchMessage(conversation.messages)
+      const latestJobId = latest?.deepResearchJobId
+      if (
+        latestJobId &&
+        (latest?.deepResearchJobStatus === 'submitted' || latest?.deepResearchJobStatus === 'running')
+      ) {
+        seen.add(`${conversation.id}:${latestJobId}`)
+        stuck.push({ conversationId: conversation.id, jobId: latestJobId })
+      }
+
+      // Banner-only stuck runs: a starting banner with no terminal sibling and
+      // no tracking agent_response (covered above).
+      for (const banner of conversation.messages) {
+        if (
+          banner.messageType !== 'deep_research_banner' ||
+          banner.deepResearchBannerData?.bannerType !== 'starting'
+        ) {
+          continue
+        }
+        const bannerJobId = banner.deepResearchBannerData.jobId
+        const key = `${conversation.id}:${bannerJobId}`
+        if (seen.has(key)) continue
+        const hasTerminalSibling = conversation.messages.some(
+          (m) =>
+            m.messageType === 'deep_research_banner' &&
+            m.deepResearchBannerData?.jobId === bannerJobId &&
+            m.deepResearchBannerData.bannerType !== 'starting'
+        )
+        if (hasTerminalSibling) continue
+        seen.add(key)
+        stuck.push({ conversationId: conversation.id, jobId: bannerJobId })
+      }
+    }
+
+    for (const { conversationId, jobId } of stuck) {
+      await get().dismissDeepResearchJob(conversationId, jobId)
+    }
+    return stuck.length
   },
 
   addDeepResearchLLMStep: (

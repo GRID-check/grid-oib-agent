@@ -22,6 +22,7 @@ import { InputArea } from './InputArea'
 import { ResearchPanel } from './ResearchPanel'
 import { useChatStore, useDeepResearch, NoSourcesBanner } from '@/features/chat'
 import {
+  getLatestDeepResearchMessage,
   hasActiveDeepResearchJob,
   hasCompletedDeepResearchReport,
   hasExpiredDeepResearchReport,
@@ -206,16 +207,28 @@ export const MainLayout: FC<MainLayoutProps> = ({
 
   const sessions = useMemo(
     () =>
-      userConversations.map((conv) => ({
-        id: conv.id,
-        title: conv.title,
-        date: conv.updatedAt,
-        hasActiveDeepResearch:
-          hasActiveDeepResearchJob(conv.messages) ||
-          (isDeepResearchStreaming && deepResearchOwnerConversationId === conv.id),
-        hasCompletedReport: hasCompletedDeepResearchReport(conv.messages),
-        hasExpiredReport: hasExpiredDeepResearchReport(conv.messages),
-      })),
+      userConversations.map((conv) => {
+        // The stuck run's id travels with the row so the history can stop it:
+        // without it a thread whose research will never finish can only be
+        // watched, never dismissed (its delete stays disabled while active).
+        const latestResearch = getLatestDeepResearchMessage(conv.messages)
+        const latestStatus = latestResearch?.deepResearchJobStatus
+        return {
+          id: conv.id,
+          title: conv.title,
+          date: conv.updatedAt,
+          hasActiveDeepResearch:
+            hasActiveDeepResearchJob(conv.messages) ||
+            (isDeepResearchStreaming && deepResearchOwnerConversationId === conv.id),
+          hasCompletedReport: hasCompletedDeepResearchReport(conv.messages),
+          hasExpiredReport: hasExpiredDeepResearchReport(conv.messages),
+          activeDeepResearchJobId:
+            latestResearch?.deepResearchJobId &&
+            (latestStatus === 'submitted' || latestStatus === 'running')
+              ? latestResearch.deepResearchJobId
+              : null,
+        }
+      }),
     [userConversations, isDeepResearchStreaming, deepResearchOwnerConversationId]
   )
 
