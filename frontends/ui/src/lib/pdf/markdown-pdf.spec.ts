@@ -368,4 +368,62 @@ describe('renderMarkdownPdf', () => {
       )
     })
   })
+
+  /**
+   * Hostile payloads through the real renderer (err2issue #611/#580).
+   *
+   * React #31 is an object rendered as a child — a React element where text
+   * belongs. Model-written cards carry arbitrary JSON, so an unknown type with
+   * non-string leaves is the shape most likely to smuggle one in. These assert
+   * the boundary holds: bytes out, never an exception about object children.
+   */
+  describe('hostile payloads', () => {
+    const hostileCards = [
+      { type: 'mystery', content: { nested: { deep: [1, 2, { x: 'y' }] } } },
+      { type: 'mystery', count: 42, flag: true, nothing: null },
+      { type: 'mystery', list: [{ a: 1 }, 'two', [3]] },
+      'a bare string, not a card at all',
+      42,
+      null,
+    ]
+
+    const hostileMarkdown = [
+      '# Titel mit Umlauten äöü und Emoji 🏗️',
+      '',
+      'Siehe **[3]** und **[12]** sowie einen Link https://example.test/a?b=1&c=2.',
+      '',
+      '| A | B |',
+      '|---|---|',
+      '|  | leer |',
+      '| x |  |',
+      '',
+      '> Zitat mit **fett** und `code`.',
+      '',
+      '- Liste',
+      '  - verschachtelt',
+      '',
+      '```mermaid',
+      'flowchart TD',
+      '```',
+      '',
+    ].join('\n')
+
+    it('renders unknown card shapes with non-string leaves', async () => {
+      const bytes = await renderMarkdownPdf(REPORT, { ...BASE, cards: hostileCards })
+
+      expect(magic(bytes)).toBe('%PDF-')
+    })
+
+    it('renders markdown at the ragged edge of the block parser', async () => {
+      const bytes = await renderMarkdownPdf(hostileMarkdown, BASE)
+
+      expect(magic(bytes)).toBe('%PDF-')
+    })
+
+    it('renders both hostilities at once', async () => {
+      const bytes = await renderMarkdownPdf(hostileMarkdown, { ...BASE, cards: hostileCards })
+
+      expect(magic(bytes)).toBe('%PDF-')
+    })
+  })
 })
