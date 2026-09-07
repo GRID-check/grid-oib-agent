@@ -1,8 +1,13 @@
 /**
- * OpenRouter model search for the configuration picker. Org admins only.
+ * Model search for the organization's configuration picker. Org admins only.
  *
  * `?group=<agentGroupId>&q=<search>` — returns only models that satisfy the
  * group's capability requirements ("appropriate models for the task").
+ *
+ * What a model costs is shown as `≈ N credits per request` — the platform's
+ * reference request priced at the active price list (ADR-0053). The catalog's
+ * per-token USD prices are the platform's purchase price and are stripped
+ * here; they never reach a tenant.
  */
 
 import { z } from 'zod'
@@ -14,6 +19,7 @@ import { getAgentGroup } from '@/lib/model-config/agent-groups'
 import { searchModelsForGroup } from '@/lib/model-config/openrouter'
 import { getCatalogForOrg } from '@/lib/model-config/org-catalog'
 import { isZdrOnlyForOrg } from '@/lib/organizations/service'
+import { estimateCreditsPerRequest, getEffectivePricing } from '@/lib/pricing/service'
 
 const querySchema = z.object({
   group: z.string().default(''),
@@ -33,7 +39,7 @@ export const GET = apiRoute(
     // With a BYOK credential the catalog is the org's own provider listing
     // (relaxed capability checks) — otherwise the OpenRouter catalog (ADR-0022).
     // The org's ZDR policy narrows an OpenRouter catalog to ZDR models.
-    const zdrOnly = await isZdrOnlyForOrg(session.organizationId)
+    const [zdrOnly, pricing] = await Promise.all([isZdrOnlyForOrg(session.organizationId), getEffectivePricing()])
     let catalog
     try {
       catalog = await getCatalogForOrg(session.organizationId, { zdrOnly })
@@ -49,12 +55,14 @@ export const GET = apiRoute(
         validation: catalog.validation,
         zdrOnly: catalog.zdrOnly,
       },
-      models: searchModelsForGroup(
-        catalog.models,
-        groupId,
-        query,
-        30,
-        catalog.validation === 'full'
+      models: searchModelsForGroup(catalog.models, groupId, query, 30, catalog.validation === 'full').map(
+        // `promptPrice`/`completionPrice` are deliberately not spread through.
+        ({ id, name, contextLength, promptPrice, completionPrice }) => ({
+          id,
+          name,
+          contextLength,
+          creditsPerRequest: estimateCreditsPerRequest({ promptPrice, completionPrice }, pricing),
+        })
       ),
     }
   },

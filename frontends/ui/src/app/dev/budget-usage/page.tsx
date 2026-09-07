@@ -23,78 +23,74 @@ import { Gauge } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { BudgetUsageCard } from '../../app/(shell)/organization/budget-usage-card'
 
+/** Credits, the tenant's unit (ADR-0053) — the card never sees cost. */
+const window = (credits: number, events: number) => ({ credits, events })
+
 const MODELS = [
-  {
-    model: 'anthropic/claude-opus-4.6',
-    dayUsd: 3.9,
-    monthUsd: 61.4,
-    dayEvents: 41,
-    monthEvents: 812,
-  },
-  { model: 'openai/gpt-5.2', dayUsd: 2.1, monthUsd: 24.8, dayEvents: 33, monthEvents: 501 },
-  { model: 'google/gemini-3.0-pro', dayUsd: 0.9, monthUsd: 12.2, dayEvents: 18, monthEvents: 288 },
-  { model: 'mistralai/mistral-large-2', dayUsd: 0, monthUsd: 6.4, dayEvents: 0, monthEvents: 140 },
-  {
-    model: 'meta-llama/llama-4-70b-instruct-turbo',
-    dayUsd: 0.4,
-    monthUsd: 4.1,
-    dayEvents: 9,
-    monthEvents: 96,
-  },
-  { model: 'cohere/command-r-plus', dayUsd: 0.2, monthUsd: 2.6, dayEvents: 5, monthEvents: 61 },
-  { model: 'qwen/qwen3-235b', dayUsd: 0, monthUsd: 1.4, dayEvents: 0, monthEvents: 30 },
-  { model: 'deepseek/deepseek-v4', dayUsd: 0.1, monthUsd: 0.9, dayEvents: 2, monthEvents: 22 },
-  { model: 'x-ai/grok-4', dayUsd: 0.05, monthUsd: 0.6, dayEvents: 1, monthEvents: 14 },
-  { model: 'zhipu/glm-5', dayUsd: 0.02, monthUsd: 0.3, dayEvents: 1, monthEvents: 8 },
+  { model: 'anthropic/claude-opus-4.6', day: window(390, 41), month: window(6140, 812) },
+  { model: 'openai/gpt-5.2', day: window(210, 33), month: window(2480, 501) },
+  { model: 'google/gemini-3.0-pro', day: window(90, 18), month: window(1220, 288) },
+  { model: 'mistralai/mistral-large-2', day: window(0, 0), month: window(640, 140) },
+  { model: 'meta-llama/llama-4-70b-instruct-turbo', day: window(40, 9), month: window(410, 96) },
+  { model: 'cohere/command-r-plus', day: window(20, 5), month: window(260, 61) },
+  { model: 'qwen/qwen3-235b', day: window(0, 0), month: window(140, 30) },
+  { model: 'deepseek/deepseek-v4', day: window(10, 2), month: window(90, 22) },
+  { model: 'x-ai/grok-4', day: window(5, 1), month: window(60, 14) },
+  { model: 'zhipu/glm-5', day: window(2, 1), month: window(30, 8) },
 ]
 
-const DAY_USD = MODELS.reduce((sum, m) => sum + m.dayUsd, 0)
-const MONTH_USD = MODELS.reduce((sum, m) => sum + m.monthUsd, 0)
+const DAY = window(
+  MODELS.reduce((sum, m) => sum + m.day.credits, 0),
+  MODELS.reduce((sum, m) => sum + m.day.events, 0),
+)
+const MONTH = window(
+  MODELS.reduce((sum, m) => sum + m.month.credits, 0),
+  MODELS.reduce((sum, m) => sum + m.month.events, 0),
+)
 
 /** Deterministic 30-day series with a visible ramp and two quiet days. */
 const DAILY_TREND = Array.from({ length: 30 }, (_, index) => {
   const day = new Date(Date.UTC(2026, 5, 29))
   day.setUTCDate(day.getUTCDate() + index)
   const quiet = index === 6 || index === 20
-  const usd = quiet ? 0 : 1.4 + (index % 7) * 0.55 + (index > 21 ? 2.4 : 0)
+  const credits = quiet ? 0 : 140 + (index % 7) * 55 + (index > 21 ? 240 : 0)
   return {
     day: day.toISOString().slice(0, 10),
-    usd: Number(usd.toFixed(2)),
+    credits,
     events: quiet ? 0 : 30 + (index % 9) * 7,
   }
 })
 
 const USAGE = {
-  summary: { dayUsd: DAY_USD, monthUsd: MONTH_USD, perModel: MODELS },
+  summary: { day: DAY, month: MONTH, perModel: MODELS },
   perMember: [
-    { userId: 'user_01', dayUsd: 4.2, monthUsd: 48.9, dayEvents: 52, monthEvents: 704 },
-    { userId: 'user_02', dayUsd: 2.3, monthUsd: 39.1, dayEvents: 31, monthEvents: 610 },
-    { userId: 'user_03', dayUsd: 0.9, monthUsd: 22.4, dayEvents: 14, monthEvents: 402 },
+    { userId: 'user_01', day: window(420, 52), month: window(4890, 704) },
+    { userId: 'user_02', day: window(230, 31), month: window(3910, 610) },
+    { userId: 'user_03', day: window(90, 14), month: window(2240, 402) },
   ],
   // The month is deliberately over its limit and the day comfortably under, so
   // both meter states — and the over-limit tick — are on screen at once.
-  orgBudget: { dailyLimitEur: 25, monthlyLimitEur: 100, explicit: true },
+  orgBudget: { dailyLimitCredits: 2500, monthlyLimitCredits: 10000, explicit: true },
   status: { blocked: true, blockedScope: 'organization' },
-  eurPerUsd: 0.92,
   dailyTrend: DAILY_TREND,
 }
 
 const BUDGETS = {
-  organization: { dailyLimitEur: 25, monthlyLimitEur: 100 },
+  organization: { dailyLimitCredits: 2500, monthlyLimitCredits: 10000 },
   policies: [
     {
       id: 'pol_1',
       scope: 'member',
       subjectId: 'user_02',
-      dailyLimit: '5.00',
-      monthlyLimit: '40.00',
+      dailyLimit: '500.0000',
+      monthlyLimit: '4000.0000',
     },
     {
       id: 'pol_2',
       scope: 'project',
       subjectId: 'proj_1',
       dailyLimit: null,
-      monthlyLimit: '30.00',
+      monthlyLimit: '3000.0000',
     },
   ],
 }

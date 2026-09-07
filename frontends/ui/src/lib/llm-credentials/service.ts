@@ -13,6 +13,7 @@ import 'server-only'
 import { randomUUID } from 'node:crypto'
 import { BadRequestError, ConflictError, NotFoundError, UnprocessableError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { getCached } from '@/lib/cache'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { getOrgSettings, updateOrgSettings } from '@/lib/organizations/service'
 import { BYOK_LLM_FLAG, isOrgFeatureEnabled } from '@/lib/workos/feature-flags'
@@ -293,6 +294,29 @@ export async function verifyOrgCredential(
 }
 
 /** What the Python backend receives — includes the PLAINTEXT key. */
+/**
+ * Whether the organization's LLM traffic currently runs on its OWN provider
+ * key — the same three checks `resolveActiveCredentialForBackend` makes,
+ * minus the decrypt. Budget enforcement asks this on every WebSocket upgrade
+ * to hand the backend a remaining budget in cost terms without the platform
+ * margin a BYOK generation is never charged (ADR-0053), so the answer is
+ * cached briefly and write paths that flip it (mode change, credential
+ * revocation) are already bounded by the backend's own 60 s resolution TTL.
+ */
+const OWN_KEY_CACHE_TTL_MS = 60 * 1000
+const ownKeyCacheKey = (organizationId: string): string => `llmownkey:${organizationId}`
+
+export async function isOrgOnOwnKey(organizationId: string): Promise<boolean> {
+  return getCached(ownKeyCacheKey(organizationId), OWN_KEY_CACHE_TTL_MS, async () => {
+    const enforceFlags = (process.env.GRID_ENFORCE_FEATURE_FLAGS ?? '').toLowerCase() === 'true'
+    if (enforceFlags && !(await isOrgFeatureEnabled(BYOK_LLM_FLAG, organizationId, false))) {
+      return false
+    }
+    if (!(await getActiveCredential(organizationId))) return false
+    return (await getLlmProviderMode(organizationId)) === 'byok'
+  })
+}
+
 export interface ResolvedCredential {
   id: string
   provider: string

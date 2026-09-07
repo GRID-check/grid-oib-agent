@@ -60,6 +60,10 @@ const BOUNDARY_MIGRATIONS = [
   // Adds tasks — the durable unit of delegated work (ADR-0051). Project-scoped
   // tenant data, secured the way jobs is.
   '0075_tasks.sql',
+  // Adds platform_pricing_versions — the platform's price list (ADR-0053). No
+  // tenant data, so a PLATFORM table: every tenant reads, only the platform
+  // role writes.
+  '0079_pricing_and_credits.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>
@@ -200,6 +204,7 @@ describe('row-level security coverage', () => {
       'platform_lesson_reports',
       'platform_lessons',
       'platform_model_defaults',
+      'platform_pricing_versions',
       'platform_reasoning_efforts',
       'platform_retrieval_settings',
       'platform_skills',

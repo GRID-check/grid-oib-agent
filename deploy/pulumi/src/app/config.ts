@@ -340,9 +340,9 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     sref("SEAWEED_TENANT_ADMIN_SECRET_KEY"),
     { name: "SEAWEED_PRESIGNED_URL_TTL_SECONDS", value: String(APP_DEFAULTS.presignedUrlTtlSeconds) },
     { name: "PROJECT_PURGE_GRACE_DAYS", value: String(APP_DEFAULTS.projectPurgeGraceDays) },
-    // Model catalog + budgets.
+    // Model catalog. Pricing (margin, credit price) is a platform setting in
+    // the database (ADR-0053), not an environment variable.
     sref("OPENROUTER_API_KEY"),
-    { name: "GRID_BUDGET_EUR_PER_USD", value: cfg.llm.budgetEurPerUsd },
     // Platform tier.
     { name: "GRID_PLATFORM_OWNER_EMAILS", value: cfg.auth.platformOwnerEmails },
     { name: "GRID_PLATFORM_ORG_EXTERNAL_ID", value: cfg.auth.platformOrgExternalId },

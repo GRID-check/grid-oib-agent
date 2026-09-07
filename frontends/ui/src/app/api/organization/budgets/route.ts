@@ -1,5 +1,5 @@
 /**
- * LLM budget policies.
+ * LLM budget policies, in credits (ADR-0053).
  *
  * GET — members see the org limits + their own member limit; budget admins
  *       additionally get every active member/project policy.
@@ -20,8 +20,8 @@ const limitSchema = z.number().min(0).finite().nullable()
 const putSchema = z.object({
   scope: z.enum(['organization', 'member', 'project']),
   subjectId: z.string().min(1).max(120).nullable().optional(),
-  dailyLimitEur: limitSchema,
-  monthlyLimitEur: limitSchema,
+  dailyLimitCredits: limitSchema,
+  monthlyLimitCredits: limitSchema,
   note: z.string().trim().max(500).nullable().optional(),
 })
 

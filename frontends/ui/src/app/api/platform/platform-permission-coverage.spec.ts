@@ -61,6 +61,9 @@ const EXPECTED: Record<string, string> = {
   'organizations/[organizationId]/storage/route.ts GET': 'organizationsView',
   'organizations/[organizationId]/storage/route.ts PUT': 'organizationsManage',
   'overview/route.ts GET': 'organizationsView',
+  // The price list (ADR-0053): platform-owned configuration.
+  'pricing/route.ts GET': 'settingsView',
+  'pricing/route.ts PUT': 'settingsManage',
   'profiler/conversations/[conversationId]/route.ts GET': 'organizationsView',
   'profiler/conversations/route.ts GET': 'organizationsView',
   'reasoning-efforts/route.ts GET': 'settingsView',
