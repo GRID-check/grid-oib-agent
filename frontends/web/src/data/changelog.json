@@ -52,6 +52,10 @@
             {
               "en": "Organisationen, die Piloti mit einem eigenen Anbieterschlüssel nutzen, sehen keine Punkte mehr: Ihr Verbrauch wird in Tokens auf der eigenen Rechnung gezählt, und Limits für Organisation, Mitglieder und Projekte lassen sich direkt in Tokens festlegen.",
               "de": "Organisationen, die Piloti mit einem eigenen Anbieterschlüssel nutzen, sehen keine Punkte mehr: Ihr Verbrauch wird in Tokens auf der eigenen Rechnung gezählt, und Limits für Organisation, Mitglieder und Projekte lassen sich direkt in Tokens festlegen."
+            },
+            {
+              "en": "Deep-research runs that never finish can now be stopped from the chat history: every run that is still marked as running gets a stop action, and a single control clears all stuck runs at once. Stopped runs no longer block their chat from being renamed or deleted.",
+              "de": "Deep-research runs that never finish can now be stopped from the chat history: every run that is still marked as running gets a stop action, and a single control clears all stuck runs at once. Stopped runs no longer block their chat from being renamed or deleted."
             }
           ]
         },
