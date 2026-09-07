@@ -367,7 +367,7 @@ pod spec is readable by anything with `get pod` in the namespace.
 |----------|----------|---------|-------------|
 | `OPENROUTER_API_KEY` | No | — | Frontend container: authenticates the OpenRouter model-catalog fetch for the org model-config picker/validation (catalog also works unauthenticated). Same key the backend uses for LLM calls. |
 | `OPENROUTER_BASE_URL` | No | `https://openrouter.ai/api/v1` | Override the catalog endpoint (tests / self-hosted gateways). |
-| `GRID_BUDGET_EUR_PER_USD` | No | `0.86` | Euros per 1 USD used to compare EUR budget limits against the USD costs OpenRouter reports (ADR-0015). |
+| `GRID_BUDGET_EUR_PER_USD` | — | — | **Removed** (ADR-0053). Nothing converts currency any more: cost is shown in USD as OpenRouter charges it, tenants see credits, and the margin and credit price are set under Platform → Overview → Price list. Setting the variable has no effect. |
 | `GRID_BYOK_SECRET_BACKEND` | No | `vault` when `WORKOS_API_KEY` is set, else `local` | BYOK key store (ADR-0022). `vault` uses WorkOS Vault; `local` encrypts with AES-256-GCM under `GRID_BYOK_LOCAL_KEK`. Frontend service. |
 | `GRID_BYOK_LOCAL_KEK` | Required when `GRID_BYOK_SECRET_BACKEND=local` | — | 32-byte base64 key-encryption key (`openssl rand -base64 32`) for the `local` BYOK backend. Frontend service. |
 | `GRID_BYOK_ALLOW_PRIVATE_BASE_URLS` | No | `false` | `true` lets org admins point BYOK base URLs at private-network hosts, for self-hosted OpenAI-compatible gateways. Frontend service. |

@@ -1,12 +1,16 @@
 /**
  * Budgets repository (ADR-0017): the ONLY module that queries the DB for the
  * budgets domain. Raw data access and row shaping only — validation,
- * authorization, currency conversion, and enforcement semantics live in
- * `./service`.
+ * authorization, pricing, and enforcement semantics live in `./service`.
  *
  * The ledger (`llm_usage_events`) is append-only; the daily rollup
  * (`llm_usage_rollups`, ADR-0019) is incremented in the SAME transaction as
  * every ledger insert, so enforcement reads (`sumRollupTotals`) are exact.
+ *
+ * Every aggregate carries the three money columns side by side — `costUsd`
+ * (what the platform paid), `priceUsd` (what the tenant is charged) and
+ * `credits` (the tenant's unit) — and the SERVICE decides which of them a
+ * caller may see (ADR-0053: cost never reaches a tenant).
  */
 
 import 'server-only'
@@ -84,6 +88,7 @@ export async function listPolicyHistory(organizationId: string, limit = 100): Pr
 /**
  * Supersede idiom: mark the active row (if any) superseded and insert the
  * replacement in one transaction, so every limit change stays auditable.
+ * Limits are credits (ADR-0053).
  */
 export async function insertPolicySuperseding(values: {
   organizationId: string
@@ -121,7 +126,7 @@ export async function insertPolicySuperseding(values: {
         subjectId: values.subjectId,
         dailyLimit: values.dailyLimit,
         monthlyLimit: values.monthlyLimit,
-        currency: 'EUR',
+        currency: 'credit',
         status: 'active',
         supersedesId: previous?.id ?? null,
         createdBy: values.createdBy,
@@ -165,12 +170,16 @@ function utcDayOf(createdAt: Date | undefined): string {
   return (createdAt ?? new Date()).toISOString().slice(0, 10)
 }
 
+const num = (value: string | number | null | undefined): number => Number.parseFloat(String(value ?? '0')) || 0
+
 interface RollupIncrement {
   organizationId: string
   day: string
   userId: string
   projectId: string
   costUsd: number
+  priceUsd: number
+  credits: number
   events: number
 }
 
@@ -187,15 +196,24 @@ function buildRollupIncrements(events: NewLlmUsageEvent[]): RollupIncrement[] {
       userId,
       projectId,
       costUsd: 0,
+      priceUsd: 0,
+      credits: 0,
       events: 0,
     }
-    entry.costUsd += Number.parseFloat(String(event.costUsd ?? '0')) || 0
+    entry.costUsd += num(event.costUsd)
+    entry.priceUsd += num(event.priceUsd)
+    entry.credits += num(event.credits)
     entry.events += 1
     byKey.set(key, entry)
   }
   return [...byKey.values()]
 }
 
+/**
+ * Append fully priced ledger rows (the service fills `priceUsd`, `credits` and
+ * `pricingVersionId` before calling this) and increment the rollup in the same
+ * transaction.
+ */
 export async function insertUsageEventsWithRollups(events: NewLlmUsageEvent[]): Promise<number> {
   if (events.length === 0) return 0
   const db = getDb()
@@ -204,6 +222,9 @@ export async function insertUsageEventsWithRollups(events: NewLlmUsageEvent[]): 
 
     // Same transaction as the ledger insert, so the rollup is exact.
     for (const increment of buildRollupIncrements(events)) {
+      const costUsd = increment.costUsd.toFixed(8)
+      const priceUsd = increment.priceUsd.toFixed(8)
+      const credits = increment.credits.toFixed(6)
       await tx
         .insert(llmUsageRollups)
         .values({
@@ -211,7 +232,9 @@ export async function insertUsageEventsWithRollups(events: NewLlmUsageEvent[]): 
           day: increment.day,
           userId: increment.userId,
           projectId: increment.projectId,
-          costUsd: increment.costUsd.toFixed(8),
+          costUsd,
+          priceUsd,
+          credits,
           events: increment.events,
         })
         .onConflictDoUpdate({
@@ -222,7 +245,9 @@ export async function insertUsageEventsWithRollups(events: NewLlmUsageEvent[]): 
             llmUsageRollups.projectId,
           ],
           set: {
-            costUsd: sql`${llmUsageRollups.costUsd} + ${increment.costUsd.toFixed(8)}`,
+            costUsd: sql`${llmUsageRollups.costUsd} + ${costUsd}`,
+            priceUsd: sql`${llmUsageRollups.priceUsd} + ${priceUsd}`,
+            credits: sql`${llmUsageRollups.credits} + ${credits}`,
             events: sql`${llmUsageRollups.events} + ${increment.events}`,
             updatedAt: new Date(),
           },
@@ -237,9 +262,19 @@ export async function insertUsageEventsWithRollups(events: NewLlmUsageEvent[]): 
 // Spend reads
 // ---------------------------------------------------------------------------
 
+/** One window's money, all three units, plus how many generations made it. */
+export interface SpendWindow {
+  costUsd: number
+  priceUsd: number
+  credits: number
+  events: number
+}
+
+const EMPTY_WINDOW: SpendWindow = { costUsd: 0, priceUsd: 0, credits: 0, events: 0 }
+
 export interface SpendTotals {
-  dayUsd: number
-  monthUsd: number
+  day: SpendWindow
+  month: SpendWindow
 }
 
 /** Day/month totals from the write-through rollup — the enforcement hot path. */
@@ -255,31 +290,92 @@ export async function sumRollupTotals(
   if (filter.userId) conditions.push(eq(llmUsageRollups.userId, filter.userId))
   if (filter.projectId) conditions.push(eq(llmUsageRollups.projectId, filter.projectId))
 
+  const isToday = sql`${llmUsageRollups.day} = ${dayStr}`
   const [row] = await db
     .select({
-      monthUsd: sql<string>`coalesce(sum(${llmUsageRollups.costUsd}), 0)`,
-      dayUsd: sql<string>`coalesce(sum(${llmUsageRollups.costUsd}) filter (where ${llmUsageRollups.day} = ${dayStr}), 0)`,
+      monthCostUsd: sql<string>`coalesce(sum(${llmUsageRollups.costUsd}), 0)`,
+      monthPriceEur: sql<string>`coalesce(sum(${llmUsageRollups.priceUsd}), 0)`,
+      monthCredits: sql<string>`coalesce(sum(${llmUsageRollups.credits}), 0)`,
+      monthEvents: sql<string>`coalesce(sum(${llmUsageRollups.events}), 0)`,
+      dayCostUsd: sql<string>`coalesce(sum(${llmUsageRollups.costUsd}) filter (where ${isToday}), 0)`,
+      dayPriceEur: sql<string>`coalesce(sum(${llmUsageRollups.priceUsd}) filter (where ${isToday}), 0)`,
+      dayCredits: sql<string>`coalesce(sum(${llmUsageRollups.credits}) filter (where ${isToday}), 0)`,
+      dayEvents: sql<string>`coalesce(sum(${llmUsageRollups.events}) filter (where ${isToday}), 0)`,
     })
     .from(llmUsageRollups)
     .where(and(...conditions))
 
+  if (!row) return { day: EMPTY_WINDOW, month: EMPTY_WINDOW }
   return {
-    dayUsd: Number.parseFloat(row?.dayUsd ?? '0') || 0,
-    monthUsd: Number.parseFloat(row?.monthUsd ?? '0') || 0,
+    day: { costUsd: num(row.dayCostUsd), priceUsd: num(row.dayPriceEur), credits: num(row.dayCredits), events: num(row.dayEvents) },
+    month: {
+      costUsd: num(row.monthCostUsd),
+      priceUsd: num(row.monthPriceEur),
+      credits: num(row.monthCredits),
+      events: num(row.monthEvents),
+    },
   }
 }
 
+/** The month-window ledger aggregation every breakdown below shares. */
+function windowColumns(dayStartIso: string) {
+  const isToday = sql`${llmUsageEvents.createdAt} >= ${dayStartIso}`
+  return {
+    monthCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
+    monthPriceEur: sql<string>`coalesce(sum(${llmUsageEvents.priceUsd}), 0)`,
+    monthCredits: sql<string>`coalesce(sum(${llmUsageEvents.credits}), 0)`,
+    monthEvents: sql<string>`count(*)`,
+    dayCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${isToday}), 0)`,
+    dayPriceEur: sql<string>`coalesce(sum(${llmUsageEvents.priceUsd}) filter (where ${isToday}), 0)`,
+    dayCredits: sql<string>`coalesce(sum(${llmUsageEvents.credits}) filter (where ${isToday}), 0)`,
+    dayEvents: sql<string>`count(*) filter (where ${isToday})`,
+  }
+}
+
+interface WindowRow {
+  monthCostUsd: string
+  monthPriceEur: string
+  monthCredits: string
+  monthEvents: string
+  dayCostUsd: string
+  dayPriceEur: string
+  dayCredits: string
+  dayEvents: string
+}
+
+/** Coerce at the repository boundary: raw `sql<T>` columns arrive as strings. */
+function toWindows(row: WindowRow): { day: SpendWindow; month: SpendWindow } {
+  return {
+    day: { costUsd: num(row.dayCostUsd), priceUsd: num(row.dayPriceEur), credits: num(row.dayCredits), events: num(row.dayEvents) },
+    month: {
+      costUsd: num(row.monthCostUsd),
+      priceUsd: num(row.monthPriceEur),
+      credits: num(row.monthCredits),
+      events: num(row.monthEvents),
+    },
+  }
+}
+
+const sumWindows = (windows: SpendWindow[]): SpendWindow =>
+  windows.reduce(
+    (total, w) => ({
+      costUsd: total.costUsd + w.costUsd,
+      priceUsd: total.priceUsd + w.priceUsd,
+      credits: total.credits + w.credits,
+      events: total.events + w.events,
+    }),
+    EMPTY_WINDOW,
+  )
+
 export interface ModelSpend {
   model: string
-  dayUsd: number
-  monthUsd: number
-  dayEvents: number
-  monthEvents: number
+  day: SpendWindow
+  month: SpendWindow
 }
 
 export interface SpendSummary {
-  dayUsd: number
-  monthUsd: number
+  day: SpendWindow
+  month: SpendWindow
   perModel: ModelSpend[]
 }
 
@@ -293,52 +389,38 @@ export async function aggregateSpendSummary(
   filter: { userId?: string; projectId?: string } = {},
 ): Promise<SpendSummary> {
   const db = getDb()
-  const dayStart = utcDayStart()
   const monthStart = utcMonthStart()
   // Raw `sql` fragments bypass drizzle's column-type mapping, and the
   // postgres-js driver rejects Date instances for inferred parameters — pass
   // ISO strings there (the typed gte() below handles the Date itself).
-  const dayStartIso = dayStart.toISOString()
+  const dayStartIso = utcDayStart().toISOString()
 
   const conditions = [eq(llmUsageEvents.organizationId, organizationId), gte(llmUsageEvents.createdAt, monthStart)]
   if (filter.userId) conditions.push(eq(llmUsageEvents.userId, filter.userId))
   if (filter.projectId) conditions.push(eq(llmUsageEvents.projectId, filter.projectId))
 
+  const modelColumn = sql`coalesce(${llmUsageEvents.model}, 'unknown')`
   const rows = await db
-    .select({
-      model: sql<string>`coalesce(${llmUsageEvents.model}, 'unknown')`,
-      monthUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
-      dayUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso}), 0)`,
-      monthEvents: sql<string>`count(*)`,
-      dayEvents: sql<string>`count(*) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso})`,
-    })
+    .select({ model: sql<string>`${modelColumn}`, ...windowColumns(dayStartIso) })
     .from(llmUsageEvents)
     .where(and(...conditions))
-    .groupBy(sql`coalesce(${llmUsageEvents.model}, 'unknown')`)
+    .groupBy(modelColumn)
 
   const perModel: ModelSpend[] = rows
-    .map((row) => ({
-      model: row.model,
-      dayUsd: Number.parseFloat(row.dayUsd) || 0,
-      monthUsd: Number.parseFloat(row.monthUsd) || 0,
-      dayEvents: Number.parseInt(row.dayEvents, 10) || 0,
-      monthEvents: Number.parseInt(row.monthEvents, 10) || 0,
-    }))
-    .sort((a, b) => b.monthUsd - a.monthUsd)
+    .map((row) => ({ model: row.model, ...toWindows(row) }))
+    .sort((a, b) => b.month.credits - a.month.credits)
 
   return {
-    dayUsd: perModel.reduce((total, m) => total + m.dayUsd, 0),
-    monthUsd: perModel.reduce((total, m) => total + m.monthUsd, 0),
+    day: sumWindows(perModel.map((m) => m.day)),
+    month: sumWindows(perModel.map((m) => m.month)),
     perModel,
   }
 }
 
 export interface MemberSpend {
   userId: string
-  dayUsd: number
-  monthUsd: number
-  dayEvents: number
-  monthEvents: number
+  day: SpendWindow
+  month: SpendWindow
 }
 
 /**
@@ -351,13 +433,7 @@ export async function aggregateSpendByMember(organizationId: string): Promise<Me
   const monthStart = utcMonthStart()
 
   const rows = await db
-    .select({
-      userId: llmUsageEvents.userId,
-      monthUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
-      dayUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso}), 0)`,
-      monthEvents: sql<string>`count(*)`,
-      dayEvents: sql<string>`count(*) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso})`,
-    })
+    .select({ userId: llmUsageEvents.userId, ...windowColumns(dayStartIso) })
     .from(llmUsageEvents)
     .where(
       and(
@@ -369,22 +445,14 @@ export async function aggregateSpendByMember(organizationId: string): Promise<Me
     .groupBy(llmUsageEvents.userId)
 
   return rows
-    .map((row) => ({
-      userId: row.userId as string,
-      dayUsd: Number.parseFloat(row.dayUsd) || 0,
-      monthUsd: Number.parseFloat(row.monthUsd) || 0,
-      dayEvents: Number.parseInt(row.dayEvents, 10) || 0,
-      monthEvents: Number.parseInt(row.monthEvents, 10) || 0,
-    }))
-    .sort((a, b) => b.monthUsd - a.monthUsd)
+    .map((row) => ({ userId: row.userId as string, ...toWindows(row) }))
+    .sort((a, b) => b.month.credits - a.month.credits)
 }
 
 export interface OrganizationSpend {
   organizationId: string
-  dayUsd: number
-  monthUsd: number
-  dayEvents: number
-  monthEvents: number
+  day: SpendWindow
+  month: SpendWindow
 }
 
 /**
@@ -397,33 +465,19 @@ export async function aggregateSpendAcrossOrganizations(): Promise<OrganizationS
   const monthStart = utcMonthStart()
 
   const rows = await db
-    .select({
-      organizationId: llmUsageEvents.organizationId,
-      monthUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
-      dayUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso}), 0)`,
-      monthEvents: sql<string>`count(*)`,
-      dayEvents: sql<string>`count(*) filter (where ${llmUsageEvents.createdAt} >= ${dayStartIso})`,
-    })
+    .select({ organizationId: llmUsageEvents.organizationId, ...windowColumns(dayStartIso) })
     .from(llmUsageEvents)
     .where(gte(llmUsageEvents.createdAt, monthStart))
     .groupBy(llmUsageEvents.organizationId)
 
   return rows
-    .map((row) => ({
-      organizationId: row.organizationId,
-      dayUsd: Number.parseFloat(row.dayUsd) || 0,
-      monthUsd: Number.parseFloat(row.monthUsd) || 0,
-      dayEvents: Number.parseInt(row.dayEvents, 10) || 0,
-      monthEvents: Number.parseInt(row.monthEvents, 10) || 0,
-    }))
-    .sort((a, b) => b.monthUsd - a.monthUsd)
+    .map((row) => ({ organizationId: row.organizationId, ...toWindows(row) }))
+    .sort((a, b) => b.month.priceUsd - a.month.priceUsd)
 }
 
-export interface DailySpendRow {
+export interface DailySpendRow extends SpendWindow {
   /** UTC day, `YYYY-MM-DD`. */
   day: string
-  usd: number
-  events: number
 }
 
 /** Daily spend rows since `start` (sparse — the service zero-fills the series). */
@@ -439,7 +493,9 @@ export async function aggregateDailySpend(options: {
   const rows = await db
     .select({
       day: sql<string>`to_char(date_trunc('day', ${llmUsageEvents.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`,
-      usd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
+      costUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
+      priceUsd: sql<string>`coalesce(sum(${llmUsageEvents.priceUsd}), 0)`,
+      credits: sql<string>`coalesce(sum(${llmUsageEvents.credits}), 0)`,
       events: sql<string>`count(*)`,
     })
     .from(llmUsageEvents)
@@ -448,7 +504,9 @@ export async function aggregateDailySpend(options: {
 
   return rows.map((row) => ({
     day: row.day,
-    usd: Number.parseFloat(row.usd) || 0,
-    events: Number.parseInt(row.events, 10) || 0,
+    costUsd: num(row.costUsd),
+    priceUsd: num(row.priceUsd),
+    credits: num(row.credits),
+    events: num(row.events),
   }))
 }

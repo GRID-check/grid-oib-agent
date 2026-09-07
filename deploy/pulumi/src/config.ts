@@ -740,7 +740,6 @@ export interface GridConfig {
     embedBaseUrl: string;
     vlmModel: string;
     vlmBaseUrl: string;
-    budgetEurPerUsd: string;
   };
 
   /** WorkOS AuthKit + platform-tier settings (frontend). */
@@ -2279,7 +2278,6 @@ export function loadConfig(): GridConfig {
       embedBaseUrl: cfg.get("embedBaseUrl") ?? "https://openrouter.ai/api/v1",
       vlmModel: cfg.get("vlmModel") ?? "google/gemma-4-31b-it",
       vlmBaseUrl: cfg.get("vlmBaseUrl") ?? "https://openrouter.ai/api/v1",
-      budgetEurPerUsd: cfg.get("budgetEurPerUsd") ?? "0.86",
     },
 
     auth: {

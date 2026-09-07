@@ -1,0 +1,17 @@
+---
+features:
+  - >
+    Verbrauch und Budgets werden jetzt in Punkten angezeigt statt in Euro.
+    Die Seite „Verbrauch & Budgets“, die Limits pro Organisation, Mitglied
+    und Projekt und die Modellauswahl rechnen alle in derselben Einheit, und
+    die Punkte eines Monats sind die Summe der Punkte seiner Anfragen.
+  - >
+    In der Modellauswahl steht neben jedem Modell, was eine typische Anfrage
+    darauf ungefähr an Punkten kostet. So lässt sich ein günstiges Modell von
+    einem teuren unterscheiden, ohne eine Preistabelle zu lesen.
+upgrade:
+  - >
+    Bestehende Budgetlimits wurden von Euro in Punkte umgerechnet. Prüfen Sie
+    Ihre Organisations-, Mitglieder- und Projektlimits einmal nach und passen
+    Sie sie an, wenn die neuen Werte nicht dem entsprechen, was Sie gemeint
+    haben.

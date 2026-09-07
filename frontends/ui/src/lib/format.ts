@@ -10,6 +10,29 @@ export const formatEur = (value: number, locale?: string): string =>
   new Intl.NumberFormat(locale, { style: 'currency', currency: 'EUR' }).format(value)
 
 /**
+ * USD — what OpenRouter actually charges, shown as such on platform surfaces.
+ * There is deliberately no conversion anywhere (ADR-0053): a hand-set rate is
+ * neither the bank's nor OpenRouter's, and a figure nobody is charged is not a
+ * figure worth showing.
+ */
+export const formatUsd = (value: number, locale?: string): string =>
+  new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD' }).format(value)
+
+/**
+ * Credits — the tenant's usage unit (ADR-0053). A whole number once it is
+ * worth counting, one decimal below ten so a cheap call is "0.4" rather than
+ * a misleading "0". The unit word ("credits" / "Punkte") is the caller's,
+ * from the dictionary, so this stays a number formatter like `formatBytes`.
+ */
+export const formatCredits = (value: number, locale?: string): string => {
+  const safe = Number.isFinite(value) ? value : 0
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: Math.abs(safe) < 10 ? 1 : 0,
+  }).format(safe)
+}
+
+/**
  * Byte sizes for humans ("1.4 GB" / "1,4 GB").
  *
  * **The one byte formatter.** There used to be two — this, and a

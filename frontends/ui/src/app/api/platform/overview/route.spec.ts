@@ -33,18 +33,19 @@ vi.mock('@/lib/platform/service', () => ({
         createdAt: '2026-07-01T00:00:00Z',
         isPlatformOrg: false,
         projectCount: 3,
-        dayUsd: 0.5,
-        monthUsd: 4.2,
-        monthEvents: 120,
+        day: { costUsd: 0.5, priceUsd: 1.25, credits: 12.5, events: 10 },
+        month: { costUsd: 4.2, priceUsd: 10.5, credits: 105, events: 120 },
       },
     ],
-    dailyTrend: [{ day: '2026-07-08', usd: 0.5, events: 12 }],
-    totals: { organizations: 1, projects: 3, dayUsd: 0.5, monthUsd: 4.2, monthEvents: 120 },
+    dailyTrend: [{ day: '2026-07-08', costUsd: 0.5, priceUsd: 1.25, credits: 12.5, events: 12 }],
+    totals: {
+      organizations: 1,
+      projects: 3,
+      day: { costUsd: 0.5, priceUsd: 1.25, credits: 12.5, events: 10 },
+      month: { costUsd: 4.2, priceUsd: 10.5, credits: 105, events: 120 },
+    },
+    pricing: { marginMultiplier: 2.5, usdPerCredit: 0.1, explicit: true },
   }),
-}))
-
-vi.mock('@/lib/budgets/service', () => ({
-  eurPerUsd: () => 0.86,
 }))
 
 import { GET } from './route'
@@ -65,7 +66,7 @@ describe('GET /api/platform/overview', () => {
     const body = await res.json()
     expect(body.totals.organizations).toBe(1)
     expect(body.organizations[0].name).toBe('Tenant')
-    expect(body.dailyTrend).toEqual([{ day: '2026-07-08', usd: 0.5, events: 12 }])
-    expect(body.eurPerUsd).toBe(0.86)
+    expect(body.dailyTrend).toEqual([{ day: '2026-07-08', costUsd: 0.5, priceUsd: 1.25, credits: 12.5, events: 12 }])
+    expect(body.totals.month.priceUsd).toBe(10.5)
   })
 })

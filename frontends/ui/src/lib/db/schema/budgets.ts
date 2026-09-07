@@ -21,8 +21,8 @@ import {
  * (who, when, from what to what). One active policy per (org, scope, subject).
  *
  * Scopes:
- *  - `organization`  — the org-wide cap (subjectId NULL). Defaults seeded
- *    lazily: €10/day, €100/month until an admin changes them.
+ *  - `organization`  — the org-wide cap (subjectId NULL). Defaults come from
+ *    the active pricing version's allowance until an admin changes them.
  *  - `member`        — per-person cap (subjectId = WorkOS user id). Must not
  *    exceed the org limits (validated in the service layer).
  *  - `project`       — per-project cap (subjectId = project uuid as text).
@@ -30,10 +30,10 @@ import {
  *
  * `llm_usage_events` — append-only ledger, one row per LLM generation, written
  * only via the token-guarded internal endpoint (single-writer rule). Cost is
- * stored in USD exactly as OpenRouter reports it (`usage.cost`); EUR budgets
- * are compared after conversion at read time (GRID_BUDGET_EUR_PER_USD).
- * `generation_id` allows post-hoc reconciliation against OpenRouter's
- * GET /api/v1/generation endpoint.
+ * stored in USD exactly as OpenRouter reports it (`usage.cost`); the tenant's
+ * price and credits are computed at write time from the active pricing version
+ * and frozen on the row (ADR-0053). `generation_id` allows post-hoc
+ * reconciliation against OpenRouter's GET /api/v1/generation endpoint.
  */
 
 export const BUDGET_SCOPES = ['organization', 'member', 'project'] as const
@@ -50,10 +50,11 @@ export const budgetPolicies = pgTable(
     scope: text('scope').$type<BudgetScope>().notNull(),
     /** NULL for org scope; WorkOS user id (member) or project uuid (project). */
     subjectId: text('subject_id'),
-    /** Limits in `currency`; NULL = no limit for that window. */
+    /** Limits in credits (ADR-0053); NULL = no limit for that window. */
     dailyLimit: numeric('daily_limit', { precision: 12, scale: 4 }),
     monthlyLimit: numeric('monthly_limit', { precision: 12, scale: 4 }),
-    currency: text('currency').notNull().default('EUR'),
+    /** Always `credit` since 0079 (CHECK constraint); the column predates the unit. */
+    currency: text('currency').notNull().default('credit'),
     status: text('status').$type<BudgetPolicyStatus>().notNull().default('active'),
     supersedesId: uuid('supersedes_id'),
     /** WorkOS user id of whoever set this policy. */
@@ -107,6 +108,15 @@ export const llmUsageEvents = pgTable(
     costUsd: numeric('cost_usd', { precision: 14, scale: 8 }).notNull().default('0'),
     costSource: text('cost_source').$type<CostSource>().notNull().default('missing'),
     isByok: boolean('is_byok'),
+    /**
+     * What the tenant pays for this generation, frozen at write time from the
+     * pricing version active then (ADR-0053). Never recomputed.
+     */
+    priceUsd: numeric('price_usd', { precision: 14, scale: 8 }).notNull().default('0'),
+    /** The tenant-facing unit: `priceUsd / usdPerCredit` of the same version. */
+    credits: numeric('credits', { precision: 14, scale: 6 }).notNull().default('0'),
+    /** NULL = priced at the boot floor (no pricing version existed). */
+    pricingVersionId: uuid('pricing_version_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
@@ -147,6 +157,8 @@ export const llmUsageRollups = pgTable(
     userId: text('user_id').notNull().default(''),
     projectId: text('project_id').notNull().default(''),
     costUsd: numeric('cost_usd', { precision: 14, scale: 8 }).notNull().default('0'),
+    priceUsd: numeric('price_usd', { precision: 14, scale: 8 }).notNull().default('0'),
+    credits: numeric('credits', { precision: 14, scale: 6 }).notNull().default('0'),
     events: integer('events').notNull().default(0),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
