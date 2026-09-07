@@ -356,6 +356,11 @@ export const research: typeof en.research = {
     purgeDone:
       '{count, plural, one {# blockierter Recherchedurchlauf gestoppt} other {# blockierte Recherchedurchläufe gestoppt}}',
     purgeIdle: 'Keine blockierten Recherchedurchläufe gefunden',
+    /** Sammelbestätigung zum Bereinigen (geteilter ConfirmDialog, Warnton): die Bereinigung ist die einzige Sammelaktion, die Serverarbeit abbricht. */
+    purgeConfirmTitle: 'Blockierte Recherchen stoppen?',
+    purgeConfirmBody:
+      'Alle blockierten Recherchedurchläufe werden abgebrochen und können nicht fortgesetzt werden. Ihre Chats bleiben erhalten — nur die Durchläufe werden gestoppt.',
+    purgeConfirmConfirm: 'Blockierte Recherchen stoppen',
     newSessionDisabled: 'Neuen Chat starten (während aktiver Vorgänge deaktiviert)',
     startNewSession: 'Neuen Chat starten',
     cannotCreateActive:

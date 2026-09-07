@@ -73,3 +73,33 @@ export const getDeepResearchJobLoadErrorDetails = (error: unknown): string | und
 
 export const isUnavailableDeepResearchJobError = (error: unknown): boolean =>
   getDeepResearchJobLoadFailureKind(error) === 'unavailable'
+
+/** Terminal verdicts a deep-research job can carry. */
+export type DeepResearchTerminalVerdict = 'success' | 'failure' | 'interrupted'
+
+/**
+ * Read the backend's own terminal verdict off a failed cancel.
+ *
+ * A cancel against an already-terminal job fails with 400 "Job not
+ * cancellable: <id> (status: <verdict>)" — the cancel handler looked the job
+ * up and names the status it found. That verdict is FRESHER than whatever the
+ * status/list endpoints serve for the same job (they can lag a crashed run
+ * indefinitely), so a dismiss that learns it reconciles to it instead of
+ * merely marking the thread stopped and hoping the next poll agrees.
+ *
+ * Returns null when the error carries no terminal verdict (job gone without a
+ * stated status, transient failure, or a job that is genuinely still running).
+ */
+export const readTerminalVerdictFromCancelError = (
+  error: unknown
+): DeepResearchTerminalVerdict | null => {
+  const errorText = getErrorText(error)
+  const match = /job not cancellable[^()]*\(\s*status:\s*([a-z_]+)\s*\)/i.exec(errorText)
+  if (!match) return null
+
+  const status = match[1].toLowerCase()
+  if (status === 'success' || status === 'failure' || status === 'interrupted') {
+    return status
+  }
+  return null
+}

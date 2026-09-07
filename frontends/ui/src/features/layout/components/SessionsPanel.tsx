@@ -78,6 +78,8 @@ import { useLayoutStore } from '../store'
 import { useChatStore } from '@/features/chat'
 import { DeleteSessionConfirmationModal } from './DeleteSessionConfirmationModal'
 import { DeleteAllSessionsConfirmationModal } from './DeleteAllSessionsConfirmationModal'
+import { StopResearchConfirmationModal } from './StopResearchConfirmationModal'
+import { PurgeStuckResearchConfirmationModal } from './PurgeStuckResearchConfirmationModal'
 
 interface Session {
   id: string
@@ -93,6 +95,19 @@ interface Session {
    * dismissed, and its delete stays disabled forever.
    */
   activeDeepResearchJobId?: string | null
+}
+
+/**
+ * A stop awaiting confirmation. Stopping cancels server-side work that cannot
+ * be resumed, so the row/run buttons only ARM this — the shared ConfirmDialog
+ * fires it. `refetchRuns` re-reads the server run list afterwards, so a
+ * run stopped from the Deep Research section reads cancelled instead of
+ * running.
+ */
+interface PendingStop {
+  sessionId: string | null
+  jobId: string
+  refetchRuns: boolean
 }
 
 /**
@@ -174,6 +189,10 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   // reconciles what the backend still admits to.
   const dismissDeepResearchJob = useChatStore((s) => s.dismissDeepResearchJob)
   const purgeAbandonedDeepResearchJobs = useChatStore((s) => s.purgeAbandonedDeepResearchJobs)
+  // Jobs this browser settled itself (see `resolvedDeepResearchJobs`): the
+  // runs list can serve a stale `running` for them indefinitely, so rows read
+  // the recorded verdict first.
+  const resolvedDeepResearchJobs = useChatStore((s) => s.resolvedDeepResearchJobs)
   // Navigation-specific busy check: only shallow thinking (WebSocket) and HITL prompts
   // block session switching. Deep research runs server-side and can be reconnected,
   // so it should NOT prevent navigation.
@@ -191,11 +210,13 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null)
   const refreshStatusesInFlightRef = useRef(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  // Runs currently being dismissed (per-row stop buttons + bulk purge share
-  // this): the button that started it stays disabled until the store settles,
-  // so a double-click cannot stack two cancels for the same job.
-  const [dismissingKeys, setDismissingKeys] = useState<ReadonlySet<string>>(new Set())
   const [isPurgingStuck, setIsPurgingStuck] = useState(false)
+  // The stop awaiting confirmation (single run) and the bulk-purge confirm.
+  // Both render the shared ConfirmDialog, which owns the pending state of its
+  // own confirm button — so no extra in-flight flags are needed to prevent
+  // double confirms.
+  const [pendingStop, setPendingStop] = useState<PendingStop | null>(null)
+  const [purgeConfirmOpen, setPurgeConfirmOpen] = useState(false)
 
   // FB-10: server-truth deep-research runs for the "Deep Research" section.
   // Fetched on panel open (like the status refresh above) so the list includes
@@ -312,31 +333,20 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     searchInputRef.current?.focus()
   }, [])
 
-  const setDismissing = useCallback((key: string, on: boolean) => {
-    setDismissingKeys((prev) => {
-      if (prev.has(key) === on) return prev
-      const next = new Set(prev)
-      if (on) next.add(key)
-      else next.delete(key)
-      return next
-    })
-  }, [])
-
   // Stop one stuck run from its chat row. The row's delete stays disabled
   // while the run looks active, so without this the chat holding an abandoned
-  // run could never be removed at all.
-  const handleStopSessionResearch = useCallback(
-    async (sessionId: string, jobId: string) => {
-      const key = `session:${sessionId}:${jobId}`
-      setDismissing(key, true)
-      try {
-        await dismissDeepResearchJob(sessionId, jobId)
-      } finally {
-        setDismissing(key, false)
-      }
-    },
-    [dismissDeepResearchJob, setDismissing]
-  )
+  // run could never be removed at all. Arms the confirm dialog — stopping
+  // cancels server-side work that cannot be resumed.
+  const handleStopSessionResearch = useCallback((sessionId: string, jobId: string) => {
+    setPendingStop({ sessionId, jobId, refetchRuns: false })
+  }, [])
+
+  // Fires the armed stop from the confirm dialog.
+  const handleConfirmStop = useCallback(async () => {
+    if (!pendingStop) return
+    await dismissDeepResearchJob(pendingStop.sessionId, pendingStop.jobId)
+    if (pendingStop.refetchRuns) fetchDeepResearchRuns()
+  }, [pendingStop, dismissDeepResearchJob, fetchDeepResearchRuns])
 
   const untitledLabel = t('sessionsPanel.untitledSession')
   const trimmedQuery = searchQuery.trim()
@@ -392,14 +402,32 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     [sessionTitleById, t]
   )
 
+  // A run this browser settled itself (dismissed from this history) renders
+  // its recorded verdict, in the list's own vocabulary — not whatever the
+  // runs list still serves for it. The list can lag a crashed run
+  // indefinitely (a dismissed `failure` keeps arriving as `running`), which is
+  // how stopped runs used to come back spinning after every refetch.
+  const effectiveRunStatus = useCallback(
+    (run: ResearchRun): string => {
+      const resolved = resolvedDeepResearchJobs[run.job_id]
+      if (resolved === 'success') return 'completed'
+      if (resolved === 'failure') return 'failed'
+      if (resolved === 'interrupted') return 'cancelled'
+      return run.status
+    },
+    [resolvedDeepResearchJobs]
+  )
+
   // The chat page's ?job= loader resolves any job id; failed runs deep-link to
   // the thinking tab (no report to show) so the run can still be diagnosed.
+  // Both read the EFFECTIVE status (see below), so a dismissed run links to
+  // the tab matching what it became, not what the stale list still claims.
   const runHref = useCallback(
     (run: ResearchRun): string => {
       const base = `/app/projects/${projectId}/chat?job=${run.job_id}`
-      return run.status === 'failed' ? `${base}&tab=thinking` : base
+      return effectiveRunStatus(run) === 'failed' ? `${base}&tab=thinking` : base
     },
-    [projectId]
+    [projectId, effectiveRunStatus]
   )
 
   // The search covers runs as well as chats: one query over the whole past.
@@ -424,21 +452,12 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     scopeFilter !== 'chats' &&
     (researchScopeSelected || isResearchLoading || deepResearchError || filteredRuns.length > 0)
 
-  // Stop one stuck run from the Deep Research section. Afterwards the server
-  // list is re-read so a cancelled run reads cancelled instead of running.
-  const handleStopRun = useCallback(
-    async (run: ResearchRun) => {
-      const key = `run:${run.job_id}`
-      setDismissing(key, true)
-      try {
-        await dismissDeepResearchJob(run.conversation_id, run.job_id)
-        fetchDeepResearchRuns()
-      } finally {
-        setDismissing(key, false)
-      }
-    },
-    [dismissDeepResearchJob, setDismissing, fetchDeepResearchRuns]
-  )
+  // Stop one stuck run from the Deep Research section. Arms the confirm
+  // dialog; on confirm the server list is re-read so a cancelled run reads
+  // cancelled instead of running.
+  const handleStopRun = useCallback((run: ResearchRun) => {
+    setPendingStop({ sessionId: run.conversation_id, jobId: run.job_id, refetchRuns: true })
+  }, [])
 
   // Purge every stuck run of the current user: cancel best-effort, mark each
   // thread terminal, unblock every row it held. Reports how many runs it
@@ -685,7 +704,12 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                 )
               ) : (
                 <ItemList as="ul" className="bg-card shadow-xs">
-                  {filteredRuns.map((run) => (
+                  {filteredRuns.map((run) => {
+                    // Resolved once per row: every element below reads the same
+                    // status, so a dismissed run cannot show a terminal badge
+                    // beside a running spinner.
+                    const status = effectiveRunStatus(run)
+                    return (
                     <Item key={run.job_id} as="li" className="relative items-start py-3.5">
                       {/* The media disc mirrors the inbox anatomy; a failed run
                           is the one tinted case, and its Badge below says the
@@ -694,12 +718,12 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                         aria-hidden
                         className={cn(
                           'mt-0.5 rounded-full border',
-                          run.status === 'failed'
+                          status === 'failed'
                             ? 'border-transparent bg-destructive/10 text-destructive'
                             : 'border-border bg-card text-muted-foreground'
                         )}
                       >
-                        <RunStatusIcon status={run.status} />
+                        <RunStatusIcon status={status} />
                       </ItemMedia>
                       <ItemContent>
                         <div className="flex min-w-0 items-start justify-between gap-2">
@@ -711,7 +735,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                             onClick={handleClose}
                             aria-label={t('sessionsPanel.deepResearchRunLabel', {
                               label: runLabel(run),
-                              status: t(runStatusKey(run.status)),
+                              status: t(runStatusKey(status)),
                             })}
                             className="min-w-0 flex-1 rounded-sm text-sm font-medium leading-snug outline-none after:absolute after:inset-0 after:content-[''] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
                           >
@@ -730,20 +754,19 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                         {/* The state in WORDS, on its own line — a failed run
                             and a finished one used to differ only by icon. */}
                         <div className="mt-1.5 flex items-center gap-1">
-                          <Badge variant={runBadgeVariant(run.status)}>
-                            {t(runStatusKey(run.status))}
+                          <Badge variant={runBadgeVariant(status)}>
+                            {t(runStatusKey(status))}
                           </Badge>
                           {/* A run that will never finish cannot be waited out:
                               stop it here. The stretched link covers the whole
                               row, so the button sits above it (`relative z-10`)
                               the way the chat rows' overlay actions do. */}
-                          {isRunActive(run.status) && (
+                          {isRunActive(status) && (
                             <Button
                               variant="ghost"
                               size="icon"
                               className="relative z-10 size-7"
-                              onClick={() => void handleStopRun(run)}
-                              disabled={dismissingKeys.has(`run:${run.job_id}`)}
+                              onClick={() => handleStopRun(run)}
                               aria-label={t('sessionsPanel.stopResearch')}
                               title={t('sessionsPanel.stopResearchTitle')}
                             >
@@ -753,7 +776,8 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                         </div>
                       </ItemContent>
                     </Item>
-                  ))}
+                    )
+                  })}
                 </ItemList>
               )}
             </section>
@@ -794,14 +818,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                         onRename={onRenameSession}
                         activeResearchJobId={session.activeDeepResearchJobId ?? null}
                         onStopResearch={(sessionId, jobId) =>
-                          void handleStopSessionResearch(sessionId, jobId)
-                        }
-                        isStopPending={
-                          session.activeDeepResearchJobId
-                            ? dismissingKeys.has(
-                                `session:${session.id}:${session.activeDeepResearchJobId}`
-                              )
-                            : false
+                          handleStopSessionResearch(sessionId, jobId)
                         }
                       />
                     ))}
@@ -855,7 +872,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
               variant="ghost"
               size="sm"
               className="-ml-2 h-8 w-fit justify-start px-2"
-              onClick={() => void handlePurgeStuckResearch()}
+              onClick={() => setPurgeConfirmOpen(true)}
               disabled={isPurgingStuck}
               aria-label={t('sessionsPanel.purgeStuckRuns')}
               title={t('sessionsPanel.purgeStuckRuns')}
@@ -902,6 +919,23 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
         onConfirm={handleConfirmDeleteAll}
         count={sessions.length}
       />
+
+      {/* Stopping cancels server-side work that cannot be resumed — the single
+          stop and the bulk purge both confirm through the shared ConfirmDialog
+          rather than firing off their icons. */}
+      <StopResearchConfirmationModal
+        open={pendingStop !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingStop(null)
+        }}
+        onConfirm={() => handleConfirmStop()}
+      />
+
+      <PurgeStuckResearchConfirmationModal
+        open={purgeConfirmOpen}
+        onOpenChange={setPurgeConfirmOpen}
+        onConfirm={() => handlePurgeStuckResearch()}
+      />
     </PageSheet>
   )
 })
@@ -940,10 +974,11 @@ interface SessionItemProps {
    * row with two disabled buttons and no way out.
    */
   activeResearchJobId?: string | null
-  /** Stop the session's stuck research run (see `onStopResearch` above). */
+  /**
+   * Request stopping the session's stuck research run. Only arms the shared
+   * stop confirm — the parent fires the dismiss once confirmed.
+   */
   onStopResearch?: (sessionId: string, jobId: string) => void
-  /** A stop for this row is in flight — the button stays disabled meanwhile. */
-  isStopPending?: boolean
 }
 
 const SessionItem = forwardRef<HTMLLIElement, SessionItemProps>(function SessionItem(
@@ -959,7 +994,6 @@ const SessionItem = forwardRef<HTMLLIElement, SessionItemProps>(function Session
     onRename,
     activeResearchJobId,
     onStopResearch,
-    isStopPending = false,
   },
   ref
 ) {
@@ -1203,7 +1237,6 @@ const SessionItem = forwardRef<HTMLLIElement, SessionItemProps>(function Session
                 size="icon"
                 className="size-7"
                 onClick={handleStopClick}
-                disabled={isStopPending}
                 aria-label={t('sessionsPanel.stopResearch')}
                 title={t('sessionsPanel.stopResearchTitle')}
               >

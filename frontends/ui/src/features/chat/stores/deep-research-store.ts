@@ -21,8 +21,11 @@ import {
   saveDeepResearchToSession,
   clearDeepResearchSession,
 } from '../lib/deep-research-session-storage'
-import { isUnavailableDeepResearchJobError } from '../lib/deep-research-errors'
-import { getLatestDeepResearchMessage } from '../lib/session-activity'
+import {
+  isUnavailableDeepResearchJobError,
+  readTerminalVerdictFromCancelError,
+} from '../lib/deep-research-errors'
+import { getLatestDeepResearchMessage, hasActiveDeepResearchJob, isTerminalDeepResearchJobStatus } from '../lib/session-activity'
 import { patchConversationMessageById } from './sessions-store'
 import { validateGridCards, type GridCard } from '@/shared/cards/schemas'
 
@@ -53,6 +56,14 @@ export type DeepResearchSlice = {
   deepResearchConnectionLost: boolean
   /** Reconnect handler registered by useDeepResearch so panel components can recover. */
   reconnectDeepResearchFn: (() => void) | null
+  /**
+   * Jobs this browser has terminally settled itself, jobId → terminal status.
+   * See `ChatState.resolvedDeepResearchJobs`: without this record a stale
+   * backend status would flip every dismissed thread back to active on the
+   * next refresh. Part of the persisted store (see `partialize`), bounded on
+   * write.
+   */
+  resolvedDeepResearchJobs: Record<string, DeepResearchJobStatus>
   planMessages: PlanMessage[]
   pendingInteraction: PendingInteraction | null
   respondToInteractionFn: ((response: string) => void) | null
@@ -211,6 +222,28 @@ const patchLatestDeepResearchJobMessage = (
   return { ...conversation, messages }
 }
 
+/** Terminal banner for a terminal verdict. `interrupted` reads as user-stopped. */
+const bannerTypeForVerdict = (verdict: DeepResearchJobStatus): DeepResearchBannerType =>
+  verdict === 'success' ? 'success' : verdict === 'failure' ? 'failure' : 'cancelled'
+
+/** The resolved-jobs record, bounded so it cannot grow with every dismissed run. */
+const MAX_RESOLVED_JOBS = 200
+
+const withResolvedDeepResearchJob = (
+  resolved: Record<string, DeepResearchJobStatus>,
+  jobId: string,
+  status: DeepResearchJobStatus
+): Record<string, DeepResearchJobStatus> => {
+  const next = { ...resolved, [jobId]: status }
+  const keys = Object.keys(next)
+  if (keys.length <= MAX_RESOLVED_JOBS) return next
+  const trimmed: Record<string, DeepResearchJobStatus> = {}
+  for (const key of keys.slice(keys.length - MAX_RESOLVED_JOBS)) {
+    trimmed[key] = next[key]
+  }
+  return trimmed
+}
+
 const withDeepResearchBanner = (
   conversation: ChatStore['conversations'][number],
   bannerType: DeepResearchBannerType,
@@ -273,6 +306,7 @@ export const initialDeepResearchState = {
   isDeepResearchStalled: false,
   deepResearchConnectionLost: false,
   reconnectDeepResearchFn: null as (() => void) | null,
+  resolvedDeepResearchJobs: {} as Record<string, DeepResearchJobStatus>,
   planMessages: [] as PlanMessage[],
   pendingInteraction: null as PendingInteraction | null,
   respondToInteractionFn: null as ((response: string) => void) | null,
@@ -298,7 +332,125 @@ const clearedRunArtifacts = (): Partial<ChatStore> => ({
   deepResearchConnectionLost: false,
 })
 
-export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], DeepResearchSlice> = (set, get) => ({
+export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], DeepResearchSlice> = (set, get) => {
+  /**
+   * Write one terminal verdict into one thread: the tracking message (or, for
+   * banner-only runs, every message still carrying the stuck flags) plus a
+   * guarded terminal banner that replaces the starting one. The one writer
+   * for "this run is over" used by dismiss, refresh, reconnect and banner
+   * cleanup alike, so a crashed run cannot end up half-settled with a spinner
+   * in one place and a terminal badge in another.
+   */
+  const settleDeepResearchThread = (
+    conversationId: string,
+    jobId: string,
+    verdict: DeepResearchJobStatus
+  ): void => {
+    const conversation = get().conversations.find((c) => c.id === conversationId)
+    if (!conversation) return
+
+    const trackingMessage = [...conversation.messages]
+      .reverse()
+      .find((m) => m.messageType === 'agent_response' && m.deepResearchJobId === jobId)
+
+    if (trackingMessage) {
+      get().patchConversationMessage(conversationId, trackingMessage.id, {
+        deepResearchJobStatus: verdict,
+        isDeepResearchActive: false,
+        showViewReport: verdict === 'success' || Boolean(trackingMessage.reportContent?.trim()),
+      })
+    } else {
+      // Banner-only run: no tracking agent_response ever materialized, so the
+      // starting banner itself carries the stuck flags — clear them so the
+      // thread stops spinning even before the banner is replaced below.
+      for (const message of conversation.messages) {
+        const carriesJob =
+          message.deepResearchJobId === jobId || message.deepResearchBannerData?.jobId === jobId
+        const looksStuck =
+          message.isDeepResearchActive ||
+          message.deepResearchJobStatus === 'submitted' ||
+          message.deepResearchJobStatus === 'running'
+        if (carriesJob && looksStuck) {
+          get().patchConversationMessage(conversationId, message.id, {
+            deepResearchJobStatus: verdict,
+            isDeepResearchActive: false,
+          })
+        }
+      }
+    }
+
+    // A terminal banner replaces the starting one (the banner helper drops
+    // every banner carrying this jobId). Guarded: settling twice patches the
+    // same values, never a second banner.
+    const latestConversation = get().conversations.find((c) => c.id === conversationId)
+    const hasTerminalBanner = latestConversation?.messages.some(
+      (m) =>
+        m.messageType === 'deep_research_banner' &&
+        m.deepResearchBannerData?.jobId === jobId &&
+        m.deepResearchBannerData.bannerType !== 'starting'
+    )
+    if (!hasTerminalBanner) {
+      get().addDeepResearchBanner(bannerTypeForVerdict(verdict), jobId, conversationId)
+    }
+  }
+
+  /**
+   * Stand the live panel state down when it no longer corresponds to any live
+   * run: the dismissed job was the live one, or the owning thread settled
+   * while the streaming flag stayed up (a crash between the last event and
+   * the terminal frame leaves exactly this orphan, and every row it owns
+   * spins forever because `isSessionBusy` trusts the flag). An attached run
+   * (no owning conversation) is only stood down when it was dismissed itself —
+   * its health cannot be read off any thread.
+   */
+  const standDownOrphanedLiveDeepResearch = (dismissedJobIds: Set<string>): void => {
+    const state = get()
+    const liveJobId = state.deepResearchJobId
+    if (!liveJobId) return
+
+    if (!dismissedJobIds.has(liveJobId)) {
+      const ownerId = state.deepResearchOwnerConversationId
+      // An attached run (no owning conversation) cannot be read off any
+      // thread, so only an explicit dismiss stands it down.
+      if (!ownerId) return
+      const owner = get().conversations.find((c) => c.id === ownerId)
+      // A live run whose owning thread is still active is healthy — keep it.
+      // Anything else (settled thread, deleted conversation) is an orphan.
+      if (owner && hasActiveDeepResearchJob(owner.messages)) return
+    }
+
+    // Same teardown as a user-cancelled stream (see use-deep-research).
+    state.stopAllDeepResearchSpinners()
+    set(
+      {
+        deepResearchJobId: null,
+        deepResearchLastEventId: null,
+        isDeepResearchStreaming: false,
+        deepResearchStartedAt: null,
+        deepResearchStatus: null,
+        deepResearchOwnerConversationId: null,
+        activeDeepResearchMessageId: null,
+        deepResearchCitations: [],
+        deepResearchTodos: [],
+        deepResearchLLMSteps: [],
+        deepResearchAgents: [],
+        deepResearchToolCalls: [],
+        deepResearchFiles: [],
+        deepResearchCards: [],
+        deepResearchStreamLoaded: true,
+        isDeepResearchStalled: false,
+        deepResearchConnectionLost: false,
+        reportContent: '',
+        reportContentCategory: null,
+        currentStatus: null,
+        pendingInteraction: null,
+      },
+      false,
+      'standDownOrphanedLiveDeepResearch'
+    )
+  }
+
+  return {
   ...initialDeepResearchState,
 
   startDeepResearch: (jobId: string, messageId?: string) => {
@@ -720,6 +872,16 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
     const jobId = activeJobMessage.deepResearchJobId
     const messageId = activeJobMessage.id
 
+    // Settled locally (dismissed): reconnecting the SSE stream would resurrect
+    // a run the user stopped — and against a stale backend status it would
+    // succeed. Re-assert the recorded verdict instead of polling.
+    const resolved = get().resolvedDeepResearchJobs[jobId]
+    if (isTerminalDeepResearchJobStatus(resolved)) {
+      clearDeepResearchSession(jobId)
+      settleDeepResearchThread(conversationId, jobId, resolved)
+      return
+    }
+
     try {
       const { getJobStatus } = await import('@/adapters/api/deep-research-client')
 
@@ -887,6 +1049,14 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
         const { getJobStatus } = await import('@/adapters/api/deep-research-client')
         for (const { jobId } of needsCheck) {
           if (get().currentConversation?.id !== conversationId) return
+          // Settled locally: finalize from the record instead of polling a
+          // status endpoint that already proved stale for this job.
+          const resolved = get().resolvedDeepResearchJobs[jobId]
+          if (isTerminalDeepResearchJobStatus(resolved)) {
+            clearDeepResearchSession(jobId)
+            settleDeepResearchThread(conversationId, jobId, resolved)
+            continue
+          }
           try {
             const statusResponse = await getJobStatus(jobId)
             const terminalStatuses = ['success', 'failure', 'interrupted']
@@ -942,10 +1112,15 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
       | { kind: 'transient_error' }
 
     const checkedJobs = new Map<string, JobRefreshResult>()
+    // Snapshot for the poll loop: a job settled while the polls are in flight
+    // is still reconciled from the record below (which re-reads fresh state),
+    // but nothing already settled pays for a poll that could only resurrect it.
+    const resolvedAtPoll = get().resolvedDeepResearchJobs
 
     for (const { message } of candidates) {
       const jobId = message.deepResearchJobId
       if (!jobId) continue
+      if (isTerminalDeepResearchJobStatus(resolvedAtPoll[jobId])) continue
       let result = checkedJobs.get(jobId)
 
       if (!result) {
@@ -965,12 +1140,22 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
       }
     }
 
-    if ([...checkedJobs.values()].every((result) => result.kind === 'transient_error')) {
+    const polledValues = [...checkedJobs.values()]
+    if (polledValues.length > 0 && polledValues.every((result) => result.kind === 'transient_error')) {
       return
     }
 
     const latestState = get()
     const inactiveJobIds = new Set<string>()
+    // Jobs this browser settled itself (dismissed). The backend can keep
+    // serving a stale `running` for them — and did, which is why they were
+    // dismissed — so they are reconciled from the local record, never
+    // re-polled, and above all never flipped back to active below.
+    const resolvedJobs = latestState.resolvedDeepResearchJobs
+    const resolvedTerminal = (jobId: string): DeepResearchJobStatus | null => {
+      const status = resolvedJobs[jobId]
+      return status && isTerminalDeepResearchJobStatus(status) ? status : null
+    }
 
     const updatedConversations = latestState.conversations.map((conversation) => {
       if (conversation.userId !== currentUserId) return conversation
@@ -978,6 +1163,13 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
       const message = getLatestDeepResearchMessage(conversation.messages)
       const jobId = message?.deepResearchJobId
       if (!message || !jobId) return conversation
+
+      // Settled locally: left untouched here and reconciled from the record in
+      // the settle pass below — the poll above deliberately never ran for it.
+      if (resolvedTerminal(jobId)) {
+        inactiveJobIds.add(jobId)
+        return conversation
+      }
 
       const result = checkedJobs.get(jobId)
       if (!result || result.kind === 'transient_error') return conversation
@@ -1060,106 +1252,62 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
       false,
       'refreshDeepResearchSessionStatuses'
     )
+
+    // Settle pass for locally-resolved jobs, on top of the snapshot write
+    // above (which deliberately left them alone): re-assert the recorded
+    // verdict thread by thread, so a stale poll result — or a thread the poll
+    // never covered — cannot leave a dismissed run spinning. Reads the record
+    // fresh: a dismiss may have settled a job while the polls were in flight.
+    for (const { conversation, message } of candidates) {
+      const jobId = message.deepResearchJobId
+      if (!jobId) continue
+      const recorded = get().resolvedDeepResearchJobs[jobId]
+      if (!isTerminalDeepResearchJobStatus(recorded)) continue
+      clearDeepResearchSession(jobId)
+      settleDeepResearchThread(conversation.id, jobId, recorded)
+    }
   },
 
   dismissDeepResearchJob: async (conversationId: string | null, jobId: string) => {
     // Best-effort first: an abandoned run's backend job is often already gone
-    // (404 on cancel) — that IS the case being purged, so a failed cancel
-    // never blocks the local cleanup below.
+    // — and a cancel against an already-terminal job fails 400 carrying the
+    // backend's own verdict ("Job not cancellable: <id> (status: <verdict>)").
+    // That verdict is fresher than whatever the status/list endpoints serve
+    // for the same crashed run, so a dismiss that learns it reconciles to it
+    // instead of merely marking the thread stopped and hoping the next poll
+    // agrees. A failed cancel never blocks the local cleanup below.
+    let verdict: DeepResearchJobStatus = 'interrupted'
     try {
       const { cancelJob } = await import('@/adapters/api/deep-research-client')
       await cancelJob(jobId)
     } catch (error) {
+      const terminal = readTerminalVerdictFromCancelError(error)
+      if (terminal) verdict = terminal
       console.warn('[dismissDeepResearchJob] Backend cancel failed; dismissing locally:', jobId, error)
     }
 
     clearDeepResearchSession(jobId)
+    // The verdict outlives the reload: the status/list endpoints can serve a
+    // stale `running` for a crashed run indefinitely, and without this record
+    // the next refresh would flip the dismissed thread straight back to
+    // active — the purge looking like it did nothing.
+    set(
+      (state) => ({
+        resolvedDeepResearchJobs: withResolvedDeepResearchJob(
+          state.resolvedDeepResearchJobs,
+          jobId,
+          verdict
+        ),
+      }),
+      false,
+      'dismissDeepResearchJob:recordResolved'
+    )
 
     if (conversationId) {
-      const conversation = get().conversations.find((c) => c.id === conversationId)
-      if (conversation) {
-        const trackingMessage = [...conversation.messages]
-          .reverse()
-          .find((m) => m.messageType === 'agent_response' && m.deepResearchJobId === jobId)
-
-        if (trackingMessage) {
-          get().patchConversationMessage(conversationId, trackingMessage.id, {
-            deepResearchJobStatus: 'interrupted',
-            isDeepResearchActive: false,
-            showViewReport: Boolean(trackingMessage.reportContent?.trim()),
-          })
-        } else {
-          // Banner-only run: no tracking agent_response ever materialized, so
-          // the starting banner itself carries the stuck flags — clear them so
-          // the thread stops spinning even before the banner is replaced below.
-          for (const message of conversation.messages) {
-            const carriesJob =
-              message.deepResearchJobId === jobId ||
-              message.deepResearchBannerData?.jobId === jobId
-            const looksStuck =
-              message.isDeepResearchActive ||
-              message.deepResearchJobStatus === 'submitted' ||
-              message.deepResearchJobStatus === 'running'
-            if (carriesJob && looksStuck) {
-              get().patchConversationMessage(conversationId, message.id, {
-                deepResearchJobStatus: 'interrupted',
-                isDeepResearchActive: false,
-              })
-            }
-          }
-        }
-
-        // A terminal banner replaces the starting one (the banner helper drops
-        // every banner carrying this jobId), so the thread keeps an honest
-        // record instead of a spinner that will never resolve. Guarded: a
-        // second dismiss of the same run patches the same values, never a
-        // second banner.
-        const latestConversation = get().conversations.find((c) => c.id === conversationId)
-        const hasTerminalBanner = latestConversation?.messages.some(
-          (m) =>
-            m.messageType === 'deep_research_banner' &&
-            m.deepResearchBannerData?.jobId === jobId &&
-            m.deepResearchBannerData.bannerType !== 'starting'
-        )
-        if (!hasTerminalBanner) {
-          get().addDeepResearchBanner('cancelled', jobId, conversationId)
-        }
-      }
+      settleDeepResearchThread(conversationId, jobId, verdict)
     }
 
-    // If the dismissed run is the live one, stand the panel down the same way
-    // a user-cancelled stream does (see use-deep-research's cancel fallback).
-    const state = get()
-    if (state.deepResearchJobId === jobId) {
-      state.stopAllDeepResearchSpinners()
-      set(
-        {
-          deepResearchJobId: null,
-          deepResearchLastEventId: null,
-          isDeepResearchStreaming: false,
-          deepResearchStartedAt: null,
-          deepResearchStatus: null,
-          deepResearchOwnerConversationId: null,
-          activeDeepResearchMessageId: null,
-          deepResearchCitations: [],
-          deepResearchTodos: [],
-          deepResearchLLMSteps: [],
-          deepResearchAgents: [],
-          deepResearchToolCalls: [],
-          deepResearchFiles: [],
-          deepResearchCards: [],
-          deepResearchStreamLoaded: true,
-          isDeepResearchStalled: false,
-          deepResearchConnectionLost: false,
-          reportContent: '',
-          reportContentCategory: null,
-          currentStatus: null,
-          pendingInteraction: null,
-        },
-        false,
-        'dismissDeepResearchJob:clearLive'
-      )
-    }
+    standDownOrphanedLiveDeepResearch(new Set([jobId]))
   },
 
   purgeAbandonedDeepResearchJobs: async () => {
@@ -1209,6 +1357,11 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
     for (const { conversationId, jobId } of stuck) {
       await get().dismissDeepResearchJob(conversationId, jobId)
     }
+    // Once more over the whole set (and the empty set): every dismiss above
+    // already stood down what it orphaned, but a live flag can also outlive
+    // threads that were settled earlier — by a previous purge, a refresh, or
+    // a crash between the last event and the terminal frame.
+    standDownOrphanedLiveDeepResearch(new Set(stuck.map((s) => s.jobId)))
     return stuck.length
   },
 
@@ -1487,4 +1640,5 @@ export const createDeepResearchSlice: StateCreator<ChatStore, [["zustand/devtool
   setRespondToInteractionFn: (fn) => {
     set({ respondToInteractionFn: fn }, false, 'setRespondToInteractionFn')
   },
-})
+  }
+}

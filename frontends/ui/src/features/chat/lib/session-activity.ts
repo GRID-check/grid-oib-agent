@@ -16,6 +16,25 @@ import type { ChatMessage, DeepResearchJobStatus } from '../types'
 /** Non-terminal deep research statuses that indicate an active server-side job */
 const ACTIVE_JOB_STATUSES: readonly DeepResearchJobStatus[] = ['submitted', 'running']
 
+/** Terminal deep research statuses: the run is over whatever the backend later claims. */
+const TERMINAL_JOB_STATUSES: readonly DeepResearchJobStatus[] = [
+  'success',
+  'failure',
+  'interrupted',
+]
+
+/**
+ * True for a settled run. The counterpart to the active check below: a job the
+ * backend once called terminal stays terminal even when a stale status poll
+ * later reports it `running` again (crashed runs do exactly this).
+ */
+export const isTerminalDeepResearchJobStatus = (
+  status: DeepResearchJobStatus | null | undefined
+): status is 'success' | 'failure' | 'interrupted' =>
+  status !== null &&
+  status !== undefined &&
+  (TERMINAL_JOB_STATUSES as readonly string[]).includes(status)
+
 /**
  * True when the user has never sent a typed chat message in this session.
  * Non-user message types (status, agent_response, etc.) do not count.
