@@ -1310,6 +1310,21 @@ export interface ChatActions {
    */
   refreshDeepResearchSessionStatuses: () => Promise<void>
   /**
+   * Dismiss one stuck deep-research run: cancel the backend job best-effort
+   * (a 404 means it is already gone — the case being purged) and always mark
+   * the thread terminal locally, so an abandoned run stops spinning and its
+   * row becomes actionable again. `conversationId` may be null for headless
+   * runs with no thread to write into. Idempotent — never appends a second
+   * terminal banner.
+   */
+  dismissDeepResearchJob: (conversationId: string | null, jobId: string) => Promise<void>
+  /**
+   * Dismiss every stuck deep-research run of the current user, across all
+   * projects (a stuck run anywhere blocks delete-all everywhere).
+   * @returns how many runs were dismissed.
+   */
+  purgeAbandonedDeepResearchJobs: () => Promise<number>
+  /**
    * Add a citation from deep research (isCited=true for citation_use, false for
    * citation_source). Takes the backend citation wire whole and normalizes it
    * with `citationFromWire` — the same single normalizer the shallow-chat path

@@ -343,6 +343,14 @@ export const research = {
     deleteAll: 'Delete all chats in this project',
     cannotDeleteBusy: 'Cannot delete while operations are in progress',
     deleteAllButton: 'Delete all chats',
+    /** Stop action for a stuck deep-research run (chat row, run row). */
+    stopResearch: 'Stop research',
+    stopResearchTitle: 'Stop this stuck research run',
+    /** Bulk purge in the history footer: stops every abandoned run of the user. */
+    purgeStuckRunsButton: 'Stop stuck research',
+    purgeStuckRuns: 'Stop all stuck research runs',
+    purgeDone: '{count, plural, one {Stopped # stuck research run} other {Stopped # stuck research runs}}',
+    purgeIdle: 'No stuck research runs found',
     newSessionDisabled: 'Start a new chat (disabled during active operations)',
     startNewSession: 'Start a new chat',
     cannotCreateActive: 'Cannot start a new chat while this one is still answering',
