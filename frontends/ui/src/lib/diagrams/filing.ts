@@ -83,7 +83,7 @@ import {
   type FiledGeneratedDocument,
 } from '@/lib/documents/generated'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { acceptDiagram, type DiagramSubmission } from './svg'
+import { acceptDiagram, censusSvg, type DiagramSubmission } from './svg'
 import { renderDiagramPdf } from './svg-to-pdf'
 
 export interface FileDiagramInput extends DiagramSubmission {
@@ -226,6 +226,12 @@ export async function fileDiagramDocuments(input: FileDiagramInput): Promise<Fil
       answerRef: input.answerRef,
       svgDocumentId: svg.documentId,
       cause: error instanceof Error ? `${error.name}: ${error.message}` : 'unknown',
+      // The drawing's shape, not its content: the one PDF crash so far (#589,
+      // React minified #31) named no construct, and a bare cause repeats that
+      // opacity on the next one.
+      svgBytes: accepted.svg.length,
+      viewport: { ...accepted.viewport },
+      census: censusSvg(accepted.root),
     })
     return { svg, pdf: null }
   }

@@ -21,6 +21,7 @@
 
 import 'server-only'
 import React from 'react'
+import { createHash } from 'node:crypto'
 import { renderToStream } from '@react-pdf/renderer'
 import type { AiProvenanceMarking } from '@/lib/ai-provenance'
 import { ReportPDF } from './ReactPdfDocument'
@@ -252,6 +253,72 @@ export interface MarkdownPdfOptions {
 
 
 /**
+ * A content-free signature of a PDF render input, for the failure log.
+ *
+ * Three render crashes (err2issue #611/#580, React minified #31) arrived with
+ * the input's SHAPE as the only suspect and no way to recover it: the payload
+ * is tenant content and is never logged, so every occurrence was equally
+ * opaque. This census is what the next one needs — the size, a hash to match
+ * repeats of the same document, and the construct counts the renderer is
+ * sensitive to (fences, tables, headings, card types) — and nothing anybody
+ * wrote.
+ */
+export interface MarkdownPdfInputFingerprint {
+  chars: number
+  cost: number
+  sha256: string
+  mermaidFences: number
+  tableRows: number
+  headings: number
+  cardTypes: string[]
+}
+
+/**
+ * Count what the layout pass is sensitive to, off the raw markdown the same
+ * way {@link markdownRenderCost} does: a fence opener names one drawing, a
+ * pipe-led line names one table row.
+ */
+export function fingerprintMarkdownPdfInput(
+  markdown: string,
+  cards: unknown,
+  cost: number = markdownRenderCost(markdown)
+): MarkdownPdfInputFingerprint {
+  let mermaidFences = 0
+  let tableRows = 0
+  let headings = 0
+  for (const line of markdown.split('\n')) {
+    const trimmed = line.trimStart()
+    if (trimmed.startsWith('```mermaid')) mermaidFences += 1
+    else if (trimmed.startsWith('|')) tableRows += 1
+    else if (trimmed.startsWith('#')) headings += 1
+  }
+  const cardTypes: string[] = []
+  if (Array.isArray(cards)) {
+    for (const card of cards) {
+      if (
+        typeof card === 'object' &&
+        card !== null &&
+        'type' in card &&
+        typeof card.type === 'string' &&
+        !cardTypes.includes(card.type) &&
+        cardTypes.length < 20
+      ) {
+        cardTypes.push(card.type)
+      }
+    }
+  }
+  return {
+    chars: markdown.length,
+    cost,
+    sha256: createHash('sha256').update(markdown, 'utf8').digest('hex'),
+    mermaidFences,
+    tableRows,
+    headings,
+    cardTypes,
+  }
+}
+
+/**
  * What `renderToStream` will accept.
  *
  * Named off the function's own signature rather than written out, because the
@@ -304,7 +371,14 @@ export async function renderMarkdownPdf(
     },
   })
 
-  const stream = await renderToStream(element as unknown as PdfDocumentElement)
+  const stream = await renderToStream(element as unknown as PdfDocumentElement).catch((error) => {
+    // Rethrown: the callers own the response (a 500 for the route, a skipped
+    // filing for a commissioned report). What they cannot supply is the
+    // input's shape, and without it the next minified React #31 is as opaque
+    // as #611/#580 were — same message, no content, no census.
+    console.error('[pdf] markdown render failed', fingerprintMarkdownPdfInput(markdown, options.cards, cost))
+    throw error
+  })
   const chunks: Buffer[] = []
   for await (const chunk of stream) chunks.push(Buffer.from(chunk as Uint8Array))
   return new Uint8Array(Buffer.concat(chunks))
