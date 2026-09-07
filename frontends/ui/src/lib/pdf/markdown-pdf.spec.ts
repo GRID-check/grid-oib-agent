@@ -24,6 +24,7 @@ import { answerExport as en } from '@/i18n/dictionaries/en/answer-export'
 import {
   MAX_MARKDOWN_PDF_CHARS,
   TABLE_CELL_COST_CHARS,
+  fingerprintMarkdownPdfInput,
   markdownRenderCost,
   MarkdownTooLongError,
   PDF_MEDIA_TYPE,
@@ -306,6 +307,65 @@ describe('renderMarkdownPdf', () => {
       await expect(renderMarkdownPdf(markdown, BASE)).rejects.toThrow(MarkdownTooLongError)
 
       expect(Date.now() - started).toBeLessThan(1000)
+    })
+  })
+
+  /**
+   * The failure census (err2issue #611/#580). A render crash carries no input
+   * — the payload is tenant content — so the log gets lengths, a hash to match
+   * repeats of one document, and the construct counts the renderer is
+   * sensitive to. Pure and synchronous, so these assert the census directly
+   * rather than by crashing a render.
+   */
+  describe('fingerprintMarkdownPdfInput', () => {
+    const markdown = [
+      '# Fluchtwege',
+      '',
+      'Die Breite betraegt 1,20 m.',
+      '',
+      '| Bauteil | Nachweis |',
+      '|---|---|',
+      '| Trennwand | Pruefzeugnis |',
+      '',
+      '```mermaid',
+      'flowchart TD',
+      '```',
+      '',
+      '## Bewertung',
+      '',
+    ].join('\n')
+
+    it('counts the constructs the layout pass is sensitive to', () => {
+      const fingerprint = fingerprintMarkdownPdfInput(
+        markdown,
+        [{ type: 'summary' }, { type: 'verdict_header' }, { type: 'summary' }],
+        1234
+      )
+
+      expect(fingerprint).toMatchObject({
+        chars: markdown.length,
+        cost: 1234,
+        mermaidFences: 1,
+        tableRows: 3,
+        headings: 2,
+        cardTypes: ['summary', 'verdict_header'],
+      })
+      expect(fingerprint.sha256).toMatch(/^[0-9a-f]{64}$/)
+    })
+
+    it('hashes equal documents equally and unequal ones differently', () => {
+      expect(fingerprintMarkdownPdfInput(markdown, []).sha256).toBe(
+        fingerprintMarkdownPdfInput(markdown, []).sha256
+      )
+      expect(fingerprintMarkdownPdfInput(markdown, []).sha256).not.toBe(
+        fingerprintMarkdownPdfInput(`${markdown}x`, []).sha256
+      )
+    })
+
+    it('tolerates cards it has never seen', () => {
+      expect(fingerprintMarkdownPdfInput('text', [null, 'x', {}, { type: 7 }]).cardTypes).toEqual(
+        []
+      )
     })
   })
 })
