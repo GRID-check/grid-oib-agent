@@ -33,8 +33,10 @@ const PRICING = { marginMultiplier: 2.5, usdPerCredit: 0.1, explicit: true }
 /** Cost in USD as charged, priced at the fixture's price list (ADR-0053). */
 const window = (costUsd: number, events: number) => ({
   costUsd,
+  ownKeyCostUsd: 0,
   priceUsd: costUsd * PRICING.marginMultiplier,
   credits: (costUsd * PRICING.marginMultiplier) / PRICING.usdPerCredit,
+  tokens: Math.round(costUsd * 250_000),
   events,
 })
 
@@ -48,7 +50,17 @@ const ORGANIZATIONS = NAMES.map((name, index) => ({
   projectCount: (index * 3) % 11,
   day: window(Math.max(0, 18 - index * 1.4), Math.max(0, 400 - index * 30)),
   month: window(Math.max(0, 420 - index * 33), Math.max(0, 9400 - index * 700)),
-}))
+})).map((org, index) =>
+  // The fourth organization runs on its own key: its cost is its own bill, so
+  // the overview badges it and leaves it out of the platform's cost.
+  index === 3
+    ? {
+        ...org,
+        day: { ...org.day, ownKeyCostUsd: org.day.costUsd, priceUsd: 0, credits: 0 },
+        month: { ...org.month, ownKeyCostUsd: org.month.costUsd, priceUsd: 0, credits: 0 },
+      }
+    : org,
+)
 
 const DAILY_TREND = Array.from({ length: 30 }, (_, index) => {
   const day = new Date(Date.UTC(2026, 6, 1 + index))
@@ -62,11 +74,13 @@ const sumWindows = (key: 'day' | 'month') =>
   ORGANIZATIONS.reduce(
     (total, org) => ({
       costUsd: total.costUsd + org[key].costUsd,
+      ownKeyCostUsd: total.ownKeyCostUsd + org[key].ownKeyCostUsd,
       priceUsd: total.priceUsd + org[key].priceUsd,
       credits: total.credits + org[key].credits,
+      tokens: total.tokens + org[key].tokens,
       events: total.events + org[key].events,
     }),
-    { costUsd: 0, priceUsd: 0, credits: 0, events: 0 },
+    { costUsd: 0, ownKeyCostUsd: 0, priceUsd: 0, credits: 0, tokens: 0, events: 0 },
   )
 
 const OVERVIEW = {

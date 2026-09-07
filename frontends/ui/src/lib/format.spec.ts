@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { describe, test, expect } from 'vitest'
-import { formatBytes, formatCredits, formatDurationShort, formatEur, formatTransferRate } from './format'
+import { formatBytes, formatCredits, formatDurationShort, formatEur, formatTokens, formatTransferRate } from './format'
 
 describe('formatEur', () => {
   test('formats German amounts with comma decimal and trailing symbol', () => {
@@ -36,6 +36,14 @@ describe('formatCredits', () => {
 
   test('non-finite input renders as zero', () => {
     expect(formatCredits(Number.NaN, 'en-US')).toBe('0')
+  })
+})
+
+describe('formatTokens', () => {
+  test('exact below a thousand, compact above', () => {
+    expect(formatTokens(812, 'en-US')).toBe('812')
+    expect(formatTokens(1_234_567, 'en-US')).toBe('1.2M')
+    expect(formatTokens(48_200, 'de')).toBe('48.200')
   })
 })
 

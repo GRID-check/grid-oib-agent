@@ -14,8 +14,10 @@ import { withPlatformAccess } from '@/lib/db/tenant-context'
 import { projects } from '@/lib/db/schema'
 import { getWorkOS } from '@/lib/workos/client'
 import {
+  EMPTY_SPEND_WINDOW,
   getDailySpendTrend,
   getSpendAcrossOrganizations,
+  sumSpendWindows,
   type DailySpendPoint,
   type SpendWindow,
 } from '@/lib/budgets/service'
@@ -23,10 +25,11 @@ import { getEffectivePricing } from '@/lib/pricing/service'
 import { getPlatformOrganizationId } from '@/lib/authz/platform'
 
 /**
- * Every money figure here is USD as OpenRouter charges it (`costUsd`), what the
- * tenant is charged for it (`priceUsd`) and the tenant's unit (`credits`) —
- * no currency conversion anywhere (ADR-0053). The difference between price
- * and cost is the platform's gross margin.
+ * Every money figure here is USD as OpenRouter charges it (`costUsd`, of which
+ * `ownKeyCostUsd` was billed to a tenant's own key, not to the platform), what
+ * the tenant is charged for it (`priceUsd`) and the tenant's units (`credits`,
+ * `tokens`) — no currency conversion anywhere (ADR-0053). The platform's own
+ * cost is `costUsd - ownKeyCostUsd`; price minus that is its gross margin.
  */
 export interface PlatformOrganization {
   id: string
@@ -38,14 +41,6 @@ export interface PlatformOrganization {
   month: SpendWindow
 }
 
-const EMPTY_WINDOW: SpendWindow = { costUsd: 0, priceUsd: 0, credits: 0, events: 0 }
-
-const addWindows = (a: SpendWindow, b: SpendWindow): SpendWindow => ({
-  costUsd: a.costUsd + b.costUsd,
-  priceUsd: a.priceUsd + b.priceUsd,
-  credits: a.credits + b.credits,
-  events: a.events + b.events,
-})
 
 export interface PlatformOverview {
   organizations: PlatformOrganization[]
@@ -97,8 +92,8 @@ export async function getPlatformOverview(): Promise<PlatformOverview> {
         createdAt: org.createdAt,
         isPlatformOrg: org.id === platformOrgId,
         projectCount: projectCounts.get(org.id) ?? 0,
-        day: orgSpend?.day ?? EMPTY_WINDOW,
-        month: orgSpend?.month ?? EMPTY_WINDOW,
+        day: orgSpend?.day ?? EMPTY_SPEND_WINDOW,
+        month: orgSpend?.month ?? EMPTY_SPEND_WINDOW,
       }
     })
     .sort((a, b) => b.month.priceUsd - a.month.priceUsd || a.name.localeCompare(b.name))
@@ -110,8 +105,8 @@ export async function getPlatformOverview(): Promise<PlatformOverview> {
     totals: {
       organizations: organizations.length,
       projects: organizations.reduce((total, org) => total + org.projectCount, 0),
-      day: organizations.reduce((total, org) => addWindows(total, org.day), EMPTY_WINDOW),
-      month: organizations.reduce((total, org) => addWindows(total, org.month), EMPTY_WINDOW),
+      day: sumSpendWindows(organizations.map((org) => org.day)),
+      month: sumSpendWindows(organizations.map((org) => org.month)),
     },
     pricing: {
       marginMultiplier: pricing.marginMultiplier,

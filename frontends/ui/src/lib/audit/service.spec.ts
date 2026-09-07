@@ -61,7 +61,7 @@ describe('recordAuditEvent (WorkOS-native audit trail)', () => {
       action: 'budget.policy.set',
       targetType: 'budget_policy',
       targetId: 'policy_1',
-      metadata: { scope: 'organization', subjectId: null, dailyLimitCredits: 1000 },
+      metadata: { scope: 'organization', subjectId: null, unit: 'credit', dailyLimit: 1000 },
       request,
     })
 
@@ -74,7 +74,7 @@ describe('recordAuditEvent (WorkOS-native audit trail)', () => {
     // First x-forwarded-for hop is the client.
     expect(event.context).toEqual({ location: '203.0.113.7', userAgent: 'vitest' })
     // Nulls are stripped — WorkOS metadata allows flat primitives only.
-    expect(event.metadata).toEqual({ scope: 'organization', dailyLimitCredits: 1000 })
+    expect(event.metadata).toEqual({ scope: 'organization', unit: 'credit', dailyLimit: 1000 })
     expect(event.occurredAt).toBeInstanceOf(Date)
   })
 

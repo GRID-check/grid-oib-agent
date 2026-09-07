@@ -65,8 +65,9 @@ Three words, kept apart everywhere in code and docs:
 | Word | Unit | Meaning | Who sees it |
 |---|---|---|---|
 | cost | USD | what OpenRouter charged the platform, raw | platform owners only |
-| price | USD | cost × margin (margin 1 for BYOK) | platform owners only |
-| credits | credits | price ÷ credit price | tenants, everywhere |
+| price | USD | cost × margin; zero on a tenant's own key | platform owners only |
+| credits | credits | price ÷ credit price | platform-billed tenants, everywhere |
+| tokens | tokens | the row's token count | tenants on their own key, everywhere — no credits, no price |
 
 1. **A price list, versioned** (`platform_pricing_versions`): the margin
    multiplier, the credit price in USD, and the allowance every organization is
@@ -87,18 +88,32 @@ Three words, kept apart everywhere in code and docs:
 4. **Budgets are credits.** `budget_policies` limits are credits (existing
    rows converted at the boot floor and the previous default rate); the
    seeded org allowance comes from the price list rather than a code constant.
-5. **The Python tracker is untouched.** The BFF converts remaining credits back
-   to USD of cost for the `x-grid-budget` header, the exact inverse of pricing;
-   for an organization on its own key the margin is left out, as it is at
-   write time (`is_byok` on the usage object).
-6. **Tenant responses carry credits only.** The usage service narrows every
-   window to `{credits, events}` in one projection, so a new tenant endpoint
-   reusing it cannot leak cost. The model picker shows "≈ N credits per
-   request" for a fixed reference request priced at the active list; the
-   catalog's per-token USD prices no longer reach a tenant.
-7. **Platform → Overview** carries the price list editor (margin, credit price,
-   seeded allowance, change note, version trail) and shows cost, revenue and
-   gross margin per organization and in total.
+5. **One unit per organization, from its key mode.** An organization the
+   platform bills is on credits. An organization on its own provider key
+   (ADR-0022) pays that provider, so the platform bills it nothing: its
+   generations are priced at zero, it sees no credits and no price, and what it
+   sees and limits is tokens, straight off the ledger row. Limits carry their
+   unit (`budget_policies.currency`, CHECK `credit | token`) and only the
+   current unit's limits are honoured; an own-key organization is seeded with
+   no limit and sets its own. The rollup carries `tokens` and the own-key share
+   of cost so enforcement and the platform overview stay rollup and ledger
+   reads.
+6. **The Python tracker meters both.** It already counts cost and tokens off
+   the same usage object; the `x-grid-budget` snapshot carries whichever family
+   applies — USD of cost (the exact inverse of pricing) for a credit
+   organization, tokens for a token organization — and it enforces both.
+7. **Tenant responses carry one unit only.** The usage service narrows every
+   window to `{amount, events}` in the organization's unit in one projection,
+   so a new tenant endpoint reusing it cannot leak cost, price or the other
+   unit. The model picker shows "≈ N credits per request" for a fixed
+   reference request priced at the active list to credit organizations and no
+   hint at all to own-key ones; the catalog's per-token USD prices no longer
+   reach a tenant.
+8. **Platform → Overview** carries the price list editor (margin, credit price,
+   seeded allowance, change note, version trail) and shows the platform's own
+   cost (own-key usage subtracted and named), revenue and gross margin per
+   organization and in total, badging organizations whose usage ran on their
+   own key.
 
 ### Consequences
 
@@ -109,10 +124,10 @@ Three words, kept apart everywhere in code and docs:
   the next request, and every ledger row names the version that priced it.
 * Good, because a price change never rewrites history.
 * Good, because the platform finally reads its cost as charged.
-* Bad, because credits of a BYOK organization measure the tenant's own spend at
-  the credit rate rather than anything the platform bills; budgets keep working
-  for them, but the number is not an invoice. Whether BYOK tenants should see
-  credits at all is an open product question (see below).
+* Bad, because an organization that switches key mode sees its limits change
+  unit: the other unit's limits are kept but ignored until it switches back,
+  and nothing converts between them. Accepted: there is no honest exchange rate
+  between a token on the tenant's bill and a credit on ours.
 * Bad, because a tenant who knows a model's public list price and their
   contract's euro price per credit can still back out the margin. That is
   accepted: the goal is not to display the margin, not to make it secret, and
@@ -127,8 +142,11 @@ Three words, kept apart everywhere in code and docs:
   and a partial unique index refuses a second active row; the service bounds
   refuse slipped decimals before the write (`lib/pricing/service.ts`).
 * `budget_policies_currency_check` refuses any unit but `credit`.
-* `lib/pricing/model.spec.ts` pins additivity, the BYOK rule and that the
-  budget conversion is the exact inverse of pricing.
+* `lib/pricing/model.spec.ts` pins additivity, that an own-key generation is
+  priced at nothing, and that the budget conversion is the exact inverse of
+  pricing. `tests/aiq_agent/common/test_cost_tracking.py` pins that the
+  tracker enforces the token family and stays unlimited on it for a snapshot
+  from an older BFF.
 * `rls-coverage.spec.ts` lists the table as a platform table;
   `platform-permission-coverage.spec.ts` pins the pricing route's permissions;
   the pricing route spec pins 422-before-write and the audit event.
@@ -167,9 +185,9 @@ Three words, kept apart everywhere in code and docs:
 * The design and every touch point: `docs/architecture/usage-budgets.md`.
 * Supersedes the currency paragraph of ADR-0015 (§Decision 6) and its
   `GRID_BUDGET_EUR_PER_USD` variable; the rest of ADR-0015 and ADR-0019 stand.
-* Open: whether BYOK organizations should see credits at all, or euros of their
-  own provider bill; and whether the seeded allowance should become a per-plan
-  setting once plans exist.
+* Decided after the first cut: own-key organizations see tokens and nothing
+  else (migration 0080). Open: whether the seeded allowance should become a
+  per-plan setting once plans exist.
 * The new audit action `platform.pricing.updated` has to be provisioned in every
   WorkOS environment (`bun run provision:audit-schemas`) before the event is
   accepted there; until then the save succeeds and the emitter logs the

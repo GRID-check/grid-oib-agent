@@ -23,8 +23,8 @@ import { Gauge } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { BudgetUsageCard } from '../../app/(shell)/organization/budget-usage-card'
 
-/** Credits, the tenant's unit (ADR-0053) — the card never sees cost. */
-const window = (credits: number, events: number) => ({ credits, events })
+/** Amounts in the tenant's unit (ADR-0053) — credits here; the card never sees cost. */
+const window = (amount: number, events: number) => ({ amount, events })
 
 const MODELS = [
   { model: 'anthropic/claude-opus-4.6', day: window(390, 41), month: window(6140, 812) },
@@ -40,11 +40,11 @@ const MODELS = [
 ]
 
 const DAY = window(
-  MODELS.reduce((sum, m) => sum + m.day.credits, 0),
+  MODELS.reduce((sum, m) => sum + m.day.amount, 0),
   MODELS.reduce((sum, m) => sum + m.day.events, 0),
 )
 const MONTH = window(
-  MODELS.reduce((sum, m) => sum + m.month.credits, 0),
+  MODELS.reduce((sum, m) => sum + m.month.amount, 0),
   MODELS.reduce((sum, m) => sum + m.month.events, 0),
 )
 
@@ -53,15 +53,16 @@ const DAILY_TREND = Array.from({ length: 30 }, (_, index) => {
   const day = new Date(Date.UTC(2026, 5, 29))
   day.setUTCDate(day.getUTCDate() + index)
   const quiet = index === 6 || index === 20
-  const credits = quiet ? 0 : 140 + (index % 7) * 55 + (index > 21 ? 240 : 0)
+  const amount = quiet ? 0 : 140 + (index % 7) * 55 + (index > 21 ? 240 : 0)
   return {
     day: day.toISOString().slice(0, 10),
-    credits,
+    amount,
     events: quiet ? 0 : 30 + (index % 9) * 7,
   }
 })
 
 const USAGE = {
+  unit: 'credit',
   summary: { day: DAY, month: MONTH, perModel: MODELS },
   perMember: [
     { userId: 'user_01', day: window(420, 52), month: window(4890, 704) },
@@ -70,13 +71,13 @@ const USAGE = {
   ],
   // The month is deliberately over its limit and the day comfortably under, so
   // both meter states — and the over-limit tick — are on screen at once.
-  orgBudget: { dailyLimitCredits: 2500, monthlyLimitCredits: 10000, explicit: true },
+  orgBudget: { dailyLimit: 2500, monthlyLimit: 10000, explicit: true },
   status: { blocked: true, blockedScope: 'organization' },
   dailyTrend: DAILY_TREND,
 }
 
 const BUDGETS = {
-  organization: { dailyLimitCredits: 2500, monthlyLimitCredits: 10000 },
+  organization: { dailyLimit: 2500, monthlyLimit: 10000 },
   policies: [
     {
       id: 'pol_1',

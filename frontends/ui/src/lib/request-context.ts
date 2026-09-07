@@ -56,9 +56,17 @@ import { createHmac } from 'node:crypto'
 import type { ScopedCollection } from '@/lib/collection-scope'
 
 export interface GridBudgetSnapshot {
+  /** Remaining platform-billed cost per scope, USD; null = unlimited. */
   remainingOrgUsd: number | null
   remainingUserUsd: number | null
   remainingProjectUsd: number | null
+  /**
+   * Remaining tokens per scope for an organization on its own key (ADR-0053);
+   * absent or null = no token limit. The tracker checks both families.
+   */
+  remainingOrgTokens?: number | null
+  remainingUserTokens?: number | null
+  remainingProjectTokens?: number | null
 }
 
 export interface GridRequestContextInput {

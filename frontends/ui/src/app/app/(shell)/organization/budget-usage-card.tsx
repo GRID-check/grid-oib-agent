@@ -2,9 +2,11 @@
 
 /**
  * Usage & budgets (ADR-0015, ADR-0053) — what the organization is spending on
- * LLM calls, in credits, and how close that spend is to the limits that will
- * stop it. Credits are the tenant's unit; the platform's purchase price never
- * reaches this card, because the usage endpoint never sends it.
+ * LLM calls, in ITS unit, and how close that spend is to the limits that will
+ * stop it. The unit comes from the usage endpoint: credits for an organization
+ * the platform bills, tokens for one on its own key, which sees no credits and
+ * no price at all. The platform's purchase price never reaches this card,
+ * because the endpoint never sends it.
  *
  * **Three questions, three forms — chosen before any color was picked.**
  *
@@ -100,11 +102,14 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useLocale, useTranslations } from '@/i18n'
-import { formatCredits } from '@/lib/format'
+import { formatCredits, formatTokens } from '@/lib/format'
 import { SpendTrendChart } from '@/components/charts/spend-trend-chart'
 
+type BudgetUnit = 'credit' | 'token'
+
 interface SpendWindow {
-  credits: number
+  /** In the organization's unit (`UsageResponse.unit`). */
+  amount: number
   events: number
 }
 
@@ -121,9 +126,10 @@ interface MemberSpend {
 }
 
 interface UsageResponse {
+  unit: BudgetUnit
   summary: { day: SpendWindow; month: SpendWindow; perModel: ModelSpend[] }
   perMember: MemberSpend[] | null
-  orgBudget: { dailyLimitCredits: number | null; monthlyLimitCredits: number | null; explicit: boolean }
+  orgBudget: { dailyLimit: number | null; monthlyLimit: number | null; explicit: boolean }
   status: { blocked: boolean; blockedScope: string | null }
   /** 30-day daily series — present for budget admins only. */
   dailyTrend?: Array<{ day: string } & SpendWindow> | null
@@ -166,17 +172,16 @@ const policyLimitLabel = (
   policy: PolicyDto,
   perDay: string,
   perMonth: string,
-  locale?: string
+  formatAmount: (value: number) => string
 ): string => {
   const parts: string[] = []
-  if (policy.dailyLimit !== null)
-    parts.push(`${formatCredits(Number.parseFloat(policy.dailyLimit), locale)}/${perDay}`)
+  if (policy.dailyLimit !== null) parts.push(`${formatAmount(Number.parseFloat(policy.dailyLimit))}/${perDay}`)
   if (policy.monthlyLimit !== null)
-    parts.push(`${formatCredits(Number.parseFloat(policy.monthlyLimit), locale)}/${perMonth}`)
+    parts.push(`${formatAmount(Number.parseFloat(policy.monthlyLimit))}/${perMonth}`)
   return parts.join(' · ') || '—'
 }
 
-/** One model's spend in both windows, in credits. */
+/** One model's spend in both windows, in the organization's unit. */
 interface ModelSeries {
   key: string
   /** Empty for the folded tail — the renderer supplies the translated label. */
@@ -184,9 +189,9 @@ interface ModelSeries {
   /** 1-based palette slot; the folded tail sorts after every real slot. */
   slot: number
   colorVar: string
-  dayCredits: number
+  dayAmount: number
   dayEvents: number
-  monthCredits: number
+  monthAmount: number
   monthEvents: number
 }
 
@@ -196,7 +201,7 @@ const bySlot = (a: ModelSeries, b: ModelSeries): number => a.slot - b.slot
 const byMonthSpend = (a: ModelSeries, b: ModelSeries): number => {
   if (a.key === OTHER_KEY) return 1
   if (b.key === OTHER_KEY) return -1
-  return b.monthCredits - a.monthCredits
+  return b.monthAmount - a.monthAmount
 }
 
 /**
@@ -207,14 +212,14 @@ const byMonthSpend = (a: ModelSeries, b: ModelSeries): number => {
 function buildModelSeries(perModel: ModelSpend[]): ModelSeries[] {
   const byModelId = [...perModel].sort((a, b) => a.model.localeCompare(b.model))
   const series: ModelSeries[] = []
-  const tail = { dayCredits: 0, dayEvents: 0, monthCredits: 0, monthEvents: 0 }
+  const tail = { dayAmount: 0, dayEvents: 0, monthAmount: 0, monthEvents: 0 }
   let tailCount = 0
 
   byModelId.forEach((entry, index) => {
     const values = {
-      dayCredits: entry.day.credits,
+      dayAmount: entry.day.amount,
       dayEvents: entry.day.events,
-      monthCredits: entry.month.credits,
+      monthAmount: entry.month.amount,
       monthEvents: entry.month.events,
     }
     if (index < SPEND_SLOT_COUNT) {
@@ -227,9 +232,9 @@ function buildModelSeries(perModel: ModelSpend[]): ModelSeries[] {
       })
       return
     }
-    tail.dayCredits += values.dayCredits
+    tail.dayAmount += values.dayAmount
     tail.dayEvents += values.dayEvents
-    tail.monthCredits += values.monthCredits
+    tail.monthAmount += values.monthAmount
     tail.monthEvents += values.monthEvents
     tailCount += 1
   })
@@ -256,22 +261,20 @@ function buildModelSeries(perModel: ModelSpend[]): ModelSeries[] {
  */
 const BudgetMeter: FC<{
   title: string
-  totalCredits: number
-  limitCredits: number | null
-}> = ({ title, totalCredits, limitCredits }) => {
+  total: number
+  limit: number | null
+  /** Number plus unit word, in the organization's unit. */
+  formatAmount: (value: number) => string
+}> = ({ title, total, limit, formatAmount }) => {
   const t = useTranslations('organization')
-  const { locale } = useLocale()
-  const over = limitCredits !== null && totalCredits >= limitCredits
-  const scale = limitCredits !== null ? Math.max(limitCredits, totalCredits) : totalCredits
-  const fillPct = scale > 0 ? Math.min((totalCredits / scale) * 100, 100) : 0
-  const limitPct = over && limitCredits !== null && scale > 0 ? (limitCredits / scale) * 100 : null
+  const over = limit !== null && total >= limit
+  const scale = limit !== null ? Math.max(limit, total) : total
+  const fillPct = scale > 0 ? Math.min((total / scale) * 100, 100) : 0
+  const limitPct = over && limit !== null && scale > 0 ? (limit / scale) * 100 : null
   const reading =
-    limitCredits !== null
-      ? t('budgets.ofLimit', {
-          spent: formatCredits(totalCredits, locale),
-          limit: formatCredits(limitCredits, locale),
-        })
-      : t('budgets.noLimit', { spent: formatCredits(totalCredits, locale) })
+    limit !== null
+      ? t('budgets.ofLimit', { spent: formatAmount(total), limit: formatAmount(limit) })
+      : t('budgets.noLimit', { spent: formatAmount(total) })
 
   return (
     <div>
@@ -321,20 +324,20 @@ const BudgetMeter: FC<{
  */
 const CompositionBar: FC<{
   segments: ModelSeries[]
-  totalCredits: number
+  total: number
   otherLabel: string
   todayLabel: string
   monthLabel: string
-  creditsLabel: (credits: number) => string
+  amountLabel: (value: number) => string
   requestsLabel: (count: number) => string
-}> = ({ segments, totalCredits, otherLabel, todayLabel, monthLabel, creditsLabel, requestsLabel }) => {
-  if (totalCredits <= 0 || segments.length === 0) return null
+}> = ({ segments, total, otherLabel, todayLabel, monthLabel, amountLabel, requestsLabel }) => {
+  if (total <= 0 || segments.length === 0) return null
 
   return (
     <div
       className="bg-muted flex h-3 w-full overflow-hidden rounded-[4px]"
       role="img"
-      aria-label={`${monthLabel}: ${creditsLabel(totalCredits)}`}
+      aria-label={`${monthLabel}: ${amountLabel(total)}`}
       data-testid="spend-composition"
     >
       {segments.map((segment) => (
@@ -343,7 +346,7 @@ const CompositionBar: FC<{
             <div
               className={`h-full min-w-[4px] cursor-default ${SEGMENT_GAP_CLASS}`}
               style={{
-                width: `${(segment.monthCredits / totalCredits) * 100}%`,
+                width: `${(segment.monthAmount / total) * 100}%`,
                 backgroundColor: segment.colorVar,
               }}
             />
@@ -352,11 +355,11 @@ const CompositionBar: FC<{
             {/* Value leads, series name follows — the reader already has the
                 series (they are pointing at it) and wants the number. */}
             <p className="font-medium tabular-nums">
-              {creditsLabel(segment.monthCredits)} · {requestsLabel(segment.monthEvents)}
+              {amountLabel(segment.monthAmount)} · {requestsLabel(segment.monthEvents)}
             </p>
             <p className="text-xs">{segment.label || otherLabel}</p>
             <p className="text-xs tabular-nums">
-              {todayLabel}: {creditsLabel(segment.dayCredits)}
+              {todayLabel}: {amountLabel(segment.dayAmount)}
             </p>
           </TooltipContent>
         </Tooltip>
@@ -376,9 +379,9 @@ const SpendTable: FC<{
   captionLabel: string
   todayLabel: string
   monthLabel: string
-  creditsLabel: (credits: number) => string
+  amountLabel: (value: number) => string
   requestsLabel: (count: number) => string
-}> = ({ segments, otherLabel, captionLabel, todayLabel, monthLabel, creditsLabel, requestsLabel }) => {
+}> = ({ segments, otherLabel, captionLabel, todayLabel, monthLabel, amountLabel, requestsLabel }) => {
 
   return (
     <table className="mt-1.5 w-full border-collapse text-sm" data-testid="spend-table">
@@ -417,14 +420,14 @@ const SpendTable: FC<{
               </span>
             </th>
             <td className="py-1.5 text-right align-top tabular-nums">
-              {segment.dayCredits > 0 ? (
-                creditsLabel(segment.dayCredits)
+              {segment.dayAmount > 0 ? (
+                amountLabel(segment.dayAmount)
               ) : (
                 <span className="text-muted-foreground">—</span>
               )}
             </td>
             <td className="py-1.5 text-right align-top tabular-nums">
-              {creditsLabel(segment.monthCredits)}
+              {amountLabel(segment.monthAmount)}
             </td>
           </tr>
         ))}
@@ -448,9 +451,11 @@ const LimitEditor: FC<{
   scope: 'member' | 'project'
   subjectId: string
   current: PolicyDto | undefined
+  /** The unit word for the field labels ("credits" / "tokens"). */
+  unitWord: string
   onSaved: () => Promise<void>
   trigger: ReactNode
-}> = ({ scope, subjectId, current, onSaved, trigger }) => {
+}> = ({ scope, subjectId, current, unitWord, onSaved, trigger }) => {
   const t = useTranslations('organization')
   const tCommon = useTranslations('common')
   const [open, setOpen] = useState(false)
@@ -482,8 +487,8 @@ const LimitEditor: FC<{
         body: JSON.stringify({
           scope,
           subjectId,
-          dailyLimitCredits: parseLimit(daily),
-          monthlyLimitCredits: parseLimit(monthly),
+          dailyLimit: parseLimit(daily),
+          monthlyLimit: parseLimit(monthly),
         }),
       })
       if (res.status === 422) {
@@ -527,7 +532,7 @@ const LimitEditor: FC<{
       <PopoverContent align="end" className="w-64">
         <div className="flex flex-col gap-3">
           <Field>
-            <FieldLabel htmlFor={`limit-daily-${subjectId}`}>{t('budgets.dailyLimit')}</FieldLabel>
+            <FieldLabel htmlFor={`limit-daily-${subjectId}`}>{t('budgets.dailyLimit', { unit: unitWord })}</FieldLabel>
             <Input
               id={`limit-daily-${subjectId}`}
               inputMode="decimal"
@@ -537,7 +542,7 @@ const LimitEditor: FC<{
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor={`limit-monthly-${subjectId}`}>{t('budgets.monthlyLimit')}</FieldLabel>
+            <FieldLabel htmlFor={`limit-monthly-${subjectId}`}>{t('budgets.monthlyLimit', { unit: unitWord })}</FieldLabel>
             <Input
               id={`limit-monthly-${subjectId}`}
               inputMode="decimal"
@@ -601,13 +606,13 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
       if (!usageRes.ok || !budgetsRes.ok) throw new Error('load failed')
       const usageBody = (await usageRes.json()) as UsageResponse
       const budgetsBody = (await budgetsRes.json()) as {
-        organization: { dailyLimitCredits: number | null; monthlyLimitCredits: number | null }
+        organization: { dailyLimit: number | null; monthlyLimit: number | null }
         policies?: PolicyDto[]
       }
       setUsage(usageBody)
       setPolicies((budgetsBody.policies ?? []).filter((policy) => policy.scope !== 'organization'))
-      setDailyLimit(budgetsBody.organization.dailyLimitCredits?.toString() ?? '')
-      setMonthlyLimit(budgetsBody.organization.monthlyLimitCredits?.toString() ?? '')
+      setDailyLimit(budgetsBody.organization.dailyLimit?.toString() ?? '')
+      setMonthlyLimit(budgetsBody.organization.monthlyLimit?.toString() ?? '')
     } catch {
       toast.error(t('budgets.loadError'))
     } finally {
@@ -635,7 +640,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
   const modelSeries = useMemo(() => (usage ? buildModelSeries(usage.summary.perModel) : []), [usage])
   /** Only models that actually spent this month can be a slice of it. */
   const monthSeries = useMemo(
-    () => modelSeries.filter((series) => series.monthCredits > 0),
+    () => modelSeries.filter((series) => series.monthAmount > 0),
     [modelSeries]
   )
   /** Stacked in palette order; listed in spend order. See the module note. */
@@ -652,7 +657,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         rows.push({ member: { id: entry.userId, email: entry.userId, name: null }, spend: entry })
       }
     }
-    return rows.sort((a, b) => (b.spend?.month.credits ?? 0) - (a.spend?.month.credits ?? 0))
+    return rows.sort((a, b) => (b.spend?.month.amount ?? 0) - (a.spend?.month.amount ?? 0))
   }, [members, usage])
 
   const memberPolicies = useMemo(
@@ -669,8 +674,8 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           scope: 'organization',
-          dailyLimitCredits: parseLimit(dailyLimit),
-          monthlyLimitCredits: parseLimit(monthlyLimit),
+          dailyLimit: parseLimit(dailyLimit),
+          monthlyLimit: parseLimit(monthlyLimit),
         }),
       })
       if (res.status === 422) {
@@ -693,11 +698,17 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
   }
 
   const requestsLabel = (count: number): string => t('budgets.tooltipRequests', { count })
-  const creditsLabel = (credits: number): string =>
-    t('budgets.creditsValue', { value: formatCredits(credits, locale) })
+  // One unit per organization, decided by the server: tokens on an own key,
+  // credits otherwise. Every number on this card goes through these two.
+  const onOwnKey = usage.unit === 'token'
+  const formatBare = (value: number): string =>
+    onOwnKey ? formatTokens(value, locale) : formatCredits(value, locale)
+  const amountLabel = (value: number): string =>
+    t(onOwnKey ? 'budgets.tokensValue' : 'budgets.creditsValue', { value: formatBare(value) })
+  const unitWord = t(onOwnKey ? 'budgets.unitTokens' : 'budgets.unitCredits')
   const projectName = (id: string | null): string =>
     projects.find((p) => p.id === id)?.name ?? id ?? `(${t('budgets.subjectGone')})`
-  const monthTotalCredits = monthSeries.reduce((sum, series) => sum + series.monthCredits, 0)
+  const monthTotal = monthSeries.reduce((sum, series) => sum + series.monthAmount, 0)
 
   return (
     <TooltipProvider delayDuration={100}>
@@ -710,16 +721,26 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
           </Badge>
         )}
 
+        {/* An organization on its own key pays its provider, not Piloti: say
+            so once, where the reader would otherwise look for credits. */}
+        {onOwnKey && (
+          <p className="text-muted-foreground text-xs" data-testid="budget-own-key-note">
+            {t('budgets.ownKeyNote')}
+          </p>
+        )}
+
         {/* Job 1 — the ratio against each limit. */}
         <BudgetMeter
           title={t('budgets.today')}
-          totalCredits={usage.summary.day.credits}
-          limitCredits={usage.orgBudget.dailyLimitCredits}
+          total={usage.summary.day.amount}
+          limit={usage.orgBudget.dailyLimit}
+          formatAmount={amountLabel}
         />
         <BudgetMeter
           title={t('budgets.thisMonth')}
-          totalCredits={usage.summary.month.credits}
-          limitCredits={usage.orgBudget.monthlyLimitCredits}
+          total={usage.summary.month.amount}
+          limit={usage.orgBudget.monthlyLimit}
+          formatAmount={amountLabel}
         />
 
         {/* Job 3 — change over time (budget admins get the series from the API). */}
@@ -730,10 +751,10 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
               <SpendTrendChart
                 points={usage.dailyTrend.map((point) => ({
                   day: point.day,
-                  value: point.credits,
+                  value: point.amount,
                   events: point.events,
                 }))}
-                formatValue={creditsLabel}
+                formatValue={amountLabel}
                 requestsLabel={requestsLabel}
                 emptyLabel={t('budgets.trendEmpty')}
               />
@@ -747,7 +768,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
             <SectionLabel>{t('budgets.legendTitle')}</SectionLabel>
             {monthSeries.length > 0 && (
               <p className="text-muted-foreground text-xs tabular-nums">
-                {creditsLabel(monthTotalCredits)}
+                {amountLabel(monthTotal)}
               </p>
             )}
           </div>
@@ -758,11 +779,11 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
               <div className="mt-1.5">
                 <CompositionBar
                   segments={monthStack}
-                  totalCredits={monthTotalCredits}
+                  total={monthTotal}
                   otherLabel={t('budgets.otherModels')}
                   todayLabel={t('budgets.today')}
                   monthLabel={t('budgets.thisMonth')}
-                  creditsLabel={creditsLabel}
+                  amountLabel={amountLabel}
                   requestsLabel={requestsLabel}
                 />
               </div>
@@ -772,7 +793,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                 captionLabel={t('budgets.legendTitle')}
                 todayLabel={t('budgets.today')}
                 monthLabel={t('budgets.thisMonth')}
-                creditsLabel={creditsLabel}
+                amountLabel={amountLabel}
                 requestsLabel={requestsLabel}
               />
             </>
@@ -786,11 +807,11 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
             <div>
               <p className="text-sm font-medium">{t('budgets.limitsTitle')}</p>
               <p className="text-muted-foreground mt-0.5 text-xs">
-                {t('budgets.limitsDescription')}
+                {t(onOwnKey ? 'budgets.limitsDescriptionTokens' : 'budgets.limitsDescription')}
               </p>
               <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end">
                 <Field className="flex-1 sm:max-w-40">
-                  <FieldLabel htmlFor="budget-daily">{t('budgets.dailyLimit')}</FieldLabel>
+                  <FieldLabel htmlFor="budget-daily">{t('budgets.dailyLimit', { unit: unitWord })}</FieldLabel>
                   <Input
                     id="budget-daily"
                     inputMode="decimal"
@@ -800,7 +821,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                   />
                 </Field>
                 <Field className="flex-1 sm:max-w-40">
-                  <FieldLabel htmlFor="budget-monthly">{t('budgets.monthlyLimit')}</FieldLabel>
+                  <FieldLabel htmlFor="budget-monthly">{t('budgets.monthlyLimit', { unit: unitWord })}</FieldLabel>
                   <Input
                     id="budget-monthly"
                     inputMode="decimal"
@@ -843,14 +864,14 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                       </div>
                       <div className="flex flex-1 items-center justify-between gap-4 sm:flex-none sm:justify-end">
                         <Stat label={t('budgets.today')}>
-                          {spend ? formatCredits(spend.day.credits, locale) : '—'}
+                          {spend ? formatBare(spend.day.amount) : '—'}
                         </Stat>
                         <Stat label={t('budgets.thisMonth')}>
                           {spend ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span className="cursor-default">
-                                  {formatCredits(spend.month.credits, locale)}
+                                  {formatBare(spend.month.amount)}
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent>{requestsLabel(spend.month.events)}</TooltipContent>
@@ -861,12 +882,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                         </Stat>
                         <Stat label={t('budgets.limitLabel')}>
                           {policy ? (
-                            policyLimitLabel(
-                              policy,
-                              t('budgets.perDay'),
-                              t('budgets.perMonth'),
-                              locale
-                            )
+                            policyLimitLabel(policy, t('budgets.perDay'), t('budgets.perMonth'), formatBare)
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
@@ -875,6 +891,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                           scope="member"
                           subjectId={member.id}
                           current={policy}
+                          unitWord={unitWord}
                           onSaved={load}
                           trigger={
                             <Button
@@ -919,6 +936,7 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                     scope="project"
                     subjectId={selectedProject}
                     current={projectPolicies.find((p) => p.subjectId === selectedProject)}
+                    unitWord={unitWord}
                     onSaved={load}
                     trigger={
                       <Button variant="outline" className="w-full sm:w-auto">
@@ -940,17 +958,13 @@ export const BudgetUsageCard: FC<{ isAdmin: boolean }> = ({ isAdmin }) => {
                         {projectName(policy.subjectId)}
                       </span>
                       <span className="text-muted-foreground text-xs tabular-nums">
-                        {policyLimitLabel(
-                          policy,
-                          t('budgets.perDay'),
-                          t('budgets.perMonth'),
-                          locale
-                        )}
+                        {policyLimitLabel(policy, t('budgets.perDay'), t('budgets.perMonth'), formatBare)}
                       </span>
                       <LimitEditor
                         scope="project"
                         subjectId={policy.subjectId as string}
                         current={policy}
+                        unitWord={unitWord}
                         onSaved={load}
                         trigger={
                           <Button

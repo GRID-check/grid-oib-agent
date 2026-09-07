@@ -1,5 +1,8 @@
 /**
- * LLM budget policies, in credits (ADR-0053).
+ * LLM budget policies, in the organization's unit (ADR-0053): credits for a
+ * platform-billed organization, tokens for one on its own key. The caller
+ * never picks the unit — it follows the key mode — so the body carries bare
+ * `dailyLimit` / `monthlyLimit` and the response says which unit they are in.
  *
  * GET — members see the org limits + their own member limit; budget admins
  *       additionally get every active member/project policy.
@@ -20,8 +23,8 @@ const limitSchema = z.number().min(0).finite().nullable()
 const putSchema = z.object({
   scope: z.enum(['organization', 'member', 'project']),
   subjectId: z.string().min(1).max(120).nullable().optional(),
-  dailyLimitCredits: limitSchema,
-  monthlyLimitCredits: limitSchema,
+  dailyLimit: limitSchema,
+  monthlyLimit: limitSchema,
   note: z.string().trim().max(500).nullable().optional(),
 })
 

@@ -7,18 +7,29 @@
  *
  * Money has three units here and this module is where they part ways:
  *
- *   cost    — USD, what OpenRouter charged the platform. Recorded raw, never
- *             shown to a tenant.
- *   price   — USD, what the tenant is charged: cost × margin, frozen on the
- *             ledger row at write time from the active pricing version. No
- *             currency conversion anywhere: the platform reads the charge as
- *             OpenRouter states it.
- *   credits — the tenant's unit: price ÷ the credit price. Limits are credits,
- *             dashboards are credits, the seeded allowance is credits.
+ *   cost    — USD, what OpenRouter charged. Recorded raw, never shown to a
+ *             tenant. The share that ran on a tenant's own key is kept apart
+ *             (`ownKeyCostUsd`) because it was the tenant's bill, not ours.
+ *   price   — USD, what a platform-billed tenant is charged: cost × margin,
+ *             frozen on the ledger row at write time from the active pricing
+ *             version. Zero for a generation on the tenant's own key. No
+ *             currency conversion anywhere.
+ *   credits — the platform-billed tenant's unit: price ÷ the credit price.
  *
- * The backend tracker still meters in cost (it reads OpenRouter's usage
- * object), so the remaining budget crosses to it converted back to USD — the
- * exact inverse of pricing, with no margin for an organization on its own key.
+ * And a fourth that is not money at all:
+ *
+ *   tokens  — the unit of an organization on its OWN key. The platform bills
+ *             it nothing for LLM usage, so it sees no credits and no price;
+ *             what it sees and limits is the tokens on its own provider bill.
+ *
+ * Which unit an organization is on (`getOrgBudgetUnit`) follows its key mode
+ * and nothing else: `credit` when the platform bills it, `token` when it runs
+ * on its own key. Limits are stored with their unit, and only limits in the
+ * organization's current unit are honoured.
+ *
+ * The backend tracker meters cost AND tokens off the same usage object, so
+ * the remaining budget crosses to it in whichever family applies: USD of cost
+ * (the exact inverse of pricing) for credits, tokens as they are.
  *
  * Windows are UTC: "daily" = since 00:00 UTC today, "monthly" = since the
  * 1st of the current month 00:00 UTC.
@@ -29,8 +40,8 @@
  */
 
 import 'server-only'
-import type { BudgetPolicy, BudgetScope, NewLlmUsageEvent } from '@/lib/db/schema'
-import { getCached, invalidateCached } from '@/lib/cache'
+import type { BudgetPolicy, BudgetScope, BudgetUnit, NewLlmUsageEvent } from '@/lib/db/schema'
+import { getCached, invalidateCached, invalidateCachedPrefix } from '@/lib/cache'
 import { canManageBudgets } from '@/lib/authz/organizations'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findProjectTenancy } from '@/lib/projects/repository'
@@ -56,12 +67,23 @@ import type {
   SpendWindow,
 } from './repository'
 
-export { utcDayStart, utcMonthStart } from './repository'
+export { EMPTY_SPEND_WINDOW, sumSpendWindows, utcDayStart, utcMonthStart } from './repository'
+export type { BudgetUnit }
 export type { DailySpendRow, MemberSpend, ModelSpend, OrganizationSpend, SpendSummary, SpendTotals, SpendWindow }
 
+/**
+ * The unit this organization is budgeted and shown in. Follows the key mode
+ * (ADR-0022) and nothing else; cached for a minute with it.
+ */
+export async function getOrgBudgetUnit(organizationId: string): Promise<BudgetUnit> {
+  return (await isOrgOnOwnKey(organizationId)) ? 'token' : 'credit'
+}
+
 export interface BudgetLimits {
-  dailyLimitCredits: number | null
-  monthlyLimitCredits: number | null
+  unit: BudgetUnit
+  /** In `unit`; null = that window is unlimited. */
+  dailyLimit: number | null
+  monthlyLimit: number | null
 }
 
 export interface EffectiveBudgetPolicy extends BudgetLimits {
@@ -74,20 +96,28 @@ export interface EffectiveBudgetPolicy extends BudgetLimits {
 
 function toLimits(policy: BudgetPolicy): BudgetLimits {
   return {
-    dailyLimitCredits: policy.dailyLimit === null ? null : Number.parseFloat(policy.dailyLimit),
-    monthlyLimitCredits: policy.monthlyLimit === null ? null : Number.parseFloat(policy.monthlyLimit),
+    unit: policy.currency,
+    dailyLimit: policy.dailyLimit === null ? null : Number.parseFloat(policy.dailyLimit),
+    monthlyLimit: policy.monthlyLimit === null ? null : Number.parseFloat(policy.monthlyLimit),
   }
 }
 
 /**
- * The org-wide limits: the explicit row, or the allowance the active pricing
- * version seeds every organization with (ADR-0053 — a plan size is a platform
- * decision, not a code constant).
+ * The org-wide limits in the org's unit: the explicit row, or for a
+ * platform-billed organization the allowance the active pricing version
+ * seeds it with (ADR-0053 — a plan size is a platform decision, not a code
+ * constant). An organization on its own key is seeded with no limit at all:
+ * the platform is not paying, so the platform has nothing to cap by default,
+ * and the organization sets its own.
  */
-export async function getOrgBudget(organizationId: string): Promise<EffectiveBudgetPolicy> {
-  const policy = await repository.findActivePolicy(organizationId, 'organization', null)
+export async function getOrgBudget(organizationId: string, unit?: BudgetUnit): Promise<EffectiveBudgetPolicy> {
+  const resolvedUnit = unit ?? (await getOrgBudgetUnit(organizationId))
+  const policy = await repository.findActivePolicy(organizationId, 'organization', null, resolvedUnit)
   if (policy) {
     return { scope: 'organization', subjectId: null, explicit: true, policy, ...toLimits(policy) }
+  }
+  if (resolvedUnit === 'token') {
+    return { scope: 'organization', subjectId: null, explicit: false, policy: null, unit: 'token', dailyLimit: null, monthlyLimit: null }
   }
   const pricing = await getEffectivePricing()
   return {
@@ -95,8 +125,9 @@ export async function getOrgBudget(organizationId: string): Promise<EffectiveBud
     subjectId: null,
     explicit: false,
     policy: null,
-    dailyLimitCredits: pricing.defaultOrgDailyCredits,
-    monthlyLimitCredits: pricing.defaultOrgMonthlyCredits,
+    unit: 'credit',
+    dailyLimit: pricing.defaultOrgDailyCredits,
+    monthlyLimit: pricing.defaultOrgMonthlyCredits,
   }
 }
 
@@ -104,18 +135,20 @@ export async function getScopedBudget(
   organizationId: string,
   scope: 'member' | 'project',
   subjectId: string,
+  unit?: BudgetUnit,
 ): Promise<EffectiveBudgetPolicy | null> {
-  const policy = await repository.findActivePolicy(organizationId, scope, subjectId)
+  const resolvedUnit = unit ?? (await getOrgBudgetUnit(organizationId))
+  const policy = await repository.findActivePolicy(organizationId, scope, subjectId, resolvedUnit)
   if (!policy) return null
   return { scope, subjectId, explicit: true, policy, ...toLimits(policy) }
 }
 
-/** All active member/project policies of an org (for the settings UI). */
-export async function listActivePolicies(organizationId: string): Promise<BudgetPolicy[]> {
-  return repository.listActivePolicies(organizationId)
+/** All active member/project policies of an org in its current unit (for the settings UI). */
+export async function listActivePolicies(organizationId: string, unit?: BudgetUnit): Promise<BudgetPolicy[]> {
+  return repository.listActivePolicies(organizationId, unit ?? (await getOrgBudgetUnit(organizationId)))
 }
 
-/** Full policy history (audit view). */
+/** Full policy history (audit view), every unit. */
 export async function listPolicyHistory(organizationId: string, limit = 100): Promise<BudgetPolicy[]> {
   return repository.listPolicyHistory(organizationId, limit)
 }
@@ -123,9 +156,9 @@ export async function listPolicyHistory(organizationId: string, limit = 100): Pr
 export class BudgetValidationError extends Error {}
 
 /**
- * Set (or clear a window of) a budget policy, in credits. Supersedes the
- * previous active row — never updates in place, so every change stays
- * auditable.
+ * Set (or clear a window of) a budget policy in the org's CURRENT unit.
+ * Supersedes the previous active row of that unit — never updates in place,
+ * so every change stays auditable.
  *
  * Member and project limits are validated against the org's effective limits:
  * a scoped limit must be set (not unlimited) and must not exceed the org
@@ -135,8 +168,8 @@ export async function setBudgetPolicy(params: {
   organizationId: string
   scope: BudgetScope
   subjectId: string | null
-  dailyLimitCredits: number | null
-  monthlyLimitCredits: number | null
+  dailyLimit: number | null
+  monthlyLimit: number | null
   actorUserId: string
   note?: string | null
 }): Promise<BudgetPolicy> {
@@ -147,28 +180,29 @@ export async function setBudgetPolicy(params: {
   if (scope !== 'organization' && !subjectId) {
     throw new BudgetValidationError(`${scope} scope requires a subjectId`)
   }
-  for (const value of [params.dailyLimitCredits, params.monthlyLimitCredits]) {
+  for (const value of [params.dailyLimit, params.monthlyLimit]) {
     if (value !== null && (!Number.isFinite(value) || value < 0)) {
       throw new BudgetValidationError('limits must be non-negative numbers or null')
     }
   }
 
+  const unit = await getOrgBudgetUnit(organizationId)
   if (scope !== 'organization') {
-    const org = await getOrgBudget(organizationId)
+    const org = await getOrgBudget(organizationId, unit)
     const pairs: Array<[number | null, number | null, string]> = [
-      [params.dailyLimitCredits, org.dailyLimitCredits, 'daily'],
-      [params.monthlyLimitCredits, org.monthlyLimitCredits, 'monthly'],
+      [params.dailyLimit, org.dailyLimit, 'daily'],
+      [params.monthlyLimit, org.monthlyLimit, 'monthly'],
     ]
     for (const [scoped, orgLimit, window] of pairs) {
       if (orgLimit === null) continue
       if (scoped === null) {
         throw new BudgetValidationError(
-          `${scope} ${window} limit cannot be unlimited while the organization ${window} limit is ${orgLimit} credits`,
+          `${scope} ${window} limit cannot be unlimited while the organization ${window} limit is ${orgLimit} ${unit}s`,
         )
       }
       if (scoped > orgLimit) {
         throw new BudgetValidationError(
-          `${scope} ${window} limit (${scoped} credits) exceeds the organization ${window} limit (${orgLimit} credits)`,
+          `${scope} ${window} limit (${scoped} ${unit}s) exceeds the organization ${window} limit (${orgLimit} ${unit}s)`,
         )
       }
     }
@@ -178,8 +212,9 @@ export async function setBudgetPolicy(params: {
     organizationId,
     scope,
     subjectId,
-    dailyLimit: params.dailyLimitCredits === null ? null : params.dailyLimitCredits.toFixed(4),
-    monthlyLimit: params.monthlyLimitCredits === null ? null : params.monthlyLimitCredits.toFixed(4),
+    unit,
+    dailyLimit: params.dailyLimit === null ? null : params.dailyLimit.toFixed(4),
+    monthlyLimit: params.monthlyLimit === null ? null : params.monthlyLimit.toFixed(4),
     createdBy: params.actorUserId,
     note: params.note ?? null,
   })
@@ -188,10 +223,11 @@ export async function setBudgetPolicy(params: {
 }
 
 /**
- * Remove a scoped (member/project) policy: supersede the active row without a
- * replacement, so the subject falls back to the org limits alone. The row
- * itself stays for the audit trail. Org-scope policies are never removed —
- * they are replaced (the org always has effective limits, seeded or explicit).
+ * Remove a scoped (member/project) policy in the org's current unit:
+ * supersede the active row without a replacement, so the subject falls back
+ * to the org limits alone. The row itself stays for the audit trail.
+ * Org-scope policies are never removed — they are replaced (the org always
+ * has effective limits, seeded or explicit).
  */
 export async function clearBudgetPolicy(params: {
   organizationId: string
@@ -199,7 +235,8 @@ export async function clearBudgetPolicy(params: {
   subjectId: string
   actorUserId: string
 }): Promise<boolean> {
-  const removed = await repository.supersedeActivePolicy(params.organizationId, params.scope, params.subjectId)
+  const unit = await getOrgBudgetUnit(params.organizationId)
+  const removed = await repository.supersedeActivePolicy(params.organizationId, params.scope, params.subjectId, unit)
   if (removed) {
     await invalidateLimitsCache(params.organizationId, params.scope, params.subjectId)
   }
@@ -216,9 +253,9 @@ export type UsageEventInput = Omit<NewLlmUsageEvent, 'priceUsd' | 'credits' | 'p
 /**
  * Price and append ledger rows. Each row is priced ONCE, here, from the
  * pricing active at this moment, and carries that version's id — a later
- * price change never rewrites what a tenant was shown (ADR-0053). The
- * write-through daily rollup (ADR-0019) is incremented in the same
- * transaction by the repository.
+ * price change never rewrites what a tenant was shown (ADR-0053). A row on
+ * the tenant's own key is priced at nothing. The write-through daily rollup
+ * (ADR-0019) is incremented in the same transaction by the repository.
  *
  * A pricing lookup failure prices at the boot floor rather than dropping the
  * batch: an unpriced generation is reconcilable, a missing one is not.
@@ -307,8 +344,10 @@ export async function getDailySpendTrend(options: {
     series.push({
       day: key,
       costUsd: row?.costUsd ?? 0,
+      ownKeyCostUsd: row?.ownKeyCostUsd ?? 0,
       priceUsd: row?.priceUsd ?? 0,
       credits: row?.credits ?? 0,
+      tokens: row?.tokens ?? 0,
       events: row?.events ?? 0,
     })
     cursor.setUTCDate(cursor.getUTCDate() + 1)
@@ -323,24 +362,34 @@ export async function getDailySpendTrend(options: {
 export interface BudgetStatus {
   blocked: boolean
   blockedScope: BudgetScope | null
-  /** Remaining budget in credits per applicable scope; null = unlimited. */
-  remainingOrgCredits: number | null
-  remainingUserCredits: number | null
-  remainingProjectCredits: number | null
+  /** The unit every remainder below is expressed in for the tenant. */
+  unit: BudgetUnit
+  /** Remaining budget in `unit` per applicable scope; null = unlimited. */
+  remainingOrg: number | null
+  remainingUser: number | null
+  remainingProject: number | null
   /**
-   * The same remainders as platform-billed cost in USD — what the backend
-   * tracker meters in. The inverse of pricing at the active version; for an
-   * organization on its own key the margin is left out, as it is at write time.
+   * The same remainders as the backend tracker meters them. A credit
+   * organization gets USD of platform-billed cost (the inverse of pricing at
+   * the active version) and no token family; a token organization gets tokens
+   * and no USD family. The tracker enforces whichever is present.
    */
   remainingOrgUsd: number | null
   remainingUserUsd: number | null
   remainingProjectUsd: number | null
+  remainingOrgTokens: number | null
+  remainingUserTokens: number | null
+  remainingProjectTokens: number | null
 }
 
-function remainingCredits(limits: BudgetLimits, spend: SpendTotals): number | null {
+/** What one window has consumed in a given unit. */
+const consumed = (window: SpendWindow, unit: BudgetUnit): number =>
+  unit === 'token' ? window.tokens : window.credits
+
+function remainingIn(limits: BudgetLimits, spend: SpendTotals): number | null {
   const candidates: number[] = []
-  if (limits.dailyLimitCredits !== null) candidates.push(limits.dailyLimitCredits - spend.day.credits)
-  if (limits.monthlyLimitCredits !== null) candidates.push(limits.monthlyLimitCredits - spend.month.credits)
+  if (limits.dailyLimit !== null) candidates.push(limits.dailyLimit - consumed(spend.day, limits.unit))
+  if (limits.monthlyLimit !== null) candidates.push(limits.monthlyLimit - consumed(spend.month, limits.unit))
   if (candidates.length === 0) return null
   return Math.max(0, Math.min(...candidates))
 }
@@ -349,29 +398,31 @@ function remainingCredits(limits: BudgetLimits, spend: SpendTotals): number | nu
  * Policy LIMITS for the enforcement path, via the shared cache
  * (write-invalidate on policy writes, ADR-0020). Only the numeric limits are
  * cached — policy rows with their audit fields stay uncached in the
- * settings/admin reads.
+ * settings/admin reads. The unit is part of the key: flipping the key mode
+ * must never serve the other unit's limits for a TTL.
  */
 const LIMITS_CACHE_TTL_MS = 5 * 60 * 1000
 
-const limitsCacheKey = (organizationId: string, scope: BudgetScope, subjectId: string | null): string =>
-  `budgetlimits:${organizationId}:${scope}:${subjectId ?? ''}`
+const limitsCacheKey = (organizationId: string, unit: BudgetUnit, scope: BudgetScope, subjectId: string | null): string =>
+  `budgetlimits:${organizationId}:${unit}:${scope}:${subjectId ?? ''}`
 
-async function getCachedOrgLimits(organizationId: string): Promise<BudgetLimits> {
-  return getCached(limitsCacheKey(organizationId, 'organization', null), LIMITS_CACHE_TTL_MS, async () => {
-    const org = await getOrgBudget(organizationId)
-    return { dailyLimitCredits: org.dailyLimitCredits, monthlyLimitCredits: org.monthlyLimitCredits }
+async function getCachedOrgLimits(organizationId: string, unit: BudgetUnit): Promise<BudgetLimits> {
+  return getCached(limitsCacheKey(organizationId, unit, 'organization', null), LIMITS_CACHE_TTL_MS, async () => {
+    const org = await getOrgBudget(organizationId, unit)
+    return { unit: org.unit, dailyLimit: org.dailyLimit, monthlyLimit: org.monthlyLimit }
   })
 }
 
 async function getCachedScopedLimits(
   organizationId: string,
+  unit: BudgetUnit,
   scope: 'member' | 'project',
   subjectId: string,
 ): Promise<BudgetLimits | null> {
-  return getCached(limitsCacheKey(organizationId, scope, subjectId), LIMITS_CACHE_TTL_MS, async () => {
-    const scoped = await getScopedBudget(organizationId, scope, subjectId)
+  return getCached(limitsCacheKey(organizationId, unit, scope, subjectId), LIMITS_CACHE_TTL_MS, async () => {
+    const scoped = await getScopedBudget(organizationId, scope, subjectId, unit)
     if (!scoped) return null
-    return { dailyLimitCredits: scoped.dailyLimitCredits, monthlyLimitCredits: scoped.monthlyLimitCredits }
+    return { unit: scoped.unit, dailyLimit: scoped.dailyLimit, monthlyLimit: scoped.monthlyLimit }
   })
 }
 
@@ -380,15 +431,18 @@ async function invalidateLimitsCache(
   scope: BudgetScope,
   subjectId: string | null,
 ): Promise<void> {
-  await invalidateCached(limitsCacheKey(organizationId, scope, subjectId))
+  // Both units: a write in one unit must not leave a stale read in the other.
+  await Promise.all(
+    (['credit', 'token'] as const).map((unit) => invalidateCached(limitsCacheKey(organizationId, unit, scope, subjectId))),
+  )
 }
 
-/** Drop every cached org-scope limit that came from the seeded allowance — a pricing save changes it. */
+/**
+ * Drop every cached org-scope limit — a pricing save changes the seeded
+ * allowance, which is what the cache holds for organizations without an
+ * explicit row. Prefix invalidation covers every org at once.
+ */
 export async function invalidateSeededLimits(): Promise<void> {
-  // Org-scope limits are cached per organization; the seeded allowance is
-  // part of the pricing version, so a pricing change must not serve the old
-  // allowance for the TTL. Prefix invalidation covers every org at once.
-  const { invalidateCachedPrefix } = await import('@/lib/cache')
   await invalidateCachedPrefix('budgetlimits:')
 }
 
@@ -401,26 +455,26 @@ export async function getBudgetStatus(
   userId: string | null,
   projectId: string | null,
 ): Promise<BudgetStatus> {
+  const unit = await getOrgBudgetUnit(organizationId)
   // Two parallel waves instead of up to six serial round-trips: policies and
   // org spend first, then the scoped spend aggregations only where a policy
   // actually exists.
-  const [orgBudget, orgSpend, memberBudget, projectBudget, pricing, ownKey] = await Promise.all([
-    getCachedOrgLimits(organizationId),
+  const [orgBudget, orgSpend, memberBudget, projectBudget, pricing] = await Promise.all([
+    getCachedOrgLimits(organizationId, unit),
     getSpendTotals(organizationId),
-    userId ? getCachedScopedLimits(organizationId, 'member', userId) : Promise.resolve(null),
-    projectId ? getCachedScopedLimits(organizationId, 'project', projectId) : Promise.resolve(null),
-    getEffectivePricing(),
-    isOrgOnOwnKey(organizationId),
+    userId ? getCachedScopedLimits(organizationId, unit, 'member', userId) : Promise.resolve(null),
+    projectId ? getCachedScopedLimits(organizationId, unit, 'project', projectId) : Promise.resolve(null),
+    unit === 'credit' ? getEffectivePricing() : Promise.resolve(null),
   ])
-  const remainingOrg = remainingCredits(orgBudget, orgSpend)
+  const remainingOrg = remainingIn(orgBudget, orgSpend)
 
   const [memberSpend, projectSpend] = await Promise.all([
     memberBudget && userId ? getSpendTotals(organizationId, { userId }) : Promise.resolve(null),
     projectBudget && projectId ? getSpendTotals(organizationId, { projectId }) : Promise.resolve(null),
   ])
 
-  const remainingUser = memberBudget && memberSpend ? remainingCredits(memberBudget, memberSpend) : null
-  const remainingProject = projectBudget && projectSpend ? remainingCredits(projectBudget, projectSpend) : null
+  const remainingUser = memberBudget && memberSpend ? remainingIn(memberBudget, memberSpend) : null
+  const remainingProject = projectBudget && projectSpend ? remainingIn(projectBudget, projectSpend) : null
 
   const scopes: Array<[BudgetScope, number | null]> = [
     ['organization', remainingOrg],
@@ -428,18 +482,24 @@ export async function getBudgetStatus(
     ['project', remainingProject],
   ]
   const exhausted = scopes.find(([, remaining]) => remaining !== null && remaining <= 0)
+
   const toUsd = (credits: number | null): number | null =>
-    credits === null ? null : creditsToCostUsd(credits, pricing, ownKey)
+    credits === null || !pricing ? null : creditsToCostUsd(credits, pricing)
+  const tokens = (remaining: number | null): number | null => (unit === 'token' ? remaining : null)
 
   return {
     blocked: Boolean(exhausted),
     blockedScope: exhausted?.[0] ?? null,
-    remainingOrgCredits: remainingOrg,
-    remainingUserCredits: remainingUser,
-    remainingProjectCredits: remainingProject,
+    unit,
+    remainingOrg,
+    remainingUser,
+    remainingProject,
     remainingOrgUsd: toUsd(remainingOrg),
     remainingUserUsd: toUsd(remainingUser),
     remainingProjectUsd: toUsd(remainingProject),
+    remainingOrgTokens: tokens(remainingOrg),
+    remainingUserTokens: tokens(remainingUser),
+    remainingProjectTokens: tokens(remainingProject),
   }
 }
 
@@ -482,9 +542,10 @@ export async function getConnectionDiagnostics(
 // ---------------------------------------------------------------------------
 
 export interface BudgetOverview {
+  unit: BudgetUnit
   organization: EffectiveBudgetPolicy
   ownMemberLimit: EffectiveBudgetPolicy | null
-  /** Only present for budget admins: every active member/project policy. */
+  /** Only present for budget admins: every active member/project policy in the unit. */
   policies?: BudgetPolicy[]
 }
 
@@ -493,13 +554,14 @@ export interface BudgetOverview {
  * their own member limit; budget admins additionally get all active policies.
  */
 export async function getBudgetOverview(session: AuthorizedSession): Promise<BudgetOverview> {
+  const unit = await getOrgBudgetUnit(session.organizationId)
   const [organization, ownMemberLimit] = await Promise.all([
-    getOrgBudget(session.organizationId),
-    getScopedBudget(session.organizationId, 'member', session.userId),
+    getOrgBudget(session.organizationId, unit),
+    getScopedBudget(session.organizationId, 'member', session.userId, unit),
   ])
-  const overview: BudgetOverview = { organization, ownMemberLimit }
+  const overview: BudgetOverview = { unit, organization, ownMemberLimit }
   if (canManageBudgets(session)) {
-    overview.policies = await listActivePolicies(session.organizationId)
+    overview.policies = await listActivePolicies(session.organizationId, unit)
   }
   return overview
 }
@@ -542,8 +604,9 @@ async function authorizePolicyWrite(
 export interface BudgetPolicyInput {
   scope: BudgetScope
   subjectId?: string | null
-  dailyLimitCredits: number | null
-  monthlyLimitCredits: number | null
+  /** In the org's current unit — the caller does not choose the unit. */
+  dailyLimit: number | null
+  monthlyLimit: number | null
   note?: string | null
 }
 
@@ -553,7 +616,7 @@ export async function saveBudgetPolicy(
   input: BudgetPolicyInput,
   request: Request,
 ): Promise<BudgetPolicy> {
-  const { scope, dailyLimitCredits, monthlyLimitCredits } = input
+  const { scope, dailyLimit, monthlyLimit } = input
   const subjectId = input.subjectId ?? null
 
   await authorizePolicyWrite(session, scope, subjectId)
@@ -564,8 +627,8 @@ export async function saveBudgetPolicy(
       organizationId: session.organizationId,
       scope,
       subjectId: scope === 'organization' ? null : subjectId,
-      dailyLimitCredits,
-      monthlyLimitCredits,
+      dailyLimit,
+      monthlyLimit,
       actorUserId: session.userId,
       note: input.note ?? null,
     })
@@ -582,7 +645,7 @@ export async function saveBudgetPolicy(
     action: 'budget.policy.set',
     targetType: 'budget_policy',
     targetId: policy.id,
-    metadata: { scope, subjectId, dailyLimitCredits, monthlyLimitCredits },
+    metadata: { scope, subjectId, unit: policy.currency, dailyLimit, monthlyLimit },
     request,
   })
   return policy
@@ -619,27 +682,33 @@ export async function removeBudgetPolicy(
 }
 
 // ---------------------------------------------------------------------------
-// The tenant's view: credits only
+// The tenant's view: its own unit, nothing else
 // ---------------------------------------------------------------------------
 
 /**
- * What a tenant is shown of a window. Cost and price are deliberately absent:
- * the tenant's unit is credits, and the platform's purchase price is not the
- * tenant's business (ADR-0053). This projection is the ONE place the ledger's
- * money columns are narrowed for tenant surfaces, so a new tenant endpoint
- * that reuses it cannot leak cost by accident.
+ * What a tenant is shown of a window: the amount in ITS unit, and how many
+ * generations made it. Cost and price are deliberately absent, and so is the
+ * other unit — a token organization sees no credits, a credit organization
+ * no tokens (ADR-0053). This projection is the ONE place the ledger's columns
+ * are narrowed for tenant surfaces, so a new tenant endpoint that reuses it
+ * cannot leak cost by accident.
  */
 export interface TenantSpendWindow {
-  credits: number
+  /** In the organization's unit (see `UsageOverview.unit`). */
+  amount: number
   events: number
 }
 
-const toTenantWindow = (window: SpendWindow): TenantSpendWindow => ({
-  credits: window.credits,
-  events: window.events,
-})
+const toTenantWindow =
+  (unit: BudgetUnit) =>
+  (window: SpendWindow): TenantSpendWindow => ({
+    amount: consumed(window, unit),
+    events: window.events,
+  })
 
 export interface UsageOverview {
+  /** The unit every `amount` and limit below is in. */
+  unit: BudgetUnit
   summary: {
     day: TenantSpendWindow
     month: TenantSpendWindow
@@ -647,7 +716,7 @@ export interface UsageOverview {
   }
   perMember: Array<{ userId: string; day: TenantSpendWindow; month: TenantSpendWindow }> | null
   dailyTrend: Array<{ day: string } & TenantSpendWindow> | null
-  orgBudget: BudgetLimits & { explicit: boolean }
+  orgBudget: { dailyLimit: number | null; monthlyLimit: number | null; explicit: boolean }
   status: { blocked: boolean; blockedScope: BudgetScope | null }
   scope: { userId?: string; projectId?: string }
 }
@@ -671,9 +740,12 @@ export async function getUsageOverview(
     filter.userId = session.userId
   }
 
+  const unit = await getOrgBudgetUnit(session.organizationId)
+  const project = toTenantWindow(unit)
+
   const [summary, orgBudget, status, perMember, dailyTrend] = await Promise.all([
     getSpendSummary(session.organizationId, filter),
-    getOrgBudget(session.organizationId),
+    getOrgBudget(session.organizationId, unit),
     getBudgetStatus(session.organizationId, session.userId, null),
     // Member breakdown + trend feed the admin dashboard only.
     admin ? getSpendByMember(session.organizationId) : Promise.resolve(null),
@@ -681,26 +753,23 @@ export async function getUsageOverview(
   ])
 
   return {
+    unit,
     summary: {
-      day: toTenantWindow(summary.day),
-      month: toTenantWindow(summary.month),
+      day: project(summary.day),
+      month: project(summary.month),
       perModel: summary.perModel.map((entry) => ({
         model: entry.model,
-        day: toTenantWindow(entry.day),
-        month: toTenantWindow(entry.month),
+        day: project(entry.day),
+        month: project(entry.month),
       })),
     },
     perMember: perMember
-      ? perMember.map((entry) => ({
-          userId: entry.userId,
-          day: toTenantWindow(entry.day),
-          month: toTenantWindow(entry.month),
-        }))
+      ? perMember.map((entry) => ({ userId: entry.userId, day: project(entry.day), month: project(entry.month) }))
       : null,
-    dailyTrend: dailyTrend ? dailyTrend.map((point) => ({ day: point.day, ...toTenantWindow(point) })) : null,
+    dailyTrend: dailyTrend ? dailyTrend.map((point) => ({ day: point.day, ...project(point) })) : null,
     orgBudget: {
-      dailyLimitCredits: orgBudget.dailyLimitCredits,
-      monthlyLimitCredits: orgBudget.monthlyLimitCredits,
+      dailyLimit: orgBudget.dailyLimit,
+      monthlyLimit: orgBudget.monthlyLimit,
       explicit: orgBudget.explicit,
     },
     status: { blocked: status.blocked, blockedScope: status.blockedScope },

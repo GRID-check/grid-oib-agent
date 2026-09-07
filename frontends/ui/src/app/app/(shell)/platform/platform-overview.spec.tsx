@@ -35,8 +35,10 @@ vi.mock('@/lib/workos/use-widget-appearance', () => ({
 /** USD cost as charged, priced at a 2× margin with one credit = $0.10. */
 const window = (costUsd: number, events = Math.round(costUsd)) => ({
   costUsd,
+  ownKeyCostUsd: 0,
   priceUsd: costUsd * 2,
   credits: costUsd * 20,
+  tokens: costUsd * 1000,
   events,
 })
 
@@ -56,8 +58,10 @@ const org = (
 
 interface SpendWindow {
   costUsd: number
+  ownKeyCostUsd: number
   priceUsd: number
   credits: number
+  tokens: number
   events: number
 }
 

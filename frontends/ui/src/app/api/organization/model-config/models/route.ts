@@ -5,9 +5,10 @@
  * group's capability requirements ("appropriate models for the task").
  *
  * What a model costs is shown as `≈ N credits per request` — the platform's
- * reference request priced at the active price list (ADR-0053). The catalog's
- * per-token USD prices are the platform's purchase price and are stripped
- * here; they never reach a tenant.
+ * reference request priced at the active price list (ADR-0053) — for a
+ * platform-billed organization; an organization on its own key gets no hint.
+ * The catalog's per-token USD prices are the platform's purchase price and
+ * are stripped here; they never reach a tenant.
  */
 
 import { z } from 'zod'
@@ -20,6 +21,7 @@ import { searchModelsForGroup } from '@/lib/model-config/openrouter'
 import { getCatalogForOrg } from '@/lib/model-config/org-catalog'
 import { isZdrOnlyForOrg } from '@/lib/organizations/service'
 import { estimateCreditsPerRequest, getEffectivePricing } from '@/lib/pricing/service'
+import { getOrgBudgetUnit } from '@/lib/budgets/service'
 
 const querySchema = z.object({
   group: z.string().default(''),
@@ -39,7 +41,11 @@ export const GET = apiRoute(
     // With a BYOK credential the catalog is the org's own provider listing
     // (relaxed capability checks) — otherwise the OpenRouter catalog (ADR-0022).
     // The org's ZDR policy narrows an OpenRouter catalog to ZDR models.
-    const [zdrOnly, pricing] = await Promise.all([isZdrOnlyForOrg(session.organizationId), getEffectivePricing()])
+    const [zdrOnly, pricing, unit] = await Promise.all([
+      isZdrOnlyForOrg(session.organizationId),
+      getEffectivePricing(),
+      getOrgBudgetUnit(session.organizationId),
+    ])
     let catalog
     try {
       catalog = await getCatalogForOrg(session.organizationId, { zdrOnly })
@@ -57,11 +63,14 @@ export const GET = apiRoute(
       },
       models: searchModelsForGroup(catalog.models, groupId, query, 30, catalog.validation === 'full').map(
         // `promptPrice`/`completionPrice` are deliberately not spread through.
+        // An organization on its own key pays its provider, not Piloti: no
+        // credits hint at all (null), rather than a number that means nothing.
         ({ id, name, contextLength, promptPrice, completionPrice }) => ({
           id,
           name,
           contextLength,
-          creditsPerRequest: estimateCreditsPerRequest({ promptPrice, completionPrice }, pricing),
+          creditsPerRequest:
+            unit === 'credit' ? estimateCreditsPerRequest({ promptPrice, completionPrice }, pricing) : null,
         })
       ),
     }
