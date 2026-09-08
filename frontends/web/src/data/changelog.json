@@ -102,6 +102,10 @@
             {
               "en": "Ein einzelner Chat konnte bei einer kalten Zwischenablage kurz alle anderen laufenden Gespräche auf demselben Server anhalten, während er die Einstellungen seiner Organisation nachlud. Das Nachladen blockiert die anderen jetzt nicht mehr.",
               "de": "Ein einzelner Chat konnte bei einer kalten Zwischenablage kurz alle anderen laufenden Gespräche auf demselben Server anhalten, während er die Einstellungen seiner Organisation nachlud. Das Nachladen blockiert die anderen jetzt nicht mehr."
+            },
+            {
+              "en": "Research runs that had already finished on the server while the history still showed them as running now settle to their real outcome when stopped, instead of staying stuck. Stopping a run asks for confirmation first.",
+              "de": "Research runs that had already finished on the server while the history still showed them as running now settle to their real outcome when stopped, instead of staying stuck. Stopping a run asks for confirmation first."
             }
           ]
         },
