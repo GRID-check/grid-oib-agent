@@ -32,6 +32,24 @@
   },
   "releases": [
     {
+      "id": "2026-09-08",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-08",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Right-click in a project's Files works the way Finder and Explorer taught it: a file, a folder, and the empty listing each open their own menu. The ⋯ on a file or folder offers the same operations and stays, so the menu is still there if you never right-click.",
+              "de": "Right-click in a project's Files works the way Finder and Explorer taught it: a file, a folder, and the empty listing each open their own menu. The ⋯ on a file or folder offers the same operations and stays, so the menu is still there if you never right-click."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-09-07",
       "kind": "date",
       "version": null,
