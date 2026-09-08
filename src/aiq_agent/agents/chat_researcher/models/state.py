@@ -26,10 +26,8 @@ class ChatResearcherState(BaseModel):
 
     Attributes:
         messages: Conversation history with LangGraph message reducer.
-        tools_info: Information about available tools.
         user_info: Optional user information for personalization.
         data_sources: Optional list of user-selected data source IDs.
-        final_report: The final research report.
         shallow_result: Result from shallow research (if executed).
         clarifier_result: Log from clarifier agent dialog.
         original_query: The latest user query, preserved for deep research.
@@ -41,7 +39,6 @@ class ChatResearcherState(BaseModel):
             silently instead of saying it could not be read yet.
         focus_file_name: Filename of the composer's "Asking about <file>" subject.
         focus_shelf: Shelf that focused file sits on (session/project/archiv).
-        cards: Structured response cards generated from the final research context.
         skip_clarifier: When True the clarifier node is bypassed regardless of
             ``enable_clarifier``.  Set automatically for API-key and anonymous
             callers so headless workflows do not stall waiting for user input.
@@ -53,7 +50,6 @@ class ChatResearcherState(BaseModel):
     messages: Annotated[list[AnyMessage], add_messages]
     user_info: dict[str, Any] | None = None
     data_sources: list[str] | None = None
-    final_report: str | None = None
     shallow_result: ShallowResult | None = None
     clarifier_result: str | None = None
     original_query: str | None = None
@@ -68,7 +64,6 @@ class ChatResearcherState(BaseModel):
     # which file instead of retrieving the one the user is looking at.
     focus_file_name: str | None = None
     focus_shelf: str | None = None
-    cards: list[dict[str, Any]] | None = None
     skip_clarifier: bool = False
     # STICKY, for the life of the conversation: the user rejected a research
     # plan. A rejection is not a cancel — the question is still on the table and

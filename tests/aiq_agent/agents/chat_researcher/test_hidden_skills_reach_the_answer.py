@@ -13,8 +13,8 @@ exists to prevent.
 So this pins the HOP. Nothing here stubs the chat agent's graph or the lift:
 a real ``ShallowResearchAgentState`` — the same object the shallow register
 sets ``skills_hidden`` on — is returned by the shallow node, run through the
-real ``ChatResearcherAgent``, through the real ``_apply_transparency_extras``,
-and out the real ``_response_to_chunks``. What is asserted is the terminal
+real ``ChatResearcherAgent``, through the real ``apply_state_extras``,
+and out the real ``response_to_chunks``. What is asserted is the terminal
 chunk, which is where ``test_stream_extras_reach_the_frame`` picks the field up
 and follows it the rest of the way to the websocket frame. A rename on either
 side of the hop, or a missing kwarg anywhere along it, fails here.
@@ -26,13 +26,13 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.chat_researcher.agent import ESCALATION_MARKER
 from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
 from aiq_agent.agents.chat_researcher.models import ChatResearcherState
-from aiq_agent.agents.chat_researcher.register import _apply_transparency_extras
-from aiq_agent.agents.chat_researcher.register import _response_to_chunks
+from aiq_agent.agents.shallow_researcher.markers import ESCALATION_MARKER
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.common import _create_chat_response
+from aiq_agent.turn.response import apply_state_extras
+from aiq_agent.turn.streaming import response_to_chunks
 
 VOICE = "piloti-voice"
 CARDS = "piloti-cards"
@@ -74,8 +74,8 @@ async def _turn(shallow_fn, deep_fn=None):
     result = await _agent(shallow_fn, deep_fn).run(state, thread_id="t")
 
     response = _create_chat_response("die Antwort", response_id="r1", model="chat_researcher")
-    _apply_transparency_extras(response, result)
-    return result, _response_to_chunks(response, stream=True)[-1]
+    apply_state_extras(response, result)
+    return result, response_to_chunks(response, stream=True)[-1]
 
 
 @pytest.mark.asyncio
@@ -129,8 +129,8 @@ async def test_an_escalating_turn_drops_the_mute_list_with_the_list_it_mutes():
 
     result, chunk = await _turn(shallow_escalating, deep)
 
-    assert result.get("skills_activated") is None
-    assert result.get("skills_hidden") is None, (
+    assert result.skills_activated is None
+    assert result.skills_hidden is None, (
         "the superseded shallow turn's mute list survived into the deep-research answer's "
         "state: it names skills that shaped an answer the reader is never shown"
     )

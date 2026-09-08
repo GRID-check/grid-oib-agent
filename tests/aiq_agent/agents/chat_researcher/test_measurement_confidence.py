@@ -16,7 +16,6 @@ The four claims under test, and only the first is the feature:
    turn does not rescue it.
 """
 
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -29,6 +28,7 @@ from aiq_agent.agents.chat_researcher.models import ChatResearcherState
 from aiq_agent.agents.shallow_researcher.markers import MEASUREMENT_CONFIDENCE_CEILING
 from aiq_agent.agents.shallow_researcher.markers import answer_confidence_capped_reason
 from aiq_agent.agents.shallow_researcher.markers import surface_answer_confidence
+from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 
 # The two answers the whole design turns on: the same measured sentence, once
 # on its own and once with a legal conclusion bolted onto it.
@@ -184,30 +184,32 @@ class TestGuardWithMeasurementGrounding:
                     assert surface_answer_confidence(level, grounded, quotes) == expected
 
 
+def _signals(**fields) -> ShallowResearchAgentState:
+    fields.setdefault("escalation_requested", False)
+    fields.setdefault("answer_confidence_marker", "high")
+    return ShallowResearchAgentState(messages=[], **fields)
+
+
 class TestFinalizeShallowAnswerCarriesTheSignals:
     """The node-level assembly, where the level and the reason are written."""
 
     def test_measured_answer_surfaces_medium(self):
         msg = AIMessage(content=f"{KELLER_MEASURED}\n[CONFIDENCE:high]")
-        update = _finalize_shallow_answer(msg, citation_grounded=False, measurement_grounded=True)
+        update = _finalize_shallow_answer(msg, _signals(answer_measurement_grounded=True))
         assert update["answer_confidence"] == "medium"
         assert update["answer_confidence_capped_reason"] == "measurement_only"
         assert "[CONFIDENCE" not in update["messages"][0].content
 
     def test_mixed_answer_does_not_launder_through_the_node(self):
-        msg = AIMessage(content=f"{KELLER_MEASURED_PLUS_VERDICT}\n[CONFIDENCE:high]")
+        msg = AIMessage(content=KELLER_MEASURED_PLUS_VERDICT)
         update = _finalize_shallow_answer(
-            msg,
-            citation_grounded=False,
-            measurement_grounded=True,
-            normative_claim_uncited=True,
+            msg, _signals(answer_measurement_grounded=True, answer_normative_claim_uncited=True)
         )
         assert update["answer_confidence"] == "low"
         assert update["answer_confidence_capped_reason"] == "normative_claim_uncited"
 
-    def test_node_defaults_leave_an_ungrounded_answer_capped(self):
-        msg = AIMessage(content="Der Keller erfüllt OIB 4.\n[CONFIDENCE:high]")
-        update = _finalize_shallow_answer(msg, citation_grounded=False)
+    def test_model_defaults_leave_an_ungrounded_answer_capped(self):
+        update = _finalize_shallow_answer(AIMessage(content="Der Keller erfüllt OIB 4."), _signals())
         assert update["answer_confidence"] == "low"
         assert update["answer_confidence_capped_reason"] == "ungrounded"
 
@@ -225,28 +227,16 @@ class TestMeasurementConfidenceEndToEnd:
         return deep
 
     def _shallow(self, answer: str, *, measured: bool, normative: bool, marker: str = "high"):
-        """A shallow result carrying the real state fields (not mock attributes).
-
-        ``MagicMock`` auto-vivifies every attribute as a truthy object, so a mock
-        that merely forgot to set the grounding fields would be handed
-        measurement grounding for free. The chat node reads these with
-        ``is True`` / ``is not False`` precisely so it fails closed on that; here
-        the fields are set to real booleans so the test exercises the signal and
-        not the fallback.
-        """
+        """The real shallow state, with the grounding fields set to real booleans."""
 
         async def shallow(state_input):
-            messages = state_input.messages if hasattr(state_input, "messages") else state_input
-            result = MagicMock()
-            result.messages = list(messages) + [AIMessage(content=answer)]
-            result.answer_citation_grounded = False
-            result.answer_quotes_verified = True
-            result.answer_measurement_grounded = measured
-            result.answer_normative_claim_uncited = normative
-            result.escalation_requested = False
-            result.answer_confidence_marker = marker
-            result.answer_confidence_marker_reason = None
-            return result
+            return ShallowResearchAgentState(
+                messages=list(state_input.messages) + [AIMessage(content=answer)],
+                answer_measurement_grounded=measured,
+                answer_normative_claim_uncited=normative,
+                escalation_requested=False,
+                answer_confidence_marker=marker,
+            )
 
         return shallow
 
@@ -264,8 +254,8 @@ class TestMeasurementConfidenceEndToEnd:
         agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Wie hoch ist der Keller?")])
         result = await agent.run(state, thread_id="m1")
-        assert result["answer_confidence"] == "medium"
-        assert result["answer_confidence_capped_reason"] == "measurement_only"
+        assert result.answer_confidence == "medium"
+        assert result.answer_confidence_capped_reason == "measurement_only"
 
     @pytest.mark.asyncio
     async def test_mixed_answer_arrives_at_low_end_to_end(self, deep_fn):
@@ -274,35 +264,8 @@ class TestMeasurementConfidenceEndToEnd:
         agent = self._agent(shallow, deep_fn)
         state = ChatResearcherState(messages=[HumanMessage(content="Reicht die Kellerhöhe?")])
         result = await agent.run(state, thread_id="m2")
-        assert result["answer_confidence"] == "low"
-        assert result["answer_confidence_capped_reason"] == "normative_claim_uncited"
-
-    @pytest.mark.asyncio
-    async def test_a_result_without_the_fields_falls_back_to_the_old_cap(self, deep_fn):
-        """Fail closed: an unrecognised signal never opens the gate.
-
-        The result here is a bare ``MagicMock`` whose grounding attributes are
-        auto-created truthy objects — the shape a partially migrated caller or a
-        sloppy test produces. It must be read as "no measurement", not as
-        "measured", or every ungrounded answer in the system quietly gains a
-        level.
-        """
-
-        async def shallow(state_input):
-            messages = state_input.messages if hasattr(state_input, "messages") else state_input
-            result = MagicMock()
-            result.messages = list(messages) + [AIMessage(content="Behauptung ohne Beleg.")]
-            result.answer_citation_grounded = False
-            result.escalation_requested = False
-            result.answer_confidence_marker = "high"
-            result.answer_confidence_marker_reason = None
-            return result
-
-        agent = self._agent(shallow, deep_fn)
-        state = ChatResearcherState(messages=[HumanMessage(content="Frage?")])
-        result = await agent.run(state, thread_id="m3")
-        assert result["answer_confidence"] == "low"
-        assert result["answer_confidence_capped_reason"] == "ungrounded"
+        assert result.answer_confidence == "low"
+        assert result.answer_confidence_capped_reason == "normative_claim_uncited"
 
 
 class TestTheSingleSourceFallbackDoesNotLaunder:
@@ -382,18 +345,15 @@ class TestTheSingleSourceFallbackDoesNotLaunder:
         """End to end through the chat node, which is where the level is set."""
 
         async def shallow(state_input):
-            messages = state_input.messages if hasattr(state_input, "messages") else state_input
-            result = MagicMock()
-            result.messages = list(messages) + [AIMessage(content=KELLER_MEASURED_PLUS_VERDICT + " [1]")]
-            result.answer_citation_grounded = True
-            result.answer_citation_fallback_used = True
-            result.answer_quotes_verified = True
-            result.answer_measurement_grounded = True
-            result.answer_normative_claim_uncited = True
-            result.escalation_requested = False
-            result.answer_confidence_marker = "high"
-            result.answer_confidence_marker_reason = None
-            return result
+            return ShallowResearchAgentState(
+                messages=list(state_input.messages) + [AIMessage(content=KELLER_MEASURED_PLUS_VERDICT + " [1]")],
+                answer_citation_grounded=True,
+                answer_citation_fallback_used=True,
+                answer_measurement_grounded=True,
+                answer_normative_claim_uncited=True,
+                escalation_requested=False,
+                answer_confidence_marker="high",
+            )
 
         agent = ChatResearcherAgent(
             shallow_research_fn=shallow,
@@ -403,55 +363,5 @@ class TestTheSingleSourceFallbackDoesNotLaunder:
         )
         state = ChatResearcherState(messages=[HumanMessage(content="Reicht die Kellerhöhe?")])
         result = await agent.run(state, thread_id="f1")
-        assert result["answer_confidence"] == "low"
-        assert result["answer_confidence_capped_reason"] == "normative_claim_uncited"
-
-
-class TestTheFallbackFlagFailsClosedLikeItsSiblings:
-    """L1. The default the comment above it claimed, and did not have.
-
-    ``answer_citation_fallback_used`` is read with ``is not False`` — the same
-    shape as ``answer_normative_claim_uncited`` — and for the same reason: it is
-    a flag that HOLDS a confidence down, so an unrecognised value must count as
-    "fallback". The DEFAULT was ``False`` and therefore fail-OPEN: a result that
-    never set the field (a duck-typed caller, a partially migrated state, a
-    mock) surfaced the model's own "high" on a citation nobody checked.
-    """
-
-    def _shallow_missing_the_field(self):
-        async def shallow(state_input):
-            messages = state_input.messages if hasattr(state_input, "messages") else state_input
-            result = SimpleNamespace()
-            result.messages = list(messages) + [AIMessage(content="Der Keller ist 2,70 m hoch.")]
-            # Everything the node reads EXCEPT the fallback flag — the shape of
-            # a caller written before that field existed.
-            result.answer_citation_grounded = True
-            result.answer_quotes_verified = True
-            result.answer_measurement_grounded = False
-            result.answer_normative_claim_uncited = False
-            result.escalation_requested = False
-            result.answer_confidence_marker = "high"
-            result.answer_confidence_marker_reason = None
-            return result
-
-        return shallow
-
-    @pytest.mark.asyncio
-    async def test_a_result_missing_the_flag_is_treated_as_fallback_grounded(self):
-        async def deep(state):
-            result = MagicMock()
-            result.messages = list(state.messages) + [AIMessage(content="Deep report.")]
-            return result
-
-        agent = ChatResearcherAgent(
-            shallow_research_fn=self._shallow_missing_the_field(),
-            deep_research_fn=deep,
-            clarifier_fn=None,
-            enable_clarifier=False,
-        )
-        state = ChatResearcherState(messages=[HumanMessage(content="Wie hoch ist der Keller?")])
-
-        result = await agent.run(state, thread_id="fc1")
-
-        assert result["answer_confidence"] == MEASUREMENT_CONFIDENCE_CEILING
-        assert result["answer_confidence_capped_reason"] == "citation_fallback"
+        assert result.answer_confidence == "low"
+        assert result.answer_confidence_capped_reason == "normative_claim_uncited"

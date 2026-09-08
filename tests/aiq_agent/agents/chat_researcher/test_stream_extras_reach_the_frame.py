@@ -1,6 +1,6 @@
-"""The crossing guard for ``_STREAM_EXTRA_FIELDS``.
+"""The crossing guard for ``STREAM_EXTRA_FIELDS``.
 
-``register._STREAM_EXTRA_FIELDS`` is the list of names the chat researcher lifts
+``turn.streaming.STREAM_EXTRA_FIELDS`` is the list of names the chat researcher lifts
 off the finished ``ChatResponse`` and onto the terminal ``ChatResponseChunk``.
 The aiq_api handler then pulls names back off that chunk and attaches them to
 the websocket frame — via ``_TRANSPARENCY_EXTRA_FIELDS``,
@@ -28,7 +28,7 @@ on every answer. Both lists name it now.
 
 What this file does NOT pin is how a field gets ONTO the answer in the first
 place — it builds the ``ChatResponse`` itself. Adding a name to
-``_STREAM_EXTRA_FIELDS`` therefore passes here whether or not anything ever sets
+``STREAM_EXTRA_FIELDS`` therefore passes here whether or not anything ever sets
 it, which is exactly how ``skills_hidden`` could be declared end to end and
 still reach nobody. The hop from graph state to answer is pinned per field, one
 file over, in ``test_hidden_skills_reach_the_answer.py``.
@@ -46,9 +46,9 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from aiq_agent.agents.chat_researcher.register import _STREAM_EXTRA_FIELDS
-from aiq_agent.agents.chat_researcher.register import _response_to_chunks
 from aiq_agent.common import _create_chat_response
+from aiq_agent.turn.streaming import STREAM_EXTRA_FIELDS
+from aiq_agent.turn.streaming import response_to_chunks
 from aiq_api import websocket_reconnect
 from aiq_api.websocket_reconnect import ReconnectableWebSocketMessageHandler
 from aiq_api.websocket_reconnect import WebSocketSessionRegistry
@@ -108,7 +108,7 @@ async def _frame_for(extras: dict[str, object], monkeypatch) -> dict:
     response = _create_chat_response("die Antwort", response_id="r1", model="chat_researcher")
     for name, value in extras.items():
         setattr(response, name, value)
-    terminal = _response_to_chunks(response, stream=True)[-1]
+    terminal = response_to_chunks(response, stream=True)[-1]
 
     socket = _Socket()
     registry = WebSocketSessionRegistry()
@@ -129,14 +129,14 @@ async def _frame_for(extras: dict[str, object], monkeypatch) -> dict:
 
 
 async def test_every_lifted_extra_reaches_the_frame(monkeypatch) -> None:
-    """Each name in ``_STREAM_EXTRA_FIELDS`` arrives on the client's frame."""
-    sentinels = {name: f"sentinel::{name}" for name in _STREAM_EXTRA_FIELDS}
+    """Each name in ``STREAM_EXTRA_FIELDS`` arrives on the client's frame."""
+    sentinels = {name: f"sentinel::{name}" for name in STREAM_EXTRA_FIELDS}
     frame = await _frame_for(sentinels, monkeypatch)
 
-    for name in _STREAM_EXTRA_FIELDS:
+    for name in STREAM_EXTRA_FIELDS:
         assert name in frame, (
-            f"{name!r} is lifted onto the terminal chunk by _STREAM_EXTRA_FIELDS "
-            f"(src/aiq_agent/agents/chat_researcher/register.py) but never reaches the websocket "
+            f"{name!r} is lifted onto the terminal chunk by STREAM_EXTRA_FIELDS "
+            f"(src/aiq_agent/turn/streaming.py) but never reaches the websocket "
             f"frame: nothing downstream reads it. Add it to _TRANSPARENCY_EXTRA_FIELDS / "
             f"_SKILLS_EXTRA_FIELDS in frontends/aiq_api/src/aiq_api/websocket_reconnect.py, or "
             f"correct the name here — the two sides must agree, and only this test says so."

@@ -2,11 +2,11 @@
 
 from urllib.parse import urlparse
 
-from aiq_agent.agents.chat_researcher.agent import ESCALATION_MARKER
-from aiq_agent.agents.chat_researcher.agent import detect_and_strip_confidence_marker
-from aiq_agent.agents.chat_researcher.agent import detect_and_strip_escalation_marker
 from aiq_agent.agents.chat_researcher.agent import matches_escalation_keywords
-from aiq_agent.agents.chat_researcher.agent import surface_answer_confidence
+from aiq_agent.agents.shallow_researcher.markers import ESCALATION_MARKER
+from aiq_agent.agents.shallow_researcher.markers import detect_and_strip_confidence_marker
+from aiq_agent.agents.shallow_researcher.markers import detect_and_strip_escalation_marker
+from aiq_agent.agents.shallow_researcher.markers import surface_answer_confidence
 
 
 class TestDetectAndStripEscalationMarker:

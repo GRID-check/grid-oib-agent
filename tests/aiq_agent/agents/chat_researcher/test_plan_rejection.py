@@ -28,32 +28,23 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 
-from aiq_agent.agents.chat_researcher.agent import ESCALATION_MARKER
 from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
 from aiq_agent.agents.chat_researcher.models import ChatResearcherState
+from aiq_agent.agents.shallow_researcher.markers import ESCALATION_MARKER
+from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 
 PROCEDURAL_QUESTION = "Wie läuft das Baubewilligungsverfahren in Wien ab?"
 SHALLOW_ANSWER = "Das Verfahren läuft in fünf Schritten ab [1]."
 
 
 def _shallow_result(messages, *, escalating: bool = False):
-    """A shallow-agent result shaped like the real one.
-
-    Every control-marker field is set EXPLICITLY: a bare ``MagicMock``
-    auto-vivifies ``escalation_requested`` into a truthy object, which would
-    make every shallow turn here look like an escalation request and hide
-    whichever branch is actually under test.
-    """
+    """A shallow-agent result: the real state, asking for deep research or not."""
     answer = SHALLOW_ANSWER + (f"\n{ESCALATION_MARKER}" if escalating else "")
-    result = MagicMock()
-    result.messages = list(messages) + [AIMessage(content=answer)]
-    result.escalation_requested = escalating
-    result.answer_confidence_marker = None
-    result.answer_escalation_reason = None
-    result.source_lookup_attempted = True
-    result.verified_sources = None
-    result.citations_removed = None
-    return result
+    return ShallowResearchAgentState(
+        messages=list(messages) + [AIMessage(content=answer)],
+        escalation_requested=escalating,
+        source_lookup_attempted=True,
+    )
 
 
 def _is_fresh_question(messages) -> bool:
@@ -135,7 +126,7 @@ class TestRejectionDegradesToAnAnswer:
         assert calls["deep"] == 0, "a rejected plan must not run deep research anyway"
         assert calls["shallow"] == 2, "the answer that asked for the plan, then the answer given instead of it"
 
-        answers = [m.content for m in result["messages"] if isinstance(m, AIMessage)]
+        answers = [m.content for m in result.messages if isinstance(m, AIMessage)]
         assert SHALLOW_ANSWER in answers
         assert not any("start a new research query" in c.lower() for c in answers), (
             "the dead-end notice must be gone: the question was already known and answerable"
@@ -180,9 +171,9 @@ class TestRejectionDegradesToAnAnswer:
             thread_id="reject-3",
         )
 
-        assert result["routing_decision"] != "deep"
-        assert result["routing_decision"] == "shallow"
-        assert result.get("escalation_reason") is None, "a decline is not an escalation"
+        assert result.routing_decision != "deep"
+        assert result.routing_decision == "shallow"
+        assert result.escalation_reason is None, "a decline is not an escalation"
 
 
 class TestCancellationEndsTheTurnWithAReceipt:
@@ -223,7 +214,7 @@ class TestCancellationEndsTheTurnWithAReceipt:
         assert calls["deep"] == 0, "a cancelled plan must not run deep research"
         assert calls["shallow"] == 1, "a cancellation is not a decline: no second shallow answer was asked for"
 
-        answers = [m.content for m in result["messages"] if isinstance(m, AIMessage)]
+        answers = [m.content for m in result.messages if isinstance(m, AIMessage)]
         assert any("verworfen" in c for c in answers), "the cancellation needs a visible receipt"
         assert not any("start a new research query" in c.lower() for c in answers)
 
@@ -239,8 +230,8 @@ class TestCancellationEndsTheTurnWithAReceipt:
             thread_id="cancel-2",
         )
 
-        assert result["routing_decision"] == "meta"
-        assert result.get("escalation_reason") is None, "a cancellation is not an escalation"
+        assert result.routing_decision == "meta"
+        assert result.escalation_reason is None, "a cancellation is not an escalation"
 
     @pytest.mark.asyncio
     async def test_cancel_declines_deep_for_the_conversation(self, cancelling_parts):
@@ -253,7 +244,7 @@ class TestCancellationEndsTheTurnWithAReceipt:
             ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="cancel-3",
         )
-        assert result["deep_research_declined"] is True
+        assert result.deep_research_declined is True
 
         result = await agent.run(
             ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
@@ -263,7 +254,7 @@ class TestCancellationEndsTheTurnWithAReceipt:
         assert calls["clarifier"] == 1, "no second plan after a cancellation"
         assert calls["deep"] == 0
         assert calls["shallow"] == 2, "the re-asked question is answered on the shallow path"
-        assert result["messages"][-1].content == SHALLOW_ANSWER
+        assert result.messages[-1].content == SHALLOW_ANSWER
 
 
 class TestRejectionIsRemembered:
@@ -277,7 +268,7 @@ class TestRejectionIsRemembered:
             thread_id="sticky-1",
         )
 
-        assert result["deep_research_declined"] is True
+        assert result.deep_research_declined is True
 
     @pytest.mark.asyncio
     async def test_a_later_escalating_turn_in_the_same_thread_stays_shallow(self, parts):
@@ -300,7 +291,7 @@ class TestRejectionIsRemembered:
         assert calls["clarifier"] == 1, "a second plan must not be offered after a rejection"
         assert calls["deep"] == 0
         assert calls["shallow"] == 3
-        assert result["messages"][-1].content == SHALLOW_ANSWER, "the marker is stripped and the answer stands"
+        assert result.messages[-1].content == SHALLOW_ANSWER, "the marker is stripped and the answer stands"
 
     @pytest.mark.asyncio
     async def test_a_new_conversation_can_still_reach_deep_research(self, parts):
@@ -361,4 +352,4 @@ class TestRejectionIsRemembered:
         assert calls["clarifier"] == 1, "only the rejected plan itself; never a second trip through the clarifier"
         assert calls["deep"] == 0
         assert calls["shallow"] == 3
-        assert any(SHALLOW_ANSWER in m.content for m in result["messages"] if isinstance(m, AIMessage))
+        assert any(SHALLOW_ANSWER in m.content for m in result.messages if isinstance(m, AIMessage))

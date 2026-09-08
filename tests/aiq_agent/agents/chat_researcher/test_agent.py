@@ -13,30 +13,29 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.chat_researcher.agent import ESCALATION_MARKER
+from aiq_agent.agents.chat_researcher.agent import CONVERSATION_SCOPED_FIELDS
+from aiq_agent.agents.chat_researcher.agent import TURN_SCOPED_FIELDS
 from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
+from aiq_agent.agents.chat_researcher.agent import as_shallow_state
+from aiq_agent.agents.chat_researcher.agent import escalation
 from aiq_agent.agents.chat_researcher.models import ChatResearcherState
+from aiq_agent.agents.chat_researcher.models import ShallowResult
+from aiq_agent.agents.shallow_researcher.markers import ESCALATION_MARKER
+from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 
 
 def _shallow_result(messages, answer: str, *, escalating: bool = False, direct: bool = False):
-    """A shallow-agent result shaped like the real one.
+    """A shallow-agent result: the real state the shallow agent returns.
 
-    Every control field is set EXPLICITLY: a bare ``MagicMock`` auto-vivifies
-    ``escalation_requested`` into a truthy object, which would make every
-    shallow turn look like an escalation request. ``direct`` models a reply
-    that consulted no source and graded nothing — a greeting, a listing, an
-    off-topic decline — which is what the observed routing reads as ``meta``.
+    ``direct`` models a reply that consulted no source and graded nothing — a
+    greeting, a listing, an off-topic decline — which is what the observed
+    routing reads as ``meta``.
     """
-    result = MagicMock()
-    result.messages = list(messages) + [AIMessage(content=answer + (f"\n{ESCALATION_MARKER}" if escalating else ""))]
-    result.escalation_requested = escalating
-    result.answer_confidence_marker = None
-    result.answer_confidence_marker_reason = None
-    result.answer_escalation_reason = None
-    result.verified_sources = None
-    result.citations_removed = None
-    result.source_lookup_attempted = not direct
-    return result
+    return ShallowResearchAgentState(
+        messages=list(messages) + [AIMessage(content=answer + (f"\n{ESCALATION_MARKER}" if escalating else ""))],
+        escalation_requested=escalating,
+        source_lookup_attempted=not direct,
+    )
 
 
 class TestChatResearcherAgent:
@@ -89,20 +88,7 @@ class TestChatResearcherAgent:
             clarifier_fn=mock_clarifier,
         )
 
-        assert agent.callbacks == []
         assert agent.graph is not None
-
-    def test_init_with_callbacks(self, mock_shallow_research, mock_deep_research, mock_clarifier):
-        """Test ChatResearcherAgent initialization with callbacks."""
-        callbacks = [MagicMock()]
-        agent = ChatResearcherAgent(
-            shallow_research_fn=mock_shallow_research,
-            deep_research_fn=mock_deep_research,
-            clarifier_fn=mock_clarifier,
-            callbacks=callbacks,
-        )
-
-        assert agent.callbacks == callbacks
 
     def test_graph_property(self, mock_shallow_research, mock_deep_research, mock_clarifier):
         """Test that graph property returns the compiled graph."""
@@ -153,8 +139,8 @@ class TestChatResearcherAgent:
         state = ChatResearcherState(messages=[HumanMessage(content="Hello!")])
         result = await agent.run(state, thread_id="test-thread")
 
-        assert result["routing_decision"] == "meta"
-        contents = [m.content for m in result["messages"] if isinstance(m, AIMessage)]
+        assert result.routing_decision == "meta"
+        contents = [m.content for m in result.messages if isinstance(m, AIMessage)]
         assert "Hello! I'm an AI assistant." in contents
 
     @pytest.mark.asyncio
@@ -170,7 +156,7 @@ class TestChatResearcherAgent:
         result = await agent.run(state, thread_id="test-thread")
 
         assert result is not None
-        assert result["routing_decision"] == "shallow"
+        assert result.routing_decision == "shallow"
 
     @pytest.mark.asyncio
     async def test_run_deep_research_flow(self, mock_deep_research, mock_clarifier):
@@ -191,8 +177,8 @@ class TestChatResearcherAgent:
         result = await agent.run(state, thread_id="test-thread")
 
         assert result is not None
-        assert result["routing_decision"] == "deep"
-        assert result["messages"][-1].content == "Here's a comprehensive report."
+        assert result.routing_decision == "deep"
+        assert result.messages[-1].content == "Here's a comprehensive report."
 
     @pytest.mark.asyncio
     async def test_a_direct_reply_never_escalates(self, mock_clarifier):
@@ -227,8 +213,8 @@ class TestChatResearcherAgent:
 
         assert result is not None
         assert deep_called is False, "a direct reply must not reach deep research"
-        assert result["routing_decision"] == "meta"
-        contents = [m.content for m in result["messages"] if isinstance(m, AIMessage)]
+        assert result.routing_decision == "meta"
+        contents = [m.content for m in result.messages if isinstance(m, AIMessage)]
         assert any("Notiert" in c for c in contents), "shallow agent should have answered"
         assert not any("comprehensive report" in c for c in contents)
 
@@ -306,7 +292,7 @@ class TestChatResearcherAgent:
         )
         result = await agent.run(state, thread_id="test-thread")
 
-        assert result["collection_scope"] == ["oib_knowledge", "proj_project-1", "s_conv-1"]
+        assert result.collection_scope == ["oib_knowledge", "proj_project-1", "s_conv-1"]
 
     @pytest.mark.asyncio
     async def test_run_propagates_none_data_sources(self, mock_deep_research, mock_clarifier):
@@ -448,8 +434,8 @@ class TestRoutingBoundary:
         assert calls["shallow"] is True, "the shallow agent answers every turn, off-topic ones included"
         assert calls["deep"] is False
         assert calls["clarifier"] is False
-        assert result["routing_decision"] == "meta"
-        contents = [m.content for m in result["messages"] if isinstance(m, AIMessage)]
+        assert result.routing_decision == "meta"
+        contents = [m.content for m in result.messages if isinstance(m, AIMessage)]
         assert any("Fachgebiet" in c for c in contents)
 
     @pytest.mark.asyncio
@@ -469,7 +455,7 @@ class TestRoutingBoundary:
         assert calls["shallow"] is True
         assert calls["clarifier"] is False, "a well-specified shallow question must not be sent to the clarifier"
         assert calls["deep"] is False
-        assert result["routing_decision"] == "shallow"
+        assert result.routing_decision == "shallow"
 
     @pytest.mark.asyncio
     async def test_an_escalating_shallow_result_routes_through_clarifier(self, trackers):
@@ -490,7 +476,7 @@ class TestRoutingBoundary:
         assert calls["shallow"] is True, "every turn starts with the answering agent"
         assert calls["clarifier"] is True, "an escalation must pass through the clarifier"
         assert calls["deep"] is True
-        assert result["routing_decision"] == "deep"
+        assert result.routing_decision == "deep"
 
 
 class TestAppendContextMessage:
@@ -589,3 +575,87 @@ class TestAppendContextMessage:
         snapshot = await agent.graph.aget_state({"configurable": {"thread_id": "conv-1"}})
         assert snapshot.values == {} or not snapshot.values.get("messages")
         assert calls == []
+
+
+async def _unused(state):  # pragma: no cover - the route never reaches it
+    raise AssertionError("must not be called")
+
+
+class TestTurnBoundary:
+    """What ``run()`` resets and what it keeps, derived from the model rather
+    than hand-listed — a field missing from a hand-written reset dict persisted
+    silently across turns via the checkpoint, and ``in_flight_documents`` was
+    such a field: set by the register on every turn and never reaching the graph.
+    """
+
+    def test_the_reset_set_is_every_field_that_is_not_conversation_scoped(self):
+        assert CONVERSATION_SCOPED_FIELDS == {"messages", "deep_research_declined"}
+        assert TURN_SCOPED_FIELDS == set(ChatResearcherState.model_fields) - CONVERSATION_SCOPED_FIELDS
+
+    @pytest.mark.asyncio
+    async def test_in_flight_documents_reach_the_shallow_agent(self):
+        seen: dict[str, object] = {}
+
+        async def shallow(state_input):
+            seen["in_flight"] = state_input.in_flight_documents
+            return _shallow_result(state_input.messages, "Die Datei wird noch gelesen.", direct=True)
+
+        agent = ChatResearcherAgent(shallow_research_fn=shallow, deep_research_fn=_unused, clarifier_fn=None)
+        await agent.run(
+            ChatResearcherState(
+                messages=[HumanMessage(content="Was steht im Plan?")], in_flight_documents=["plan.pdf"]
+            ),
+            thread_id="t",
+        )
+
+        assert seen["in_flight"] == ["plan.pdf"]
+
+    @pytest.mark.asyncio
+    async def test_run_returns_the_typed_state(self):
+        async def shallow(state_input):
+            return _shallow_result(state_input.messages, "Antwort [1].")
+
+        agent = ChatResearcherAgent(shallow_research_fn=shallow, deep_research_fn=_unused, clarifier_fn=None)
+        result = await agent.run(ChatResearcherState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
+        assert isinstance(result, ChatResearcherState)
+
+
+class TestEscalation:
+    """The one pure predicate the escalation edge and the clarifier read."""
+
+    def test_only_an_explicit_ask_escalates(self):
+        asked = ShallowResult(answer="a", escalate_to_deep=True, escalation_reason="zu breit")
+        assert escalation(ChatResearcherState(messages=[], shallow_result=asked)) is asked
+        assert (
+            escalation(
+                ChatResearcherState(messages=[], shallow_result=ShallowResult(answer="a", escalate_to_deep=False))
+            )
+            is None
+        )
+        assert escalation(ChatResearcherState(messages=[])) is None
+
+    def test_insufficiency_prose_alone_is_not_an_ask(self):
+        state = ChatResearcherState(messages=[AIMessage(content="Ich konnte keine Informationen dazu finden.")])
+        assert escalation(state) is None
+
+
+class TestAsShallowState:
+    """The shallow agent's result is the model it is typed to return; a stub
+    that is not one keeps only the attributes it really set."""
+
+    def test_a_real_state_passes_through_untouched(self):
+        state = ShallowResearchAgentState(messages=[], answer_citation_grounded=True)
+        assert as_shallow_state(state) is state
+
+    def test_an_auto_vivified_attribute_reads_as_the_default_not_as_a_signal(self):
+        stub = MagicMock()
+        stub.messages = [AIMessage(content="Antwort.")]
+        stub.escalation_requested = False
+        stub.answer_confidence_marker = "high"
+
+        state = as_shallow_state(stub)
+
+        assert state.answer_confidence_marker == "high"
+        assert state.answer_citation_grounded is False, "a MagicMock attribute must not count as grounding"
+        assert state.answer_measurement_grounded is False
+        assert state.verified_sources is None

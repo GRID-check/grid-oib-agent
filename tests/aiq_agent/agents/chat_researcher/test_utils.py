@@ -153,14 +153,14 @@ class TestExtractQueryFromText:
 
     def test_extract_simple_text(self):
         """Test extracting from plain text."""
-        query, sources, skills = _extract_query_from_text("What is CUDA?")
+        query, sources, skills, _intent = _extract_query_from_text("What is CUDA?")
         assert query == "What is CUDA?"
         assert sources is None
         assert skills is None
 
     def test_extract_empty_text(self):
         """Test extracting from empty string."""
-        query, sources, skills = _extract_query_from_text("")
+        query, sources, skills, _intent = _extract_query_from_text("")
         assert query == ""
         assert sources is None
         assert skills is None
@@ -168,61 +168,51 @@ class TestExtractQueryFromText:
     def test_extract_json_payload(self):
         """Test extracting from JSON payload."""
         text = '{"query": "Test query", "data_sources": ["web_search"]}'
-        query, sources, skills = _extract_query_from_text(text)
+        query, sources, skills, _intent = _extract_query_from_text(text)
         assert query == "Test query"
         assert sources == ["web_search"]
         assert skills is None
 
-    def test_extract_json_payload_sets_focus_from_intent(self):
+    def test_the_parser_returns_the_intent_and_sets_nothing(self):
+        """A parser with a side effect hid a failure to set the turn's focus
+        behind ``except Exception: pass``, so the previous turn's subject
+        leaked into the next. The intent is now a return value."""
         from aiq_agent.common.focus_file import get_focused_file_name
-        from aiq_agent.common.focus_file import get_turn_shelves
         from aiq_agent.common.focus_file import set_turn_intent
 
-        text = '{"query": "Fass zusammen", "focus_file_name": "Protokoll.pdf", "focus_shelf": "session"}'
+        set_turn_intent(file_name="Vorher.pdf")
         try:
-            query, _sources, _skills = _extract_query_from_text(text)
-            assert query == "Fass zusammen"
-            assert get_focused_file_name() == "Protokoll.pdf"
-            # `base` rides along with every subject shelf — a subject narrows
-            # which documents the turn reads, not whether the law applies.
-            assert get_turn_shelves() == frozenset({"session", "base"})
+            parsed = _extract_query_from_text(
+                '{"query": "Fass zusammen", "focus_file_name": "Protokoll.pdf", "focus_shelf": "session"}'
+            )
+            assert parsed.query_text == "Fass zusammen"
+            assert parsed.intent.file_name == "Protokoll.pdf"
+            assert parsed.intent.shelf == "session"
+            assert get_focused_file_name() == "Vorher.pdf", "parsing must not touch the ContextVars"
         finally:
             set_turn_intent()
 
     def test_extract_json_payload_maps_source_preset(self):
-        from aiq_agent.common.focus_file import get_turn_shelves
-        from aiq_agent.common.focus_file import set_turn_intent
-
-        text = '{"query": "Was gilt?", "source_preset": "law"}'
-        try:
-            query, _sources, _skills = _extract_query_from_text(text)
-            assert query == "Was gilt?"
-            assert get_turn_shelves() == frozenset({"base"})
-        finally:
-            set_turn_intent()
+        parsed = _extract_query_from_text('{"query": "Was gilt?", "source_preset": "law"}')
+        assert parsed.query_text == "Was gilt?"
+        assert parsed.intent.source_preset == "law"
 
     def test_extract_json_payload_ignores_client_include_shelves(self):
-        from aiq_agent.common.focus_file import get_turn_shelves
-        from aiq_agent.common.focus_file import set_turn_intent
-
-        text = '{"query": "Fass zusammen", "focus_file_name": "a.pdf", "include_shelves": ["archiv", "base"]}'
-        try:
-            _extract_query_from_text(text)
-            assert get_turn_shelves() is None
-        finally:
-            set_turn_intent()
+        parsed = _extract_query_from_text('{"query": "x", "focus_file_name": "a.pdf", "include_shelves": ["archiv"]}')
+        assert parsed.intent.file_name == "a.pdf"
+        assert parsed.intent.shelf is None
 
     def test_extract_json_payload_with_skills(self):
         """Test extracting forced skills from a JSON payload."""
         text = '{"query": "Analyse", "skills": ["forecast-analysis", "data-table-analysis"]}'
-        query, _, skills = _extract_query_from_text(text)
+        query, _, skills, _intent = _extract_query_from_text(text)
         assert query == "Analyse"
         assert skills == ["forecast-analysis", "data-table-analysis"]
 
     def test_extract_invalid_json(self):
         """Test invalid JSON returns original text."""
         text = '{"invalid json'
-        query, sources, skills = _extract_query_from_text(text)
+        query, sources, skills, _intent = _extract_query_from_text(text)
         assert query == text
         assert sources is None
         assert skills is None
@@ -239,7 +229,7 @@ class TestExtractQueryAndSources:
                 "data_sources": ["confluence"],
             }
         }
-        query, sources, skills = _extract_query_and_sources(payload)
+        query, sources, skills, _intent = _extract_query_and_sources(payload)
         assert query == "Query text"
         assert sources == ["confluence"]
         assert skills is None
@@ -253,14 +243,14 @@ class TestExtractQueryAndSources:
         payload.messages = [user_msg]
         payload.data_sources = None
         payload.skills = None
-        query, sources, skills = _extract_query_and_sources(payload)
+        query, sources, skills, _intent = _extract_query_and_sources(payload)
         assert query == "Object query"
         assert sources is None
         assert skills is None
 
     def test_extract_from_string_payload(self):
         """Test extracting from string payload."""
-        query, sources, skills = _extract_query_and_sources("Plain query string")
+        query, sources, skills, _intent = _extract_query_and_sources("Plain query string")
         assert query == "Plain query string"
         assert sources is None
         assert skills is None
@@ -271,7 +261,7 @@ class TestExtractQueryAndSources:
             "data_sources": [],
             "content": {"messages": [{"role": "user", "content": "Query text"}]},
         }
-        query, sources, skills = _extract_query_and_sources(payload)
+        query, sources, skills, _intent = _extract_query_and_sources(payload)
         assert query == "Query text"
         # [] must survive: `or`-chaining would overwrite it with None ("all tools").
         assert sources == []
@@ -286,7 +276,7 @@ class TestExtractQueryAndSources:
                 "data_sources": ["confluence"],
             },
         }
-        _query, sources, _skills = _extract_query_and_sources(payload)
+        _query, sources, _skills, _intent = _extract_query_and_sources(payload)
         assert sources == []
 
     def test_forced_skills_extracted_top_level(self):
@@ -295,7 +285,7 @@ class TestExtractQueryAndSources:
             "skills": ["forecast-analysis"],
             "content": {"messages": [{"role": "user", "content": "Prognose für Krankenhaus?"}]},
         }
-        query, _sources, skills = _extract_query_and_sources(payload)
+        query, _sources, skills, _intent = _extract_query_and_sources(payload)
         assert query == "Prognose für Krankenhaus?"
         assert skills == ["forecast-analysis"]
 
@@ -307,7 +297,7 @@ class TestExtractQueryAndSources:
                 "skills": ["lightweight-calculation"],
             }
         }
-        query, _sources, skills = _extract_query_and_sources(payload)
+        query, _sources, skills, _intent = _extract_query_and_sources(payload)
         assert query == "Berechnung"
         assert skills == ["lightweight-calculation"]
 
@@ -320,7 +310,7 @@ class TestExtractQueryAndSources:
                 "skills": ["lightweight-calculation"],
             },
         }
-        _query, _sources, skills = _extract_query_and_sources(payload)
+        _query, _sources, skills, _intent = _extract_query_and_sources(payload)
         assert skills == []
 
     def test_forced_skills_from_inline_json(self):
@@ -330,7 +320,7 @@ class TestExtractQueryAndSources:
                 "messages": [{"role": "user", "content": '{"query": "Analyse", "skills": ["data-table-analysis"]}'}]
             }
         }
-        query, _sources, skills = _extract_query_and_sources(payload)
+        query, _sources, skills, _intent = _extract_query_and_sources(payload)
         assert query == "Analyse"
         assert skills == ["data-table-analysis"]
 
@@ -342,7 +332,7 @@ class TestExtractQueryAndSources:
             "skills": ["forecast-analysis", 42, None, " "],
             "content": {"messages": [{"role": "user", "content": "Query"}]},
         }
-        query, _sources, skills = _extract_query_and_sources(payload)
+        query, _sources, skills, _intent = _extract_query_and_sources(payload)
         assert query == "Query"
         assert skills == ["forecast-analysis", "42", "None"]
 
@@ -404,3 +394,36 @@ class TestExtractTurnInputs:
 
         assert inputs.data_sources == ["web_search"]
         assert inputs.force_skills == ["oib"]
+
+    def test_the_intent_is_set_for_retrieval_by_the_lift(self):
+        from aiq_agent.agents.chat_researcher.utils import extract_turn_inputs
+        from aiq_agent.common.focus_file import get_focused_file_name
+        from aiq_agent.common.focus_file import get_turn_shelves
+        from aiq_agent.common.focus_file import set_turn_intent
+
+        try:
+            extract_turn_inputs(
+                '{"query": "Fass zusammen", "focus_file_name": "Protokoll.pdf", "focus_shelf": "session"}'
+            )
+            assert get_focused_file_name() == "Protokoll.pdf"
+            # `base` rides along with every subject shelf — a subject narrows
+            # which documents the turn reads, not whether the law applies.
+            assert get_turn_shelves() == frozenset({"session", "base"})
+            extract_turn_inputs('{"query": "Was gilt?", "source_preset": "law"}')
+            assert get_turn_shelves() == frozenset({"base"})
+        finally:
+            set_turn_intent()
+
+    def test_a_failure_to_set_the_focus_raises_instead_of_leaking_the_last_turn(self, monkeypatch):
+        """The bug: ``except Exception: pass`` around ``set_turn_intent`` let a
+        turn run with the PREVIOUS turn's subject. Now it fails loudly."""
+        import pytest
+
+        from aiq_agent.agents.chat_researcher import utils
+
+        def broken(**_kw):
+            raise RuntimeError("focus store gone")
+
+        monkeypatch.setattr(utils, "set_turn_intent", broken)
+        with pytest.raises(RuntimeError, match="focus store gone"):
+            utils.extract_turn_inputs('{"query": "x", "focus_file_name": "a.pdf"}')

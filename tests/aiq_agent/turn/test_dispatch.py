@@ -20,7 +20,7 @@ from langchain_core.messages import HumanMessage
 
 from aiq_agent.agents.chat_researcher.models import ChatResearcherState
 from aiq_agent.agents.chat_researcher.register import ChatDeepResearcherConfig
-from aiq_agent.agents.chat_researcher.register import _build_deep_research_job_submitter
+from aiq_agent.turn.dispatch import build_deep_research_job_submitter
 
 
 def _config(**overrides):
@@ -41,20 +41,20 @@ class TestDispatchGate:
         monkeypatch.setenv("GRID_JOB_EXECUTION", "db")
         monkeypatch.delenv("NAT_DASK_SCHEDULER_ADDRESS", raising=False)
 
-        assert _build_deep_research_job_submitter(_config()) is not None
+        assert build_deep_research_job_submitter(_config()) is not None
 
     def test_scheduler_without_db_execution_submits(self, monkeypatch):
         monkeypatch.delenv("GRID_JOB_EXECUTION", raising=False)
         monkeypatch.setenv("NAT_DASK_SCHEDULER_ADDRESS", "tcp://localhost:8786")
 
-        assert _build_deep_research_job_submitter(_config()) is not None
+        assert build_deep_research_job_submitter(_config()) is not None
 
     def test_neither_backend_falls_back_to_synchronous(self, monkeypatch):
         # Local dev with no workers: the sync fallback is the feature, not a bug.
         monkeypatch.delenv("GRID_JOB_EXECUTION", raising=False)
         monkeypatch.delenv("NAT_DASK_SCHEDULER_ADDRESS", raising=False)
 
-        assert _build_deep_research_job_submitter(_config()) is None
+        assert build_deep_research_job_submitter(_config()) is None
 
     def test_dask_mode_named_explicitly_without_a_scheduler_falls_back(self, monkeypatch):
         # `dask` is the default value of the variable, so setting it must not
@@ -62,14 +62,14 @@ class TestDispatchGate:
         monkeypatch.setenv("GRID_JOB_EXECUTION", "dask")
         monkeypatch.delenv("NAT_DASK_SCHEDULER_ADDRESS", raising=False)
 
-        assert _build_deep_research_job_submitter(_config()) is None
+        assert build_deep_research_job_submitter(_config()) is None
 
     def test_the_flag_still_governs(self, monkeypatch):
         # Both backends available and the feature off: still no submitter.
         monkeypatch.setenv("GRID_JOB_EXECUTION", "db")
         monkeypatch.setenv("NAT_DASK_SCHEDULER_ADDRESS", "tcp://localhost:8786")
 
-        assert _build_deep_research_job_submitter(_config(use_async_deep_research=False)) is None
+        assert build_deep_research_job_submitter(_config(use_async_deep_research=False)) is None
 
 
 class TestSubmissionReachesTheApi:
@@ -81,7 +81,7 @@ class TestSubmissionReachesTheApi:
 
         submit = AsyncMock(return_value="job-123")
         with patch("aiq_api.jobs.submit.submit_agent_job", submit):
-            submitter = _build_deep_research_job_submitter(_config())
+            submitter = build_deep_research_job_submitter(_config())
             assert submitter is not None
             job_id = await submitter(_state())
 
@@ -89,3 +89,26 @@ class TestSubmissionReachesTheApi:
         assert submit.await_count == 1
         assert submit.await_args.kwargs["agent_type"] == "deep_researcher"
         assert submit.await_args.kwargs["input_text"] == "Wie hoch darf die Brüstung sein?"
+
+
+class TestJobQuery:
+    """What the worker is asked: the preserved query, else the latest user turn."""
+
+    def test_the_preserved_query_wins(self):
+        from aiq_agent.turn.dispatch import job_query
+
+        state = ChatResearcherState(messages=[HumanMessage(content="neu")], original_query="ursprünglich")
+        assert job_query(state) == "ursprünglich"
+
+    def test_falls_back_to_the_latest_user_message(self):
+        from aiq_agent.turn.dispatch import job_query
+
+        assert job_query(_state()) == "Wie hoch darf die Brüstung sein?"
+
+    def test_nothing_to_research_is_an_error(self):
+        import pytest
+
+        from aiq_agent.turn.dispatch import job_query
+
+        with pytest.raises(RuntimeError, match="without a query"):
+            job_query(ChatResearcherState(messages=[]))

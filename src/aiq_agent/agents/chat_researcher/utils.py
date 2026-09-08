@@ -1,5 +1,9 @@
+"""Turn-input parsing and history trimming for the chat workflow."""
+
 import json
+import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 from typing import NamedTuple
@@ -8,52 +12,56 @@ from langchain_core.messages import BaseMessage
 from langchain_core.messages import trim_messages
 
 from aiq_agent.common import parse_data_sources
+from aiq_agent.common.focus_file import get_focused_file_name
+from aiq_agent.common.focus_file import get_focused_shelf
+from aiq_agent.common.focus_file import set_turn_intent
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
 def _get_token_encoder():
-    """Cache a tiktoken encoder, or ``None`` if tiktoken is unavailable."""
+    """Cache a tiktoken encoder, or ``None`` when it cannot be had.
+
+    ``get_encoding`` downloads the BPE table on first use, so a missing
+    package and a transport failure are both "count by heuristic instead".
+    """
     try:
         import tiktoken
 
         return tiktoken.get_encoding("cl100k_base")
-    except Exception:
+    except (ImportError, OSError) as exc:
+        logger.warning("tiktoken unavailable (%s); history is budgeted by the 4-chars-per-token heuristic", exc)
         return None
 
 
 def _encoded_len(text: str) -> int:
     encoder = _get_token_encoder()
-    if encoder is not None:
-        try:
-            return len(encoder.encode(text))
-        except Exception:
-            pass
-    # Fallback heuristic when tiktoken is unavailable: ~4 chars per token.
-    return max(1, len(text) // 4)
+    if encoder is None:
+        # Fallback heuristic when tiktoken is unavailable: ~4 chars per token.
+        return max(1, len(text) // 4)
+    # A user can type "<|endoftext|>"; counting must not refuse it.
+    return len(encoder.encode(text, disallowed_special=()))
 
 
 def _count_message_tokens(messages) -> int:
     """Total approximate tokens across messages, for history-trim budgeting.
 
-    Replaces the old ``token_counter=len`` (which counted *messages*, so a few
-    large turns blew the real context budget). ``trim_messages`` invokes this on
-    the list it holds — BaseMessage objects or dict dumps — so content is pulled
-    from either form; non-string content is JSON-flattened before counting. Each
-    message adds a small fixed overhead for role/format framing.
+    ``trim_messages`` invokes this on the list it holds — BaseMessage objects
+    or dict dumps — so content is pulled from either form; non-string content
+    is JSON-flattened before counting. Each message adds a small fixed
+    overhead for role/format framing.
     """
-    total = 0
-    for message in messages:
-        content = getattr(message, "content", None)
-        if content is None and isinstance(message, dict):
-            content = message.get("content")
-        if isinstance(content, str):
-            text = content
-        elif content is None:
-            text = ""
-        else:
-            text = json.dumps(content, default=str)
-        total += _encoded_len(text) + 4
-    return total
+    return sum(_encoded_len(_message_text(message)) + 4 for message in messages)
+
+
+def _message_text(message: Any) -> str:
+    content = getattr(message, "content", None)
+    if content is None and isinstance(message, dict):
+        content = message.get("content")
+    if content is None:
+        return ""
+    return content if isinstance(content, str) else json.dumps(content, default=str)
 
 
 def trim_message_history(
@@ -63,10 +71,8 @@ def trim_message_history(
 ) -> list[BaseMessage]:
     """Trim conversation history to a real token budget (not a message count).
 
-    ``max_tokens`` is a token budget; ``token_counter`` defaults to a
-    tiktoken-based counter (``_count_message_tokens``) and is injectable for
-    tests. Keeps the most recent turns (``strategy="last"``), always retains
-    system messages, and starts the retained window on a human turn.
+    Keeps the most recent turns (``strategy="last"``), always retains system
+    messages, and starts the retained window on a human turn.
     """
     return trim_messages(
         messages=[m.model_dump() for m in messages],
@@ -88,56 +94,43 @@ def _normalize_enum_value(value: Any) -> str | None:
 
 
 def _is_text_type(type_value: Any) -> bool:
-    """Check if type value represents 'text', handling both strings and enums."""
     normalized = _normalize_enum_value(type_value)
     return normalized is not None and normalized.lower() == "text"
 
 
 def _is_user_role(role_value: Any) -> bool:
-    """Check if role value represents 'user', handling both strings and enums."""
     normalized = _normalize_enum_value(role_value)
     return normalized is not None and normalized.lower() == "user"
 
 
+def _field(item: Any, name: str) -> Any:
+    """One field of a message or content part, whether it is a dict or an object."""
+    return item.get(name) if isinstance(item, dict) else getattr(item, name, None)
+
+
+def _text_part(item: Any) -> str | None:
+    if not _is_text_type(_field(item, "type")):
+        return None
+    text = _field(item, "text")
+    return str(text) if text else None
+
+
 def _extract_text_from_message(message: Any) -> str | None:
+    """The text of one message: a string, a message with string content, or a
+    message whose content is a list of parts (only the ``text`` parts count)."""
     if message is None:
         return None
     if isinstance(message, str):
         return message
-    if hasattr(message, "content"):
-        content_value = getattr(message, "content")
-        if isinstance(content_value, str):
-            return content_value
-        if isinstance(content_value, list):
-            parts = []
-            for item in content_value:
-                if hasattr(item, "type") and _is_text_type(getattr(item, "type")):
-                    text_value = getattr(item, "text", None)
-                    if text_value:
-                        parts.append(str(text_value))
-                elif isinstance(item, dict) and _is_text_type(item.get("type")):
-                    text_value = item.get("text")
-                    if text_value:
-                        parts.append(str(text_value))
-            if parts:
-                return "\n".join(parts).strip()
-    if isinstance(message, dict):
-        content = message.get("content")
-        if isinstance(content, list):
-            parts = []
-            for item in content:
-                if isinstance(item, dict) and _is_text_type(item.get("type")):
-                    text = item.get("text")
-                    if text:
-                        parts.append(str(text))
-            if parts:
-                return "\n".join(parts).strip()
-        if isinstance(content, str):
-            return content
-        text_value = message.get("text")
-        if isinstance(text_value, str):
-            return text_value
-    return None
+    content = _field(message, "content")
+    if content is None and isinstance(message, dict):
+        content = message.get("text")
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return None
+    parts = [text for item in content if (text := _text_part(item))]
+    return "\n".join(parts).strip() if parts else None
 
 
 def parse_skills(raw: Any) -> list[str] | None:
@@ -151,133 +144,137 @@ def parse_skills(raw: Any) -> list[str] | None:
     if raw is None:
         return None
     if isinstance(raw, list):
-        if len(raw) == 0:
-            return []
         parsed = [str(value).strip() for value in raw]
-        return [value for value in parsed if value] or []
+        return [value for value in parsed if value]
     if isinstance(raw, str):
-        if not raw.strip():
-            return []
         parsed = [value.strip() for value in raw.split(",")]
-        return [value for value in parsed if value] or []
+        return [value for value in parsed if value]
     return None
 
 
-def _extract_query_from_text(text: str) -> tuple[str, list[str] | None, list[str] | None]:
-    if not text:
-        return ("", None, None)
-    trimmed = text.strip()
-    if trimmed.startswith("{") and trimmed.endswith("}"):
-        try:
-            payload = json.loads(trimmed)
-        except json.JSONDecodeError:
-            return (text, None, None)
-        if isinstance(payload, dict):
-            data_sources = parse_data_sources(payload.get("data_sources"))
-            skills = parse_skills(payload.get("skills"))
-            query_text = payload.get("query") or payload.get("text")
-            try:
-                from aiq_agent.common.focus_file import set_turn_intent
+@dataclass(frozen=True)
+class TurnIntent:
+    """What the composer said the turn is about: the focused file, its shelf,
+    and the source preset. ``TurnIntent()`` is "no subject" — and it is set on
+    every turn, because the ContextVars outlive one turn and a plain message
+    must not inherit the previous subject."""
 
-                set_turn_intent(
-                    file_name=payload.get("focus_file_name"),
-                    shelf=payload.get("focus_shelf"),
-                    source_preset=payload.get("source_preset"),
-                )
-            except Exception:
-                pass
-            if isinstance(query_text, str) and query_text.strip():
-                return (query_text.strip(), data_sources, skills)
-            # No query/text field — treat the whole blob as the user's
-            # message, not as a structured payload. data_sources in that
-            # JSON would silently re-aim the turn.
-            return (text, None, None)
-    try:
-        from aiq_agent.common.focus_file import set_turn_intent
-
-        set_turn_intent()
-    except Exception:
-        pass
-    return (text, None, None)
+    file_name: object = None
+    shelf: object = None
+    source_preset: object = None
 
 
-def _extract_query_and_sources(payload: Any) -> tuple[str, list[str] | None, list[str] | None]:
-    """Extract query text, data sources and forced skills from various payload formats.
+class ParsedQuery(NamedTuple):
+    query_text: str
+    data_sources: list[str] | None
+    skills: list[str] | None
+    intent: TurnIntent
 
-    Returns:
-        Tuple of (query_text, data_sources, skills).
-        - data_sources is None if not specified, meaning use all configured tools
-        - data_sources is a list if explicitly specified (use only those)
-        - skills is None/[] if none were forced (semantics mirror data_sources)
+
+def _extract_query_from_text(text: str) -> ParsedQuery:
+    """Parse one message text, which may be an inline JSON payload carrying the
+    query plus data sources, forced skills and the turn intent.
+
+    A JSON blob without a ``query``/``text`` field is the user's message, not
+    a payload: its ``data_sources`` would otherwise silently re-aim the turn.
     """
+    plain = ParsedQuery(text, None, None, TurnIntent())
+    trimmed = text.strip()
+    if not (trimmed.startswith("{") and trimmed.endswith("}")):
+        return plain
+    try:
+        payload = json.loads(trimmed)
+    except json.JSONDecodeError:
+        return plain
+    if not isinstance(payload, dict):
+        return plain
+    query_text = payload.get("query") or payload.get("text")
+    if not (isinstance(query_text, str) and query_text.strip()):
+        return plain
+    return ParsedQuery(
+        query_text.strip(),
+        parse_data_sources(payload.get("data_sources")),
+        parse_skills(payload.get("skills")),
+        TurnIntent(payload.get("focus_file_name"), payload.get("focus_shelf"), payload.get("source_preset")),
+    )
+
+
+@dataclass(frozen=True)
+class _PayloadShape:
+    """A structured request payload, whatever form it arrived in."""
+
+    messages: list
+    data_sources: list[str] | None
+    skills: list[str] | None
+    fallback: Any = None
+
+
+def _first_present(*values: Any) -> Any:
+    """``is None`` chaining, not ``or``: an explicit ``[]`` means "none" and
+    must not be overwritten by a fallback (``parse_*`` distinguish None from [])."""
+    return next((value for value in values if value is not None), None)
+
+
+def _normalize_payload(payload: Any) -> _PayloadShape | None:
+    """The one shape both the dict and the object form of a payload reduce to,
+    or ``None`` when ``payload`` is plain text."""
     if isinstance(payload, dict):
-        content = payload.get("content", {}) if isinstance(payload.get("content"), dict) else {}
-        # `is None` chaining, not `or`: an explicit [] means "no data-source
-        # tools" and must not be overwritten by a fallback (parse_data_sources
-        # distinguishes None from []).
-        data_sources = parse_data_sources(payload.get("data_sources"))
-        if data_sources is None:
-            data_sources = parse_data_sources(content.get("data_sources"))
-        # Same None-chaining for the forced-skills array (explicit [] = none).
-        skills = parse_skills(payload.get("skills"))
-        if skills is None:
-            skills = parse_skills(content.get("skills"))
+        content = payload.get("content") if isinstance(payload.get("content"), dict) else {}
         messages = content.get("messages", [])
-        query_text = None
-        if isinstance(messages, list) and messages:
-            for msg in reversed(messages):
-                if isinstance(msg, dict) and _is_user_role(msg.get("role")):
-                    query_text = _extract_text_from_message(msg)
-                    if query_text:
-                        break
-            if not query_text:
-                query_text = _extract_text_from_message(messages[-1])
-        if not query_text:
-            query_text = _extract_text_from_message(payload.get("message")) or _extract_text_from_message(
-                payload.get("text")
-            )
-        if query_text:
-            inline_query, inline_sources, inline_skills = _extract_query_from_text(query_text)
-            query_text = inline_query
-            if data_sources is None:
-                data_sources = inline_sources
-            if skills is None:
-                skills = inline_skills
-        return (query_text or "", data_sources, skills)
-
+        return _PayloadShape(
+            messages=messages if isinstance(messages, list) else [],
+            data_sources=_first_present(
+                parse_data_sources(payload.get("data_sources")), parse_data_sources(content.get("data_sources"))
+            ),
+            skills=_first_present(parse_skills(payload.get("skills")), parse_skills(content.get("skills"))),
+            fallback=_first_present(payload.get("message"), payload.get("text")),
+        )
     messages = getattr(payload, "messages", None)
-    if isinstance(messages, list):
-        data_sources = parse_data_sources(getattr(payload, "data_sources", None))
-        skills = parse_skills(getattr(payload, "skills", None))
-        query_text = None
-        for msg in reversed(messages):
-            if _is_user_role(getattr(msg, "role", None)):
-                query_text = _extract_text_from_message(msg)
-                if query_text:
-                    break
-        if not query_text and messages:
-            query_text = _extract_text_from_message(messages[-1])
-        if query_text:
-            inline_query, inline_sources, inline_skills = _extract_query_from_text(query_text)
-            query_text = inline_query
-            if data_sources is None:
-                data_sources = inline_sources
-            if skills is None:
-                skills = inline_skills
-        return (query_text or "", data_sources, skills)
+    if not isinstance(messages, list):
+        return None
+    return _PayloadShape(
+        messages=messages,
+        data_sources=parse_data_sources(getattr(payload, "data_sources", None)),
+        skills=parse_skills(getattr(payload, "skills", None)),
+    )
 
-    query_text = str(payload)
-    inline_query, inline_sources, inline_skills = _extract_query_from_text(query_text)
-    return (inline_query, inline_sources, inline_skills)
+
+def _latest_user_text(messages: list) -> str | None:
+    """The last user turn's text, else the last message's."""
+    for message in reversed(messages):
+        if _is_user_role(_field(message, "role")) and (text := _extract_text_from_message(message)):
+            return text
+    return _extract_text_from_message(messages[-1]) if messages else None
+
+
+def _extract_query_and_sources(payload: Any) -> ParsedQuery:
+    """Extract query text, data sources, forced skills and intent from any payload form.
+
+    ``data_sources`` is None when not specified (use all configured tools) and
+    a list when explicitly specified; ``skills`` mirrors that. Values stated on
+    the payload beat values stated inline in the message text.
+    """
+    shape = _normalize_payload(payload)
+    if shape is None:
+        return _extract_query_from_text(str(payload))
+    query_text = _latest_user_text(shape.messages) or _extract_text_from_message(shape.fallback)
+    if not query_text:
+        return ParsedQuery("", shape.data_sources, shape.skills, TurnIntent())
+    inline = _extract_query_from_text(query_text)
+    return ParsedQuery(
+        inline.query_text,
+        _first_present(shape.data_sources, inline.data_sources),
+        _first_present(shape.skills, inline.skills),
+        inline.intent,
+    )
 
 
 class TurnInputs(NamedTuple):
     """Everything one user message states about how to answer it.
 
-    The focus fields are read from the turn ContextVars, which
-    :func:`_extract_query_and_sources` is what SETS — so reading them is bound
-    to the extraction here rather than left as an ordering the caller has to
-    remember. Read before it, they carry the PREVIOUS turn's subject.
+    The focus fields are read back from the turn ContextVars that
+    :func:`extract_turn_inputs` sets — retrieval reads the same vars, so the
+    state carries exactly the (normalised) subject retrieval sees.
     """
 
     query_text: str
@@ -288,15 +285,12 @@ class TurnInputs(NamedTuple):
 
 
 def extract_turn_inputs(payload: Any) -> TurnInputs:
-    """Parse one user message into the inputs a turn is built from."""
-    query_text, data_sources, force_skills = _extract_query_and_sources(payload)
-    try:
-        from aiq_agent.common.focus_file import get_focused_file_name
-        from aiq_agent.common.focus_file import get_focused_shelf
-
-        focus_file_name = get_focused_file_name()
-        focus_shelf = get_focused_shelf()
-    except Exception:
-        focus_file_name = None
-        focus_shelf = None
-    return TurnInputs(query_text, data_sources, force_skills, focus_file_name, focus_shelf)
+    """Parse one user message into the inputs a turn is built from, and set
+    the turn's intent for retrieval. Always sets it: a turn without a subject
+    clears the previous turn's."""
+    parsed = _extract_query_and_sources(payload)
+    intent = parsed.intent
+    set_turn_intent(file_name=intent.file_name, shelf=intent.shelf, source_preset=intent.source_preset)
+    return TurnInputs(
+        parsed.query_text, parsed.data_sources, parsed.skills, get_focused_file_name(), get_focused_shelf()
+    )

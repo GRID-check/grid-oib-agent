@@ -20,15 +20,17 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.chat_researcher.agent import ESCALATION_MARKER
 from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
 from aiq_agent.agents.chat_researcher.agent import _finalize_shallow_answer
 from aiq_agent.agents.chat_researcher.agent import _normalize_citations_removed
-from aiq_agent.agents.chat_researcher.agent import answer_confidence_capped_reason
+from aiq_agent.agents.chat_researcher.agent import escalation
 from aiq_agent.agents.chat_researcher.agent import observed_routing
-from aiq_agent.agents.chat_researcher.agent import surface_answer_confidence
 from aiq_agent.agents.chat_researcher.models import ChatResearcherState
 from aiq_agent.agents.chat_researcher.models import ShallowResult
+from aiq_agent.agents.shallow_researcher.markers import ESCALATION_MARKER
+from aiq_agent.agents.shallow_researcher.markers import answer_confidence_capped_reason
+from aiq_agent.agents.shallow_researcher.markers import surface_answer_confidence
+from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.common.job_admission import JobAdmissionError
 
 
@@ -57,16 +59,17 @@ class TestObservedRouting:
                 assert observed_routing(source_lookup_attempted=attempted, self_reported=level) in {"meta", "shallow"}
 
 
+def _signals(**fields) -> ShallowResearchAgentState:
+    fields.setdefault("escalation_requested", False)
+    return ShallowResearchAgentState(messages=[], **fields)
+
+
 class TestFinalizeShallowAnswerRouting:
     """``_finalize_shallow_answer`` writes the observation on a non-escalated answer."""
 
     def test_direct_reply_is_meta(self):
         update = _finalize_shallow_answer(
-            AIMessage(content="Hallo! Womit kann ich helfen?"),
-            citation_grounded=False,
-            escalation_present=False,
-            self_reported=None,
-            source_lookup_attempted=False,
+            AIMessage(content="Hallo! Womit kann ich helfen?"), _signals(source_lookup_attempted=False)
         )
         assert update["routing_decision"] == "meta"
         assert update["shallow_result"] is None
@@ -74,49 +77,26 @@ class TestFinalizeShallowAnswerRouting:
     def test_researched_answer_is_shallow(self):
         update = _finalize_shallow_answer(
             AIMessage(content="OIB 2 [1]."),
-            citation_grounded=True,
-            escalation_present=False,
-            self_reported="high",
-            source_lookup_attempted=True,
+            _signals(answer_citation_grounded=True, answer_confidence_marker="high", source_lookup_attempted=True),
         )
-        assert update["routing_decision"] == "shallow"
-
-    def test_source_lookup_defaults_to_attempted(self):
-        """Fail toward research: an older caller that does not say must not
-        turn a cited answer into a direct reply."""
-        update = _finalize_shallow_answer(AIMessage(content="Antwort [1]."), citation_grounded=True)
         assert update["routing_decision"] == "shallow"
 
     def test_an_escalation_writes_no_observation(self):
         """The clarifier node sets ``deep`` when it hands over; the shallow
         node must not pre-empt it with a shallow/meta label."""
-        update = _finalize_shallow_answer(
-            AIMessage(content="Teilantwort."),
-            citation_grounded=False,
-            escalation_present=True,
-            self_reported=None,
-            source_lookup_attempted=False,
-        )
+        update = _finalize_shallow_answer(AIMessage(content="Teilantwort."), _signals(escalation_requested=True))
         assert "routing_decision" not in update
         assert update["shallow_result"].escalate_to_deep is True
 
     def test_the_envelope_reason_reaches_the_shallow_result(self):
         update = _finalize_shallow_answer(
             AIMessage(content="Teilantwort."),
-            citation_grounded=False,
-            escalation_present=True,
-            self_reported=None,
-            escalation_reason="Mehrere Bundesländer zu vergleichen",
+            _signals(escalation_requested=True, answer_escalation_reason="Mehrere Bundesländer zu vergleichen"),
         )
         assert update["shallow_result"].escalation_reason == "Mehrere Bundesländer zu vergleichen"
 
     def test_without_an_envelope_reason_the_legacy_string_stands_in(self):
-        update = _finalize_shallow_answer(
-            AIMessage(content="Teilantwort."),
-            citation_grounded=False,
-            escalation_present=True,
-            self_reported=None,
-        )
+        update = _finalize_shallow_answer(AIMessage(content="Teilantwort."), _signals(escalation_requested=True))
         assert update["shallow_result"].escalation_reason == "Shallow agent emitted insufficiency marker"
 
 
@@ -216,24 +196,17 @@ def _shallow_result(
     source_lookup_attempted: bool = True,
     confidence_marker=None,
     escalation_reason: str | None = None,
-):
-    """A shallow-agent result with every control field set explicitly.
-
-    A bare ``MagicMock`` auto-vivifies every attribute truthy, and the chat
-    node reads several of them; setting them all keeps each case on the branch
-    it means to exercise.
-    """
-    result = MagicMock()
-    result.messages = list(messages) + [AIMessage(content=answer)]
-    result.escalation_requested = escalating
-    result.answer_confidence_marker = confidence_marker
-    result.answer_confidence_marker_reason = None
-    result.answer_escalation_reason = escalation_reason
-    result.source_lookup_attempted = source_lookup_attempted
-    result.verified_sources = None
-    result.citations_removed = None
-    result.research_truncated = None
-    return result
+    **fields,
+) -> ShallowResearchAgentState:
+    """A shallow-agent result: the real state with the control fields a case names."""
+    return ShallowResearchAgentState(
+        messages=list(messages) + [AIMessage(content=answer)],
+        escalation_requested=escalating,
+        answer_confidence_marker=confidence_marker,
+        answer_escalation_reason=escalation_reason,
+        source_lookup_attempted=source_lookup_attempted,
+        **fields,
+    )
 
 
 def _shallow_fn(answer: str, **fields):
@@ -278,26 +251,26 @@ class TestRoutingDecisionOnTheWire:
     async def test_a_direct_reply_is_meta(self):
         agent = _agent(_shallow_fn("Hallo!", source_lookup_attempted=False))
         result = await agent.run(ChatResearcherState(messages=[HumanMessage(content="hallo")]), thread_id="t")
-        assert result["routing_decision"] == "meta"
+        assert result.routing_decision == "meta"
 
     @pytest.mark.asyncio
     async def test_a_researched_answer_is_shallow(self):
         agent = _agent(_shallow_fn("Antwort [1].", source_lookup_attempted=True))
         result = await agent.run(ChatResearcherState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
-        assert result["routing_decision"] == "shallow"
+        assert result.routing_decision == "shallow"
 
     @pytest.mark.asyncio
     async def test_a_graded_answer_without_a_lookup_is_still_shallow(self):
         agent = _agent(_shallow_fn("Antwort.", source_lookup_attempted=False, confidence_marker="low"))
         result = await agent.run(ChatResearcherState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
-        assert result["routing_decision"] == "shallow"
+        assert result.routing_decision == "shallow"
 
     @pytest.mark.asyncio
     async def test_an_escalated_turn_is_deep(self):
         agent = _agent(_shallow_fn("Teilantwort.", escalating=True))
         result = await agent.run(ChatResearcherState(messages=[HumanMessage(content="Vergleich?")]), thread_id="t")
-        assert result["routing_decision"] == "deep"
-        assert result["messages"][-1].content == "Deep report."
+        assert result.routing_decision == "deep"
+        assert result.messages[-1].content == "Deep report."
 
     @pytest.mark.asyncio
     async def test_a_failed_shallow_turn_is_error(self):
@@ -306,7 +279,7 @@ class TestRoutingDecisionOnTheWire:
 
         agent = _agent(shallow_raises)
         result = await agent.run(ChatResearcherState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
-        assert result["routing_decision"] == "error"
+        assert result.routing_decision == "error"
 
     @pytest.mark.asyncio
     async def test_a_stale_decision_never_outlives_its_turn(self):
@@ -324,55 +297,39 @@ class TestRoutingDecisionOnTheWire:
             checkpointer=MemorySaver(),
         )
         result = await agent.run(ChatResearcherState(messages=[HumanMessage(content="Was gilt?")]), thread_id="c")
-        assert result["routing_decision"] == "shallow"
+        assert result.routing_decision == "shallow"
 
         agent.shallow_research_fn = second
         result = await agent.run(ChatResearcherState(messages=[HumanMessage(content="danke")]), thread_id="c")
-        assert result["routing_decision"] == "meta"
+        assert result.routing_decision == "meta"
 
 
-class TestEscalationReasonFor:
-    """The clarifier-node reason a shallow answer escalated to deep, or None."""
+class TestEscalationReason:
+    """The reason the clarifier node narrates: the shallow result's, on an escalation entry only."""
 
     def test_structured_shallow_result_reason(self):
-        agent = _agent()
         state = ChatResearcherState(
             messages=[HumanMessage(content="q")],
-            shallow_result=ShallowResult(
-                answer="a",
-                confidence="low",
-                escalate_to_deep=True,
-                escalation_reason="not enough sources",
-            ),
+            shallow_result=ShallowResult(answer="a", escalate_to_deep=True, escalation_reason="not enough sources"),
         )
-        assert agent._escalation_reason_for(state) == "not enough sources"
+        assert escalation(state).escalation_reason == "not enough sources"
 
     def test_keyword_prose_without_marker_yields_none(self):
         # Insufficiency-sounding prose alone never escalates: without the
-        # explicit marker there is no escalation and therefore no reason.
-        agent = _agent()
+        # explicit signal there is no escalation and therefore no reason.
         state = ChatResearcherState(
-            messages=[
-                HumanMessage(content="q"),
-                AIMessage(content="Ich konnte keine Informationen dazu finden."),
-            ],
+            messages=[HumanMessage(content="q"), AIMessage(content="Ich konnte keine Informationen dazu finden.")],
         )
-        assert agent._escalation_reason_for(state) is None
+        assert escalation(state) is None
 
     def test_no_shallow_result_yields_none(self):
-        agent = _agent()
-        state = ChatResearcherState(
-            messages=[HumanMessage(content="Compare X and Y in detail")],
-        )
-        assert agent._escalation_reason_for(state) is None
+        assert escalation(ChatResearcherState(messages=[HumanMessage(content="Compare X and Y in detail")])) is None
 
     def test_shallow_result_not_escalating_yields_none(self):
-        agent = _agent()
         state = ChatResearcherState(
-            messages=[HumanMessage(content="q")],
-            shallow_result=ShallowResult(answer="a", confidence="high", escalate_to_deep=False),
+            messages=[HumanMessage(content="q")], shallow_result=ShallowResult(answer="a", escalate_to_deep=False)
         )
-        assert agent._escalation_reason_for(state) is None
+        assert escalation(state) is None
 
 
 class TestJobAdmissionRejectedPropagation:
@@ -388,10 +345,10 @@ class TestJobAdmissionRejectedPropagation:
         state = ChatResearcherState(messages=[HumanMessage(content="Deep question")])
         result = await agent.run(state, thread_id="t")
 
-        assert result["job_admission_rejected"] is True
-        assert result["retry_after_seconds"] == 42
+        assert result.job_admission_rejected is True
+        assert result.retry_after_seconds == 42
         # The answer text is the rejection notice, not a research answer.
-        contents = [m.content for m in result["messages"] if isinstance(m, AIMessage)]
+        contents = [m.content for m in result.messages if isinstance(m, AIMessage)]
         assert any("Queue is full" in c for c in contents)
 
     @pytest.mark.asyncio
@@ -405,10 +362,10 @@ class TestJobAdmissionRejectedPropagation:
         result = await agent.run(state, thread_id="t")
 
         # Absent-when-not-applicable: reset at the turn boundary, never set here.
-        assert result.get("job_admission_rejected") is None
-        assert result.get("retry_after_seconds") is None
-        assert result["deep_research_job_id"] == "job-123"
-        assert result["routing_decision"] == "deep"
+        assert result.job_admission_rejected is None
+        assert result.retry_after_seconds is None
+        assert result.deep_research_job_id == "job-123"
+        assert result.routing_decision == "deep"
 
 
 class TestEscalationReasonEndToEnd:
@@ -424,7 +381,7 @@ class TestEscalationReasonEndToEnd:
         state = ChatResearcherState(messages=[HumanMessage(content="Obscure question")])
         result = await agent.run(state, thread_id="t")
 
-        assert result["escalation_reason"] == "Shallow agent emitted insufficiency marker"
+        assert result.escalation_reason == "Shallow agent emitted insufficiency marker"
 
     @pytest.mark.asyncio
     async def test_the_envelopes_reason_reaches_the_terminal_state(self):
@@ -440,9 +397,9 @@ class TestEscalationReasonEndToEnd:
         result = await agent.run(ChatResearcherState(messages=[HumanMessage(content="Vergleich?")]), thread_id="t")
 
         # The structured carrier the clarifier node reads it from...
-        assert result["shallow_result"].escalation_reason == reason
+        assert result.shallow_result.escalation_reason == reason
         # ...and the terminal extra the frontend narrates.
-        assert result["escalation_reason"] == reason
+        assert result.escalation_reason == reason
 
     @pytest.mark.asyncio
     async def test_insufficiency_prose_without_marker_does_not_escalate(self):
@@ -466,9 +423,9 @@ class TestEscalationReasonEndToEnd:
         state = ChatResearcherState(messages=[HumanMessage(content="Obscure question")])
         result = await agent.run(state, thread_id="t")
 
-        assert result.get("escalation_reason") is None
-        assert result["routing_decision"] == "shallow"
-        contents = [m.content for m in result["messages"] if isinstance(m, AIMessage)]
+        assert result.escalation_reason is None
+        assert result.routing_decision == "shallow"
+        contents = [m.content for m in result.messages if isinstance(m, AIMessage)]
         assert any("Weitere Recherche erforderlich" in c for c in contents)
 
     @pytest.mark.asyncio
@@ -487,8 +444,8 @@ class TestEscalationReasonEndToEnd:
         state = ChatResearcherState(messages=[HumanMessage(content="Any question")])
         result = await agent.run(state, thread_id="t")
 
-        assert result.get("escalation_reason") is None
-        contents = [m.content for m in result["messages"] if isinstance(m, AIMessage)]
+        assert result.escalation_reason is None
+        contents = [m.content for m in result.messages if isinstance(m, AIMessage)]
         assert any("An error occurred" in c for c in contents)
 
 
@@ -500,16 +457,18 @@ class TestCitationsRemovedEndToEnd:
         async def shallow_with_removed(state):
             # A grounded, non-escalating answer that dropped two unverifiable
             # citations during verification.
-            result = _shallow_result(state.messages, "Antwort [1].")
-            result.citations_removed = {"count": 2, "reasons": ["url_not_in_registry", "unverifiable"]}
-            return result
+            return _shallow_result(
+                state.messages,
+                "Antwort [1].",
+                citations_removed={"count": 2, "reasons": ["url_not_in_registry", "unverifiable"]},
+            )
 
         agent = _agent(shallow_with_removed)
 
         state = ChatResearcherState(messages=[HumanMessage(content="Was gilt?")])
         result = await agent.run(state, thread_id="t")
 
-        assert result["citations_removed"] == {"count": 2, "reasons": ["url_not_in_registry", "unverifiable"]}
+        assert result.citations_removed == {"count": 2, "reasons": ["url_not_in_registry", "unverifiable"]}
 
     @pytest.mark.asyncio
     async def test_absent_citations_removed_stays_none(self):
@@ -519,7 +478,7 @@ class TestCitationsRemovedEndToEnd:
         result = await agent.run(state, thread_id="t")
 
         # Reset at the turn boundary, never set → absent (None).
-        assert result.get("citations_removed") is None
+        assert result.citations_removed is None
 
 
 class TestResearchTruncatedEndToEnd:
@@ -533,14 +492,12 @@ class TestResearchTruncatedEndToEnd:
     @pytest.mark.asyncio
     async def test_a_truncated_shallow_turn_reaches_the_terminal_state(self):
         async def shallow_truncated(state):
-            result = _shallow_result(state.messages, "Antwort [1].")
-            result.research_truncated = True
-            return result
+            return _shallow_result(state.messages, "Antwort [1].", research_truncated=True)
 
         state = ChatResearcherState(messages=[HumanMessage(content="Wie tief ist der Lichteinfall?")])
         result = await _agent(shallow_truncated).run(state, thread_id="t")
 
-        assert result["research_truncated"] is True
+        assert result.research_truncated is True
 
     @pytest.mark.asyncio
     async def test_a_complete_turn_carries_no_flag_at_all(self):
@@ -549,18 +506,18 @@ class TestResearchTruncatedEndToEnd:
 
         # Absent, never False: the note renders on presence, so a False here
         # would be one more default for a reader to interpret.
-        assert result.get("research_truncated") is None
+        assert result.research_truncated is None
 
     @pytest.mark.asyncio
     async def test_a_shallow_turn_that_escalates_drops_the_flag(self):
         """The deep report replaces this answer, so its budget is not the reader's news."""
 
         async def shallow_escalating(state):
-            result = _shallow_result(state.messages, f"Reicht nicht. {ESCALATION_MARKER}", escalating=True)
-            result.research_truncated = True
-            return result
+            return _shallow_result(
+                state.messages, f"Reicht nicht. {ESCALATION_MARKER}", escalating=True, research_truncated=True
+            )
 
         state = ChatResearcherState(messages=[HumanMessage(content="Was gilt?")])
         result = await _agent(shallow_escalating).run(state, thread_id="t")
 
-        assert result.get("research_truncated") is None
+        assert result.research_truncated is None

@@ -52,7 +52,6 @@ class TestChatResearcherState:
         """Test state with shallow result."""
         result = ShallowResult(
             answer="CUDA is a parallel computing platform.",
-            confidence="high",
             escalate_to_deep=False,
         )
         state = ChatResearcherState(
@@ -62,15 +61,11 @@ class TestChatResearcherState:
 
         assert state.shallow_result == result
 
-    def test_state_with_final_report(self):
-        """Test state with final report."""
-        report = "# Research Report\n\n## Summary\nThis is the summary..."
-        state = ChatResearcherState(
-            messages=[HumanMessage(content="Test")],
-            final_report=report,
-        )
-
-        assert state.final_report == report
+    def test_state_carries_no_field_nothing_reads(self):
+        """``final_report`` and ``cards`` were never read or written by the graph;
+        cards come from the registry, the report is the deep message."""
+        for gone in ("final_report", "cards"):
+            assert gone not in ChatResearcherState.model_fields
 
     def test_state_defaults(self):
         """Test state with default values."""
@@ -79,7 +74,6 @@ class TestChatResearcherState:
         assert state.user_info is None
         assert state.routing_decision is None
         assert state.escalation_reason is None
-        assert state.final_report is None
         assert state.shallow_result is None
         assert state.data_sources is None
 
@@ -133,13 +127,11 @@ class TestChatResearcherState:
             routing_decision="shallow",
             shallow_result=ShallowResult(
                 answer="CUDA is a parallel computing platform by NVIDIA.",
-                confidence="high",
                 escalate_to_deep=False,
             ),
-            final_report=None,
             data_sources=["web_search", "confluence"],
         )
 
         assert state.routing_decision == "shallow"
-        assert state.shallow_result.confidence == "high"
+        assert state.shallow_result.escalate_to_deep is False
         assert state.data_sources == ["web_search", "confluence"]
