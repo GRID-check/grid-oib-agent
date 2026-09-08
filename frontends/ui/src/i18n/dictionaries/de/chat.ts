@@ -99,11 +99,8 @@ export const chat: typeof en.chat = {
     deepResearchAria: 'Deep-Research-Präferenz',
     deepResearchHint:
       'Präferenz vermerkt – Piloti eskaliert automatisch zu Deep Research, wenn eine Frage es erfordert.',
-    scopeAria: 'Suchbereich: {project}',
     scopeFallback: 'Dieses Projekt',
     scopeCurrent: 'Aktuelles Projekt',
-    scopeAll: 'Alle Projekte',
-    scopeAllSoon: 'Bald verfügbar – projektübergreifende Suche ist noch nicht möglich.',
     // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
     // tiny one-line hint under the composer keeps the active source count legible.
     sourcesActiveMobile: '{count, plural, one {# Quelle} other {# Quellen}} aktiv',
@@ -131,6 +128,102 @@ export const chat: typeof en.chat = {
         register: 'In welchen Projekten haben wir GK5 mit Holzbau?',
         compare: 'Vergleiche die Brandschutzkonzepte von …',
       },
+    },
+    chipAriaProject: 'Suchbereich: {project}. Öffnet die Wissensbasis.',
+    // Die Wissensbasis hinter dem Suchbereich-Chip — auf beiden Oberflächen die
+    // eine Stelle, die die Wissensebenen in ihrer Autoritätsreihenfolge nennt
+    // und sagt, welche dieser Zug lesen darf (`workspace-chat-ui.md` §4).
+    tree: {
+      title: 'Wissensbasis',
+      levels: {
+        base: 'Basiswissen',
+        archiv: 'Büroarchiv',
+        register: 'Projektregister',
+        project: 'Projekt',
+        session: 'Diese Unterhaltung',
+      },
+      hints: {
+        base: 'OIB-Richtlinien und Rechtsquellen.',
+        archiv: 'Standards und Details der ganzen Organisation.',
+        register: 'Nur Namen und Steckbriefe — keine Dokumente.',
+        project: 'Unterlagen und Gedächtnis der eingeblendeten Projekte.',
+        session: 'Dateien, die Sie hier angehängt haben.',
+      },
+      // „ausgeschlossen“ ist eine Entscheidung, „nicht verfügbar“ eine
+      // verschlossene Tür — zwei verschiedene Tatsachen, zwei Wörter.
+      states: {
+        always: 'immer',
+        on: 'aktiv',
+        off: 'ausgeschlossen',
+        unavailable: 'nicht verfügbar',
+      },
+      offByPreset: 'Durch die Voreinstellung „{preset}“ ausgeschlossen.',
+      registerOutsideWorkspace: 'Nur im Büro-Chat.',
+      sessionEmpty: 'Noch keine Datei in dieser Unterhaltung.',
+      projectLocked: 'Dieser Chat ist auf {project} festgelegt.',
+      noProjects: 'Kein Projekt eingeblendet',
+      mountAdd: '+ Projekt einblenden',
+      mountRemove: '{project} ausblenden',
+      resetPreset: 'Voreinstellung zurücksetzen',
+    },
+    mounted: {
+      label: 'Im Blick',
+      aria: 'Eingeblendete Projekte: {names}',
+    },
+    picker: {
+      title: 'Projekt einblenden',
+      placeholder: 'Projekt suchen …',
+      mounted: 'eingeblendet',
+      empty: 'Kein passendes Projekt.',
+      none: 'Sie können derzeit kein weiteres Projekt lesen.',
+      error: 'Die Projektliste konnte nicht geladen werden.',
+      retry: 'Erneut versuchen',
+    },
+    cap: {
+      notice: 'Mehr als {max} Projekte kann eine Unterhaltung nicht gleichzeitig lesen.',
+      deepResearch: 'Als Deep Research starten',
+    },
+    // Jede Einblendung — durch Piloti oder durch die Leserin — erzeugt drei
+    // Signale zugleich: diesen Hinweis, einen Chip in „Im Blick“, eine Zeile im
+    // Baum. Es gibt keinen Pfad, der ohne alle drei einblendet.
+    mount: {
+      byAgent: 'Piloti hat Projekt {project} eingeblendet.',
+      byUser: '{project} ist eingeblendet.',
+      fromProject: '{project} ist eingeblendet, weil Sie aus diesem Projekt gekommen sind.',
+      undo: 'Rückgängig',
+      undone: '{project} wieder ausgeblendet.',
+      failed: '{project} konnte nicht eingeblendet werden.',
+      noAccess: 'Sie können dieses Projekt nicht lesen.',
+      notFound: 'Dieses Projekt wurde nicht gefunden.',
+      unavailable: 'Dieses Projekt konnte gerade nicht eingeblendet werden.',
+    },
+    attribution: {
+      project: 'Projekt {project}',
+      register: 'Steckbrief',
+      continueInProject: 'Im Projekt weiterfragen',
+    },
+    askInWorkspace: 'Im Büro fragen →',
+    askInWorkspaceHint: 'Öffnet den Büro-Chat mit diesem Projekt eingeblendet.',
+    // Die Herleitung, nach Wissensebenen gruppiert statt nach Lane. Alle Ebenen
+    // werden immer gezeigt — eine fehlende Ebene ist abwesend, nicht weggelassen.
+    herleitung: {
+      levels: {
+        law: 'Basiswissen',
+        office: 'Büroarchiv',
+        register: 'Projektregister',
+        project: 'Projekt',
+        conversation: 'Diese Unterhaltung',
+        web: 'Web',
+      },
+      levelEmpty: 'nichts eingeblendet',
+      levelCount: '{docs, plural, one {# Dokument} other {# Dokumente}}',
+    },
+    registerMount: {
+      label: 'In diese Unterhaltung holen:',
+      action: 'einblenden',
+    },
+    sharing: {
+      blocked: '{name} kann {project} nicht lesen und dieser Chat daher nicht geteilt werden.',
     },
     sessions: {
       title: 'Büro-Chats',

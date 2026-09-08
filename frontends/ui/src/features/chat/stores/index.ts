@@ -14,3 +14,12 @@ export {
   type DeepResearchSlice,
   initialDeepResearchState,
 } from './deep-research-store'
+export {
+  createMountsSlice,
+  type MountsSlice,
+  type MountNoticeEntry,
+  type MountReason,
+  type MountRefusal,
+  initialMountsState,
+  canMountMore,
+} from './mounts-store'

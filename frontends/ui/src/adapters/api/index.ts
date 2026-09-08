@@ -128,3 +128,7 @@ export type {
   DeepResearchClient,
   JobStateResponse,
 } from './deep-research-client'
+
+// Mounted projects (the Büro's scope writes, ADR-0054)
+export { mountsClient, MountRefusedError } from './mounts-client'
+export type { Mount, MountList, MountRefusalCode } from './mounts-client'

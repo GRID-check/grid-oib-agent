@@ -129,6 +129,8 @@ import { useLayoutStore } from '@/features/layout/store'
 import { TechnicalSteps } from './TechnicalSteps'
 import type { ThinkingStep, CitationSource } from '../../types'
 import { deriveTraceLanes } from '../../lib/trace-lanes'
+import { groupByLevel } from '../../lib/herleitung-levels'
+import { HerleitungLevels } from './HerleitungLevels'
 import { buildCitationModel, totalHits, type CitedDocument } from '../../lib/citations'
 import { SourceCard } from './SourceCard'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -1155,10 +1157,18 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
    * which `[N]` it became; before, the trace was built from the retrieval half
    * alone and had no way to reach the other.
    */
+  const traceLanes = useMemo(() => deriveTraceLanes(steps), [steps])
   const cards = useMemo(
-    () => buildCitationModel({ traceLanes: deriveTraceLanes(steps), citations }),
-    [steps, citations]
+    () => buildCitationModel({ traceLanes, citations }),
+    [traceLanes, citations]
   )
+  /**
+   * The same lanes, regrouped by knowledge level (ADR-0054). A REGROUPING and
+   * not a second panel: it reuses `traceLanes` and `cards` verbatim, and adds
+   * the one question the fan cannot answer, because the fan is organised by
+   * lane — which levels this turn did NOT read.
+   */
+  const levelGroups = useMemo(() => groupByLevel(traceLanes, cards), [traceLanes, cards])
   const layout = useMemo(() => planFan(width || FALLBACK_W, cards.length), [width, cards.length])
 
   /**
@@ -1249,6 +1259,13 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
       <ReactFlowProvider>
         <FlowInner built={built} layout={layout} live={live ?? false} />
       </ReactFlowProvider>
+
+      {/* The levels band. Suppressed while the turn streams: a claim that a
+          level read nothing is a verdict on a search that is over, and a
+          verdict that arrives mid-stream is a claim about an answer that does
+          not exist yet — the same live gate the truncation and cutoff lines
+          take above. */}
+      {!live && <HerleitungLevels groups={levelGroups} />}
 
       {showTechnicalReasoning && steps.length > 0 && (
         <div className="border-t border-base pt-2">

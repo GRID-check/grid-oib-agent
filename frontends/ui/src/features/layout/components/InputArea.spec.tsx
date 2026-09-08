@@ -70,6 +70,8 @@ const mockSaveDataSourcesToConversation = vi.fn()
  */
 const mockEnsureConversationExists = vi.fn(async () => {})
 
+const mockMounts: Array<{ projectId: string; projectName: string; mountedBy: 'user' | 'agent'; mountedAt: string }> = []
+
 function mockChatState() {
   return {
     currentConversation: mockCurrentSessionId
@@ -112,6 +114,23 @@ function mockChatState() {
     clearComposerDraft: (id: string) => {
       delete mockDrafts[id]
     },
+    // The mounts slice (ADR-0054). Present here because the composer's scope
+    // control reads it: a fake of the store that omits a slice the component
+    // under test consumes is a fake that fails for a reason nothing in the
+    // product shares.
+    mounts: mockMounts,
+    mountCap: 5,
+    mountsLoading: false,
+    mountsPending: [] as string[],
+    mountRefusal: null,
+    mountNotices: [],
+    projectId: 'proj-1',
+    scope: 'project' as const,
+    loadMounts: vi.fn(),
+    mountProject: vi.fn(),
+    unmountProject: vi.fn(),
+    clearMountRefusal: vi.fn(),
+    resetMounts: vi.fn(),
   }
 }
 
@@ -1303,7 +1322,13 @@ describe('InputArea', () => {
       expect(screen.queryByText(/escalates to deep research automatically/i)).not.toBeInTheDocument()
     })
 
-    test('scope chip shows the project name and a disabled "All projects" option', async () => {
+    /**
+     * The scope chip opens the Wissensbasis, not a two-row menu whose second
+     * row was disabled with an apology in its tooltip (ADR-0054). The tree's
+     * own rows are held by `scope/ScopeTree.spec.tsx`; what belongs here is
+     * that the composer still reaches it and still names the project.
+     */
+    test('scope chip names the project and opens the knowledge base', async () => {
       const user = userEvent.setup()
       render(
         <InputArea isAuthenticated={true} connectionMode="sse" projectName="Wohnbau Favoriten" />
@@ -1314,8 +1339,10 @@ describe('InputArea', () => {
 
       await user.click(scopeChip)
 
-      const allProjects = screen.getByRole('button', { name: /all projects/i })
-      expect(allProjects).toBeDisabled()
+      expect(await screen.findByTestId('scope-tree')).toBeInTheDocument()
+      // The row that replaced the disabled "All projects": a doorway with
+      // something behind it.
+      expect(screen.getByTestId('ask-in-workspace')).toBeEnabled()
     })
 
   })

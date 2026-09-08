@@ -319,6 +319,30 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'h1',
   },
   {
+    id: 'scope-tree',
+    mobile: true,
+    path: '/dev/scope-tree',
+    description:
+      'The Wissensbasis behind the scope chip (ADR-0054): the five knowledge levels in fixed authority order, each stating its status in WORDS beside the colour and the glyph — Basiswissen and Büroarchiv `immer`, the Projektregister `immer` in the Büro, two projects in view with a remove control each, and "Diese Unterhaltung" carrying the one attached file. The hierarchy is fixed so a reader can see the hole in it; that is what this shot is evidence of.',
+    waitFor: '[data-testid="scope-tree"]',
+  },
+  {
+    id: 'scope-tree-project',
+    mobile: true,
+    path: '/dev/scope-tree?variant=project',
+    description:
+      'The same tree in a PROJECT chat: a lock instead of a building on the chip, the Projektregister `nicht verfügbar` with its reason (it does not exist outside the Büro — the row is dimmed, never absent), one locked project with no remove and no add, and at the foot "Im Büro fragen →" where the disabled "Alle Projekte · Bald verfügbar" row used to apologise for a control with nothing behind it.',
+    waitFor: '[data-testid="ask-in-workspace"]',
+  },
+  {
+    id: 'scope-tree-capped',
+    mobile: true,
+    path: '/dev/scope-tree?variant=capped',
+    description:
+      'Five projects in view — the cap. The "+ Projekt einblenden" row is gone and its REASON stands in its place, visible where the reader would have pressed it rather than only in a footer; the chip reads "Büro · 5". The offer behind the cap (deep research) lives in the picker footer, which opens from here.',
+    waitFor: '[data-testid="scope-tree-cap-reason"]',
+  },
+  {
     id: 'workspace-chat',
     mobile: true,
     path: '/dev/workspace-chat',

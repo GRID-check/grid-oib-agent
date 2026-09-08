@@ -84,6 +84,9 @@ export interface SourcePreviewIndex {
   baseCorpusFiles: string[]
 }
 
+/** See `MountNotices` — a stable empty list for a partial store fake. */
+const NO_MOUNTS: never[] = []
+
 /** Module-wide cache: one fetch set per project+conversation per page lifetime. */
 const indexCache = new Map<string, Promise<SourcePreviewIndex>>()
 
@@ -99,22 +102,37 @@ export const resetSourcePreviewIndexCache = (): void => {
 onDocumentsChanged(resetSourcePreviewIndexCache)
 
 const loadSourcePreviewIndex = (
-  projectId: string | null,
+  projectIds: readonly string[],
   conversationId: string | null
 ): Promise<SourcePreviewIndex> => {
   // The conversation is part of the key, not just of the fetch: two chats in one
   // project have different private attachments, and a single cached list would
   // hand one thread the other's files.
-  const key = `${projectId ?? '__no-project__'}|${conversationId ?? '__no-conversation__'}`
+  //
+  // The project half is a SET, because the Büro reads several at once (ADR-0054)
+  // and a mount changes what is resolvable mid-conversation. Sorted, so the same
+  // two projects in either mount order share one entry rather than two.
+  const key = `${[...projectIds].sort().join(',') || '__no-project__'}|${conversationId ?? '__no-conversation__'}`
   const existing = indexCache.get(key)
   if (existing) return existing
 
   const promise = (async (): Promise<SourcePreviewIndex> => {
     const [docsResult, sessionResult, archivResult, corpusResult] = await Promise.allSettled([
-      projectId
-        ? fetch(`/api/documents?projectId=${encodeURIComponent(projectId)}`).then((r) =>
-            r.ok ? r.json() : null
-          )
+      // One request per readable project, settled together: a project whose
+      // list fails contributes nothing rather than emptying the index, the same
+      // degradation the other three lists take.
+      projectIds.length > 0
+        ? Promise.all(
+            projectIds.map((id) =>
+              fetch(`/api/documents?projectId=${encodeURIComponent(id)}`).then((r) =>
+                r.ok ? r.json() : null
+              )
+            )
+          ).then((bodies) => ({
+            documents: bodies.flatMap((body) =>
+              Array.isArray(body?.documents) ? body.documents : []
+            ),
+          }))
         : Promise.resolve(null),
       // This conversation's private attachments (ADR-0047 Phase 2). Without
       // them the `session` shelf had NO rows at all, so a session citation
@@ -196,6 +214,17 @@ export const useSourcePreviewIndex = (
   enabled: boolean
 ): SourcePreviewIndex | null => {
   const [index, setIndex] = useState<SourcePreviewIndex | null>(null)
+  /**
+   * The projects whose documents this conversation may open.
+   *
+   * In a project chat that is the one project it is standing in. In the Büro
+   * `projectId` is null by construction, so resolving from it alone made every
+   * project citation unopenable in exactly the surface that introduced them —
+   * the mounted set is what the turn read, so it is what the index resolves
+   * against (`workspace-chat-ui.md` §4).
+   */
+  const mounts = useChatStore((s) => s.mounts ?? NO_MOUNTS)
+  const projectKey = projectId ?? mounts.map((mount) => mount.projectId).sort().join(',')
   // Reload after a document was added, renamed or deleted. Dropping the cache
   // above invalidates the next MOUNT; this is what reaches the chips already on
   // screen, which for a rename or a delete is all of them.
@@ -204,7 +233,10 @@ export const useSourcePreviewIndex = (
   useEffect(() => {
     if (!enabled) return
     let cancelled = false
-    loadSourcePreviewIndex(projectId, conversationId)
+    loadSourcePreviewIndex(
+      projectId ? [projectId] : mounts.map((mount) => mount.projectId),
+      conversationId
+    )
       .then((loaded) => {
         if (!cancelled) setIndex(loaded)
       })
@@ -214,7 +246,11 @@ export const useSourcePreviewIndex = (
     return () => {
       cancelled = true
     }
-  }, [projectId, conversationId, enabled, generation])
+    // `projectKey` and not `mounts`: the array identity changes on every store
+    // write, and re-fetching four lists because an unrelated field moved is the
+    // kind of loop a dependency on a fresh array quietly buys.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, projectKey, conversationId, enabled, generation])
 
   return enabled ? index : null
 }

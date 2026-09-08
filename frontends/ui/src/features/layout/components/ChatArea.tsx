@@ -31,6 +31,7 @@ import {
   AgentResponse,
   ErrorBanner,
   DeepResearchBanner,
+  MountNotices,
   UserMessage,
   ChatThinking,
   useElapsedSeconds,
@@ -996,6 +997,17 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                 ) : (
                   <TurnInFlightBanner label={turnInFlightLabel} />
                 ))}
+
+              {/* Every mount this conversation has seen, in the order it
+              happened (`workspace-chat-ui.md` §4). At the foot of the
+              transcript rather than in a toast: a mount is a durable change to
+              what every LATER turn may read, and its undo is something a reader
+              may reach for three turns later. A record belongs in the record.
+
+              Rendered from the SAME mounts state as the chip's count and the
+              "Im Blick" row, so there is no path that widens the scope without
+              all three saying so. */}
+              <MountNotices />
 
               {/* A colleague at a keyboard. Distinct vocabulary from the agent's
               banner above (see TypingPresence), and independent of it: somebody may

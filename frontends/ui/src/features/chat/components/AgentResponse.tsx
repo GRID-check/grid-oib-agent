@@ -52,6 +52,7 @@ import {
   splitAnswerBody,
 } from '../lib/citations'
 import { AnswerCitations } from './AnswerCitations'
+import { RegisterMountFooter } from './RegisterMountFooter'
 import { DiagramFilingProvider } from '@/features/diagrams/diagram-filing-context'
 import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDisclosure'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
@@ -1214,6 +1215,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         </div>
       </div>
     </div>
+
+    {/* The standing mount control under a register-only answer (§10.3). Derived
+        from the answer's REGISTER citations — the projects the wire named, with
+        the ids it carried — and never from the prose the model wrote. It
+        renders nothing outside the Büro and nothing for a project already in
+        view. */}
+    <RegisterMountFooter documents={documents} />
     </AnswerCitations>
     </DiagramFilingProvider>
   )

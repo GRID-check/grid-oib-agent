@@ -46,11 +46,47 @@ The composer is a white card with the message field on top and a control row bel
 
 - **Asking about … bar**: when this turn is about a project file (**Piloti dazu fragen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Piloti dazu fragen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroarchiv.
 - **Datengrundlage chip**: shows how many data sources are currently enabled and opens the existing Data Sources panel.
-- **Scope chip**: names what Piloti may read this turn. In a project chat it shows the project; in the **Büro** it shows *Büro* behind a building icon, and that glyph is the only carrier on a phone, where the label is hidden. Retrieval is scoped to whichever of the two the chip names. The popover still lists a disabled "All projects" option: the Büro exists now, but showing a *specific* project's documents inside a Büro chat ("mounting") is a later phase, so nothing here pretends to do it yet.
+- **Scope chip**: names what Piloti may read this turn. In a project chat it shows the project behind a **lock**; in the **Büro** it shows *Büro* behind a building icon, plus a count of the projects in view once there is one ("Büro · 2"). The glyph is the only carrier on a phone, where the label is hidden; the accessible name always spells out the whole state. Retrieval is scoped to whatever the chip names.
+
+  Pressing it opens the **Wissensbasis** — the five knowledge levels, in fixed order, each saying in words whether this turn may read it:
+
+  | Level | In a project chat | In the Büro |
+  |---|---|---|
+  | Basiswissen | immer | immer |
+  | Büroarchiv | immer | immer |
+  | Projektregister | *nicht verfügbar* — it exists only in the Büro | immer (names and Steckbriefe, never documents) |
+  | Projekt | the one project this chat is locked to | the projects you have shown it, with a **×** on each and **+ Projekt einblenden** below |
+  | Diese Unterhaltung | the files you attached here, or *nicht verfügbar* | same |
+
+  A level shown as *ausgeschlossen* names the source preset that excluded it and offers **Voreinstellung zurücksetzen**. A level shown as *nicht verfügbar* is a door that is shut, and always says why. The only two things the tree changes are showing a project and hiding one again — it reports everything else.
+
+  At the foot of a **project** chat's tree: **Im Büro fragen →**, which opens the Büro with this project already in view. (The disabled "All projects" row this replaces is gone; there is now something behind it.)
 - **Deep Research pill**: an on/off *preference*. Piloti escalates to deep research automatically when a question calls for it; the pill records your intent and shows an honest hint — it does not force a deep-research run.
 - **Attach / file counter / send**: unchanged file-upload and send affordances.
 
 Under the composer a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (base corpus + RIS), *Projektunterlagen* (this project's files, not the Büroarchiv), and *Büroarchiv* (office archive, not project files). They stay available after the first message. A pressed preset also tells retrieval which knowledge shelves to keep; it is not only an external-source toggle. Any manual change in the Data Sources panel takes you off the preset again. Uploading a file into the chat binds the next send to that file — "Fass den Inhalt zusammen" does not walk the rest of the project or the Archiv.
+
+### Showing the Büro a project
+
+A Büro chat starts with no project's documents. You add one — the word in the UI is *einblenden* — in one of three ways:
+
+- **+ Projekt einblenden** in the Wissensbasis, then pick from the projects you can open.
+- **Piloti does it mid-answer.** When a question needs a project's files, Piloti shows it itself and says so in the transcript: *"Piloti hat Projekt Seestadt Nord eingeblendet."* with **Rückgängig** beside it.
+- **Im Büro fragen →** from a project chat, which arrives with that project in view and says why.
+
+Whichever way it happened, three things say so at once: a chip in the **Im Blick** row above the composer, the count on the scope chip, and a row in the Wissensbasis. Removing a project is the **×** on any of them.
+
+**Rückgängig** does not erase the notice — the project *was* in view, and the transcript is a record of what was read. Citations already written stay for the same reason.
+
+A conversation can hold only so many projects at once. At the limit the add row states the number and offers **Als Deep Research starten**, which is the one path that reads more than the limit allows. A project you cannot open is never offered, and never named.
+
+Answers that only cite Steckbriefe carry a footer under them — *In diese Unterhaltung holen: [Seestadt Nord] einblenden* — so the follow-up question does not mean going back to the tree.
+
+### Where an answer came from
+
+In the Büro a citation from a project names it: *Projekt Seestadt Nord · Brandschutz.pdf · S. 7*; a citation from the register names itself first and the project second, *Steckbrief · Seestadt Nord*, because a Steckbrief is a fact about a project rather than a file from inside one. Opening the citation offers **Im Projekt weiterfragen**, which lands in that project's own chat with your question already in the box. In a project chat the project line is left out — you are standing in it.
+
+The **Herleitung** groups what was read by knowledge level, in the same order as the Wissensbasis: Basiswissen → Büroarchiv → Projektregister → Projekt (one group per project) → Diese Unterhaltung → Web. Levels that were not read are shown grey and say *nichts eingeblendet*, rather than being left out — a level missing from the list would be indistinguishable from a level that found nothing.
 
 Documents sit on four nested shelves. Asking **which files** sit where is answered from that shelf only:
 

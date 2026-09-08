@@ -17,6 +17,7 @@
 
 import { type FC } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Download, ExternalLink, FileSearch, FolderOpen, Link2 } from 'lucide-react'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -25,6 +26,7 @@ import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
 import { documentPages, refPage, type CitationRef, type CitedDocument } from '../lib/citations'
 import type { Shelf } from '../lib/source-kinds'
 import { useChatStore } from '../store'
+import { ProjectAttribution } from './ProjectAttribution'
 import { CopySourceCitationButton } from './CopyCitation'
 import { CopyCitationLinkButton } from './CopyCitationLink'
 
@@ -140,15 +142,22 @@ const LocusLine: FC<{ citation: CitationRef }> = ({ citation }) => {
  * no page of their own, and a web source already carries its `url`, so for
  * those there is nothing to offer and nothing is rendered.
  *
- * The project id comes off the chat store, which is how every other consumer
- * of the store on this popover's path already reads it.
+ * The project id comes off the CITATION, falling back to the store's active
+ * project. That order is the fix, not a preference: the store's `projectId` is
+ * null in a Büro conversation, so a link resolved from it alone disappeared for
+ * exactly the citations that most need it — a project document cited in a chat
+ * that is not standing in that project (`workspace-chat-ui.md` §4). The
+ * citation carries its own project since ADR-0054, and the store remains the
+ * answer for a message persisted before it did.
  */
-const DocumentHomeLink: FC<{ shelf?: Shelf; tint: CitedDocument['tint'] }> = ({
-  shelf,
-  tint,
-}) => {
+const DocumentHomeLink: FC<{
+  shelf?: Shelf
+  tint: CitedDocument['tint']
+  projectId?: string
+}> = ({ shelf, tint, projectId: citedProjectId }) => {
   const t = useTranslations('chat')
-  const projectId = useChatStore((s) => s.projectId)
+  const activeProjectId = useChatStore((s) => s.projectId)
+  const projectId = citedProjectId ?? activeProjectId
 
   const target =
     shelf === 'project' && projectId
@@ -184,8 +193,26 @@ export const CitationPeek: FC<CitationPeekProps> = ({
   downloadPending,
 }) => {
   const t = useTranslations('chat')
+  const router = useRouter()
   const { document: doc } = citation
   const tint = doc.tint
+  const scope = useChatStore((s) => s.scope)
+  // The reader's own last question, carried into the project's chat by `?ask=`.
+  // Their words, not a summary of them: a doorway that rewrites the question is
+  // a doorway into a different question.
+  const lastQuestion = useChatStore(
+    (s) =>
+      [...(s.currentConversation?.messages ?? [])]
+        .reverse()
+        .find((message) => message.role === 'user')?.content ?? ''
+  )
+  const citedProjectId = doc.projectId
+  const continueInProject = citedProjectId
+    ? () =>
+        router.push(
+          `/app/projects/${encodeURIComponent(citedProjectId)}/chat?ask=${encodeURIComponent(lastQuestion)}`
+        )
+    : undefined
 
   return (
     <div className="space-y-2">
@@ -197,6 +224,18 @@ export const CitationPeek: FC<CitationPeekProps> = ({
         )}
         <BindingStatusChip status={doc.bindingStatus} />
       </div>
+
+      {/* WHICH project, above the filename — the fact the shelf used to imply
+          by standing in one project, and stopped implying the moment several
+          became readable in one turn (§4). Suppressed in a project chat, where
+          naming the room the reader is in is noise. */}
+      <ProjectAttribution
+        projectId={doc.projectId}
+        projectName={doc.projectName}
+        shelf={doc.shelf}
+        show={scope === 'workspace'}
+        onContinueInProject={continueInProject}
+      />
 
       <div>
         <p className="break-words text-sm font-medium text-foreground">{doc.title}</p>
@@ -300,7 +339,7 @@ export const CitationPeek: FC<CitationPeekProps> = ({
             <ExternalLink aria-hidden="true" className="size-3" />
           </a>
         )}
-        <DocumentHomeLink shelf={doc.shelf} tint={tint} />
+        <DocumentHomeLink shelf={doc.shelf} tint={tint} projectId={doc.projectId} />
         <span className="flex-1" />
         <CopyCitationLinkButton citation={citation} icon={<Link2 className="size-3" />} />
         <CopySourceCitationButton citation={citation} />

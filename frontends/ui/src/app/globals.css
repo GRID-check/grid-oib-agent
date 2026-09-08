@@ -192,6 +192,29 @@ body {
   }
 }
 
+/* The horizontal sibling of `scroll-fade-bottom`: a row that scrolls sideways
+   fades at its right edge so the overflow is visible rather than guessed at.
+
+   A MASK, not a gradient overlay, for the reason the vertical one documents: a
+   mask composites against whatever surface the row sits on, and the "Im Blick"
+   row sits on the composer's glass. It sets no `touch-action`, so it never
+   claims the page's vertical pan. */
+@utility scroll-fade-right {
+  --scroll-fade-size: 24px;
+  mask-image: linear-gradient(to right, black calc(100% - var(--scroll-fade-size)), transparent 100%);
+  -webkit-mask-image: linear-gradient(
+    to right,
+    black calc(100% - var(--scroll-fade-size)),
+    transparent 100%
+  );
+  @supports (animation-timeline: scroll(self inline)) {
+    animation: scroll-fade-settle linear both;
+    animation-timeline: scroll(self inline);
+    /* The last 40px of travel, not a percentage — see `scroll-fade-bottom`. */
+    animation-range: calc(100% - 40px) 100%;
+  }
+}
+
 /* Hide scrollbar utility */
 @utility scrollbar-hide {
   -ms-overflow-style: none;

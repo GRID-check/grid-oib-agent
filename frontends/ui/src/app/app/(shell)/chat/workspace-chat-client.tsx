@@ -1,6 +1,7 @@
 'use client'
 
-import { type ReactNode, Suspense, useEffect } from 'react'
+import { type ReactNode, Suspense, useEffect, useRef } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/adapters/auth'
 import { MainLayout } from '@/features/layout'
 import { useChatStore } from '@/features/chat'
@@ -30,6 +31,43 @@ const WorkspaceChatContent = ({
   const { isAuthenticated, signIn } = useAuth()
   const setScope = useChatStore((s) => s.setScope)
   const loadServerConversations = useChatStore((s) => s.loadServerConversations)
+  const ensureSession = useChatStore((s) => s.ensureSession)
+  const mountProject = useChatStore((s) => s.mountProject)
+
+  // The doorway out of a project chat: `/app/chat?mount=<projectId>`, opened by
+  // the tree's "Im Büro fragen →" (`workspace-chat-ui.md` §7, flow f).
+  //
+  // Consumed EXACTLY ONCE and then stripped from the URL, the same guard-ref
+  // pattern `?new=1` and `?ask=` already use next door — a refresh must not
+  // re-mount a project the reader has since removed. On a refusal nothing is
+  // mounted and the transcript carries the reason (`MountNotices`), which is
+  // the difference between "we could not" and an empty chat that silently
+  // answers without the project the reader came for.
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const mountParam = searchParams?.get('mount') ?? null
+  const consumedMountRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!mountParam || !isAuthenticated || consumedMountRef.current === mountParam) return
+    consumedMountRef.current = mountParam
+
+    // A mount is a row on a conversation, so there has to be one. This is the
+    // ordinary first-turn case and the mounts service is written for it: the
+    // conversation row is created by whichever write arrives first.
+    const conversationId = ensureSession()
+    if (conversationId) {
+      void mountProject(conversationId, mountParam, undefined, 'fromProject')
+    }
+
+    if (pathname) {
+      const params = new URLSearchParams(searchParams?.toString() ?? '')
+      params.delete('mount')
+      const query = params.toString()
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
+    }
+  }, [mountParam, isAuthenticated, ensureSession, mountProject, searchParams, pathname, router])
 
   useEffect(() => {
     // Order matters: the scope goes in first (it clears the project and drops a

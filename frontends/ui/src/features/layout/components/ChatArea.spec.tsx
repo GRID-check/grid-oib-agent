@@ -112,6 +112,11 @@ vi.mock('@/features/chat', () => ({
     </div>
   ),
   ChatThinking: (props: unknown) => mockChatThinking(props),
+  // The mount notices at the foot of the transcript (ADR-0054). Stubbed rather
+  // than rendered: what they say is held by `MountNotice.spec` and by the
+  // mounts slice's own spec, and what belongs HERE is only that the transcript
+  // has a place for them.
+  MountNotices: () => <div data-testid="mount-notices" />,
   // Only the bottom-of-thread typing cue (`TypingIndicator`, defined in
   // ChatArea.tsx itself) reaches these — a real timer is not needed, a fixed
   // "not elapsed yet" is enough to render.

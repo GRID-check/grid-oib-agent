@@ -1,0 +1,24 @@
+---
+features:
+  - >
+    Im Büro-Chat lassen sich einzelne Projekte einblenden: Piloti liest dann
+    deren Unterlagen mit, zusätzlich zu Baurecht und Büroarchiv. Das geht über
+    den Suchbereich-Chip, oder Piloti blendet ein Projekt selbst ein, wenn eine
+    Frage es braucht — und sagt es dazu.
+  - >
+    Der Suchbereich-Chip öffnet jetzt die Wissensbasis: eine Liste, die für
+    jede Wissensebene sagt, ob Piloti sie in dieser Antwort lesen darf. Auch
+    ausgeschlossene Ebenen stehen darin, mit dem Grund.
+  - >
+    Aus einem Projekt-Chat führt „Im Büro fragen" direkt ins Büro, mit diesem
+    Projekt bereits eingeblendet. Umgekehrt führt jede Fundstelle aus einem
+    Projekt mit „Im Projekt weiterfragen" zurück, samt Frage.
+improvements:
+  - >
+    Fundstellen aus einem Projekt nennen im Büro auch das Projekt, aus dem sie
+    stammen — bisher stand dort nur „Projektwissen", was bei mehreren
+    eingeblendeten Projekten offenließ, um welches es ging.
+  - >
+    Die Herleitung ist nach Wissensebenen gruppiert, von Basiswissen bis Web,
+    und zeigt auch die Ebenen, aus denen nichts gelesen wurde. So ist zu sehen,
+    worauf eine Antwort nicht beruht.

@@ -108,11 +108,8 @@ export const chat = {
     // preference, it does not force a deep-research run.
     deepResearchHint:
       'Preference noted — Piloti escalates to Deep Research automatically when a question calls for it.',
-    scopeAria: 'Search scope: {project}',
     scopeFallback: 'This project',
     scopeCurrent: 'Current project',
-    scopeAll: 'All projects',
-    scopeAllSoon: 'Coming soon — cross-project search is not available yet.',
     // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
     // tiny one-line hint under the composer keeps the active source count legible.
     sourcesActiveMobile: '{count, plural, one {# source} other {# sources}} active',
@@ -153,6 +150,120 @@ export const chat = {
         register: 'Which of our projects are GK5 with timber construction?',
         compare: 'Compare the fire-safety concepts of …',
       },
+    },
+    chipAriaProject: 'Search scope: {project}. Opens the knowledge base.',
+    /**
+     * The Wissensbasis tree behind the scope chip — the one place, on BOTH
+     * surfaces, that states the knowledge levels in authority order and says
+     * which of them this turn may read (`workspace-chat-ui.md` §4).
+     */
+    tree: {
+      title: 'Knowledge base',
+      levels: {
+        base: 'Base knowledge',
+        archiv: 'Office archive',
+        register: 'Project register',
+        project: 'Project',
+        session: 'This conversation',
+      },
+      hints: {
+        base: 'OIB guidelines and legal sources.',
+        archiv: 'Standards and details from the whole organization.',
+        register: 'Names and profiles only — no documents.',
+        project: 'Documents and memory of the projects in view.',
+        session: 'Files you attached here.',
+      },
+      /**
+       * `off` and `unavailable` stay different words for the reason
+       * `source-basis-model.ts` gives: an unflippable switch is a lie about
+       * agency, so a door that is shut never wears the word for a choice.
+       */
+      states: {
+        always: 'always',
+        on: 'on',
+        off: 'excluded',
+        unavailable: 'unavailable',
+      },
+      offByPreset: 'Excluded by the „{preset}" preset.',
+      registerOutsideWorkspace: 'Only in the office chat.',
+      sessionEmpty: 'No file in this conversation yet.',
+      projectLocked: 'This chat is fixed to {project}.',
+      noProjects: 'No project in view',
+      mountAdd: '+ Add a project',
+      mountRemove: 'Remove {project}',
+      resetPreset: 'Reset the preset',
+    },
+    // The row above the composer: what this conversation may read right now.
+    mounted: {
+      label: 'In view',
+      aria: 'Projects in view: {names}',
+    },
+    picker: {
+      title: 'Add a project',
+      placeholder: 'Search projects …',
+      mounted: 'in view',
+      empty: 'No matching project.',
+      none: 'There is no further project you can read.',
+      error: 'The project list could not be loaded.',
+      retry: 'Try again',
+    },
+    cap: {
+      notice: 'A conversation cannot read more than {max} projects at once.',
+      deepResearch: 'Start as Deep Research',
+    },
+    /**
+     * Every mount, by the agent or by the reader, produces three simultaneous
+     * signals — this notice, a chip in "In view", a row in the tree. There is
+     * no code path that mounts without all three.
+     */
+    mount: {
+      byAgent: 'Piloti added project {project}.',
+      byUser: '{project} is in view.',
+      fromProject: '{project} is in view because you came from that project.',
+      undo: 'Undo',
+      undone: '{project} removed again.',
+      failed: '{project} could not be added.',
+      noAccess: 'You cannot read that project.',
+      notFound: 'That project could not be found.',
+      unavailable: 'That project could not be added right now.',
+    },
+    attribution: {
+      project: 'Project {project}',
+      register: 'Project profile',
+      continueInProject: 'Continue in the project',
+    },
+    // The foot of a project chat's tree: the doorway into the office.
+    askInWorkspace: 'Ask in the office →',
+    askInWorkspaceHint: 'Opens the office chat with this project in view.',
+    /**
+     * The Herleitung, grouped by knowledge level rather than by lane. The five
+     * levels are ALWAYS rendered — an absent level reads as absent, never as
+     * missing (`workspace-chat-ui.md` §3, failure mode 1).
+     */
+    herleitung: {
+      levels: {
+        law: 'Base knowledge',
+        office: 'Office archive',
+        register: 'Project register',
+        project: 'Project',
+        conversation: 'This conversation',
+        web: 'Web',
+      },
+      levelEmpty: 'nothing in view',
+      /**
+       * How much a level contributed. Documents, not passages: the fan's own
+       * tally already counts hits, and two numbers for one band on one panel
+       * is a reader working out which is which.
+       */
+      levelCount: '{docs, plural, one {# document} other {# documents}}',
+    },
+    // The standing control under a register-only answer (§10.3).
+    registerMount: {
+      label: 'Add to this conversation:',
+      action: 'Add',
+    },
+    sharing: {
+      blocked: '{name} cannot read {project}, so this chat cannot be shared with them.',
     },
     sessions: {
       title: 'Office chats',

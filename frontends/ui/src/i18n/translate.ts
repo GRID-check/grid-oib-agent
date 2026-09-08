@@ -13,6 +13,11 @@
  *
  *     '{count, plural, one {# Abschnitt} other {# Abschnitte}}'
  *
+ * A count that can be none may spell zero out with an exact branch, which wins
+ * over the categories:
+ *
+ *     '{count, plural, =0 {Kein Projekt} one {# Projekt} other {# Projekte}}'
+ *
  * `#` stands for the number, and `{name}` placeholders inside a branch are
  * interpolated as usual. This is the ICU plural syntax, cut down to the two
  * categories German and English actually distinguish.
@@ -63,8 +68,18 @@ const HAS_PLURAL_RE = /,\s*plural\s*,/
 /** Header of a plural block: `{count, plural, ` at the start of a slice. */
 const PLURAL_HEADER_RE = /^\{(\w+),\s*plural,\s*/
 
-/** A branch label and its opening brace: `one {` at the start of a slice. */
-const PLURAL_BRANCH_RE = /^\s*(\w+)\s*\{/
+/**
+ * A branch label and its opening brace: `one {`, `other {` — or an EXACT-value
+ * branch, `=0 {`.
+ *
+ * `=0` is ICU's "say something else entirely at zero", and it is the branch a
+ * count that can legitimately be none needs: "0 Projekte eingeblendet" is
+ * arithmetic, "Kein Projekt eingeblendet" is German. Without it in this regex
+ * the scanner stopped at the first branch, found no categories at all, and
+ * resolved the whole block to the empty string — the scope chip's accessible
+ * name read „Suchbereich: Büro. . Öffnet die Wissensbasis."
+ */
+const PLURAL_BRANCH_RE = /^\s*(=\d+|\w+)\s*\{/
 
 /**
  * Index of the `}` closing the `{` at `open`, or -1 when the braces do not
@@ -131,10 +146,15 @@ function applyPlurals(template: string, vars: TranslationVars): string {
     const branches = parseBranches(template.slice(start + header[0].length, close))
     const value = vars[header[1]]
     const count = typeof value === 'number' ? value : Number(value)
+    // Exact branches win over categories, which is what `=0` is FOR: a template
+    // that spells zero out has said the category form is wrong there.
+    const exact = Number.isFinite(count) ? branches[`=${count}`] : undefined
     const chosen =
-      Number.isFinite(count) && count === 1 && branches.one !== undefined
-        ? branches.one
-        : (branches.other ?? '')
+      exact !== undefined
+        ? exact
+        : Number.isFinite(count) && count === 1 && branches.one !== undefined
+          ? branches.one
+          : (branches.other ?? '')
 
     out += template.slice(cursor, start) + chosen.split('#').join(String(value ?? ''))
     cursor = close + 1

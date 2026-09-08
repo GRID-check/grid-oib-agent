@@ -28,9 +28,7 @@ import {
 import {
   ArrowUp,
   AtSign,
-  Building2,
   Check,
-  ChevronDown,
   Eye,
   FileText,
   Loader2,
@@ -45,10 +43,11 @@ import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
+import { MountedProjectsRow } from './scope/MountedProjectsRow'
+import { ScopeControl } from './scope/ScopeControl'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AnimatePresence, motion, motionQuick, motionEntrance, springPress } from '@/components/motion'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
@@ -275,6 +274,9 @@ const FileChip: FC<{
     </span>
   )
 }
+
+/** See `features/chat/components/MountNotices` — stable empty list for a fake. */
+const NO_MOUNTS: never[] = []
 
 interface InputAreaProps {
   /** Placeholder text */
@@ -1407,18 +1409,21 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     (f) => f.status === 'uploading' || f.status === 'ingesting' || f.status === 'success'
   ).length
 
-  // Scope chip: WHAT PILOTI MAY READ THIS TURN, in a label and — the part that
-  // survives a phone, where the label is hidden — a glyph.
-  //
-  // In the Büro the label is the office and the glyph is a building; in a
-  // project it is the project's name. The accessible name spells the whole
-  // state either way, because a reader who never opens the popover still has
-  // to be able to hear which of the two surfaces they are on
-  // (`workspace-chat-ui.md` §3).
-  const scopeLabel = projectName || tChat('composer.scopeFallback')
-  const scopeAriaLabel = isWorkspaceScope
-    ? tChat('workspace.chipAria', { count: 0 })
-    : tChat('composer.scopeAria', { project: scopeLabel })
+  // See `features/chat/components/MountNotices` for why the fallbacks.
+  // The mounted projects, from the ONE mounts state (ADR-0054). The chip's
+  // count, the tree's rows and this row are three readings of this list; there
+  // is deliberately no second copy for any of them to disagree with.
+  const mountedProjects = useChatStore((state) => state.mounts ?? NO_MOUNTS)
+  const mountsPending = useChatStore((state) => state.mountsPending ?? NO_MOUNTS)
+  const unmountProject = useChatStore((state) => state.unmountProject)
+  const mountsConversationId = useChatStore((state) => state.currentConversation?.id ?? null)
+  const handleUnmountProject = useCallback(
+    (id: string) => {
+      if (!mountsConversationId) return
+      void unmountProject(mountsConversationId, id)
+    },
+    [mountsConversationId, unmountProject]
+  )
 
   // Single composer hint slot: exactly one helper line below the control row —
   // the first applicable in priority order (viewer > no-project-chat > busy >
@@ -1540,6 +1545,21 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // plus its own glass surface (below) is what makes it legible as "the
     // composer", not "the next message".
     <div className="mx-auto flex w-full max-w-4xl flex-col px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pt-4 sm:pb-4">
+      {/* "Im Blick" — the projects this conversation may read, directly above the
+          composer and in the Büro only. One of the three simultaneous signals
+          every mount produces; all three render from the store's ONE mount list
+          (`workspace-chat-ui.md` §4). Hidden at zero mounts, where an empty band
+          would spend the composer's whole vertical budget on nothing. */}
+      {isWorkspaceScope && mountedProjects.length > 0 && (
+        <div className="mb-2">
+          <MountedProjectsRow
+            mounted={mountedProjects}
+            removing={mountsPending}
+            onUnmount={handleUnmountProject}
+          />
+        </div>
+      )}
+
       {/* The mention picker is anchored to the composer CARD and opens above it,
           spanning its full width — the Slack/Linear placement. Caret-pixel tracking
           inside a textarea is fragile and buys nothing here. */}
@@ -1843,76 +1863,19 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             Order per the click dummy: scope · Datengrundlage · Deep-Research,
             then attach + send pushed right. */}
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t pt-2.5">
-              {/* Scope chip — current project; cross-project is honestly disabled.
-              Dashed status-active dot + label + chevron (dummy composer). */}
-              <Popover>
-                <PopoverTrigger asChild>
-                  {/* The primitive, not a hand-rolled `<button>`: the outline/sm
-                  variant IS this chip's geometry, and it ships the press
-                  response with its `motion-reduce` escape for free. Matches
-                  `SourceBasisTrigger` beside it. */}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={cannotContribute}
-                    aria-label={scopeAriaLabel}
-                    title={scopeAriaLabel}
-                    className="min-w-0"
-                  >
-                    {isWorkspaceScope ? (
-                      // The office's own glyph, at the badge/chip glyph step. It
-                      // is the only carrier of scope below `sm`, so it sits in
-                      // the leading slot the dashed ring occupies in a project.
-                      <Building2 className="text-foreground/70 size-3.5 shrink-0" aria-hidden="true" />
-                    ) : (
-                      <span className="border-status-active flex size-3.5 shrink-0 items-center justify-center rounded-full border border-dashed">
-                        {/* 5px: the dot has to sit INSIDE a 14px dashed ring with a
-                        visible gap on every side, and the 6px token step closes it. */}
-                        <span className="bg-status-active size-[5px] rounded-full" />
-                      </span>
-                    )}
-                    <span className="text-foreground/85 hidden max-w-44 truncate sm:inline">
-                      {scopeLabel}
-                    </span>
-                    <ChevronDown
-                      className="text-muted-foreground size-3 shrink-0"
-                      aria-hidden="true"
-                    />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent side="top" align="start" className="w-64 p-1.5">
-                  <div
-                    className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm"
-                    aria-current="true"
-                  >
-                    <Check className="text-foreground size-3.5 shrink-0" aria-hidden="true" />
-                    <span className="min-w-0 flex-1 truncate font-medium">{scopeLabel}</span>
-                    <span className="text-muted-foreground shrink-0 text-xs">
-                      {tChat('composer.scopeCurrent')}
-                    </span>
-                  </div>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      {/* span wrapper: disabled elements don't emit hover events */}
-                      <span className="block" tabIndex={0}>
-                        <button
-                          type="button"
-                          disabled
-                          aria-disabled="true"
-                          className="text-muted-foreground flex w-full cursor-not-allowed items-center gap-2 rounded-lg px-2.5 py-2 text-sm opacity-60"
-                        >
-                          <span className="size-3.5 shrink-0" aria-hidden="true" />
-                          <span className="truncate">{tChat('composer.scopeAll')}</span>
-                        </button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-60">
-                      {tChat('composer.scopeAllSoon')}
-                    </TooltipContent>
-                  </Tooltip>
-                </PopoverContent>
-              </Popover>
+              {/* Scope chip + Wissensbasis. WHAT PILOTI MAY READ THIS TURN, and
+              the one control that can change it (`workspace-chat-ui.md` §4).
+              The disabled "Alle Projekte · Bald verfügbar" row this replaces was
+              an apology for a control with nothing behind it; there is now
+              something behind it. Both scopes render the same tree — a lock and
+              one project in a project chat, a building and a growable mounted
+              list in the Büro. */}
+              <ScopeControl
+                scope={scope}
+                projectName={projectName}
+                sessionAttachmentCount={attachedFilesCount}
+                disabled={cannotContribute}
+              />
 
               {/* Datenbasis — the one control for WHERE Piloti may look.
               WITHHELD for now (product decision, 2026-08): the picker is
@@ -1921,8 +1884,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               available source enabled (`fetchDataSources`) — so nothing
               narrows silently; only a conversation that saved a narrower
               selection while the control existed still restores it.
-              To restore: uncomment this block and the `SourceBasisPicker,
-              SourceBasisTrigger` import above.
+              To restore: uncomment this block and re-add the
+              `SourceBasisPicker, SourceBasisTrigger` and `PopoverTrigger`
+              imports above — all three were dropped when the scope chip's own
+              popover moved into `scope/ScopeControl`, which left them with no
+              live use for the linter to see.
 
               The trigger names the mix (a preset, a set of strata, "Alle
               Quellen"); it never renders a bare count, because the count it

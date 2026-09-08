@@ -441,7 +441,7 @@ dictionaries or `key-coverage.spec.ts` fails.
 | `title` | "Büro" | "Office" |
 | `chipAria` | "Suchbereich: Büro. {count, plural, =0 {Kein Projekt eingeblendet} one {# Projekt eingeblendet} other {# Projekte eingeblendet}}. Öffnet die Wissensbasis." | "Search scope: Office. {count, plural, =0 {No project in view} one {# project in view} other {# projects in view}}. Opens the knowledge base." |
 | `chipAriaProject` | "Suchbereich: {project}. Öffnet die Wissensbasis." | "Search scope: {project}. Opens the knowledge base." |
-| `placeholder` | "Fragen Sie Piloti — über alle Projekte hinweg …" | "Ask Piloti — across your projects …" |
+| `placeholder` | "Fragen Sie Piloti im Büro …" | "Ask Piloti in the office …" |
 | `empty.title` | "Das Büro" | "The office" |
 | `empty.description` | "Piloti liest hier Basiswissen, Büroarchiv und das Projektregister. Blenden Sie ein Projekt ein, damit auch dessen Unterlagen gelesen werden." | "Here Piloti reads base knowledge, the office archive and the project register. Add a project to have its documents read too." |
 | `empty.examples.law` | "Wie lang darf ein Fluchtweg in GK4 sein?" | "How long may an escape route be in GK4?" |
@@ -717,11 +717,13 @@ state guards with a **module-scope** flag and polls `aria-expanded`.
 | Target id | Route | Captures | `mobile` |
 |---|---|---|---|
 | `workspace-chat` | `/dev/workspace-chat` | The Büro at rest: hero greeting, `WorkspaceEmptyState`, composer with `ScopeChip variant="workspace"` | yes |
-| `scope-tree` | `/dev/scope-tree` | `ScopeTree`, driven open. `?variant=workspace` (two mounts), `?variant=project` (locked single project + "Im Büro fragen →"), `?variant=capped` (five mounts, cap notice) | yes |
+| `scope-tree` | `/dev/scope-tree` | The Büro tree with two mounts, above the chip that opens it | yes |
+| `scope-tree-project` | `/dev/scope-tree?variant=project` | A project chat: register `nicht verfügbar` with its reason, one locked project, "Im Büro fragen →" at the foot | yes |
+| `scope-tree-capped` | `/dev/scope-tree?variant=capped` | Five mounts: no add row, its reason in its place, chip at "Büro · 5" | yes |
 | `mounted-projects` | `/dev/mounted-projects` | `MountedProjectsRow` at 1 / 3 / 5 mounts; the 5-chip row exercises the horizontal fade at 390px | yes |
 | `project-mount-picker` | `/dev/project-mount-picker` | `ProjectMountPicker`: ready, one row already mounted, cap-reached, and the no-readable-projects empty state | yes |
 | `citation-project-attribution` | `/dev/citation-project-attribution` | `CitationPeek` with `ProjectAttribution` and "Im Projekt weiterfragen", under a real `hover:` rest | no (hover-only) |
-| `herleitung-levels` | `/dev/herleitung?variant=levels` | The five-level grouping with two project subgroups and two empty-gray levels | yes |
+| `herleitung` (extend) | `/dev/herleitung` | The level band under the fan — the six levels with their counts, empty ones gray with "nichts eingeblendet". No separate variant: the band renders on every finished turn, so the existing `herleitung*` shots are the evidence | yes |
 | `app-shell-scopes` (extend) | `/dev/app-shell-scopes` | The org header's new "Piloti fragen" entry beside the icon-only doorways | yes |
 | `composer` (extend) | `/dev/composer?variant=workspace` | The composer control row in the Büro: workspace chip, mounted row above it | yes |
 
@@ -738,6 +740,61 @@ Spec files, named beside the component they hold:
 | `features/chat/lib/project-scope.spec.ts` (extend) | The workspace branch of `conversationMatchesProject` does **not** fail open |
 | `components/shell/project-sections.spec.ts` (extend) | The Büro row's `g b` binding and palette membership |
 | `i18n/key-coverage.spec.ts` (existing) | Every key above in DE **and** EN |
+
+---
+
+## 9a. What phase 3 actually built (2026-09-08)
+
+Recorded here so the next reader compares the design against the code rather
+than against their memory of the design. Everything below is shipped; everything
+in §4 not listed here is not.
+
+**Where the design was followed.** `ScopeChip`, `ScopeTree`,
+`MountedProjectsRow`, `ProjectMountPicker`, `scope-tree-model.ts`,
+`MountNotice`/`MountCapNotice`/`MountRefusedNotice`, `ProjectAttribution`, the
+`?mount=` doorway and its stripping, the register-only footer control (§10.3),
+`projectId`/`projectName` from the wire citation into `CitedDocument`, and
+`DocumentHomeLink` resolving the project from the citation rather than the store.
+
+**Four places the build differs, and why.**
+
+1. **The register level renders on both surfaces.** §4 says it is *absent* in a
+   project chat; it is drawn `nicht verfügbar` with "Nur im Büro-Chat." instead.
+   §3's failure mode 1 is the stronger rule: a level that disappears teaches the
+   reader that the hierarchy is whatever happened. Both surfaces now show the
+   same five rows in the same order, and the difference between them is a state,
+   which is a thing the reader can read.
+
+2. **The Herleitung's band names levels, not documents.** §4 describes
+   `HerleitungLevels` as regrouping the source cards. It renders the six levels
+   with a count each (one chip per project on the project level) and does *not*
+   repeat the documents, because the fan two rows above already names every one
+   of them; a second list of the same files on one panel is the reader working
+   out which is which. What the fan cannot say — which levels were **not** read
+   — is what the band says.
+
+3. **A shelf-less Projektwissen hit is filed under Projekt.**
+   `levelForHit` takes the shelf wherever it exists (so a session attachment
+   never lands in Projektwissen). Where a hit carries none, the lane's own
+   backend classification decides — the same classification printed on that
+   hit's card in the fan. The first cut refused this and produced one panel
+   saying "Projektwissen" and "Projekt — nichts eingeblendet" about one document.
+
+4. **The mount notices are one block at the foot of the transcript, not one
+   notice inside the turn that produced it.** §7 flow (d) has the notice landing
+   mid-answer; `MountNotices` renders every notice this conversation has seen,
+   in mount order, below the last turn. The list is still the record the design
+   asks for — undo flips a notice rather than deleting it — and it is still
+   rendered from the one mounts state, so the chip, the tree row and the notice
+   cannot disagree. What it costs is the notice's position relative to the turn,
+   which a message-level anchor would buy back: a mount is not a message, and
+   giving it one would have put a second writer on the transcript.
+
+**Not built in this slice**, and not attempted: `WorkspaceEmptyState` (shipped in
+phase 1), the `/dev/mounted-projects`, `/dev/project-mount-picker` and
+`/dev/citation-project-attribution` preview routes, the `composer` and
+`app-shell-scopes` target extensions, and everything in §7 flow (g), which is
+phase 2's sharing boundary.
 
 ---
 

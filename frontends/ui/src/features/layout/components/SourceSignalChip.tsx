@@ -72,11 +72,31 @@ interface SourceSignalChipSpanProps {
   children: ReactNode
   className?: string
   title?: string
+  /**
+   * A glyph that overrides the tint's default.
+   *
+   * The mechanism ADR-0026's amendment established for `oib` inside `law`,
+   * applied one level deeper (`workspace-chat-ui.md` §6): the Projektregister
+   * and a project document are the SAME tier of trust and share `--source-project`,
+   * and what separates them is the icon. A fifth hue for a sub-shelf would make
+   * the palette carry a distinction the glyph carries better, and would set the
+   * precedent that every new shelf earns a colour.
+   *
+   * It overrides the glyph only. The tint, the label and the requirement that
+   * all three travel together are untouched.
+   */
+  icon?: typeof Globe
 }
 
 /** Static provenance chip (span). */
-export const SourceSignalChip = ({ signal, children, className, title }: SourceSignalChipSpanProps) => {
-  const Icon = iconForTint(signal)
+export const SourceSignalChip = ({
+  signal,
+  children,
+  className,
+  title,
+  icon,
+}: SourceSignalChipSpanProps) => {
+  const Icon = icon ?? iconForTint(signal)
   return (
     <span className={cn(chipClasses, className)} style={sourceSignalStyle(signal)} title={title}>
       <Icon aria-hidden="true" />

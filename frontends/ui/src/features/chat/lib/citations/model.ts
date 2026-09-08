@@ -147,6 +147,17 @@ export interface CitedDocument {
    * law is the fail-open defect ADR-0047 removes.
    */
   shelf?: Shelf
+  /**
+   * WHICH project a `project`-shelf document belongs to (ADR-0054).
+   *
+   * The shelf says WHAT KIND of source this is; in the Büro, where several
+   * mounted projects are readable in one turn, that is no longer enough to
+   * attribute a passage. Absent for every other shelf and for messages
+   * persisted before the wire carried the fields — never derived from the
+   * collection id, which is the guess ADR-0047 removed.
+   */
+  projectId?: string
+  projectName?: string
   /** Outbound link, for web/RIS sources. */
   url?: string
   /** Coarse kind (ADR-0026) — the provenance/trust family. */
@@ -666,6 +677,9 @@ export class CitationAccumulator {
      * one.
      */
     shelfFallback?: Shelf
+    /** The project the producer named beside the shelf (ADR-0054). */
+    projectId?: string | null
+    projectName?: string | null
     url?: string | null
     kind?: string | null
     lane?: string | null
@@ -748,6 +762,10 @@ export class CitationAccumulator {
     } else {
       doc.shelf = doc.shelf ?? observation.shelfFallback
     }
+    // First non-empty wins, like every other merged field: one document is
+    // assembled from many wire sources and only some of them carry the project.
+    doc.projectId = doc.projectId || observation.projectId?.trim() || undefined
+    doc.projectName = doc.projectName || observation.projectName?.trim() || undefined
     doc.url = doc.url ?? (observation.url?.trim() || undefined)
     doc.tool = doc.tool ?? (observation.tool?.trim() || undefined)
     doc.bindingNote = doc.bindingNote ?? (observation.bindingNote?.trim() || undefined)

@@ -11,6 +11,7 @@ import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-p
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { StageFrame } from './stores/messages-store'
+import type { MountsSlice } from './stores/mounts-store'
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
 
 import type { Shelf, SourceKind } from './lib/source-kinds'
@@ -708,6 +709,18 @@ export interface CitationSource {
    */
   shelf?: Shelf
   /**
+   * WHICH project a `project`-shelf passage belongs to (ADR-0054), as the
+   * knowledge layer stated it beside the shelf.
+   *
+   * In the Büro several mounted projects are readable in one turn, so
+   * "Projektwissen" no longer says whose — the chip reads "Projekt Seestadt ·
+   * Brandschutz.pdf · S. 7" because these two travelled with the passage. Like
+   * the shelf they are DATA and never derived: a `proj_` prefix on the
+   * collection id is exactly the guess ADR-0047 removed.
+   */
+  projectId?: string
+  projectName?: string
+  /**
    * Identity of the DOCUMENT this source is a passage of, as the backend
    * registry groups it (`citation_verification.document_key`). Absent on
    * messages persisted before the wire carried it, where the client derives an
@@ -760,6 +773,14 @@ export interface WireCitationSource {
   kind?: string | null
   /** Shelf the chunk came from: `archiv | project | session | base` (ADR-0047). */
   shelf?: string | null
+  /**
+   * The project a `project`-shelf passage came from (ADR-0054). Two fields
+   * rather than one "Name (id: …)" string, because a project name may itself
+   * contain brackets. Absent for every other shelf, and for output produced
+   * before the fields were threaded.
+   */
+  project_id?: string | null
+  project_name?: string | null
   lane?: string | null
   lane_label?: string | null
   binding_note?: string | null
@@ -1531,4 +1552,14 @@ export interface ChatActions {
 }
 
 /** Combined chat store type */
-export type ChatStore = ChatState & ChatActions
+/**
+ * The store as every consumer sees it.
+ *
+ * `MountsSlice` is composed in as its OWN type rather than copied into
+ * `ChatState`/`ChatActions` above. The two halves of this file predate the
+ * slice pattern and restate every field a slice declares, which is a fork that
+ * looks locally correct until one side moves; a slice that carries its own
+ * contract cannot drift from itself. Type-only in both directions, so the cycle
+ * with `stores/mounts-store.ts` is erased at build time.
+ */
+export type ChatStore = ChatState & ChatActions & MountsSlice

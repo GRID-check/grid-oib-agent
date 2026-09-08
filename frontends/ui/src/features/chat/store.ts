@@ -1,10 +1,11 @@
 /**
  * Chat Store
  *
- * Combined Zustand store composed from 3 slices:
+ * Combined Zustand store composed from 4 slices:
  * - Messages slice (streaming, thinking, file cards)
  * - Sessions slice (conversations CRUD, persistence)
  * - Deep Research slice (SSE streaming, HITL, jobs)
+ * - Mounts slice (which projects the Büro conversation may read, ADR-0054)
  */
 
 import { create } from 'zustand'
@@ -25,6 +26,7 @@ import {
   createMessagesSlice,
   createSessionsSlice,
   createDeepResearchSlice,
+  createMountsSlice,
 } from './stores'
 import { createResilientStorage } from './stores/sessions-store'
 import {
@@ -39,6 +41,11 @@ export const useChatStore = create<ChatStoreWithHydration>()(
         ...createMessagesSlice(set, get, store),
         ...createSessionsSlice(set, get, store),
         ...createDeepResearchSlice(set, get, store),
+        // The projects this conversation may read (ADR-0054). Deliberately NOT
+        // in `partialize` below: a mount is a server fact re-fetched per
+        // conversation, and a persisted copy would show a chip for a mount
+        // somebody revoked while the tab was closed.
+        ...createMountsSlice(set, get, store),
         // Client-only hydration flag (C5); flipped true in onRehydrateStorage.
         hasHydrated: false,
       }),
