@@ -48,6 +48,7 @@ navigation rail, so what you see in the rail is what you can jump to:
 | **G** then **F** | Files |
 | **G** then **K** | Knowledge |
 | **G** then **H** | History |
+| **G** then **B** | Büro (the office chat) |
 | **G** then **A** | Archiv |
 | **G** then **I** | Inbox |
 | **G** then **S** | Project settings |
@@ -58,8 +59,8 @@ generic one.
 
 Section jumps open that section of the project you are currently in. Outside a
 project there is nothing for them to open, so they do nothing rather than
-guessing a project for you. *All projects*, *Organization*, *Archiv* and *Inbox*
-are org-wide doorways and work from anywhere.
+guessing a project for you. *All projects*, *Organization*, *Büro*, *Archiv* and
+*Inbox* are org-wide doorways and work from anywhere.
 
 A second key that is not bound simply cancels the sequence. Nothing navigates
 unless you asked for it.

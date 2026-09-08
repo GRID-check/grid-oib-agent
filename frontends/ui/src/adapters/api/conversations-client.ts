@@ -1,4 +1,17 @@
 import type { Conversation, Message } from '@/lib/db/schema'
+import type { ConversationScope } from '@/features/chat/lib/project-scope'
+
+/** Which rows `list` asks for. Exactly one of the two ever applies. */
+export interface ListConversationsQuery {
+  /** Narrow to one project's conversations (plus legacy unscoped rows). */
+  projectId?: string
+  /**
+   * Narrow to the organization's Büro conversations (ADR-0054). Only
+   * `'workspace'` is meaningful — a project list is asked for by `projectId`,
+   * and passing both is a contradiction the BFF rejects.
+   */
+  scope?: ConversationScope
+}
 
 export interface ConversationSummary {
   id: string
@@ -23,13 +36,19 @@ export interface ConversationTitleResult {
 
 export const conversationsClient = {
   /**
-   * List conversations, optionally scoped to a project. The BFF applies a
-   * fail-open rule for legacy rows without a projectId (they are included in
-   * every project scope) so users never lose sight of their history.
+   * List conversations, optionally scoped to a project or to the Büro.
+   *
+   * For a project the BFF applies a fail-open rule for legacy rows without a
+   * projectId (they are included in every project scope) so users never lose
+   * sight of their history. `scope: 'workspace'` is the opposite and asks for
+   * exactly the organization-level rows (WS-8).
    */
-  async list(projectId?: string): Promise<Conversation[]> {
-    const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''
-    const res = await fetch(`/api/conversations${query}`)
+  async list(query: ListConversationsQuery = {}): Promise<Conversation[]> {
+    const params = new URLSearchParams()
+    if (query.scope === 'workspace') params.set('scope', query.scope)
+    else if (query.projectId) params.set('projectId', query.projectId)
+    const search = params.toString()
+    const res = await fetch(`/api/conversations${search ? `?${search}` : ''}`)
     if (!res.ok) throw new Error('Failed to fetch conversations')
     return res.json()
   },
@@ -40,19 +59,35 @@ export const conversationsClient = {
     return res.json()
   },
 
-  async create(
-    id: string,
-    title?: string | null,
-    projectId?: string | null,
-    subject?: { resourceType: 'document'; resourceId: string } | null,
-  ): Promise<Conversation> {
+  /**
+   * Create a conversation row.
+   *
+   * `scope` and `projectId` are paired, not independent: a workspace row has no
+   * project and a project row has one. The route enforces it and so does the
+   * table's CHECK — sending a project with `scope: 'workspace'` is a 400, which
+   * is the point (a 500 would mean the edge had learned nothing).
+   */
+  async create({
+    id,
+    title,
+    projectId,
+    scope = 'project',
+    subject,
+  }: {
+    id: string
+    title?: string | null
+    projectId?: string | null
+    scope?: ConversationScope
+    subject?: { resourceType: 'document'; resourceId: string } | null
+  }): Promise<Conversation> {
     const res = await fetch('/api/conversations', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         id,
         title: title ?? null,
-        projectId: projectId ?? null,
+        projectId: scope === 'workspace' ? null : projectId ?? null,
+        scope,
         subjectResourceType: subject?.resourceType ?? null,
         subjectResourceId: subject?.resourceId ?? null,
       }),

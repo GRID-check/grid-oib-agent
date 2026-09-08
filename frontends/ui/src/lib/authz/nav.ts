@@ -47,6 +47,14 @@ export interface NavFlags {
    * rather than a hardcoded exception.
    */
   canAccessInbox: boolean
+  /**
+   * Whether the Büro — the organization-level chat at `/app/chat` — is
+   * reachable (ADR-0054). True for any org member whose org has the
+   * `workspace-chat` flag; using it still needs `org:chat`, which the route and
+   * the service check. Gates the org header's "Piloti fragen", the rail's
+   * "Büro" entry, its `g b` jump and the palette command.
+   */
+  canAccessWorkspaceChat: boolean
 }
 
 export async function getNavFlags(session: GridSession | null): Promise<NavFlags> {
@@ -58,6 +66,7 @@ export async function getNavFlags(session: GridSession | null): Promise<NavFlags
       canAccessArchiv: false,
       canCollaborate: false,
       canAccessInbox: false,
+      canAccessWorkspaceChat: false,
     }
   }
   const collaboration = isCollaborationEnabled(session)
@@ -66,6 +75,7 @@ export async function getNavFlags(session: GridSession | null): Promise<NavFlags
     canViewOrganization: true,
     canManagePlatform: await isPlatformStaff(session),
     canAccessArchiv: isFeatureEnabled(session, FEATURE_FLAGS.orgArchiv),
+    canAccessWorkspaceChat: isFeatureEnabled(session, FEATURE_FLAGS.workspaceChat),
     canCollaborate: collaboration,
     // Also gated on there BEING an organization. A break-glass session carries a
     // user and no `organizationId`, and the inbox is organization-scoped

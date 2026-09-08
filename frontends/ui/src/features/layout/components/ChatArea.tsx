@@ -44,6 +44,7 @@ import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
 // reason the collaboration imports above are: existing specs mock that barrel,
 // and a new export on it would have to be added to every one of those mocks.
 import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
+import { WorkspaceEmptyState } from './WorkspaceEmptyState'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import { cn } from '@/lib/utils'
 import { AwaitingBanner } from '@/features/collaboration/components/AwaitingBanner'
@@ -1492,6 +1493,8 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
   const tChat = useTranslations('chat')
   const { user } = useAuth()
   const composerSubject = useChatStore((s) => s.composerSubject)
+  const isWorkspace = useChatStore((s) => s.scope === 'workspace')
+  const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const tFiles = useTranslations('files')
 
   if (!isAuthenticated) {
@@ -1539,6 +1542,17 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
       <h1 className="text-foreground text-center text-[23px] font-semibold tracking-tight">
         {heading}
       </h1>
+
+      {/* The Büro's canvas says what the Büro is. A project chat's does not
+          need to — the rail, the breadcrumb and the chip all name the project
+          — but in the office two of those three are gone, and the surface is
+          new (WS-5). Suppressed the moment the chat is about a file: that file
+          is the subject, and two invitations would compete. */}
+      {isWorkspace && !composerSubject && (
+        <div className="mt-3 w-full max-w-2xl sm:mt-5">
+          <WorkspaceEmptyState onPrompt={(text) => setComposerPrefill(text)} />
+        </div>
+      )}
 
       {/* The chat is about one file: say which. A named file is the state of
           THIS canvas, and it is not recoverable from anything else on

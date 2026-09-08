@@ -46,7 +46,7 @@ The composer is a white card with the message field on top and a control row bel
 
 - **Asking about … bar**: when this turn is about a project file (**Piloti dazu fragen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Piloti dazu fragen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroarchiv.
 - **Datengrundlage chip**: shows how many data sources are currently enabled and opens the existing Data Sources panel.
-- **Scope chip**: shows the current project with a lock icon. Retrieval is always scoped to this project; the popover lists a disabled "All projects" option — cross-project search is not available yet.
+- **Scope chip**: names what Piloti may read this turn. In a project chat it shows the project; in the **Büro** it shows *Büro* behind a building icon, and that glyph is the only carrier on a phone, where the label is hidden. Retrieval is scoped to whichever of the two the chip names. The popover still lists a disabled "All projects" option: the Büro exists now, but showing a *specific* project's documents inside a Büro chat ("mounting") is a later phase, so nothing here pretends to do it yet.
 - **Deep Research pill**: an on/off *preference*. Piloti escalates to deep research automatically when a question calls for it; the pill records your intent and shows an honest hint — it does not force a deep-research run.
 - **Attach / file counter / send**: unchanged file-upload and send affordances.
 
@@ -60,6 +60,36 @@ Documents sit on four nested shelves. Asking **which files** sit where is answer
 - **This chat** — only the current session.
 
 An empty shelf is empty. A question *about the content* of a file is research and searches that file.
+
+## The Büro
+
+Piloti has a second place to ask: the **Büro** at `/app/chat`, above every
+project. Reach it with **Piloti fragen** in the header above the project list,
+with **Büro** in a project's navigation beside Archiv and Postfach, with `g b`,
+or from ⌘K.
+
+It is the same chat you already know — same composer, same sessions panel, same
+answer with its Herleitung. What differs is what Piloti may read:
+
+- **Basiswissen** (OIB and legal sources) and the **Büroarchiv** are on, exactly
+  as they are in a project.
+- **No project's documents are read.** Not the project you last had open, not
+  any other. A Baurecht question is answered here exactly as it is inside a
+  project — the same sources, the same citations. A question about *your*
+  project is not: nothing from a project's files or memory reaches this chat, so
+  ask that one in the project.
+
+The empty Büro says so and offers three example questions — press one and it
+lands in the composer, ready to edit; nothing is sent until you send it.
+
+Büro chats and project chats keep separate histories. The chat-history panel in
+the Büro is headed **Büro-Chats** and lists only these threads; a project's panel
+lists only that project's. A Büro chat belongs to the organization rather than to
+a project, so deleting a project never deletes it.
+
+Two things are deliberately not here yet: showing a chosen project's documents
+inside a Büro chat, and sharing a Büro chat with a colleague. Both arrive with
+the later phases of this feature; until then a Büro chat is private to you.
 
 ## Invoking a skill (`/name`)
 

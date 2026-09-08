@@ -28,6 +28,7 @@ import {
 import {
   ArrowUp,
   AtSign,
+  Building2,
   Check,
   ChevronDown,
   Eye,
@@ -54,6 +55,7 @@ import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/featu
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
 import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
 import { latestDeepResearchJobStatus } from '@/features/chat/lib/session-activity'
+import type { ConversationScope } from '@/features/chat/lib/project-scope'
 import { useLayoutStore } from '../store'
 import { computePresetSourceIds } from '../lib/source-presets'
 import { researchSessionState } from '../lib/research-session-state'
@@ -281,8 +283,14 @@ interface InputAreaProps {
   isAuthenticated?: boolean
   /** Connection mode: 'websocket' auto-connects, 'sse' disables auto-connect (default: 'websocket') */
   connectionMode?: ConnectionMode
-  /** Name of the active project, shown in the composer scope chip */
+  /** Name of the active scope (project, or the Büro), shown in the scope chip */
   projectName?: string
+  /**
+   * Which chat surface this composer belongs to (ADR-0054). Decides the scope
+   * chip's glyph and its accessible name — and the glyph carries that alone
+   * below `sm`, where the label is hidden.
+   */
+  scope?: ConversationScope
   /**
    * Whether the collaboration surfaces are reachable for this org (ADR-0032…0035,
    * dark-launched behind the per-org `collaboration` flag).
@@ -314,10 +322,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   isAuthenticated = false,
   connectionMode = 'websocket',
   projectName,
+  scope = 'project',
   canCollaborate = false,
   canChatInProject = true,
 }) {
   const t = useTranslations('research')
+  // Read once, high up: the placeholder and the scope chip below both turn on
+  // which of the two surfaces this composer is standing on.
+  const isWorkspaceScope = scope === 'workspace'
   const tChat = useTranslations('chat')
   const tCollab = useTranslations('collaboration')
   const tFiles = useTranslations('files')
@@ -792,7 +804,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         name: composerSubject.title?.trim() || tFiles('assignment.thisFile'),
       })
     }
-    return placeholder ?? tChat('composer.placeholder')
+    // The default names the scope the turn will actually run in. "…zu diesem
+    // Projekt" in the Büro would state the opposite of what the chip beside it
+    // says, and the reader believes the sentence they are typing into.
+    if (placeholder) return placeholder
+    return isWorkspaceScope ? tChat('workspace.placeholder') : tChat('composer.placeholder')
   }
 
   // Mention candidates for this conversation — the agent, the participants, and the
@@ -1391,9 +1407,18 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     (f) => f.status === 'uploading' || f.status === 'ingesting' || f.status === 'success'
   ).length
 
-  // Scope chip label: the active project (display-only scope; cross-project
-  // search does not exist yet — spec §2.3, honest disabled option).
+  // Scope chip: WHAT PILOTI MAY READ THIS TURN, in a label and — the part that
+  // survives a phone, where the label is hidden — a glyph.
+  //
+  // In the Büro the label is the office and the glyph is a building; in a
+  // project it is the project's name. The accessible name spells the whole
+  // state either way, because a reader who never opens the popover still has
+  // to be able to hear which of the two surfaces they are on
+  // (`workspace-chat-ui.md` §3).
   const scopeLabel = projectName || tChat('composer.scopeFallback')
+  const scopeAriaLabel = isWorkspaceScope
+    ? tChat('workspace.chipAria', { count: 0 })
+    : tChat('composer.scopeAria', { project: scopeLabel })
 
   // Single composer hint slot: exactly one helper line below the control row —
   // the first applicable in priority order (viewer > no-project-chat > busy >
@@ -1831,15 +1856,22 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     variant="outline"
                     size="sm"
                     disabled={cannotContribute}
-                    aria-label={tChat('composer.scopeAria', { project: scopeLabel })}
-                    title={tChat('composer.scopeAria', { project: scopeLabel })}
+                    aria-label={scopeAriaLabel}
+                    title={scopeAriaLabel}
                     className="min-w-0"
                   >
-                    <span className="border-status-active flex size-3.5 shrink-0 items-center justify-center rounded-full border border-dashed">
-                      {/* 5px: the dot has to sit INSIDE a 14px dashed ring with a
-                      visible gap on every side, and the 6px token step closes it. */}
-                      <span className="bg-status-active size-[5px] rounded-full" />
-                    </span>
+                    {isWorkspaceScope ? (
+                      // The office's own glyph, at the badge/chip glyph step. It
+                      // is the only carrier of scope below `sm`, so it sits in
+                      // the leading slot the dashed ring occupies in a project.
+                      <Building2 className="text-foreground/70 size-3.5 shrink-0" aria-hidden="true" />
+                    ) : (
+                      <span className="border-status-active flex size-3.5 shrink-0 items-center justify-center rounded-full border border-dashed">
+                        {/* 5px: the dot has to sit INSIDE a 14px dashed ring with a
+                        visible gap on every side, and the 6px token step closes it. */}
+                        <span className="bg-status-active size-[5px] rounded-full" />
+                      </span>
+                    )}
                     <span className="text-foreground/85 hidden max-w-44 truncate sm:inline">
                       {scopeLabel}
                     </span>

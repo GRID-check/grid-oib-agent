@@ -127,6 +127,38 @@ export const chat = {
       office: 'Office archive',
     },
   },
+  /**
+   * The Büro — the organization-level chat at `/app/chat` (ADR-0054).
+   *
+   * "Büro" is the PLACE (chip, breadcrumb, rail entry); "Piloti fragen" is the
+   * action that opens it and lives in `nav.orgHeader`; "Büro-Chat" is the
+   * feature's name in documents and in the history panel's heading.
+   */
+  workspace: {
+    title: 'Office',
+    placeholder: 'Ask Piloti in the office …',
+    chipAria:
+      'Search scope: Office. {count, plural, =0 {No project in view} one {# project in view} other {# projects in view}}. Opens the knowledge base.',
+    empty: {
+      title: 'The office',
+      description:
+        'Here Piloti reads base knowledge, the office archive and the project register. Add a project to have its documents read too.',
+      /**
+       * One example per outcome kind (A law, B register, C compare). Worded as
+       * questions, not promises: B and C reach further than phase 1 answers,
+       * and a canned prompt that claims a capability is worse than none.
+       */
+      examples: {
+        law: 'How long may an escape route be in GK4?',
+        register: 'Which of our projects are GK5 with timber construction?',
+        compare: 'Compare the fire-safety concepts of …',
+      },
+    },
+    sessions: {
+      title: 'Office chats',
+      empty: 'No office chat yet. Ask Piloti something that goes beyond one project.',
+    },
+  },
   // Time-of-day greeting on the empty chat state.
   greeting: {
     morning: 'Good morning',

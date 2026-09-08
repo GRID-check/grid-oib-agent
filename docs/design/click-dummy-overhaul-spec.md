@@ -271,6 +271,7 @@ don't churn):
 /app/projects              Home: project grid + Archiv entry card   [OrgTopbar]
 /app/organization          org settings (restyle only)              [OrgTopbar]
 /app/archiv                Archiv, org scope (library restyle)      [OrgTopbar]
+/app/chat                  Büro — org-level chat, no project (flag) [OrgTopbar]
 /app/platform, /app/profile, onboarding, legal   (unchanged)
 /app/projects/[id]/
   chat        ← project landing (root redirects here)               [Sidebar]
@@ -286,7 +287,9 @@ don't churn):
 ```
 
 Sidebar (top→bottom): wordmark · project switcher · Chat / Files / Workflows* /
-Archiv* / History · (spacer) · Settings · user footer. Overview and Members
+Büro* / Archiv* / History · (spacer) · Settings · user footer. Büro, Archiv and
+Postfach are the `org` group's cross-project doorways; the org header carries the
+Büro as the action **Piloti fragen** (ADR-0054). Overview and Members
 leave the nav; their content lives in Settings (route stubs 301 there).
 Project root (`/app/projects/[id]`) redirects to `chat`.
 

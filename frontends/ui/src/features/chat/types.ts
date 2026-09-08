@@ -14,6 +14,7 @@ import type { StageFrame } from './stores/messages-store'
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
 
 import type { Shelf, SourceKind } from './lib/source-kinds'
+import type { ConversationScope } from './lib/project-scope'
 
 /** Message role types */
 export type MessageRole = 'user' | 'assistant' | 'system'
@@ -593,6 +594,15 @@ export interface Conversation {
    */
   projectId?: string | null
   /**
+   * Which surface this session belongs to (ADR-0054): a project chat, or the
+   * organization-level Büro. Mirrors `conversations.scope`.
+   *
+   * Absent on rows created before the column existed. `conversationScope()` in
+   * `lib/project-scope.ts` is the only place that decides what that absence
+   * means — never read this field raw.
+   */
+  scope?: ConversationScope | null
+  /**
    * The job that produced this session, when one did (`conversations.job_id`,
    * migration 0044); null/undefined for every session a person started, which
    * is nearly all of them.
@@ -915,6 +925,17 @@ export interface ChatState {
   streamingAssistantMessageId: string | null
   /** Active project ID for scoping (set by project chat page) */
   projectId: string | null
+  /**
+   * Which chat surface is mounted (ADR-0054). `'project'` everywhere except the
+   * Büro at `/app/chat`, which sets `'workspace'` on mount and resets it on
+   * unmount.
+   *
+   * It is not derivable from `projectId`: a project chat whose page has not set
+   * its id yet also has none, and the difference decides what the sessions
+   * panel lists, what the WebSocket handshake scopes to, and which rows the
+   * conversation list asks for.
+   */
+  scope: ConversationScope
   /**
    * One-shot draft text queued for the chat composer (InputArea). Set by deep
    * links (`?ask=`) and welcome-screen suggestion chips; consumed exactly once
@@ -1480,6 +1501,16 @@ export interface ChatActions {
 
   /** Set the active project ID for collection scoping */
   setProjectId: (projectId: string | null) => void
+
+  /**
+   * Switch the mounted chat surface (ADR-0054).
+   *
+   * `'workspace'` also clears the active project — a Büro turn has no project
+   * and must not acquire one from a stale store — and drops a current
+   * conversation the new surface would not list, so a project thread can never
+   * continue under the office's scope.
+   */
+  setScope: (scope: ConversationScope) => void
 
   /** Queue text for the composer to pick up (does NOT auto-send). */
   setComposerPrefill: (text: string, mentions?: DraftMention[], subject?: ComposerSubject) => void

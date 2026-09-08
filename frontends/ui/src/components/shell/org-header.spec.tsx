@@ -42,6 +42,7 @@ const baseProps = {
   canManagePlatform: false,
   canAccessArchiv: true,
   canAccessInbox: true,
+  canAccessWorkspaceChat: true,
 }
 
 afterEach(() => {
@@ -58,8 +59,35 @@ describe('OrgHeader — the org scope in one slim band', () => {
     expect(screen.getByTestId('user-menu')).toBeInTheDocument()
   })
 
+  test('leads with "Ask Piloti", the one entry that says its name', () => {
+    render(<OrgHeader {...baseProps} />)
+    const askPiloti = screen.getByLabelText('Ask Piloti')
+    expect(askPiloti).toHaveAttribute('href', '/app/chat')
+    // Icon AND label: the org scope's primary job-to-be-done, unlike the two
+    // look-it-up doorways beside it (`workspace-chat-ui.md` §2).
+    expect(askPiloti.textContent).toContain('Ask Piloti')
+    // First in the row, before Archiv and Postfach.
+    expect(askPiloti.compareDocumentPosition(screen.getByLabelText('Archiv'))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+  })
+
+  test('marks the Büro entry while its page is open', () => {
+    pathname = '/app/chat'
+    render(<OrgHeader {...baseProps} />)
+    expect(screen.getByLabelText('Ask Piloti')).toHaveAttribute('aria-current', 'page')
+  })
+
   test('drops each doorway with its own gate', () => {
-    render(<OrgHeader {...baseProps} canAccessArchiv={false} canAccessInbox={false} />)
+    render(
+      <OrgHeader
+        {...baseProps}
+        canAccessArchiv={false}
+        canAccessInbox={false}
+        canAccessWorkspaceChat={false}
+      />,
+    )
+    expect(screen.queryByLabelText('Ask Piloti')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Archiv')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Inbox')).not.toBeInTheDocument()
     // The avatar stays — the header is never just a wordmark.

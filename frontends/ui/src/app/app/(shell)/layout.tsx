@@ -60,6 +60,7 @@ export default async function AppShellLayout({
       canManagePlatform={chrome.navFlags.canManagePlatform}
       canAccessArchiv={chrome.navFlags.canAccessArchiv}
       canAccessInbox={chrome.navFlags.canAccessInbox}
+      canAccessWorkspaceChat={chrome.navFlags.canAccessWorkspaceChat}
       showSkills={chrome.showSkills}
       showModels={chrome.showModels}
       overlay={overlay}

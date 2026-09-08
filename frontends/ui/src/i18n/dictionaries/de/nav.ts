@@ -22,6 +22,7 @@ export const nav: typeof en.nav = {
     skills: 'Skills',
     jobs: 'Jobs',
     archiv: 'Archiv',
+    workspaceChat: 'Büro',
     settings: 'Einstellungen',
     // Der Intake-Assistent, im Produkt „Einrichtung" (nur ⌘K-Palette).
     intake: 'Einrichtung',
@@ -36,8 +37,13 @@ export const nav: typeof en.nav = {
     automation:
       'Skills, die die Organisation wiederverwendet, und Prompts, die dieses Projekt zeitgesteuert ausführt.',
     knowledge: 'Was die Wissensbasis derzeit enthält.',
+    workspaceChat: 'Fragen über Projekte hinweg — im Büro, nicht im Projekt.',
     settings: 'Projektprofil, Mitglieder, Gedächtnis und Gefahrenzone.',
     intake: 'Geführtes Briefing für dieses Projekt.',
+  },
+  orgHeader: {
+    askPiloti: 'Piloti fragen',
+    askPilotiInWorkspace: 'Piloti fragen (Büro)',
   },
   backTo: 'Zurück zu {label}',
   returnTargets: {

@@ -1,3 +1,5 @@
+import { CONVERSATION_SCOPES, type ConversationScope } from '@/lib/conversations/scopes'
+
 /**
  * Project-scoping rule for chat sessions (UX-8: cross-project bleed).
  *
@@ -24,6 +26,80 @@ export function conversationMatchesProject(
   // Unscoped legacy session: visible everywhere (fail-open).
   if (!conversation.projectId) return true
   return conversation.projectId === activeProjectId
+}
+
+/**
+ * Which of the two chat surfaces a conversation belongs to (ADR-0054): a
+ * project chat, or the organization-level Büro at `/app/chat`.
+ *
+ * Re-exported from the BFF's own vocabulary rather than declared again here.
+ * That module is pure data for exactly this reason — the column, the route's
+ * request schema and this store all have to mean the same two words, and a
+ * second copy would look locally correct while drifting.
+ */
+export type { ConversationScope }
+
+/**
+ * Read a scope off a server row, which types it as a plain string (and, before
+ * the column existed, does not carry it at all).
+ *
+ * The boundary parse: everything downstream trusts {@link ConversationScope}.
+ * An unrecognised value returns null — the caller decides what an unknown scope
+ * means, and in the Büro that decision is "do not show it" (WS-9).
+ */
+export function normalizeConversationScope(value: unknown): ConversationScope | null {
+  return CONVERSATION_SCOPES.find((scope) => scope === value) ?? null
+}
+
+/**
+ * The scope declared by a server row, or null when it declares none.
+ *
+ * Takes the row rather than the field so the call site needs no cast: the BFF
+ * types the column as a plain string, and a row from a deployment that predates
+ * the column has no such property at all — both satisfy `{ scope?: unknown }`.
+ */
+export function conversationScopeFromRow(row: { scope?: unknown }): ConversationScope | null {
+  return normalizeConversationScope(row.scope)
+}
+
+/**
+ * The scope a conversation belongs to, inferred when the row does not say.
+ *
+ * A row that predates `conversations.scope` (migration 0081) says nothing, and
+ * the only honest reading of it is the one the backfill made: a row with a
+ * project is a project chat, a row without one is a workspace chat.
+ */
+export function conversationScope(conversation: {
+  projectId?: string | null
+  scope?: ConversationScope | null
+}): ConversationScope {
+  return conversation.scope ?? (conversation.projectId ? 'project' : 'workspace')
+}
+
+/**
+ * The scoping rule for BOTH surfaces — what the sessions panel lists, what
+ * `selectConversation` will activate, and what "delete all" removes.
+ *
+ * In the Büro it is strict and it does NOT fail open (WS-9). The fail-open rule
+ * above exists so a legacy session without a project stays visible in every
+ * project; applied to the Büro it would put every project's unscoped history
+ * into the office, and — worse, in the other direction — put every workspace
+ * conversation into every project's panel, which is the bleed UX-8 was about.
+ *
+ * In a project the fail-open stays for rows that say nothing — tightening it
+ * there would hide history that has been visible for a year — but a row that
+ * DECLARES itself a workspace chat is hidden. Without that second half the
+ * bleed runs the other way: the store persists across navigations, so one visit
+ * to the Büro would leave its threads in every project's panel afterwards, and
+ * WS-9 forbids a project-less conversation matching a project at all.
+ */
+export function conversationMatchesScope(
+  conversation: { projectId?: string | null; scope?: ConversationScope | null },
+  active: { projectId: string | null | undefined; scope: ConversationScope },
+): boolean {
+  if (active.scope === 'workspace') return conversationScope(conversation) === 'workspace'
+  if (conversation.scope === 'workspace') return false
+  return conversationMatchesProject(conversation, active.projectId)
 }
 
 /**

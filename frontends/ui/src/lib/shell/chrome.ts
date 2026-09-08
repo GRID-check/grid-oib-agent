@@ -43,6 +43,7 @@ const EMPTY_NAV_FLAGS: NavFlags = {
   canAccessArchiv: false,
   canCollaborate: false,
   canAccessInbox: false,
+  canAccessWorkspaceChat: false,
 }
 
 /** The frame with nothing in it: what a signed-out or broken lookup renders. */

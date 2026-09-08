@@ -319,6 +319,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: 'h1',
   },
   {
+    id: 'workspace-chat',
+    mobile: true,
+    path: '/dev/workspace-chat',
+    description:
+      'The Büro at rest (ADR-0054): the same greeting and the same composer as `chat-welcome`, plus the WorkspaceEmptyState — what the office reads, and one example question per outcome kind (Baurecht, register, comparison) as chips that prefill rather than send. The composer\'s scope chip is the difference the whole design turns on: a building glyph and "Büro" where a project chat shows a dashed ring and a project name, and on mobile the label is gone and the glyph carries the scope alone.',
+    waitFor: '[data-testid="workspace-empty-state"]',
+  },
+  {
     id: 'chat-welcome-populated',
     mobile: true,
     path: '/dev/chat-welcome?variant=populated',

@@ -53,6 +53,7 @@ export default async function AppLayout({ children }: AppLayoutProps): Promise<J
             canAccessArchiv={navFlags.canAccessArchiv}
             canCollaborate={navFlags.canCollaborate}
             canAccessInbox={navFlags.canAccessInbox}
+            canAccessWorkspaceChat={navFlags.canAccessWorkspaceChat}
           />
         )
       }

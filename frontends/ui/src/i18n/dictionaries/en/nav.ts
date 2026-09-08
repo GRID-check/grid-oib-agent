@@ -26,6 +26,12 @@ export const nav = {
     skills: 'Skills',
     jobs: 'Jobs',
     archiv: 'Archiv',
+    /**
+     * The Büro (ADR-0054) — the place, in the rail's cross-project group beside
+     * Archiv and Postfach. The ACTION that opens it is `orgHeader.askPiloti`;
+     * "Büro-Chat" is the feature's name in documents, never a nav label.
+     */
+    workspaceChat: 'Office',
     settings: 'Settings',
     // The intake wizard, labelled "Setup" in the product (⌘K palette only).
     intake: 'Setup',
@@ -39,6 +45,7 @@ export const nav = {
     files: 'Documents that ground Piloti’s answers in this project.',
     automation: 'Skills the organization reuses, and prompts this project runs on a timer.',
     knowledge: 'What the knowledge base currently contains.',
+    workspaceChat: 'Questions across projects — in the office, not in a project.',
     settings: 'Project profile, members, memory, and danger zone.',
     intake: 'Guided briefing for this project.',
   },
@@ -47,6 +54,13 @@ export const nav = {
    * is the name of the location the reader actually came from, resolved from the
    * tab's return trail.
    */
+  /** The org header's own entries (the chrome above a project). */
+  orgHeader: {
+    /** Opens the Büro. Icon + label, unlike the icon-only doorways beside it. */
+    askPiloti: 'Ask Piloti',
+    /** The same destination in ⌘K, where the scope has to be said out loud. */
+    askPilotiInWorkspace: 'Ask Piloti (Office)',
+  },
   backTo: 'Back to {label}',
   /**
    * Names for return destinations that have no nav entry of their own to borrow

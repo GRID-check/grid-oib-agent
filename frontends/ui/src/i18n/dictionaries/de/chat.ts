@@ -117,6 +117,26 @@ export const chat: typeof en.chat = {
       office: 'Büroarchiv',
     },
   },
+  workspace: {
+    title: 'Büro',
+    placeholder: 'Fragen Sie Piloti im Büro …',
+    chipAria:
+      'Suchbereich: Büro. {count, plural, =0 {Kein Projekt eingeblendet} one {# Projekt eingeblendet} other {# Projekte eingeblendet}}. Öffnet die Wissensbasis.',
+    empty: {
+      title: 'Das Büro',
+      description:
+        'Piloti liest hier Basiswissen, Büroarchiv und das Projektregister. Blenden Sie ein Projekt ein, damit auch dessen Unterlagen gelesen werden.',
+      examples: {
+        law: 'Wie lang darf ein Fluchtweg in GK4 sein?',
+        register: 'In welchen Projekten haben wir GK5 mit Holzbau?',
+        compare: 'Vergleiche die Brandschutzkonzepte von …',
+      },
+    },
+    sessions: {
+      title: 'Büro-Chats',
+      empty: 'Noch kein Büro-Chat. Fragen Sie Piloti etwas, das über ein Projekt hinausgeht.',
+    },
+  },
   greeting: {
     morning: 'Guten Morgen',
     afternoon: 'Guten Tag',

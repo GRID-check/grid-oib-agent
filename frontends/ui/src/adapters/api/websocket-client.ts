@@ -225,6 +225,14 @@ export interface NATWebSocketClientOptions {
   conversationId: string
   /** Optional project ID to scope the backend collection */
   projectId?: string
+  /**
+   * Which chat surface opened this socket (ADR-0054). `'workspace'` travels on
+   * the upgrade as `?scope=workspace` and is what tells the gateway to build a
+   * Büro scope — base corpus, Archiv and organization memory, and NO project,
+   * not even one a stale preference could supply. Omitted (the default) the
+   * handshake is byte-identical to today's.
+   */
+  scope?: 'project' | 'workspace'
   /** Callback functions */
   callbacks: NATWebSocketClientCallbacks
   /**
@@ -309,7 +317,11 @@ export class NATWebSocketClient {
     const baseUrl = this.options.websocketUrl || (await getWebSocketUrl())
     const params = new URLSearchParams()
 
-    if (this.options.projectId) {
+    if (this.options.scope === 'workspace') {
+      // Deliberately exclusive with projectId: a Büro turn has no project, and
+      // sending one would be the silent widening the scope builder refuses.
+      params.set('scope', this.options.scope)
+    } else if (this.options.projectId) {
       params.set('projectId', this.options.projectId)
     }
     if (this.options.conversationId) {

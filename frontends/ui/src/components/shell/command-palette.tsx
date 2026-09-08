@@ -13,7 +13,16 @@
 
 import * as React from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { Building2, FolderKanban, LogOut, Moon, Plus, Sun, UserRound } from 'lucide-react'
+import {
+  Building2,
+  FolderKanban,
+  LogOut,
+  MessageSquare,
+  Moon,
+  Plus,
+  Sun,
+  UserRound,
+} from 'lucide-react'
 
 import { useAuth } from '@/adapters/auth/use-auth'
 import {
@@ -78,6 +87,8 @@ export interface CommandPaletteProps {
   showSkills?: boolean
   /** Whether the org-wide Archiv is reachable (`organization-archiv`, ADR-0024). */
   canAccessArchiv?: boolean
+  /** Whether the Büro at `/app/chat` is reachable (`workspace-chat`, ADR-0054). */
+  canAccessWorkspaceChat?: boolean
 }
 
 export function CommandPalette({
@@ -89,6 +100,7 @@ export function CommandPalette({
   showModels = false,
   showSkills = false,
   canAccessArchiv = false,
+  canAccessWorkspaceChat = false,
 }: CommandPaletteProps) {
   const router = useRouter()
   const pathname = usePathname() ?? ''
@@ -175,7 +187,13 @@ export function CommandPalette({
           <>
             <CommandSeparator />
             <CommandGroup heading={t('groups.currentProject')}>
-              {paletteSections({ showKnowledge, showSkills, showModels, canAccessArchiv }).map((item) => {
+              {paletteSections({
+                showKnowledge,
+                showSkills,
+                showModels,
+                canAccessArchiv,
+                canAccessWorkspaceChat,
+              }).map((item) => {
                 const Icon = item.icon
                 const label = tNav(`sections.${item.i18nKey}`)
                 const href =
@@ -210,6 +228,24 @@ export function CommandPalette({
             <Plus className="text-muted-foreground" aria-hidden />
             <span className="min-w-0 flex-1 truncate">{tNav('projectSwitcher.newProject')}</span>
           </CommandItem>
+          {/* The Büro is in the "current project" group above by virtue of its
+              rail row — and that group is not rendered when there is no project,
+              which is exactly where a reader wants the office. So it is listed
+              here as well, beside "Alle Projekte", with its scope said out loud
+              because "Piloti fragen" alone would read as this project's chat. */}
+          {canAccessWorkspaceChat && (
+            <CommandItem
+              value={`workspace-chat ${tNav('orgHeader.askPilotiInWorkspace')}`}
+              onSelect={() => runCommand(() => router.push('/app/chat'))}
+              className={PALETTE_ITEM_CLASS}
+            >
+              <MessageSquare className="text-muted-foreground" aria-hidden />
+              <span className="min-w-0 flex-1 truncate">
+                {tNav('orgHeader.askPilotiInWorkspace')}
+              </span>
+              <JumpShortcut jumpKey="b" />
+            </CommandItem>
+          )}
           <CommandItem
             value={`all-projects ${tNav('projectSwitcher.allProjects')}`}
             onSelect={() => runCommand(() => router.push('/app/projects'))}

@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Archive, Inbox } from 'lucide-react'
+import { Archive, Inbox, MessageSquare } from 'lucide-react'
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useInboxBadge } from '@/features/collaboration/hooks/use-inbox'
@@ -36,6 +36,11 @@ export interface OrgHeaderProps {
   canManagePlatform: boolean
   canAccessArchiv: boolean
   canAccessInbox: boolean
+  /**
+   * Whether the Büro is reachable (`workspace-chat`, ADR-0054). Optional and
+   * default-false so a caller that predates the flag renders today's header.
+   */
+  canAccessWorkspaceChat?: boolean
 }
 
 export function OrgHeader({
@@ -47,6 +52,7 @@ export function OrgHeader({
   canManagePlatform,
   canAccessArchiv,
   canAccessInbox,
+  canAccessWorkspaceChat = false,
 }: OrgHeaderProps): JSX.Element {
   const pathname = usePathname() ?? ''
   const t = useTranslations('nav')
@@ -67,6 +73,20 @@ export function OrgHeader({
       </Link>
 
       <div className="flex items-center gap-1">
+        {/* First, and the only one here that says its name out loud: asking
+            Piloti is the org scope's primary job-to-be-done, while the Archiv
+            and the Postfach are places you go to look something up. Below `sm`
+            it collapses to the icon and keeps the tooltip, like its
+            neighbours (`workspace-chat-ui.md` §2). */}
+        {canAccessWorkspaceChat && (
+          <OrgHeaderIconLink
+            href="/app/chat"
+            label={t('orgHeader.askPiloti')}
+            icon={MessageSquare}
+            active={pathname === '/app/chat' || pathname.startsWith('/app/chat/')}
+            showLabel
+          />
+        )}
         {canAccessArchiv && (
           <OrgHeaderIconLink
             href="/app/archiv"
@@ -108,12 +128,15 @@ function OrgHeaderIconLink({
   icon: Icon,
   active,
   badgeCount = 0,
+  showLabel = false,
 }: {
   href: string
   label: string
   icon: React.ComponentType<{ className?: string }>
   active: boolean
   badgeCount?: number
+  /** Render the label beside the icon from `sm` up. The tooltip stays either way. */
+  showLabel?: boolean
 }): JSX.Element {
   return (
     <Tooltip>
@@ -123,13 +146,15 @@ function OrgHeaderIconLink({
           aria-label={label}
           aria-current={active ? 'page' : undefined}
           className={cn(
-            'focus-visible:ring-ring/60 relative flex size-9 items-center justify-center rounded-lg transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none',
+            'focus-visible:ring-ring/60 relative flex h-9 items-center justify-center rounded-lg transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none',
+            showLabel ? 'gap-2 px-2.5 sm:px-3' : 'w-9',
             active
               ? 'bg-accent text-foreground'
               : 'text-muted-foreground hover:bg-accent hover:text-foreground',
           )}
         >
-          <Icon className="size-4" aria-hidden />
+          <Icon className="size-4 shrink-0" aria-hidden />
+          {showLabel && <span className="hidden text-sm font-medium sm:inline">{label}</span>}
           <InboxBadge
             pending={badgeCount}
             className="absolute right-0.5 top-0.5 -translate-y-1/3 translate-x-1/3"

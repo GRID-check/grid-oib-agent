@@ -58,6 +58,8 @@ export interface AppShellChromeProps {
   canManagePlatform: boolean
   canAccessArchiv: boolean
   canAccessInbox: boolean
+  /** Whether the Büro at `/app/chat` is reachable (`workspace-chat`, ADR-0054). */
+  canAccessWorkspaceChat: boolean
   showSkills: boolean
   showModels: boolean
   /** The `(shell)` layout's `<main>` (with the page inside). */
@@ -101,6 +103,7 @@ export function AppShellChrome({
           canManagePlatform={chrome.canManagePlatform}
           canAccessArchiv={chrome.canAccessArchiv}
           canAccessInbox={chrome.canAccessInbox}
+          canAccessWorkspaceChat={chrome.canAccessWorkspaceChat}
           showSkills={chrome.showSkills}
           showModels={chrome.showModels}
         />
@@ -114,6 +117,7 @@ export function AppShellChrome({
           canManagePlatform={chrome.canManagePlatform}
           canAccessArchiv={chrome.canAccessArchiv}
           canAccessInbox={chrome.canAccessInbox}
+          canAccessWorkspaceChat={chrome.canAccessWorkspaceChat}
         />
       )}
       {children}
