@@ -20,7 +20,7 @@
  * before the WS-1 token retune is applied.
  */
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { Archive, Search, SearchX, Sparkles } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { Button } from '@/components/ui/button'
@@ -54,6 +54,7 @@ interface ArchivLibraryPaneProps {
   uploadControl?: ReactNode
   /** Per-file rename / delete / download on the card. */
   renderActions?: (file: FileItem) => ReactNode
+  wrapFile?: (file: FileItem, node: ReactNode) => ReactNode
 }
 
 export function ArchivLibraryPane({
@@ -63,6 +64,7 @@ export function ArchivLibraryPane({
   isLoading,
   uploadControl,
   renderActions,
+  wrapFile,
 }: ArchivLibraryPaneProps) {
   const t = useTranslations('archiv')
   const { locale } = useLocale()
@@ -319,17 +321,21 @@ export function ArchivLibraryPane({
           // open to an empty result set (never a crash).
           <div className="p-4">
             <FileGrid>
-              {semantic.hits.map((hit) => (
-                <ArchivDocumentCard
-                  key={hit.id}
-                  file={hit}
-                  isSelected={selectedFileId === hit.id}
-                  onSelect={() => onSelectFile(selectedFileId === hit.id ? null : hit.id)}
-                  locale={locale}
-                  match={{ snippet: hit.snippet, page: hit.page, score: hit.score }}
-                  actions={renderActions?.(hit)}
-                />
-              ))}
+              {semantic.hits.map((hit) => {
+                const card = (
+                  <ArchivDocumentCard
+                    file={hit}
+                    isSelected={selectedFileId === hit.id}
+                    onSelect={() => onSelectFile(selectedFileId === hit.id ? null : hit.id)}
+                    locale={locale}
+                    match={{ snippet: hit.snippet, page: hit.page, score: hit.score }}
+                    actions={renderActions?.(hit)}
+                  />
+                )
+                return (
+                  <Fragment key={hit.id}>{wrapFile ? wrapFile(hit, card) : card}</Fragment>
+                )
+              })}
             </FileGrid>
           </div>
         ) : view === 'no-match' ? (
@@ -350,16 +356,20 @@ export function ArchivLibraryPane({
           /* Substring-filtered card grid (instant, as you type). */
           <div className="p-4">
             <FileGrid>
-              {filteredFiles.map((file) => (
-                <ArchivDocumentCard
-                  key={file.id}
-                  file={file}
-                  isSelected={selectedFileId === file.id}
-                  onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
-                  locale={locale}
-                  actions={renderActions?.(file)}
-                />
-              ))}
+              {filteredFiles.map((file) => {
+                const card = (
+                  <ArchivDocumentCard
+                    file={file}
+                    isSelected={selectedFileId === file.id}
+                    onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
+                    locale={locale}
+                    actions={renderActions?.(file)}
+                  />
+                )
+                return (
+                  <Fragment key={file.id}>{wrapFile ? wrapFile(file, card) : card}</Fragment>
+                )
+              })}
             </FileGrid>
           </div>
         )}

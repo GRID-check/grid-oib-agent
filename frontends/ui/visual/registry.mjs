@@ -589,6 +589,13 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="file-browser-folders-list"]',
   },
   {
+    id: 'file-browser-file-context',
+    path: '/dev/file-browser?variant=file-context',
+    description:
+      'Right-click on a file card in the Files workspace. The menu is Finder-shaped (Open, Ask about this, Download, Rename, Move, Delete) and is the same list the ⋯ renders, so the two cannot drift.',
+    waitFor: '[role="menuitem"]',
+  },
+  {
     id: 'file-browser-folder-menu',
     path: '/dev/file-browser?variant=folder-menu',
     description:

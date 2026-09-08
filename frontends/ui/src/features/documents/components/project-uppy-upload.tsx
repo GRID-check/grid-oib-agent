@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef } from 'react'
+import { useEffect, useRef, type MutableRefObject } from 'react'
 import { ChevronDown, FolderUp, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -37,6 +37,9 @@ interface ProjectUppyUploadProps {
    * ordinary case to add the bulk one.
    */
   allowFolders?: boolean
+  /** Lets a context-menu item click the hidden file input. */
+  pickFilesRef?: MutableRefObject<(() => void) | null>
+  pickFolderRef?: MutableRefObject<(() => void) | null>
 }
 
 /**
@@ -53,10 +56,20 @@ export function ProjectUppyUpload({
   size = 'sm',
   label,
   allowFolders = false,
+  pickFilesRef,
+  pickFolderRef,
 }: ProjectUppyUploadProps) {
   const t = useTranslations('files')
   const inputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (pickFilesRef) pickFilesRef.current = () => inputRef.current?.click()
+    if (pickFolderRef) pickFolderRef.current = () => folderInputRef.current?.click()
+    return () => {
+      if (pickFilesRef) pickFilesRef.current = null
+      if (pickFolderRef) pickFolderRef.current = null
+    }
+  }, [pickFilesRef, pickFolderRef])
   const buttonLabel = label ?? t('upload.upload')
   // Server-computed, flag-gated accept-list and size limit (image types only
   // when the `image-upload` flag allows). Falls back to the static defaults if

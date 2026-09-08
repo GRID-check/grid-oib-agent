@@ -12,7 +12,7 @@ import { useFileDragDrop } from '../hooks/use-file-drag-drop'
 import { useIngestionCompleteToast } from '../hooks/use-ingestion-complete-toast'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { ArchivLibraryPane } from './archiv-library-pane'
-import { DocumentActionsMenu } from './document-actions'
+import { DocumentActionsTrigger, DocumentObjectMenu } from './document-actions'
 import { FilePreviewDialog } from './file-preview-dialog'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
@@ -470,15 +470,20 @@ export function ArchivWorkspace({
               onSelectFile={handleSelectFile}
               isLoading={isLoading}
               uploadControl={uploadButton}
-              renderActions={(file) => (
-                <DocumentActionsMenu
+              wrapFile={(file, card) => (
+                <DocumentObjectMenu
                   document={file}
                   scope="archiv"
                   canManage={canManage}
+                  onOpen={() => handleSelectFile(file.id)}
                   onRenamed={handleRenamed}
                   onDeleted={handleDeleted}
-                />
+                  onReingested={handleReingested}
+                >
+                  {card}
+                </DocumentObjectMenu>
               )}
+              renderActions={() => <DocumentActionsTrigger />}
             />
           )}
         </div>

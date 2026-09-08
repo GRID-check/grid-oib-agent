@@ -39,6 +39,8 @@ interface FileListViewProps {
   onSelectFile: (id: string | null) => void
   /** Per-row file operations. Clicks here must not select the row. */
   renderActions?: (file: FileItem) => ReactNode
+  /** Wrap each `<tr>` (right-click host). Must keep a `forwardRef` row as the child. */
+  wrapRow?: (file: FileItem, row: ReactNode) => ReactNode
   /**
    * These rows are RANKED semantic results, not a plain listing.
    *
@@ -83,6 +85,7 @@ export function FileListView({
   selectedFileId,
   onSelectFile,
   renderActions,
+  wrapRow,
   semantic = false,
   sort: controlledSort,
   onSortChange,
@@ -235,7 +238,7 @@ export function FileListView({
           {rows.map((file, index) => {
             const ext = fileExtensionLabel(file.filename)
             const isSelected = selectedFileId === file.id
-            return (
+            const row = (
               <TableRow
                 key={file.id}
                 data-file-row
@@ -376,6 +379,7 @@ export function FileListView({
                 )}
               </TableRow>
             )
+            return wrapRow ? wrapRow(file, row) : row
           })}
         </TableBody>
       </Table>
