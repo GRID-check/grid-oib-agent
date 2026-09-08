@@ -60,6 +60,35 @@
           ]
         },
         {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "Die Auswahl der Fundstellen für eine Antwort geht deutlich schneller. Bisher bewertete das Sprachmodell bei jeder Suche rund sechzig Kandidaten in einem langen Aufruf, der gut zehn Sekunden kosten konnte. Jetzt trifft ein dafür gebautes Bewertungsmodell die Auswahl in einem Bruchteil der Zeit und liest dabei jede Fundstelle ganz. Fällt es aus, springt der bisherige Weg ein.",
+              "de": "Die Auswahl der Fundstellen für eine Antwort geht deutlich schneller. Bisher bewertete das Sprachmodell bei jeder Suche rund sechzig Kandidaten in einem langen Aufruf, der gut zehn Sekunden kosten konnte. Jetzt trifft ein dafür gebautes Bewertungsmodell die Auswahl in einem Bruchteil der Zeit und liest dabei jede Fundstelle ganz. Fällt es aus, springt der bisherige Weg ein."
+            },
+            {
+              "en": "Beim Öffnen eines Projekts und beim Speichern werden die Berechtigungen kurz zwischengespeichert, statt bei jedem Aufruf neu beim Identitätsdienst nachgefragt zu werden. Ein Chat startet dadurch schneller. Eine geänderte Projektrolle wirkt nach höchstens dreißig Sekunden.",
+              "de": "Beim Öffnen eines Projekts und beim Speichern werden die Berechtigungen kurz zwischengespeichert, statt bei jedem Aufruf neu beim Identitätsdienst nachgefragt zu werden. Ein Chat startet dadurch schneller. Eine geänderte Projektrolle wirkt nach höchstens dreißig Sekunden."
+            },
+            {
+              "en": "Einfache Fragen und die Zusammenfassung am Ende einer Recherche schicken die Werkzeugbeschreibungen nicht mehr bei jedem Schritt mit, sondern laden sie nur, wenn ein Werkzeug gebraucht wird. Das macht diese Schritte günstiger und etwas schneller.",
+              "de": "Einfache Fragen und die Zusammenfassung am Ende einer Recherche schicken die Werkzeugbeschreibungen nicht mehr bei jedem Schritt mit, sondern laden sie nur, wenn ein Werkzeug gebraucht wird. Das macht diese Schritte günstiger und etwas schneller."
+            },
+            {
+              "en": "Antworten im Chat kommen früher an. Vor der ersten Zeile lud der Assistent mehrere Dinge nacheinander, die nichts voneinander wissen: das Projektgedächtnis, die Hinweise aus dem Feedback und die Einstellungen der Nachbearbeitung. Das passiert jetzt gleichzeitig. Zwei Buchungen, die nach der fertigen Antwort noch vor deren Anzeige liefen, laufen jetzt danach.",
+              "de": "Antworten im Chat kommen früher an. Vor der ersten Zeile lud der Assistent mehrere Dinge nacheinander, die nichts voneinander wissen: das Projektgedächtnis, die Hinweise aus dem Feedback und die Einstellungen der Nachbearbeitung. Das passiert jetzt gleichzeitig. Zwei Buchungen, die nach der fertigen Antwort noch vor deren Anzeige liefen, laufen jetzt danach."
+            },
+            {
+              "en": "Eine Antwort, die nach der Prüfung nachgebessert wird, sucht die fehlenden Belege jetzt gleichzeitig statt nacheinander.",
+              "de": "Eine Antwort, die nach der Prüfung nachgebessert wird, sucht die fehlenden Belege jetzt gleichzeitig statt nacheinander."
+            },
+            {
+              "en": "Eine Tiefenrecherche meldet sich schneller als abgeschlossen, sobald der Bericht da ist. Die Karten und der Gedächtniseintrag werden gleichzeitig erzeugt, und der Gedächtniseintrag bekommt dieselbe Zeitgrenze wie im Chat, statt den Abschluss minutenlang aufzuhalten.",
+              "de": "Eine Tiefenrecherche meldet sich schneller als abgeschlossen, sobald der Bericht da ist. Die Karten und der Gedächtniseintrag werden gleichzeitig erzeugt, und der Gedächtniseintrag bekommt dieselbe Zeitgrenze wie im Chat, statt den Abschluss minutenlang aufzuhalten."
+            }
+          ]
+        },
+        {
           "key": "fixes",
           "notes": [
             {
@@ -69,6 +98,10 @@
             {
               "en": "Reacting to an answer's cards no longer fails on answers whose stored content carries invisible control characters from an imported document. The update is saved as before, minus the one character the database cannot hold.",
               "de": "Reacting to an answer's cards no longer fails on answers whose stored content carries invisible control characters from an imported document. The update is saved as before, minus the one character the database cannot hold."
+            },
+            {
+              "en": "Ein einzelner Chat konnte bei einer kalten Zwischenablage kurz alle anderen laufenden Gespräche auf demselben Server anhalten, während er die Einstellungen seiner Organisation nachlud. Das Nachladen blockiert die anderen jetzt nicht mehr.",
+              "de": "Ein einzelner Chat konnte bei einer kalten Zwischenablage kurz alle anderen laufenden Gespräche auf demselben Server anhalten, während er die Einstellungen seiner Organisation nachlud. Das Nachladen blockiert die anderen jetzt nicht mehr."
             }
           ]
         },
