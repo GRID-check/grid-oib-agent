@@ -58,6 +58,12 @@ export const FEATURE_FLAGS = {
    *  `/archiv` nav entry + page, every BFF `/api/archiv/*` route, and the
    *  injection of the org archive collection into project retrieval scope. */
   orgArchiv: 'organization-archiv',
+  /** The Büro-Chat (ADR-0054): the organization-level chat at `/app/chat`
+   *  that reads the base corpus, the Archiv and organization memory with no
+   *  project in scope. Gates the org-header and rail entries, the page, and the
+   *  `scope=workspace` branches of the conversations and websocket-scope
+   *  routes. Fail-open while enforcement is off, like `orgArchiv`. */
+  workspaceChat: 'workspace-chat',
   /** Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §6): the
    *  "Was this helpful?" row under assistant answers + the
    *  `/api/feedback/answers` routes. A standard flag — fail-open while
