@@ -27,7 +27,20 @@ const NAMES = [
   'Generalplanung Dornbirn',
 ]
 
-// Descending month spend, so the fixture arrives ordered the way the service
+/** The price list the fixture is priced at: 2.5× margin, one credit = $0.10. */
+const PRICING = { marginMultiplier: 2.5, usdPerCredit: 0.1, explicit: true }
+
+/** Cost in USD as charged, priced at the fixture's price list (ADR-0053). */
+const window = (costUsd: number, events: number) => ({
+  costUsd,
+  ownKeyCostUsd: 0,
+  priceUsd: costUsd * PRICING.marginMultiplier,
+  credits: (costUsd * PRICING.marginMultiplier) / PRICING.usdPerCredit,
+  tokens: Math.round(costUsd * 250_000),
+  events,
+})
+
+// Descending month revenue, so the fixture arrives ordered the way the service
 // orders it — the preview then shows the default sort, not a re-sort.
 const ORGANIZATIONS = NAMES.map((name, index) => ({
   id: `org_${index}`,
@@ -35,19 +48,40 @@ const ORGANIZATIONS = NAMES.map((name, index) => ({
   createdAt: new Date(Date.UTC(2024 + (index % 3), index % 12, 1 + index)).toISOString(),
   isPlatformOrg: index === 0,
   projectCount: (index * 3) % 11,
-  dayUsd: Math.max(0, 18 - index * 1.4),
-  monthUsd: Math.max(0, 420 - index * 33),
-  monthEvents: Math.max(0, 9400 - index * 700),
-}))
+  day: window(Math.max(0, 18 - index * 1.4), Math.max(0, 400 - index * 30)),
+  month: window(Math.max(0, 420 - index * 33), Math.max(0, 9400 - index * 700)),
+})).map((org, index) =>
+  // The fourth organization runs on its own key: its cost is its own bill, so
+  // the overview badges it and leaves it out of the platform's cost.
+  index === 3
+    ? {
+        ...org,
+        day: { ...org.day, ownKeyCostUsd: org.day.costUsd, priceUsd: 0, credits: 0 },
+        month: { ...org.month, ownKeyCostUsd: org.month.costUsd, priceUsd: 0, credits: 0 },
+      }
+    : org,
+)
 
 const DAILY_TREND = Array.from({ length: 30 }, (_, index) => {
   const day = new Date(Date.UTC(2026, 6, 1 + index))
   return {
     day: day.toISOString().slice(0, 10),
-    usd: 40 + Math.round(Math.sin(index / 3) * 18 + index * 1.2),
-    events: 800 + index * 25,
+    ...window(40 + Math.round(Math.sin(index / 3) * 18 + index * 1.2), 800 + index * 25),
   }
 })
+
+const sumWindows = (key: 'day' | 'month') =>
+  ORGANIZATIONS.reduce(
+    (total, org) => ({
+      costUsd: total.costUsd + org[key].costUsd,
+      ownKeyCostUsd: total.ownKeyCostUsd + org[key].ownKeyCostUsd,
+      priceUsd: total.priceUsd + org[key].priceUsd,
+      credits: total.credits + org[key].credits,
+      tokens: total.tokens + org[key].tokens,
+      events: total.events + org[key].events,
+    }),
+    { costUsd: 0, ownKeyCostUsd: 0, priceUsd: 0, credits: 0, tokens: 0, events: 0 },
+  )
 
 const OVERVIEW = {
   organizations: ORGANIZATIONS,
@@ -57,11 +91,53 @@ const OVERVIEW = {
   totals: {
     organizations: ORGANIZATIONS.length,
     projects: ORGANIZATIONS.reduce((total, org) => total + org.projectCount, 0),
-    dayUsd: ORGANIZATIONS.reduce((total, org) => total + org.dayUsd, 0),
-    monthUsd: ORGANIZATIONS.reduce((total, org) => total + org.monthUsd, 0),
-    monthEvents: ORGANIZATIONS.reduce((total, org) => total + org.monthEvents, 0),
+    day: sumWindows('day'),
+    month: sumWindows('month'),
   },
-  eurPerUsd: 0.92,
+  pricing: PRICING,
+}
+
+/** The price list card's payload: a set list with one earlier version behind it. */
+const PRICING_PAYLOAD = {
+  pricing: {
+    versionId: 'ver_2',
+    ...PRICING,
+    defaultOrgDailyCredits: 500,
+    defaultOrgMonthlyCredits: 5000,
+    note: 'Pilot pricing',
+    updatedByEmail: 'owner@grid.example',
+    updatedAt: '2026-08-01T09:00:00Z',
+    history: [
+      {
+        id: 'ver_2',
+        marginMultiplier: 2.5,
+        usdPerCredit: 0.1,
+        defaultOrgDailyCredits: 500,
+        defaultOrgMonthlyCredits: 5000,
+        note: 'Pilot pricing',
+        createdByEmail: 'owner@grid.example',
+        createdAt: '2026-08-01T09:00:00Z',
+        status: 'active',
+      },
+      {
+        id: 'ver_1',
+        marginMultiplier: 2,
+        usdPerCredit: 0.1,
+        defaultOrgDailyCredits: 1000,
+        defaultOrgMonthlyCredits: 10000,
+        note: null,
+        createdByEmail: 'owner@grid.example',
+        createdAt: '2026-07-01T09:00:00Z',
+        status: 'superseded',
+      },
+    ],
+  },
+  bounds: {
+    marginMultiplier: { min: 0.1, max: 50 },
+    usdPerCredit: { min: 0.0001, max: 100 },
+    defaultCredits: { min: 0, max: 100_000_000 },
+  },
+  referenceRequest: { promptTokens: 4000, completionTokens: 800 },
 }
 
 /**
@@ -117,6 +193,9 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       if (url.startsWith('/api/platform/overview')) {
         return Response.json(OVERVIEW)
       }
+      if (url.startsWith('/api/platform/pricing')) {
+        return Response.json(PRICING_PAYLOAD)
+      }
       if (url.startsWith('/api/widgets/token')) {
         return Response.json({ token: 'dev-preview-widget-token' })
       }
@@ -142,8 +221,8 @@ export default function PlatformOverviewDevPage(): JSX.Element {
       <div>
         <h1 className="text-lg font-semibold">Platform — Overview</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Stat tiles, 30-day spend trend, the organization directory on SectionCard + DataToolbar + Table +
-          Pagination, and the platform team in its own card.
+          Stat tiles (cost, revenue, margin), 30-day cost trend, the price list, the organization directory on
+          SectionCard + DataToolbar + Table + Pagination, and the platform team in its own card.
         </p>
       </div>
       <PlatformOverview />

@@ -116,6 +116,23 @@ class TestBudgetSnapshot:
         assert snapshot.exhausted_scope(0.1) == "member"
         assert snapshot.exhausted_scope(1.0) == "organization"
 
+    def test_token_family_round_trips_and_enforces(self):
+        # An organization on its own key is limited in tokens, never in cost
+        # (ADR-0053): the USD family is absent and the token family decides.
+        snapshot = BudgetSnapshot.from_header(
+            _budget_header({"remainingOrgUsd": None, "remainingOrgTokens": 5000, "remainingUserTokens": 800})
+        )
+        assert snapshot is not None
+        assert snapshot.remaining_org_usd is None
+        assert snapshot.remaining_org_tokens == 5000
+        assert snapshot.exhausted_scope(0.0, 799) is None
+        assert snapshot.exhausted_scope(0.0, 800) == "member"
+        assert snapshot.exhausted_scope(0.0, 5000) == "organization"
+        # Older BFFs send only the USD family; the token side stays unlimited.
+        legacy = BudgetSnapshot.from_header(_budget_header({"remainingOrgUsd": 1.0}))
+        assert legacy is not None and legacy.remaining_org_tokens is None
+        assert legacy.exhausted_scope(0.5, 10**9) is None
+
 
 class TestGridCostTracker:
     def _tracker(self, budget: BudgetSnapshot | None = None) -> GridCostTracker:
@@ -142,6 +159,17 @@ class TestGridCostTracker:
         with pytest.raises(BudgetExceededError) as exc_info:
             tracker.on_chat_model_start({}, [])
         assert exc_info.value.scope == "member"
+
+    def test_blocks_next_call_when_token_budget_exhausted(self):
+        # Each replayed generation is 1,535 tokens; the cap trips on the second.
+        tracker = self._tracker(BudgetSnapshot(remaining_org_tokens=2000))
+        tracker.on_chat_model_start({}, [])
+        tracker.on_llm_end(_openrouter_result())
+        tracker.on_chat_model_start({}, [])  # 1,535 < 2,000: allowed
+        tracker.on_llm_end(_openrouter_result())
+        with pytest.raises(BudgetExceededError) as exc_info:
+            tracker.on_chat_model_start({}, [])
+        assert exc_info.value.scope == "organization"
 
     def test_no_budget_never_blocks(self):
         tracker = self._tracker()

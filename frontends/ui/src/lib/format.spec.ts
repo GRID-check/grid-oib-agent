@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { describe, test, expect } from 'vitest'
-import { formatBytes, formatDurationShort, formatEur, formatTransferRate } from './format'
+import { formatBytes, formatCredits, formatDurationShort, formatEur, formatTokens, formatTransferRate } from './format'
 
 describe('formatEur', () => {
   test('formats German amounts with comma decimal and trailing symbol', () => {
@@ -20,6 +20,30 @@ describe('formatEur', () => {
 
   test('omitting the locale still returns a EUR string (runtime default)', () => {
     expect(formatEur(1)).toMatch(/€|EUR/)
+  })
+})
+
+describe('formatCredits', () => {
+  test('whole numbers with locale grouping once the value is worth counting', () => {
+    expect(formatCredits(1234.6, 'en-US')).toBe('1,235')
+    expect(formatCredits(1234.6, 'de')).toBe('1.235')
+  })
+
+  test('one decimal below ten, so a cheap call is not shown as nothing', () => {
+    expect(formatCredits(0.44, 'en-US')).toBe('0.4')
+    expect(formatCredits(9.96, 'en-US')).toBe('10')
+  })
+
+  test('non-finite input renders as zero', () => {
+    expect(formatCredits(Number.NaN, 'en-US')).toBe('0')
+  })
+})
+
+describe('formatTokens', () => {
+  test('exact below a thousand, compact above', () => {
+    expect(formatTokens(812, 'en-US')).toBe('812')
+    expect(formatTokens(1_234_567, 'en-US')).toBe('1.2M')
+    expect(formatTokens(48_200, 'de')).toBe('48.200')
   })
 })
 

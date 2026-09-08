@@ -1881,13 +1881,19 @@ export async function getDocumentThumbnail(
   // Returning it blindly sent Next's image optimizer to a 404 / empty body
   // ("isn't a valid image … received null") for every file that is citable
   // but has no thumbnail yet (#366, #395).
+  //
+  // Existence is not enough: a failed ingest render can leave a 0-byte object
+  // behind in the thumbnail slot, which passes HeadObject and then fails the
+  // optimizer's decode — the same error, recurring for the same documents
+  // across days. An empty object is no thumbnail.
   try {
-    await s3Client.send(
+    const head = await s3Client.send(
       new HeadObjectCommand({
         Bucket: resolveDocumentBucket(doc.storageBucket),
         Key: thumbnailKey,
       })
     )
+    if ((head?.ContentLength ?? 0) <= 0) return { url: null }
   } catch {
     return { url: null }
   }
@@ -1956,10 +1962,15 @@ export async function streamDocumentImage(
     const object = await s3Client.send(
       new GetObjectCommand({ Bucket: resolveDocumentBucket(doc.storageBucket), Key: key })
     )
+    // Mirror the mint-side guard: an object that truncated to 0 bytes between
+    // the HEAD check and this GET (or reached here on a directly-shared signed
+    // URL) decodes to nothing — serve the placeholder, not optimizer poison.
+    if ((object?.ContentLength ?? 0) <= 0) throw new NotFoundError('Image not available')
     body = object.Body
-  } catch {
+  } catch (error) {
     // A document with no generated thumbnail lands here; the card reads the 404
     // as "no thumbnail" and shows its warm placeholder.
+    if (error instanceof NotFoundError) throw error
     throw new NotFoundError('Image not available')
   }
   if (!body) throw new NotFoundError('Image not available')

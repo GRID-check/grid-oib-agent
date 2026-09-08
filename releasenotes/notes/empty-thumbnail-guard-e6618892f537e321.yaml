@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    Documents whose preview image never finished generating now show the
+    regular placeholder instead of a broken image. Once the preview exists,
+    the card picks it up on its own.

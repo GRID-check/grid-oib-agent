@@ -177,6 +177,9 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
           remainingOrgUsd: budgetStatus.remainingOrgUsd,
           remainingUserUsd: budgetStatus.remainingUserUsd,
           remainingProjectUsd: budgetStatus.remainingProjectUsd,
+          remainingOrgTokens: budgetStatus.remainingOrgTokens,
+          remainingUserTokens: budgetStatus.remainingUserTokens,
+          remainingProjectTokens: budgetStatus.remainingProjectTokens,
         }
       }
     }

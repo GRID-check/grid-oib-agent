@@ -36,6 +36,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { useLocale, useTranslations } from '@/i18n'
+import { formatCredits } from '@/lib/format'
 
 interface AgentGroupDto {
   id: string
@@ -48,8 +49,12 @@ interface ModelDto {
   id: string
   name: string
   contextLength: number
-  promptPrice: number
-  completionPrice: number
+  /**
+   * The platform's reference request on this model, at the active price list
+   * (ADR-0053); null for an organization on its own key, which pays its
+   * provider and is shown no credits at all.
+   */
+  creditsPerRequest: number | null
 }
 
 interface VersionDto {
@@ -64,9 +69,6 @@ interface VersionDto {
 const formatContext = (tokens: number): string =>
   tokens >= 1024 ? `${Math.round(tokens / 1024)}k` : String(tokens)
 
-/** USD per million tokens, from the catalog's per-token price. */
-const perMillion = (perToken: number): string => `$${(perToken * 1_000_000).toFixed(2)}`
-
 const ModelPicker: FC<{
   group: AgentGroupDto
   /** Bumping this re-runs the search (e.g. after the ZDR filter changes). */
@@ -74,6 +76,7 @@ const ModelPicker: FC<{
   onPick: (modelId: string) => void
 }> = ({ group, epoch, onPick }) => {
   const t = useTranslations('organization')
+  const { locale } = useLocale()
   const [query, setQuery] = useState('')
   const [models, setModels] = useState<ModelDto[] | null>(null)
   const [loading, setLoading] = useState(true)
@@ -141,8 +144,9 @@ const ModelPicker: FC<{
                 >
                   <span className="truncate font-mono text-sm">{model.id}</span>
                   <span className="text-xs text-muted-foreground">
-                    {t('models.contextWindow')} {formatContext(model.contextLength)} · {perMillion(model.promptPrice)}{' '}
-                    in · {perMillion(model.completionPrice)} out / M tokens
+                    {t('models.contextWindow')} {formatContext(model.contextLength)}
+                    {model.creditsPerRequest !== null &&
+                      ` · ${t('models.creditsPerRequest', { credits: formatCredits(model.creditsPerRequest, locale) })}`}
                   </span>
                 </button>
               </Item>

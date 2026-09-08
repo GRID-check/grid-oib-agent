@@ -1,10 +1,62 @@
-# LLM Usage Metering & Budgets
+# LLM Usage Metering, Pricing & Budgets
 
-> Design spec for ADR-0015. Every LLM generation is metered into an
-> append-only ledger; EUR budget limits are enforced at org, member, and
-> project scope; the org page shows color-coded per-model spend. Built for
-> auditability and trust: costs are recorded exactly as OpenRouter reports
-> them, every row is attributable, and every limit change has an author.
+> Design spec for ADR-0015 (metering, limits), ADR-0019 (rollups) and
+> ADR-0053 (credits and the price list). Every LLM generation is metered into
+> an append-only ledger and priced at that moment; credit budgets are enforced
+> at org, member, and project scope; the org page shows color-coded per-model
+> credits. Built for auditability and trust: costs are recorded exactly as
+> OpenRouter reports them, every row is attributable, every limit change has an
+> author, and a price-list change never rewrites what a tenant was shown.
+
+## Three words for money
+
+| Word | Unit | What it is | Who sees it |
+|---|---|---|---|
+| **cost** | USD | what OpenRouter charged (`usage.cost`), raw; the share on a tenant's own key (`is_byok`) is kept apart as `own_key_cost_usd`, because it was the tenant's bill | platform owners (Platform → Overview), own-key cost subtracted |
+| **price** | USD | `cost × margin_multiplier`; **0** for a generation on the tenant's own key — the platform bills nothing for it | platform owners, as revenue |
+| **credits** | credits | `price ÷ usd_per_credit` | platform-billed tenants, on every surface |
+| **tokens** | tokens | `total_tokens`, straight off the row | tenants on their own key, on every surface — they see no credits and no price at all |
+
+**One unit per organization**, decided by its key mode and nothing else
+(`getOrgBudgetUnit` → `isOrgOnOwnKey`, cached 60 s): `credit` when the
+platform bills it, `token` when it runs on its own provider key (ADR-0022).
+Usage, limits, the seeded allowance and the model-picker hint all follow that
+unit; an own-key organization is seeded with no limit and sets its own, in
+tokens.
+
+There is no currency conversion anywhere. The old `GRID_BUDGET_EUR_PER_USD`
+rate is gone: a hand-set rate was neither the bank's nor OpenRouter's, and a
+figure nobody is charged is not worth showing. What a credit costs a tenant in
+euros is the contract's business.
+
+Every step is linear, which is what makes credits behave like money: the
+credits of a month are the sum of the credits of its requests, a per-model
+breakdown adds up to the total, and a limit of N credits means N credits of
+price whatever mix of models produced it. A compressive transform
+(`A × cost^p`) was proposed and rejected for exactly that reason (ADR-0053).
+
+### The price list (`platform_pricing_versions`, migration 0079)
+
+`(margin_multiplier, usd_per_credit, default_org_daily_credits,
+default_org_monthly_credits, status, supersedes_id, note, created_by, …)`.
+One active row (partial unique index), append-only with the supersede idiom,
+CHECK constraints against zero or negative rates. A platform table: every
+tenant reads, only the platform role writes. Edited under Platform → Overview →
+Price list (`GET/PUT /api/platform/pricing`, `platform:settings:view/manage`,
+audited as `platform.pricing.updated`).
+
+**Boot floor.** An empty table means margin 1, one credit = one US cent, and a
+seeded allowance of 1,000 credits a day / 10,000 a month — the old $10/$100
+guardrail in the new unit — so an upgraded deployment behaves as it did until a
+platform owner decides a price. `lib/pricing/service.ts` owns the floor;
+`explicit: false` in the API says the deployment is still on it.
+
+**Priced at write time.** `recordUsageEvents` resolves the active pricing once
+per batch (cached 60 s, write-invalidated) and stores `price_usd`, `credits`
+and `pricing_version_id` on each ledger row beside the raw `cost_usd`. Rows are
+never repriced. A pricing lookup failure prices at the boot floor rather than
+dropping the batch: an unpriced generation is reconcilable, a missing one is
+not.
 
 ## The OpenRouter cost contract (verified against official docs)
 
@@ -87,8 +139,8 @@ track_llm_costs()  ──sets──▶  grid_cost_tracker_var (ContextVar)
 
 **`budget_policies`** — append-only limit configuration, supersede idiom:
 `(organization_id, scope['organization'|'member'|'project'], subject_id,
-daily_limit, monthly_limit numeric EUR, status, supersedes_id, created_by,
-note)`. A hand-written partial-unique index enforces one *active* policy per
+daily_limit, monthly_limit numeric CREDITS, currency = 'credit' (CHECK),
+status, supersedes_id, created_by, note)`. A hand-written partial-unique index enforces one *active* policy per
 (org, scope, subject). Changing a limit supersedes the old row — full audit
 lineage.
 
@@ -96,23 +148,37 @@ lineage.
 job attribution, `agent_group` (reserved), `requested_model` vs `model`
 (served), `generation_id`, token detail (incl. cached + reasoning),
 `cost_usd numeric(14,8)`, `cost_source
-('usage_field'|'missing'|'generation_api'|'estimate')`, `is_byok`. Indexed
-for `(org, time)`, `(org, user, time)`, `(org, project, time)`,
-`(org, model, time)` window aggregation.
+('usage_field'|'missing'|'generation_api'|'estimate')`, `is_byok`, and since
+0079 the frozen `price_usd`, `credits` and nullable `pricing_version_id` (NULL
+= priced at the boot floor). Indexed for `(org, time)`, `(org, user, time)`,
+`(org, project, time)`, `(org, model, time)` window aggregation.
+
+**`llm_usage_rollups`** (ADR-0019) — the write-through daily aggregate per
+`(org, day, user, project)`, carrying `cost_usd`, `own_key_cost_usd`,
+`price_usd`, `credits`, `tokens` and `events`, incremented in the same
+transaction as the ledger insert.
 
 ## Limits & enforcement
 
-- **Defaults (seeded)**: €10/day, €100/month per org until an admin sets
-  explicit limits (`explicit: false` in API responses). `null` limit = that
-  window unlimited.
+- **Defaults (seeded)**: the active price list's allowance (boot floor:
+  1,000 credits/day, 10,000/month) per org until an admin sets explicit limits
+  (`explicit: false` in API responses). `null` limit = that window unlimited.
 - **Scopes are independent**: a request must pass org AND (if set) member
   AND (if set) project limits; the first exhausted scope blocks.
 - **Member/project ≤ org**: validated on write (422), including "cannot be
   unlimited while the org is bounded". Project limits settable by project
   admins (`project:manage`) and org admins; org/member limits org-admin-only.
 - **Windows**: UTC — daily = since 00:00 UTC, monthly = since the 1st.
-- **Currency**: limits EUR, ledger USD; compared via
-  `GRID_BUDGET_EUR_PER_USD` (euros per 1 USD, default 0.86) at read time.
+- **Unit**: limits and spend are compared in the organization's unit,
+  directly from the rollup (`credits` or `tokens` columns). A limit row names
+  its unit (`budget_policies.currency`, CHECK `credit | token`) and is only
+  honoured while the organization is on that unit; switching key mode leaves
+  the other unit's rows in place, ignored, so switching back restores them.
+- **What the backend enforces**: the tracker meters cost AND tokens off the
+  same usage object, so the `x-grid-budget` snapshot carries whichever family
+  applies — `remaining*Usd` (credits converted back to USD of cost, the exact
+  inverse of pricing) for a credit organization, `remaining*Tokens` for a
+  token organization — and `BudgetSnapshot.exhausted_scope` checks both.
 
 Enforcement points:
 
@@ -137,12 +203,21 @@ Enforcement points:
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| GET | `/api/organization/usage` | member (own) / admin (org-wide, `?userId`/`?projectId`) | day+month totals, per-model breakdown, budget status |
-| GET | `/api/organization/budgets` | member (org limits + own); admin (+ all active policies) | read limits |
-| PUT | `/api/organization/budgets` | org admin; project scope also project admin | set a policy (supersede) |
-| POST | `/api/internal/usage` | `x-grid-internal-token` service token | ledger write path (backend tracker) |
+| GET | `/api/organization/usage` | member (own) / admin (org-wide, `?userId`/`?projectId`) | `unit` plus day+month totals, per-model breakdown, budget status as `{amount, events}` **in that unit only** — cost, price and the other unit never leave the tenant projection |
+| GET | `/api/organization/budgets` | member (org limits + own); admin (+ all active policies) | `unit` and the limits in it |
+| PUT | `/api/organization/budgets` | org admin; project scope also project admin | set a policy (supersede), bare `dailyLimit` / `monthlyLimit`; the unit follows the key mode, never the caller |
+| GET | `/api/organization/model-config/models` | org models admin | model search; `creditsPerRequest` (the reference request priced at the active list) for a credit organization, `null` on an own key; never per-token USD |
+| POST | `/api/internal/usage` | `x-grid-internal-token` service token | ledger write path (backend tracker); rows are priced here |
+| GET/PUT | `/api/platform/pricing` | `platform:settings:view` / `manage` | the price list, its bounds, the version trail |
+| GET | `/api/platform/overview` | `platform:organizations:view` | cost (with the own-key share apart), revenue (price), credits and tokens per organization and in total, plus the active price list; the UI shows `costUsd − ownKeyCostUsd` as the platform's cost |
 
 ## UI (org page → "Usage & budgets")
+
+Everything on this page is in the organization's unit — credits
+(`formatCredits`, "credits" / "Punkte") or tokens (`formatTokens`,
+compact above a thousand) — with the unit word from the dictionary. No cost,
+no currency, never the other unit. An own-key organization gets one note
+saying its usage is on its own bill and Piloti charges no credits.
 
 - **Two budget meters** (today / this month): stacked segments per model as
   share of the limit, 2px surface gaps, muted remaining track; exhausted →
@@ -161,11 +236,22 @@ Enforcement points:
   picker. Mobile-first: rows and forms stack under the `sm` breakpoint and
   stats carry their own micro-labels.
 
+## UI (Platform → Overview)
+
+Cost in USD as charged to the PLATFORM (own-key usage subtracted, with the
+excluded amount named under the tile), revenue at the price list, gross margin
+as the difference; the 30-day cost trend; the price list editor (margin, credit
+price, seeded allowance, change note, version trail, a live worked example);
+and per-organization cost and revenue in the directory, with an "own key" badge
+on organizations whose usage this month ran on their own key.
+
 ## Observability & audit answers
 
 | Question | Where |
 |---|---|
-| What did model X cost us this month? | `llm_usage_events` by `(org, model, time)` / usage API `perModel` |
+| What did model X cost us this month? | `llm_usage_events.cost_usd` by `(org, model, time)` (platform surfaces) |
+| What was the tenant charged, and at which price list? | `price_usd`, `credits`, `pricing_version_id` on the same row |
+| Who changed the margin, from what, when? | `platform_pricing_versions` supersede chain + `platform.pricing.updated` audit events |
 | Who spent it? | `user_id`, `project_id`, `conversation_id`, `job_id` per row |
 | Was the charge real? | `generation_id` → `GET /api/v1/generation?id=` |
 | Who set this limit, and what was it before? | `budget_policies.created_by` + `supersedes_id` chain |
@@ -176,7 +262,6 @@ Enforcement points:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GRID_BUDGET_EUR_PER_USD` | `0.86` | EUR per 1 USD for limit comparison (frontend) |
 | `GRID_INTERNAL_API_TOKEN` | dev token | guards `/api/internal/usage` (both services) |
 | `OPENROUTER_API_KEY` | — | frontend: catalog listing (model config); backend: LLM calls |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | catalog override for tests/self-hosting |

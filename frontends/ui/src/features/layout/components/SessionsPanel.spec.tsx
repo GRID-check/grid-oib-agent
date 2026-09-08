@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { render, screen, waitFor, within } from '@/test-utils'
+import { render, screen, waitFor, within, fireEvent } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { SessionsPanel } from './SessionsPanel'
@@ -73,6 +73,8 @@ const createMockChatState = (
     isStreaming?: boolean
     pendingInteraction?: { id: string; type: string; content: string } | null
     refreshDeepResearchSessionStatuses?: () => Promise<void>
+    dismissDeepResearchJob?: (conversationId: string | null, jobId: string) => Promise<void>
+    purgeAbandonedDeepResearchJobs?: () => Promise<number>
   } = {}
 ) => ({
   isSessionBusy: overrides.isSessionBusy ?? (() => false),
@@ -80,6 +82,8 @@ const createMockChatState = (
   isStreaming: overrides.isStreaming ?? false,
   pendingInteraction: overrides.pendingInteraction ?? null,
   refreshDeepResearchSessionStatuses: overrides.refreshDeepResearchSessionStatuses ?? vi.fn(),
+  dismissDeepResearchJob: overrides.dismissDeepResearchJob ?? vi.fn(),
+  purgeAbandonedDeepResearchJobs: overrides.purgeAbandonedDeepResearchJobs ?? vi.fn(),
 })
 
 const setupChatStoreMock = (overrides: Parameters<typeof createMockChatState>[0] = {}) => {
@@ -1039,5 +1043,143 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
     expect(
       await screen.findAllByRole('link', { name: /open deep research run/i })
     ).toHaveLength(2)
+  })
+})
+
+describe('SessionsPanel - stuck research purge', () => {
+  const today = new Date()
+  const mockDismiss = vi.fn()
+  const mockPurge = vi.fn()
+
+  const stuckSession = {
+    id: 'conv-stuck',
+    title: 'Stuck research chat',
+    date: today,
+    hasActiveDeepResearch: true,
+    activeDeepResearchJobId: 'job-stuck',
+  }
+  const idleSession = { id: 'conv-idle', title: 'Idle chat', date: today }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockDismiss.mockResolvedValue(undefined)
+    mockPurge.mockResolvedValue(0)
+    mockListResearchRuns.mockResolvedValue({ jobs: [], total: 0 })
+    setupChatStoreMock({
+      dismissDeepResearchJob: mockDismiss,
+      purgeAbandonedDeepResearchJobs: mockPurge,
+      // The row's stop action renders for an *active* session: the Session
+      // prop carries the stuck run, the busy check marks the row active.
+      isSessionBusy: () => true,
+    })
+    vi.mocked(useLayoutStore).mockImplementation((selector?: StoreSelector<LayoutStore>) => {
+      const state: DeepPartial<LayoutStore> = {
+        isSessionsPanelOpen: true,
+        setSessionsPanelOpen: mockSetSessionsPanelOpen,
+      }
+      return selector ? selector(asStoreState<LayoutStore>(state)) : state
+    })
+  })
+
+  test('a chat row with a stuck run offers a stop action that dismisses it', async () => {
+    const user = userEvent.setup()
+    render(<SessionsPanel sessions={[stuckSession, idleSession]} />)
+
+    // Hover reveals the overlay actions (the realistic path); the click itself
+    // goes through fireEvent because userEvent's multi-step pointer sequence
+    // re-renders the motion row mid-gesture and drops the click on the
+    // detached node — a jsdom artifact, not a production one.
+    await user.hover(screen.getByRole('button', { name: /chat: stuck research chat/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop research' }))
+
+    await waitFor(() => {
+      expect(mockDismiss).toHaveBeenCalledWith('conv-stuck', 'job-stuck')
+    })
+  })
+
+  test('an idle chat row offers no stop action', async () => {
+    const user = userEvent.setup()
+    render(<SessionsPanel sessions={[idleSession]} />)
+
+    await user.hover(screen.getByRole('button', { name: /chat: idle chat/i }))
+
+    expect(screen.queryByRole('button', { name: /stop research/i })).not.toBeInTheDocument()
+  })
+
+  test('the footer purges every stuck run when one is active', async () => {
+    const user = userEvent.setup()
+    mockPurge.mockResolvedValue(2)
+    render(<SessionsPanel sessions={[stuckSession, idleSession]} />)
+
+    await user.click(screen.getByRole('button', { name: /stop all stuck research runs/i }))
+
+    expect(mockPurge).toHaveBeenCalledTimes(1)
+  })
+
+  test('the footer shows no purge when nothing is stuck', () => {
+    render(<SessionsPanel sessions={[idleSession]} />)
+
+    expect(
+      screen.queryByRole('button', { name: /stop all stuck research runs/i })
+    ).not.toBeInTheDocument()
+  })
+
+  test('a running research run offers a stop action that dismisses and refetches', async () => {
+    const user = userEvent.setup()
+    mockListResearchRuns.mockResolvedValue({
+      jobs: [
+        {
+          job_id: 'job-live',
+          status: 'running',
+          created_at: today.toISOString(),
+          conversation_id: null,
+          project_collection: 'proj_1',
+        },
+      ],
+      total: 1,
+    })
+    render(
+      <SessionsPanel
+        sessions={[idleSession]}
+        showDeepResearchSection
+        projectId="p1"
+        projectCollection="proj_1"
+      />
+    )
+
+    expect(await screen.findByText('Running')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /stop research/i }))
+
+    expect(mockDismiss).toHaveBeenCalledWith(null, 'job-live')
+    // Initial fetch plus the refetch after the dismiss landed.
+    await waitFor(() => {
+      expect(mockListResearchRuns).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  test('a finished research run offers no stop action', async () => {
+    mockListResearchRuns.mockResolvedValue({
+      jobs: [
+        {
+          job_id: 'job-done',
+          status: 'completed',
+          created_at: today.toISOString(),
+          conversation_id: null,
+          project_collection: 'proj_1',
+        },
+      ],
+      total: 1,
+    })
+    render(
+      <SessionsPanel
+        sessions={[idleSession]}
+        showDeepResearchSection
+        projectId="p1"
+        projectCollection="proj_1"
+      />
+    )
+
+    expect(await screen.findByText('Report ready')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /stop research/i })).not.toBeInTheDocument()
   })
 })

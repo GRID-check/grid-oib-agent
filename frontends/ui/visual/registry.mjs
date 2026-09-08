@@ -152,7 +152,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/sessions',
     description:
-      'The history sheet risen over the real app shell as a sibling of the Inbox — the default wide page sheet with a centred max-w-3xl reading column, pinned New chat + search, day groups as sticky headings over bg-card divided-row lists, a bottom scroll fade, and a footer that states chats live in the workspace and owns the destructive delete-all. Fixture spans today/yesterday/older and overflows the list so grouping and scroll behaviour are visible.',
+      'The history sheet risen over the real app shell as a sibling of the Inbox — the default wide page sheet with a centred max-w-3xl reading column, pinned New chat + search, day groups as sticky headings over bg-card divided-row lists, a bottom scroll fade, and a footer that states chats live in the workspace and owns the destructive delete-all beside the stuck-research purge (one fixture run never finishes). Fixture spans today/yesterday/older and overflows the list so grouping and scroll behaviour are visible.',
     waitFor: '[data-testid="sessions-preview"]',
   },
   {
@@ -188,7 +188,7 @@ export const SCREENSHOT_TARGETS = [
     id: 'sessions-research',
     path: '/dev/sessions?variant=research',
     description:
-      'The history sheet with the FB-10 Deep Research surfaces: the All / Chats / Deep Research scope filter (with run-count pill) pinned under the search, the always-open Deep Research section — FlaskConical heading with count pill over an inbox-style card of run rows (media disc, title, relative time, status Badge) — and the per-chat Deep Research badges.',
+      'The history sheet with the FB-10 Deep Research surfaces: the All / Chats / Deep Research scope filter (with run-count pill) pinned under the search, the always-open Deep Research section — FlaskConical heading with count pill over an inbox-style card of run rows (media disc, title, relative time, status Badge, and a stop action on the run that never finishes) — and the per-chat Deep Research badges.',
     waitFor: '[data-testid="deep-research-section"]',
   },
   {

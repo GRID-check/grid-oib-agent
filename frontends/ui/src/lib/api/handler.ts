@@ -258,8 +258,32 @@ export function errorResponse(error: unknown, request: Request): Response {
     return NextResponse.json({ error: 'Not found', code: 'NOT_FOUND' }, { status: 404 })
   }
   const url = new URL(request.url)
-  console.error(`[api] Unhandled error in ${request.method} ${url.pathname}:`, error)
+  const pgCode = findPostgresCode(error)
+  console.error(
+    `[api] Unhandled error in ${request.method} ${url.pathname}${pgCode ? ` pgCode=${pgCode}` : ''}:`,
+    error
+  )
   return NextResponse.json({ error: 'Internal server error', code: 'INTERNAL' }, { status: 500 })
+}
+
+/**
+ * Walk `error.cause` for a Postgres error code (`22P02`, `23505`, …) and
+ * attach it to the unhandled-error log line. Drizzle reports a failed write
+ * as `Failed query … params: <the entire blob>`, which buries the code that
+ * says what actually went wrong — three PATCH 500s (err2issue
+ * #581/#579/#576) arrived with kilobytes of payload and no cause. The next
+ * one arrives classified.
+ */
+function findPostgresCode(error: unknown): string | undefined {
+  let current: unknown = error
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if (typeof current === 'object' && current !== null && 'code' in current) {
+      const code: unknown = (current as { code: unknown }).code
+      if (typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)) return code
+    }
+    current = current instanceof Error ? current.cause : undefined
+  }
+  return undefined
 }
 
 /** Walk `error.cause` for Postgres `22P02` on a uuid column. */

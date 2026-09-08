@@ -22,6 +22,9 @@ vi.mock('@/components/audit/audit-log-button', () => ({
 vi.mock('@/lib/workos/widget-token', () => ({
   makeWidgetTokenFetcher: () => async () => 'token',
 }))
+vi.mock('./platform-pricing-card', () => ({
+  PlatformPricingCard: () => <div data-testid="platform-pricing" />,
+}))
 vi.mock('@/lib/workos/use-widget-appearance', () => ({
   useResolvedAppearance: () => 'light',
   // The component builds the widget's Radix theme from this; a module mock that
@@ -29,15 +32,38 @@ vi.mock('@/lib/workos/use-widget-appearance', () => ({
   widgetTheme: (appearance: 'light' | 'dark') => ({ appearance }),
 }))
 
-const org = (overrides: Partial<Organization> & { id: string; name: string }): Organization => ({
-  createdAt: '2026-01-15T00:00:00Z',
-  isPlatformOrg: false,
-  projectCount: 1,
-  dayUsd: 0,
-  monthUsd: 0,
-  monthEvents: 0,
-  ...overrides,
+/** USD cost as charged, priced at a 2× margin with one credit = $0.10. */
+const window = (costUsd: number, events = Math.round(costUsd)) => ({
+  costUsd,
+  ownKeyCostUsd: 0,
+  priceUsd: costUsd * 2,
+  credits: costUsd * 20,
+  tokens: costUsd * 1000,
+  events,
 })
+
+const org = (
+  overrides: Partial<Organization> & { id: string; name: string; dayUsd?: number; monthUsd?: number },
+): Organization => {
+  const { dayUsd = 0, monthUsd = 0, ...rest } = overrides
+  return {
+    createdAt: '2026-01-15T00:00:00Z',
+    isPlatformOrg: false,
+    projectCount: 1,
+    day: window(dayUsd),
+    month: window(monthUsd),
+    ...rest,
+  }
+}
+
+interface SpendWindow {
+  costUsd: number
+  ownKeyCostUsd: number
+  priceUsd: number
+  credits: number
+  tokens: number
+  events: number
+}
 
 interface Organization {
   id: string
@@ -45,17 +71,16 @@ interface Organization {
   createdAt: string
   isPlatformOrg: boolean
   projectCount: number
-  dayUsd: number
-  monthUsd: number
-  monthEvents: number
+  day: SpendWindow
+  month: SpendWindow
 }
 
 const overview = {
   organizations: [] as Organization[],
   organizationsCapped: false,
   dailyTrend: [],
-  totals: { organizations: 3, projects: 7, dayUsd: 1, monthUsd: 2, monthEvents: 42 },
-  eurPerUsd: 1,
+  totals: { organizations: 3, projects: 7, day: window(1, 4), month: window(2, 42) },
+  pricing: { marginMultiplier: 2, usdPerCredit: 0.1, explicit: true },
 }
 
 const withOrganizations = (organizations: Organization[], extra: Record<string, unknown> = {}) => ({
@@ -136,10 +161,12 @@ describe('PlatformOverview', () => {
     expect(await screen.findByText('GRID Platform')).toBeDefined()
     const table = within(directory())
     expect(table.getByRole('columnheader', { name: /Organization/i })).toBeDefined()
-    expect(table.getByRole('columnheader', { name: /This month/i })).toBeDefined()
+    expect(table.getByRole('columnheader', { name: /Cost this month/i })).toBeDefined()
     expect(table.getByText('Platform')).toBeDefined()
     // EUR conversion + locale currency formatting, not raw USD.
-    expect(table.getByText('€90.00')).toBeDefined()
+    // Cost as charged and revenue at the price list, side by side.
+    expect(table.getByText('$90.00')).toBeDefined()
+    expect(table.getByText('$180.00')).toBeDefined()
   })
 
   test('shows the empty state when the platform has no organizations', async () => {
@@ -197,13 +224,17 @@ describe('PlatformOverview', () => {
     // Biggest month spender first by default, matching the service's own order.
     expect(renderedNames()).toEqual(['Beta', 'Gamma', 'Alpha'])
 
-    const monthHeader = within(directory()).getByRole('button', { name: /Sort by This month/i })
+    // The default sort is revenue; the cost column starts descending on its
+    // first click and flips on the second.
+    const monthHeader = within(directory()).getByRole('button', { name: /Sort by Cost this month/i })
+    await userEvent.click(monthHeader)
+    expect(renderedNames()).toEqual(['Beta', 'Gamma', 'Alpha'])
     await userEvent.click(monthHeader)
 
     expect(renderedNames()).toEqual(['Alpha', 'Gamma', 'Beta'])
-    expect(within(directory()).getByRole('columnheader', { name: /This month/i }).getAttribute('aria-sort')).toBe(
-      'ascending',
-    )
+    expect(
+      within(directory()).getByRole('columnheader', { name: /Cost this month/i }).getAttribute('aria-sort'),
+    ).toBe('ascending')
   })
 
   test('sorts by organization name', async () => {

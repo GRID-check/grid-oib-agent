@@ -1577,7 +1577,7 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   the chat workflow `_run`, the Dask job runner, and the reflection task.
   Events (model, tokens, OpenRouter `usage.cost`, generation id) POST to
   the token-guarded `POST /api/internal/usage` (single-writer rule).
-- **Budgets**: `x-grid-budget` carries remaining USD per scope
+- **Budgets**: `x-grid-budget` carries the remaining budget per scope — USD of cost for an organization the platform bills, tokens for one on its own key (ADR-0053)
   (org/member/project); the tracker raises `BudgetExceededError` before the
   next LLM call once exhausted (sync path returns a friendly chat response);
   the BFF refuses the WS upgrade outright when already over. A separate,

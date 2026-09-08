@@ -20,6 +20,7 @@ import {
   DiagramSvgError,
   acceptDiagram,
   attributeOf,
+  censusSvg,
   diagramSourceOf,
   parseDiagramSvg,
   serializeDiagramSvg,
@@ -454,5 +455,26 @@ describe('the stored diagram says a machine drew it', () => {
     // skipping them.
     const accepted = acceptDiagram(submission, MARKING)
     expect(accepted.root.children.some((child) => child.kind === 'element' && child.name === 'title')).toBe(false)
+  })
+})
+
+/**
+ * The failure census the filing catch logs (err2issue #589). A diagram-PDF
+ * crash names no construct, so the log gets the tree's shape — tag
+ * frequencies, depth, sizes — and no text content.
+ */
+describe('censusSvg', () => {
+  it('counts nodes, tags and depth without carrying any text', () => {
+    const { root } = parseDiagramSvg(
+      `${OPEN}<g><rect width="1" height="1"/><text>Fluchtweg</text></g></svg>`
+    )
+
+    expect(censusSvg(root)).toEqual({
+      nodes: 5,
+      elements: 4,
+      textChars: 'Fluchtweg'.length,
+      depth: 4,
+      tags: { svg: 1, g: 1, rect: 1, text: 1 },
+    })
   })
 })

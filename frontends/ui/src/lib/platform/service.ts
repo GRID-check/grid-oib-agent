@@ -13,19 +13,34 @@ import { getDb } from '@/lib/db'
 import { withPlatformAccess } from '@/lib/db/tenant-context'
 import { projects } from '@/lib/db/schema'
 import { getWorkOS } from '@/lib/workos/client'
-import { getDailySpendTrend, getSpendAcrossOrganizations, type DailySpendPoint } from '@/lib/budgets/service'
+import {
+  EMPTY_SPEND_WINDOW,
+  getDailySpendTrend,
+  getSpendAcrossOrganizations,
+  sumSpendWindows,
+  type DailySpendPoint,
+  type SpendWindow,
+} from '@/lib/budgets/service'
+import { getEffectivePricing } from '@/lib/pricing/service'
 import { getPlatformOrganizationId } from '@/lib/authz/platform'
 
+/**
+ * Every money figure here is USD as OpenRouter charges it (`costUsd`, of which
+ * `ownKeyCostUsd` was billed to a tenant's own key, not to the platform), what
+ * the tenant is charged for it (`priceUsd`) and the tenant's units (`credits`,
+ * `tokens`) — no currency conversion anywhere (ADR-0053). The platform's own
+ * cost is `costUsd - ownKeyCostUsd`; price minus that is its gross margin.
+ */
 export interface PlatformOrganization {
   id: string
   name: string
   createdAt: string
   isPlatformOrg: boolean
   projectCount: number
-  dayUsd: number
-  monthUsd: number
-  monthEvents: number
+  day: SpendWindow
+  month: SpendWindow
 }
+
 
 export interface PlatformOverview {
   organizations: PlatformOrganization[]
@@ -36,10 +51,11 @@ export interface PlatformOverview {
   totals: {
     organizations: number
     projects: number
-    dayUsd: number
-    monthUsd: number
-    monthEvents: number
+    day: SpendWindow
+    month: SpendWindow
   }
+  /** The price list in force right now — the numbers behind every credit above. */
+  pricing: { marginMultiplier: number; usdPerCredit: number; explicit: boolean }
 }
 
 async function projectCountsByOrganization(): Promise<Map<string, number>> {
@@ -57,12 +73,13 @@ async function projectCountsByOrganization(): Promise<Map<string, number>> {
 /** The full platform overview: every org, biggest month spender first. */
 export async function getPlatformOverview(): Promise<PlatformOverview> {
   const workos = getWorkOS()
-  const [orgList, projectCounts, spend, platformOrgId, dailyTrend] = await Promise.all([
+  const [orgList, projectCounts, spend, platformOrgId, dailyTrend, pricing] = await Promise.all([
     workos.organizations.listOrganizations({ limit: 100 }),
     projectCountsByOrganization(),
     getSpendAcrossOrganizations(),
     getPlatformOrganizationId(),
     getDailySpendTrend({ days: 30 }),
+    getEffectivePricing(),
   ])
   const spendByOrg = new Map(spend.map((entry) => [entry.organizationId, entry]))
 
@@ -75,12 +92,11 @@ export async function getPlatformOverview(): Promise<PlatformOverview> {
         createdAt: org.createdAt,
         isPlatformOrg: org.id === platformOrgId,
         projectCount: projectCounts.get(org.id) ?? 0,
-        dayUsd: orgSpend?.dayUsd ?? 0,
-        monthUsd: orgSpend?.monthUsd ?? 0,
-        monthEvents: orgSpend?.monthEvents ?? 0,
+        day: orgSpend?.day ?? EMPTY_SPEND_WINDOW,
+        month: orgSpend?.month ?? EMPTY_SPEND_WINDOW,
       }
     })
-    .sort((a, b) => b.monthUsd - a.monthUsd || a.name.localeCompare(b.name))
+    .sort((a, b) => b.month.priceUsd - a.month.priceUsd || a.name.localeCompare(b.name))
 
   return {
     organizations,
@@ -89,9 +105,13 @@ export async function getPlatformOverview(): Promise<PlatformOverview> {
     totals: {
       organizations: organizations.length,
       projects: organizations.reduce((total, org) => total + org.projectCount, 0),
-      dayUsd: organizations.reduce((total, org) => total + org.dayUsd, 0),
-      monthUsd: organizations.reduce((total, org) => total + org.monthUsd, 0),
-      monthEvents: organizations.reduce((total, org) => total + org.monthEvents, 0),
+      day: sumSpendWindows(organizations.map((org) => org.day)),
+      month: sumSpendWindows(organizations.map((org) => org.month)),
+    },
+    pricing: {
+      marginMultiplier: pricing.marginMultiplier,
+      usdPerCredit: pricing.usdPerCredit,
+      explicit: pricing.explicit,
     },
   }
 }

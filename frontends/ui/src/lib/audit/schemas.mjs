@@ -98,8 +98,11 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     metadata: {
       scope: 'string',
       subjectId: 'string',
-      dailyLimitEur: 'number',
-      monthlyLimitEur: 'number',
+      // The limit's unit since 0080 (ADR-0053): 'credit' or 'token'. Before
+      // 0079 the keys were dailyLimitEur/monthlyLimitEur.
+      unit: 'string',
+      dailyLimit: 'number',
+      monthlyLimit: 'number',
     },
   },
   'budget.policy.cleared': {
@@ -193,6 +196,20 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   'platform.retrieval_settings.updated': {
     targets: [{ type: 'platform_retrieval_settings' }],
     metadata: { settings: 'string', changed: 'number', note: 'string' },
+  },
+  // The price list (ADR-0053): a save reprices every organization's next
+  // generation, so it belongs in the platform org's trail with the numbers
+  // that changed and the version it replaced.
+  'platform.pricing.updated': {
+    targets: [{ type: 'platform_pricing_version' }],
+    metadata: {
+      marginMultiplier: 'number',
+      usdPerCredit: 'number',
+      defaultOrgDailyCredits: 'number',
+      defaultOrgMonthlyCredits: 'number',
+      supersedesId: 'string',
+      note: 'string',
+    },
   },
   'project.created': {
     targets: [{ type: 'project' }],

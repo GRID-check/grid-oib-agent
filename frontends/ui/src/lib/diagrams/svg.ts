@@ -110,6 +110,47 @@ export interface SvgTextNode {
 
 export type SvgNode = SvgElement | SvgTextNode
 
+/**
+ * A content-free census of a parsed diagram, for the failure log.
+ *
+ * The diagram-PDF crash (err2issue #589, React minified #31) arrived with the
+ * drawing's SHAPE as the only suspect and no way to recover it: the tree
+ * holds tenant content and is never logged. Tag frequencies name the
+ * construct the renderer choked on (a `<tspan>` nesting, an `<a>`-wrapped
+ * label), the depth and node count name the size — and no text content leaves
+ * the process.
+ */
+export interface SvgCensus {
+  nodes: number
+  elements: number
+  textChars: number
+  /** Deepest element, counting the root as 1 (same unit as `MAX_DIAGRAM_SVG_DEPTH`). */
+  depth: number
+  /** Element counts by tag name, in first-seen order. */
+  tags: Record<string, number>
+}
+
+export function censusSvg(root: SvgElement): SvgCensus {
+  const tags: Record<string, number> = {}
+  let nodes = 0
+  let elements = 0
+  let textChars = 0
+  let depth = 0
+  const walk = (node: SvgNode, level: number): void => {
+    nodes += 1
+    if (level > depth) depth = level
+    if (node.kind === 'text') {
+      textChars += node.text.length
+      return
+    }
+    elements += 1
+    tags[node.name] = (tags[node.name] ?? 0) + 1
+    for (const child of node.children) walk(child, level + 1)
+  }
+  walk(root, 1)
+  return { nodes, elements, textChars, depth, tags }
+}
+
 export class DiagramSvgError extends Error {
   constructor(
     readonly rejection: DiagramSvgRejection,

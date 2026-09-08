@@ -1,5 +1,7 @@
 /**
- * LLM spend summary (per-model day/month breakdown for the budget UI).
+ * LLM usage summary in CREDITS (per-model day/month breakdown for the budget
+ * UI). The platform's cost never leaves the service's tenant projection
+ * (ADR-0053).
  *
  * Budget admins see the org-wide summary (optionally narrowed with ?userId= /
  * ?projectId=); non-admin members always get their own usage only. Thin

@@ -76,15 +76,22 @@ class BudgetExceededError(RuntimeError):
 
 @dataclass
 class BudgetSnapshot:
-    """Remaining budget (USD) for every scope that applies to this request.
+    """Remaining budget for every scope that applies to this request.
 
-    ``None`` means "no limit configured for that scope". Computed by the BFF
-    from the ledger + active budget policies at the WS upgrade / job submit.
+    Two families, one per billing unit (ADR-0053): USD of platform-billed cost
+    for an organization the platform bills, tokens for one on its own provider
+    key. ``None`` means "no limit configured for that scope and unit". Computed
+    by the BFF from the rollup + active budget policies at the WS upgrade /
+    job submit. The tracker meters both cost and tokens off the same usage
+    object, so it needs no pricing knowledge to enforce either.
     """
 
     remaining_org_usd: float | None = None
     remaining_user_usd: float | None = None
     remaining_project_usd: float | None = None
+    remaining_org_tokens: float | None = None
+    remaining_user_tokens: float | None = None
+    remaining_project_tokens: float | None = None
 
     @classmethod
     def from_header(cls, raw: str | None) -> BudgetSnapshot | None:
@@ -107,16 +114,21 @@ class BudgetSnapshot:
             remaining_org_usd=_num("remainingOrgUsd"),
             remaining_user_usd=_num("remainingUserUsd"),
             remaining_project_usd=_num("remainingProjectUsd"),
+            remaining_org_tokens=_num("remainingOrgTokens"),
+            remaining_user_tokens=_num("remainingUserTokens"),
+            remaining_project_tokens=_num("remainingProjectTokens"),
         )
 
-    def exhausted_scope(self, pending_cost_usd: float) -> str | None:
-        """The first scope whose remaining budget is used up, if any."""
-        for scope, remaining in (
-            ("organization", self.remaining_org_usd),
-            ("member", self.remaining_user_usd),
-            ("project", self.remaining_project_usd),
+    def exhausted_scope(self, pending_cost_usd: float, pending_tokens: int = 0) -> str | None:
+        """The first scope whose remaining budget is used up, in either unit."""
+        for scope, remaining_usd, remaining_tokens in (
+            ("organization", self.remaining_org_usd, self.remaining_org_tokens),
+            ("member", self.remaining_user_usd, self.remaining_user_tokens),
+            ("project", self.remaining_project_usd, self.remaining_project_tokens),
         ):
-            if remaining is not None and pending_cost_usd >= remaining:
+            if remaining_usd is not None and pending_cost_usd >= remaining_usd:
+                return scope
+            if remaining_tokens is not None and pending_tokens >= remaining_tokens:
                 return scope
         return None
 
@@ -269,15 +281,18 @@ class GridCostTracker(BaseCallbackHandler):
     def _check_budget(self) -> None:
         if self.budget is None:
             return
-        scope = self.budget.exhausted_scope(self._turn_cost_usd)
+        turn_tokens = self._prompt_tokens + self._completion_tokens
+        scope = self.budget.exhausted_scope(self._turn_cost_usd, turn_tokens)
         if scope is not None:
             logger.warning(
-                "Budget exhausted (scope=%s, org=%s, user=%s, project=%s, turn_cost=%.6f USD) — refusing LLM call",
+                "Budget exhausted (scope=%s, org=%s, user=%s, project=%s, turn_cost=%.6f USD, turn_tokens=%d)"
+                " — refusing LLM call",
                 scope,
                 self.organization_id,
                 self.user_id,
                 self.project_id,
                 self._turn_cost_usd,
+                turn_tokens,
             )
             raise BudgetExceededError(scope)
 

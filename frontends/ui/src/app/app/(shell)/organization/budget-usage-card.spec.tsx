@@ -20,36 +20,39 @@ import { BudgetUsageCard } from './budget-usage-card'
 
 interface ModelFixture {
   model: string
-  dayUsd: number
-  monthUsd: number
-  dayEvents: number
-  monthEvents: number
+  day: { amount: number; events: number }
+  month: { amount: number; events: number }
 }
 
 const usageBody = (
   perModel: ModelFixture[],
-  orgBudget: { dailyLimitEur: number | null; monthlyLimitEur: number | null } = {
-    dailyLimitEur: null,
-    monthlyLimitEur: null,
-  }
+  orgBudget: { dailyLimit: number | null; monthlyLimit: number | null } = {
+    dailyLimit: null,
+    monthlyLimit: null,
+  },
+  unit: 'credit' | 'token' = 'credit'
 ): unknown => ({
+  unit,
   summary: {
-    dayUsd: perModel.reduce((sum, m) => sum + m.dayUsd, 0),
-    monthUsd: perModel.reduce((sum, m) => sum + m.monthUsd, 0),
+    day: {
+      amount: perModel.reduce((sum, m) => sum + m.day.amount, 0),
+      events: perModel.reduce((sum, m) => sum + m.day.events, 0),
+    },
+    month: {
+      amount: perModel.reduce((sum, m) => sum + m.month.amount, 0),
+      events: perModel.reduce((sum, m) => sum + m.month.events, 0),
+    },
     perModel,
   },
   perMember: null,
   orgBudget: { ...orgBudget, explicit: true },
   status: { blocked: false },
-  eurPerUsd: 1,
 })
 
-const model = (name: string, dayUsd: number, monthUsd: number): ModelFixture => ({
+const model = (name: string, dayAmount: number, monthAmount: number): ModelFixture => ({
   model: name,
-  dayUsd,
-  monthUsd,
-  dayEvents: Math.round(dayUsd),
-  monthEvents: Math.round(monthUsd),
+  day: { amount: dayAmount, events: Math.round(dayAmount) },
+  month: { amount: monthAmount, events: Math.round(monthAmount) },
 })
 
 /** Answers only the two endpoints a non-admin card reaches for. */
@@ -60,7 +63,7 @@ function stubFetch(usage: unknown): void {
       const url = String(input)
       const body = url.includes('/usage')
         ? usage
-        : { organization: { dailyLimitEur: null, monthlyLimitEur: null }, policies: [] }
+        : { organization: { dailyLimit: null, monthlyLimit: null }, policies: [] }
       return { ok: true, status: 200, json: async () => body } as unknown as Response
     })
   )
@@ -125,17 +128,17 @@ describe('BudgetUsageCard — spend visualization', () => {
 
     await screen.findByTestId('spend-table')
     const table = screen.getByTestId('spend-table')
-    // Month spend, today's spend and the request counts all live in the table.
-    expect(within(table).getByText('€60.00')).toBeDefined()
-    expect(within(table).getByText('€30.00')).toBeDefined()
-    expect(within(table).getByText('€5.00')).toBeDefined()
-    expect(within(table).getByText('€1.00')).toBeDefined()
+    // Month credits, today's credits and the request counts all live in the table.
+    expect(within(table).getByText('60 credits')).toBeDefined()
+    expect(within(table).getByText('30 credits')).toBeDefined()
+    expect(within(table).getByText('5 credits')).toBeDefined()
+    expect(within(table).getByText('1 credits')).toBeDefined()
     expect(within(table).getByText('60 requests')).toBeDefined()
   })
 
   test('the meter carries state: within the limit, then over it with the limit marked', async () => {
     stubFetch(
-      usageBody([model('alpha-model', 2, 120)], { dailyLimitEur: 10, monthlyLimitEur: 100 })
+      usageBody([model('alpha-model', 2, 120)], { dailyLimit: 10, monthlyLimit: 100 })
     )
     render(<BudgetUsageCard isAdmin={false} />)
 
@@ -154,7 +157,19 @@ describe('BudgetUsageCard — spend visualization', () => {
     // The overshoot is only legible if the limit is still marked on the track.
     expect(within(month).getByTestId('budget-limit-tick')).toBeDefined()
     expect(within(today).queryByTestId('budget-limit-tick')).toBeNull()
-    expect(screen.getByText('€120.00 of €100.00')).toBeDefined()
+    expect(screen.getByText('120 credits of 100 credits')).toBeDefined()
+  })
+
+  test('an organization on its own key sees tokens, a note, and never the word credits', async () => {
+    stubFetch(usageBody([model('alpha-model', 812, 48200)], { dailyLimit: null, monthlyLimit: 100000 }, 'token'))
+    render(<BudgetUsageCard isAdmin={false} />)
+
+    await screen.findByTestId('spend-table')
+    expect(screen.getByTestId('budget-own-key-note')).toBeDefined()
+    expect(screen.getByText('48.2K tokens of 100K tokens')).toBeDefined()
+    expect(within(screen.getByTestId('spend-table')).getByText('812 tokens')).toBeDefined()
+    // No amount anywhere is a credit amount; the note may name the word.
+    expect(screen.queryByText(/\d\s?credits/i)).toBeNull()
   })
 
   test('says so in words when nothing was spent, rather than drawing an empty bar', async () => {

@@ -1,6 +1,7 @@
 /**
  * Opt-in integration test: runs the REAL budget queries against a REAL
- * Postgres with migrations 0012/0013/0015 applied. Skipped unless
+ * Postgres with migrations 0012/0013/0015/0079 applied. Pricing runs on the
+ * boot floor (margin 1, one credit = one US cent), so credits = cost × 100. Skipped unless
  * GRID_TEST_DATABASE_URL is set (CI has no database).
  *
  *   GRID_TEST_DATABASE_URL=postgres://user@host:port/grid_app npx vitest run \
@@ -32,9 +33,10 @@ describe.skipIf(!url)('budgets service against live Postgres', () => {
 
     // Empty ledger: zeros, seeded default limits, not blocked.
     const empty = await getSpendSummary(org)
-    expect(empty).toEqual({ dayUsd: 0, monthUsd: 0, perModel: [] })
+    expect(empty.perModel).toEqual([])
+    expect(empty.month.credits).toBe(0)
     const orgBudget = await getOrgBudget(org)
-    expect(orgBudget).toMatchObject({ explicit: false, dailyLimitEur: 10, monthlyLimitEur: 100 })
+    expect(orgBudget).toMatchObject({ explicit: false, unit: 'credit', dailyLimit: 1000, monthlyLimit: 10000 })
 
     // Ledger rows: two models, shaped exactly like the internal usage endpoint writes them.
     await recordUsageEvents([
@@ -78,33 +80,39 @@ describe.skipIf(!url)('budgets service against live Postgres', () => {
 
     const summary = await getSpendSummary(org)
     expect(summary.perModel).toHaveLength(2)
-    expect(summary.monthUsd).toBeCloseTo(0.01214, 6)
-    expect(summary.dayUsd).toBeCloseTo(0.01214, 6)
+    expect(summary.month.costUsd).toBeCloseTo(0.01214, 6)
+    expect(summary.day.costUsd).toBeCloseTo(0.01214, 6)
+    // Priced at write time on the boot floor: price = cost, credits = cost × 100.
+    expect(summary.month.priceUsd).toBeCloseTo(0.01214, 6)
+    expect(summary.month.credits).toBeCloseTo(1.214, 4)
     const models = Object.fromEntries(summary.perModel.map((m) => [m.model, m]))
-    expect(models['anthropic/claude-sonnet-4.5'].monthUsd).toBeCloseTo(0.01, 6)
-    expect(models['deepseek/deepseek-v4-flash'].dayEvents).toBe(1)
+    expect(models['anthropic/claude-sonnet-4.5'].month.costUsd).toBeCloseTo(0.01, 6)
+    expect(models['deepseek/deepseek-v4-flash'].day.events).toBe(1)
 
     // Member filter narrows the window.
     const userSummary = await getSpendSummary(org, { userId: 'user_1' })
-    expect(userSummary.monthUsd).toBeCloseTo(0.00214, 6)
+    expect(userSummary.month.costUsd).toBeCloseTo(0.00214, 6)
 
     // Write-through rollup (ADR-0019) agrees with the ledger aggregation,
-    // org-wide and per member.
+    // org-wide and per member, in every unit.
     const { getSpendTotals } = await import('./service')
     const totals = await getSpendTotals(org)
-    expect(totals.monthUsd).toBeCloseTo(0.01214, 6)
-    expect(totals.dayUsd).toBeCloseTo(0.01214, 6)
+    expect(totals.month.costUsd).toBeCloseTo(0.01214, 6)
+    expect(totals.day.costUsd).toBeCloseTo(0.01214, 6)
+    expect(totals.month.credits).toBeCloseTo(1.214, 4)
+    expect(totals.month.tokens).toBe(1800)
+    expect(totals.month.ownKeyCostUsd).toBe(0)
     const userTotals = await getSpendTotals(org, { userId: 'user_1' })
-    expect(userTotals.monthUsd).toBeCloseTo(0.00214, 6)
+    expect(userTotals.month.costUsd).toBeCloseTo(0.00214, 6)
 
     // Per-member breakdown (the admin member-usage table), spenders first.
     const { getSpendByMember } = await import('./service')
     const perMember = await getSpendByMember(org)
     expect(perMember.map((m) => m.userId)).toEqual(['user_2', 'user_1'])
-    expect(perMember[0].monthUsd).toBeCloseTo(0.01, 6)
-    expect(perMember[1].dayEvents).toBe(1)
+    expect(perMember[0].month.costUsd).toBeCloseTo(0.01, 6)
+    expect(perMember[1].day.events).toBe(1)
 
-    // Budget status with seeded defaults: far under €10/day → not blocked.
+    // Budget status with the seeded allowance: far under 1,000 credits/day → not blocked.
     const status = await getBudgetStatus(org, 'user_1', null)
     expect(status.blocked).toBe(false)
     expect(status.remainingOrgUsd).toBeGreaterThan(0)
@@ -115,8 +123,8 @@ describe.skipIf(!url)('budgets service against live Postgres', () => {
       organizationId: org,
       scope: 'organization',
       subjectId: null,
-      dailyLimitEur: 0.001,
-      monthlyLimitEur: 100,
+      dailyLimit: 0.1,
+      monthlyLimit: 10000,
       actorUserId: 'admin_1',
     })
     const blocked = await getBudgetStatus(org, 'user_1', null)
@@ -129,8 +137,8 @@ describe.skipIf(!url)('budgets service against live Postgres', () => {
         organizationId: org,
         scope: 'member',
         subjectId: 'user_1',
-        dailyLimitEur: 5,
-        monthlyLimitEur: 200,
+        dailyLimit: 5,
+        monthlyLimit: 20000,
         actorUserId: 'admin_1',
       }),
     ).rejects.toThrow(/exceeds the organization/)
