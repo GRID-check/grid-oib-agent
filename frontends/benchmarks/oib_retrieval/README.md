@@ -167,6 +167,67 @@ RECORDED drafts from the real draft model (never hand-written passages);
 and the fusion order. See that module's docstring for what the on-mode can
 and cannot measure (no dense arm offline).
 
+## The mount cap's two measurements (ADR-0054)
+
+The Büro reads base + Archiv + up to five mounted projects, and
+[ADR-0054](../../../docs/adr/0054-workspace-chat-mounts-projects-on-demand.md)
+forbids raising that cap except against a measurement: **latency at the cap**
+and **no recall regression on the Baurecht set**. Two different instruments, and
+only one of them can live here.
+
+### Fairness across five project channels — measured, keyless, in CI
+
+Whether the fusion still spreads a slate across seven channels is a property of
+`reciprocal_rank_fusion` and `_merge_results`, so it needs no model, no key and
+no vector store. It is measured at the repo root, where CI already looks:
+
+```bash
+PYTHONPATH=src ./.venv/bin/python -m pytest tests/knowledge_layer_tests/test_rank_fusion.py -q
+```
+
+Baseline (2026-09-08), seven equal channels of sixteen hits at production's
+`top_k = 16`:
+
+| channel | hits in the slate |
+|---|---|
+| base corpus | 3 |
+| Büroarchiv | 3 |
+| each of five mounted projects | 2 |
+
+So a fifth mounted project is **read**, not merely queried, and the base-first
+tie-break costs each project at most one slot. The same file pins the harder
+case the fusion exists for: five project channels whose cosines sit far below
+the base corpus's still reach the slate, which raw-score merging would make
+impossible.
+
+### Time to first token at K=1 vs K=5 — NOT measured here
+
+There is deliberately **no** harness target for it. Retrieval fans out one
+vector query per collection per pass, doubled by the HyDE draft and multiplied
+again by the requery loop, and what the gate asks about is that fan-out against
+a real vector store with real embeddings. Everything in this harness runs
+against a freshly built in-memory index over the OIB corpus alone: it has no
+project collections, and its brute-force cosine is not the shape whose latency
+is in question. A number produced here would measure this harness and be
+reported as the cap's gate — the one thing the "honest before it is impressive"
+rule at the top of this file forbids.
+
+What to run instead, against a deployment with a populated store and a key
+(`OPENROUTER_API_KEY` / `AIQ_EMBED_API_KEY`):
+
+1. one Büro conversation per arm, K=1 and K=5 mounted projects, the same
+   question set (the German half of the golden set is a usable one);
+2. record time-to-first-token per turn from the WebSocket stream — the first
+   `chunk` frame, not job completion — over at least 20 turns per arm;
+3. compare p95(K=5) against p95(K=1). The gate is **≤ 1.5×**, plus no
+   regression on the Baurecht golden set, which `--fail-below 95` and the
+   lexical arm above already cover offline.
+
+Until that has been run on a real deployment, the cap stays at its default of
+five: the ADR's "raise it by measurement, never by request" is the whole point
+of writing this section instead of a target that would answer the question with
+the wrong instrument.
+
 ## Layout
 
 | Path | Purpose |

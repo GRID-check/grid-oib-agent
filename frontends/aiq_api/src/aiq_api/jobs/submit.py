@@ -283,7 +283,32 @@ def _base_collection_name() -> str:
     return os.environ.get("OIB_COLLECTION_NAME") or os.environ.get("COLLECTION_NAME") or "oib_knowledge"
 
 
-def _derive_project_collection(collection_scope: list[str] | None) -> str | None:
+def _scope_collection_names(collection_scope: list | None) -> list[str]:
+    """The collection NAMES of a scope, whichever wire shape it arrived in.
+
+    A scope entry is either a bare name or the ADR-0047 object carrying the
+    shelf (and, for a mounted project, its identity — ADR-0054). Both reach this
+    module: the chat escalation now hands over the rich entries so a Büro run's
+    report can name the project a passage came from (spec DR-1), while older
+    callers and scheduled runs still pass names. Anything that is neither is
+    dropped rather than stringified — a scope entry nobody can read must not
+    become a collection name nobody meant.
+    """
+    names: list[str] = []
+    for entry in collection_scope or []:
+        if isinstance(entry, str):
+            name = entry.strip()
+        elif isinstance(entry, dict):
+            raw = entry.get("collection")
+            name = raw.strip() if isinstance(raw, str) else ""
+        else:
+            name = ""
+        if name:
+            names.append(name)
+    return names
+
+
+def _derive_project_collection(collection_scope: list | None) -> str | None:
     """Extract the project collection from a request's collection scope.
 
     The collection scope contains the base/OIB collection, the office Archiv
@@ -291,7 +316,9 @@ def _derive_project_collection(collection_scope: list[str] | None) -> str | None
     scoped collection. The project collection is the single remaining entry
     once those others are excluded. Returns None if no such entry exists (or
     more than one candidate remains, which indicates an ambiguous scope not
-    worth guessing at).
+    worth guessing at) — which is what a Büro run with several mounted projects
+    yields, and rightly: such a run belongs to the organisation, not to one of
+    the projects it happened to read (ADR-0054, spec DR-2).
     """
     if not collection_scope:
         return None
@@ -299,7 +326,7 @@ def _derive_project_collection(collection_scope: list[str] | None) -> str | None
     base_collection = _base_collection_name()
     candidates = [
         collection
-        for collection in collection_scope
+        for collection in _scope_collection_names(collection_scope)
         if collection != base_collection and not collection.startswith("s_") and not collection.startswith("archiv_")
     ]
     if len(candidates) == 1:
@@ -342,7 +369,13 @@ async def submit_agent_job(
     available_documents: list[dict] | None = None,
     data_sources: list[str] | None = None,
     auth_token: str | None = None,
-    collection_scope: list[str] | None = None,
+    # Bare collection names, or the ADR-0047 entry objects that also carry each
+    # collection's shelf and (ADR-0054) its project. Passed through to the
+    # worker verbatim, which re-injects it as ``X-Grid-Collection-Scope``: the
+    # scope parser reads both shapes, so a caller that knows the richer one —
+    # the Büro escalation, whose report must name the project a passage came
+    # from — loses nothing by handing it over.
+    collection_scope: list | None = None,
     project_context: str | None = None,
     # The project-memory digest as of submit time, the worker's fallback when
     # its own live fetch fails. The chat path leaves it None: the worker fetches.

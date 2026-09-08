@@ -42,10 +42,20 @@ class ScopedCollection:
     ``shelf`` is ``None`` when the producer did not state one (legacy
     bare-string scope entry). Unknown is a first-class value: the consumer
     renders such a hit unattributed instead of inventing a shelf for it.
+
+    ``project_id``/``project_name`` name the PROJECT a ``project``-shelf entry
+    belongs to (ADR-0054). In a project chat one project is the whole scope and
+    naming it adds nothing; in the Büro several mounted projects sit in one
+    turn's scope, and "Projektwissen" alone no longer says whose. They travel
+    from here onto every chunk's metadata and out to the wire citation, because
+    this is the last point at which they are known for free. Both are ``None``
+    for every non-project entry and for a producer that predates the fields.
     """
 
     collection: str
     shelf: Shelf | None = None
+    project_id: str | None = None
+    project_name: str | None = None
 
 
 def _normalize_collection_name(name: str) -> str:
@@ -79,6 +89,19 @@ class _UnreadableScopeEntry:
 _UNREADABLE = _UnreadableScopeEntry()
 
 
+def _optional_text(value: Any) -> str | None:
+    """A decorative string field of a scope entry, or ``None``.
+
+    ``projectId``/``projectName`` are ATTRIBUTION, not authorization: the entry's
+    ``collection`` is what a turn is allowed to read. A missing or wrong-typed
+    value therefore costs a label and never voids the entry — unlike a
+    non-string ``collection``, which makes the entry unreadable.
+    """
+    if not isinstance(value, str):
+        return None
+    return value.strip() or None
+
+
 def _parse_scope_entry(item: Any) -> ScopedCollection | _UnreadableScopeEntry | None:
     """One decoded scope entry → :class:`ScopedCollection`, or a verdict on why not.
 
@@ -106,6 +129,8 @@ def _parse_scope_entry(item: Any) -> ScopedCollection | _UnreadableScopeEntry | 
         return ScopedCollection(
             _normalize_collection_name(name),
             parse_shelf(item.get("shelf")),
+            project_id=_optional_text(item.get("projectId")),
+            project_name=_optional_text(item.get("projectName")),
         )
     return _UNREADABLE
 
@@ -194,12 +219,47 @@ def _raw_collection_scope_from_header() -> list[Any] | None:
     return scope
 
 
+def _with_turn_mounts(entries: list[ScopedCollection]) -> list[ScopedCollection]:
+    """Union this turn's verified mounts onto *entries*, keeping the first name.
+
+    A mount widens the CEILING for the rest of the turn (ADR-0054): it is what
+    `open_project` bought with a signed grant. It is appended rather than
+    prepended so the header's own entries keep their order and their stated
+    shelf — a mount for a collection the header already carries changes nothing,
+    which is exactly right, since the header entry came from the same
+    re-authorization the grant did.
+
+    Importing :mod:`aiq_agent.knowledge.mounts` lazily keeps the scope parser
+    free of an import cycle (mounts holds ``ScopedCollection`` values) and keeps
+    a turn with no mounts paying nothing.
+    """
+    try:
+        from aiq_agent.knowledge.mounts import get_turn_mounts
+
+        mounts = get_turn_mounts()
+    except Exception:  # pragma: no cover - defensive: mounts must never break scoping
+        logger.debug("Turn-mount read failed; continuing with the header scope alone", exc_info=True)
+        return entries
+    if not mounts:
+        return entries
+    seen = {entry.collection for entry in entries}
+    widened = list(entries)
+    for mount in mounts:
+        if mount.collection in seen:
+            continue
+        seen.add(mount.collection)
+        widened.append(mount)
+    return widened
+
+
 def get_scoped_collections_from_context() -> list[ScopedCollection] | None:
     """The caller's collection scope WITH each collection's shelf.
 
     Same authorization semantics as :func:`get_collection_scope_from_context`
     (which is this function's names-only projection): the SIGNED envelope wins,
-    the raw header is honored only when no valid envelope is present.
+    the raw header is honored only when no valid envelope is present. On top of
+    that, the projects this very turn mounted through ``open_project`` are
+    unioned on — see :func:`_with_turn_mounts`.
 
     Returns:
         Deduplicated, normalized ``(collection, shelf)`` entries (possibly
@@ -218,7 +278,13 @@ def get_scoped_collections_from_context() -> list[ScopedCollection] | None:
         logger.debug("Verified collection-scope read failed; falling back to raw header", exc_info=True)
         scope = _raw_collection_scope_from_header()
 
-    return _parse_scope_payload(scope)
+    entries = _parse_scope_payload(scope)
+    # No readable scope stays NO READABLE SCOPE, mounts or not: ``None`` sends
+    # the caller to the config-derived layers (see
+    # :func:`get_scoped_collections_from_context_or`, which unions the mounts
+    # onto THAT list). Returning the mounts alone here would answer "the scope
+    # is exactly this one project" and silently drop the base corpus.
+    return entries if entries is None else _with_turn_mounts(entries)
 
 
 def get_collection_scope_from_context() -> list[str] | None:
@@ -272,7 +338,11 @@ def get_scoped_collections_from_context_or(
         return scope
     from knowledge_layer.register import _resolve_scoped_collections
 
-    return _resolve_scoped_collections(config, session_id)
+    # The legacy layers are a ceiling too, so a turn that mounted a project
+    # while running without a header scope (an internal/CLI entry point) still
+    # reads it. Unioned here rather than inside the resolver: the resolver
+    # BUILDS the configured layers and knows nothing about a turn.
+    return _with_turn_mounts(_resolve_scoped_collections(config, session_id))
 
 
 def get_collection_scope_from_context_or(
@@ -285,3 +355,31 @@ def get_collection_scope_from_context_or(
         Ordered, de-duplicated list of collection names (never empty).
     """
     return [entry.collection for entry in get_scoped_collections_from_context_or(config, session_id)]
+
+
+def scope_entries_to_wire(entries: list[ScopedCollection]) -> list[dict[str, str]]:
+    """:class:`ScopedCollection` values back to the wire objects they came from.
+
+    The inverse of :func:`_parse_scope_entry`, and here for the same reason that
+    parser is: this module owns the shape of a scope entry, so the one place
+    that re-emits one is next to the one place that reads one. Keys are the
+    BFF's (``collection``, ``shelf``, ``projectId``, ``projectName``), because
+    what is produced here is read back by this same parser after crossing a
+    process boundary — the deep-research escalation hands its scope to a worker,
+    which re-injects it as ``X-Grid-Collection-Scope`` (ADR-0054, spec DR-1).
+
+    An unknown shelf and an absent project are OMITTED rather than sent as
+    ``null``: absent is how this parser spells unknown, and a key present with
+    no value would be a producer stating one.
+    """
+    wire: list[dict[str, str]] = []
+    for entry in entries:
+        item: dict[str, str] = {"collection": entry.collection}
+        if entry.shelf is not None:
+            item["shelf"] = str(entry.shelf)
+        if entry.project_id:
+            item["projectId"] = entry.project_id
+        if entry.project_name:
+            item["projectName"] = entry.project_name
+        wire.append(item)
+    return wire

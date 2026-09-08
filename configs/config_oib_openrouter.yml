@@ -522,6 +522,13 @@ functions:
     _type: workspace_find_projects
     max_results: 5
 
+  # Einblenden (ADR-0054): brings one project's corpus into the Büro turn's
+  # collection scope, on a grant the BFF signs after checking the ACTING USER's
+  # `project:chat`. The cap on how many projects one conversation may hold lives
+  # in the mounts service and nowhere else — this tool only reports it.
+  open_project:
+    _type: workspace_open_project
+
   # Rich UI cards: the agent calls emit_card mid-answer when a structured
   # element (legal basis, dimension/stair diagram, summary) adds value. Cards
   # are validated and delivered alongside the written answer.
@@ -616,9 +623,12 @@ functions:
       - ask_user
       - compliance_check
       # The office half of the tool set (ADR-0054): in the Büro the turn has no
-      # project, and finding the right one is the first move. Harmless in a
-      # project chat, where the model has no reason to reach for it.
+      # project, and finding the right one is the first move, bringing it into
+      # view the second. Harmless in a project chat, where the model has no
+      # reason to reach for either — and where `open_project` is refused by the
+      # office anyway, since a project conversation is not mountable.
       - find_projects
+      - open_project
     verbose: true
     max_llm_turns: 10
     # A CEILING, NOT A QUOTA — and the number is the floor of the longest chain

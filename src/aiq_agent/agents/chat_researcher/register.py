@@ -33,6 +33,8 @@ from aiq_agent.common.image_view_budget import end_image_view_budget
 from aiq_agent.common.nat_converters import ensure_registered as _ensure_nat_converters_registered
 from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.conversation_context import register_context_appender
+from aiq_agent.knowledge.mounts import begin_turn_mounts
+from aiq_agent.knowledge.mounts import end_turn_mounts
 from aiq_agent.knowledge.project_memory import begin_turn_memory_log
 from aiq_agent.knowledge.project_memory import end_turn_memory_log
 from aiq_agent.knowledge.project_memory import turn_memory_writes
@@ -599,6 +601,36 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
     )
 
 
+def _escalation_collection_scope(state: ChatResearcherState) -> list | None:
+    """What the deep run may read: everything THIS turn could, mounts included.
+
+    Read from the live context rather than off the state, because the state's
+    ``collection_scope`` was fixed before the agent ran and a Büro turn can
+    mount a project in the middle of it (ADR-0054). A run started after
+    "Projekt Seestadt einblenden" that inherited the turn-start scope would
+    research a question about Seestadt without Seestadt — the failure spec
+    DR-1 names, and the one an escalation is least able to notice.
+
+    The entries travel in their RICH form (shelf, project id and name), so
+    the worker's replayed ``X-Grid-Collection-Scope`` attributes a project
+    passage in the report the way the conversation did. No project identity
+    travels beside it: a Büro run has none, which is what keeps `remember`
+    unbound there by the tool-context contract rather than by a comment
+    (spec DR-2). Falls back to the state's names when the context carries no
+    readable scope.
+    """
+    try:
+        from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
+        from aiq_agent.knowledge.scoping import scope_entries_to_wire
+
+        entries = get_scoped_collections_from_context()
+        if entries:
+            return scope_entries_to_wire(entries)
+    except Exception:  # noqa: BLE001 — an escalation must not die on its scope
+        logger.warning("Could not read the turn's scope for the deep job; using the turn-start scope", exc_info=True)
+    return state.collection_scope
+
+
 def _build_deep_research_job_submitter(
     config: ChatDeepResearcherConfig,
 ) -> Callable[[ChatResearcherState], Awaitable[str]] | None:
@@ -656,7 +688,7 @@ def _build_deep_research_job_submitter(
             owner=owner,
             available_documents=available_docs,
             data_sources=state.data_sources,
-            collection_scope=state.collection_scope,
+            collection_scope=_escalation_collection_scope(state),
             project_context=state.project_context,
             platform_lessons=render_lessons_block(state.platform_lessons),
             model_overrides=get_model_overrides_from_context() or None,
@@ -1317,6 +1349,14 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             # not outlive the turn.
             image_view_token = begin_image_view_budget()
             memory_log_token = begin_turn_memory_log()
+            # The projects THIS turn may mount into its retrieval scope (ADR-0054),
+            # bound for the same reason as the two above: `open_project` writes into
+            # it mid-turn and the knowledge layer reads it on the next search, so it
+            # must exist before the agent runs — and it must die with the turn. The
+            # DURABLE half of a mount is the BFF's row, which reaches the next turn
+            # on the signed scope header after the BFF re-authorizes it; a mount
+            # that outlived its turn here would be scope this process granted itself.
+            mounts_token = begin_turn_mounts()
             remembered_this_turn: tuple[str, ...] = ()
             try:
                 state = ChatResearcherState(
@@ -1384,6 +1424,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 reset_card_registry(card_token)
                 end_image_view_budget(image_view_token)
                 end_turn_memory_log(memory_log_token)
+                end_turn_mounts(mounts_token)
                 # Persist the turn's captured citation sources to the shared cache
                 # (ADR-0020) so the conversation keeps prior-turn sources after a
                 # restart or on another replica. Best-effort and fire-and-forget: it

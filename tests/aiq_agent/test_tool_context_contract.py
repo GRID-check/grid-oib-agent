@@ -18,6 +18,7 @@ import yaml
 from aiq_agent.project_context import ORGANIZATION_ID_HEADER
 from aiq_agent.project_context import PROJECT_ID_HEADER
 from aiq_agent.project_context import TOOL_CONTEXT_REQUIREMENTS
+from aiq_agent.project_context import USER_ID_HEADER
 from aiq_api.jobs.runner import WORKER_IDENTITY_HEADERS
 
 CONFIG = Path(__file__).resolve().parents[2] / "configs" / "config_oib_openrouter.yml"
@@ -58,6 +59,24 @@ def test_the_register_search_declares_its_organization_scope():
     that dropping the declaration is loud rather than silent — a tool with no
     entry passes the worker test by having no requirements at all."""
     assert set(TOOL_CONTEXT_REQUIREMENTS["workspace_find_projects"]) == {ORGANIZATION_ID_HEADER}
+
+
+def test_mounting_a_project_declares_the_acting_user():
+    """The office authorizes a mount as the USER (`project:chat` is a person's
+    permission, never the service's — ADR-0054, spec MT-3), so `open_project`
+    cannot run on the organisation alone the way the register search can. Named
+    here for the same reason as the row above: a tool with no entry passes the
+    worker test by having no requirements at all."""
+    assert set(TOOL_CONTEXT_REQUIREMENTS["workspace_open_project"]) == {ORGANIZATION_ID_HEADER, USER_ID_HEADER}
+
+
+def test_the_office_tools_are_bound_where_the_office_turn_runs(config: dict):
+    """Both halves of the Büro tool set reach the answering agent (spec AG-7).
+    The entry point exposes them; this is the wiring that makes the model see
+    them, and it is the half a config edit can silently drop."""
+    bound = _bound_tool_types(config, "shallow_research_agent")
+    assert "workspace_find_projects" in bound.values()
+    assert "workspace_open_project" in bound.values()
 
 
 def test_every_declared_requirement_names_a_function_type_the_config_binds(config: dict):

@@ -89,3 +89,64 @@ class TestSubmissionReachesTheApi:
         assert submit.await_count == 1
         assert submit.await_args.kwargs["agent_type"] == "deep_researcher"
         assert submit.await_args.kwargs["input_text"] == "Wie hoch darf die Brüstung sein?"
+
+
+class TestTheEscalationInheritsTheTurnsScope:
+    """DR-1: a run started from the Büro reads exactly what the conversation
+    could — including a project the agent mounted MID-TURN, after the scope on
+    the state was fixed."""
+
+    def _turn(self, monkeypatch, *, mounts=(), header=("oib_knowledge", "archiv_org_1")):
+        """Bind a turn whose header names *header* and which mounted *mounts*."""
+        import base64
+        import json
+        from unittest.mock import MagicMock
+
+        from aiq_agent.knowledge import mounts as mounts_module
+
+        encoded = base64.urlsafe_b64encode(json.dumps(list(header)).encode()).decode()
+        ctx = MagicMock()
+        ctx.metadata.headers.get.return_value = encoded
+        monkeypatch.setattr("aiq_agent.knowledge.scoping.Context.get", lambda: ctx)
+        monkeypatch.setattr(mounts_module, "get_turn_mounts", lambda: tuple(mounts))
+
+    def test_a_project_mounted_mid_turn_travels_with_the_job(self, monkeypatch):
+        from aiq_agent.agents.chat_researcher.register import _escalation_collection_scope
+        from aiq_agent.common.source_kinds import Shelf
+        from aiq_agent.knowledge.scoping import ScopedCollection
+
+        self._turn(
+            monkeypatch,
+            mounts=[
+                ScopedCollection(
+                    "proj_seestadt",
+                    Shelf.PROJECT,
+                    project_id="proj-uuid-1",
+                    project_name="Seestadt Baufeld D",
+                )
+            ],
+        )
+        state = _state()
+        state.collection_scope = ["oib_knowledge", "archiv_org_1"]
+
+        scope = _escalation_collection_scope(state)
+
+        assert scope == [
+            {"collection": "oib_knowledge"},
+            {"collection": "archiv_org_1"},
+            {
+                "collection": "proj_seestadt",
+                "shelf": "project",
+                "projectId": "proj-uuid-1",
+                "projectName": "Seestadt Baufeld D",
+            },
+        ]
+
+    def test_without_a_readable_scope_it_falls_back_to_the_turn_start_names(self, monkeypatch):
+        from aiq_agent.agents.chat_researcher.register import _escalation_collection_scope
+
+        monkeypatch.setattr("aiq_agent.knowledge.scoping.Context.get", lambda: None)
+        state = _state()
+        state.collection_scope = ["oib_knowledge"]
+
+        assert _escalation_collection_scope(state) == ["oib_knowledge"]

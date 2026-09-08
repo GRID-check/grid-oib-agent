@@ -78,6 +78,14 @@ TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     # no projects, never with the organization's whole register. That is the
     # fail-closed side, and it lives in the BFF endpoint.
     "workspace_find_projects": (ORGANIZATION_ID_HEADER,),
+    # Mounting a project (ADR-0054). The BFF authorizes AS THE USER — mounting
+    # is `project:chat` for a person, never for the service — so the USER is a
+    # requirement here where the register search needed only the organization.
+    # The membership id and the conversation id are read from the context too
+    # (the membership is what the BFF's readability check keys on, ADR-0038),
+    # and are deliberately not requirements: a run that has neither must be
+    # refused BY THE ENDPOINT, not silently mounted by a caller that skipped it.
+    "workspace_open_project": (ORGANIZATION_ID_HEADER, USER_ID_HEADER),
 }
 
 # Consolidated signed context envelope (backlog T3-9 follow-up, 2026-07-16).

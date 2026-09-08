@@ -440,6 +440,7 @@ def _read_identity_from_context() -> dict[str, str | None]:
     from aiq_agent.project_context import _read_header
     from aiq_agent.project_context import get_conversation_id_from_context
     from aiq_agent.project_context import get_organization_id_from_context
+    from aiq_agent.project_context import get_organization_membership_id_from_context
     from aiq_agent.project_context import get_project_id_from_context
 
     user_id = _read_header(USER_ID_HEADER)
@@ -448,6 +449,13 @@ def _read_identity_from_context() -> dict[str, str | None]:
         "user_id": user_id.strip() if user_id else None,
         "project_id": get_project_id_from_context(),
         "conversation_id": get_conversation_id_from_context(),
+        # WHO, as WorkOS FGA keys it (ADR-0038). Not a cost dimension — nothing
+        # here bills a membership — but this dict is also the identity snapshot
+        # an async job carries into a worker, and the Büro's workspace digest
+        # cannot filter the Projektregister to the projects the caller may read
+        # without it (ADR-0054). Captured where the rest of the identity is, so
+        # a background run reads the office as its submitter would.
+        "organization_membership_id": get_organization_membership_id_from_context(),
     }
 
 

@@ -102,6 +102,17 @@ addopts = "--import-mode=importlib"
 # `pytest` console script the pre-push hook uses, and an IDE runner — instead of
 # depending on which of those happens to put the repo root on sys.path.
 pythonpath = ["."]
+# Every `sources/<package>/tests/` and `frontends/aiq_api/tests/` is a package
+# named `tests`, and under `--import-mode=importlib` pytest names a conftest by
+# walking up only through directories that hold an `__init__.py` — so each of
+# them resolved to the module name `tests.conftest` and the SECOND one collected
+# in a run aborted it with "Plugin already registered under a different name".
+# That is why `pytest sources -q` (what `sources/AGENTS.md` tells you to run, and
+# what the pre-push hook runs) died at collection while each package passed on
+# its own. Walking up through namespace packages too gives every one of them its
+# real dotted name (`sources.ris_adapter.tests.conftest`), so they cannot collide
+# and any two suites can be run in one invocation.
+consider_namespace_packages = true
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 markers = [

@@ -1454,6 +1454,29 @@ job. The fallback behavior is unchanged, but it is no longer silent: the
 (job id, whether the request looked authenticated/project-scoped) at exactly
 the point the re-injection would otherwise be skipped.
 
+**What a run started from the Büro inherits (ADR-0054, spec DR-1/DR-2)**: an
+office turn can mount up to five projects, and the escalation must read exactly
+what the conversation could — including a project the agent mounted in the
+MIDDLE of the turn, after the scope on the state was fixed. So
+`_escalation_collection_scope` (`chat_researcher/register.py`) reads the live
+scope at submit time, which is where `get_scoped_collections_from_context()`
+has already unioned this turn's verified mount grants, and hands it over in the
+RICH entry shape — each collection with its shelf and, for a mounted project,
+its id and name. The worker replays that verbatim as
+`X-Grid-Collection-Scope` (`_collection_scope_header`), so a project passage in
+the report is attributed the way it was in the chat.
+
+No project identity travels beside it: a Büro run has an organisation and no
+project, which is what keeps `remember` unavailable to it — enforced by
+`tests/aiq_agent/test_tool_context_contract.py` against
+`WORKER_IDENTITY_HEADERS`, not by prompt instruction. For the same reason
+`_derive_project_collection` files such a run under no project: several mounted
+projects are not one, and a run that read five of them belongs to the
+organisation. Its turn-start context is the workspace digest, fetched by the
+worker the way the memory digest is (`_resolve_run_context`) and composed into
+`project_context` as the office block, with `workspace_context` on the state as
+the flag that says which shape it is.
+
 **Durable checkpointing (backlog T3-8, 2026-07-16, `5bea711`)**: optional
 LangGraph checkpointing for the deep-research graph, configured via
 `deep_research_agent.checkpoint_db` (env `AIQ_DEEP_CHECKPOINT_DB`; unset by

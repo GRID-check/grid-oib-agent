@@ -788,6 +788,103 @@ def _b64url_encode_text(value: str) -> str:
     return base64.urlsafe_b64encode(value.encode()).rstrip(b"=").decode()
 
 
+#: Where a job's replayed retrieval scope goes. The same header the BFF sets on
+#: the WebSocket upgrade, so everything downstream reads a job's scope exactly
+#: as it reads a chat turn's (``aiq_agent.knowledge.scoping``).
+COLLECTION_SCOPE_HEADER = "x-grid-collection-scope"
+
+
+def _collection_scope_header(collection_scope: list) -> str:
+    """The scope a job replays, encoded as the header the agent reads it from.
+
+    Passed through VERBATIM, whichever wire shape the submitter used: bare
+    collection names, or the entry objects carrying each collection's shelf
+    (ADR-0047) and, for a project mounted into a Büro conversation, its id and
+    name (ADR-0054, spec DR-1). Rewriting an entry here would be this tier
+    deciding what a run may read, and the naming authority is the BFF's
+    (ADR-0006) — so the only thing this function knows is how to encode.
+    """
+    return _b64url_encode_text(json.dumps(collection_scope))
+
+
+async def _resolve_run_context(
+    *,
+    identity: dict,
+    project_memory: str | None,
+    query: str,
+    job_id: str,
+) -> tuple[str | None, str | None]:
+    """What the run knows before it starts: ``(memory digest, workspace block)``.
+
+    The chat path fetches this live per turn and falls back to the
+    connection-time value only on failure (`chat_researcher/register.py`); a
+    queued job may wait minutes, so it does the same rather than trusting the
+    digest the BFF built at submit time.
+
+    Which digest depends on WHERE the run came from. An organisation and NO
+    project is the Büro (ADR-0054), and the office reads one call — organisation
+    memory plus the Projektregister recall — rendered into the workspace block.
+    A project run reads project memory, exactly as before. Both are fail-open:
+    the frozen submit-time digest survives a failed fetch, and a lost recall
+    costs recall, never correctness.
+
+    Returns the workspace block separately from the digest because the two are
+    read by different things: the block is composed INTO ``project_context`` for
+    the prompts, and it is also the flag that says this run is an office run.
+    """
+    from aiq_agent.knowledge.workspace_digest import is_workspace_turn
+
+    memory_digest = project_memory
+    if is_workspace_turn(
+        organization_id=identity.get("organization_id"),
+        project_id=identity.get("project_id"),
+    ):
+        try:
+            from aiq_agent.knowledge.workspace_digest import fetch_workspace_digest
+            from aiq_agent.knowledge.workspace_digest import render_workspace_context
+
+            recall = await asyncio.to_thread(
+                fetch_workspace_digest,
+                organization_id=identity.get("organization_id"),
+                membership_id=identity.get("organization_membership_id"),
+                query=query,
+            )
+            # Rendered even when the fetch failed (it fails open to None): the
+            # block is what tells the run it is in the office at all, and a run
+            # whose recall was lost has to say so rather than read like one with
+            # no matching projects.
+            workspace_context = render_workspace_context(recall)
+            if recall is not None:
+                # Authoritative even when empty — memory may have been cleared
+                # since the job fired.
+                memory_digest = recall.digest
+            return memory_digest, workspace_context
+        except Exception:
+            logger.warning(
+                "Job %s: workspace digest fetch failed; the run reads the office without it",
+                job_id,
+                exc_info=True,
+            )
+            return memory_digest, None
+    if identity.get("project_id") or identity.get("organization_id"):
+        try:
+            from aiq_agent.knowledge.project_memory import fetch_memory_digest
+
+            memory_digest = await asyncio.to_thread(
+                fetch_memory_digest,
+                project_id=identity.get("project_id"),
+                organization_id=identity.get("organization_id"),
+                query=query,
+            )
+        except Exception:
+            logger.warning(
+                "Job %s: live memory digest fetch failed; using the digest from submit time",
+                job_id,
+                exc_info=True,
+            )
+    return memory_digest, None
+
+
 def _inject_worker_headers(context_state: Any, headers: dict[str, str]) -> None:
     """Layer ``headers`` onto the worker's request metadata.
 
@@ -1118,13 +1215,9 @@ async def run_agent_job(
             # so downstream code can read it the same way synchronous HTTP/WebSocket
             # requests do: Context.get().metadata.headers.get("x-grid-collection-scope")
             if collection_scope is not None:
-                request_attrs = context_state.metadata.get()
-                encoded = _b64url_encode_text(json.dumps(collection_scope))
-                existing_headers = dict(request_attrs.headers) if request_attrs and request_attrs.headers else {}
-                request_attrs._request.headers = Headers(
-                    headers={**existing_headers, "x-grid-collection-scope": encoded}
+                _inject_worker_headers(
+                    context_state, {COLLECTION_SCOPE_HEADER: _collection_scope_header(collection_scope)}
                 )
-                context_state.metadata.set(request_attrs)
             elif getattr(fn_config, "type", None) == "deep_research_agent":
                 # Audit-confirmed silent fallback: with no collection scope,
                 # get_collection_scope_from_context() returns None and knowledge-retrieval
@@ -1195,31 +1288,24 @@ async def run_agent_job(
             # BFF-built `project_memory` as the frozen fallback. A successful
             # fetch is authoritative even when empty — memory may have been
             # cleared since the job fired.
-            memory_digest = project_memory
-            if _identity.get("project_id") or _identity.get("organization_id"):
-                try:
-                    from aiq_agent.knowledge.project_memory import fetch_memory_digest
-
-                    memory_digest = await asyncio.to_thread(
-                        fetch_memory_digest,
-                        project_id=_identity.get("project_id"),
-                        organization_id=_identity.get("organization_id"),
-                        query=input_text,
-                    )
-                except Exception:
-                    logger.warning(
-                        "Job %s: live memory digest fetch failed; using the digest from submit time",
-                        job_id,
-                        exc_info=True,
-                    )
+            memory_digest, workspace_context = await _resolve_run_context(
+                identity=_identity,
+                project_memory=project_memory,
+                query=input_text,
+                job_id=job_id,
+            )
             if memory_digest:
                 _inject_worker_headers(
                     context_state,
                     {PROJECT_MEMORY_HEADER: _b64url_encode_text(memory_digest)},
                 )
             # The agent state gets what a chat turn gets: profile and memory,
-            # composed the way `get_project_context_from_context()` composes them.
-            agent_project_context = compose_project_context(project_context, memory_digest)
+            # composed the way `get_project_context_from_context()` composes them
+            # — or, in the Büro, the workspace block INSTEAD of them, which is
+            # how the chat path composes an office turn (`_load_project_context`):
+            # the downstream readers of `project_context` keep reading one field,
+            # and `workspace_context` is what tells the two shapes apart.
+            agent_project_context = workspace_context or compose_project_context(project_context, memory_digest)
 
             workflow_metadata = TraceMetadata(
                 provided_metadata={
@@ -1355,6 +1441,7 @@ async def run_agent_job(
                             user_info=user_info,
                             clarifier_result=clarifier_result,
                             project_context=agent_project_context,
+                            workspace_context=workspace_context,
                             platform_lessons=platform_lessons,
                             force_skills=force_skills,
                             organization_id=_job_org_id,
@@ -1732,6 +1819,7 @@ async def _run_agent(
     user_info: dict | None = None,
     clarifier_result: str | None = None,
     project_context: str | None = None,
+    workspace_context: str | None = None,
     platform_lessons: str | None = None,
     force_skills: list[str] | None = None,
     organization_id: str | None = None,
@@ -1776,6 +1864,11 @@ async def _run_agent(
                 ("user_info", user_info),
                 ("clarifier_result", clarifier_result),
                 ("project_context", project_context),
+                # The office SHAPE of that context (ADR-0054). The composed
+                # block already rides `project_context`; this field is what a
+                # prompt branches on, so an office run is never read as a
+                # project run whose profile happens to be missing (spec AG-6).
+                ("workspace_context", workspace_context),
                 ("platform_lessons", platform_lessons),
                 ("force_skills", force_skills),
                 # No request headers exist in a Dask worker, so an agent that
@@ -1814,6 +1907,8 @@ async def _run_agent(
                 state["clarifier_result"] = clarifier_result
             if project_context is not None:
                 state["project_context"] = project_context
+            if workspace_context is not None:
+                state["workspace_context"] = workspace_context
             if platform_lessons is not None:
                 state["platform_lessons"] = platform_lessons
             if force_skills is not None:

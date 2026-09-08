@@ -172,6 +172,19 @@ BFF), so anything a tool needs from it arrives this way.
 |---|---|---|---|---|
 | `project_memory_remember` | `remember` | `POST /api/internal/memory` | `x-grid-project-id`, `x-grid-organization-id` | Returns an honest error string, or a `memory_proposal` card when the org write is denied by policy. Never raises |
 | `workspace_find_projects` | `find_projects` | `GET /api/internal/workspace/digest` | `x-grid-organization-id`; `x-grid-organization-membership-id` decides which projects are readable | Returns an error string. Never raises. Without an organization it refuses rather than returning an empty list — the Projektregister never crosses the organization boundary (ADR-0054) |
+| `workspace_open_project` | `open_project` | `POST /api/internal/conversations/{id}/mounts` | `x-grid-organization-id`, `x-grid-user-id` (the endpoint authorizes the USER's `project:chat`, never the service), plus the conversation id and `x-grid-organization-membership-id`, which is what WorkOS FGA keys on | Returns a refusal string. Never raises. `403` → no access, `404` → indistinguishable from no access by design (MT-4), `409` → one of two conflicts, told apart by the body's `code`: the mount cap (`WORKSPACE_MOUNT_CAP`, whose `cap` and `mounted` the string names while offering deep research, MT-9) or a mount that would shut a participant of a shared conversation out (`WORKSPACE_MOUNT_WOULD_EXCLUDE`, whose `excluded` names the people, AC-8) |
+
+`open_project`'s result is read by two consumers at once: its FIRST LINE is one
+JSON object (`{event:"mount", status, code?, cap?, excluded?, projectId, projectName?}`)
+that the frontend renders as the mount notice, and everything after the blank
+line is the German prose the model reads. The reply also carries a short-lived
+**grant** — `{grant: base64url(JSON), sig: hex HMAC-SHA256(payload,
+GRID_INTERNAL_API_TOKEN)}` over `{v, collection, shelf:'project', projectId,
+projectName, conversationId, organizationId, exp}` — which
+`knowledge/mounts.py` verifies before the mounted collection joins THIS turn's
+retrieval scope. A grant that does not verify widens nothing and the tool says
+so; from the next connection the mount arrives on the ordinary signed scope
+header, re-authorized by the BFF (ADR-0054, spec MT-6/MT-7).
 
 Two turn-start reads use the same seam without being tools, both blocking calls
 made through `asyncio.to_thread` under `_DIGEST_TIMEOUT_SECONDS` and both

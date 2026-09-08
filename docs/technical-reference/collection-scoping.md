@@ -276,6 +276,36 @@ def get_collection_scope_from_context() -> list[str] | None:
 - Validates it is a list of strings
 - Returns deduplicated list (preserving order), or `None` if missing/malformed
 
+### In-turn widening: a mount grant (ADR-0054, spec MT-6)
+
+`get_scoped_collections_from_context()` — the shelf-bearing form of the reader
+above — unions **this turn's verified mounts** onto the header scope *after*
+parsing it (`_with_turn_mounts`). That is the one way a collection the signed
+header never named becomes readable, and it exists because a Büro turn can
+decide mid-answer that it needs a project's documents, long after the scope was
+signed at the WebSocket upgrade.
+
+The authority is still the BFF's (ADR-0006). `open_project` asks the mounts
+endpoint, which checks the ACTING USER's `project:chat` and returns a
+short-lived signed grant; `knowledge/mounts.py` verifies it — HMAC-SHA256 with
+`GRID_INTERNAL_API_TOKEN` (the request-envelope's secret), version, shelf,
+expiry, organisation and conversation — and only then adds it to a **per-turn
+`ContextVar` registry** bound and reset by the chat entrypoint. Consequences
+worth stating:
+
+- an unsigned, tampered, expired or foreign grant widens nothing and is logged;
+- a mount lives for exactly one turn in this process. Its durable half is the
+  BFF's `conversation_mounts` row, which reaches the next turn on the ordinary
+  signed header after the BFF re-authorizes it — that re-authorization is the
+  revocation path;
+- a mount widens the CEILING, it does not aim the search:
+  `_restrict_scope_to_turn` still subtracts the shelves the composer did not ask
+  for;
+- entries carry `projectId`/`projectName` (camelCase on the wire), which
+  `_retrieve_collection` stamps onto every chunk and the citation wire carries
+  as `project_id`/`project_name`, so a Büro answer can name the project a
+  passage came from.
+
 ### `get_collection_scope_from_context_or(config, session_id)`
 
 Tries the header-based scope first, falls back to legacy config-based resolution:
@@ -332,10 +362,19 @@ the session collection today. The Büro-Chat bounds it explicitly with
 ## Async Deep-Research Jobs: Collection-Scope Re-injection Gap (fixed 2026-07-16, `f8093a0`)
 
 The scope header described above governs synchronous chat requests. Async
-deep-research jobs are different: the `X-Grid-Collection-Scope` header is
-read **once, at job submit time**, in `chat_researcher/register.py`, and
-carried through as a `collection_scope` field on the job payload rather than
-as a live header.
+deep-research jobs are different: the scope is read **once, at job submit
+time**, in `chat_researcher/register.py`, and carried through as a
+`collection_scope` field on the job payload rather than as a live header.
+
+What is read at that moment is `_escalation_collection_scope`, i.e. the LIVE
+scope — the header plus whatever this turn mounted (above) — serialized back
+into the wire entries (`scope_entries_to_wire`), so a run escalated after
+"Projekt Seestadt einblenden" reads Seestadt too (ADR-0054, spec DR-1). Both
+wire shapes travel: bare names from older callers, entry objects with shelf and
+project identity from the Büro. The worker re-injects them verbatim
+(`_collection_scope_header`), and `_derive_project_collection` reads names out
+of either shape — returning **no** project for a run that read several, because
+a Büro run belongs to the organisation and not to one of its projects (DR-2).
 
 When the Dask worker later runs the job, `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
 re-injects it into the worker's own request context **only when present**:

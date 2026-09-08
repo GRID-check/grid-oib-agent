@@ -90,3 +90,31 @@ def test_the_deep_researcher_can_show_a_file_and_not_only_cite_it(config: dict):
     writes into (`jobs/runner.py::_bound_card_registry`); this is the other
     half, the two YAML lines."""
     assert "surface_documents" in _tools(config, "deep_research_agent")
+
+
+def test_one_entry_point_exposes_both_office_tools(functions: dict):
+    """`find_projects` and `open_project` ship on ONE `nat.plugins` entry point
+    (`aiq_workspace`), and a config name binds nothing NAT never discovered.
+
+    The wiring has two halves and each fails silently on its own: a tool with no
+    entry point is never registered (nothing reports that), and a registered
+    tool no config lists is callable by nobody. This walks the shipped half —
+    load the module the entry point names, then check the registry — so a tool
+    moved out of that module is caught here rather than at runtime, in German,
+    as "das kann ich nicht".
+    """
+    from importlib import import_module
+    from importlib.metadata import entry_points
+
+    from nat.cli.type_registry import GlobalTypeRegistry
+
+    declared = {ep.name: ep.value for ep in entry_points(group="nat.plugins")}
+    assert declared.get("aiq_workspace") == "aiq_agent.agents.workspace.register"
+    import_module(declared["aiq_workspace"])
+
+    registered = {config_type.static_type() for config_type in GlobalTypeRegistry.get()._registered_functions}
+    assert {"workspace_find_projects", "workspace_open_project"} <= registered
+
+    # And the config binds both under those types (the other half).
+    bound = {entry.get("_type") for entry in functions.values() if isinstance(entry, dict)}
+    assert {"workspace_find_projects", "workspace_open_project"} <= bound
