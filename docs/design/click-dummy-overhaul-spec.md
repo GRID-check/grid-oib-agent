@@ -175,7 +175,11 @@ paired with icon + label so color is never the only carrier (a11y).
 - **Cross-project scope** ("Alle Projekte einbeziehen") — backend has no
   cross-project retrieval (see `docs/roadmap/cross-project-rag-vision.md`).
   Ship the picker **disabled with an explanatory tooltip** or hide behind the
-  vision work. Do not fake it.
+  vision work. Do not fake it. *Decided 2026-09-08:*
+  [ADR-0054](../adr/0054-workspace-chat-mounts-projects-on-demand.md) gives
+  this its shape — the Büro-Chat at the org level, projects mounted on demand
+  — and the disabled row becomes the action "Im Büro fragen"
+  ([`workspace-chat-ui.md`](workspace-chat-ui.md)).
 - **Detail-library semantics in Archiv** (detail numbers, themes,
   verified-year, source project). The Archiv (ADR-0024) stores documents with
   tags; "Geprüft" needs a review workflow that doesn't exist. Phase it:

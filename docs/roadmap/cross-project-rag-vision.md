@@ -2,6 +2,12 @@
 
 > **Status:** Future idea — not an implementation plan.
 > This document captures a strategic direction. No dates, no tasks, no commitments.
+>
+> **2026-09-08:** the first artifact of this direction is decided in
+> [ADR-0054](../adr/0054-workspace-chat-mounts-projects-on-demand.md): a
+> per-project *Steckbrief* in a `grid_app` register table with a row-resident
+> embedding, read by the Büro-Chat. "Similar projects" and precedents are
+> queries over that table, not the separate pgvector index sketched below.
 
 ## The Problem
 

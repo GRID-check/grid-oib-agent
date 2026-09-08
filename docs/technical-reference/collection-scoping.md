@@ -209,11 +209,17 @@ If all layers are empty, it falls back to `[config.collection_name]`.
 
 ---
 
-## Upper Bound: `MAX_SCOPE_COLLECTIONS`
+## Upper bound on collections
 
-The maximum number of collections that can be searched per request is defined in `register.py` via `MAX_SCOPE_COLLECTIONS` (currently **5**).
-
-This limit is relevant in multi-tenant or multi-project setups where many collections could theoretically be in scope. The scope is truncated to this upper bound.
+There is no cap in code. `MAX_SCOPE_COLLECTIONS` was documented here as a
+constant in `register.py` that truncated the scope to five collections; no such
+constant exists, and the knowledge layer fans out one retrieval per collection
+in the scope (`sources/knowledge_layer/src/register.py`, `_retrieve_collection`),
+doubled by the HyDE draft and multiplied by the requery loop. The bound is
+therefore whatever the BFF puts in the header: base, the Archiv, one project and
+the session collection today. The Büro-Chat bounds it explicitly with
+`GRID_WORKSPACE_MAX_MOUNTED_PROJECTS` at the mounts endpoint
+([ADR-0054](../adr/0054-workspace-chat-mounts-projects-on-demand.md)).
 
 ---
 
