@@ -448,31 +448,31 @@ def _subagent_spec(
     return spec
 
 
+def _source_router_spec(context: DeepResearchGraphContext) -> dict[str, Any]:
+    source_catalog_tool = build_lookup_source_catalog_tool(
+        context.tools,
+        allowed_source_ids=context.state.data_sources,
+        domain_catalog_path=context.domain_catalog_path,
+    )
+    return _subagent_spec(
+        context,
+        name=SOURCE_ROUTER_AGENT,
+        description=(
+            "Source router - chooses an advisory domain route and configured source set before detailed planning"
+        ),
+        prompt_name="source_router",
+        role=LLMRole.ROUTER,
+        tools=[source_catalog_tool],
+        middleware=build_source_router_middleware(extra_valid_tool_names=[source_catalog_tool.name]),
+        prompt_values={"clarifier_result": context.state.clarifier_result},
+    )
+
+
 def build_deep_research_subagents(context: DeepResearchGraphContext) -> list[dict[str, Any]]:
     """Build all DeepAgents subagent specs."""
     subagents: list[dict[str, Any]] = []
     if context.enable_source_router:
-        source_catalog_tool = build_lookup_source_catalog_tool(
-            context.tools,
-            allowed_source_ids=context.state.data_sources,
-            domain_catalog_path=context.domain_catalog_path,
-        )
-        subagents.append(
-            _subagent_spec(
-                context,
-                name=SOURCE_ROUTER_AGENT,
-                description=(
-                    "Source router - chooses an advisory domain route and configured source set before detailed "
-                    "planning"
-                ),
-                prompt_name="source_router",
-                role=LLMRole.ROUTER,
-                tools=[source_catalog_tool],
-                middleware=build_source_router_middleware(extra_valid_tool_names=[source_catalog_tool.name]),
-                prompt_values={"clarifier_result": context.state.clarifier_result},
-            )
-        )
-
+        subagents.append(_source_router_spec(context))
     subagents.append(
         _subagent_spec(
             context,
@@ -514,6 +514,59 @@ def build_deep_research_subagents(context: DeepResearchGraphContext) -> list[dic
     return subagents
 
 
+def _build_research_batch_tool(
+    context: DeepResearchGraphContext,
+    *,
+    callbacks: list[Any],
+    source_registry_middleware: SourceRegistryMiddleware,
+) -> BaseTool:
+    """The orchestrator's ``run_research_batch``, with its researcher runnable inside."""
+    researcher_runnable = build_researcher_runnable(
+        researcher_model=context.llm_provider.get(LLMRole.RESEARCHER),
+        researcher_tools=context.tool_set.researcher_tools,
+        system_prompt=context.render_prompt(
+            "researcher",
+            tools=context.tool_set.tools_info,
+            execution_enabled=context.runtime.execution_enabled,
+        ),
+        researcher_middleware=context.middleware_set.researcher,
+        skill_sources=context.skill_sources(RESEARCHER_AGENT),
+        backend=context.backend,
+        visibility_middleware=context.visibility_middleware,
+        filesystem_permissions=context.permissions(RESEARCHER_AGENT),
+    )
+    return build_research_batch_tool(
+        researcher_runnable=researcher_runnable,
+        backend=context.backend,
+        callbacks=callbacks,
+        max_research_concurrency=context.max_research_concurrency,
+        researcher_tool_names={tool.name for tool in context.tool_set.researcher_tools},
+        source_registry_middleware=source_registry_middleware,
+        # This graph is built per run (ADR-0018), so the ledger is per run too.
+        submission_counts={},
+    )
+
+
+def _orchestrator_prompt(context: DeepResearchGraphContext, orchestrator_tools: Sequence[BaseTool]) -> str:
+    """The orchestrator's system prompt, rendered from the tools actually bound.
+
+    Single source of truth for the orchestrator's toolset: the prompt's
+    "Available Tools" section is rendered from the same list that is bound to
+    the graph, so it can never advertise tools the orchestrator cannot call
+    (backlog T2-9 — the prompt previously listed every configured source tool,
+    and the model tried to call them directly).
+    """
+    return context.render_prompt(
+        "orchestrator",
+        clarifier_result=context.state.clarifier_result,
+        tools=[{"name": tool.name, "description": tool.description} for tool in orchestrator_tools],
+        research_source_tools=context.tool_set.tools_info,
+        enable_source_router=context.enable_source_router,
+        max_research_concurrency=context.max_research_concurrency,
+        execution_enabled=context.runtime.execution_enabled,
+    )
+
+
 def build_deep_research_graph(
     *,
     llm_provider: LLMProvider,
@@ -533,14 +586,12 @@ def build_deep_research_graph(
 ) -> Any:
     """Build the full DeepAgents graph for one deep research run.
 
-    ``checkpointer`` is execution-state durability (LangGraph's
-    per-thread checkpoint log: messages, DeepAgents filesystem, todos),
-    distinct from ``store`` below (longterm cross-thread memory, always
-    an in-memory store here). None (default) matches current behavior:
-    an ephemeral in-process run with no restart safety. When set, the
-    caller (``DeepResearcherAgent``) also invokes the compiled graph with
-    a stable ``thread_id`` so a re-run of the same job resumes from the
-    last persisted checkpoint instead of starting over.
+    ``checkpointer`` is execution-state durability (LangGraph's per-thread
+    checkpoint log: messages, DeepAgents filesystem, todos), distinct from
+    ``store`` below (longterm cross-thread memory, always in-memory here).
+    When set, ``DeepResearcherAgent`` also invokes the compiled graph with a
+    stable ``thread_id`` so a re-run of the same job resumes from the last
+    persisted checkpoint instead of starting over.
     """
     context = DeepResearchGraphContext(
         llm_provider=llm_provider,
@@ -560,49 +611,14 @@ def build_deep_research_graph(
         visibility_middleware=runtime_visibility_middleware(runtime),
         skills_block=skills_block,
     )
-    researcher_model = context.llm_provider.get(LLMRole.RESEARCHER)
-    researcher_skill_sources = context.skill_sources(RESEARCHER_AGENT)
-    researcher_runnable = build_researcher_runnable(
-        researcher_model=researcher_model,
-        researcher_tools=context.tool_set.researcher_tools,
-        system_prompt=context.render_prompt(
-            "researcher",
-            tools=context.tool_set.tools_info,
-            execution_enabled=context.runtime.execution_enabled,
-        ),
-        researcher_middleware=context.middleware_set.researcher,
-        skill_sources=researcher_skill_sources,
-        backend=context.backend,
-        visibility_middleware=context.visibility_middleware,
-        filesystem_permissions=context.permissions(RESEARCHER_AGENT),
+    research_batch_tool = _build_research_batch_tool(
+        context, callbacks=callbacks, source_registry_middleware=source_registry_middleware
     )
-    research_batch_tool = build_research_batch_tool(
-        researcher_runnable=researcher_runnable,
-        backend=context.backend,
-        callbacks=callbacks,
-        max_research_concurrency=max_research_concurrency,
-        researcher_tool_names={tool.name for tool in context.tool_set.researcher_tools},
-        source_registry_middleware=source_registry_middleware,
-    )
-
-    # Single source of truth for the orchestrator's toolset: the prompt's
-    # "Available Tools" section is rendered from the same list that is bound
-    # here, so it can never advertise tools the orchestrator cannot call
-    # (backlog T2-9 — the prompt previously listed every configured source
-    # tool, and the model tried to call them directly).
     orchestrator_tools = [*context.tool_set.helper_tools, research_batch_tool]
     agent = create_deep_agent(
         model=context.llm_provider.get(LLMRole.ORCHESTRATOR),
         tools=orchestrator_tools,
-        system_prompt=context.render_prompt(
-            "orchestrator",
-            clarifier_result=context.state.clarifier_result,
-            tools=[{"name": tool.name, "description": tool.description} for tool in orchestrator_tools],
-            research_source_tools=context.tool_set.tools_info,
-            enable_source_router=context.enable_source_router,
-            max_research_concurrency=context.max_research_concurrency,
-            execution_enabled=context.runtime.execution_enabled,
-        ),
+        system_prompt=_orchestrator_prompt(context, orchestrator_tools),
         subagents=build_deep_research_subagents(context),
         store=InMemoryStore(),
         checkpointer=checkpointer,

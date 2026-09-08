@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 import logging
 import re
 import shlex
 import threading
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from typing import Literal
+from typing import TypeVar
 from uuid import uuid4
 
 from deepagents.backends import CompositeBackend
@@ -28,9 +31,13 @@ from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_validator
 
+from aiq_agent.skills.builtin import discover_builtin_skills
+from aiq_agent.skills.resolver import _is_curated
 from nat.data_models.function import FunctionBaseConfig
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 # Builtin skills moved to the shared substrate layout (src/aiq_agent/skills/builtin):
 # collection = mid-level dir name, skill = leaf dir name. Only the collections
@@ -164,16 +171,18 @@ def _build_backend(
     return CompositeBackend(default=default, routes=routes)
 
 
+@functools.cache
 def _curated_skill_dir_names() -> frozenset[str]:
     """Skill directory names that are offers, not machinery.
 
     The chat resolver already drops these from ``always_on``. The DeepAgents
     filesystem used to mount the whole ``builtin/`` tree, so a researcher could
     ``read_file`` an offer the org never switched on. Same gate, both agents.
-    """
-    from aiq_agent.skills.builtin import discover_builtin_skills
-    from aiq_agent.skills.resolver import _is_curated
 
+    Cached per process: ``discover_builtin_skills`` walks the skills tree on
+    disk, the tree is immutable at runtime, and this ran on every run that
+    mounted skills (every production run). ``cache_clear()`` resets it.
+    """
     return frozenset(skill.name for skill in discover_builtin_skills() if _is_curated(skill))
 
 
@@ -349,50 +358,29 @@ class _LazyModalSandboxBackend(BaseSandbox):
             return self.sandbox_name
         return backend.id
 
-    def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
-        for attempt in range(2):
-            try:
-                return self._get_backend().execute(command, timeout=timeout)
-            except Exception as exc:
-                if attempt == 0 and _is_modal_not_found_error(exc):
-                    logger.warning(
-                        "Modal sandbox %s disappeared during execute; recreating and retrying once",
-                        self.sandbox_name,
-                    )
-                    self._reset_backend()
-                    continue
+    def _with_recreate(self, action: str, op: Callable[[Any], T]) -> T:
+        """Run ``op`` against the sandbox; recreate it once if Modal says it is gone."""
+        try:
+            return op(self._get_backend())
+        except Exception as exc:
+            if not _is_modal_not_found_error(exc):
                 raise
-        raise RuntimeError("unreachable")
+            logger.warning(
+                "Modal sandbox %s disappeared during %s; recreating and retrying once",
+                self.sandbox_name,
+                action,
+            )
+            self._reset_backend()
+        return op(self._get_backend())
+
+    def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
+        return self._with_recreate("execute", lambda backend: backend.execute(command, timeout=timeout))
 
     def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
-        for attempt in range(2):
-            try:
-                return self._get_backend().upload_files(files)
-            except Exception as exc:
-                if attempt == 0 and _is_modal_not_found_error(exc):
-                    logger.warning(
-                        "Modal sandbox %s disappeared during file upload; recreating and retrying once",
-                        self.sandbox_name,
-                    )
-                    self._reset_backend()
-                    continue
-                raise
-        raise RuntimeError("unreachable")
+        return self._with_recreate("file upload", lambda backend: backend.upload_files(files))
 
     def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
-        for attempt in range(2):
-            try:
-                return self._get_backend().download_files(paths)
-            except Exception as exc:
-                if attempt == 0 and _is_modal_not_found_error(exc):
-                    logger.warning(
-                        "Modal sandbox %s disappeared during file download; recreating and retrying once",
-                        self.sandbox_name,
-                    )
-                    self._reset_backend()
-                    continue
-                raise
-        raise RuntimeError("unreachable")
+        return self._with_recreate("file download", lambda backend: backend.download_files(paths))
 
     def _get_backend(self) -> Any:
         backend = self._backend

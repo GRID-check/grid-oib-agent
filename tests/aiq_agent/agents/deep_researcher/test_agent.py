@@ -22,6 +22,7 @@ from aiq_agent.agents.deep_researcher.models import ResearchPlan
 from aiq_agent.agents.deep_researcher.models import ResearchQuery
 from aiq_agent.agents.deep_researcher.tools.research import build_research_batch_tool
 from aiq_agent.agents.deep_researcher.tools.research import researcher_invoke_state
+from aiq_agent.agents.deep_researcher.tools.source_registry import render_source_list
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common.citation_verification import SourceEntry
@@ -402,7 +403,6 @@ class TestDeepResearcherAgent:
         once via ``aiq_agent.common.get_checkpointer`` (cached by db path/DSN) and passed to every
         DeepResearcherAgent this registration builds.
         """
-        import aiq_agent.common as common_module
         from aiq_agent.agents.deep_researcher import register as register_module
         from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig
         from aiq_agent.agents.deep_researcher.register import deep_research_agent
@@ -435,7 +435,7 @@ class TestDeepResearcherAgent:
 
         with (
             patch.object(register_module, "DeepResearcherAgent", _stub_agent),
-            patch.object(common_module, "get_checkpointer", get_checkpointer_mock),
+            patch("aiq_agent.agents.deep_researcher.register.get_checkpointer", get_checkpointer_mock),
         ):
             gen = deep_research_agent.__wrapped__(config, _FakeBuilder())
             await gen.__anext__()
@@ -447,7 +447,6 @@ class TestDeepResearcherAgent:
     @pytest.mark.asyncio
     async def test_register_omits_checkpointer_when_checkpoint_db_unset(self):
         """Default (no checkpoint_db) behavior is unchanged: no get_checkpointer call, checkpointer=None."""
-        import aiq_agent.common as common_module
         from aiq_agent.agents.deep_researcher import register as register_module
         from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig
         from aiq_agent.agents.deep_researcher.register import deep_research_agent
@@ -475,7 +474,7 @@ class TestDeepResearcherAgent:
 
         with (
             patch.object(register_module, "DeepResearcherAgent", _stub_agent),
-            patch.object(common_module, "get_checkpointer", get_checkpointer_mock),
+            patch("aiq_agent.agents.deep_researcher.register.get_checkpointer", get_checkpointer_mock),
         ):
             gen = deep_research_agent.__wrapped__(config, _FakeBuilder())
             await gen.__anext__()
@@ -917,7 +916,8 @@ class TestDeepResearcherAgent:
         agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], callbacks=[MagicMock(spec=[])])
         fake_runnable = FakeResearcherRunnable()
         fake_backend = MagicMock()
-        fake_backend.upload_files.side_effect = lambda files: [
+        fake_backend.aupload_files = AsyncMock()
+        fake_backend.aupload_files.side_effect = lambda files: [
             FileUploadResponse(path=path, error=None) for path, _content in files
         ]
 
@@ -958,8 +958,8 @@ class TestDeepResearcherAgent:
         assert '"subqueries": [' in call_state["messages"][0].content
         assert "Execution order" not in call_state["messages"][0].content
         assert call_config == {"callbacks": agent.callbacks, "recursion_limit": 100}
-        fake_backend.upload_files.assert_called_once()
-        persisted_files = fake_backend.upload_files.call_args.args[0]
+        fake_backend.aupload_files.assert_awaited_once()
+        persisted_files = fake_backend.aupload_files.call_args.args[0]
         assert len(persisted_files) == 1
         persisted_path, persisted_content = persisted_files[0]
         assert persisted_path.startswith("/shared/research_note_cuda_opencl_portability_comparison_")
@@ -967,7 +967,7 @@ class TestDeepResearcherAgent:
         persisted_payload = json.loads(persisted_content.decode("utf-8"))
         assert persisted_payload["query_topic"] == "CUDA / OpenCL portability"
         assert persisted_payload["target_components"] == ["programming_model"]
-        compact_sources = source_mw.get_source_list_text()
+        compact_sources = render_source_list(source_mw.get_source_entries())
         assert compact_sources is not None
         assert "https://example.test/opencl" in compact_sources
         assert "https://example.test/unused" not in compact_sources
@@ -1217,7 +1217,8 @@ class TestDeepResearcherAgent:
         )
 
         fake_backend = MagicMock()
-        fake_backend.upload_files.side_effect = lambda files: [
+        fake_backend.aupload_files = AsyncMock()
+        fake_backend.aupload_files.side_effect = lambda files: [
             FileUploadResponse(path=path, error=None) for path, _content in files
         ]
         batch_tool, source_mw = self._build_batch_tool(agent, FakeResearcherRunnable(), backend=fake_backend)
@@ -1258,8 +1259,8 @@ class TestDeepResearcherAgent:
         assert "timed out" not in str(exc_info.value)
         assert "2 successful researcher worker(s) were registered and persisted under /shared/" in str(exc_info.value)
         assert "resubmit only the failed queries" in str(exc_info.value)
-        fake_backend.upload_files.assert_called_once()
-        persisted_files = fake_backend.upload_files.call_args.args[0]
+        fake_backend.aupload_files.assert_awaited_once()
+        persisted_files = fake_backend.aupload_files.call_args.args[0]
         assert len(persisted_files) == 2
         from aiq_agent.agents.deep_researcher.tools.research import _research_note_path
 
@@ -1270,7 +1271,7 @@ class TestDeepResearcherAgent:
         assert [note.query_topic for note in persisted_notes] == ["Good Query", "Slow Query"]
         assert persisted_files[0][0] == _research_note_path(query_models[0])
         assert persisted_files[1][0] == _research_note_path(query_models[2])
-        compact_sources = source_mw.get_source_list_text()
+        compact_sources = render_source_list(source_mw.get_source_entries())
         assert compact_sources is not None
         assert "https://example.test/good" in compact_sources
         assert "https://example.test/slow" in compact_sources
@@ -1473,19 +1474,26 @@ class TestDeepResearcherAgent:
         second_modal_backend.execute.assert_called_once_with("echo ok", timeout=5)
 
     def test_load_prompts_raises_when_missing(self, mock_llm_provider, real_tool, mock_create_deep_agent):
-        """Missing prompts fail fast instead of silently using inline defaults."""
-        with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_create_deep_agent):
-            with patch(
-                "aiq_agent.agents.deep_researcher.agent.load_prompt",
-                side_effect=FileNotFoundError(),
-            ):
-                from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        """Missing prompts fail fast instead of silently using inline defaults.
 
-                with pytest.raises(FileNotFoundError):
-                    DeepResearcherAgent(
-                        llm_provider=mock_llm_provider,
-                        tools=[real_tool],
-                    )
+        The templates are cached per process, so the cache is cleared first:
+        the failure has to happen on the first construction that reads them.
+        """
+        from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
+        from aiq_agent.agents.deep_researcher.agent import _prompt_templates
+
+        _prompt_templates.cache_clear()
+        try:
+            with (
+                patch(
+                    "aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_create_deep_agent
+                ),
+                patch("aiq_agent.agents.deep_researcher.agent.load_prompt", side_effect=FileNotFoundError()),
+                pytest.raises(FileNotFoundError),
+            ):
+                DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        finally:
+            _prompt_templates.cache_clear()
 
     @pytest.mark.asyncio
     async def test_provider_roles_used_on_init(self, mock_llm_provider, real_tool, mock_create_deep_agent):
@@ -1904,7 +1912,7 @@ class TestDeepResearchCutoffSalvage:
 
         with (
             patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent),
-            patch("aiq_agent.agents.deep_researcher.agent.emit_deep_research_cutoff") as emit,
+            patch("aiq_agent.agents.deep_researcher.cutoff.emit_deep_research_cutoff") as emit,
         ):
             agent = DeepResearcherAgent(
                 llm_provider=mock_llm_provider,
@@ -1937,7 +1945,7 @@ class TestDeepResearchCutoffSalvage:
 
         with (
             patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent),
-            patch("aiq_agent.agents.deep_researcher.agent.emit_deep_research_cutoff") as emit,
+            patch("aiq_agent.agents.deep_researcher.cutoff.emit_deep_research_cutoff") as emit,
         ):
             agent = DeepResearcherAgent(
                 llm_provider=mock_llm_provider,
@@ -2010,7 +2018,7 @@ class TestDeepResearchCutoffSalvage:
 
         with (
             patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_agent),
-            patch("aiq_agent.agents.deep_researcher.agent.emit_deep_research_cutoff") as emit,
+            patch("aiq_agent.agents.deep_researcher.cutoff.emit_deep_research_cutoff") as emit,
         ):
             agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
             state = DeepResearchAgentState(messages=[HumanMessage(content="Test query")])
@@ -2354,7 +2362,7 @@ class TestDeepResearcherCitationVerification:
                     SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search"),
                 ),
                 patch(
-                    "aiq_agent.agents.deep_researcher.agent.verify_citations",
+                    "aiq_agent.agents.deep_researcher.finalize.verify_citations",
                     return_value=MagicMock(
                         verified_report=report,
                         removed_citations=[],
@@ -2362,7 +2370,7 @@ class TestDeepResearcherCitationVerification:
                     ),
                 ),
                 patch(
-                    "aiq_agent.agents.deep_researcher.agent.sanitize_report",
+                    "aiq_agent.agents.deep_researcher.finalize.sanitize_report",
                     return_value=MagicMock(sanitized_report=sanitized_report),
                 ),
                 caplog.at_level("WARNING", logger="aiq_agent.agents.deep_researcher.agent"),
@@ -2398,7 +2406,7 @@ class TestDeepResearcherCitationVerification:
                     SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search")
                 ),
                 patch(
-                    "aiq_agent.agents.deep_researcher.agent.verify_citations",
+                    "aiq_agent.agents.deep_researcher.finalize.verify_citations",
                     return_value=MagicMock(
                         verified_report=report,
                         removed_citations=[],
@@ -2481,15 +2489,15 @@ class TestDeepResearcherCitationVerification:
                     SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search")
                 ),
                 patch(
-                    "aiq_agent.agents.deep_researcher.agent.verify_citations",
+                    "aiq_agent.agents.deep_researcher.finalize.verify_citations",
                     return_value=MagicMock(
                         verified_report=verified_answer,
                         removed_citations=[],
-                        valid_citations=[MagicMock()],
+                        valid_citations=[{"number": 1, "url": "https://example.com"}],
                     ),
                 ) as verify,
                 patch(
-                    "aiq_agent.agents.deep_researcher.agent.sanitize_report",
+                    "aiq_agent.agents.deep_researcher.finalize.sanitize_report",
                     return_value=MagicMock(sanitized_report=sanitized_answer),
                 ) as sanitize,
             ):
@@ -2524,7 +2532,7 @@ class TestDeepResearcherCitationVerification:
                     SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search")
                 ),
                 patch(
-                    "aiq_agent.agents.deep_researcher.agent.verify_citations",
+                    "aiq_agent.agents.deep_researcher.finalize.verify_citations",
                     return_value=MagicMock(
                         verified_report=report,
                         removed_citations=[
@@ -2532,11 +2540,11 @@ class TestDeepResearcherCitationVerification:
                             {"number": 3, "line": "[3] Also bad", "reason": "url_not_in_registry"},
                             {"number": 4, "line": "[4] Mystery", "reason": "unverifiable"},
                         ],
-                        valid_citations=[MagicMock()],
+                        valid_citations=[{"number": 1, "url": "https://example.com"}],
                     ),
                 ),
                 patch(
-                    "aiq_agent.agents.deep_researcher.agent.sanitize_report",
+                    "aiq_agent.agents.deep_researcher.finalize.sanitize_report",
                     return_value=MagicMock(sanitized_report=sanitized_report),
                 ),
             ):
@@ -2573,15 +2581,15 @@ class TestDeepResearcherCitationVerification:
                     SourceEntry(url="https://docs.nvidia.com/cuda/", title="CUDA Docs", tool_name="web_search")
                 ),
                 patch(
-                    "aiq_agent.agents.deep_researcher.agent.verify_citations",
+                    "aiq_agent.agents.deep_researcher.finalize.verify_citations",
                     return_value=MagicMock(
                         verified_report=report,
                         removed_citations=[],
-                        valid_citations=[MagicMock()],
+                        valid_citations=[{"number": 1, "url": "https://example.com"}],
                     ),
                 ),
                 patch(
-                    "aiq_agent.agents.deep_researcher.agent.sanitize_report",
+                    "aiq_agent.agents.deep_researcher.finalize.sanitize_report",
                     return_value=MagicMock(sanitized_report=sanitized_report),
                 ),
             ):
@@ -2623,7 +2631,9 @@ class TestApplyRenumberingDropsSanitizeDeaths:
             {"number": 2, "url": "https://bit.ly/abc123"},
             {"number": 3, "url": "https://example.com/other"},
         ]
-        _apply_renumbering(wire_sources, sanitization.renumber_map, sanitization.removed_citation_numbers)
+        wire_sources = _apply_renumbering(
+            wire_sources, sanitization.renumber_map, sanitization.removed_citation_numbers
+        )
         urls = [s["url"] for s in wire_sources]
         assert "https://bit.ly/abc123" not in urls
         assert urls == ["https://example.com/good", "https://example.com/other"]
@@ -2649,7 +2659,9 @@ class TestApplyRenumberingDropsSanitizeDeaths:
             {"number": 1, "url": "https://example.com/good"},
             {"number": 2, "url": "https://192.168.1.1/malware"},
         ]
-        _apply_renumbering(wire_sources, sanitization.renumber_map, sanitization.removed_citation_numbers)
+        wire_sources = _apply_renumbering(
+            wire_sources, sanitization.renumber_map, sanitization.removed_citation_numbers
+        )
         assert [s["url"] for s in wire_sources] == ["https://example.com/good"]
 
     def test_number_absent_from_map_is_dropped_even_without_explicit_death(self):
@@ -2660,7 +2672,7 @@ class TestApplyRenumberingDropsSanitizeDeaths:
             {"number": 1, "url": "https://example.com/good"},
             {"number": 2, "url": "https://example.com/gone"},
         ]
-        _apply_renumbering(wire_sources, {1: 1}, set())
+        wire_sources = _apply_renumbering(wire_sources, {1: 1}, set())
         assert [s["url"] for s in wire_sources] == ["https://example.com/good"]
 
     def test_verify_then_sanitize_end_to_end_drops_shortened_chip(self):
@@ -2687,7 +2699,9 @@ class TestApplyRenumberingDropsSanitizeDeaths:
         # ...but sanitize deletes the shortener line as untrusted.
         sanitization = sanitize_report(verification.verified_report)
         assert sanitization.removed_citation_numbers == {2}
-        _apply_renumbering(wire_sources, sanitization.renumber_map, sanitization.removed_citation_numbers)
+        wire_sources = _apply_renumbering(
+            wire_sources, sanitization.renumber_map, sanitization.removed_citation_numbers
+        )
         assert [s["url"] for s in wire_sources] == ["https://example.com/good"]
         assert "bit.ly" not in sanitization.sanitized_report
         assert "[2]" not in sanitization.sanitized_report
@@ -3306,7 +3320,7 @@ class TestUpstreamTimeoutIsNotTheBudget:
 
         with (
             patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=graph),
-            patch("aiq_agent.agents.deep_researcher.agent.emit_deep_research_cutoff", _capture),
+            patch("aiq_agent.agents.deep_researcher.cutoff.emit_deep_research_cutoff", _capture),
         ):
             agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_run_seconds=2400)
             with pytest.raises(TimeoutError, match="upstream timeout"):
@@ -3329,7 +3343,7 @@ class TestUpstreamTimeoutIsNotTheBudget:
 
         with (
             patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=graph),
-            patch("aiq_agent.agents.deep_researcher.agent.emit_deep_research_cutoff", _capture),
+            patch("aiq_agent.agents.deep_researcher.cutoff.emit_deep_research_cutoff", _capture),
         ):
             agent = DeepResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_run_seconds=1)
             with pytest.raises(TimeoutError, match="wall-clock budget"):

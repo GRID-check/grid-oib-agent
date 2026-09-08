@@ -62,7 +62,7 @@ orchestrator and all subagents:
 |------------|---------|
 | `EmptyContentFixMiddleware` | Replaces empty ToolMessage content (some APIs reject it) |
 | `ToolNameSanitizationMiddleware` | Repairs corrupted/hallucinated tool names |
-| `ToolRetryMiddleware` (langchain) | Retries failed tool calls with backoff |
+| `SelectiveToolRetryMiddleware` (subclass of langchain `ToolRetryMiddleware`) | Retries failed tool calls with backoff; `run_research_batch` is executed exactly once so the orchestrator, not the retry loop, reacts to a partial failure |
 | `SourceRegistryMiddleware` | Captures source URLs/citation keys from tool results; feeds `get_verified_sources` and citation verification |
 | `ToolResultPruningMiddleware` | Truncates older tool results to protect the context window. Keeps the last `keep_last_n` **oversized** `ToolMessage`s intact (default 10, all agents but the writer, which scales with `max_research_concurrency` to cover every research-note read) and truncates earlier ones to `max_chars` (default 2000; writer gets 20,000). Truncation is monotonic (recorded per message id, frozen once applied) rather than recomputed per call — see [Known limitations](#known-limitations) for the residual prompt-caching gap |
 | `ModelRetryMiddleware` (langchain) | Retries model calls with backoff |
@@ -422,7 +422,7 @@ glance:
   Phase 3 above), with partial-failure separation and `no_retry` on the
   batch tool so the *orchestrator* reacts to a failed subset rather than the
   tool-retry middleware blindly re-executing the whole batch.
-- `recursion_limit: 2000` (`factory.py:515`) is a deliberate reduction from
+- `recursion_limit: 150` (`factory.py`, `_ORCHESTRATOR_RECURSION_LIMIT`) is a deliberate reduction from
   deepagents' `9999` default, not an oversight.
 - Skill filesystem permission rules
   (`factory.py:skill_filesystem_permissions`) are evaluated first-match-wins

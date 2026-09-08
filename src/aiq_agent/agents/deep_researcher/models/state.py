@@ -9,6 +9,7 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 from pydantic import Field
 
+from aiq_agent.common.message_utils import content_to_text
 from aiq_agent.knowledge import AvailableDocument
 
 
@@ -34,11 +35,8 @@ class DeepResearchAgentState(BaseModel):
         messages: Conversation history with LangGraph message reducer.
         data_sources: List of data sources selected by the user.
         user_info: Optional user information.
-        tools_info: Information about available tools.
         todos: Todo list managed by TodoListMiddleware.
         files: Virtual filesystem managed by FilesystemMiddleware.
-        subagents: Status of configured DeepAgents subagents.
-        rubric: DeepAgents rubric used by RubricMiddleware when available.
         clarifier_result: Log from clarifier agent dialog.
         available_documents: User-uploaded documents with summaries for context.
     """
@@ -46,11 +44,8 @@ class DeepResearchAgentState(BaseModel):
     messages: Annotated[list[AnyMessage], add_messages]
     data_sources: list[str] | None = None
     user_info: dict[str, Any] | None = None
-    tools_info: list[dict[str, Any]] | None = None
     todos: list[dict[str, Any]] = Field(default_factory=list)
     files: Annotated[dict[str, Any], _merge_dict_state] = Field(default_factory=dict)
-    subagents: list[dict[str, Any]] = Field(default_factory=list)
-    rubric: str | None = None
     clarifier_result: str | None = None
     available_documents: list[AvailableDocument] | None = None
     project_context: str | None = None
@@ -153,3 +148,17 @@ class DeepResearchAgentState(BaseModel):
     # dropped: the transparency doctrine forbids a class of instruction the
     # product declines to admit ran.
     skills_hidden: list[str] | None = None
+
+
+def last_message_text(result: Any) -> str | None:
+    """The final message's text from a graph state (dict or object), or None when blank.
+
+    The writer normally persists its report to ``/shared/output.md``; this is
+    the fallback when it did not, and the researcher's fallback when a worker
+    put its notes in prose instead of the structured channel. Structured block
+    content is joined as text rather than repr'd.
+    """
+    messages = result.get("messages") if isinstance(result, dict) else getattr(result, "messages", None)
+    if not messages:
+        return None
+    return content_to_text(getattr(messages[-1], "content", None)).strip() or None

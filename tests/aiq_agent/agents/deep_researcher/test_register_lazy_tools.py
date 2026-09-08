@@ -7,7 +7,6 @@ from unittest.mock import patch
 import pytest
 from langchain_core.tools import tool
 
-import aiq_agent.common as common_module
 from aiq_agent.agents.deep_researcher import register as register_module
 from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
 from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig
@@ -62,7 +61,7 @@ async def test_inherited_tools_resolved_lazily_after_registry_populated():
 
     with patch.object(register_module, "DeepResearcherAgent", _make_agent_stub()):
         # Registry empty at build time.
-        with patch.object(common_module, "get_all_tool_refs", return_value=[]):
+        with patch.object(register_module, "get_all_tool_refs", return_value=[]):
             run_fn, gen = await _get_run_fn(config, builder)
             # No build-time tool resolution for inherited tools.
             assert builder.get_tools_calls == []
@@ -73,7 +72,7 @@ async def test_inherited_tools_resolved_lazily_after_registry_populated():
             assert result.messages  # error AIMessage placed by the runtime gate
 
         # Registry now populated (build-order race resolved by request time).
-        with patch.object(common_module, "get_all_tool_refs", return_value=["web_search_tool"]):
+        with patch.object(register_module, "get_all_tool_refs", return_value=["web_search_tool"]):
             result2 = await run_fn(DeepResearchAgentState(messages=[]))
             # Tools were resolved lazily and the agent actually ran.
             assert result2 is not None
@@ -91,7 +90,7 @@ async def test_explicit_tools_resolved_eagerly_and_registry_never_consulted():
     get_all = MagicMock(return_value=[])
     with (
         patch.object(register_module, "DeepResearcherAgent", _make_agent_stub()),
-        patch.object(common_module, "get_all_tool_refs", get_all),
+        patch.object(register_module, "get_all_tool_refs", get_all),
     ):
         run_fn, gen = await _get_run_fn(config, builder)
         # Eager resolution at build time for the explicit list.

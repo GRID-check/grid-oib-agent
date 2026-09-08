@@ -3,30 +3,30 @@
 import asyncio
 import logging
 from collections.abc import Iterable
-from pathlib import Path
+from collections.abc import Mapping
+from collections.abc import Sequence
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
 from langchain.agents.middleware import ToolRetryMiddleware
 from langchain.agents.middleware.types import ModelResponse
+from langchain.agents.structured_output import ProviderStrategy
 from langchain_core.messages import AIMessage
 from langchain_core.messages import ToolMessage
 from langgraph.errors import GraphBubbleUp
 
 from aiq_agent.common import get_source_id_for_tool
-from aiq_agent.common import load_prompt
-from aiq_agent.common import render_prompt_template
 from aiq_agent.common.budget_guard import RunBudgetExceededError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
+from aiq_agent.common.citation_verification import _normalize_url
+from aiq_agent.common.citation_verification import _parse_citation_key
 from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+from aiq_agent.common.citation_verification import get_session_registry
 from aiq_agent.common.cost_tracking import BudgetExceededError
 from aiq_agent.common.deferred_tool_loading import tool_payload_name
 
 logger = logging.getLogger(__name__)
-
-# Path to this agent's prompts directory
-_PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
 def is_retryable_tool_error(exc: Exception) -> bool:
@@ -126,6 +126,11 @@ class SelectiveToolRetryMiddleware(ToolRetryMiddleware):
             return self._handle_failure(tool_name, request.tool_call["id"], exc, 1)
 
 
+def _replace_tool_content(msg: ToolMessage, content: str) -> ToolMessage:
+    """A copy of ``msg`` carrying ``content``, keeping the identity fields."""
+    return ToolMessage(content=content, tool_call_id=msg.tool_call_id, name=getattr(msg, "name", None), id=msg.id)
+
+
 class EmptyContentFixMiddleware(AgentMiddleware):
     """
     Middleware that fixes empty ToolMessage content.
@@ -146,21 +151,10 @@ class EmptyContentFixMiddleware(AgentMiddleware):
 
     async def awrap_model_call(self, request, handler):
         """Fix empty ToolMessage content before sending to the model."""
-        fixed_messages = []
-        for msg in request.messages:
-            if isinstance(msg, ToolMessage) and not msg.content:
-                # Create a new ToolMessage with placeholder content
-                fixed_messages.append(
-                    ToolMessage(
-                        content=self.placeholder,
-                        tool_call_id=msg.tool_call_id,
-                        name=getattr(msg, "name", None),
-                        id=msg.id,
-                    )
-                )
-            else:
-                fixed_messages.append(msg)
-
+        fixed_messages = [
+            _replace_tool_content(msg, self.placeholder) if isinstance(msg, ToolMessage) and not msg.content else msg
+            for msg in request.messages
+        ]
         return await handler(request.override(messages=fixed_messages))
 
 
@@ -214,39 +208,27 @@ class ToolNameSanitizationMiddleware(AgentMiddleware):
 
         return name
 
+    def _sanitize_message(self, msg: Any) -> Any:
+        """The message with its tool-call names sanitised, or the same object when clean.
+
+        ``model_copy`` preserves usage_metadata, additional_kwargs and
+        response_metadata — rebuilding the AIMessage from scratch dropped them
+        and broke usage accounting downstream.
+        """
+        if not isinstance(msg, AIMessage) or not msg.tool_calls:
+            return msg
+        tool_calls = [{**tc, "name": self._sanitize_tool_name(tc["name"])} for tc in msg.tool_calls]
+        if all(new["name"] == old["name"] for new, old in zip(tool_calls, msg.tool_calls, strict=True)):
+            return msg
+        return msg.model_copy(update={"tool_calls": tool_calls})
+
     async def awrap_model_call(self, request, handler):
         """Intercept model response and sanitize tool names."""
         response = await handler(request)
-
-        needs_fix = False
-        for msg in response.result:
-            if isinstance(msg, AIMessage) and msg.tool_calls:
-                for tc in msg.tool_calls:
-                    sanitized = self._sanitize_tool_name(tc["name"])
-                    if sanitized != tc["name"]:
-                        needs_fix = True
-                        break
-                if needs_fix:
-                    break
-
-        if not needs_fix:
+        result = [self._sanitize_message(msg) for msg in response.result]
+        if all(new is old for new, old in zip(result, response.result, strict=True)):
             return response
-
-        new_result = []
-        for msg in response.result:
-            if isinstance(msg, AIMessage) and msg.tool_calls:
-                new_tool_calls = []
-                for tc in msg.tool_calls:
-                    new_tool_calls.append({**tc, "name": self._sanitize_tool_name(tc["name"])})
-                # model_copy preserves usage_metadata, additional_kwargs, and
-                # response_metadata — rebuilding the AIMessage from scratch
-                # dropped them and broke usage accounting downstream.
-                new_msg = msg.model_copy(update={"tool_calls": new_tool_calls})
-                new_result.append(new_msg)
-            else:
-                new_result.append(msg)
-
-        return ModelResponse(result=new_result, structured_response=response.structured_response)
+        return ModelResponse(result=result, structured_response=response.structured_response)
 
 
 class DeferredStructuredOutputMiddleware(AgentMiddleware):
@@ -275,8 +257,6 @@ class DeferredStructuredOutputMiddleware(AgentMiddleware):
     """
 
     def __init__(self, schema: Any) -> None:
-        from langchain.agents.structured_output import ProviderStrategy
-
         self.strategy = ProviderStrategy(schema, strict=True)
 
     async def awrap_model_call(self, request, handler):
@@ -333,11 +313,11 @@ class ToolVisibilityMiddleware(AgentMiddleware):
 class SourceRegistryMiddleware(AgentMiddleware):
     """Intercepts tool call results to build a registry of actual sources.
 
-    Two responsibilities:
-    1. awrap_tool_call: Capture URLs/citation keys from tool results
-    2. awrap_model_call: Inject a consolidated source list into the LLM context
-       so the orchestrator has a single, authoritative reference list when
-       writing the final report (no manual reconciliation across research-note files)
+    ``awrap_tool_call`` captures URLs/citation keys from tool results;
+    ``get_source_entries`` hands the writer's ``get_verified_sources`` tool
+    (``tools/source_registry.py``, which renders the list) the compact or full
+    set. The registry is also what ``verify_citations()`` strips fabricated,
+    stale, or intermediate-artifact citations against.
 
     Source capture is gated only by the agent's loaded tool set
     (``source_tool_names``). Internal scratchpad/runtime tools (think,
@@ -346,9 +326,6 @@ class SourceRegistryMiddleware(AgentMiddleware):
     configured data sources additionally carry a ``source_id`` label, but a
     tool does *not* have to be declared under ``data_sources`` to contribute
     sources — agents can be passed citable tools directly.
-
-    The registry is also used by verify_citations() to strip fabricated,
-    stale, or intermediate-artifact citations from the final report.
 
     A fresh instance is constructed for every deep research run
     (``DeepResearcherAgent._prepare_run``, ADR-0018), so the instance
@@ -365,8 +342,6 @@ class SourceRegistryMiddleware(AgentMiddleware):
 
     def active_registry(self) -> SourceRegistry:
         """Return the session-scoped registry if set, otherwise the instance registry."""
-        from aiq_agent.common.citation_verification import get_session_registry
-
         return get_session_registry() or self.registry
 
     def has_sources(self) -> bool:
@@ -386,11 +361,7 @@ class SourceRegistryMiddleware(AgentMiddleware):
         """
         locator = locator.strip()
         if locator.startswith(("http://", "https://")):
-            from aiq_agent.common.citation_verification import _normalize_url
-
             return _normalize_url(locator)
-        from aiq_agent.common.citation_verification import _parse_citation_key
-
         filename, _ = _parse_citation_key(locator)
         return filename.lower()
 
@@ -405,20 +376,15 @@ class SourceRegistryMiddleware(AgentMiddleware):
 
     def register_research_note_sources(self, notes: list[object]) -> None:
         """Mark ResearchNotes source locators as the compact writer-facing citation set."""
-        for note in notes:
-            sources = getattr(note, "sources", None) or []
-            for source in sources:
-                locator = getattr(source, "locator", "")
-                if isinstance(locator, str) and locator.strip():
-                    self._compact_source_keys.add(self._locator_key(locator))
+        locators = (
+            getattr(source, "locator", "") for note in notes for source in (getattr(note, "sources", None) or [])
+        )
+        self._compact_source_keys.update(
+            self._locator_key(locator) for locator in locators if isinstance(locator, str) and locator.strip()
+        )
 
     async def awrap_tool_call(self, request, handler):
         """Capture sources from tool results after execution.
-
-        Capture is gated only by the agent's loaded tool set
-        (``source_tool_names``). Internal scratchpad/runtime tools (think,
-        write_file, read_file, etc.) are added by deepagents itself and never
-        appear in that set, so they are implicitly excluded.
 
         Tools that resolve to a configured data source via
         :func:`get_source_id_for_tool` get a ``source_id`` label. Tools passed
@@ -428,90 +394,84 @@ class SourceRegistryMiddleware(AgentMiddleware):
         carry no ``source_id``.
         """
         result = await handler(request)
-        if isinstance(result, ToolMessage) and result.content:
-            tool_name = ""
-            if hasattr(request, "tool_call") and isinstance(request.tool_call, dict):
-                tool_name = request.tool_call.get("name", "")
-            if tool_name not in self._source_tool_names:
-                return result
-            source_id = get_source_id_for_tool(tool_name)
-            sources = extract_sources_from_tool_result(tool_name, str(result.content), source_id=source_id)
-            async with self._lock:
-                active_registry = self.active_registry()
-                for source in sources:
-                    active_registry.add(source)
-            if sources:
-                logger.info(
-                    "[CitationRegistry] Captured %d source(s) from %s: %s",
-                    len(sources),
-                    tool_name,
-                    [s.url or s.citation_key for s in sources],
-                )
+        if not isinstance(result, ToolMessage) or not result.content:
+            return result
+        tool_call = getattr(request, "tool_call", None)
+        tool_name = tool_call.get("name", "") if isinstance(tool_call, dict) else ""
+        if tool_name not in self._source_tool_names:
+            return result
+        source_id = get_source_id_for_tool(tool_name)
+        sources = extract_sources_from_tool_result(tool_name, str(result.content), source_id=source_id)
+        async with self._lock:
+            active_registry = self.active_registry()
+            for source in sources:
+                active_registry.add(source)
+        if sources:
+            logger.info(
+                "[CitationRegistry] Captured %d source(s) from %s: %s",
+                len(sources),
+                tool_name,
+                [s.url or s.citation_key for s in sources],
+            )
         return result
 
-    def _render_source_list_text(self, sources: list[SourceEntry]) -> str | None:
-        """Render a consolidated source list from registry entries.
-
-        Returns rendered template text, or None if no sources captured.
-        Used by agent.run() to include the source list in retry messages
-        when citation quality is poor.
-        """
-        from urllib.parse import urlparse
-
-        from aiq_agent.common.citation_verification import _normalize_url
-
-        if not sources:
-            return None
-
-        seen: set[str] = set()
-        template_sources = []
-        for entry in sources:
-            if entry.url:
-                normalized = _normalize_url(entry.url)
-                if normalized in seen:
-                    continue
-                seen.add(normalized)
-                if entry.title:
-                    title = entry.title
-                else:
-                    try:
-                        title = urlparse(entry.url).netloc.replace("www.", "")
-                    except Exception:
-                        title = entry.url
-                template_sources.append({"title": title, "url": entry.url})
-            elif entry.citation_key:
-                key = entry.citation_key
-                if key in seen:
-                    continue
-                seen.add(key)
-                template_sources.append({"title": key, "url": key})
-
-        if not template_sources:
-            return None
-
-        try:
-            template = load_prompt(_PROMPTS_DIR, "source_registry")
-            return render_prompt_template(template, sources=template_sources)
-        except Exception:
-            logger.warning("Failed to load source_registry prompt template", exc_info=True)
-            return None
-
     def get_source_entries(self, mode: str = "compact") -> list[SourceEntry]:
-        """Return the source entries represented by the writer-facing source list."""
+        """Return the source entries represented by the writer-facing source list.
+
+        Compact mode is the subset of registered sources that researcher
+        workers actually carried forward in structured ResearchNotes (the
+        whole registry when no note named any). Full mode is the registry.
+        """
         sources = self.active_registry().all_sources()
         if mode == "full" or not self._compact_source_keys:
             return sources
         compact_sources = [source for source in sources if self._entry_key(source) in self._compact_source_keys]
         return compact_sources or sources
 
-    def get_source_list_text(self, mode: str = "compact") -> str | None:
-        """Build a writer-facing verified source list.
 
-        Compact mode returns the subset of registered sources that researcher
-        workers actually carried forward in structured ResearchNotes. Full mode
-        returns the complete registry.
-        """
-        return self._render_source_list_text(self.get_source_entries(mode=mode))
+_TRUNCATION_SUFFIX = "\n\n[... truncated ...]"
+
+
+def _truncated(msg: ToolMessage, max_chars: int) -> str:
+    return str(msg.content)[:max_chars] + _TRUNCATION_SUFFIX
+
+
+def _evictions(
+    messages: Sequence[Any],
+    *,
+    keep_last_n: int,
+    max_chars: int,
+    total_char_budget: int,
+    already: Mapping[str, str],
+) -> dict[str, str]:
+    """Which oversized tool results to truncate now, as ``message id → content``.
+
+    Two passes. The last-N window: every oversized ToolMessage that fell out of
+    the last ``keep_last_n`` is evicted. The total-char budget: if the oversized
+    results still inside the window together exceed ``total_char_budget``, the
+    oldest of them are evicted until under budget, so the writer's context
+    cannot grow unbounded across many research notes. Messages in ``already``
+    are never decided twice (monotonicity), and only messages with an id can
+    be remembered at all.
+    """
+    oversized = [
+        msg for msg in messages if isinstance(msg, ToolMessage) and msg.content and len(str(msg.content)) > max_chars
+    ]
+    window_start = max(len(oversized) - keep_last_n, 0)
+    evicted = {msg.id: _truncated(msg, max_chars) for msg in oversized[:window_start] if msg.id is not None}
+    evicted = {msg_id: content for msg_id, content in evicted.items() if msg_id not in already}
+    if total_char_budget <= 0:
+        return evicted
+    window = oversized[window_start:]
+    total = sum(len(already.get(msg.id, str(msg.content))) for msg in window)
+    for msg in window:
+        if total <= total_char_budget:
+            break
+        if msg.id is None or msg.id in already:
+            continue
+        evicted[msg.id] = _truncated(msg, max_chars)
+        total += len(evicted[msg.id]) - len(str(msg.content))
+    return evicted
 
 
 class ToolResultPruningMiddleware(AgentMiddleware):
@@ -538,7 +498,7 @@ class ToolResultPruningMiddleware(AgentMiddleware):
     window — and thus the cache — for zero context savings.
     """
 
-    _TRUNCATION_SUFFIX = "\n\n[... truncated ...]"
+    _TRUNCATION_SUFFIX = _TRUNCATION_SUFFIX
 
     def __init__(self, keep_last_n: int = 3, max_chars: int = 500, total_char_budget: int = 0):
         self.keep_last_n = keep_last_n
@@ -547,67 +507,24 @@ class ToolResultPruningMiddleware(AgentMiddleware):
         # message id -> permanently truncated content for that message.
         self._truncated_by_id: dict[str, str] = {}
 
+    def _pruned(self, msg: Any) -> Any:
+        truncated = self._truncated_by_id.get(msg.id) if isinstance(msg, ToolMessage) else None
+        return msg if truncated is None else _replace_tool_content(msg, truncated)
+
     async def awrap_model_call(self, request, handler):
         """Truncate older oversized ToolMessage content before sending to the model."""
-        # Window candidates: oversized ToolMessages only (see class docstring).
-        oversized_indices = [
-            i
-            for i, msg in enumerate(request.messages)
-            if isinstance(msg, ToolMessage) and msg.content and len(str(msg.content)) > self.max_chars
-        ]
-
-        # Newly evict everything that fell out of the last-N window. Messages
-        # already truncated on an earlier call stay truncated regardless of
-        # where the window sits now (monotonicity).
-        newly_evicted = oversized_indices[: -self.keep_last_n] if len(oversized_indices) > self.keep_last_n else []
-        for i in newly_evicted:
-            msg = request.messages[i]
-            if msg.id is not None and msg.id not in self._truncated_by_id:
-                self._truncated_by_id[msg.id] = str(msg.content)[: self.max_chars] + self._TRUNCATION_SUFFIX
-
-        # Total-char budget: if the sum of all oversized tool-result chars
-        # within the last-N window exceeds the budget, monotonically truncate
-        # the oldest oversized ones until under budget. This prevents the
-        # writer's context from growing unbounded across many research notes.
-        if self.total_char_budget > 0:
-            kept_oversized_indices = (
-                oversized_indices[-self.keep_last_n :]
-                if len(oversized_indices) > self.keep_last_n
-                else list(oversized_indices)
+        self._truncated_by_id.update(
+            _evictions(
+                request.messages,
+                keep_last_n=self.keep_last_n,
+                max_chars=self.max_chars,
+                total_char_budget=self.total_char_budget,
+                already=self._truncated_by_id,
             )
-            total_chars = sum(
-                len(self._truncated_by_id.get(request.messages[i].id, str(request.messages[i].content)))
-                for i in kept_oversized_indices
-            )
-            for i in kept_oversized_indices:
-                if total_chars <= self.total_char_budget:
-                    break
-                msg = request.messages[i]
-                if msg.id is not None and msg.id not in self._truncated_by_id:
-                    truncated = str(msg.content)[: self.max_chars] + self._TRUNCATION_SUFFIX
-                    self._truncated_by_id[msg.id] = truncated
-                    total_chars = total_chars - len(str(msg.content)) + len(truncated)
-
+        )
         if not self._truncated_by_id:
             return await handler(request)
-
-        pruned_messages = []
-        changed = False
-        for msg in request.messages:
-            truncated = self._truncated_by_id.get(msg.id) if isinstance(msg, ToolMessage) else None
-            if truncated is not None:
-                changed = True
-                pruned_messages.append(
-                    ToolMessage(
-                        content=truncated,
-                        tool_call_id=msg.tool_call_id,
-                        name=getattr(msg, "name", None),
-                        id=msg.id,
-                    )
-                )
-            else:
-                pruned_messages.append(msg)
-
-        if not changed:
+        pruned = [self._pruned(msg) for msg in request.messages]
+        if all(new is old for new, old in zip(pruned, request.messages, strict=True)):
             return await handler(request)
-        return await handler(request.override(messages=pruned_messages))
+        return await handler(request.override(messages=pruned))

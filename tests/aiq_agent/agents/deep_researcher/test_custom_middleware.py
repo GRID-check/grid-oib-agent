@@ -17,6 +17,7 @@ from aiq_agent.agents.deep_researcher.custom_middleware import ToolVisibilityMid
 from aiq_agent.agents.deep_researcher.custom_middleware import is_retryable_tool_error
 from aiq_agent.agents.deep_researcher.models import ResearchNotes
 from aiq_agent.agents.deep_researcher.tools.source_registry import build_get_verified_sources_tool
+from aiq_agent.agents.deep_researcher.tools.source_registry import render_source_list
 from aiq_agent.common.budget_guard import RunBudgetExceededError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.cost_tracking import BudgetExceededError
@@ -618,7 +619,7 @@ class TestSourceRegistryMiddleware:
         compact_entries = middleware.get_source_entries()
 
         assert [entry.citation_key for entry in compact_entries] == ["handbuch.pdf, p.3"]
-        compact = middleware.get_source_list_text()
+        compact = render_source_list(middleware.get_source_entries())
         assert "handbuch.pdf, p.3" in compact
         assert "other.pdf" not in compact
 
