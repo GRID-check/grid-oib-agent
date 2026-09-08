@@ -44,7 +44,7 @@ The evaluator uses an LLM judge to score answers. The default config (`config_de
 
 ### Other API keys
 
-Set in `deploy/.env`: `NVIDIA_API_KEY` (agent), `TAVILY_API_KEY` (web search).
+Set in `deploy/.env`: `OPENROUTER_API_KEY` (agent), `TAVILY_API_KEY` (web search).
 
 ## Quick Start
 

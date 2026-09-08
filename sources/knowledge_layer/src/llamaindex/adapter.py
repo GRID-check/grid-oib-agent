@@ -2001,8 +2001,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         try:
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
-            nvidia_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
-            if not nvidia_api_key:
+            embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
+            if not embed_api_key:
                 logger.error(
                     "No embeddings API key resolved (AIQ_EMBED_API_KEY / "
                     "the provider key for AIQ_EMBED_BASE_URL) - ingestion/retrieval will fail."
@@ -2011,7 +2011,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             self._embed_model = NVIDIAEmbedding(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
-                api_key=nvidia_api_key,
+                api_key=embed_api_key,
                 embed_batch_size=EMBED_BATCH_SIZE,
                 timeout=EMBED_TIMEOUT_SECONDS,
                 max_retries=EMBED_MAX_RETRIES,
@@ -4035,8 +4035,8 @@ class LlamaIndexRetriever(BaseRetriever):
             from llama_index.core import Settings
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
-            nvidia_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
-            if not nvidia_api_key:
+            embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
+            if not embed_api_key:
                 logger.error(
                     "No embeddings API key resolved (AIQ_EMBED_API_KEY / "
                     "the provider key for AIQ_EMBED_BASE_URL) - retrieval/ingestion will fail."
@@ -4045,7 +4045,7 @@ class LlamaIndexRetriever(BaseRetriever):
             self._embed_model = NVIDIAEmbedding(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
-                api_key=nvidia_api_key,
+                api_key=embed_api_key,
                 embed_batch_size=EMBED_BATCH_SIZE,
                 timeout=EMBED_TIMEOUT_SECONDS,
                 max_retries=EMBED_MAX_RETRIES,

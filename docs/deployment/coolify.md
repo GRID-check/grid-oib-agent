@@ -314,10 +314,11 @@ There is **no separate embedding provider and no NVIDIA endpoint**. A single
 `OPENROUTER_API_KEY` powers the LLMs, the embeddings, and the VLM:
 
 - Embeddings: `openai/text-embedding-3-large` via `https://openrouter.ai/api/v1`.
-- LlamaIndex's embedding client happens to read `NVIDIA_API_KEY` as its API key,
-  so the compose sets `NVIDIA_API_KEY` to the OpenRouter key. Its `base_url`
-  stays on OpenRouter — NVIDIA is never contacted. The compose defaults handle
-  all of this; you only supply `OPENROUTER_API_KEY`.
+- The embeddings client resolves its key through the shared credential
+  resolver (`AIQ_EMBED_API_KEY`, else the provider key inferred from the base
+  URL), so the OpenRouter key reaches it on its own. `NVIDIA_API_KEY` is not
+  read anywhere. The compose defaults handle all of this; you only supply
+  `OPENROUTER_API_KEY`.
 
 So chat, web search, **and** the knowledge base all work with just
 `OPENROUTER_API_KEY` + `TAVILY_API_KEY`.

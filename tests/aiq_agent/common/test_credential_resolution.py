@@ -16,7 +16,7 @@ _OPENROUTER = "https://openrouter.ai/api/v1"
 # real environment can never leak in.
 _ALL_ENVS = (
     "AIQ_VLM_API_KEY",
-    "NVIDIA_API_KEY",
+    "SOME_FALLBACK_KEY",
     "OPENROUTER_API_KEY",
     "OPENAI_API_KEY",
     "LLM_API_KEY",
@@ -160,7 +160,7 @@ def test_provider_inference_openrouter(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
     result = resolve_llm_credential(
         primary_env="AIQ_VLM_API_KEY",
-        fallback_envs=("NVIDIA_API_KEY",),
+        fallback_envs=("SOME_FALLBACK_KEY",),
         default_base_url=_OPENROUTER,
         default_model="m",
     )

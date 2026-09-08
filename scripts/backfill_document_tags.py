@@ -38,7 +38,7 @@ The summary/tagging LLM is only constructible inside the NAT runtime (resolved
 from the ``llms:`` config section during function registration). Scripts run
 outside NAT, so this builds an OpenAI-compatible client directly from env vars
 that MUST match the config's ``summary_llm`` settings (see the ``summary_llm``
-block in ``configs/config_*.yml`` — ``_type: nim`` is OpenAI-compatible). The
+block in ``configs/config_oib_openrouter.yml``). The
 key is resolved through the shared credential resolver
 (``aiq_agent.common.credential_resolution``), so this script inherits the same
 chain as every other bespoke call site. BYOK does not apply (no org context
@@ -47,7 +47,7 @@ outside NAT):
 * ``BACKFILL_SUMMARY_API_KEY`` — required, but falls back to the provider key
   inferred from the base URL (``OPENROUTER_API_KEY`` for the default
   openrouter.ai base URL).
-* ``BACKFILL_SUMMARY_BASE_URL`` — default ``https://integrate.api.nvidia.com/v1``.
+* ``BACKFILL_SUMMARY_BASE_URL`` — default ``https://openrouter.ai/api/v1``.
 * ``BACKFILL_SUMMARY_MODEL`` — default ``nvidia/nemotron-mini-4b-instruct``.
 
 STORE ACCESS

@@ -40,8 +40,8 @@ change. The one exception is adding a brand-new template, which needs a one-line
   Template". Note it does not document every template's variables (e.g.
   `source_router.j2`, `writer.j2`, `source_registry.j2`) — the `.j2` files are
   authoritative for the variables they actually use.
-- `docs/source/customization/swapping-models.md`: choosing hosted vs. self-hosted
-  NIMs and pointing config at them.
+- `docs/architecture/llm-providers.md`: what an `llms:` endpoint must support,
+  and how to point an entry at another OpenAI-compatible host.
 - `docs/source/customization/configuration-reference.md`: the `llms` section and
   each agent's config fields (`deep_research_agent`, `clarifier_agent`, …).
 - `src/aiq_agent/common/prompt_utils.py`: `load_prompt` and

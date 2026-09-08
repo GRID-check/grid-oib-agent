@@ -15,7 +15,6 @@ from knowledge_layer.llamaindex.adapter import vlm_configured
 @pytest.fixture(autouse=True)
 def _clear_vlm_env(monkeypatch):
     monkeypatch.delenv("AIQ_VLM_API_KEY", raising=False)
-    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("AIQ_VLM_BASE_URL", raising=False)
 

@@ -17,7 +17,7 @@ Use these repository docs as the source of truth:
 - `docs/source/examples/index.md` for example configs and use cases.
 - `docs/source/deployment/docker-compose.md` for `BACKEND_CONFIG` in Docker Compose.
 - `docs/source/deployment/kubernetes.md`, `deploy/helm/README.md`, and `deploy/helm/deployment-k8s/README.md` for Helm and Kubernetes deployment behavior.
-- `docs/source/customization/knowledge-layer.md`, `docs/source/customization/mcp-tools.md`, `docs/source/customization/tools-and-sources.md`, and `docs/source/customization/swapping-models.md` for specific customization topics.
+- `docs/source/customization/knowledge-layer.md`, `docs/source/customization/mcp-tools.md`, and `docs/source/customization/tools-and-sources.md` for specific customization topics; `docs/architecture/llm-providers.md` for the LLM endpoint contract.
 
 ## Config Selection
 

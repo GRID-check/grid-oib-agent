@@ -34,7 +34,7 @@ The FreshQA evaluator uses an LLM judge. The default configs use **OpenAI GPT-4o
 
 ### Other API keys
 
-Set in `deploy/.env`: `NVIDIA_API_KEY` (agent), `TAVILY_API_KEY` (web search).
+Set in `deploy/.env`: `OPENROUTER_API_KEY` (agent), `TAVILY_API_KEY` (web search).
 
 ## Quick Start
 

@@ -44,8 +44,8 @@ Users need:
   - Python 3.11+ and `uv` for local process or CLI mode.
   - Node.js 20+ and `npm` for local browser UI development mode.
   - `kubectl` 1.28+, Helm 3.12+, and access to a Kubernetes cluster for Helm mode.
-- Network access to GitHub, NVIDIA-hosted model endpoints, and any selected search provider.
-- Credentials stored outside chat. Hosted-model usage requires `NVIDIA_API_KEY`; web research requires at least
+- Network access to GitHub, OpenRouter, and any selected search provider.
+- Credentials stored outside chat. Every model, the embeddings, the VLM and the reranker need `OPENROUTER_API_KEY`; web research requires at least
   one supported search provider key such as `TAVILY_API_KEY`, `SERPER_API_KEY`, or `EXA_API_KEY`.
 - System capacity for the selected runtime. Docker Compose mode starts the AI-Q backend and PostgreSQL by default;
   browser UI mode also uses frontend port `3000`. Self-hosted model or RAG deployments may require GPU resources.
@@ -303,7 +303,7 @@ Expected output: a successful health response. Then tell the user to keep `AIQ_S
 
 **Causes:**
 
-- `NVIDIA_API_KEY` is missing or empty.
+- `OPENROUTER_API_KEY` is missing or empty.
 - No supported search provider key is configured for web research.
 
 **Solutions:**

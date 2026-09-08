@@ -81,7 +81,7 @@ echo ""
 if [ ! -f deploy/.env ]; then
     echo "Creating .env file from template..."
     cp deploy/.env.example deploy/.env
-    echo "Please edit deploy/.env and add your NVIDIA_API_KEY"
+    echo "Please edit deploy/.env and add your OPENROUTER_API_KEY"
 else
     echo ".env file already exists"
 fi
@@ -110,7 +110,7 @@ echo "=== Setup Complete! ==="
 echo ""
 echo "Next steps:"
 echo "1. Activate virtual environment: source .venv/bin/activate"
-echo "2. Add your NVIDIA_API_KEY to deploy/.env"
+echo "2. Add your OPENROUTER_API_KEY to deploy/.env"
 echo "3. Run the agent:"
 echo "   - CLI mode:        ./scripts/start_cli.sh"
 echo "   - Skill backend:   ./scripts/start_as_skill.sh"

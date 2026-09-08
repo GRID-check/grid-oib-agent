@@ -86,7 +86,7 @@ def resolve_api_key(base_url: str, model: str) -> str:
             return key
     except Exception:  # noqa: BLE001 - the hand chain below is the whole point
         pass
-    for env in ("AIQ_EMBED_API_KEY", "NVIDIA_API_KEY", "OPENROUTER_KEY", "OPENROUTER_API_KEY"):
+    for env in ("AIQ_EMBED_API_KEY", "OPENROUTER_KEY", "OPENROUTER_API_KEY"):
         value = os.environ.get(env)
         if value:
             return value

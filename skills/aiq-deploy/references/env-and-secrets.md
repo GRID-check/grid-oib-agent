@@ -25,7 +25,7 @@ env = Path("deploy/.env")
 presence = {}
 runtime_presence = {}
 secret_keys = {
-    "NVIDIA_API_KEY",
+    "OPENROUTER_API_KEY",
     "TAVILY_API_KEY",
     "SERPER_API_KEY",
     "EXA_API_KEY",
@@ -56,7 +56,7 @@ def present(key: str) -> str:
     return "SET" if presence.get(key) or runtime_presence.get(key) else "MISSING"
 
 for key in [
-    "NVIDIA_API_KEY",
+    "OPENROUTER_API_KEY",
     "TAVILY_API_KEY",
     "SERPER_API_KEY",
     "EXA_API_KEY",
@@ -74,7 +74,7 @@ print(f"BACKEND_CONFIG={present('BACKEND_CONFIG')}")
 PY
 ```
 
-Core hosted-model usage requires `NVIDIA_API_KEY`. Web research requires at least one configured search provider key for the selected config.
+Every model, the embeddings, the VLM and the reranker route through OpenRouter, so `OPENROUTER_API_KEY` is the one required key. Web research requires at least one configured search provider key for the selected config.
 
 For the public Agent Skill backend path, use `REQUIRE_AUTH=false` only for local single-user validation on a trusted
 machine. This disables AI-Q API authentication. For any shared, multi-user, or internet-facing deployment, set

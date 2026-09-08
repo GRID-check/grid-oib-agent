@@ -1,7 +1,8 @@
 # Model selection
 
-Authoritative sources: `docs/source/customization/swapping-models.md` and the
-`llms` section of `docs/source/customization/configuration-reference.md`.
+Authoritative sources: `docs/architecture/llm-providers.md`,
+`docs/architecture/org-model-configuration.md` and the `llms:` section of
+`configs/config_oib_openrouter.yml`.
 
 ## Define models once, reference them by name
 
@@ -10,12 +11,16 @@ an agent. Do not hard-code model names in Python.
 
 ```yaml
 llms:
-  nemotron_super_llm:
-    _type: nim
+  capable_llm:
+    _type: openai       # every model is an OpenAI-compatible endpoint on OpenRouter
     model_name: <a capable model>
-  gpt_oss_llm:
-    _type: nim          # `openai` is also supported (also takes model_name)
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
+  cheap_llm:
+    _type: openai
     model_name: <a cheaper model>
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
 ```
 
 ## Assign a model to an agent role
@@ -50,21 +55,23 @@ falls back to `llm` when unset.
 functions:
   deep_research_agent:
     _type: deep_research_agent
-    orchestrator_llm: nemotron_super_llm   # required; also the default for unset roles
-    source_router_llm: nemotron_super_llm
-    researcher_llm: nemotron_super_llm
-    planner_llm: gpt_oss_llm               # cheaper model for planning
-    writer_llm: gpt_oss_llm
+    orchestrator_llm: deep_orchestrator_llm   # required; also the default for unset roles
+    source_router_llm: deep_router_llm
+    researcher_llm: deep_researcher_llm
+    planner_llm: deep_planner_llm             # cheaper model for planning
+    writer_llm: deep_orchestrator_llm
 ```
 
 This mirrors the real config (`configs/config_oib_openrouter.yml`); copy field
 names from there rather than guessing.
 
-## Swapping to a self-hosted NIM
+## Swapping the provider
 
-Follow `swapping-models.md`: run the NIM locally, then point the `llms:` entry's
-endpoint/model at it. Mind the hosted-API limitations and mitigations the doc
-lists.
+Every `llms:` entry is an OpenAI-compatible endpoint, and the shipped config
+routes all of them through OpenRouter. To use another OpenAI-compatible host,
+change `base_url` and `api_key` on the entry; `docs/architecture/llm-providers.md`
+lists what the endpoint must support. Remember the YAML model name is only the
+boot floor: the live default is admin-set (ADR-0014).
 
 ## Validation
 
