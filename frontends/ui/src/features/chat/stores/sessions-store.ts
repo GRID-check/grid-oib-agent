@@ -126,6 +126,7 @@ type PersistedChatState = {
   currentConversation: ChatState['currentConversation']
   pendingInteraction: ChatState['pendingInteraction']
   composerDrafts: ChatState['composerDrafts']
+  resolvedDeepResearchJobs: ChatState['resolvedDeepResearchJobs']
 }
 
 type PersistedChatStorageValue = StorageValue<PersistedChatState>
@@ -148,6 +149,9 @@ const prunePersistedChatState = (value: PersistedChatStorageValue): PersistedCha
       currentConversation: currentConversationId as unknown as Conversation | null,
       pendingInteraction: state.pendingInteraction ?? null,
       composerDrafts: state.composerDrafts ?? {},
+      // The settled-jobs record is what keeps a dismissed run dismissed
+      // across reloads; dropping it here would resurrect every purge.
+      resolvedDeepResearchJobs: state.resolvedDeepResearchJobs ?? {},
     },
   }
 }
@@ -222,6 +226,10 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
               // Sessions were just wiped to recover from quota — drop their
               // drafts too so no orphaned draft outlives its conversation.
               composerDrafts: {},
+              // The settled-jobs record references threads that no longer
+              // exist; keeping it would only suppress future polls for
+              // recycled job ids.
+              resolvedDeepResearchJobs: {},
             },
           })
 

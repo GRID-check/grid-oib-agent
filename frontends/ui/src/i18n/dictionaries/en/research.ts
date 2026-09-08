@@ -351,6 +351,11 @@ export const research = {
     purgeStuckRuns: 'Stop all stuck research runs',
     purgeDone: '{count, plural, one {Stopped # stuck research run} other {Stopped # stuck research runs}}',
     purgeIdle: 'No stuck research runs found',
+    /** Bulk-purge confirm (shared ConfirmDialog, warning tone): the purge is the one bulk action that cancels server work. */
+    purgeConfirmTitle: 'Stop stuck research?',
+    purgeConfirmBody:
+      'Every stuck research run will be cancelled and cannot be resumed. Your chats are kept — only the runs stop.',
+    purgeConfirmConfirm: 'Stop stuck research',
     newSessionDisabled: 'Start a new chat (disabled during active operations)',
     startNewSession: 'Start a new chat',
     cannotCreateActive: 'Cannot start a new chat while this one is still answering',
