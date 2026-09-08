@@ -1,4 +1,8 @@
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
+import { OrgMemoryDisabledError } from '@/lib/api/errors'
+import { resolveMembershipRole } from '@/lib/authz/membership-role'
+import { orgRoleHoldsPermission } from '@/lib/authz/org-role-permissions'
+import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { getDb } from '@/lib/db'
 import { executeRows } from '@/lib/db/execute-rows'
 import { projectMemory, projects } from '@/lib/db/schema'
@@ -957,6 +961,56 @@ export async function organizationExists(organizationId: string): Promise<boolea
     .where(eq(projects.organizationId, organizationId))
     .limit(1)
   return rows.length > 0
+}
+
+/** Who the agent's org-scoped write is acting FOR, as the turn's envelope carries it. */
+export interface AgentMemoryActor {
+  organizationId: string
+  /** The `(user, organization)` pair WorkOS keys a role on. Absent ⇒ refused. */
+  organizationMembershipId?: string | null
+}
+
+/**
+ * The acting user's right to have the agent write ORGANIZATION memory
+ * (spec AG-8, ADR-0008's open follow-up, audit finding S1).
+ *
+ * ## Why the ACTING USER and not the service token
+ *
+ * `POST /api/internal/memory` is authenticated by the shared service token,
+ * which proves the caller is the backend and says nothing about the person
+ * whose turn is running. An org item lands in every project's digest across
+ * the tenant, so a check on the token alone would make "remember that we
+ * always use GK5" a firm-wide write available to anyone who can get that
+ * sentence into a prompt. The envelope carries the identity; this resolves
+ * that identity's org role and asks the catalog what it holds — the same
+ * membership-id path the internal mounts twin takes (`lib/authz/membership-role`).
+ *
+ * ## Every uncertainty refuses
+ *
+ * No membership id, an unknown or inactive membership, a membership in another
+ * organization, a WorkOS outage: each resolves to a role of `null`, which holds
+ * nothing. That is deliberate — the refusal is not an error the agent reports,
+ * it is the AG-9 degrade: `remember` turns `ORG_MEMORY_DISABLED` into a
+ * proposal card, so the finding reaches the user as an offer rather than
+ * silently landing firm-wide.
+ *
+ * The error code is the one the Python client already recognises
+ * (`OrgMemoryDisabledError`), and it is deliberately the SAME code the
+ * `GRID_ALLOW_AGENT_ORG_MEMORY` deployment gate emits: to the agent both are
+ * "policy says no", and a second code would need a second branch on a path
+ * whose whole point is to degrade identically.
+ */
+export async function assertAgentMayWriteOrgMemory(actor: AgentMemoryActor): Promise<void> {
+  const role = await resolveMembershipRole(actor.organizationId, actor.organizationMembershipId)
+  if (await orgRoleHoldsPermission(role, ORG_PERMISSIONS.memoryWrite)) return
+
+  console.warn(
+    `[memory] Refused an agent organization-scoped write: the acting membership ` +
+      `does not hold ${ORG_PERMISSIONS.memoryWrite}`
+  )
+  throw new OrgMemoryDisabledError(
+    `The acting user may not record organization memory (missing ${ORG_PERMISSIONS.memoryWrite})`
+  )
 }
 
 /**

@@ -19,13 +19,35 @@
  */
 
 import { NextResponse } from 'next/server'
-import type { WorkspaceMountCapError, MountResult } from './mounts-service'
+import type {
+  MountResult,
+  WorkspaceMountCapError,
+  WorkspaceMountExclusionError,
+} from './mounts-service'
 
 /** `201` for a new mount, `200` for the idempotent re-mount. */
 export function mountResponse(result: MountResult): Response {
   return NextResponse.json(
     { mount: result.mount, grant: result.grant },
     { status: result.created ? 201 : 200 }
+  )
+}
+
+/**
+ * The exclusion refusal (spec AC-8), with the names both surfaces render.
+ *
+ * Top level for the same reason as the cap: the UI needs the list beside its
+ * add row and the agent needs it inside a sentence, and a shape the two read
+ * differently is a shape they can disagree about.
+ */
+export function mountExclusionResponse(error: WorkspaceMountExclusionError): Response {
+  return NextResponse.json(
+    {
+      error: error.message,
+      code: error.code,
+      excluded: error.excluded,
+    },
+    { status: 409 }
   )
 }
 

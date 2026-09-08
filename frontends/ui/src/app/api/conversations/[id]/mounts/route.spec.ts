@@ -38,7 +38,12 @@ vi.mock('@/lib/workspace/mounts-service', async (importOriginal) => {
 })
 
 import { NotFoundError } from '@/lib/api/errors'
-import { listMounts, mountProject, WorkspaceMountCapError } from '@/lib/workspace/mounts-service'
+import {
+  listMounts,
+  mountProject,
+  WorkspaceMountCapError,
+  WorkspaceMountExclusionError,
+} from '@/lib/workspace/mounts-service'
 import { GET, POST } from './route'
 
 const CONVERSATION = 'conv_buero'
@@ -135,6 +140,23 @@ describe('POST /api/conversations/:id/mounts', () => {
       code: 'WORKSPACE_MOUNT_CAP',
       cap: 5,
       mounted: ['Seestadt', 'Nordbahnhof'],
+    })
+  })
+
+  it('renders the exclusion refusal with the NAMES at the top level (spec AC-8)', async () => {
+    vi.mocked(mountProject).mockRejectedValue(
+      new WorkspaceMountExclusionError(['Anna Meier', 'Bernd Huber'])
+    )
+
+    const response = await post({ projectId: PROJECT })
+
+    expect(response.status).toBe(409)
+    // Same shape as the cap's refusal, and for the same reason: the UI puts the
+    // names beside its add row, the agent puts them in a sentence, and a body
+    // the two read differently is a body they can disagree about.
+    expect(await response.json()).toMatchObject({
+      code: 'WORKSPACE_MOUNT_WOULD_EXCLUDE',
+      excluded: ['Anna Meier', 'Bernd Huber'],
     })
   })
 

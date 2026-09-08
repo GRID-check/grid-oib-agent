@@ -180,6 +180,14 @@ export const ORG_PERMISSION_SPECS: readonly PermissionSpec[] = [
     tier: 'org',
   },
   {
+    slug: 'org:memory:write',
+    name: 'Record organization memory',
+    // WorkOS caps this at 150 characters.
+    description:
+      'Let Piloti record findings in organization memory. Held by Admin, not by Member: an org-wide note is a firm-wide statement (ADR-0008, AG-8).',
+    tier: 'org',
+  },
+  {
     slug: 'org:projects:administer',
     name: 'Administer all projects',
     // WorkOS caps this at 150 characters; the reasoning lives in ./permissions.

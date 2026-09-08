@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The route factory (`@/lib/api/handler`) statically imports the session
 // guard, which pulls in authkit; internal routes never call it.
@@ -10,16 +10,19 @@ vi.mock('@/lib/auth/require-auth', () => ({
 }))
 
 vi.mock('@/lib/projects/memory-service', () => ({
+  assertAgentMayWriteOrgMemory: vi.fn(),
   createProjectMemoryItem: vi.fn(),
   createProjectMemoryItemForProject: vi.fn(),
   organizationExists: vi.fn(),
 }))
 
 import {
+  assertAgentMayWriteOrgMemory,
   createProjectMemoryItem,
   createProjectMemoryItemForProject,
   organizationExists,
 } from '@/lib/projects/memory-service'
+import { OrgMemoryDisabledError } from '@/lib/api/errors'
 import { POST } from './route'
 import { makeMemoryItem } from '@/test-utils/db-fixtures'
 
@@ -43,6 +46,12 @@ const validProjectPayload = {
   kind: 'derived_fact',
   content: 'The roof load is 2 kN/m2.',
 }
+
+beforeEach(() => {
+  // The acting user holds `org:memory:write` unless a case says otherwise; the
+  // permission itself is exercised in `lib/projects/memory-service.spec.ts`.
+  vi.mocked(assertAgentMayWriteOrgMemory).mockResolvedValue(undefined)
+})
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -190,6 +199,8 @@ describe('POST /api/internal/memory', () => {
         {
           scope: 'organization',
           organizationId: 'org-1',
+          userId: 'user_1',
+          organizationMembershipId: 'om_1',
           kind: 'preference',
           content: 'Prefer metric units.',
         },
@@ -204,6 +215,77 @@ describe('POST /api/internal/memory', () => {
     expect(body.code).toBe('ORG_MEMORY_DISABLED')
     expect(organizationExists).not.toHaveBeenCalled()
     expect(createProjectMemoryItem).not.toHaveBeenCalled()
+  })
+
+  it('refuses an org-scoped write the ACTING USER may not make (403), before touching the DB', async () => {
+    // The service token proves the caller is the backend and says nothing about
+    // the person whose turn it is: without `org:memory:write` the write is
+    // refused with the SAME code the deployment gate uses, so `remember`
+    // degrades into the proposal card either way (spec AG-8, AG-9).
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.stubEnv('GRID_ALLOW_AGENT_ORG_MEMORY', 'true')
+    vi.mocked(assertAgentMayWriteOrgMemory).mockRejectedValue(
+      new OrgMemoryDisabledError('The acting user may not record organization memory')
+    )
+
+    const response = await POST(
+      makeRequest(
+        {
+          scope: 'organization',
+          organizationId: 'org-1',
+          userId: 'user_1',
+          organizationMembershipId: 'om_member',
+          kind: 'preference',
+          content: 'Prefer metric units.',
+        },
+        REAL_TOKEN
+      )
+    )
+
+    expect(response.status).toBe(403)
+    expect((await response.json()).code).toBe('ORG_MEMORY_DISABLED')
+    expect(organizationExists).not.toHaveBeenCalled()
+    expect(createProjectMemoryItem).not.toHaveBeenCalled()
+  })
+
+  it('authorizes as the membership the envelope names, never as the service', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.stubEnv('GRID_ALLOW_AGENT_ORG_MEMORY', 'true')
+    vi.mocked(organizationExists).mockResolvedValue(true)
+    vi.mocked(createProjectMemoryItem).mockResolvedValue(
+      makeMemoryItem({ id: 'item-3', scope: 'organization', projectId: null })
+    )
+
+    await POST(
+      makeRequest(
+        {
+          scope: 'organization',
+          organizationId: 'org-1',
+          userId: 'user_1',
+          organizationMembershipId: 'om_1',
+          kind: 'preference',
+          content: 'Prefer metric units.',
+        },
+        REAL_TOKEN
+      )
+    )
+
+    expect(assertAgentMayWriteOrgMemory).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      organizationMembershipId: 'om_1',
+    })
+  })
+
+  it('never asks the permission for a PROJECT-scoped write', async () => {
+    // A project write is addressed by a project row and authorized by the row's
+    // own tenancy; asking an org-tier question about it would be a round trip
+    // for an answer nothing reads.
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(createProjectMemoryItemForProject).mockResolvedValue(makeMemoryItem({ id: 'item-p' }))
+
+    await POST(makeRequest(validProjectPayload, REAL_TOKEN))
+
+    expect(assertAgentMayWriteOrgMemory).not.toHaveBeenCalled()
   })
 
   it('rejects org-scoped writes for an unknown organization (404) when org writes are enabled', async () => {
@@ -245,6 +327,8 @@ describe('POST /api/internal/memory', () => {
         {
           scope: 'organization',
           organizationId: 'org-1',
+          userId: 'user_1',
+          organizationMembershipId: 'om_1',
           kind: 'preference',
           content: 'Prefer metric units.',
         },

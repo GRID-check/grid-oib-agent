@@ -11,6 +11,12 @@ vi.mock('@/lib/workspace/register-service', () => ({
   markProjectRegisterStale: vi.fn().mockResolvedValue(undefined),
 }))
 
+// The two WorkOS-backed answers behind the org-memory permission: who the
+// acting membership is, and what that role holds. Both are cached lookups in
+// production; here they are the two knobs the gate turns on.
+vi.mock('@/lib/authz/membership-role', () => ({ resolveMembershipRole: vi.fn() }))
+vi.mock('@/lib/authz/org-role-permissions', () => ({ orgRoleHoldsPermission: vi.fn() }))
+
 // Replace drizzle operators with plain descriptor objects so the specs can
 // assert on the exact conditions the service builds, without a database.
 vi.mock('drizzle-orm', () => ({
@@ -59,7 +65,11 @@ import { markProjectRegisterStale } from '@/lib/workspace/register-service'
 import { embedNote } from '@/lib/knowledge/embeddings'
 import type { ProjectMemoryItem } from '@/lib/db/schema'
 import { asDb, makeMemoryItem } from '@/test-utils/db-fixtures'
+import { OrgMemoryDisabledError } from '@/lib/api/errors'
+import { resolveMembershipRole } from '@/lib/authz/membership-role'
+import { orgRoleHoldsPermission } from '@/lib/authz/org-role-permissions'
 import {
+  assertAgentMayWriteOrgMemory,
   buildProjectMemoryDigest,
   createProjectMemoryItem,
   deleteProjectMemoryItem,
@@ -922,5 +932,59 @@ describe('implicateMemoryFromFeedback', () => {
     await expect(
       implicateMemoryFromFeedback({ organizationId: 'org-1', projectId: null, comment: 'kaputt' })
     ).resolves.toBe(0)
+  })
+})
+
+/**
+ * The permission behind an agent-authored ORGANIZATION memory write (spec AG-8,
+ * ADR-0008's open follow-up, audit finding S1).
+ *
+ * The internal memory endpoint is authenticated by a service token that proves
+ * only "this is the backend". These cases are about the second question it has
+ * to ask — may the PERSON whose turn is running record a sentence that lands in
+ * every project's digest?
+ */
+describe('assertAgentMayWriteOrgMemory', () => {
+  beforeEach(() => {
+    vi.mocked(resolveMembershipRole).mockResolvedValue('admin')
+    vi.mocked(orgRoleHoldsPermission).mockResolvedValue(true)
+  })
+
+  it('permits the write when the acting membership’s role holds org:memory:write', async () => {
+    await expect(
+      assertAgentMayWriteOrgMemory({ organizationId: 'org-1', organizationMembershipId: 'om_1' })
+    ).resolves.toBeUndefined()
+
+    expect(resolveMembershipRole).toHaveBeenCalledWith('org-1', 'om_1')
+    expect(orgRoleHoldsPermission).toHaveBeenCalledWith('admin', 'org:memory:write')
+  })
+
+  it('refuses with ORG_MEMORY_DISABLED when the role does not hold it', async () => {
+    // The code is the one the Python client already recognises: `remember`
+    // turns it into the proposal card rather than an error (spec AG-9), which
+    // is why the permission refusal must NOT invent a second code.
+    vi.mocked(orgRoleHoldsPermission).mockResolvedValue(false)
+
+    const failure = await assertAgentMayWriteOrgMemory({
+      organizationId: 'org-1',
+      organizationMembershipId: 'om_member',
+    }).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(OrgMemoryDisabledError)
+    expect((failure as OrgMemoryDisabledError).code).toBe('ORG_MEMORY_DISABLED')
+    expect((failure as OrgMemoryDisabledError).status).toBe(403)
+  })
+
+  it('refuses when the envelope carries no membership id at all', async () => {
+    // Nothing to authorize as. A role of null holds nothing, so this needs no
+    // branch of its own — but it needs a test, because "the field was missing"
+    // is exactly the shape a caller that forgot to send it produces.
+    vi.mocked(resolveMembershipRole).mockResolvedValue(null)
+    vi.mocked(orgRoleHoldsPermission).mockResolvedValue(false)
+
+    await expect(
+      assertAgentMayWriteOrgMemory({ organizationId: 'org-1' })
+    ).rejects.toBeInstanceOf(OrgMemoryDisabledError)
+    expect(orgRoleHoldsPermission).toHaveBeenCalledWith(null, 'org:memory:write')
   })
 })

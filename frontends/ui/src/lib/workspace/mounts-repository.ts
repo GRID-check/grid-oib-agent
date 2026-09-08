@@ -11,7 +11,7 @@
  */
 
 import 'server-only'
-import { and, asc, eq } from 'drizzle-orm'
+import { and, asc, count, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { conversationMounts, projects, type MountActor } from '@/lib/db/schema'
 
@@ -86,6 +86,32 @@ export async function listConversationMounts(
     // free and makes the boundary's promise true whatever it hands back next.
     mountedAt: new Date(row.mountedAt),
   }))
+}
+
+/**
+ * How many projects one conversation has mounted.
+ *
+ * The sharing guard asks this and nothing else: whether a Büro thread may be
+ * widened turns on whether it reads any project at all, and the count answers
+ * that without the project JOIN — the names are only worth fetching once
+ * something is going to be refused with them in it (AC-7).
+ */
+export async function countConversationMounts(
+  conversationId: string,
+  organizationId: string
+): Promise<number> {
+  const db = getDb()
+  const [row] = await db
+    .select({ mounted: count() })
+    .from(conversationMounts)
+    .where(
+      and(
+        eq(conversationMounts.conversationId, conversationId),
+        eq(conversationMounts.organizationId, organizationId)
+      )
+    )
+  // `count()` is a bigint on the wire; the driver may hand it back as a string.
+  return Number(row?.mounted ?? 0)
 }
 
 export interface InsertMountValues {

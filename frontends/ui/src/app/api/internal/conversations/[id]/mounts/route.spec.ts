@@ -46,6 +46,7 @@ import {
   mountProject,
   sessionForInternalMount,
   WorkspaceMountCapError,
+  WorkspaceMountExclusionError,
 } from '@/lib/workspace/mounts-service'
 import { POST } from './route'
 
@@ -168,6 +169,21 @@ describe('POST /api/internal/conversations/:id/mounts — as the USER (MT-3)', (
       code: 'WORKSPACE_MOUNT_CAP',
       cap: 5,
       mounted: ['Seestadt'],
+    })
+  })
+
+  it('hands the agent the exclusion refusal it can turn into a sentence (spec AC-8)', async () => {
+    // `open_project` on a shared thread: the tool has to be able to say who
+    // would lose the conversation, so the names are top level here exactly as
+    // they are on the person's own route.
+    vi.mocked(mountProject).mockRejectedValue(new WorkspaceMountExclusionError(['Anna Meier']))
+
+    const response = await POST(makeRequest(validBody, REAL_TOKEN), routeContext)
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({
+      code: 'WORKSPACE_MOUNT_WOULD_EXCLUDE',
+      excluded: ['Anna Meier'],
     })
   })
 

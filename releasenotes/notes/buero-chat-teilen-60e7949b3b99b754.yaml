@@ -1,0 +1,10 @@
+---
+features:
+  - >
+    A Büro chat can now be shared with colleagues. Because an office chat can
+    read projects you have brought into view, it can only be shared with people
+    who may see every one of them — and if someone loses access to such a
+    project later, the chat closes for them too.
+  - >
+    Bringing a project into a shared Büro chat says who would lose the
+    conversation by it, and does nothing, instead of quietly removing them.

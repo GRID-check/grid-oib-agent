@@ -30,8 +30,13 @@ import {
   mountProject,
   sessionForInternalMount,
   WorkspaceMountCapError,
+  WorkspaceMountExclusionError,
 } from '@/lib/workspace/mounts-service'
-import { mountCapResponse, mountResponse } from '@/lib/workspace/mount-wire'
+import {
+  mountCapResponse,
+  mountExclusionResponse,
+  mountResponse,
+} from '@/lib/workspace/mount-wire'
 
 type Params = { id: string }
 
@@ -72,6 +77,7 @@ export const POST = internalApiRoute<Params>(
         )
       } catch (error) {
         if (error instanceof WorkspaceMountCapError) return mountCapResponse(error)
+        if (error instanceof WorkspaceMountExclusionError) return mountExclusionResponse(error)
         throw error
       }
     })

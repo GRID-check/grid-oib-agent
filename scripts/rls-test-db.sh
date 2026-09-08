@@ -103,12 +103,17 @@ done
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
 # The register-recall suite is the tenancy gate ADR-0054 demands: a project the
 # member may not read must stay out of the Buero even when it wins the ranking,
-# and only a real ranking can show that.
-echo "==> running the isolation, BIM query, memory and register-recall suites as grid_app_rw"
+# and only a real ranking can show that. The workspace-sharing suite is the
+# other half of that gate: a shared Buero conversation is a join across
+# conversations, conversation_mounts and resource_shares, all read under RLS as
+# grid_app_rw, and a mocked repository would agree with a mount row the policy
+# would never have returned.
+echo "==> running the isolation, BIM query, memory, register-recall and workspace-sharing suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
     src/lib/bim/query.integration.spec.ts \
     src/lib/bim/model-shelf.integration.spec.ts \
     src/lib/projects/memory-service.integration.spec.ts \
-    src/lib/workspace/register-recall.integration.spec.ts
+    src/lib/workspace/register-recall.integration.spec.ts \
+    src/lib/sharing/workspace-sharing.integration.spec.ts

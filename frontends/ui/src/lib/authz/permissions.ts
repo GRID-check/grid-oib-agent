@@ -55,6 +55,23 @@ export const ORG_PERMISSIONS = {
    * per-project role.
    */
   chat: 'org:chat',
+  /**
+   * Let the AGENT write ORGANIZATION-scoped memory — the finding the Büro's
+   * `remember` tool would keep for the whole firm (ADR-0008's open follow-up,
+   * spec AG-8).
+   *
+   * Held by Admin and NOT by Member, unlike {@link chat}: a project memory
+   * item is a note about one project, an organization item is a sentence every
+   * project's digest then carries, so the failure mode of a wrong default is a
+   * wrong shared belief (spec OQ-4).
+   *
+   * Checked for the ACTING USER on the internal memory route, never for the
+   * service token: the token proves the caller is the backend and says nothing
+   * about the person whose turn is running. Without the permission the write is
+   * refused with `ORG_MEMORY_DISABLED`, which the agent degrades into a
+   * proposal card (spec AG-9) — the wanted default, not an error.
+   */
+  memoryWrite: 'org:memory:write',
   /** See and manage who is in the organization and what role they hold. */
   membersManage: 'org:members:manage',
   /**

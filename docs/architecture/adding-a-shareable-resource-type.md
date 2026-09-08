@@ -47,6 +47,22 @@ deep link all resolve through the registry.
 `lib/authz/catalog.ts` to add — resource authorization is the `RESOURCE_ROLES`
 ladder plus one container check.
 
+**A precondition of your own, if your type has one** (added 2026-09; spec
+SH-5a). Two optional descriptor members carry a rule the container cannot
+express: `assertReadable(session, id, probe)`, re-asked by
+`resolveResourceAccess` on **every** read, and
+`assertGrantable(session, id, subjectUserId)`, asked once by
+`grantResourceAccess` beside the container check. Both are optional and most
+types declare neither, which costs nothing. Throw `NotFoundError` from the first
+(denial must look like non-existence) and `BadRequestError` from the second (the
+sharer can already see the resource, so say what to fix).
+
+The Büro conversation is what added them: a workspace thread mounts projects, so
+it may only be read by someone who may view every one of them, and that can stop
+being true after the grant was written (ADR-0054, spec AC-7). Note the shape —
+the rule lives in `lib/workspace/conversation-sharing.ts` and the registry entry
+is two one-line delegations; nothing in `lib/sharing` learned what a mount is.
+
 **Presentation.** `AccessChip`, `AccessOverview`, `ShareDialog`, `InboxItemRow`,
 `InboxList`, `InboxBadge`, `MentionPicker`, `useSharing`, `useShareCandidates`
 and the event hub all take the type as data.
@@ -54,7 +70,9 @@ and the event hub all take the type as data.
 ## 2. What you legitimately write
 
 1. A member in `SHAREABLE_RESOURCE_TYPES` and one `ShareableDescriptor` in
-   `lib/sharing/registry.ts`.
+   `lib/sharing/registry.ts` — including `assertReadable` / `assertGrantable`
+   when your type has a precondition of its own (§1), and the rule they call,
+   which belongs in your own domain rather than in `lib/sharing`.
 2. On your own table: a `visibility` column, a tenancy read and a visibility
    write.
 3. Per inbox item type: the schema union member, two registry entries

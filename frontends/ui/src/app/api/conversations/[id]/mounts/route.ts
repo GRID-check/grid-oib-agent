@@ -19,8 +19,13 @@ import {
   listMounts,
   mountProject,
   WorkspaceMountCapError,
+  WorkspaceMountExclusionError,
 } from '@/lib/workspace/mounts-service'
-import { mountCapResponse, mountResponse } from '@/lib/workspace/mount-wire'
+import {
+  mountCapResponse,
+  mountExclusionResponse,
+  mountResponse,
+} from '@/lib/workspace/mount-wire'
 
 type Params = { id: string }
 
@@ -52,10 +57,11 @@ export const POST = apiRoute<Params>(
         })
       )
     } catch (error) {
-      // The one refusal with a body of its own: the UI disables its add row
-      // with the reason visible, and the same two facts reach the agent through
-      // the internal twin. Everything else takes the shared error envelope.
+      // The two refusals with a body of their own: the UI disables its add row
+      // with the reason visible, and the same facts reach the agent through the
+      // internal twin. Everything else takes the shared error envelope.
       if (error instanceof WorkspaceMountCapError) return mountCapResponse(error)
+      if (error instanceof WorkspaceMountExclusionError) return mountExclusionResponse(error)
       throw error
     }
   },

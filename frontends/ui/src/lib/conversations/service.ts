@@ -335,9 +335,11 @@ function requireWorkspaceChat(session: AuthorizedSession): void {
  *
  * Visibility is NOT set here: the column defaults to `private`, which is the
  * conversation descriptor's `defaultVisibility` (spec MG-2, ADR-0032). Sharing
- * is a deliberate act, so that the access chip means something — and for a
- * workspace conversation phase 1 keeps it there (spec AC-6, see
- * `updateConversationVisibilityInOrg`).
+ * is a deliberate act, so that the access chip means something — and a Büro
+ * thread is shared PERSON BY PERSON, because a recipient may be invited only
+ * while they may view every project it has mounted (spec AC-7). The blanket
+ * widenings it is refused, and why, are in `updateConversationVisibilityInOrg`;
+ * the rule itself is `lib/workspace/conversation-sharing.ts`.
  */
 export async function createConversation(
   session: AuthorizedSession,

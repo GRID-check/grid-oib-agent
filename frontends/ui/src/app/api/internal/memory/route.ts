@@ -13,18 +13,25 @@ import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
 import { withOptionalTenant } from '@/lib/db/tenant-context'
 import { NotFoundError, OrgMemoryDisabledError } from '@/lib/api/errors'
 import {
+  assertAgentMayWriteOrgMemory,
   createProjectMemoryItem,
   createProjectMemoryItemForProject,
   organizationExists,
 } from '@/lib/projects/memory-service'
 import { PROJECT_MEMORY_CONFIDENCES, PROJECT_MEMORY_KINDS } from '@/lib/db/schema'
 
-// Agent-authored org-wide memory is DENIED by default: an org item lands in
-// every project's digest across the tenant, and this service-token endpoint
-// cannot verify the human's org role, so an autonomous or prompt-injected write
-// would be a cross-project poisoning primitive (audit finding S1). Org-wide
-// findings are a deliberate, human-driven action via the org-memory panel.
-// Set GRID_ALLOW_AGENT_ORG_MEMORY=true only if you accept that risk.
+// The DEPLOYMENT half of the org-memory gate, kept as an off-switch above the
+// permission (audit finding S1): an org item lands in every project's digest
+// across the tenant, so an operator who wants no agent-authored org memory at
+// all in this deployment has a lever that does not depend on how WorkOS roles
+// are provisioned. Set GRID_ALLOW_AGENT_ORG_MEMORY=true to hand the decision to
+// the permission below.
+//
+// The AUTHORIZATION half is `assertAgentMayWriteOrgMemory`, which resolves the
+// ACTING user from the envelope and asks whether they hold `org:memory:write`
+// (spec AG-8). Both refuse with the same `ORG_MEMORY_DISABLED` code, because to
+// the agent both are "policy says no" and both degrade into the proposal card
+// the user can accept (spec AG-9).
 function agentOrgMemoryAllowed(): boolean {
   return (process.env.GRID_ALLOW_AGENT_ORG_MEMORY ?? '').toLowerCase() === 'true'
 }
@@ -34,6 +41,19 @@ const internalMemorySchema = z
     scope: z.enum(['project', 'organization']).default('project'),
     projectId: z.string().uuid().optional(),
     organizationId: z.string().min(1).optional(),
+    /**
+     * WHO the turn runs for, straight from its signed context envelope. Read
+     * only on the organization-scoped branch, where the write is authorized as
+     * that person rather than as the service token (spec AG-8).
+     *
+     * Optional because a project-scoped write is addressed by a project row and
+     * needs no acting user, and because an envelope that carries no membership
+     * id must REFUSE the org write rather than fail to parse — a 400 would make
+     * the agent report a malformed request where the honest outcome is "you may
+     * not do that here", which it degrades into a proposal card (spec AG-9).
+     */
+    userId: z.string().min(1).optional(),
+    organizationMembershipId: z.string().min(1).optional(),
     kind: z.enum(PROJECT_MEMORY_KINDS),
     content: z.string().trim().min(1).max(2000),
     confidence: z.enum(PROJECT_MEMORY_CONFIDENCES).default('medium'),
@@ -67,6 +87,7 @@ export const POST = internalApiRoute(
       scope,
       projectId,
       organizationId,
+      organizationMembershipId,
       kind,
       content,
       confidence,
@@ -84,7 +105,8 @@ export const POST = internalApiRoute(
       'project-scoped agent memory addressed by project id; the project row names the tenant',
       async () => {
         if (scope === 'organization') {
-          // Default-deny agent-authored org-wide writes (audit finding S1).
+          // Deployment gate first: it is the cheapest of the two and needs no
+          // WorkOS round trip to say no (audit finding S1).
           if (!agentOrgMemoryAllowed()) {
             console.warn(
               '[Internal Memory API] Rejected agent org-scoped write (GRID_ALLOW_AGENT_ORG_MEMORY not set)'
@@ -93,6 +115,12 @@ export const POST = internalApiRoute(
             // reports the accurate cause instead of mislabeling it a token mismatch.
             throw new OrgMemoryDisabledError('Agent organization-scoped memory is disabled')
           }
+          // Then the acting user's permission. Same code, because the agent's
+          // one honest answer to either is the proposal card (spec AG-8, AG-9).
+          await assertAgentMayWriteOrgMemory({
+            organizationId: organizationId as string,
+            organizationMembershipId,
+          })
           // Validate the org id against known tenants. There is no organizations
           // table, so "known" means: at least one project belongs to it. This
           // blocks arbitrary-org writes from a compromised backend, though an

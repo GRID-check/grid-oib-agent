@@ -322,6 +322,41 @@ flowchart TB
     (a project viewer can be a collaborator on one chat) but never **broader in
     reach**.
 
+- **SH-5a (MUST, added 2026-09-08).** A resource type MAY declare **its own
+  precondition on a person**, beyond tenancy and the container, and when it does
+  the substrate MUST enforce it in **both** places: when a grant is written, and
+  on **every read**. The two are not the same check — a grant is durable and the
+  fact underneath it may not be — so a type whose rule can stop holding is only
+  safe if the read re-asks.
+
+  The first such rule is the **Büro conversation** (ADR-0054,
+  [workspace-chat-spec](workspace-chat-spec.md) AC-7): a workspace conversation
+  reads whatever projects it has *mounted*, so a person may be party to it only
+  while they may **view every mounted project**. Consequences, each of which
+  MUST hold:
+  - A grant naming someone who may not view a mounted project is **refused with
+    an explanation naming the project** — the sharer can already see both, so
+    the refusal discloses nothing and the only useful "no" says what to fix.
+  - A reader who **loses** `project:view` on a mounted project loses the thread
+    at the next read, as a 404 (SH-6). This applies to its creator too: the
+    transcript quotes the project either way.
+  - **Mounting** a project into a shared thread re-validates every participant
+    (the creator plus every grant) and is **refused, naming who would lose
+    access** (`409 WORKSPACE_MOUNT_WOULD_EXCLUDE`), rather than silently
+    widening the project or silently evicting a participant.
+  - `organisation` visibility is refused for a workspace conversation **while
+    anything is mounted**: there is no "everyone who may view project X" for the
+    rule to be checked against. Such a thread is shared person by person.
+
+  **Known gap (2026-09-08):** the invite and mention PICKERS still flag
+  `needsProjectAccess` from the container alone (SH-19), so on a Büro thread
+  they can offer somebody whom the grant path then refuses by name. The
+  refusal is explicit and says which project to fix — a mention of such a
+  person is refused the same way, because the mention invite path goes through
+  the same grant — but the picker is not yet mount-aware. Making it so costs one
+  check per person per mounted project across the whole directory, which is why
+  it was not done in the same change.
+
 - **SH-6 (MUST).** Denial is **indistinguishable from non-existence**. A person
   without access to a resource receives the same response as for an identifier that
   does not exist. This already is the product's convention and MUST be preserved for
@@ -341,6 +376,12 @@ flowchart TB
   | How to render a reference to it | One line: title, icon, subtitle — used by the sharing UI *and* by every inbox item that points at it. |
   | How to build a deep link to it | Inbox items and mention notifications must be able to land the user on the exact spot. |
   | Whether mentions are possible inside it | Ties Pillar C to the substrate rather than to chat. |
+  | Its own read precondition, if it has one | SH-5a — re-asked on every read, so a rule that outlives the grant closes the resource when it stops holding. |
+  | Its own grant precondition, if it has one | SH-5a — asked once, when the grant is written, beside the container check. |
+
+  The last two are **optional members**: most types have no rule beyond tenancy
+  and the container, and a type that declares neither pays nothing on the read
+  path.
 
 - **SH-8 (MUST).** The registry MUST be **exhaustive by construction**: it must be
   impossible to add a shareable resource type without supplying every declared
@@ -1231,7 +1272,11 @@ Written as observable outcomes; each maps to at least one requirement above.
 >   the value (so no migration is needed later), but offering it before the
 >   org-policy control of SH-15 exists would let one member expose a thread to
 >   everyone with no admin able to prevent it. The registry lists only
->   `private`/`project` as permitted for conversations.
+>   `private`/`project` as permitted for conversations. A **Büro** conversation
+>   is refused it for a second, independent reason while it has mounts (SH-5a):
+>   "every member of the organisation" is exactly the audience AC-7 cannot be
+>   checked against. That refusal lives at the single write path for the column,
+>   so it holds the day the registry offers the value.
 > - **Observers get turn *state*, not token-level streaming** (ADR-0033 §7):
 >   "Piloti is answering X's question", then the answer when it lands. Mirroring
 >   the agent's frames to non-askers needs a relay out of the Python tier for a

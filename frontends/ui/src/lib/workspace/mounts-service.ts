@@ -20,8 +20,10 @@
  *     that project". A reader gets a project's documents through the documents
  *     API; they do not get the agent pointed at them.
  *  3. The CAP, here and nowhere else (`maxMountedProjects()`).
- *  4. The row, idempotent on the unique index.
- *  5. The grant, minted fresh on every answer.
+ *  4. The PARTICIPANTS, when the mount is new: a shared thread may not gain a
+ *     project that would shut somebody already in it out of it (spec AC-8).
+ *  5. The row, idempotent on the unique index.
+ *  6. The grant, minted fresh on every answer.
  *
  * ## Refusals say as little as possible
  *
@@ -39,8 +41,11 @@ import { resolveMembershipRole } from '@/lib/authz/membership-role'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { requireResourceAccess } from '@/lib/sharing/access'
+import { resolveParticipants } from '@/lib/sharing/service'
+import { resolvePeople, unknownPerson } from '@/lib/sharing/directory'
 import { createConversation } from '@/lib/conversations/service'
 import { findConversationInOrg } from '@/lib/conversations/repository'
+import { usersExcludedByProject } from './conversation-sharing'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { MountActor } from '@/lib/db/schema'
 import { maxMountedProjects } from './config'
@@ -92,6 +97,29 @@ export class WorkspaceMountCapError extends ApiError {
       'WORKSPACE_MOUNT_CAP',
       `This conversation already has the maximum of ${cap} mounted project(s)`,
       { cap, mounted }
+    )
+  }
+}
+
+/**
+ * The mount that would have shut somebody out, refused (spec AC-8).
+ *
+ * Carries the people BY NAME for the same reason the cap carries the projects:
+ * the refusal has to be actionable on both surfaces. A person sees "Anna Meier
+ * und Bernd Huber könnten dieses Projekt nicht sehen" beside the add row; the
+ * agent turns the same list into a sentence offering to unshare or to leave the
+ * project out. Names, not ids — an id is not something anyone can act on.
+ *
+ * 409 rather than 403: nothing about the caller is wrong. The conversation is
+ * in a state that this mount would break, which is what a conflict is.
+ */
+export class WorkspaceMountExclusionError extends ApiError {
+  constructor(readonly excluded: string[]) {
+    super(
+      409,
+      'WORKSPACE_MOUNT_WOULD_EXCLUDE',
+      `Mounting this project would shut ${excluded.length} participant(s) out of the conversation`,
+      { excluded }
     )
   }
 }
@@ -165,6 +193,8 @@ export async function mountProject(input: MountProjectInput): Promise<MountResul
     )
   }
 
+  if (!already) await assertMountKeepsEveryone(session, conversationId, projectId)
+
   const created = already
     ? false
     : await insertConversationMount({
@@ -209,6 +239,13 @@ export async function mountProject(input: MountProjectInput): Promise<MountResul
  * "this conversation no longer reads that project" is the outcome the caller
  * asked for either way. Answers already given are untouched — a mount decides
  * what the NEXT turn may read, never what an earlier one said.
+ *
+ * One consequence of the AC-7 read gate worth knowing: somebody who has LOST
+ * `project:view` on a mounted project can no longer reach the conversation at
+ * all, so they cannot unmount their way back into it either. That is the
+ * intended direction — the thread quotes the project they may no longer see —
+ * and the ways out are the ordinary ones: regain the project, or have another
+ * participant unmount it.
  */
 export async function unmountProject(
   session: AuthorizedSession,
@@ -292,6 +329,52 @@ async function authorizeMountableConversation(
       { scope: existing.scope }
     )
   }
+}
+
+/**
+ * The sharing half of the gate: a mount must not evict anyone (spec AC-8).
+ *
+ * A shared Büro thread is readable only by people who may view every mounted
+ * project (AC-7), so mounting a NEW project into one is the moment that rule
+ * could quietly stop holding. The two silent outcomes are both wrong — widening
+ * the project to whoever is in the thread, or leaving them with a conversation
+ * they can no longer open — so the mount is refused and says who it would have
+ * shut out.
+ *
+ * Three deliberate narrowings, so the common mount costs nothing:
+ *
+ *   - Only on a mount that is actually NEW. Re-mounting what is already
+ *     mounted changes nobody's access and must stay idempotent.
+ *   - Only the participants — the creator plus explicit grants
+ *     (`resolveParticipants`), which is the same set the fan-out uses. A
+ *     private thread with no grants has exactly one participant, the person
+ *     mounting, and the check ends there.
+ *   - Only the project being mounted, not every project already mounted. The
+ *     ones already there were checked when they were mounted or granted; a
+ *     revocation since then is caught at READ time, which is where a rule that
+ *     can stop holding belongs.
+ *
+ * The acting user is skipped: they have just proved `project:chat` on this
+ * project, which is strictly more than the `project:view` being asked of
+ * everyone else.
+ */
+async function assertMountKeepsEveryone(
+  session: AuthorizedSession,
+  conversationId: string,
+  projectId: string
+): Promise<void> {
+  const participants = (
+    await resolveParticipants(session.organizationId, 'conversation', conversationId)
+  ).filter((userId) => userId !== session.userId)
+  if (participants.length === 0) return
+
+  const excluded = await usersExcludedByProject(session, projectId, participants)
+  if (excluded.length === 0) return
+
+  const people = await resolvePeople(session.organizationId, excluded)
+  throw new WorkspaceMountExclusionError(
+    excluded.map((userId) => (people.get(userId) ?? unknownPerson(userId)).name)
+  )
 }
 
 /**

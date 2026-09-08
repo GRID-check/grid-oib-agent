@@ -16,6 +16,7 @@ import { and, desc, eq, exists, inArray, isNull, ne, or, sql } from 'drizzle-orm
 import { BadRequestError } from '@/lib/api/errors'
 import { getDb } from '@/lib/db'
 import { stripJsonNullBytes } from '@/lib/text/jsonb'
+import { countConversationMounts } from '@/lib/workspace/mounts-repository'
 import {
   conversationReads,
   conversations,
@@ -299,23 +300,33 @@ export async function findConversationTenancy(
  * Set a conversation's blanket visibility, scoped to the organization in SQL.
  * Returns null when the row does not exist in this org (caller maps to 404).
  *
- * ## Why a workspace conversation is refused here
+ * ## What a workspace conversation may be widened to
  *
- * A Büro conversation is private to its creator in phase 1 (spec AC-6), and
- * that has to be enforced somewhere other than the interface. Widening one is
- * not a small step: a workspace thread mounts projects (ADR-0054 phase 3), so
- * sharing it means sharing whatever it has mounted, and AC-7 says a recipient
- * must be able to view EVERY mounted project. Nothing computes that yet — the
- * mounts table does not exist — so a widened workspace thread today would be a
- * conversation shared on a rule nobody checked. Phase 4 builds the check
- * (ADR-0032's grant path, extended); until then the answer is no.
+ * A Büro thread is not private forever (that was phase 1, spec AC-6) — it is
+ * shared PERSON BY PERSON, because AC-7 permits a recipient only when they may
+ * view every project the thread has mounted, and only a named recipient can be
+ * asked that question. So the two blanket widenings are refused here:
  *
- * **This guard belongs one layer up**, beside the `allowedVisibilities` check
- * in `lib/sharing/service.ts`, where the rest of the visibility policy lives.
- * It is here because this is the single write path for the column — the sharing
- * descriptor calls it directly — so a guard here cannot be routed around, and
- * the alternative was a rule stated in a place that is not the place it is
- * applied. Move it up when phase 4 replaces it.
+ *   - `project`, because a workspace conversation has no project. The value
+ *     would name a container the row does not have, and `resolveResourceAccess`
+ *     would derive access for nobody — a visibility that reads as sharing and
+ *     shares with no one.
+ *   - `organization` **while anything is mounted**, because "everyone in the
+ *     organization" is precisely the audience nobody can check against AC-7:
+ *     there is no "everyone who may view project X". With no mounts a Büro
+ *     thread reads only what every member may read anyway, so the value is
+ *     honest and permitted — the registry withholds it from conversations for
+ *     its own reason (SH-15), and this guard is what makes the day it stops
+ *     doing so safe.
+ *
+ * **The guard stays at the write** rather than moving up beside the
+ * `allowedVisibilities` check in `lib/sharing/service.ts`, as its phase-1
+ * version promised. Two callers reach this function (the sharing descriptor and
+ * `lib/collaboration/cleanup.ts`), and it is the single write path for the
+ * column: a rule stated here cannot be routed around by a third. It is a
+ * data-shaped invariant, the kind a CHECK constraint would hold if the mounted
+ * count were expressible in one — not an authorization decision, which does
+ * belong to the service.
  */
 export async function updateConversationVisibilityInOrg(
   conversationId: string,
@@ -336,12 +347,22 @@ export async function updateConversationVisibilityInOrg(
     // and answering "workspace conversations cannot be shared" for an id that
     // does not exist would confirm the id (spec AC-9).
     if (existing?.scope === 'workspace') {
-      throw new BadRequestError(
-        'A Büro conversation stays private in this phase. Sharing one has to check every ' +
-          'mounted project against every recipient (spec AC-7), which arrives with mounts in ' +
-          'phase 4 (ADR-0032, ADR-0054).',
-        { scope: 'workspace', allowed: ['private'] },
-      )
+      if (visibility === 'project') {
+        throw new BadRequestError(
+          'A Büro conversation has no project, so it cannot be shared with one. Invite the ' +
+            'people who may view every mounted project instead (spec AC-7).',
+          { scope: 'workspace', allowed: ['private', 'organization'] },
+        )
+      }
+      const mounted = await countConversationMounts(conversationId, organizationId)
+      if (mounted > 0) {
+        throw new BadRequestError(
+          'This Büro conversation reads mounted projects, so it cannot be opened to the whole ' +
+            'organization: not every member may view every mounted project (spec AC-7). Share ' +
+            'it with named people, or remove the mounts first.',
+          { scope: 'workspace', mounted, allowed: ['private'] },
+        )
+      }
     }
   }
 

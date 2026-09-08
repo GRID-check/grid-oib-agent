@@ -56,6 +56,14 @@ vi.mock('@/lib/sharing/repository', () => ({
 }))
 
 vi.mock('@/lib/sharing/service', () => ({ resolveParticipants: vi.fn() }))
+// The Büro read rule the conversation descriptor delegates to (spec AC-7). It
+// reads the mount rows, so an unmocked one turns every access resolution in
+// this file into a database connection; what it DECIDES has its own spec
+// (`lib/workspace/conversation-sharing.spec.ts`).
+vi.mock('@/lib/workspace/conversation-sharing', () => ({
+  assertMountedProjectsReadable: vi.fn(),
+  assertSubjectMayJoinConversation: vi.fn(),
+}))
 // Discarding a chat now erases state that lives OUTSIDE Postgres before it
 // touches a row (ADR-0047 Phase 2). Mocked at the boundary so this suite can
 // state what the service does with each outcome; the erasure itself is tested

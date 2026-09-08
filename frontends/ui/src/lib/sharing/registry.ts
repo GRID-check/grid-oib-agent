@@ -41,6 +41,11 @@ import {
   updateDocumentVisibilityInOrg,
 } from '@/lib/documents/repository'
 import { documentDisplayName } from '@/lib/documents/display-name'
+import {
+  assertMountedProjectsReadable,
+  assertSubjectMayJoinConversation,
+} from '@/lib/workspace/conversation-sharing'
+import type { AuthorizedSession } from '@/lib/auth/types'
 
 /**
  * Everything `@/lib/sharing/access` needs about a resource to decide access, in
@@ -116,6 +121,40 @@ export interface ShareableDescriptor {
   ) => Promise<boolean>
   /** One-line title for inbox / mention copy (§3.3). */
   readonly describeRef: (resourceId: string, organizationId: string) => Promise<ResourceRef | null>
+  /**
+   * A type-specific precondition for READING one resource, beyond tenancy and
+   * the container — re-evaluated on every access resolution, so it is the place
+   * for a rule that can stop holding after access was granted.
+   *
+   * Throw `NotFoundError` to deny: a denial here must be indistinguishable from
+   * the resource not existing, like every other denial in this feature
+   * (ADR-0032, spec SH-6/AC-9). Omit the member when the type has no such rule —
+   * that is the common case, and the absent member costs the read path nothing.
+   *
+   * Conversations use it for the Büro rule: a workspace thread may be read only
+   * by someone who may view every project it has mounted (spec AC-7).
+   *
+   * Takes the probe the caller has already loaded, so a rule that applies to
+   * only SOME rows of a type can decide that without a second read.
+   */
+  readonly assertReadable?: (
+    session: AuthorizedSession,
+    resourceId: string,
+    probe: ResourceProbe
+  ) => Promise<void>
+  /**
+   * The same, for GRANTING access to a third party — checked once, when the
+   * grant is written, alongside the container precondition.
+   *
+   * Throw `BadRequestError` to refuse: the sharer can already see the resource,
+   * so the refusal is not a disclosure and the only useful form of it says what
+   * to fix. `assertReadable` is what keeps the rule true afterwards.
+   */
+  readonly assertGrantable?: (
+    session: AuthorizedSession,
+    resourceId: string,
+    subjectUserId: string
+  ) => Promise<void>
   /** Which of these ids still exist — orphan sweeps walk every registered type (§3.6). */
   readonly exists: (ids: readonly string[]) => Promise<Set<string>>
   /** Ids of this type inside a project — project-member cleanup (§3.5). */
@@ -123,10 +162,16 @@ export interface ShareableDescriptor {
 }
 
 /**
- * Organization-wide chat visibility is deliberately withheld in phase 1: the
- * model carries the value (so no migration is needed later) but offering it
- * before the org-policy control exists would let one member expose a thread to
- * everyone with no way for an admin to prevent it (spec SH-15, phase 2).
+ * Organization-wide chat visibility is deliberately withheld: the model carries
+ * the value (so no migration is needed later) but offering it before the
+ * org-policy control exists would let one member expose a thread to everyone
+ * with no way for an admin to prevent it (spec SH-15, phase 2).
+ *
+ * A Büro conversation would be refused it anyway while it has mounts, in the
+ * one place the column is written (`updateConversationVisibilityInOrg`): there
+ * is no "everyone who may view project X" to widen to (spec AC-7). Sharing a
+ * Büro thread is therefore person by person, which is the only audience the
+ * rule can be checked against.
  */
 const CONVERSATION_VISIBILITIES = ['private', 'project'] as const
 
@@ -163,6 +208,19 @@ const conversationDescriptor: ShareableDescriptor = {
     if (!row) return null
     return { title: row.title ?? null }
   },
+  // The Büro rule, in the two places it has to hold (spec AC-7). Both are
+  // no-ops for a project conversation and for a workspace one that has mounted
+  // nothing — the mount rows are what make the rule apply.
+  assertReadable: (session, resourceId, probe) =>
+    // A PROJECT conversation mounts nothing — migration 0081's CHECK makes
+    // `scope = 'project'` and `project_id` the same fact, and the mounts
+    // service refuses anything but a workspace conversation — so the rule
+    // cannot apply to it and the read costs it not one query. What is left is
+    // the Büro thread and the legacy unstamped one, and the latter answers
+    // "nothing mounted" from one indexed count.
+    probe.projectId ? Promise.resolve() : assertMountedProjectsReadable(session, resourceId),
+  assertGrantable: (session, resourceId, subjectUserId) =>
+    assertSubjectMayJoinConversation(session, resourceId, subjectUserId),
   exists: (ids) => conversationIdsExisting(ids),
   listIdsInProject: (projectId, organizationId) => listConversationIdsForProject(projectId, organizationId),
   deepLink: (resourceId, options) => {

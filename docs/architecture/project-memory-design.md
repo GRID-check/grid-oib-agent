@@ -108,6 +108,32 @@ reconcile does the work (spec PR-6, PR-7). The call cannot throw — a register
 outage must never cost a note its write — so nothing about memory's own
 guarantees changes here.
 
+**An ORGANIZATION-scoped write goes through two gates, and both refuse the same
+way.** In the Büro there is no project, so `remember` escalates its finding to
+organization scope (ADR-0054) — one sentence that then rides every project's
+digest across the tenant. `POST /api/internal/memory` is authenticated by the
+service token, which proves the caller is the backend and says nothing about the
+person whose turn is running, so an org write additionally needs:
+
+1. `GRID_ALLOW_AGENT_ORG_MEMORY=true`, the deployment off-switch (audit finding
+   S1) — an operator who wants no agent-authored org memory at all does not have
+   to reason about roles; and
+2. **`org:memory:write` held by the ACTING USER**, resolved from the
+   `organizationMembershipId` the turn's envelope carries
+   (`lib/authz/membership-role` → `orgRoleHoldsPermission`), exactly the way the
+   internal mounts twin authorizes as the user rather than as the service. The
+   permission is held by **Admin and not by Member** (ADR-0008's open follow-up,
+   spec AG-8, OQ-4): a project item is a note about one project, an organization
+   item is a firm-wide statement.
+
+Both refuse with **`403 ORG_MEMORY_DISABLED`** — the same code, on purpose. The
+Python `remember` tool has one honest answer to "policy says no": it turns that
+code into a **proposal card**, so the finding reaches the user as an offer they
+can accept through their own authenticated session (spec AG-9). A second code
+would need a second branch on a path whose whole point is to degrade
+identically. An envelope carrying no membership id refuses for the same reason a
+membership with the wrong role does: a role of `null` holds nothing.
+
 ### 3.2 Consolidate — the anti-drift gate (runs on every write)
 Before persisting a new item:
 - Embed it, find the top-k most similar existing active items.
@@ -399,6 +425,11 @@ approval loop, while never letting silent memory harden into unchallenged fact.
 - **DB**: `project_memory` table (§2) + a Drizzle migration; embed index namespace `mem_<project>`.
 - **Tool schema**: `remember(kind: enum, content: string, confidence: enum) -> {id}`.
 - **BFF**: `GET/POST/PATCH/DELETE /api/projects/[id]/memory` (auth + `requireProjectAccess`).
+- **BFF (internal)**: `POST /api/internal/memory` — service token, plus
+  `GRID_ALLOW_AGENT_ORG_MEMORY` and the acting user's `org:memory:write` for an
+  organization-scoped write (§3.1). The body carries `userId` and
+  `organizationMembershipId` from the turn's envelope; both are optional,
+  because a missing one must REFUSE the org write rather than fail to parse.
 - **Backend**: `POST /v1/projects/{id}/memory` (consolidate + persist + enqueue embed);
   `project_context.py` reads `x-grid-project-memory` and merges into the injected context.
 - **Serve**: extend `/api/websocket-scope` + `server.js` to emit the digest header and

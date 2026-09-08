@@ -31,6 +31,15 @@ vi.mock('./mounts-repository', () => ({
   insertConversationMount: vi.fn(),
   deleteConversationMount: vi.fn(),
 }))
+// The participant set and the per-person project check the AC-8 gate runs on.
+// Mocked because both reach WorkOS; the RULE — who is asked about, and what a
+// refusal says — is what these tests are about.
+vi.mock('@/lib/sharing/service', () => ({ resolveParticipants: vi.fn() }))
+vi.mock('@/lib/sharing/directory', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/sharing/directory')>()),
+  resolvePeople: vi.fn(),
+}))
+vi.mock('./conversation-sharing', () => ({ usersExcludedByProject: vi.fn() }))
 
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -40,6 +49,9 @@ import { findConversationInOrg } from '@/lib/conversations/repository'
 import { createConversation } from '@/lib/conversations/service'
 import type { Conversation } from '@/lib/db/schema'
 import { requireResourceAccess } from '@/lib/sharing/access'
+import { resolvePeople } from '@/lib/sharing/directory'
+import { resolveParticipants } from '@/lib/sharing/service'
+import { usersExcludedByProject } from './conversation-sharing'
 import { MOUNT_GRANT_TTL_SECONDS, verifyMountGrant } from './grant'
 import {
   deleteConversationMount,
@@ -54,6 +66,7 @@ import {
   sessionForInternalMount,
   unmountProject,
   WorkspaceMountCapError,
+  WorkspaceMountExclusionError,
 } from './mounts-service'
 
 const ORG = 'org_1'
@@ -96,6 +109,11 @@ beforeEach(() => {
   vi.mocked(listConversationMounts).mockResolvedValue([])
   vi.mocked(insertConversationMount).mockResolvedValue(true)
   vi.mocked(deleteConversationMount).mockResolvedValue(true)
+  // The ordinary Büro thread: nobody but its creator is party to it, so the
+  // AC-8 gate has nobody to ask about.
+  vi.mocked(resolveParticipants).mockResolvedValue(['user_1'])
+  vi.mocked(usersExcludedByProject).mockResolvedValue([])
+  vi.mocked(resolvePeople).mockResolvedValue(new Map())
 })
 
 afterEach(() => {
@@ -281,6 +299,103 @@ describe('mountProject — the cap, here and nowhere else (MT-8, MT-9)', () => {
     }).catch((error: unknown) => error)
 
     expect((failure as WorkspaceMountCapError).cap).toBe(5)
+  })
+})
+
+describe('mountProject — a mount never evicts a participant (spec AC-8)', () => {
+  const OTHER = 'user_colleague'
+
+  it('refuses the mount, NAMES who would lose the thread, and writes nothing', async () => {
+    vi.mocked(resolveParticipants).mockResolvedValue(['user_1', OTHER])
+    vi.mocked(usersExcludedByProject).mockResolvedValue([OTHER])
+    vi.mocked(resolvePeople).mockResolvedValue(
+      new Map([[OTHER, { userId: OTHER, email: null, name: 'Anna Meier', profilePictureUrl: null }]])
+    )
+
+    const failure = await mountProject({
+      session: session(),
+      conversationId: CONVERSATION,
+      projectId: PROJECT,
+      mountedBy: 'agent',
+    }).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(WorkspaceMountExclusionError)
+    // Names, because neither surface can render an id at somebody: the UI puts
+    // them beside the add row and the agent puts them in a sentence.
+    expect((failure as WorkspaceMountExclusionError).excluded).toEqual(['Anna Meier'])
+    expect((failure as WorkspaceMountExclusionError).code).toBe('WORKSPACE_MOUNT_WOULD_EXCLUDE')
+    expect(insertConversationMount).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the id when the directory cannot name somebody', async () => {
+    vi.mocked(resolveParticipants).mockResolvedValue(['user_1', OTHER])
+    vi.mocked(usersExcludedByProject).mockResolvedValue([OTHER])
+    vi.mocked(resolvePeople).mockResolvedValue(new Map())
+
+    const failure = await mountProject({
+      session: session(),
+      conversationId: CONVERSATION,
+      projectId: PROJECT,
+      mountedBy: 'user',
+    }).catch((error: unknown) => error)
+
+    // A WorkOS hiccup must not turn a refusal into a crash: the person is named
+    // by id rather than not named at all.
+    expect((failure as WorkspaceMountExclusionError).excluded).toEqual([OTHER])
+  })
+
+  it('never asks about the person doing the mounting', async () => {
+    vi.mocked(resolveParticipants).mockResolvedValue(['user_1'])
+    vi.mocked(listConversationMounts).mockResolvedValueOnce([]).mockResolvedValueOnce([mountRow()])
+
+    await mountProject({
+      session: session(),
+      conversationId: CONVERSATION,
+      projectId: PROJECT,
+      mountedBy: 'user',
+    })
+
+    // They just proved `project:chat` on this project, which is more than the
+    // `project:view` everyone else is being asked for — and a private thread
+    // has exactly this one participant, so the gate costs it no round trip.
+    expect(usersExcludedByProject).not.toHaveBeenCalled()
+  })
+
+  it('does not re-check an idempotent re-mount — the same mount, said twice', async () => {
+    vi.mocked(resolveParticipants).mockResolvedValue(['user_1', OTHER])
+    vi.mocked(listConversationMounts).mockResolvedValue([mountRow()])
+
+    const result = await mountProject({
+      session: session(),
+      conversationId: CONVERSATION,
+      projectId: PROJECT,
+      mountedBy: 'user',
+    })
+
+    // Re-mounting changes nobody's access, so a participant who lost the
+    // project since must not turn a no-op into a refusal.
+    expect(result.created).toBe(false)
+    expect(usersExcludedByProject).not.toHaveBeenCalled()
+  })
+
+  it('lets the mount through when every participant may view the project', async () => {
+    vi.mocked(resolveParticipants).mockResolvedValue(['user_1', OTHER])
+    vi.mocked(usersExcludedByProject).mockResolvedValue([])
+    vi.mocked(listConversationMounts).mockResolvedValueOnce([]).mockResolvedValueOnce([mountRow()])
+
+    const result = await mountProject({
+      session: session(),
+      conversationId: CONVERSATION,
+      projectId: PROJECT,
+      mountedBy: 'user',
+    })
+
+    expect(result.created).toBe(true)
+    expect(usersExcludedByProject).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'user_1' }),
+      PROJECT,
+      [OTHER]
+    )
   })
 })
 

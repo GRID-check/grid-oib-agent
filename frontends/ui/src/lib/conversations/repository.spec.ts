@@ -35,9 +35,19 @@ let nextRows: unknown[][] = []
  */
 let nextWrittenRows: unknown[][] = []
 
+/**
+ * And a third, for the mounted COUNT the Büro visibility guard reads
+ * (`countConversationMounts`). A workspace widening issues three statements
+ * with three result shapes — scope, count, the update's RETURNING — and one
+ * variable can only answer for one of them.
+ */
+let nextCountRows: unknown[][] = [[0]]
+
 const proxyDb = drizzle(async (sql, params) => {
   captured.push({ sql, params })
-  return { rows: sql.startsWith('update ') || sql.startsWith('insert ') ? nextWrittenRows : nextRows }
+  if (sql.startsWith('update ') || sql.startsWith('insert ')) return { rows: nextWrittenRows }
+  if (sql.includes('"conversation_mounts"')) return { rows: nextCountRows }
+  return { rows: nextRows }
 })
 
 vi.mock('@/lib/db', () => ({ getDb: () => proxyDb }))
@@ -98,6 +108,9 @@ beforeEach(() => {
   captured.length = 0
   nextRows = []
   nextWrittenRows = []
+  // "Nothing mounted" is the default a count answers with; the one test that
+  // widens a Büro thread says so explicitly.
+  nextCountRows = [[1]]
 })
 
 describe('listVisibleConversations — scoped to a project', () => {
@@ -224,17 +237,51 @@ describe('listVisibleConversations — narrowed to one level of the hierarchy', 
   })
 })
 
-describe('updateConversationVisibilityInOrg — the phase-1 Büro guard', () => {
-  it('refuses to widen a workspace conversation, naming the phase (spec AC-6)', async () => {
+describe('updateConversationVisibilityInOrg — what a Büro thread may widen to (spec AC-7)', () => {
+  it('refuses `project` for a workspace conversation — it has no project to share with', async () => {
     nextRows = [['workspace']]
 
-    await expect(
-      updateConversationVisibilityInOrg('conv_1', 'org_1', 'organization'),
-    ).rejects.toThrow(BadRequestError)
+    const failure = await updateConversationVisibilityInOrg('conv_1', 'org_1', 'project').catch(
+      (error: unknown) => error,
+    )
 
+    expect(failure).toBeInstanceOf(BadRequestError)
     // It read the row and then wrote NOTHING — the refusal is the whole point.
     expect(captured).toHaveLength(1)
     expect(captured[0].sql).toContain('select')
+  })
+
+  it('refuses `organization` while anything is mounted, and counts to find out', async () => {
+    // Two reads: the scope, then the mounted count. There is no audience that
+    // can be checked against AC-7 for "everyone in the organization".
+    nextRows = [['workspace']]
+
+    const failure = await updateConversationVisibilityInOrg(
+      'conv_1',
+      'org_1',
+      'organization',
+    ).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(BadRequestError)
+    expect((failure as BadRequestError).details).toMatchObject({ scope: 'workspace' })
+    expect(captured).toHaveLength(2)
+    expect(captured[1].sql).toContain('"conversation_mounts"')
+    expect(captured.every((query) => query.sql.startsWith('select'))).toBe(true)
+  })
+
+  it('lets a workspace conversation with NO mounts go organization-wide', async () => {
+    // Nothing mounted, so the thread reads only what every member may read
+    // anyway: the value is honest, and the guard is what makes the day the
+    // registry offers it (SH-15) a safe one.
+    nextRows = [['workspace']]
+    nextCountRows = [[0]]
+    nextWrittenRows = [conversationRow({ scope: 'workspace', visibility: 'organization' })]
+
+    await updateConversationVisibilityInOrg('conv_1', 'org_1', 'organization')
+
+    expect(captured).toHaveLength(3)
+    expect(captured[2].sql).toContain('update "conversations" set')
+    expect(captured[2].params).toContain('organization')
   })
 
   it('lets a project conversation be widened exactly as before', async () => {
