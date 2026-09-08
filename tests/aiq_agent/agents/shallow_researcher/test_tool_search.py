@@ -453,8 +453,8 @@ class TestTheAgentBindsWhatWasRetrieved:
         """Same bypass the agent tests use: these runs execute no real tool."""
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
-            patch("aiq_agent.agents.shallow_researcher.agent.sanitize_report") as mock_sanitize,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.sanitize_report") as mock_sanitize,
         ):
             mock_verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
                 verified_report=content, removed_citations=[]
@@ -569,8 +569,8 @@ class TestNarrowingCostsNoTurn:
     def _bypass_citation_pipeline(self):
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
-            patch("aiq_agent.agents.shallow_researcher.agent.sanitize_report") as mock_sanitize,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.sanitize_report") as mock_sanitize,
         ):
             mock_verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
                 verified_report=content, removed_citations=[]
@@ -655,6 +655,7 @@ class TestInertWhenDisabled:
         llm = MagicMock()
         llm.ainvoke = AsyncMock(return_value=AIMessage(content="Antwort"))
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
         return provider
@@ -704,6 +705,7 @@ class TestObservability:
         provider = MagicMock(spec=LLMProvider)
         llm = MagicMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         provider.get = MagicMock(return_value=llm)
         agent = ShallowResearcherAgent(
             llm_provider=provider,
@@ -727,6 +729,7 @@ class TestObservability:
         provider = MagicMock(spec=LLMProvider)
         llm = MagicMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         provider.get = MagicMock(return_value=llm)
         agent = ShallowResearcherAgent(
             llm_provider=provider,

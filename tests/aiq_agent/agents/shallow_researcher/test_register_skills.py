@@ -50,7 +50,7 @@ def _make_agent_stub():
 
     def _factory(*args, **kwargs):
         agent = MagicMock()
-        agent.run = AsyncMock(side_effect=lambda state: state)
+        agent.run = AsyncMock(side_effect=lambda state, turn=None: state)
         agent.build_tools = kwargs.get("tools")
         agent.init_kwargs = kwargs
         built.append(agent)
@@ -110,12 +110,13 @@ async def test_research_turn_resolves_allows_and_folds_skill_tool():
     )
     resolved = (_skill("forecast-analysis"), _skill("data-table-analysis"))
     runtime = _skill_runtime(resolved, ["forecast-analysis"])
+    stub = _make_agent_stub()
 
     with (
-        patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
-        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
-        patch("aiq_agent.skills.SkillRuntime", return_value=runtime) as RuntimeCls,
-        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
+        patch.object(register_module, "ShallowResearcherAgent", stub),
+        patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
+        patch.object(register_module, "SkillRuntime", return_value=runtime) as RuntimeCls,
+        patch.object(register_module, "SkillResolver") as ResolverCls,
     ):
         resolver = ResolverCls.return_value
         resolver.resolve.return_value = resolved
@@ -132,9 +133,12 @@ async def test_research_turn_resolves_allows_and_folds_skill_tool():
         resolver.resolve.assert_called_once_with("org-1")
         RuntimeCls.assert_called_once_with(skills=resolved, force_names=["forecast-analysis"])
 
-        # The rebuilt agent got both the search tool and use_skill.
-        # (build_tools records kwargs["tools"] on the stub; the final agent
-        # instance is the one with run() awaiting it.)
+        # The turn got both the search tool and use_skill; the agent itself
+        # was built once, at boot, with the search tool only.
+        assert len(stub.built) == 1
+        turn = stub.built[0].run.await_args.kwargs["turn"]
+        assert [getattr(t, "name", None) for t in turn.tools][0] == "web_search_tool"
+        assert len(turn.tools) == 2
         assert state.skills_block == "## Verfügbare Skills\n\n## Aktive Skills (vom Nutzer erzwungen)"
         assert result.skills_activated == ["forecast-analysis"]
         await gen.aclose()
@@ -161,13 +165,10 @@ async def test_the_catalog_is_announced_before_the_llm_runs():
 
     with (
         patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
-        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
-        patch("aiq_agent.skills.SkillRuntime", return_value=runtime),
-        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
-        patch(
-            "aiq_agent.skills.events.emit_skills_offered",
-            side_effect=lambda rt: announced.append(rt),
-        ),
+        patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
+        patch.object(register_module, "SkillRuntime", return_value=runtime),
+        patch.object(register_module, "SkillResolver") as ResolverCls,
+        patch.object(register_module, "emit_skills_offered", side_effect=lambda rt: announced.append(rt)),
     ):
         ResolverCls.return_value.resolve.return_value = resolved
 
@@ -195,12 +196,9 @@ async def test_a_turn_without_skills_announces_nothing():
 
     with (
         patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
-        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
-        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
-        patch(
-            "aiq_agent.skills.events.emit_skills_offered",
-            side_effect=lambda rt: announced.append(rt),
-        ),
+        patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
+        patch.object(register_module, "SkillResolver") as ResolverCls,
+        patch.object(register_module, "emit_skills_offered", side_effect=lambda rt: announced.append(rt)),
     ):
         ResolverCls.return_value.resolve.return_value = ()
 
@@ -230,9 +228,9 @@ async def test_explicit_slash_invocation_loads_the_skill():
 
     with (
         patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
-        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
-        patch("aiq_agent.skills.SkillRuntime", return_value=runtime) as RuntimeCls,
-        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
+        patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
+        patch.object(register_module, "SkillRuntime", return_value=runtime) as RuntimeCls,
+        patch.object(register_module, "SkillResolver") as ResolverCls,
     ):
         resolver = ResolverCls.return_value
         resolver.resolve.return_value = resolved
@@ -263,7 +261,7 @@ async def test_skills_disabled_skips_resolution():
 
     with (
         patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
-        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
+        patch.object(register_module, "SkillResolver") as ResolverCls,
     ):
         run_fn, gen = await _get_run_fn(config, builder)
 
@@ -290,9 +288,9 @@ async def test_allowlist_narrows_resolved_set():
 
     with (
         patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
-        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
-        patch("aiq_agent.skills.SkillRuntime", return_value=runtime) as RuntimeCls,
-        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
+        patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
+        patch.object(register_module, "SkillRuntime", return_value=runtime) as RuntimeCls,
+        patch.object(register_module, "SkillResolver") as ResolverCls,
     ):
         resolver = ResolverCls.return_value
         resolver.resolve.return_value = resolved
@@ -321,9 +319,9 @@ async def test_unknown_forced_skill_passes_through_allowlist():
 
     with (
         patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
-        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
-        patch("aiq_agent.skills.SkillRuntime", return_value=runtime) as RuntimeCls,
-        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
+        patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
+        patch.object(register_module, "SkillRuntime", return_value=runtime) as RuntimeCls,
+        patch.object(register_module, "SkillResolver") as ResolverCls,
     ):
         resolver = ResolverCls.return_value
         resolver.resolve.return_value = resolved
@@ -364,20 +362,22 @@ async def test_the_forced_house_skills_get_their_own_iteration_budget():
 
     with (
         patch.object(register_module, "ShallowResearcherAgent", stub),
-        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
-        patch("aiq_agent.skills.SkillRuntime", return_value=runtime),
-        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
+        patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
+        patch.object(register_module, "SkillRuntime", return_value=runtime),
+        patch.object(register_module, "SkillResolver") as ResolverCls,
     ):
         ResolverCls.return_value.resolve.return_value = resolved
 
         run_fn, gen = await _get_run_fn(config, builder)
         await run_fn(ShallowResearchAgentState(messages=[HumanMessage(content="Wie tief?")]))
 
-        kwargs = stub.built[-1].init_kwargs
         # The research budget is untouched: it is what the traced floors in
         # config_oib_openrouter.yml measure, and they assume ONE use_skill.
-        assert kwargs["max_tool_iterations"] == 7
-        assert kwargs["reserved_tool_iterations"] == 2
+        assert stub.built[-1].init_kwargs["max_tool_iterations"] == 7
+        # The reserve is a property of the TURN (what the org has published),
+        # so it rides on the turn config, not on a rebuilt agent.
+        turn = stub.built[-1].run.await_args.kwargs["turn"]
+        assert turn.reserved_tool_iterations == 2
         await gen.aclose()
 
 
@@ -398,9 +398,9 @@ async def test_a_forced_skill_the_model_never_opened_is_not_reported_as_used(cap
 
     with (
         patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
-        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
-        patch("aiq_agent.skills.SkillRuntime", return_value=runtime),
-        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
+        patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
+        patch.object(register_module, "SkillRuntime", return_value=runtime),
+        patch.object(register_module, "SkillResolver") as ResolverCls,
     ):
         ResolverCls.return_value.resolve.return_value = resolved
 
@@ -434,9 +434,9 @@ async def test_the_skill_resolve_runs_off_the_event_loop():
 
     with (
         patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
-        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
-        patch("aiq_agent.skills.SkillRuntime", return_value=runtime),
-        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
+        patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
+        patch.object(register_module, "SkillRuntime", return_value=runtime),
+        patch.object(register_module, "SkillResolver") as ResolverCls,
     ):
         ResolverCls.return_value.resolve.side_effect = resolve
         run_fn, gen = await _get_run_fn(config, builder)

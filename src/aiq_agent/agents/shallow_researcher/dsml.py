@@ -22,8 +22,14 @@ salvage) but still stripped from the visible text when it is well-formed markup.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+
+from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
+from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
+from aiq_agent.cards.models import grid_card_adapter
+from aiq_agent.cards.registry import get_card_registry
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +55,15 @@ _EMIT_CARD_PARAM_RE = re.compile(
 )
 
 
+def _string_step(ch: str, escaped: bool) -> tuple[bool, bool]:
+    """One character inside a JSON string literal: ``(still_in_string, escaped)``."""
+    if escaped:
+        return True, False
+    if ch == "\\":
+        return True, True
+    return ch != '"', False
+
+
 def _extract_balanced_json(text: str, start: int) -> tuple[str | None, int]:
     """Return the brace-balanced JSON object starting at ``text[start]``.
 
@@ -65,22 +80,26 @@ def _extract_balanced_json(text: str, start: int) -> tuple[str | None, int]:
     for i in range(start, len(text)):
         ch = text[i]
         if in_string:
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == '"':
-                in_string = False
+            in_string, escaped = _string_step(ch, escaped)
             continue
         if ch == '"':
             in_string = True
-        elif ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : i + 1], i + 1
+            continue
+        depth += (ch == "{") - (ch == "}")
+        if depth == 0:
+            return text[start : i + 1], i + 1
     return None, start
+
+
+def _dsml_token_end(region: str, i: int) -> int | None:
+    """Where the DSML token (tag or JSON payload) starting at ``i`` ends, or None if there is none."""
+    if region[i] == "<":
+        match = _DSML_TAG_RE.match(region, i)
+        return match.end() if match else None
+    if region[i] == "{":
+        _, end = _extract_balanced_json(region, i)
+        return end if end > i else None
+    return None
 
 
 def _consume_dsml_region(region: str) -> int:
@@ -92,31 +111,18 @@ def _consume_dsml_region(region: str) -> int:
     that follows it.
     """
     i = 0
-    n = len(region)
     # Position just past the last DSML token (tag or JSON payload). Whitespace
     # after the final token belongs to any following prose, not to the region,
     # so we never consume past ``last_end``.
     last_end = 0
-    while i < n:
-        ch = region[i]
-        if ch.isspace():
+    while i < len(region):
+        if region[i].isspace():
             i += 1
             continue
-        if ch == "<":
-            match = _DSML_TAG_RE.match(region, i)
-            if match:
-                i = match.end()
-                last_end = i
-                continue
+        end = _dsml_token_end(region, i)
+        if end is None:
             break
-        if ch == "{":
-            _, end = _extract_balanced_json(region, i)
-            if end > i:
-                i = end
-                last_end = i
-                continue
-            break
-        break
+        i = last_end = end
     return last_end
 
 
@@ -125,17 +131,9 @@ def _salvage_card(card_json: str) -> None:
 
     Mirrors ``aiq_agent.cards.register.emit_card``: parse → validate against the
     shared adapter → reject system-only card types → push into the active
-    conversation card registry. Imports are lazy to keep this module cheap and
-    avoid import cycles. Fail-soft.
+    conversation card registry. Fail-soft.
     """
     try:
-        import json
-
-        from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
-        from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
-        from aiq_agent.cards.models import grid_card_adapter
-        from aiq_agent.cards.registry import get_card_registry
-
         # strict=False for the same reason emit_card parses with it: a raw
         # newline inside a string is a multi-line mermaid source, not bad JSON.
         payload = json.loads(card_json, strict=False)

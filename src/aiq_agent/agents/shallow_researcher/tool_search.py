@@ -72,8 +72,11 @@ from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
 
+from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 from pydantic import Field
+
+from aiq_agent.common import content_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -293,33 +296,35 @@ class ToolSearchIndex:
         candidates: dict[str, float] = {}
         if token in self._doc_freq:
             candidates[token] = 1.0
-        if len(token) >= _MIN_PREFIX:
-            # Query token is a prefix of an index term: "raumhoh" → "raumhohen".
-            for term in self._terms_with_prefix(token):
-                if term != token:
-                    candidates.setdefault(term, _PREFIX_WEIGHT)
-            # Index term is a prefix of the query token: "fluchtwegbreite" in
-            # the question reaches "fluchtweg" in the description.
-            for cut in range(len(token) - 1, _MIN_PREFIX - 1, -1):
-                head = token[:cut]
-                if head in self._doc_freq:
-                    candidates.setdefault(head, _PREFIX_WEIGHT)
-                    break
+        if len(token) < _MIN_PREFIX:
+            return sorted(candidates.items())
+        # Query token is a prefix of an index term: "raumhoh" → "raumhohen".
+        for term in self._terms_with_prefix(token):
+            if term != token:
+                candidates.setdefault(term, _PREFIX_WEIGHT)
+        # Index term is a prefix of the query token: "fluchtwegbreite" in
+        # the question reaches "fluchtweg" in the description.
+        for cut in range(len(token) - 1, _MIN_PREFIX - 1, -1):
+            head = token[:cut]
+            if head in self._doc_freq:
+                candidates.setdefault(head, _PREFIX_WEIGHT)
+                break
         return sorted(candidates.items())
 
+    def _best_match(self, doc: _Doc, token: str, norm: float) -> float:
+        """The strongest BM25 contribution any candidate term makes for ``token``."""
+        best = 0.0
+        for term, match_weight in self._candidate_terms(token):
+            tf = doc.term_freq.get(term)
+            if not tf:
+                continue
+            contribution = self._idf(term) * (tf * (_BM25_K1 + 1.0)) / (tf + norm)
+            best = max(best, contribution * match_weight)
+        return best
+
     def _score(self, doc: _Doc, weighted_tokens: dict[str, float]) -> float:
-        score = 0.0
         norm = _BM25_K1 * (1.0 - _BM25_B + _BM25_B * (doc.length / self._avg_len))
-        for token, weight in weighted_tokens.items():
-            best = 0.0
-            for term, match_weight in self._candidate_terms(token):
-                tf = doc.term_freq.get(term)
-                if not tf:
-                    continue
-                contribution = self._idf(term) * (tf * (_BM25_K1 + 1.0)) / (tf + norm)
-                best = max(best, contribution * match_weight)
-            score += best * weight
-        return score
+        return sum(self._best_match(doc, token, norm) * weight for token, weight in weighted_tokens.items())
 
     def select(
         self,
@@ -355,28 +360,17 @@ class ToolSearchIndex:
             return ToolSelection(selected=all_names, reason="empty_query")
 
         scored = [(self._score(doc, weighted), doc.name) for doc in candidates]
-        if not any(score > 0.0 for score, _ in scored):
-            # The question said nothing the tool corpus recognizes. Ranking by
-            # a table of zeros is picking at random; hand back everything.
-            return ToolSelection(selected=all_names, reason="no_signal")
-
-        # Descending score, ties broken by the tool's own NAME. Registration
-        # order looks deterministic and is not portable: two tools on equal
-        # positive scores straddling the `top_k` boundary would swap when the
-        # list is reordered, which is the same silent config knob the
-        # zero-score padding below was removed for — just one level down, where
-        # it is harder to see because both candidates were genuinely retrieved.
+        # Descending score, ties broken by the tool's own NAME: registration
+        # order looks deterministic and is not portable. A tool that scored
+        # ZERO was not retrieved and is never padded in: padding made the
+        # registration order a silent config knob (10 of 11 evaluation
+        # questions changed selection when the list was reversed) and bought
+        # no recall, the padded tools being unrelated by construction.
         scored.sort(key=lambda row: (-row[0], row[1]))
-        # A tool that scored ZERO was not retrieved, and binding it as though it
-        # had been makes the tool set's REGISTRATION ORDER a silent config knob:
-        # reversing the list changed the selection on 10 of the 11 evaluation
-        # questions, because whichever zero-scoring tools happened to sit first
-        # filled the slots the ranking left over. Padding buys no recall — the
-        # padded tools are unrelated to the question by construction — and it
-        # costs the schemas of `top_k` tools on every turn plus a selection
-        # nobody can reproduce from the query.
         ranked = [name for score, name in scored[:top_k] if score > 0.0]
         if not ranked:
+            # The question said nothing the tool corpus recognizes. Ranking by
+            # a table of zeros is picking at random; hand back everything.
             return ToolSelection(selected=all_names, reason="no_signal")
 
         chosen = set(ranked) | pinned
@@ -384,10 +378,10 @@ class ToolSearchIndex:
         withheld = tuple(name for name in all_names if name not in chosen)
         if not selected:
             return ToolSelection(selected=all_names, reason="empty_selection")
-        # Two distinguishable outcomes in the log. "ranked" is a full ranking
-        # over more candidates than fit; "ranked_sparse" means the corpus only
-        # recognized `len(ranked)` tools and the rest of the budget went unspent
-        # — which is the shape to look at when an agent reports being blinded.
+        # "ranked" is a full ranking over more candidates than fit;
+        # "ranked_sparse" means the corpus only recognized `len(ranked)` tools
+        # and the rest of the budget went unspent, the shape to look at when
+        # an agent reports being blinded.
         reason = "ranked" if len(ranked) >= top_k else "ranked_sparse"
         return ToolSelection(selected=selected, withheld=withheld, narrowed=bool(withheld), reason=reason)
 
@@ -408,10 +402,6 @@ def build_query_parts(messages: Sequence[Any], *, context_turns: int = 2) -> lis
       the rest of it — no drift, and the cached system prompt cannot go stale
       against a tool list that changed underneath it.
     """
-    from langchain_core.messages import HumanMessage
-
-    from aiq_agent.common import content_to_text
-
     wanted = max(0, context_turns) + 1
     human_texts: list[str] = []
     for msg in reversed(list(messages)):

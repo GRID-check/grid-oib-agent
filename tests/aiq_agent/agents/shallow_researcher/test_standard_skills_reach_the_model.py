@@ -44,6 +44,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
+import aiq_agent.agents.shallow_researcher.register as register_module
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.agents.shallow_researcher.register import ShallowResearchAgentConfig
 from aiq_agent.agents.shallow_researcher.register import shallow_research_agent
@@ -122,6 +123,7 @@ def _scripted_llm(*responses):
     """
     llm = MagicMock()
     llm.bind_tools = MagicMock(return_value=llm)
+    llm.bind = MagicMock(return_value=llm)
     llm.ainvoke = AsyncMock(side_effect=list(responses))
     return llm
 
@@ -152,8 +154,8 @@ def bypass_citation_pipeline():
     """
     with (
         patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-        patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as verify,
-        patch("aiq_agent.agents.shallow_researcher.agent.sanitize_report") as sanitize,
+        patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as verify,
+        patch("aiq_agent.agents.shallow_researcher.answer_pipeline.sanitize_report") as sanitize,
     ):
         verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
             verified_report=content, removed_citations=[]
@@ -214,7 +216,7 @@ async def _run_turn(llm, state):
     rows = [_served_row(VOICE), _served_row(CARDS)]
 
     with (
-        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
+        patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
         patch.object(SkillResolver, "_fetch_org_skills", return_value=rows) as fetch,
     ):
         gen = shallow_research_agent.__wrapped__(config, builder)

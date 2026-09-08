@@ -1,7 +1,17 @@
-"""NAT register function for shallow research agent."""
+"""NAT register function for shallow research agent.
+
+One :class:`ShallowResearcherAgent` is built at boot. Per request ``_run_turn``
+computes only what the turn varies (the data-source narrowing, the org's
+skills as a ``use_skill`` tool, the model override) as a :class:`TurnConfig`
+and hands it to ``agent.run``; nothing is compiled, read or re-indexed per turn.
+"""
 
 import asyncio
 import logging
+from collections.abc import Sequence
+from dataclasses import dataclass
+from dataclasses import field
+from typing import Any
 
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
@@ -13,14 +23,21 @@ from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import _create_chat_response
 from aiq_agent.common import all_mapped_tools_filtered_out
 from aiq_agent.common import filter_tools_by_sources
+from aiq_agent.common import format_user_facing_tool_error
+from aiq_agent.common import get_all_tool_refs
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import get_org_llm_credential_from_context
 from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
+from aiq_agent.common import validate_tool_availability
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import verify_deferred_tool_loading
+from aiq_agent.project_context import get_organization_id_from_context
+from aiq_agent.skills import SkillResolver
+from aiq_agent.skills import SkillRuntime
+from aiq_agent.skills.events import emit_skills_offered
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
@@ -33,14 +50,21 @@ from nat.data_models.function import FunctionBaseConfig
 
 # Importing this module runs its ``@register_function`` so NAT discovers the
 # ``ask_user`` tool through the same ``aiq_shallow_researcher`` entry point
-# that imports this file — the pattern ``cards/register.py`` uses for
+# that imports this file, the pattern ``cards/register.py`` uses for
 # ``surface_documents``, and no extra plugin entry point to keep in sync.
 from . import ask_user as _ask_user  # noqa: F401
 from .agent import ShallowResearcherAgent
+from .agent import TurnConfig
 from .models import ShallowResearchAgentState
 from .tool_search import ToolSearchSettings
 
 logger = logging.getLogger(__name__)
+
+_RESEARCH_TYPE = "shallow research"
+
+#: Distinct tool selections a deployment sees is small (one per data-source
+#: combination); the availability memo is dropped whole past this.
+_MAX_MEMOISED_SELECTIONS = 64
 
 
 class ShallowResearchAgentConfig(FunctionBaseConfig, name="shallow_research_agent"):
@@ -55,7 +79,14 @@ class ShallowResearchAgentConfig(FunctionBaseConfig, name="shallow_research_agen
         default_factory=list,
         description="Tool names to exclude when inheriting from registry.",
     )
-    max_llm_turns: int = Field(default=10, description="Maximum number of LLM turns")
+    max_llm_turns: int | None = Field(
+        default=None,
+        description=(
+            "IGNORED, accepted for old YAMLs. The tool loop was never bounded by an LLM-turn count: it "
+            "stops at `max_tool_iterations` plus the reserved skill loads, and the graph's recursion "
+            "guard is derived from that ceiling. Delete the key."
+        ),
+    )
     max_tool_iterations: int = Field(default=5, description="Maximum tool-calling iterations before forcing synthesis")
     repair_pass: bool = Field(
         default=True,
@@ -107,55 +138,203 @@ class ShallowResearchAgentConfig(FunctionBaseConfig, name="shallow_research_agen
     )
 
 
-@register_function(config_type=ShallowResearchAgentConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
-async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Builder):
-    """Shallow research agent with tool-calling capabilities."""
-    llm = await get_langchain_llm(builder, config.llm)
+@dataclass(frozen=True)
+class _Deployment:
+    """What the boot built, shared by every turn."""
 
-    if config.tools:
-        tool_refs = config.tools
-    else:
-        from aiq_agent.common import get_all_tool_refs
+    config: ShallowResearchAgentConfig
+    agent: ShallowResearcherAgent
+    provider: LLMProvider
+    tools: list[Any]
+    #: tool names → (is_valid, unavailable): the availability check is a scan
+    #: with an INFO line per tool, and the tool set is fixed per deployment.
+    availability: dict[tuple[str, ...], tuple[bool, list[str]]] = field(default_factory=dict)
 
-        tool_refs = get_all_tool_refs()
 
+async def _load_tools(config: ShallowResearchAgentConfig, builder: Builder) -> list[Any]:
+    tool_refs = config.tools or get_all_tool_refs()
     tools = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-
     if config.exclude_tools:
         excluded = set(config.exclude_tools)
         tools = [t for t in tools if getattr(t, "name", "") not in excluded]
-
-    from aiq_agent.common import validate_tool_availability
-
-    is_valid, available_count, unavailable = validate_tool_availability(
-        tools,
-        research_type="shallow research",
-    )
+    is_valid, _, _ = validate_tool_availability(tools, research_type=_RESEARCH_TYPE)
     if not is_valid:
         logger.warning(
             "Startup check: no tools available for shallow research. "
             "All queries will fail until at least one tool is properly configured.",
         )
+    return tools
+
+
+def _tool_availability(deployment: _Deployment, tools: Sequence[Any]) -> tuple[bool, list[str]]:
+    key = tuple(getattr(tool, "name", "") for tool in tools)
+    known = deployment.availability.get(key)
+    if known is not None:
+        return known
+    is_valid, _, unavailable = validate_tool_availability(list(tools), research_type=_RESEARCH_TYPE)
+    if len(deployment.availability) >= _MAX_MEMOISED_SELECTIONS:
+        deployment.availability.clear()
+    deployment.availability[key] = (is_valid, unavailable)
+    return is_valid, unavailable
+
+
+async def _resolve_skill_runtime(
+    config: ShallowResearchAgentConfig,
+    state: ShallowResearchAgentState,
+) -> SkillRuntime | None:
+    """The org's skills for THIS run (ADR-0018: never cached on the agent), or None.
+
+    Builtin + org set from the resolver, narrowed by the config allowlist. The
+    catalog is announced BEFORE the LLM runs: what was resolved and what the
+    user forced, on the technical channel. The per-skill announcement fires at
+    delivery instead, because a forced skill is a name in the prompt until the
+    model calls ``use_skill``. No skills resolved: nothing to offer, no tool to
+    bind, and silence is the correct announcement.
+    """
+    if not config.skills_enabled:
+        return None
+    # A cold resolve is a blocking BFF round-trip (5s timeout); on a thread so
+    # the miss stalls this turn and not every other conversation on the
+    # replica. The org id is read here, on the loop, because it is a ContextVar.
+    resolver = SkillResolver(agent="shallow_researcher")
+    resolved = await asyncio.to_thread(resolver.resolve, get_organization_id_from_context())
+    if config.skill_allowlist:
+        allow = set(config.skill_allowlist)
+        resolved = tuple(skill for skill in resolved if skill.name in allow)
+    if not resolved:
+        return None
+    runtime = SkillRuntime(skills=resolved, force_names=state.force_skills)
+    emit_skills_offered(runtime)
+    return runtime
+
+
+async def _active_provider(provider: LLMProvider) -> LLMProvider:
+    """Per-org model overrides + BYOK credential + ZDR (ADR-0022).
+
+    Each returns the boot provider unchanged when inactive, so the agent's
+    identity check keeps the boot binding on a turn that overrides nothing.
+
+    The three lookups are header-first but each falls back to a blocking BFF
+    call (5s timeout, 60s in-process TTL), so a cold miss used to freeze the
+    event loop for every turn on the replica. One thread hop resolves all
+    three; ContextVars travel with it.
+    """
+    model_overrides, org_credential, zdr_only = await asyncio.to_thread(
+        lambda: (
+            get_model_overrides_from_context(),
+            get_org_llm_credential_from_context(),
+            get_zdr_only_from_context(),
+        )
+    )
+    return provider.with_model_overrides(model_overrides).with_credential(org_credential).with_zdr(zdr_only)
+
+
+def _skills_block(runtime: SkillRuntime) -> str:
+    return "\n\n".join(block for block in (runtime.prompt_block(), runtime.forced_block()) if block)
+
+
+def _report_skills(result: ShallowResearchAgentState, runtime: SkillRuntime) -> None:
+    """Lift what was DELIVERED onto the result; log what was forced and never read.
+
+    ``skills_activated`` is rendered to the reader as what shaped this answer,
+    so a skill the model never opened must not be in it. The other half, the
+    forced skill the model ignored, is logged rather than reported (what the
+    READER should be shown is a product decision) but countable per
+    deployment. Only for an answer that had subject matter: a direct reply had
+    nothing for the house voice to shape, and is not a miss.
+    """
+    result.skills_activated = list(runtime.activated)
+    hidden = list(runtime.hidden_activated)
+    if hidden:
+        result.skills_hidden = hidden
+    unread = runtime.forced_not_activated
+    researched = (
+        bool(runtime.activated)
+        or getattr(result, "source_lookup_attempted", True) is not False
+        or getattr(result, "answer_confidence_marker", None) is not None
+    )
+    if unread and researched:
+        logger.warning(
+            "Forced skills never loaded by the model: %s (activated=%s)",
+            ", ".join(unread),
+            ", ".join(runtime.activated) or "-",
+        )
+
+
+def _reply(state: ShallowResearchAgentState, text: str) -> ShallowResearchAgentState:
+    return ShallowResearchAgentState(messages=state.messages + [AIMessage(content=text)])
+
+
+async def _run_turn(deployment: _Deployment, state: ShallowResearchAgentState) -> ShallowResearchAgentState:
+    """One request: narrow the tools, resolve the skills, run the shared agent."""
+    config = deployment.config
+    # No `data_sources is not None` guard: org-disabled sources (ADR-0022)
+    # narrow the selection even when the request selects "all tools".
+    selected_tools = filter_tools_by_sources(deployment.tools, state.data_sources)
+    if all_mapped_tools_filtered_out(deployment.tools, selected_tools, state.data_sources):
+        logger.warning("Shallow research received data_sources with no matching tools")
+    is_valid, unavailable_tools = _tool_availability(deployment, selected_tools)
+    if not is_valid:
+        return _reply(state, format_user_facing_tool_error(_RESEARCH_TYPE, unavailable_tools))
+
+    # The runtime's `use_skill` tool is folded into the tool set on every
+    # turn: the model has the catalog and decides whether a skill applies,
+    # the same way it decides whether to search (ADR-0052). A skill's BODY
+    # still only travels on a `use_skill` call.
+    runtime = await _resolve_skill_runtime(config, state)
+    turn_tools = list(selected_tools) + (list(runtime.build_tools()) if runtime is not None else [])
+    turn = TurnConfig(
+        llm_provider=await _active_provider(deployment.provider),
+        tools=turn_tools,
+        # The skills this DEPLOYMENT forces are overhead, not research: each
+        # costs a `use_skill` call before a single source is read, and the
+        # count is a property of what the platform owner has published, which
+        # changes without a deploy.
+        reserved_tool_iterations=runtime.standard_count if runtime is not None else 0,
+    )
+    if runtime is not None:
+        state.skills_block = _skills_block(runtime)
+    try:
+        result = await deployment.agent.run(state, turn=turn)
+    except EmptySourceRegistryError:
+        # A scoped miss (this-file / this-shelf) is a valid empty answer, not
+        # an unhandled NAT error. Raising here became err2issue #447 and left
+        # the user with no reply.
+        logger.warning("Shallow research captured no sources; returning an empty-result answer.")
+        return _reply(
+            state,
+            "I searched the available sources but couldn't retrieve anything usable. "
+            "Try a broader question, or ask without limiting to one file.",
+        )
+    if runtime is not None:
+        _report_skills(result, runtime)
+    return result
+
+
+@register_function(config_type=ShallowResearchAgentConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
+async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Builder):
+    """Shallow research agent with tool-calling capabilities."""
+    llm = await get_langchain_llm(builder, config.llm)
+    tools = await _load_tools(config, builder)
+    if config.max_llm_turns is not None:
+        logger.warning(
+            "shallow_research_agent: `max_llm_turns` is ignored; the loop stops at max_tool_iterations=%d "
+            "(+ reserved skill loads). Remove the key from the YAML.",
+            config.max_tool_iterations,
+        )
 
     # Deferred tool loading is verified HERE, at build time, against the live
-    # endpoint — before a user turn exists to lose. The failure it guards is a
-    # request that looks configured and defers nothing (OpenRouter silently
-    # drops `defer_loading` from a top-level function tool), which is invisible
-    # from the inside: the agent still answers, and the only symptom is the
-    # token bill. A deployment that asked for deferral and cannot have it
-    # therefore fails to start instead.
+    # endpoint, before a user turn exists to lose. The failure it guards is a
+    # request that looks configured and defers nothing, which is invisible
+    # from the inside: the only symptom is the token bill.
     await verify_deferred_tool_loading(llm, settings=config.deferred_tool_loading)
 
     provider = LLMProvider()
     provider.set_default(llm, group=AgentGroup.SHALLOW_RESEARCH)
-
-    verbose = is_verbose(config.verbose)
-    callbacks = [VerboseTraceCallback()] if verbose else []
-
+    callbacks = [VerboseTraceCallback()] if is_verbose(config.verbose) else []
     agent = ShallowResearcherAgent(
         llm_provider=provider,
         tools=tools,
-        max_llm_turns=config.max_llm_turns,
         max_tool_iterations=config.max_tool_iterations,
         callbacks=callbacks,
         tool_search=config.tool_search,
@@ -163,176 +342,10 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
         envelope_json_mode_with_tools=config.envelope_json_mode_with_tools,
         repair_pass=config.repair_pass,
     )
+    deployment = _Deployment(config=config, agent=agent, provider=provider, tools=tools)
 
     async def _run(state: ShallowResearchAgentState) -> ShallowResearchAgentState:
-        try:
-            data_sources = state.data_sources
-            selected_tools = filter_tools_by_sources(tools, data_sources)
-            # Agent skills: resolved per RUN (ADR-0018 — never cached on the
-            # shared agent instance), builtin + org set from the resolver, then
-            # narrowed by the config allowlist. The runtime's `use_skill` tool
-            # is folded into the tool set on every turn: the model has the
-            # catalog and decides whether a skill applies, the same way it
-            # decides whether to search (ADR-0052). A skill's BODY still only
-            # travels on a `use_skill` call, so a greeting costs the catalog
-            # lines and nothing more.
-            skill_runtime = None
-            run_tools = selected_tools
-            if config.skills_enabled:
-                from aiq_agent.project_context import get_organization_id_from_context
-                from aiq_agent.skills import SkillResolver
-                from aiq_agent.skills import SkillRuntime
-
-                resolver = SkillResolver(agent="shallow_researcher")
-                # A cold resolve is a blocking BFF round-trip (5s timeout); on
-                # a thread so the miss stalls this turn and not every other
-                # conversation on the replica. ContextVars travel with it.
-                resolved_skills = await asyncio.to_thread(resolver.resolve, get_organization_id_from_context())
-                if config.skill_allowlist:
-                    allow = set(config.skill_allowlist)
-                    resolved_skills = tuple(s for s in resolved_skills if s.name in allow)
-            # No skills resolved for this organization: nothing to offer, no
-            # tool to bind, and silence is the correct announcement.
-            if config.skills_enabled and resolved_skills:
-                skill_runtime = SkillRuntime(skills=resolved_skills, force_names=state.force_skills)
-                # Announce the catalog BEFORE the LLM runs: what was resolved
-                # and what the user forced, on the technical channel. The
-                # per-skill announcement does NOT happen here — a forced skill
-                # is a name in the prompt until the model calls `use_skill`,
-                # and saying "applying X" before its body has been handed over
-                # is a claim the turn cannot yet make. It fires at delivery
-                # instead, which on a normal turn is still well before the
-                # first answer token.
-                from aiq_agent.skills.events import emit_skills_offered
-
-                emit_skills_offered(skill_runtime)
-                run_tools = list(selected_tools) + list(skill_runtime.build_tools())
-            # Per-org runtime model overrides (X-Grid-Model-Overrides). Returns
-            # the build-time provider unchanged when no override targets this
-            # agent, so the identity check below keeps the prebuilt agent.
-            # Model overrides + the org's BYOK credential (ADR-0022); both
-            # return the build-time provider unchanged when inactive, so the
-            # identity check below keeps the prebuilt agent.
-            #
-            # The three lookups are header-first but fall back to a blocking
-            # BFF call each (5s timeout, 60s in-process TTL), so a cold miss
-            # used to freeze the event loop for every turn on the replica.
-            # One thread hop resolves all three; ContextVars travel with it.
-            model_overrides, org_credential, zdr_only = await asyncio.to_thread(
-                lambda: (
-                    get_model_overrides_from_context(),
-                    get_org_llm_credential_from_context(),
-                    get_zdr_only_from_context(),
-                )
-            )
-            active_provider = (
-                provider.with_model_overrides(model_overrides).with_credential(org_credential).with_zdr(zdr_only)
-            )
-            active_agent = agent
-            # No `data_sources is not None` guard: org-disabled sources (ADR-0022)
-            # narrow selected_tools even when the request selects "all tools".
-            if active_provider is not provider or run_tools != tools:
-                active_agent = ShallowResearcherAgent(
-                    llm_provider=active_provider,
-                    tools=run_tools,
-                    max_llm_turns=config.max_llm_turns,
-                    max_tool_iterations=config.max_tool_iterations,
-                    # The skills this DEPLOYMENT forces are overhead, not
-                    # research: nobody asked for them on this turn and each one
-                    # costs a `use_skill` call before a single source is read.
-                    # Charged to `max_tool_iterations` they would shorten every
-                    # research chain by one per published standard skill — the
-                    # config's traced floors assume ONE `use_skill`, and this
-                    # fleet already forces two. Reserved here rather than
-                    # written into the config number because the count is a
-                    # property of what the platform owner has published, which
-                    # changes without a deploy.
-                    reserved_tool_iterations=(skill_runtime.standard_count if skill_runtime is not None else 0),
-                    callbacks=callbacks,
-                    # The per-run agent is narrowed by data_sources/skills, so
-                    # it indexes a DIFFERENT tool set — it has to carry the
-                    # setting or tool search would silently stop applying on
-                    # exactly the requests that select sources.
-                    tool_search=config.tool_search,
-                    # Same reason as tool_search: the per-run agent binds a
-                    # DIFFERENT tool set, so without carrying this the deferral
-                    # would silently stop applying on exactly the requests that
-                    # select sources or activate a skill.
-                    deferred_tool_loading=config.deferred_tool_loading,
-                    envelope_json_mode_with_tools=config.envelope_json_mode_with_tools,
-                    repair_pass=config.repair_pass,
-                )
-
-            if all_mapped_tools_filtered_out(tools, selected_tools, data_sources):
-                logger.warning("Shallow research received data_sources with no matching tools")
-
-            # Validate tool availability before starting shallow research
-            # At least one tool must be available
-            # This prevents the agent from trying to reason about unavailable tools
-            # Check selected_tools directly - they already reflect data_sources filtering
-            from aiq_agent.common import format_user_facing_tool_error
-            from aiq_agent.common import validate_tool_availability
-
-            is_valid, _, unavailable_tools = validate_tool_availability(
-                selected_tools, research_type="shallow research"
-            )
-
-            # Fail if no tools are available
-            if not is_valid:
-                error_msg = format_user_facing_tool_error("shallow research", unavailable_tools)
-
-                # Return error state with error message - this prevents the agent from running
-                error_state = ShallowResearchAgentState(messages=state.messages + [AIMessage(content=error_msg)])
-                return error_state
-
-            if skill_runtime is not None:
-                state.skills_block = "\n\n".join(
-                    block for block in (skill_runtime.prompt_block(), skill_runtime.forced_block()) if block
-                )
-            result = await active_agent.run(state)
-            if skill_runtime is not None:
-                # Delivered, not merely forced: `skills_activated` is rendered
-                # to the reader as what shaped this answer, so a skill the
-                # model never opened must not be in it (SkillRuntime.activated).
-                result.skills_activated = list(skill_runtime.activated)
-                hidden = list(skill_runtime.hidden_activated)
-                if hidden:
-                    result.skills_hidden = hidden
-                # The other half of the same fact, and the one nobody can see
-                # from the answer: the turn instructed the model to apply these
-                # and it never asked for them. Logged rather than reported —
-                # what the READER should be shown about it is a product
-                # decision — but countable per deployment, which is what makes
-                # "the house voice reached 8 answers in 10" knowable at all.
-                # Only for an answer that had subject matter: one that loaded a
-                # skill, consulted a source or graded itself. A direct reply had
-                # nothing for the house voice to shape, and is not a miss.
-                unread = skill_runtime.forced_not_activated
-                researched = (
-                    bool(skill_runtime.activated)
-                    or getattr(result, "source_lookup_attempted", True) is not False
-                    or getattr(result, "answer_confidence_marker", None) is not None
-                )
-                if unread and researched:
-                    logger.warning(
-                        "Forced skills never loaded by the model: %s (activated=%s)",
-                        ", ".join(unread),
-                        ", ".join(skill_runtime.activated) or "-",
-                    )
-            return result
-        except EmptySourceRegistryError:
-            # A scoped miss (this-file / this-shelf) is a valid empty
-            # answer, not an unhandled NAT error. Raising here became
-            # err2issue #447 and left the user with no reply.
-            logger.warning("Shallow research captured no sources; returning an empty-result answer.")
-            empty_msg = (
-                "I searched the available sources but couldn't retrieve anything usable. "
-                "Try a broader question, or ask without limiting to one file."
-            )
-            return ShallowResearchAgentState(messages=state.messages + [AIMessage(content=empty_msg)])
-        except Exception:
-            logger.exception("Error in shallow research execution.")
-            raise
+        return await _run_turn(deployment, state)
 
     yield FunctionInfo.from_fn(_run, description="Shallow research agent for fast, bounded research.")
 
@@ -346,8 +359,6 @@ class ShallowResearchWorkflowConfig(FunctionBaseConfig, name="shallow_research_w
     This wrapper accepts a string query and converts it to messages
     for the shallow_research_agent. Use this as the workflow for evaluation.
     """
-
-    pass
 
 
 @register_function(config_type=ShallowResearchWorkflowConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])

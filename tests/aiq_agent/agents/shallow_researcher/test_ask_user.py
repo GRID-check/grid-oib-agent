@@ -27,16 +27,14 @@ from nat.data_models.interactive import MultipleChoiceOption
 
 @pytest.fixture(autouse=True)
 def _clean_guards():
-    """Reset the process-wide ask_user guards between tests.
+    """Reset the process-wide ask_user guard between tests.
 
-    They are keyed by conversation and turn id in production; in-process they
+    It is keyed by conversation and turn id in production; in-process it
     would otherwise carry one test's "already asked" claim into the next.
     """
-    ask_user_module._asked_turns.clear()
-    ask_user_module._pending_conversations.clear()
+    ask_user_module.reset_ask_user_guard()
     yield
-    ask_user_module._asked_turns.clear()
-    ask_user_module._pending_conversations.clear()
+    ask_user_module.reset_ask_user_guard()
 
 
 def _interaction_response(content) -> InteractionResponse:

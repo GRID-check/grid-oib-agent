@@ -33,7 +33,7 @@ from langchain_core.tools import tool
 
 from aiq_agent.agents.bim.measure_register import _render
 from aiq_agent.agents.shallow_researcher.agent import ShallowResearcherAgent
-from aiq_agent.agents.shallow_researcher.agent import _prose_without_references
+from aiq_agent.agents.shallow_researcher.answer_pipeline import prose_without_references
 from aiq_agent.agents.shallow_researcher.grounding import _SENTENCE_SPLIT_RE
 from aiq_agent.agents.shallow_researcher.grounding import MEASUREMENT_TOOL_NAMES
 from aiq_agent.agents.shallow_researcher.grounding import answer_mentions_normative_claim
@@ -951,6 +951,7 @@ class TestMeasurementSignalReachesTheState:
         llm = MagicMock()
         llm.ainvoke = AsyncMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         return llm
 
     @pytest.fixture
@@ -1141,6 +1142,7 @@ class TestTheSingleSourceFallbackIsNotTheModelsCitation:
     async def _run(self, answer: str):
         llm = MagicMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         llm.ainvoke = AsyncMock(
             side_effect=[
                 AIMessage(
@@ -1197,7 +1199,7 @@ class TestTheSingleSourceFallbackIsNotTheModelsCitation:
 
 
 class TestTheBibliographyStripIsNotAnEscapeHatch:
-    """S2. What `_prose_without_references` is allowed to throw away.
+    """S2. What `prose_without_references` is allowed to throw away.
 
     The brake reads the answer's PROSE, so a reference list is removed first —
     „- [1] Wiener Bauordnung — https://ris…" is a pointer, not a claim, and the
@@ -1216,13 +1218,13 @@ class TestTheBibliographyStripIsNotAnEscapeHatch:
             "- [1] OIB-Richtlinie 4 - https://example.invalid/oib4\n\n"
             "Die Ausführung erfüllt die Anforderung nicht und ist unzulässig."
         )
-        kept = _prose_without_references(content)
+        kept = prose_without_references(content)
         assert "unzulässig" in kept
         assert answer_mentions_normative_claim(kept) is True
 
     def test_a_heading_inside_a_fenced_block_is_not_a_reference_list(self):
         content = "Beispiel:\n\n```md\n## Sources\n- [1] foo\n```\n\nDer Raum ist damit unzulässig."
-        kept = _prose_without_references(content)
+        kept = prose_without_references(content)
         assert "unzulässig" in kept
         assert answer_mentions_normative_claim(kept) is True
 
@@ -1241,7 +1243,7 @@ class TestTheBibliographyStripIsNotAnEscapeHatch:
         Leaving the bibliography in made every fallback-grounded answer read as
         normative and floored purely descriptive measured answers to "low".
         """
-        kept = _prose_without_references(content)
+        kept = prose_without_references(content)
         assert kept.strip() == "Die Höhe beträgt 2,20 m."
         assert answer_mentions_normative_claim(kept) is False
 
@@ -1271,12 +1273,12 @@ class TestTheBibliographyStripIsNotAnEscapeHatch:
         the verdict left the text before the brake ever read it. A reference has
         to point at something — a URL or a „[n]" marker.
         """
-        kept = _prose_without_references(content)
+        kept = prose_without_references(content)
         assert answer_mentions_normative_claim(kept) is True
 
     def test_an_answer_without_a_reference_list_is_untouched(self):
         content = "Die lichte Raumhöhe beträgt 2,70 m (gemessen ±5 mm)."
-        assert _prose_without_references(content) == content
+        assert prose_without_references(content) == content
 
     def test_non_string_input_is_empty(self):
-        assert _prose_without_references(None) == ""  # type: ignore[arg-type]
+        assert prose_without_references(None) == ""  # type: ignore[arg-type]

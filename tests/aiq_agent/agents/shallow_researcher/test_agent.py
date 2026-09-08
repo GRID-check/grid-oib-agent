@@ -11,9 +11,12 @@ from langchain_core.tools import tool
 
 from aiq_agent.agents.shallow_researcher.agent import _INTERACTION_TOOL_ALLOWANCE
 from aiq_agent.agents.shallow_researcher.agent import ShallowResearcherAgent
-from aiq_agent.agents.shallow_researcher.agent import _append_minimal_citation
 from aiq_agent.agents.shallow_researcher.agent import _count_interaction_calls
+from aiq_agent.agents.shallow_researcher.answer_pipeline import append_minimal_citation
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
+from aiq_agent.agents.shallow_researcher.repair import VerificationFailures
+from aiq_agent.agents.shallow_researcher.repair import repair_answer
+from aiq_agent.agents.shallow_researcher.repair import repair_lookups
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common.answer_envelope import render_envelope_response_format
@@ -89,8 +92,8 @@ class TestShallowResearcherAgent:
         """
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
-            patch("aiq_agent.agents.shallow_researcher.agent.sanitize_report") as mock_sanitize,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.sanitize_report") as mock_sanitize,
         ):
             mock_verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
                 verified_report=content, removed_citations=[]
@@ -104,6 +107,7 @@ class TestShallowResearcherAgent:
         llm = MagicMock()
         llm.ainvoke = AsyncMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         return llm
 
     @pytest.fixture
@@ -127,7 +131,7 @@ class TestShallowResearcherAgent:
 
         assert agent.llm_provider == mock_llm_provider
         assert len(agent.tools) == 1
-        assert agent.max_llm_turns == 10
+        assert agent.tool_iteration_ceiling == 5
         assert agent.max_tool_iterations == 5
         assert agent.callbacks == []
         assert agent.system_prompt is not None
@@ -143,16 +147,16 @@ class TestShallowResearcherAgent:
         assert agent.system_prompt == custom_system
 
     def test_init_with_custom_limits(self, mock_llm_provider, real_tool):
-        """Test ShallowResearcherAgent initialization with custom limits."""
+        """The research budget plus the reserve is the ceiling; nothing else bounds the loop."""
         agent = ShallowResearcherAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
-            max_llm_turns=5,
             max_tool_iterations=3,
+            reserved_tool_iterations=1,
         )
 
-        assert agent.max_llm_turns == 5
         assert agent.max_tool_iterations == 3
+        assert agent.tool_iteration_ceiling == 4
 
     def test_init_with_callbacks(self, mock_llm_provider, real_tool):
         """Test ShallowResearcherAgent initialization with callbacks."""
@@ -505,7 +509,9 @@ class TestShallowResearcherAgent:
     async def test_json_mode_falls_back_to_a_plain_call(self, mock_llm_provider, mock_llm, real_tool):
         """A provider that rejects response_format degrades to prose, never fails."""
         bound = self._bindable(mock_llm, "")
-        bound.ainvoke = AsyncMock(side_effect=RuntimeError("response_format not supported"))
+        rejected = RuntimeError("response_format not supported")
+        rejected.status_code = 400
+        bound.ainvoke = AsyncMock(side_effect=rejected)
         mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply()))
         agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_tool_iterations=0)
 
@@ -517,6 +523,25 @@ class TestShallowResearcherAgent:
         assert formats == ["json_schema", "json_object"]
         mock_llm.ainvoke.assert_awaited()
         assert result.answer_confidence_marker == "medium"
+
+    @pytest.mark.asyncio
+    async def test_a_transport_error_is_not_retried_down_the_ladder(self, mock_llm_provider, mock_llm, real_tool):
+        """Auth, quota and network faults fail the same way on every rung.
+
+        Retrying them under a different ``response_format`` only logged the
+        real error three times as "response_format failed" and tripled the
+        latency of a turn that was already lost.
+        """
+        bound = self._bindable(mock_llm, "")
+        bound.ainvoke = AsyncMock(side_effect=ConnectionError("upstream reset"))
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply()))
+        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_tool_iterations=0)
+
+        with pytest.raises(ConnectionError):
+            await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Frage?")]))
+
+        assert mock_llm.bind.call_count == 1
+        mock_llm.ainvoke.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_tool_bound_iterations_bind_json_mode_only_by_opt_in(self, mock_llm_provider, mock_llm, real_tool):
@@ -585,17 +610,35 @@ class TestShallowResearcherAgent:
 
         assert result is not None
 
-    def test_load_system_prompt_fallback(self, mock_llm_provider, real_tool):
-        """Test _load_system_prompt returns fallback when file not found."""
-        with patch(
-            "aiq_agent.agents.shallow_researcher.agent.load_prompt",
-            side_effect=FileNotFoundError(),
-        ):
-            agent = ShallowResearcherAgent(
-                llm_provider=mock_llm_provider,
-                tools=[real_tool],
-            )
-            assert "research" in agent.system_prompt.lower()
+    def test_a_missing_prompt_is_a_boot_failure(self, mock_llm_provider, real_tool):
+        """No stub prompt, ever: production must not run on three lines of filler."""
+        from aiq_agent.agents.shallow_researcher import prompt as prompt_module
+        from aiq_agent.common.prompt_utils import PromptError
+
+        prompt_module.system_prompt_template.cache_clear()
+        try:
+            with (
+                patch.object(prompt_module, "load_prompt", side_effect=PromptError("researcher.j2 missing")),
+                pytest.raises(PromptError),
+            ):
+                ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        finally:
+            prompt_module.system_prompt_template.cache_clear()
+
+    def test_the_prompt_template_is_read_once_per_process(self, mock_llm_provider, real_tool):
+        """Two agents, one disk read: the 43 KB template is cached by name."""
+        from aiq_agent.agents.shallow_researcher import prompt as prompt_module
+
+        prompt_module.system_prompt_template.cache_clear()
+        try:
+            with patch.object(prompt_module, "load_prompt", wraps=prompt_module.load_prompt) as reads:
+                first = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+                second = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        finally:
+            prompt_module.system_prompt_template.cache_clear()
+
+        assert reads.call_count == 1
+        assert first.system_prompt is second.system_prompt
 
     def test_default_prompt_requires_tool_result_references(self, mock_llm_provider, real_tool):
         """Default prompt tells the model to cite non-URL tool results by exact tool name."""
@@ -1011,6 +1054,7 @@ class TestShallowResearcherSourceRegistryGating:
         llm = MagicMock()
         llm.ainvoke = AsyncMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         return llm
 
     @pytest.fixture
@@ -1044,7 +1088,7 @@ class TestShallowResearcherSourceRegistryGating:
         state = ShallowResearchAgentState(messages=[HumanMessage(content="What time is it in Tokyo?")])
         result = await agent.run(state)
 
-        assert agent.source_registry.all_sources() == []
+        assert result.verified_sources is None
         assert "current time" in result.messages[-1].content
 
     @pytest.mark.asyncio
@@ -1067,7 +1111,7 @@ class TestShallowResearcherSourceRegistryGating:
         )
         result = await agent.run(state)
 
-        assert agent.source_registry.all_sources() == []
+        assert result.verified_sources is None
         assert "test 1" in result.messages[-1].content
         assert result.source_lookup_attempted is False
 
@@ -1272,7 +1316,7 @@ class TestShallowResearcherSourceRegistryGating:
         )
         result = await agent.run(state)
 
-        assert agent.source_registry.all_sources() == []
+        assert result.verified_sources is None
         assert "building height" in result.messages[-1].content
 
     @pytest.mark.asyncio
@@ -1437,6 +1481,7 @@ class TestShallowResearcherSourceCaptureIntegration:
         llm = MagicMock()
         llm.ainvoke = AsyncMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         return llm
 
     @pytest.fixture
@@ -1543,6 +1588,7 @@ class TestShallowResearcherSessionRegistry:
         llm = MagicMock()
         llm.ainvoke = AsyncMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         return llm
 
     @pytest.fixture
@@ -1586,34 +1632,47 @@ class TestShallowResearcherSessionRegistry:
             set_session_registry(None)
 
     @pytest.mark.asyncio
-    async def test_run_clears_registry_in_standalone_mode(self, mock_llm_provider, mock_llm):
-        """Without session registry ContextVar, run() uses a fresh per-run
-        registry: stale instance-registry sources must not leak into the output
-        (a consulted single-source registry would be auto-appended as a
-        citation on the answer)."""
+    async def test_standalone_runs_never_share_a_registry(self, mock_llm_provider, mock_llm):
+        """Without a session registry every run gets a fresh one: a source the
+        previous run captured must not be auto-appended as this run's citation."""
         from aiq_agent.common.citation_verification import set_session_registry
 
         set_session_registry(None)  # Ensure no session registry
-
-        # LLM answers without calling tools
-        agent_response = AIMessage(content="Answer without sources")
-        mock_llm.ainvoke = AsyncMock(return_value=agent_response)
-
-        agent = ShallowResearcherAgent(
-            llm_provider=mock_llm_provider,
-            tools=[web_search_tool],
+        populate_from_config(
+            [
+                {
+                    "id": "web_search",
+                    "name": "Web Search",
+                    "description": "Search the web.",
+                    "tools": ["web_search_with_urls"],
+                }
+            ]
         )
-        # Pre-populate the instance registry (simulating stale data)
-        agent.source_registry.add(SourceEntry(url="https://stale.example.com"))
+        try:
+            mock_llm.ainvoke = AsyncMock(
+                side_effect=[
+                    AIMessage(
+                        content="", tool_calls=[{"name": "web_search_with_urls", "args": {"query": "q"}, "id": "1"}]
+                    ),
+                    AIMessage(content="Grounded [1].\n\n## Sources\n[1] https://docs.nvidia.com/cuda/"),
+                    AIMessage(content="Answer without sources"),
+                ]
+            )
+            agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[web_search_with_urls])
 
-        state = ShallowResearchAgentState(messages=[HumanMessage(content="Test")])
-        result = await agent.run(state)
+            first = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Q1")]))
+            second = await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content="Q2")]))
+        finally:
+            reset_registry()
 
-        assert "stale.example.com" not in result.messages[-1].content
+        assert first.answer_citation_grounded is True
+        assert "docs.nvidia.com" not in second.messages[-1].content
+        assert second.verified_sources is None
 
     @pytest.mark.asyncio
-    async def test_session_registry_does_not_mutate_shared_instance(self, mock_llm_provider, mock_llm):
-        """Setting a session registry must NOT overwrite self.source_registry on the agent."""
+    async def test_the_session_registry_is_left_bound_after_the_run(self, mock_llm_provider, mock_llm):
+        """A run reads the session registry and never unbinds or replaces it."""
+        from aiq_agent.common.citation_verification import get_session_registry
         from aiq_agent.common.citation_verification import set_session_registry
 
         session_reg = SourceRegistry()
@@ -1626,14 +1685,13 @@ class TestShallowResearcherSessionRegistry:
             llm_provider=mock_llm_provider,
             tools=[web_search_tool],
         )
-        original_registry = agent.source_registry
 
         set_session_registry(session_reg)
         try:
             state = ShallowResearchAgentState(messages=[HumanMessage(content="Q")])
-            await agent.run(state)
-            # The instance attribute must remain unchanged
-            assert agent.source_registry is original_registry
+            result = await agent.run(state)
+            assert get_session_registry() is session_reg
+            assert result.answer_citation_grounded is True
         finally:
             set_session_registry(None)
 
@@ -1653,7 +1711,7 @@ class TestAppendMinimalCitation:
         # a **References:** section but leaving the bare header behind.
         report = "Body sentence.\n\n**References:**\n"
 
-        result = _append_minimal_citation(report, self._tool_source())
+        result = append_minimal_citation(report, self._tool_source())
 
         assert result.count("**References:**") == 1
         assert result == "Body sentence [1].\n\n**References:**\n- [1] mcp_time__get_current_time"
@@ -1661,7 +1719,7 @@ class TestAppendMinimalCitation:
     def test_strips_leftover_references_heading(self):
         report = "Body sentence.\n\n## References\n"
 
-        result = _append_minimal_citation(report, self._tool_source())
+        result = append_minimal_citation(report, self._tool_source())
 
         assert "## References" not in result
         assert result.count("**References:**") == 1
@@ -1669,7 +1727,7 @@ class TestAppendMinimalCitation:
     def test_strips_leftover_sources_heading(self):
         report = "Body sentence.\n\n### Sources\n"
 
-        result = _append_minimal_citation(report, self._tool_source())
+        result = append_minimal_citation(report, self._tool_source())
 
         assert "### Sources" not in result
         assert result.count("**References:**") == 1
@@ -1677,7 +1735,7 @@ class TestAppendMinimalCitation:
     def test_no_leftover_header_passes_through(self):
         report = "Body sentence."
 
-        result = _append_minimal_citation(report, self._tool_source())
+        result = append_minimal_citation(report, self._tool_source())
 
         assert result == "Body sentence [1].\n\n**References:**\n- [1] mcp_time__get_current_time"
 
@@ -1687,7 +1745,7 @@ class TestAppendMinimalCitation:
             citation_key="OIB-Richtlinie-2.pdf, p.3",
             tool_name="knowledge_search",
         )
-        result = _append_minimal_citation("Body sentence.", source)
+        result = append_minimal_citation("Body sentence.", source)
 
         assert result == ("Body sentence [1].\n\n**References:**\n- [1] [KB] OIB-Richtlinie-2.pdf, p.3")
 
@@ -1698,7 +1756,7 @@ class TestAppendMinimalCitation:
             title="Article A",
             tool_name="web_search_tool",
         )
-        result = _append_minimal_citation("Body sentence.", source)
+        result = append_minimal_citation("Body sentence.", source)
 
         assert result == ("Body sentence [1].\n\n**References:**\n- [1] [Web] Article A - https://example.com/a")
 
@@ -1709,7 +1767,7 @@ class TestAppendMinimalCitation:
             title="BauO",
             tool_name="ris_search_tool",
         )
-        result = _append_minimal_citation("Body sentence.", source)
+        result = append_minimal_citation("Body sentence.", source)
 
         assert result == (
             "Body sentence [1].\n\n**References:**\n- [1] [RIS] BauO - https://www.ris.bka.gv.at/eli/bgbl/1985/446"
@@ -1754,6 +1812,7 @@ class TestShallowResearcherAnswerGrounding:
         llm = MagicMock()
         llm.ainvoke = AsyncMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         return llm
 
     @pytest.fixture
@@ -1776,7 +1835,7 @@ class TestShallowResearcherAnswerGrounding:
         # its registry SourceEntry.
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[source]),
-            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as mock_verify,
         ):
             mock_verify.return_value = MagicMock(
                 verified_report="OIB-Richtlinie 2 regelt Brandschutz [1].",
@@ -1795,7 +1854,7 @@ class TestShallowResearcherAnswerGrounding:
         source = SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool")
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[source]),
-            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as mock_verify,
         ):
             mock_verify.return_value = MagicMock(
                 verified_report="Answer without any citation.",
@@ -1815,7 +1874,7 @@ class TestShallowResearcherAnswerGrounding:
         ]
         with (
             patch.object(SourceRegistry, "all_sources", return_value=sources),
-            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as mock_verify,
         ):
             mock_verify.return_value = MagicMock(
                 verified_report="Answer.",
@@ -1873,7 +1932,7 @@ class TestShallowResearcherAnswerGrounding:
                 tool_name="ris_search",
             )
         )
-        with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
+        with patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as mock_verify:
             mock_verify.return_value = MagicMock(
                 verified_report="Hallo! Wie kann ich helfen?",
                 valid_citations=[],
@@ -1902,7 +1961,7 @@ class TestShallowResearcherAnswerGrounding:
         registry.add(SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool"))
         registry.add(cited)
         registry.add(SourceEntry(url="https://example.com/c", title="C", tool_name="web_search_tool"))
-        with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
+        with patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as mock_verify:
             mock_verify.return_value = MagicMock(
                 verified_report="Antwort [1].",
                 valid_citations=[{"number": 1, "url": "https://example.com/b", "citation_key": None, "line": "[1]"}],
@@ -1920,7 +1979,7 @@ class TestShallowResearcherAnswerGrounding:
         registry = SourceRegistry()
         registry.add(SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool"))
         registry.add(SourceEntry(citation_key="oib-richtlinie-2.pdf#p3", title="OIB 2", tool_name="kb_search"))
-        with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
+        with patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as mock_verify:
             mock_verify.return_value = MagicMock(
                 verified_report="Antwort [1].",
                 valid_citations=[
@@ -1947,7 +2006,7 @@ class TestShallowResearcherAnswerGrounding:
         registry = SourceRegistry()
         only = SourceEntry(url="https://example.com/only", title="Only", tool_name="web_search_tool")
         registry.add(only)
-        with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
+        with patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as mock_verify:
             mock_verify.return_value = MagicMock(
                 verified_report="Answer without any citation.",
                 valid_citations=[],
@@ -1986,7 +2045,7 @@ class TestShallowResearcherAnswerGrounding:
         registry = SourceRegistry()
         registry.add(SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool"))
         registry.add(SourceEntry(citation_key="oib-rl_4.pdf, p.9", title="OIB 4", tool_name="kb_search"))
-        with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
+        with patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as mock_verify:
             mock_verify.return_value = MagicMock(
                 verified_report="Antwort [1][2].",
                 valid_citations=[
@@ -2006,7 +2065,7 @@ class TestShallowResearcherAnswerGrounding:
         self._after_a_lookup(mock_llm, "Answer without any citation.", query="https://example.com/only")
         registry = SourceRegistry()
         registry.add(SourceEntry(url="https://example.com/only", title="Only", tool_name="web_search_tool"))
-        with patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify:
+        with patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as mock_verify:
             mock_verify.return_value = MagicMock(
                 verified_report="Answer without any citation.",
                 valid_citations=[],
@@ -2052,7 +2111,7 @@ class TestShallowResearcherAnswerGrounding:
         source = SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool")
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[source]),
-            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as mock_verify,
         ):
             mock_verify.return_value = MagicMock(
                 verified_report="Antwort [1].",
@@ -2077,7 +2136,7 @@ class TestShallowResearcherAnswerGrounding:
         source = SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool")
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[source]),
-            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as mock_verify,
         ):
             mock_verify.return_value = MagicMock(
                 verified_report="Antwort [1].",
@@ -2128,6 +2187,7 @@ class TestShallowResearcherQuoteVerification:
         llm = MagicMock()
         llm.ainvoke = AsyncMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         return llm
 
     @pytest.fixture
@@ -2214,10 +2274,8 @@ class TestRepairLookups:
         return UnverifiedQuote(quote=inner, span=span, start=start, end=start + len(span), best_coverage=0.1)
 
     def test_a_failed_quote_is_looked_up_in_the_document_it_was_attributed_to(self):
-        from aiq_agent.agents.shallow_researcher.agent import _repair_lookups
-
         body = "Die Richtlinie fordert „Treppen muessen rot sein“ [2].\n\n## Sources\n[2] OIB-330.pdf, p.12"
-        lookups = _repair_lookups(
+        lookups = repair_lookups(
             body,
             valid_citations=[{"number": 2, "citation_key": "OIB-330.pdf, p.12", "url": None}],
             removed_citations=[],
@@ -2226,10 +2284,8 @@ class TestRepairLookups:
         assert lookups == [("Treppen muessen rot sein", "OIB-330.pdf")]
 
     def test_a_quote_with_no_citation_nearby_searches_everywhere(self):
-        from aiq_agent.agents.shallow_researcher.agent import _repair_lookups
-
         body = "„Treppen muessen rot sein“ steht irgendwo."
-        lookups = _repair_lookups(
+        lookups = repair_lookups(
             body,
             valid_citations=[],
             removed_citations=[],
@@ -2238,13 +2294,11 @@ class TestRepairLookups:
         assert lookups == [("Treppen muessen rot sein", None)]
 
     def test_a_removed_citation_is_searched_with_the_claim_not_the_reference_line(self):
-        from aiq_agent.agents.shallow_researcher.agent import _repair_lookups
-
         body = (
             "Einleitung. Die lichte Hoehe muss 2,10 m betragen [1]. Weiter im Text.\n\n"
             "## Sources\n- [1] OIB-RL 4 – oib-rl_4.pdf, p.7"
         )
-        lookups = _repair_lookups(
+        lookups = repair_lookups(
             body,
             valid_citations=[],
             removed_citations=[
@@ -2255,11 +2309,9 @@ class TestRepairLookups:
         assert lookups == [("Die lichte Hoehe muss 2,10 m betragen.", "oib-rl_4.pdf")]
 
     def test_two_is_a_repair_and_more_is_a_second_turn(self):
-        from aiq_agent.agents.shallow_researcher.agent import _repair_lookups
-
         body = "A [1]. B [2]. C [3]."
         removed = [{"number": n, "line": f"[{n}] x.pdf, p.{n}"} for n in (1, 2, 3)]
-        assert len(_repair_lookups(body, valid_citations=[], removed_citations=removed, unverified_quotes=[])) == 2
+        assert len(repair_lookups(body, valid_citations=[], removed_citations=removed, unverified_quotes=[])) == 2
 
 
 class TestShallowResearcherRepairPass:
@@ -2779,6 +2831,7 @@ class TestMeasurementSourcesDoNotGroundCitations:
         llm = MagicMock()
         llm.ainvoke = AsyncMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         return llm
 
     @pytest.fixture
@@ -3007,7 +3060,7 @@ class TestMeasurementSourcesDoNotGroundCitations:
         state = ShallowResearchAgentState(
             messages=[HumanMessage(content="Wie hoch ist der Keller?")],
         )
-        with patch("aiq_agent.agents.shallow_researcher.agent.citation_events") as events:
+        with patch("aiq_agent.agents.shallow_researcher.ledger.citation_events") as events:
             result, _ = await _run_with_captured_registry(agent, state)
 
         assert self._measurement_sources(result)
@@ -3040,8 +3093,8 @@ class TestTheResearchBudgetIsNotSpentOnForcedSkills:
     def _bypass_citation_pipeline(self):
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as verify,
-            patch("aiq_agent.agents.shallow_researcher.agent.sanitize_report") as sanitize,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as verify,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.sanitize_report") as sanitize,
         ):
             verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
                 verified_report=content, removed_citations=[]
@@ -3053,6 +3106,7 @@ class TestTheResearchBudgetIsNotSpentOnForcedSkills:
         llm = MagicMock()
         llm.ainvoke = AsyncMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
         return (
@@ -3132,8 +3186,8 @@ class TestTruncationIsObservable:
     def _bypass_citation_pipeline(self):
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-            patch("aiq_agent.agents.shallow_researcher.agent.verify_citations") as verify,
-            patch("aiq_agent.agents.shallow_researcher.agent.sanitize_report") as sanitize,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.verify_citations") as verify,
+            patch("aiq_agent.agents.shallow_researcher.answer_pipeline.sanitize_report") as sanitize,
         ):
             verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
                 verified_report=content, removed_citations=[]
@@ -3168,6 +3222,7 @@ class TestTruncationIsObservable:
     async def _truncated_run(self):
         llm = MagicMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         llm.ainvoke = AsyncMock(return_value=AIMessage(content="Die Antwort [1]."))
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
@@ -3255,6 +3310,7 @@ class TestTruncationIsObservable:
         """
         llm = MagicMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         llm.ainvoke = AsyncMock(return_value=AIMessage(content="Die Antwort [1]."))
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
@@ -3270,6 +3326,7 @@ class TestTruncationIsObservable:
         """Absent, not False: presence is the fact, so nothing has to read a default."""
         llm = MagicMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         llm.ainvoke = AsyncMock(return_value=AIMessage(content="Die Antwort [1]."))
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
@@ -3282,6 +3339,7 @@ class TestTruncationIsObservable:
     async def test_a_turn_that_finishes_inside_its_budget_records_nothing(self, steps):
         llm = MagicMock()
         llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
         llm.ainvoke = AsyncMock(return_value=AIMessage(content="Die Antwort [1]."))
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
@@ -3368,24 +3426,25 @@ class TestRepairRetrievalsRunTogether:
         llm.bind_tools = MagicMock(return_value=llm)
         llm.bind = MagicMock(return_value=llm)
         llm.ainvoke = AsyncMock(return_value=AIMessage(content="rewritten"))
-        provider = MagicMock(spec=LLMProvider)
-        provider.get = MagicMock(return_value=llm)
-        agent = ShallowResearcherAgent(llm_provider=provider, tools=[knowledge_search])
 
         body = "Erste Aussage [1]. Zweite Aussage [2].\n\n## Sources\n[1] a.pdf, p.1\n[2] b.pdf, p.2"
-        repaired = await agent._repair_answer(
-            body,
-            removed_citations=[
+        failures = VerificationFailures(
+            removed_citations=(
                 {"number": 1, "line": "[1] a.pdf, p.1", "reason": "not_in_registry"},
                 {"number": 2, "line": "[2] b.pdf, p.2", "reason": "not_in_registry"},
-            ],
-            unverified_quotes=[],
-            valid_citations=[],
+            ),
+            unverified_quotes=(),
+        )
+        repaired = await repair_answer(
+            body,
+            failures=failures,
+            tools=[knowledge_search],
+            llm=llm,
             system_prompt=None,
             history=[],
         )
 
-        assert repaired is not None and repaired[0] == "rewritten"
+        assert repaired is not None and repaired.prose == "rewritten"
         assert peak == 2, "the two repair lookups ran one after the other"
         anchor = llm.ainvoke.await_args.args[0][-1].content
         assert anchor.index("passage for Erste Aussage") < anchor.index("passage for Zweite Aussage")

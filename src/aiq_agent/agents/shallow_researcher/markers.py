@@ -64,11 +64,12 @@ def _tail_region_start(content: str, lines: int = _TAIL_REGION_LINES) -> int:
     idx = len(content)
     for line in reversed(content.splitlines(keepends=True)):
         idx -= len(line)
-        if line.strip():
-            non_empty_seen += 1
-            start = idx
-            if non_empty_seen == lines:
-                break
+        if not line.strip():
+            continue
+        non_empty_seen += 1
+        start = idx
+        if non_empty_seen == lines:
+            break
     return start
 
 

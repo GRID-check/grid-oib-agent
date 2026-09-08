@@ -29,6 +29,7 @@ import json
 import logging
 import threading
 from collections import OrderedDict
+from typing import Any
 
 from aiq_agent.common import build_human_prompt
 from aiq_agent.common import extract_user_response
@@ -106,54 +107,76 @@ answer from there."""
 
 
 _MAX_TRACKED_TURNS = 1000
-_asked_turns: OrderedDict[str, str] = OrderedDict()
-_pending_conversations: dict[str, str] = {}
-_guard_lock = threading.Lock()
-"""Guards for the two "already asked" conditions.
-
-Module-level and lock-guarded rather than a ContextVar: the tool loop binds
-``parallel_tool_calls=True``, and parallel calls run in sibling asyncio tasks
-that each copy the context at creation — a ContextVar set inside one is
-invisible to the other, so it would guard nothing.
-"""
 
 
-def _claim_turn(conversation_id: str | None, turn_id: str | None) -> str | None:
-    """Claim the single ask_user slot; return a refusal reason, or None on success.
+class AskUserGuard:
+    """The two "already asked" conditions, both of which end a live turn badly if ignored:
 
-    Two conditions, both of which end a live turn badly if ignored:
-
-    * another prompt from this conversation is still outstanding — the
+    * another prompt from this conversation is still outstanding: the
       transport keeps ONE pending interaction per conversation and a second
       registration overwrites the first, orphaning a future that another
       participant is looking at right now;
-    * this turn already asked — the doctrine is one question per turn, and a
+    * this turn already asked: the doctrine is one question per turn, and a
       loop that asks twice reads as interrogation.
+
+    Lock-guarded rather than a ContextVar: the tool loop binds
+    ``parallel_tool_calls=True``, and parallel calls run in sibling asyncio
+    tasks that each copy the context at creation, so a ContextVar set inside
+    one is invisible to the other and would guard nothing. Keyed by
+    conversation id, which is a UUID minted per conversation, so two tenants
+    cannot collide on it.
     """
-    if not conversation_id:
-        # No conversation scope (CLI/batch): nothing to collide with, and a
-        # global guard would serialize unrelated runs in the same process.
+
+    def __init__(self) -> None:
+        self._asked_turns: OrderedDict[str, str] = OrderedDict()
+        self._pending_conversations: dict[str, str] = {}
+        self._lock = threading.Lock()
+
+    def claim(self, conversation_id: str | None, turn_id: str | None) -> str | None:
+        """Claim the single ask_user slot; a refusal reason, or None on success."""
+        if not conversation_id:
+            # No conversation scope (CLI/batch): nothing to collide with, and a
+            # global guard would serialize unrelated runs in the same process.
+            return None
+        with self._lock:
+            if conversation_id in self._pending_conversations:
+                return "in_flight"
+            if turn_id and self._asked_turns.get(conversation_id) == turn_id:
+                return "already_asked"
+            self._pending_conversations[conversation_id] = turn_id or ""
+            if turn_id:
+                self._remember_turn(conversation_id, turn_id)
         return None
-    with _guard_lock:
-        if conversation_id in _pending_conversations:
-            return "in_flight"
-        if turn_id and _asked_turns.get(conversation_id) == turn_id:
-            return "already_asked"
-        _pending_conversations[conversation_id] = turn_id or ""
-        if turn_id:
-            _asked_turns[conversation_id] = turn_id
-            _asked_turns.move_to_end(conversation_id)
-            while len(_asked_turns) > _MAX_TRACKED_TURNS:
-                _asked_turns.popitem(last=False)
-    return None
+
+    def _remember_turn(self, conversation_id: str, turn_id: str) -> None:
+        """Bounded: the oldest conversation falls out past ``_MAX_TRACKED_TURNS``."""
+        self._asked_turns[conversation_id] = turn_id
+        self._asked_turns.move_to_end(conversation_id)
+        while len(self._asked_turns) > _MAX_TRACKED_TURNS:
+            self._asked_turns.popitem(last=False)
+
+    def release(self, conversation_id: str | None) -> None:
+        """Release the in-flight claim. Always run this, including on failure."""
+        if not conversation_id:
+            return
+        with self._lock:
+            self._pending_conversations.pop(conversation_id, None)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._asked_turns.clear()
+            self._pending_conversations.clear()
 
 
-def _release_turn(conversation_id: str | None) -> None:
-    """Release the in-flight claim. Always run this, including on failure."""
-    if not conversation_id:
-        return
-    with _guard_lock:
-        _pending_conversations.pop(conversation_id, None)
+#: The process-wide guard: NAT registers ``ask_user`` once per process, and the
+#: pending-slot condition is a property of the transport, not of a tool
+#: instance. Module-level by the registry rule: it has a reset for tests.
+_guard = AskUserGuard()
+
+
+def reset_ask_user_guard() -> None:
+    """Forget every claim (tests)."""
+    _guard.reset()
 
 
 def _normalize_options(options: list[str] | str | None) -> list[str]:
@@ -184,78 +207,99 @@ class AskUserConfig(FunctionBaseConfig, name="ask_user"):
     """Configuration for the ``ask_user`` tool."""
 
 
+class _Undeliverable(Exception):
+    """The prompt could not be put to the user; the message says why, for the model."""
+
+
+def _reject_arguments(question: str, labels: list[str]) -> str | None:
+    """Why the call cannot be a question at all, or None when it can."""
+    if not question:
+        return f"Error: `question` was empty. {_FALL_BACK_TO_ASSUMPTION}"
+    if len(labels) < MIN_OPTIONS:
+        return (
+            f"Error: ask_user needs at least {MIN_OPTIONS} options — it is for a choice between "
+            f"alternatives you can name. {_FALL_BACK_TO_ASSUMPTION}"
+        )
+    if len(labels) > MAX_OPTIONS:
+        return (
+            f"Error: ask_user takes at most {MAX_OPTIONS} options; you passed {len(labels)}. "
+            f"A list that long is not a quick choice. {_FALL_BACK_TO_ASSUMPTION}"
+        )
+    return None
+
+
+def _turn_scope() -> tuple[str | None, str | None, Any] | None:
+    """``(conversation_id, turn_id, interaction manager)`` from the NAT context, or None without one."""
+    try:
+        nat_context = Context.get()
+        return nat_context.conversation_id, nat_context.user_message_id, nat_context.user_interaction_manager
+    except Exception:  # noqa: BLE001 - a tool must answer the model, never abort the turn
+        logger.info("ask_user called with no usable NAT context", exc_info=True)
+        return None
+
+
+async def _prompt_user(manager: Any, question: str, labels: list[str]) -> Any:
+    """Put the prompt to the user through the interaction manager, or say why not."""
+    try:
+        return await manager.prompt_user_input(build_human_prompt(question, labels))
+    except NotImplementedError as exc:
+        # No HITL callback bound (async job runner, REST entrypoint, CLI): the
+        # prompt would never be shown and the future never resolved.
+        logger.info("ask_user called with no user-interaction callback bound; question dropped")
+        raise _Undeliverable("No channel to ask the user is available here.") from exc
+    except TimeoutError as exc:
+        logger.info("ask_user prompt expired unanswered")
+        raise _Undeliverable("The user did not answer in time.") from exc
+    except Exception as exc:  # noqa: BLE001 - an exception out of a tool aborts a turn the user is watching
+        logger.warning("ask_user failed to prompt the user", exc_info=True)
+        raise _Undeliverable("The question could not be delivered.") from exc
+
+
+_REFUSALS = {
+    "in_flight": "Another question is already waiting for this conversation.",
+    "already_asked": "You already asked the user once this turn.",
+}
+
+
+def _reply_for(answer: str, option_count: int) -> str:
+    """What the model is told about the user's answer."""
+    if _is_decline(answer):
+        logger.info("ask_user: user declined to choose")
+        return (
+            "The user declined to choose. Answer now with the most reasonable assumption and say "
+            "which assumption you made."
+        )
+    logger.info("ask_user: user answered a %d-option question", option_count)
+    # Quoted so the model treats it as the user's words rather than as an
+    # instruction from the tool, and told not to re-ask.
+    return f'The user answered: "{answer}". Continue your answer using this. Do not ask again this turn.'
+
+
+async def _ask(question: str, options: list[str] | str | None = None) -> str:
+    """Put one enumerable question to the user and wait for the answer."""
+    question_text = str(question or "").strip()
+    labels = _normalize_options(options)
+    rejection = _reject_arguments(question_text, labels)
+    if rejection is not None:
+        return rejection
+    scope = _turn_scope()
+    if scope is None:
+        return f"No channel to ask the user is available here. {_FALL_BACK_TO_ASSUMPTION}"
+    conversation_id, turn_id, manager = scope
+    refusal = _guard.claim(conversation_id, turn_id)
+    if refusal is not None:
+        logger.info("ask_user refused (%s) for conversation %s", refusal, conversation_id)
+        return f"{_REFUSALS[refusal]} {_FALL_BACK_TO_ASSUMPTION}"
+    try:
+        response = await _prompt_user(manager, question_text, labels)
+    except _Undeliverable as undeliverable:
+        return f"{undeliverable} {_FALL_BACK_TO_ASSUMPTION}"
+    finally:
+        _guard.release(conversation_id)
+    return _reply_for(extract_user_response(response).strip(), len(labels))
+
+
 @register_function(config_type=AskUserConfig)
 async def ask_user(tool_config: AskUserConfig, builder: Builder):
     """Register the blocking ``ask_user`` interaction tool."""
-
-    async def _ask(question: str, options: list[str] | str | None = None) -> str:
-        """Put one enumerable question to the user and wait for the answer."""
-        question_text = str(question or "").strip()
-        if not question_text:
-            return f"Error: `question` was empty. {_FALL_BACK_TO_ASSUMPTION}"
-
-        labels = _normalize_options(options)
-        if len(labels) < MIN_OPTIONS:
-            return (
-                f"Error: ask_user needs at least {MIN_OPTIONS} options — it is for a choice between "
-                f"alternatives you can name. {_FALL_BACK_TO_ASSUMPTION}"
-            )
-        if len(labels) > MAX_OPTIONS:
-            return (
-                f"Error: ask_user takes at most {MAX_OPTIONS} options; you passed {len(labels)}. "
-                f"A list that long is not a quick choice. {_FALL_BACK_TO_ASSUMPTION}"
-            )
-
-        try:
-            nat_context = Context.get()
-            conversation_id = nat_context.conversation_id
-            turn_id = nat_context.user_message_id
-            user_input_manager = nat_context.user_interaction_manager
-        except Exception:
-            logger.info("ask_user called with no usable NAT context", exc_info=True)
-            return f"No channel to ask the user is available here. {_FALL_BACK_TO_ASSUMPTION}"
-
-        refusal = _claim_turn(conversation_id, turn_id)
-        if refusal == "in_flight":
-            # Registering a second prompt would overwrite the first in the
-            # transport's one-per-conversation slot, orphaning a question
-            # somebody is looking at.
-            logger.info("ask_user refused: a prompt is already pending for conversation %s", conversation_id)
-            return f"Another question is already waiting for this conversation. {_FALL_BACK_TO_ASSUMPTION}"
-        if refusal == "already_asked":
-            logger.info("ask_user refused: this turn already asked a question")
-            return f"You already asked the user once this turn. {_FALL_BACK_TO_ASSUMPTION}"
-
-        try:
-            prompt = build_human_prompt(question_text, labels)
-            response = await user_input_manager.prompt_user_input(prompt)
-        except NotImplementedError:
-            # No HITL callback bound (async job runner, REST entrypoint, CLI).
-            # The prompt would never be shown and the future never resolved.
-            logger.info("ask_user called with no user-interaction callback bound; question dropped")
-            return f"No channel to ask the user is available here. {_FALL_BACK_TO_ASSUMPTION}"
-        except TimeoutError:
-            logger.info("ask_user prompt expired unanswered")
-            return f"The user did not answer in time. {_FALL_BACK_TO_ASSUMPTION}"
-        except Exception:
-            # Never propagate: an exception out of a tool aborts a turn the
-            # user is watching, and the answer is still writable without this.
-            logger.warning("ask_user failed to prompt the user", exc_info=True)
-            return f"The question could not be delivered. {_FALL_BACK_TO_ASSUMPTION}"
-        finally:
-            _release_turn(conversation_id)
-
-        answer = extract_user_response(response).strip()
-        if _is_decline(answer):
-            logger.info("ask_user: user declined to choose")
-            return (
-                "The user declined to choose. Answer now with the most reasonable assumption and say "
-                "which assumption you made."
-            )
-
-        logger.info("ask_user: user answered a %d-option question", len(labels))
-        # Quoted so the model treats it as the user's words rather than as an
-        # instruction from the tool, and told not to re-ask.
-        return f'The user answered: "{answer}". Continue your answer using this. Do not ask again this turn.'
-
     yield FunctionInfo.from_fn(_ask, description=_TOOL_DESCRIPTION)
