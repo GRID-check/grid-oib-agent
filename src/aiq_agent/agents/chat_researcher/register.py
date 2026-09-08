@@ -1,6 +1,7 @@
 """NAT register function for chat researcher agent."""
 
 import asyncio
+import contextlib
 import dataclasses
 import logging
 import os
@@ -887,17 +888,21 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             """
             _project_context = None
             _platform_lessons = None
+
             # Anonymized fleet-wide failure patterns distilled from user
             # down-votes (docs/architecture/platform-failure-learning.md).
             # Platform-scoped, so fetched regardless of project/org context;
             # the module TTL-caches, so the per-turn cost is ~zero between
             # refreshes and the to_thread only exists for the cold fetch.
-            try:
-                from aiq_agent.common.platform_lessons import get_platform_lessons_digest
+            async def _load_platform_lessons() -> str | None:
+                try:
+                    from aiq_agent.common.platform_lessons import get_platform_lessons_digest
 
-                _platform_lessons = await asyncio.to_thread(get_platform_lessons_digest, nat_context_conversation_id)
-            except Exception:
-                logger.warning("Platform-lessons digest fetch failed; continuing without", exc_info=True)
+                    return await asyncio.to_thread(get_platform_lessons_digest, nat_context_conversation_id)
+                except Exception:
+                    logger.warning("Platform-lessons digest fetch failed; continuing without", exc_info=True)
+                    return None
+
             # The request-scoped half of the post-answer stages' TurnFacts,
             # captured while the request context is still live — the stage tasks
             # run after this returns, when the context is gone. The turn-scoped
@@ -907,71 +912,83 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             try:
                 from aiq_agent.project_context import GridRequestContext
                 from aiq_agent.project_context import compose_project_context
-
-                # Parse the signed request-context envelope ONCE per turn: each
-                # accessor helper otherwise re-reads the header and re-runs the
-                # base64 + HMAC-SHA256 + JSON parse of the same payload (the
-                # module docstring instructs calling from_context() once when
-                # more than one field is needed).
-                _ctx = GridRequestContext.from_context()
-                _profile_context = _ctx.project_context
-                _project_id = _ctx.project_id
-                _org_id = _ctx.organization_id
-
-                # Live per-turn digest; fall back to the connection-time header value.
-                _memory_digest = _ctx.project_memory
-                if _project_id or _org_id:
-                    try:
-                        from aiq_agent.knowledge.project_memory import fetch_memory_digest
-
-                        _live_digest = await asyncio.to_thread(
-                            fetch_memory_digest,
-                            project_id=_project_id,
-                            organization_id=_org_id,
-                            query=query_text,
-                        )
-                        # A successful fetch is authoritative even when empty (memory
-                        # may have been cleared); only a failure keeps the header value.
-                        _memory_digest = _live_digest
-                    except Exception:
-                        logger.warning("Live memory digest fetch failed; using connection-time digest", exc_info=True)
-
-                _project_context = compose_project_context(_profile_context, _memory_digest)
-
-                # Which post-answer stages are on is decided per TURN, not per
-                # socket. The feature header is written once at the WS upgrade
-                # and then frozen for the life of the connection, so an operator
-                # switching a stage off did not reach an already-open tab — the
-                # opposite of what a kill switch is for. Same shape as the live
-                # digest above: ask the BFF, and fall back to the frozen value
-                # only when the call fails.
-                #
-                # Skipped entirely when no stage has a model to run on: the flag
-                # would decide nothing, and a deployment that compiled the stages
-                # out must not pay an internal round-trip per turn for the
-                # privilege.
-                _enabled_stages = (
-                    await resolve_enabled_stages(
-                        organization_id=_org_id,
-                        memory_reflection_enabled=_ctx.memory_reflection_enabled,
-                    )
-                    if _any_stage_llm
-                    else frozenset()
-                )
-
-                _stage_facts = TurnFacts(
-                    conversation_id=nat_context_conversation_id,
-                    ws_parent_id=get_user_message_id_from_context(),
-                    organization_id=_org_id,
-                    project_id=_project_id,
-                    user_id=_ctx.user_id,
-                    # Reflect against the digest the agent actually saw this turn.
-                    memory_digest=_memory_digest,
-                    bundesland=_ctx.bundesland,
-                    enabled_stages=_enabled_stages,
-                )
             except ImportError:
-                pass
+                _platform_lessons = await _load_platform_lessons()
+                return (_project_context, _platform_lessons, _stage_facts)
+
+            # Parse the signed request-context envelope ONCE per turn: each
+            # accessor helper otherwise re-reads the header and re-runs the
+            # base64 + HMAC-SHA256 + JSON parse of the same payload (the
+            # module docstring instructs calling from_context() once when
+            # more than one field is needed).
+            _ctx = GridRequestContext.from_context()
+            _profile_context = _ctx.project_context
+            _project_id = _ctx.project_id
+            _org_id = _ctx.organization_id
+
+            # Live per-turn digest; fall back to the connection-time header value.
+            async def _load_live_digest() -> str | None:
+                if not (_project_id or _org_id):
+                    return _ctx.project_memory
+                try:
+                    from aiq_agent.knowledge.project_memory import fetch_memory_digest
+
+                    # A successful fetch is authoritative even when empty (memory
+                    # may have been cleared); only a failure keeps the header value.
+                    return await asyncio.to_thread(
+                        fetch_memory_digest,
+                        project_id=_project_id,
+                        organization_id=_org_id,
+                        query=query_text,
+                    )
+                except Exception:
+                    logger.warning("Live memory digest fetch failed; using connection-time digest", exc_info=True)
+                    return _ctx.project_memory
+
+            # Which post-answer stages are on is decided per TURN, not per
+            # socket. The feature header is written once at the WS upgrade
+            # and then frozen for the life of the connection, so an operator
+            # switching a stage off did not reach an already-open tab — the
+            # opposite of what a kill switch is for. Same shape as the live
+            # digest above: ask the BFF, and fall back to the frozen value
+            # only when the call fails.
+            #
+            # Skipped entirely when no stage has a model to run on: the flag
+            # would decide nothing, and a deployment that compiled the stages
+            # out must not pay an internal round-trip per turn for the
+            # privilege.
+            async def _load_enabled_stages() -> frozenset[str]:
+                if not _any_stage_llm:
+                    return frozenset()
+                return await resolve_enabled_stages(
+                    organization_id=_org_id,
+                    memory_reflection_enabled=_ctx.memory_reflection_enabled,
+                )
+
+            # Three independent BFF round-trips that ran one after another,
+            # inside a branch that was itself already gathered with the
+            # document and registry loads: the lessons digest, the live memory
+            # digest and the stage flags. Each fails open on its own, so the
+            # gather cannot let one failure lose the others.
+            _platform_lessons, _memory_digest, _enabled_stages = await asyncio.gather(
+                _load_platform_lessons(),
+                _load_live_digest(),
+                _load_enabled_stages(),
+            )
+
+            _project_context = compose_project_context(_profile_context, _memory_digest)
+
+            _stage_facts = TurnFacts(
+                conversation_id=nat_context_conversation_id,
+                ws_parent_id=get_user_message_id_from_context(),
+                organization_id=_org_id,
+                project_id=_project_id,
+                user_id=_ctx.user_id,
+                # Reflect against the digest the agent actually saw this turn.
+                memory_digest=_memory_digest,
+                bundesland=_ctx.bundesland,
+                enabled_stages=_enabled_stages,
+            )
             return (_project_context, _platform_lessons, _stage_facts)
 
         # Check if API keys are missing and return graceful error response
@@ -1129,149 +1146,200 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         except Exception:  # noqa: BLE001 — transparency must never take a turn down
             logger.debug("Document-loading status not emitted", exc_info=True)
 
-        # Run the independent per-turn I/O paths concurrently: the live
-        # memory-digest fetch, the available-documents aggregation, and the
-        # session-registry hydration. None depends on the others, and each fails
-        # open on its own (see the helpers), so gather cannot let one failure
-        # lose the others' results. The registry hydration's blocking Dragonfly
-        # GET (cold-cache, ~0.5s socket timeout) is offloaded via asyncio.to_thread
-        # so it overlaps the gather instead of blocking the loop serially after it.
-        (
-            (_project_context, _platform_lessons, _stage_facts),
-            available_documents,
-            session_registry,
-        ) = await asyncio.gather(
-            _load_project_context(),
-            _load_available_documents(),
-            asyncio.to_thread(get_or_create_session_registry, nat_context_conversation_id),
-        )
-        # Files still being ingested into a collection this turn can read.
-        #
-        # Read AFTER the gather rather than inside it: it is a small bounded
-        # query against the same summaries database, and putting it in the
-        # gather would make a turn's first byte wait on a fact that only
-        # matters when the answer is about to be wrong.
-        in_flight_documents: list[str] = []
-        try:
-            from aiq_agent.knowledge import ingest_status_store
+        # The profiler root span opens HERE, before the setup I/O, not around
+        # `agent.run` alone: the waterfall used to start at the first LLM call,
+        # so the context loads, the ingest hold and the admission wait had no
+        # row and could not be blamed. `inline_flush=False`: the final batch is
+        # posted after the answer is on the wire (see the end of this turn).
+        from aiq_agent.common.cost_tracking import BudgetExceededError
+        from aiq_agent.common.cost_tracking import track_llm_costs
+        from aiq_agent.common.profiler import flush_after_answer
+        from aiq_agent.common.profiler import profiled_span
+        from aiq_agent.common.profiler import track_agent_profile
+        from aiq_agent.common.turn_admission import TurnAdmissionError
+        from aiq_agent.common.turn_admission import admit_turn_async
 
-            scope_names = [
-                entry.collection if hasattr(entry, "collection") else entry
-                for entry in (_scoped_collections or _collection_scope or [])
-            ]
-            if not scope_names and nat_context_conversation_id:
-                # No header scope: the same session collection the document
-                # loader falls back to, so an attachment dropped into this chat
-                # is watched whichever way the turn was scoped.
-                scope_names = [_session_collection_name(nat_context_conversation_id)]
-            if scope_names:
-                pending = await asyncio.to_thread(ingest_status_store.in_flight_files, scope_names)
+        turn_metadata: dict[str, Any] = {}
+        cost_tracker = None
+
+        async def _flush_ledgers() -> None:
+            # The turn's final profiler + usage batches. Called at every exit
+            # of the turn, AFTER whatever the reader is owed has been yielded,
+            # never between the finished answer and its first delta.
+            await flush_after_answer(turn_profiler, cost_tracker)
+
+        async def _spanned(name: str, awaitable: Awaitable[Any]) -> Any:
+            # Each gathered branch runs in its own task and therefore its own
+            # copy of the context, so the span it opens nests under the turn
+            # root and never leaks into a sibling.
+            with profiled_span(name):
+                return await awaitable
+
+        async def _read_in_flight() -> tuple[list[str], dict[str, list[str]]]:
+            """The collections this turn can read, and which of their files are
+            still being ingested. Fail-open to nothing pending."""
+            try:
+                from aiq_agent.knowledge import ingest_status_store
+
+                names = [
+                    entry.collection if hasattr(entry, "collection") else entry
+                    for entry in (_scoped_collections or _collection_scope or [])
+                ]
+                if not names and nat_context_conversation_id:
+                    # No header scope: the same session collection the document
+                    # loader falls back to, so an attachment dropped into this chat
+                    # is watched whichever way the turn was scoped.
+                    names = [_session_collection_name(nat_context_conversation_id)]
+                if not names:
+                    return [], {}
+                return names, await asyncio.to_thread(ingest_status_store.in_flight_files, names)
+            except Exception:  # noqa: BLE001 - a missing warning must never cost the turn
+                logger.debug("Could not read in-flight ingest jobs", exc_info=True)
+                return [], {}
+
+        with track_agent_profile(
+            agent_name="chat_researcher", metadata=turn_metadata, inline_flush=False
+        ) as turn_profiler:
+            # Run the independent per-turn I/O paths concurrently: the live
+            # memory-digest fetch, the available-documents aggregation, the
+            # session-registry hydration and the in-flight ingest read. None
+            # depends on the others, and each fails open on its own (see the
+            # helpers), so gather cannot let one failure lose the others'
+            # results. The registry hydration's blocking Dragonfly GET
+            # (cold-cache, ~0.5s socket timeout) is offloaded via
+            # asyncio.to_thread so it overlaps the gather instead of blocking
+            # the loop serially after it. The ingest READ rides the gather too
+            # (one more concurrent query costs the first byte nothing); only
+            # the WAIT it may trigger stays after, where it is a decision.
+            (
+                (_project_context, _platform_lessons, _stage_facts),
+                available_documents,
+                session_registry,
+                (scope_names, pending),
+            ) = await asyncio.gather(
+                _spanned("setup.project_context", _load_project_context()),
+                _spanned("setup.available_documents", _load_available_documents()),
+                _spanned(
+                    "setup.session_registry",
+                    asyncio.to_thread(get_or_create_session_registry, nat_context_conversation_id),
+                ),
+                _spanned("setup.ingest_status", _read_in_flight()),
+            )
+            # Files still being ingested into a collection this turn can read.
+            in_flight_documents: list[str] = []
+            try:
                 if pending:
+                    from aiq_agent.knowledge import ingest_status_store
+
                     # HOLD THE TURN. A file attached seconds ago is invisible to
                     # retrieval until its job finishes, and an answer written
                     # without it is wrong in the one way the reader cannot see.
                     # Bounded: past the deadline the turn proceeds and the
                     # inventory says which files are still being read.
-                    settled = await _await_ingest_settling(
-                        scope_names, pending, read=ingest_status_store.in_flight_files
-                    )
-                    if settled != pending:
-                        # Something finished while we waited: the inventory was
-                        # built from the summaries table before it existed.
-                        available_documents = await _load_available_documents()
+                    with profiled_span("setup.ingest_wait"):
+                        settled = await _await_ingest_settling(
+                            scope_names, pending, read=ingest_status_store.in_flight_files
+                        )
+                        if settled != pending:
+                            # Something finished while we waited: the inventory was
+                            # built from the summaries table before it existed.
+                            available_documents = await _load_available_documents()
                     pending = settled
                 for names in pending.values():
                     for name in names:
                         if name not in in_flight_documents:
                             in_flight_documents.append(name)
-        except Exception:  # noqa: BLE001 - a missing warning must never cost the turn
-            logger.debug("Could not read in-flight ingest jobs", exc_info=True)
+            except Exception:  # noqa: BLE001 - a missing warning must never cost the turn
+                logger.debug("Could not wait for in-flight ingest jobs", exc_info=True)
 
-        # Set session-scoped source registry for citation verification across turns.
-        # When no conversation ID is available, get_or_create_session_registry returns a
-        # fresh per-request registry to prevent anonymous sessions from sharing state.
-        # The hydrating read above ran in the gather; the ContextVar set stays inline.
-        token = set_session_registry(session_registry)
-        # Bind the conversation-scoped card registry so the `emit_card` tool can
-        # push cards during the turn. Cleared here (registries are reused across
-        # turns of the same conversation) so a card never leaks between turns.
-        card_registry = get_or_create_card_registry(nat_context_conversation_id)
-        card_registry.clear()
-        card_token = set_card_registry(card_registry)
-        # Per-turn ceiling on `view_knowledge_image` calls, bound here for the
-        # same reason the card registry is: the tool must see it, and it must
-        # not outlive the turn.
-        image_view_token = begin_image_view_budget()
-        memory_log_token = begin_turn_memory_log()
-        remembered_this_turn: tuple[str, ...] = ()
-        try:
-            state = ChatResearcherState(
-                messages=[HumanMessage(content=query_text)],
-                user_info=user_info_dict,
-                data_sources=data_sources,
-                force_skills=force_skills,
-                available_documents=available_documents,
-                in_flight_documents=in_flight_documents or None,
-                collection_scope=_collection_scope,
-                focus_file_name=_focus_file_name,
-                focus_shelf=_focus_shelf,
-                skip_clarifier=skip_clarifier,
-                project_context=_project_context,
-                platform_lessons=_platform_lessons,
-            )
-            # Unified LLM cost capture + budget enforcement for the whole turn
-            # (every agent/LLM call inside inherits the tracker via LangChain's
-            # configure hook — see aiq_agent/common/cost_tracking.py). The
-            # profiler wraps the same turn, capturing a node/LLM/tool span
-            # timeline for the platform-owner profiler view (common/profiler.py).
-            from aiq_agent.common.cost_tracking import BudgetExceededError
-            from aiq_agent.common.cost_tracking import track_llm_costs
-            from aiq_agent.common.profiler import track_agent_profile
-            from aiq_agent.common.turn_admission import TurnAdmissionError
-            from aiq_agent.common.turn_admission import admit_turn_async
-
+            # Set session-scoped source registry for citation verification across turns.
+            # When no conversation ID is available, get_or_create_session_registry returns a
+            # fresh per-request registry to prevent anonymous sessions from sharing state.
+            # The hydrating read above ran in the gather; the ContextVar set stays inline.
+            token = set_session_registry(session_registry)
+            # Bind the conversation-scoped card registry so the `emit_card` tool can
+            # push cards during the turn. Cleared here (registries are reused across
+            # turns of the same conversation) so a card never leaks between turns.
+            card_registry = get_or_create_card_registry(nat_context_conversation_id)
+            card_registry.clear()
+            card_token = set_card_registry(card_registry)
+            # Per-turn ceiling on `view_knowledge_image` calls, bound here for the
+            # same reason the card registry is: the tool must see it, and it must
+            # not outlive the turn.
+            image_view_token = begin_image_view_budget()
+            memory_log_token = begin_turn_memory_log()
+            remembered_this_turn: tuple[str, ...] = ()
             try:
-                # Concurrency admission (ADR-0040 L3). A turn OCCUPIES capacity
-                # for as long as it runs, so the slot is held around the run
-                # itself — outside it, a per-minute rate limit would still admit
-                # an unbounded number of simultaneous research runs at a steady
-                # trickle. Interactive turns have their own pool, so background
-                # deep research can never crowd them out.
-                async with admit_turn_async(_admission_organization_id()):
-                    with track_agent_profile(agent_name="chat_researcher"), track_llm_costs():
-                        result = await agent.run(state, thread_id=nat_context_conversation_id)
-                remembered_this_turn = turn_memory_writes()
-            except TurnAdmissionError as admission_error:
-                logger.warning("Turn refused by admission control: %s", admission_error)
-                busy_response = _create_chat_response(
-                    str(admission_error), response_id="turn_admission", model=workflow_id
+                state = ChatResearcherState(
+                    messages=[HumanMessage(content=query_text)],
+                    user_info=user_info_dict,
+                    data_sources=data_sources,
+                    force_skills=force_skills,
+                    available_documents=available_documents,
+                    in_flight_documents=in_flight_documents or None,
+                    collection_scope=_collection_scope,
+                    focus_file_name=_focus_file_name,
+                    focus_shelf=_focus_shelf,
+                    skip_clarifier=skip_clarifier,
+                    project_context=_project_context,
+                    platform_lessons=_platform_lessons,
                 )
-                # Same contract as every other refusal in the system: say WHEN to
-                # come back, not just no. Without it the client has to guess, and
-                # guessing is what turns a refusal into a retry storm.
-                busy_response.retry_after_seconds = admission_error.retry_after_seconds
-                for _chunk in _response_to_chunks(busy_response, stream=False):
-                    yield _chunk
-                return
-            except BudgetExceededError as budget_error:
-                logger.warning("Turn stopped by budget enforcement: %s", budget_error)
-                budget_response = _create_chat_response(
-                    str(budget_error), response_id="budget_exceeded", model=workflow_id
-                )
-                for _chunk in _response_to_chunks(budget_response, stream=False):
-                    yield _chunk
-                return
-        finally:
-            reset_session_registry(token)
-            reset_card_registry(card_token)
-            end_image_view_budget(image_view_token)
-            end_turn_memory_log(memory_log_token)
-            # Persist the turn's captured citation sources to the shared cache
-            # (ADR-0020) so the conversation keeps prior-turn sources after a
-            # restart or on another replica. Best-effort and fire-and-forget: it
-            # must not sit between "answer ready" and "first streamed token".
-            if nat_context_conversation_id:
-                _schedule_registry_persist(nat_context_conversation_id)
+                # Unified LLM cost capture + budget enforcement for the whole turn
+                # (every agent/LLM call inside inherits the tracker via LangChain's
+                # configure hook — see aiq_agent/common/cost_tracking.py). The
+                # profiler root span opened above the setup I/O captures the
+                # node/LLM/tool timeline for the platform-owner profiler view
+                # (common/profiler.py).
+                try:
+                    # Concurrency admission (ADR-0040 L3). A turn OCCUPIES capacity
+                    # for as long as it runs, so the slot is held around the run
+                    # itself — outside it, a per-minute rate limit would still admit
+                    # an unbounded number of simultaneous research runs at a steady
+                    # trickle. Interactive turns have their own pool, so background
+                    # deep research can never crowd them out. The wait for a slot
+                    # gets its own span: queued time is the one cost a busy replica
+                    # adds that no LLM or tool row would ever explain.
+                    async with contextlib.AsyncExitStack() as admission:
+                        with profiled_span("admission.wait"):
+                            await admission.enter_async_context(admit_turn_async(_admission_organization_id()))
+                        with track_llm_costs(inline_flush=False) as cost_tracker:
+                            result = await agent.run(state, thread_id=nat_context_conversation_id)
+                    remembered_this_turn = turn_memory_writes()
+                except TurnAdmissionError as admission_error:
+                    logger.warning("Turn refused by admission control: %s", admission_error)
+                    turn_metadata["outcome"] = "admission_refused"
+                    busy_response = _create_chat_response(
+                        str(admission_error), response_id="turn_admission", model=workflow_id
+                    )
+                    # Same contract as every other refusal in the system: say WHEN to
+                    # come back, not just no. Without it the client has to guess, and
+                    # guessing is what turns a refusal into a retry storm.
+                    busy_response.retry_after_seconds = admission_error.retry_after_seconds
+                    for _chunk in _response_to_chunks(busy_response, stream=False):
+                        yield _chunk
+                    await _flush_ledgers()
+                    return
+                except BudgetExceededError as budget_error:
+                    logger.warning("Turn stopped by budget enforcement: %s", budget_error)
+                    turn_metadata["outcome"] = "budget_exceeded"
+                    budget_response = _create_chat_response(
+                        str(budget_error), response_id="budget_exceeded", model=workflow_id
+                    )
+                    for _chunk in _response_to_chunks(budget_response, stream=False):
+                        yield _chunk
+                    await _flush_ledgers()
+                    return
+            finally:
+                reset_session_registry(token)
+                reset_card_registry(card_token)
+                end_image_view_budget(image_view_token)
+                end_turn_memory_log(memory_log_token)
+                # Persist the turn's captured citation sources to the shared cache
+                # (ADR-0020) so the conversation keeps prior-turn sources after a
+                # restart or on another replica. Best-effort and fire-and-forget: it
+                # must not sit between "answer ready" and "first streamed token".
+                if nat_context_conversation_id:
+                    _schedule_registry_persist(nat_context_conversation_id)
 
         if isinstance(result, dict):
             messages = result.get("messages", [])
@@ -1302,6 +1370,11 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         if "--input" in sys.argv:
             import threading
             import time
+
+            # The CLI hard-exits 0.2s after this point; post the ledgers first
+            # (the server path posts them after the deltas, see the end of the
+            # turn) so the exit cannot strand the last batch.
+            await _flush_ledgers()
 
             def exit_after_response():
                 time.sleep(0.2)
@@ -1357,7 +1430,16 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # the already-final text is emitted as incremental deltas followed by a
         # terminal chunk carrying cards/sources (single-output consumers fold it
         # back to one ChatResponse via _fold_chunks_to_response).
-        for _chunk in _response_to_chunks(response, stream=True):
-            yield _chunk
+        try:
+            for _chunk in _response_to_chunks(response, stream=True):
+                yield _chunk
+        finally:
+            # Two BFF round-trips (profiler spans, usage events) used to run as
+            # blocking POSTs on the event loop right here, BEFORE the deltas:
+            # up to their timeout of dead air for this reader and a stalled loop
+            # for every other turn on the replica. The reader has the answer
+            # now; the ledgers can take their time, off the loop. In the
+            # `finally` so a consumer that closes the stream early still posts.
+            await _flush_ledgers()
 
     yield FunctionInfo.from_fn(_run, description="Chat researcher: one answering agent, escalation to deep research.")

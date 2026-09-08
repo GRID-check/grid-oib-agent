@@ -58,12 +58,12 @@ boot**, from `instrumentation.ts`.
 It is deliberately *not* a SQL migration. A platform default replaces the model
 id and nothing else — `override_model` leaves `base_url` and `api_key` alone so
 an override can never re-point traffic at another provider — while a migration
-runs on every deployment regardless of which `BACKEND_CONFIG` it loaded. This
-repo ships configs pointing at Kimi (`config_grid_oib.yml`) and NVIDIA
-(`config_web_default_llamaindex.yml`) as well as OpenRouter; seeding an
-OpenRouter id there would send an unknown model to that provider on every
-request, and the admin UI could not repair it because its save path only accepts
-ids the OpenRouter catalog knows.
+runs on every deployment regardless of which `BACKEND_CONFIG` it loaded. The
+repo ships one config, on OpenRouter, but a deployment may hand `BACKEND_CONFIG`
+a config of its own on another provider; seeding an OpenRouter id there would
+send an unknown model to that provider on every request, and the admin UI could
+not repair it because its save path only accepts ids the OpenRouter catalog
+knows.
 
 Running in the application instead buys four things SQL cannot do:
 
@@ -355,7 +355,7 @@ them up:
 |---|---|---|
 | Interactive WS chat | `server.js` resolves the org's **effective** overrides at WS upgrade (`GET /api/auth/websocket-scope` → `getEffectiveModelOverrides`: platform defaults with the org's own choices layered over them) and forwards `x-grid-model-overrides`. When the turn kicks off an async deep-research job, that job is submitted **in-process** by `chat_researcher/register.py`, which captures the map from the live WS request context (`get_model_overrides_from_context()`) rather than re-resolving it. | Yes |
 | Scheduled / manual job runs (ADR-0046) | `fireJob()` (`frontends/ui/src/lib/jobs/service.ts`) resolves the org's **effective** overrides (`getEffectiveModelOverrides`) and passes them explicitly as `model_overrides` in the `POST /v1/internal/skills/submit` payload. | Yes |
-| Generic REST async-job proxy: `POST /api/jobs/async/submit` → backend `POST /v1/jobs/async/submit` | **Fixed 2026-07-16** (`0bdfb72`, `a78f5d4`). `frontends/ui/src/app/api/jobs/async/[...path]/route.ts` now resolves the caller's effective overrides (`getEffectiveModelOverrides`) and forwards them — via the shared `GridRequestContext` builder, so both the legacy `x-grid-model-overrides` header and the signed `X-Grid-Request-Context` envelope carry them. Belt-and-suspenders on the backend: `get_model_overrides_from_context()` (`common/model_overrides.py`) reads the header/envelope first; when neither is present it falls back to a **just-in-time resolution of the effective selection** — `resolve_org_model_overrides()` calls the BFF's internal `GET /api/internal/model-overrides` endpoint, which itself returns the merged platform-plus-org map (the org's own choices win per group) (`GRID_INTERNAL_API_TOKEN`-guarded), cached in-process (60 s positive / 30 s negative TTL) and fail-open to `{}` (YAML defaults) on any error — mirroring the BYOK credential-resolution pattern. | **Yes**, via header-first-then-org-resolution precedence. See also `docs/api/bff-routes.md` and `docs/api/python-endpoints.md`. |
+| Generic REST async-job proxy: `POST /api/jobs/async/submit` → backend `POST /v1/jobs/async/submit` | **Fixed 2026-07-16** (`0bdfb72`, `a78f5d4`). `frontends/ui/src/app/api/jobs/async/[...path]/route.ts` now resolves the caller's effective overrides (`getEffectiveModelOverrides`) and forwards them — via the shared `GridRequestContext` builder, so both the legacy `x-grid-model-overrides` header and the signed `X-Grid-Request-Context` envelope carry them. Belt-and-suspenders on the backend: `get_model_overrides_from_context()` (`common/model_overrides.py`) reads the header/envelope first; when neither is present it falls back to a **just-in-time resolution of the effective selection** — `resolve_org_model_overrides()` calls the BFF's internal `GET /api/internal/model-overrides` endpoint, which itself returns the merged platform-plus-org map (the org's own choices win per group) (`GRID_INTERNAL_API_TOKEN`-guarded), cached in two tiers — a 10 s in-process memo and the shared cache key `modelconfig:{org}` (ADR-0020, 5 min), which the BFF deletes on a config save or rollback, a ZDR toggle, and a platform-defaults save (`lib/model-config/backend-key.ts`), so a save reaches every backend replica within ~10 s — and fail-open to `{}` (YAML defaults) on any error, never written to the shared tier — mirroring the BYOK credential-resolution pattern. | **Yes**, via header-first-then-org-resolution precedence. See also `docs/api/bff-routes.md` and `docs/api/python-endpoints.md`. |
 
 The JIT fallback (`resolve_org_model_overrides` / `/api/internal/model-overrides`)
 also covers any future endpoint the BFF doesn't front, or a turn where the

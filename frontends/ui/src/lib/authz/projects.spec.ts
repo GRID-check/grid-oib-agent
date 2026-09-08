@@ -157,24 +157,23 @@ describe('requireProjectAccess', () => {
     expect(check).toHaveBeenCalledTimes(2)
   })
 
-  describe('cache disabled (default)', () => {
+  describe('cache disabled (GRID_AUTHZ_CACHE_TTL_MS=0)', () => {
+    beforeEach(() => {
+      process.env.GRID_AUTHZ_CACHE_TTL_MS = '0'
+    })
+
     it('never consults the cache and re-checks every request', async () => {
       await requireProjectAccess(session(), PROJECT_ID, 'project:edit')
       await requireProjectAccess(session(), PROJECT_ID, 'project:edit')
       expect(check).toHaveBeenCalledTimes(4)
       expect(authzKeys()).toHaveLength(0)
     })
-
-    it('treats GRID_AUTHZ_CACHE_TTL_MS=0 as disabled', async () => {
-      process.env.GRID_AUTHZ_CACHE_TTL_MS = '0'
-      await requireProjectAccess(session(), PROJECT_ID, 'project:edit')
-      expect(authzKeys()).toHaveLength(0)
-    })
   })
 
-  describe('cache enabled', () => {
-    beforeEach(() => {
-      process.env.GRID_AUTHZ_CACHE_TTL_MS = '30000'
+  describe('cache enabled (the default)', () => {
+    it('is on when the variable is unset', async () => {
+      await requireProjectAccess(session(), PROJECT_ID, 'project:edit')
+      expect(authzKeys().length).toBeGreaterThan(0)
     })
 
     it('miss then populate: the first request checks WorkOS and stores each result', async () => {

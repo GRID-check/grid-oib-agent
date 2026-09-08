@@ -1,5 +1,6 @@
 """NAT register function for shallow research agent."""
 
+import asyncio
 import logging
 
 from langchain_core.messages import AIMessage
@@ -183,7 +184,10 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                 from aiq_agent.skills import SkillRuntime
 
                 resolver = SkillResolver(agent="shallow_researcher")
-                resolved_skills = resolver.resolve(get_organization_id_from_context())
+                # A cold resolve is a blocking BFF round-trip (5s timeout); on
+                # a thread so the miss stalls this turn and not every other
+                # conversation on the replica. ContextVars travel with it.
+                resolved_skills = await asyncio.to_thread(resolver.resolve, get_organization_id_from_context())
                 if config.skill_allowlist:
                     allow = set(config.skill_allowlist)
                     resolved_skills = tuple(s for s in resolved_skills if s.name in allow)
@@ -209,10 +213,20 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
             # Model overrides + the org's BYOK credential (ADR-0022); both
             # return the build-time provider unchanged when inactive, so the
             # identity check below keeps the prebuilt agent.
+            #
+            # The three lookups are header-first but fall back to a blocking
+            # BFF call each (5s timeout, 60s in-process TTL), so a cold miss
+            # used to freeze the event loop for every turn on the replica.
+            # One thread hop resolves all three; ContextVars travel with it.
+            model_overrides, org_credential, zdr_only = await asyncio.to_thread(
+                lambda: (
+                    get_model_overrides_from_context(),
+                    get_org_llm_credential_from_context(),
+                    get_zdr_only_from_context(),
+                )
+            )
             active_provider = (
-                provider.with_model_overrides(get_model_overrides_from_context())
-                .with_credential(get_org_llm_credential_from_context())
-                .with_zdr(get_zdr_only_from_context())
+                provider.with_model_overrides(model_overrides).with_credential(org_credential).with_zdr(zdr_only)
             )
             active_agent = agent
             # No `data_sources is not None` guard: org-disabled sources (ADR-0022)

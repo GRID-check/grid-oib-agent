@@ -77,7 +77,7 @@ services:
       - SEAWEED_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
       - SEAWEED_SECRET_KEY=${SEAWEED_READONLY_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
-      # LlamaIndex persistence (used by config_web_default_llamaindex.yml)
+      # LlamaIndex persistence (the Chroma store config_oib_openrouter.yml reads)
       - AIQ_CHROMA_DIR=${AIQ_CHROMA_DIR:-/app/data/chroma_data}
       # Server config
       # Grid OIB config (default)

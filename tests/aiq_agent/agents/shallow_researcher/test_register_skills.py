@@ -414,3 +414,33 @@ async def test_a_forced_skill_the_model_never_opened_is_not_reported_as_used(cap
         )
         assert "piloti-voice" not in unread[0].split("(activated")[0]
         await gen.aclose()
+
+
+@pytest.mark.asyncio
+async def test_the_skill_resolve_runs_off_the_event_loop():
+    """A cold resolve is a blocking BFF round-trip with a 5s timeout. On the
+    loop it stalled every conversation on the replica; it runs on a thread."""
+    import threading
+
+    builder = _FakeBuilder({"web_search_tool": web_search_tool})
+    config = ShallowResearchAgentConfig(llm="research_llm", tools=["web_search_tool"], skills_enabled=True)
+    resolved = (_skill("forecast-analysis"),)
+    runtime = _skill_runtime(resolved, [])
+    resolving_threads: list[str] = []
+
+    def resolve(_org):
+        resolving_threads.append(threading.current_thread().name)
+        return resolved
+
+    with (
+        patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
+        patch("aiq_agent.project_context.get_organization_id_from_context", return_value="org-1"),
+        patch("aiq_agent.skills.SkillRuntime", return_value=runtime),
+        patch("aiq_agent.skills.SkillResolver") as ResolverCls,
+    ):
+        ResolverCls.return_value.resolve.side_effect = resolve
+        run_fn, gen = await _get_run_fn(config, builder)
+        await run_fn(ShallowResearchAgentState(messages=[HumanMessage(content="hallo")]))
+        await gen.aclose()
+
+    assert resolving_threads and resolving_threads[0] != threading.current_thread().name

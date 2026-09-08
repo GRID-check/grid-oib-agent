@@ -184,7 +184,7 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     reranker_provider: str | None = Field(
         default=None,
         description=(
-            "Cross-encoder reranking provider (none|openrouter|cohere|voyage|jina|nvidia). "
+            "Cross-encoder reranking provider (none|openrouter). "
             "None falls back to the AIQ_RERANKER_PROVIDER environment default, which is "
             "'none'. When one resolves it becomes the primary reranker and rerank_llm "
             "becomes the fallback; a missing key or any provider error degrades to the judge."

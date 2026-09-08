@@ -8,15 +8,15 @@ This script tests the complete knowledge layer workflow with LlamaIndex:
 3. Test retrieval via semantic search
 
 Prerequisites:
-    - NVIDIA_API_KEY environment variable (via export or .env file)
+    - OPENROUTER_API_KEY environment variable (via export or .env file)
     - LlamaIndex dependencies: uv pip install -e "sources/knowledge_layer[llamaindex]"
 
 Usage:
     # Option 1: Export env var
-    export NVIDIA_API_KEY=nvapi-your-key
+    export OPENROUTER_API_KEY=your-openrouter-key
 
     # Option 2: Use .env file (auto-loaded, won't override existing vars)
-    echo 'NVIDIA_API_KEY=nvapi-your-key' >> .env
+    echo 'OPENROUTER_API_KEY=your-openrouter-key' >> .env
 
     # Run with default test file
     python tests/knowledge_layer_tests/run_llamaindex.py
@@ -148,9 +148,9 @@ async def main():
         return 1
 
     # Check API key
-    if not os.environ.get("NVIDIA_API_KEY"):
-        print("\nERROR: NVIDIA_API_KEY not set. Run:")
-        print('  export NVIDIA_API_KEY="nvapi-your-key"')
+    if not os.environ.get("OPENROUTER_API_KEY"):
+        print("\nERROR: OPENROUTER_API_KEY not set. Run:")
+        print('  export OPENROUTER_API_KEY="your-openrouter-key"')  # pragma: allowlist secret
         return 1
 
     # =========================================================================

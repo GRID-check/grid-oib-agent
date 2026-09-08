@@ -277,8 +277,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--config_file",
-        default="configs/config_cli_default.yml",
-        help="Path to NAT workflow config file (default: configs/config_cli_default.yml)",
+        default="configs/config_oib_openrouter.yml",
+        help="Path to NAT workflow config file (default: configs/config_oib_openrouter.yml)",
     )
     parser.add_argument(
         "--env_file",

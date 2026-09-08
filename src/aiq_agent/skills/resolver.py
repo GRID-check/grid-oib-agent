@@ -225,12 +225,16 @@ class SkillResolver:
         return tuple(skill for skill in merged_by_name.values() if _skill_applies_to_agent(skill, self.agent))
 
     def _resolve_org_skills(self, organization_id: str) -> tuple[Skill, ...]:
+        from aiq_agent.common.profiler import annotate_current_span
+
         cache_key = f"skills:{organization_id}:{self.agent or '_all'}"
         cached = shared_cache.get_json(cache_key)
         if cached is not None and isinstance(cached, list):
             known = self._known_org_names(cached)
             if known is not None:
+                annotate_current_span(cache_skills="hit")
                 return self._org_skills_from_rows(cached, known)
+        annotate_current_span(cache_skills="miss")
         try:
             rows = self._fetch_org_skills(organization_id)
         except Exception as exc:  # noqa: BLE001 - fail open to builtins by design

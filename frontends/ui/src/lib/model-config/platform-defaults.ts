@@ -23,6 +23,7 @@ import { asc, inArray } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withPlatformAccess } from '@/lib/db/tenant-context'
 import { getCached, invalidateCached } from '@/lib/cache'
+import { invalidateEveryBackendModelConfig } from './backend-key'
 import { platformModelDefaults, type PlatformModelDefault } from '@/lib/db/schema'
 import { AGENT_GROUP_IDS } from './agent-groups'
 
@@ -171,4 +172,7 @@ export async function savePlatformModelDefaults(
 /** Drop the cached defaults (after a write, or from tests). */
 export async function invalidatePlatformModelDefaults(): Promise<void> {
   await invalidateCached(DEFAULTS_CACHE_KEY)
+  // A platform default moves every org that follows it; the backend's
+  // per-org copies all have to go.
+  await invalidateEveryBackendModelConfig()
 }

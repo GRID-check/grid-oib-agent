@@ -44,8 +44,8 @@ Users need:
   - Python 3.11+ and `uv` for local process or CLI mode.
   - Node.js 20+ and `npm` for local browser UI development mode.
   - `kubectl` 1.28+, Helm 3.12+, and access to a Kubernetes cluster for Helm mode.
-- Network access to GitHub, NVIDIA-hosted model endpoints, and any selected search provider.
-- Credentials stored outside chat. Hosted-model usage requires `NVIDIA_API_KEY`; web research requires at least
+- Network access to GitHub, OpenRouter, and any selected search provider.
+- Credentials stored outside chat. Every model, the embeddings, the VLM and the reranker need `OPENROUTER_API_KEY`; web research requires at least
   one supported search provider key such as `TAVILY_API_KEY`, `SERPER_API_KEY`, or `EXA_API_KEY`.
 - System capacity for the selected runtime. Docker Compose mode starts the AI-Q backend and PostgreSQL by default;
   browser UI mode also uses frontend port `3000`. Self-hosted model or RAG deployments may require GPU resources.
@@ -135,7 +135,6 @@ Match the user request, then read the referenced file before acting:
 | Quick local development run, start UI/backend without containers | `references/local-web.md` |
 | Default durable local deployment, Docker Compose, containers, PostgreSQL | `references/docker-compose.md` |
 | Kubernetes, Helm, cluster deployment | `references/kubernetes-helm.md` |
-| Foundational RAG / FRAG integration | `references/frag.md` |
 | Basic health checks, shallow smoke checks, handoff to `aiq-research` | `references/validation.md` |
 | Optional deep research completion validation | `references/end-to-end-validation.md` |
 | Logs, unhealthy services, port conflicts, config failures | `references/troubleshooting.md` |
@@ -263,7 +262,6 @@ Expected output: a successful health response. Then tell the user to keep `AIQ_S
 | Local web deployment | `references/local-web.md` |
 | Docker Compose deployment | `references/docker-compose.md` |
 | Kubernetes and Helm deployment | `references/kubernetes-helm.md` |
-| FRAG integration | `references/frag.md` |
 | Basic validation | `references/validation.md` |
 | End-to-end validation | `references/end-to-end-validation.md` |
 | Troubleshooting | `references/troubleshooting.md` |
@@ -305,7 +303,7 @@ Expected output: a successful health response. Then tell the user to keep `AIQ_S
 
 **Causes:**
 
-- `NVIDIA_API_KEY` is missing or empty.
+- `OPENROUTER_API_KEY` is missing or empty.
 - No supported search provider key is configured for web research.
 
 **Solutions:**
@@ -329,7 +327,7 @@ Expected output: a successful health response. Then tell the user to keep `AIQ_S
 **Solutions:**
 
 1. Read `references/configs.md` and confirm the selected config is API-enabled.
-2. For the default Skill backend, use `configs/config_web_default_llamaindex.yml`.
+2. The Skill backend runs the one shipped config, `configs/config_oib_openrouter.yml`.
 3. Restart the backend and rerun `references/validation.md`.
 
 ### Issue: Docker cleanup would remove useful state

@@ -4,14 +4,14 @@ LlamaIndex adapter for the Knowledge Layer.
 This adapter provides a lightweight, no-deployment-required local solution.
 It uses:
 - ChromaDB for local vector storage (file-based, like Milvus-lite)
-- NVIDIA embeddings via LlamaIndex's NVIDIA integration
+- Embeddings via LlamaIndex's `NVIDIAEmbedding` client pointed at an OpenAI-compatible endpoint (OpenRouter by default)
 - LlamaIndex's document loaders and chunking
-- Optional multimodal extraction (tables, charts, images) with NVIDIA VLM captioning
+- Optional multimodal extraction (tables, charts, images) with VLM captioning through the same endpoint
 
 Configuration options:
     persist_dir: Directory for ChromaDB persistence (default: /tmp/chroma_data)
     embed_model: NVIDIA embedding model (default: nvidia/llama-nemotron-embed-vl-1b-v2)
-    embed_base_url: Embedding model base URL (default: https://integrate.api.nvidia.com/v1)
+    embed_base_url: Embedding model base URL (default: https://openrouter.ai/api/v1)
     chunk_size: Chunk size for text splitting (default: 1024, model supports up to 2048 tokens)
     chunk_overlap: Overlap between chunks (default: 128)
 
@@ -19,8 +19,8 @@ Multimodal options:
     extract_tables: Enable table extraction via pdfplumber (default: False)
     extract_charts: Enable chart extraction with VLM data extraction (default: False)
     extract_images: Enable image extraction with VLM captioning (default: False)
-    vlm_model: NVIDIA VLM model for captioning (default: nvidia/llama-3.2-90b-vision-instruct)
-    vlm_base_url: VLM model base URL (default: https://integrate.api.nvidia.com/v1)
+    vlm_model: VLM model for captioning (default: google/gemma-4-31b-it)
+    vlm_base_url: VLM model base URL (default: https://openrouter.ai/api/v1)
 
 Chart extraction uses the VLM to:
 1. Classify images as charts/graphs vs regular images
@@ -62,11 +62,12 @@ from aiq_agent.knowledge.schema import RetrievalResult
 
 logger = logging.getLogger(__name__)
 
-# Default VLM model for image captioning
-# nemotron-nano is faster (12B vs 90B) - same as NV-Ingest service mode uses
-DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "nvidia/nemotron-nano-12b-v2-vl")
+# Default VLM model for image captioning: the model and host the production
+# compose file runs, so a deployment that sets nothing calls OpenRouter with
+# OPENROUTER_API_KEY. Nothing in this repo calls a NVIDIA endpoint any more.
+DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "google/gemma-4-31b-it")
 # Default VLM model base URL
-DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://openrouter.ai/api/v1")
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +307,20 @@ VLM_REQUEST_TIMEOUT_SECONDS = max(1, int(os.environ.get("AIQ_VLM_TIMEOUT_SECONDS
 # sequential HTTP calls. Every OpenAI-compatible embeddings endpoint accepts
 # far more per call (OpenAI 2048, NVIDIA NIM 259); 64 is conservative.
 EMBED_BATCH_SIZE = max(1, int(os.environ.get("AIQ_EMBED_BATCH_SIZE", "64")))
+
+# @environment_variable AIQ_EMBED_TIMEOUT_SECONDS
+# @category Knowledge Layer
+# @type float
+# @default 60
+# @required false
+# Per-request timeout on the embeddings client. The client's own defaults are
+# 120s with five retries, so a hung embeddings endpoint could hold the query
+# embedding, and with it the whole chat turn, for ten minutes; retrieval fails
+# open everywhere else, and this is what lets it fail open here. Two retries
+# stay for the transient 5xx a batch of EMBED_BATCH_SIZE texts occasionally
+# meets; 60s covers such a batch with room.
+EMBED_TIMEOUT_SECONDS = max(1.0, float(os.environ.get("AIQ_EMBED_TIMEOUT_SECONDS", "60") or "60"))
+EMBED_MAX_RETRIES = 2
 
 # pypdfium2 page-object type constants (the C API values are not always exposed
 # as Python attributes across versions).
@@ -731,12 +746,11 @@ def _local_chroma_where(filters: dict[str, Any]) -> dict[str, Any]:
 def _resolve_embed_api_key(base_url: str, model: str) -> str:
     """Resolve the embeddings API key through the shared credential resolver.
 
-    Chain: explicit ``AIQ_EMBED_API_KEY`` → ``NVIDIA_API_KEY`` fallback →
-    provider inference from ``base_url``. Inference only selects the KEY for the
-    configured embeddings endpoint; it NEVER changes ``base_url`` (embeddings
-    need an embeddings-capable endpoint, so the caller keeps its configured
-    base). With the default deployment (NVIDIA base, ``NVIDIA_API_KEY`` set) this
-    is byte-identical to the old ``_get_nvidia_api_key()`` behaviour.
+    Chain: explicit ``AIQ_EMBED_API_KEY`` → provider inference from
+    ``base_url`` (``OPENROUTER_API_KEY`` for the default OpenRouter host).
+    Inference only selects the KEY for the configured embeddings endpoint; it
+    NEVER changes ``base_url`` (embeddings need an embeddings-capable endpoint,
+    so the caller keeps its configured base).
 
     BYOK is intentionally NOT wired here, but no longer for want of an org id:
     ``/v1/ingest`` forwards ``x-grid-organization-id`` into the ingest thread's
@@ -749,7 +763,6 @@ def _resolve_embed_api_key(base_url: str, model: str) -> str:
 
     return resolve_llm_credential(
         primary_env="AIQ_EMBED_API_KEY",
-        fallback_envs=("NVIDIA_API_KEY",),
         default_base_url=base_url,
         default_model=model,
         organization_id=None,
@@ -767,9 +780,8 @@ def resolve_vlm_credential(organization_id: str | None = None):
          bring-your-own credential, the org's key + base URL win (never the
          model — mirrors ADR-0022/0014).
       1. explicit override           — ``AIQ_VLM_API_KEY``
-      2. platform default            — ``NVIDIA_API_KEY``
-      3. deployment provider key     — inferred from ``AIQ_VLM_BASE_URL`` (e.g.
-         ``OPENROUTER_API_KEY`` when the base URL is openrouter.ai)
+      2. deployment provider key     — inferred from ``AIQ_VLM_BASE_URL``
+         (``OPENROUTER_API_KEY`` for the default OpenRouter host)
 
     Passing ``organization_id`` is what makes per-project/Archiv uploads use the
     tenant's own key + endpoint; the org-agnostic paths (base OIB corpus sync)
@@ -779,8 +791,7 @@ def resolve_vlm_credential(organization_id: str | None = None):
 
     return resolve_llm_credential(
         primary_env="AIQ_VLM_API_KEY",
-        fallback_envs=("NVIDIA_API_KEY",),
-        default_base_url="https://integrate.api.nvidia.com/v1",
+        default_base_url=DEFAULT_VLM_BASE_URL,
         default_model=DEFAULT_VLM_MODEL,
         base_url_env="AIQ_VLM_BASE_URL",
         model_env="AIQ_VLM_MODEL",
@@ -1837,7 +1848,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     Configuration options:
         persist_dir: ChromaDB persistence directory (default from AIQ_CHROMA_DIR)
         embed_model: NVIDIA embedding model name (default: nvidia/llama-nemotron-embed-vl-1b-v2)
-        embed_base_url: Embedding model base URL (default: https://integrate.api.nvidia.com/v1)
+        embed_base_url: Embedding model base URL (default: https://openrouter.ai/api/v1)
         chunk_size: Text chunk size (default: 1024, model supports up to 2048 tokens)
         chunk_overlap: Chunk overlap (default: 128)
 
@@ -1845,7 +1856,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         extract_tables: Enable table extraction from PDFs (default: False)
         extract_charts: Enable chart extraction with structured data (default: False)
         extract_images: Enable image extraction with VLM captioning (default: False)
-        vlm_model: NVIDIA VLM for captioning (default: nvidia/llama-3.2-90b-vision-instruct)
+        vlm_model: VLM for captioning (default: google/gemma-4-31b-it)
 
     Environment variables:
         AIQ_CHROMA_DIR: Default ChromaDB persistence directory
@@ -1871,18 +1882,20 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     # @environment_variable AIQ_EMBED_MODEL
     # @category Knowledge Layer
     # @type str
-    # @default nvidia/llama-nemotron-embed-vl-1b-v2
+    # @default openai/text-embedding-3-large
     # @required false
-    # NVIDIA embedding model name for LlamaIndex vector encoding.
-    DEFAULT_EMBED_MODEL = os.environ.get("AIQ_EMBED_MODEL", "nvidia/llama-nemotron-embed-vl-1b-v2")
+    # Embedding model id for LlamaIndex vector encoding (the production
+    # compose default; ingest and query MUST share it, stored vectors are
+    # only comparable to vectors from the same model).
+    DEFAULT_EMBED_MODEL = os.environ.get("AIQ_EMBED_MODEL", "openai/text-embedding-3-large")
 
     # @environment_variable AIQ_EMBED_BASE_URL
     # @category Knowledge Layer
     # @type str
-    # @default https://integrate.api.nvidia.com/v1
+    # @default https://openrouter.ai/api/v1
     # @required false
-    # Embedding model base URL.
-    DEFAULT_EMBED_BASE_URL = os.environ.get("AIQ_EMBED_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    # Embedding model base URL (OpenAI-compatible embeddings endpoint).
+    DEFAULT_EMBED_BASE_URL = os.environ.get("AIQ_EMBED_BASE_URL", "https://openrouter.ai/api/v1")
 
     # @environment_variable AIQ_EXTRACT_TABLES
     # @category Knowledge Layer
@@ -1988,18 +2001,20 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         try:
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
-            nvidia_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
-            if not nvidia_api_key:
+            embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
+            if not embed_api_key:
                 logger.error(
-                    "No embeddings API key resolved (AIQ_EMBED_API_KEY / NVIDIA_API_KEY / "
+                    "No embeddings API key resolved (AIQ_EMBED_API_KEY / "
                     "the provider key for AIQ_EMBED_BASE_URL) - ingestion/retrieval will fail."
                 )
 
             self._embed_model = NVIDIAEmbedding(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
-                api_key=nvidia_api_key,
+                api_key=embed_api_key,
                 embed_batch_size=EMBED_BATCH_SIZE,
+                timeout=EMBED_TIMEOUT_SECONDS,
+                max_retries=EMBED_MAX_RETRIES,
             )
 
             # Ensure persist directory exists
@@ -3888,7 +3903,7 @@ class LlamaIndexRetriever(BaseRetriever):
 
     Configuration options:
         persist_dir: ChromaDB persistence directory (default from AIQ_CHROMA_DIR)
-        embed_model: NVIDIA embedding model name (default from AIQ_EMBED_MODEL)
+        embed_model: Embedding model id (default from AIQ_EMBED_MODEL)
         top_k: Default number of results (default: 10)
         hybrid_search: Enable lexical+vector hybrid retrieval (default from AIQ_HYBRID_RETRIEVAL)
 
@@ -3902,8 +3917,8 @@ class LlamaIndexRetriever(BaseRetriever):
 
     # Default configuration from environment variables
     DEFAULT_PERSIST_DIR = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
-    DEFAULT_EMBED_MODEL = os.environ.get("AIQ_EMBED_MODEL", "nvidia/llama-nemotron-embed-vl-1b-v2")
-    DEFAULT_EMBED_BASE_URL = os.environ.get("AIQ_EMBED_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    DEFAULT_EMBED_MODEL = os.environ.get("AIQ_EMBED_MODEL", "openai/text-embedding-3-large")
+    DEFAULT_EMBED_BASE_URL = os.environ.get("AIQ_EMBED_BASE_URL", "https://openrouter.ai/api/v1")
     # @environment_variable AIQ_RETRIEVER_TOP_K
     # @category Knowledge Layer
     # @type int
@@ -4020,18 +4035,20 @@ class LlamaIndexRetriever(BaseRetriever):
             from llama_index.core import Settings
             from llama_index.embeddings.nvidia import NVIDIAEmbedding
 
-            nvidia_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
-            if not nvidia_api_key:
+            embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
+            if not embed_api_key:
                 logger.error(
-                    "No embeddings API key resolved (AIQ_EMBED_API_KEY / NVIDIA_API_KEY / "
+                    "No embeddings API key resolved (AIQ_EMBED_API_KEY / "
                     "the provider key for AIQ_EMBED_BASE_URL) - retrieval/ingestion will fail."
                 )
 
             self._embed_model = NVIDIAEmbedding(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
-                api_key=nvidia_api_key,
+                api_key=embed_api_key,
                 embed_batch_size=EMBED_BATCH_SIZE,
+                timeout=EMBED_TIMEOUT_SECONDS,
+                max_retries=EMBED_MAX_RETRIES,
             )
             Settings.embed_model = self._embed_model
 

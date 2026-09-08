@@ -240,7 +240,6 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "AIQ_EMBED_MODEL", value: cfg.llm.embedModel },
     { name: "AIQ_EMBED_BASE_URL", value: cfg.llm.embedBaseUrl },
     srefAs("AIQ_EMBED_API_KEY", "OPENROUTER_API_KEY"),
-    srefAs("NVIDIA_API_KEY", "OPENROUTER_API_KEY"),
     { name: "AIQ_VLM_MODEL", value: cfg.llm.vlmModel },
     { name: "AIQ_VLM_BASE_URL", value: cfg.llm.vlmBaseUrl },
     srefAs("AIQ_VLM_API_KEY", "OPENROUTER_API_KEY"),

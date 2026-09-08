@@ -53,7 +53,7 @@ A pluggable abstraction for document ingestion and retrieval. Swap backends with
 
 ```bash
 # 1. Set up environment variables (add to deploy/.env to avoid exporting each time)
-export NVIDIA_API_KEY=nvapi-your-key-here
+export OPENROUTER_API_KEY=sk-or-your-key-here
 
 # 2. Install backend (choose one)
 uv pip install -e "sources/knowledge_layer[llamaindex]"        # Recommended for local dev - works on macOS/Linux
@@ -140,20 +140,20 @@ functions:
 
 #### Multimodal Extraction (LlamaIndex Only)
 
-By default, LlamaIndex ingests text only and uses the NVIDIA hosted embedding and VLM models. All options below can be overridden via environment variables:
+By default, LlamaIndex ingests text only and calls the embedding and VLM models through OpenRouter with `OPENROUTER_API_KEY`. All options below can be overridden via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | **Embedding** | | |
-| `AIQ_EMBED_MODEL` | `nvidia/llama-nemotron-embed-vl-1b-v2` | NVIDIA embedding model |
-| `AIQ_EMBED_BASE_URL` | `https://integrate.api.nvidia.com/v1` | Embedding API base URL — override for local NIM |
+| `AIQ_EMBED_MODEL` | `openai/text-embedding-3-large` | Embedding model id; keep it stable, stored vectors only match query vectors from the same model |
+| `AIQ_EMBED_BASE_URL` | `https://openrouter.ai/api/v1` | Embedding API base URL (any OpenAI-compatible embeddings endpoint) |
 | **Extraction Flags** | | |
 | `AIQ_EXTRACT_TABLES` | `false` | Extract tables from PDFs as markdown using pdfplumber |
 | `AIQ_EXTRACT_IMAGES` | `false` | Extract embedded images from PDFs and caption them with a VLM. For a BFF-dispatched document the raster is also stored beside the file (`_img/<index>.jpg`, via the BFF presign route) so `view_knowledge_image` can show it at its own resolution |
 | `AIQ_EXTRACT_CHARTS` | `false` | Classify images as charts and extract structured data (chart type, axis labels, data points) |
 | **Vision Model** | | |
-| `AIQ_VLM_MODEL` | `nvidia/nemotron-nano-12b-v2-vl` | VLM for image captioning |
-| `AIQ_VLM_BASE_URL` | `https://integrate.api.nvidia.com/v1` | VLM API base URL — override for local NIM |
+| `AIQ_VLM_MODEL` | `google/gemma-4-31b-it` | VLM for image captioning |
+| `AIQ_VLM_BASE_URL` | `https://openrouter.ai/api/v1` | VLM API base URL (any OpenAI-compatible chat endpoint that takes images) |
 
 You can also set these in `deploy/.env`:
 
@@ -227,9 +227,7 @@ Run the backend API server and frontend UI together for document upload, collect
 ### Start Backend
 
 ```bash
-# Foundational RAG example (requires deployed FRAG server)
-# Set env vars: RAG_SERVER_URL, RAG_INGEST_URL, NVIDIA_API_KEY
-nat serve --config_file configs/config_web_frag.yml --host 0.0.0.0 --port 8000
+nat serve --config_file configs/config_oib_openrouter.yml --host 0.0.0.0 --port 8000
 ```
 
 ### Start Frontend
@@ -307,10 +305,10 @@ When `generate_summary: true`, you **must** configure `summary_model` to referen
 ```yaml
 llms:
   summary_llm:
-    _type: nim
-    model_name: nvidia/nemotron-mini-4b-instruct
-    base_url: "https://integrate.api.nvidia.com/v1"
-    api_key: ${NVIDIA_API_KEY}
+    _type: openai
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
     temperature: 0.3
     max_tokens: 150
 
@@ -865,7 +863,7 @@ Configuration values are resolved in the following order (highest to lowest prio
 
 | Variable | Backend | Description |
 |----------|---------|-------------|
-| `NVIDIA_API_KEY` | All | Required for embeddings/VLM and LLM calls |
+| `OPENROUTER_API_KEY` | All | Required for embeddings/VLM and LLM calls (everything routes through OpenRouter) |
 | `KNOWLEDGE_RETRIEVER_BACKEND` | All | Default retriever backend (fallback if not in YAML) |
 | `KNOWLEDGE_INGESTOR_BACKEND` | All | Default ingestor backend (fallback if not in YAML) |
 | `AIQ_CHROMA_DIR` | llamaindex | ChromaDB persistence path |

@@ -111,7 +111,7 @@ def main() -> int:
 
     config_file = os.getenv(
         "CONFIG_FILE",
-        "/app/configs/config_web_default_llamaindex.yml",
+        "/app/configs/config_oib_openrouter.yml",
     )
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))

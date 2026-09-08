@@ -2060,6 +2060,52 @@ class TestDeepResearchReflection:
                 model_overrides=None,
             )
 
+    @pytest.mark.asyncio
+    async def test_a_slow_reflection_is_cut_at_the_stage_timeout(self):
+        """The job's SUCCESS bookkeeping waits for reflection, so the wait is
+        bounded by the same timeout the chat path's stage declares — not by the
+        reflection model's own retries."""
+        import asyncio
+        from contextlib import nullcontext
+
+        from aiq_api.jobs.runner import _run_deep_research_reflection
+
+        builder = MagicMock()
+        builder.get_llm = AsyncMock(return_value=MagicMock())
+        started = asyncio.Event()
+
+        async def never_finishes(**_):
+            started.set()
+            await asyncio.sleep(60)
+
+        with (
+            patch(
+                "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+                new=AsyncMock(side_effect=never_finishes),
+            ),
+            patch(
+                "aiq_agent.common.cost_tracking.track_llm_costs",
+                side_effect=lambda **_: nullcontext(),
+            ),
+            patch("aiq_agent.stages.memory_reflection.REFLECTION_TIMEOUT_S", 0.05),
+        ):
+            await asyncio.wait_for(
+                _run_deep_research_reflection(
+                    builder=builder,
+                    job_id="job-1",
+                    reflection_llm_ref="card_llm",
+                    reflection_enabled=True,
+                    query="q",
+                    report="R" * 80,
+                    usage_context=self._identity(),
+                    memory_digest="mem",
+                    org_credential=None,
+                    model_overrides=None,
+                ),
+                timeout=5,
+            )
+        assert started.is_set()
+
 
 class TestCitedSourceEmission:
     """A knowledge-base document must be markable as CITED, not just discovered.

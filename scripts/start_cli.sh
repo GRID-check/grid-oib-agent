@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$REPO_ROOT/.venv"
-CONFIG_FILE="configs/config_cli_default.yml"
+CONFIG_FILE="configs/config_oib_openrouter.yml"
 CLI_VERBOSE=""
 
 while [[ $# -gt 0 ]]; do
@@ -22,12 +22,12 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --config_file PATH  Config file (default: configs/config_cli_default.yml)"
+            echo "  --config_file PATH  Config file (default: configs/config_oib_openrouter.yml)"
             echo "  -v, --verbose       Enable verbose tracing for all agents"
             echo "  -h, --help          Show this help"
             echo ""
             echo "Available configs in configs/:"
-            echo "  config_cli_default.yml  - CLI mode (default)"
+            echo "  config_oib_openrouter.yml  - the one shipped config (default)"
             exit 0
             ;;
         *)

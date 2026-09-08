@@ -140,7 +140,7 @@ class FakeNonOpenRouterModel(BaseModel):
     """Pydantic stand-in for a non-OpenRouter (e.g. NVIDIA-hosted) chat model."""
 
     model_name: str = "meta/llama-3.1"
-    openai_api_base: str = "https://integrate.api.nvidia.com/v1"
+    openai_api_base: str = "https://llm.example.test/v1"
     extra_body: dict = {}
 
 
@@ -366,3 +366,72 @@ class TestOrgScopedFallbackResolution:
 
         monkeypatch.setattr("aiq_agent.project_context.get_organization_id_from_context", lambda: None)
         assert M.get_zdr_only_from_context() is False
+
+
+class TestSharedTier:
+    """The org's config lives in the shared cache between replicas, and the BFF's
+    deletion of that key is what an admin save propagates through."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh(self):
+        from aiq_agent.common import cache
+        from aiq_agent.common.model_overrides import reset_overrides_cache
+
+        cache.reset_local_store()
+        reset_overrides_cache()
+        yield
+        cache.reset_local_store()
+        reset_overrides_cache()
+
+    def test_a_fresh_process_reads_the_shared_copy_instead_of_fetching(self, monkeypatch):
+        from aiq_agent.common import model_overrides as M
+
+        fetches = []
+
+        def fake_fetch(org):
+            fetches.append(org)
+            return {"deep_research": "x-ai/grok-4.5"}, True
+
+        monkeypatch.setattr(M, "_fetch_org_config", fake_fetch)
+        first = M._resolve_org_config("org_1")
+        # Another replica: no in-process memo, the shared tier still holds it.
+        M.reset_overrides_cache()
+        second = M._resolve_org_config("org_1")
+
+        assert fetches == ["org_1"]
+        assert second.overrides == first.overrides == {"deep_research": "x-ai/grok-4.5"}
+        assert second.zdr_only is True
+
+    def test_the_bff_deleting_the_key_forces_a_refetch(self, monkeypatch):
+        from aiq_agent.common import cache
+        from aiq_agent.common import model_overrides as M
+
+        answers = iter([({"deep_research": "old/model"}, False), ({"deep_research": "new/model"}, False)])
+        monkeypatch.setattr(M, "_fetch_org_config", lambda org: next(answers))
+        assert M._resolve_org_config("org_1").overrides == {"deep_research": "old/model"}
+
+        # What `invalidateBackendModelConfig` does on the BFF after a save.
+        cache.delete(M.shared_model_config_key("org_1"))
+        M.reset_overrides_cache()  # the in-process memo expiring
+
+        assert M._resolve_org_config("org_1").overrides == {"deep_research": "new/model"}
+
+    def test_a_failed_fetch_is_never_written_to_the_shared_tier(self, monkeypatch):
+        from aiq_agent.common import cache
+        from aiq_agent.common import model_overrides as M
+
+        def boom(org):
+            raise RuntimeError("bff down")
+
+        monkeypatch.setattr(M, "_fetch_org_config", boom)
+        entry = M._resolve_org_config("org_1")
+        assert entry.overrides == {} and entry.zdr_only is False
+        assert cache.get_json(M.shared_model_config_key("org_1")) is None
+
+    def test_a_malformed_shared_value_is_ignored(self, monkeypatch):
+        from aiq_agent.common import cache
+        from aiq_agent.common import model_overrides as M
+
+        cache.set_json(M.shared_model_config_key("org_1"), {"overrides": "nope"}, 60)
+        monkeypatch.setattr(M, "_fetch_org_config", lambda org: ({"deep_research": "x-ai/grok-4.5"}, False))
+        assert M._resolve_org_config("org_1").overrides == {"deep_research": "x-ai/grok-4.5"}

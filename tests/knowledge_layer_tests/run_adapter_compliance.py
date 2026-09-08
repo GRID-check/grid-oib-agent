@@ -8,11 +8,11 @@ This script validates that an adapter correctly implements BaseRetriever/BaseIng
 2. Full mode: Complete ingestion and retrieval pipeline
 
 Prerequisites:
-    - NVIDIA_API_KEY environment variable set (for full mode)
+    - OPENROUTER_API_KEY environment variable set (for full mode)
     - Backend dependencies installed
 
 Usage:
-    export NVIDIA_API_KEY=nvapi-your-key
+    export OPENROUTER_API_KEY=your-openrouter-key
 
     # Quick mode - registration check only (no files/services needed)
     python tests/knowledge_layer_tests/run_adapter_compliance.py --backend llamaindex --quick

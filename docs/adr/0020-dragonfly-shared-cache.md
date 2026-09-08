@@ -42,6 +42,7 @@ What lives in it (all values JSON, all reconstructible):
 | Feature flags | `flags:{org}` | read-through, 30 s |
 | Project prompt view | `promptview:{project}` | write-invalidate on profile edits |
 | Org model overrides | `modeloverrides:{org}` | write-invalidate on config save/rollback |
+| Backend copy of an org's effective model config + ZDR | `modelconfig:{org}` | written by the backend after its just-in-time fetch (5 min); the BFF deletes it on config save/rollback, ZDR toggle, and drops the prefix on a platform-defaults save |
 | Budget limits (enforcement) | `budgetlimits:{org}:{scope}:{subject}` | write-invalidate on policy writes |
 | OpenRouter catalog | `openrouter:catalog` | read-through, 5 min |
 | Citation-registry snapshots | `citations:{conversation}` | written after each turn, TTL 24 h |

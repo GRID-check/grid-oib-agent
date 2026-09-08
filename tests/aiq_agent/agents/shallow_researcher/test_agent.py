@@ -3324,3 +3324,68 @@ class TestInteractionCallCounting:
     def test_it_tolerates_no_calls(self):
         assert _count_interaction_calls([]) == 0
         assert _count_interaction_calls(None) == 0
+
+
+class TestRepairRetrievalsRunTogether:
+    """The repair's lookups are one full retrieval each, reranker included, and
+    they are independent, so they run concurrently; the rewrite prompt still
+    reads them in lookup order."""
+
+    @pytest.fixture(autouse=True)
+    def _register_kb_source(self):
+        reset_registry()
+        populate_from_config(
+            [
+                {
+                    "id": "oib_knowledge",
+                    "name": "OIB Knowledge",
+                    "description": "Search the internal OIB knowledge base.",
+                    "tools": ["knowledge_search"],
+                }
+            ]
+        )
+        yield
+        reset_registry()
+
+    @pytest.mark.asyncio
+    async def test_two_lookups_overlap_and_keep_their_order(self):
+        import asyncio
+
+        in_flight = 0
+        peak = 0
+
+        @tool
+        async def knowledge_search(query: str) -> str:
+            """Search the internal knowledge base."""
+            nonlocal in_flight, peak
+            in_flight += 1
+            peak = max(peak, in_flight)
+            await asyncio.sleep(0.01)
+            in_flight -= 1
+            return f"passage for {query}"
+
+        llm = MagicMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
+        llm.ainvoke = AsyncMock(return_value=AIMessage(content="rewritten"))
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=llm)
+        agent = ShallowResearcherAgent(llm_provider=provider, tools=[knowledge_search])
+
+        body = "Erste Aussage [1]. Zweite Aussage [2].\n\n## Sources\n[1] a.pdf, p.1\n[2] b.pdf, p.2"
+        repaired = await agent._repair_answer(
+            body,
+            removed_citations=[
+                {"number": 1, "line": "[1] a.pdf, p.1", "reason": "not_in_registry"},
+                {"number": 2, "line": "[2] b.pdf, p.2", "reason": "not_in_registry"},
+            ],
+            unverified_quotes=[],
+            valid_citations=[],
+            system_prompt=None,
+            history=[],
+        )
+
+        assert repaired is not None and repaired[0] == "rewritten"
+        assert peak == 2, "the two repair lookups ran one after the other"
+        anchor = llm.ainvoke.await_args.args[0][-1].content
+        assert anchor.index("passage for Erste Aussage") < anchor.index("passage for Zweite Aussage")

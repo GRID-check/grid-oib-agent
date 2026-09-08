@@ -130,8 +130,7 @@ The core deep research agent using the DeepAgents library.
 **Location**: `src/aiq_agent/agents/deep_researcher/`
 
 Optional DeepAgents sandbox behavior is configured via the
-`deep_research_sandbox` config (see `deepagents_runtime.py` and
-`configs/config_domain_routing_and_skills.yml` for a working example).
+`deep_research_sandbox` config (see `deepagents_runtime.py`).
 
 **Configuration:**
 
@@ -214,30 +213,14 @@ general:
   use_uvloop: true
 
 llms:
-  nemotron_nano_llm:
-    _type: nim
-    model_name: nvidia/nemotron-3-nano-30b-a3b
-    base_url: "https://integrate.api.nvidia.com/v1"
+  deep_orchestrator_llm:
+    _type: openai
+    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
+    base_url: "https://openrouter.ai/api/v1"
+    api_key: ${OPENROUTER_API_KEY}
     temperature: 1.0
     top_p: 1.0
     max_tokens: 128000
-    num_retries: 5
-    chat_template_kwargs:
-      enable_thinking: true
-
-  # Nemotron Super is compatible and tested with AIQ but has limited availability
-  # on the Build API due to high demand.
-  # Uncomment nemotron_super_llm below if the endpoint is accessible.
-  # nemotron_super_llm:
-  #   _type: nim
-  #   model_name: nvidia/nemotron-3-super-120b-a12b
-  #   base_url: "https://integrate.api.nvidia.com/v1"
-  #   temperature: 1.0
-  #   top_p: 1.0
-  #   max_tokens: 128000
-  #   num_retries: 5
-  #   chat_template_kwargs:
-  #     enable_thinking: true
 
 functions:
   web_search_tool:

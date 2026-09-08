@@ -984,16 +984,24 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    exact-keyword misses (e.g. a norm number or a precise term that the embedding
    model did not weight) without an embedding re-index.
 
-3. **LLM-judge reranker** — optional config keys `rerank_llm` (an LLM alias from
-   the config's `llms:` block; `config_oib_openrouter.yml` points it at
-   `summary_llm`) and `rerank_candidates` (default 15; must exceed `top_k` — the
-   judge call trims to `rerank_candidates`, so the reference config pairs
-   `top_k: 16` with `rerank_candidates: 20`). When `rerank_llm` is set,
-   the merged+filtered candidates are rescored once by an LLM judge
-   (`rerank_chunks` in `llamaindex/rerank.py`, 30s timeout, fail-open to the
-   original order) before trimming to `top_k`. No separate reranker API exists on
-   OpenRouter/OpenAI-compatible endpoints, so the judge is a cheap single LLM
-   call scoring 1–10 with an excerpt-windowed prompt (`_CHUNK_EXCERPT_CHARS=400`).
+3. **Reranker** — a cross-encoder first, the LLM judge as its fallback.
+   `reranker_provider` (config field, env default `AIQ_RERANKER_PROVIDER`; the
+   reference config sets `openrouter`, model `cohere/rerank-v3.5`) names
+   OpenRouter's reranking endpoint (`knowledge_layer/cross_encoder.py`; a
+   self-hosted reranker speaking the same shape fits through
+   `AIQ_RERANKER_BASE_URL`) that scores each
+   (query, passage) pair over the full chunk in ~100ms, bounded by
+   `AIQ_RERANKER_TIMEOUT_SECONDS` (10s). A key that does not resolve, or any
+   provider error, falls back to the judge: `rerank_llm` (an LLM alias from the
+   config's `llms:` block; the reference config gives it a dedicated
+   `rerank_llm` entry) rescores the merged+filtered pool once
+   (`rerank_chunks` in `rerank.py`, 25s single-shot, fail-open to the fused
+   order) with 1200-char excerpts under a whole-prompt budget. `rerank_candidates`
+   (default 15) is the pool either path scores; the reference config pairs
+   `top_k: 16` with `rerank_candidates: 60`, and the trim is
+   `max(top_k, rerank_candidates)`. No offline eval covers this stage; the
+   before/after is the golden compliance eval and the profiler's
+   `knowledge_search` tool spans.
 
 3a. **The retrieval loop** — optional `requery_llm` (the reference config points
    it at the same `rerank_llm`) and `requery_max_queries` (default 2). The

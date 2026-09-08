@@ -94,8 +94,8 @@ data sources, so they need the relevant API keys present in `deploy/.env`.
 ## Running the backend for a manual check
 
 ```bash
-./scripts/start_cli.sh        # CLI mode (configs/config_cli_default.yml)
-nat serve --config_file configs/config_cli_default.yml --port 8000
+./scripts/start_cli.sh        # CLI mode (configs/config_oib_openrouter.yml)
+nat serve --config_file configs/config_oib_openrouter.yml --port 8000
 ```
 
 The backend API serves at `http://localhost:8000`.

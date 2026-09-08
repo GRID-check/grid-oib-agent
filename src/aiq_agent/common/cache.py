@@ -79,6 +79,31 @@ def _mark_client_failed() -> None:
         _client_failed_at = time.monotonic()
 
 
+def _is_transport_error(exc: BaseException) -> bool:
+    """Whether ``exc`` says the STORE is unreachable, as opposed to this call.
+
+    A refused connection or a socket timeout is the store: every consumer
+    should stop paying the connect timeout for ``_CLIENT_RETRY_SECONDS``. A
+    ``ResponseError`` (WRONGTYPE on one key, a Lua compile error) or a value
+    that does not decode is this call: the store is healthy, and taking the
+    whole shared cache offline for every consumer over one bad key was a
+    30-second outage that one key could cause. ``eval_script`` drew this line
+    on its own; the JSON helpers now draw the same one.
+    """
+    try:
+        from redis.exceptions import ConnectionError as RedisConnectionError
+        from redis.exceptions import TimeoutError as RedisTimeoutError
+    except ImportError:  # pragma: no cover - redis missing means no client either
+        return True
+    return isinstance(exc, RedisConnectionError | RedisTimeoutError)
+
+
+def _on_store_error(operation: str, key: str, exc: BaseException) -> None:
+    logger.warning("Shared cache %s failed for %s; falling back", operation, key, exc_info=True)
+    if _is_transport_error(exc):
+        _mark_client_failed()
+
+
 def _local_get(key: str) -> str | None:
     with _local_lock:
         entry = _local_store.get(key)
@@ -117,9 +142,8 @@ def get_json(key: str) -> Any | None:
         try:
             raw = client.get(key)
             return json.loads(raw) if raw is not None else None
-        except Exception:
-            logger.warning("Shared cache read failed for %s; falling back", key, exc_info=True)
-            _mark_client_failed()
+        except Exception as exc:
+            _on_store_error("read", key, exc)
     raw = _local_get(key)
     return json.loads(raw) if raw is not None else None
 
@@ -136,9 +160,8 @@ def set_json(key: str, value: Any, ttl_seconds: float) -> None:
         try:
             client.set(key, raw, px=int(ttl_seconds * 1000))
             return
-        except Exception:
-            logger.warning("Shared cache write failed for %s; falling back", key, exc_info=True)
-            _mark_client_failed()
+        except Exception as exc:
+            _on_store_error("write", key, exc)
     _local_set(key, raw, ttl_seconds)
 
 
@@ -148,9 +171,8 @@ def delete(key: str) -> None:
     if client is not None:
         try:
             client.delete(key)
-        except Exception:
-            logger.warning("Shared cache delete failed for %s", key, exc_info=True)
-            _mark_client_failed()
+        except Exception as exc:
+            _on_store_error("delete", key, exc)
     with _local_lock:
         _local_store.pop(key, None)
 
@@ -171,9 +193,8 @@ def incr_fixed_window(key: str, window_seconds: int) -> int | None:
             pipe.expire(key, window_seconds, nx=True)
             count, _ = pipe.execute()
             return int(count)
-        except Exception:
-            logger.warning("Shared cache incr failed for %s", key, exc_info=True)
-            _mark_client_failed()
+        except Exception as exc:
+            _on_store_error("incr", key, exc)
     # Per-process fixed window fallback.
     with _local_lock:
         entry = _local_store.get(key)
@@ -203,15 +224,9 @@ def eval_script(script: str, keys: list[str], args: list[Any]) -> Any | None:
     try:
         return client.eval(script, len(keys), *keys, *args)
     except Exception as exc:
-        from redis.exceptions import ResponseError
-
-        if isinstance(exc, ResponseError):
-            # A Lua compile error or a WRONGTYPE key. The store is healthy; this
-            # call is not. Marking the client failed here would take the whole
-            # shared cache offline for _CLIENT_RETRY_SECONDS — for every
-            # consumer of this module, over a bug in one script.
-            logger.warning("Shared cache eval rejected by server", exc_info=True)
-            return None
+        # A Lua compile error or a WRONGTYPE key is this call, not the store
+        # (see _is_transport_error): the cooldown is for an unreachable store.
         logger.warning("Shared cache eval failed", exc_info=True)
-        _mark_client_failed()
+        if _is_transport_error(exc):
+            _mark_client_failed()
         return None
