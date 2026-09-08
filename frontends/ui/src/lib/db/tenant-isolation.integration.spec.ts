@@ -235,10 +235,13 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
     // TRUE for everyone, so dropping the org half would make the row globally
     // readable while every FK test still passed.
     const id = `conv_orphan_${ORG_A}`
+    // `scope` is not decoration here: migration 0081's CHECK refuses a
+    // project-less row that still calls itself a project conversation, so an
+    // office chat has to say so to exist at all.
     await withTenant({ organizationId: ORG_A }, () =>
       db.execute(
-        sql`insert into conversations (id, organization_id, created_by, project_id)
-            values (${id}, ${ORG_A}, 'u', NULL)`
+        sql`insert into conversations (id, organization_id, created_by, project_id, scope)
+            values (${id}, ${ORG_A}, 'u', NULL, 'workspace')`
       )
     )
 
@@ -250,6 +253,65 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
     await withPlatformAccess('test cleanup', () =>
       db.execute(sql`delete from conversations where id = ${id}`)
     )
+  })
+
+  /**
+   * The Büro-Chat's one invariant (ADR-0054, spec WS-7), tested against the
+   * database rather than against the service that is supposed to uphold it.
+   *
+   * Both halves matter and they fail for different mistakes. A `workspace` row
+   * carrying a project is the office chat that quietly reads one project's
+   * corpus. A `project` row carrying none is the chat that belongs nowhere and
+   * that every project list has to decide about — which is precisely the guess
+   * spec WS-9 forbids. The application checks both at the edge (a 400 from
+   * `POST /api/conversations`); this is what holds when a repository, a
+   * backfill or somebody's psql session does not.
+   */
+  it("refuses a workspace conversation that names a project", async () => {
+    const [ownProject] = [
+      ...(await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`select id from projects where organization_id = ${ORG_A}`)
+      )),
+    ]
+
+    const cause = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(
+          sql`insert into conversations (id, organization_id, created_by, project_id, scope)
+              values (${'conv_ws_with_project_' + ORG_A}, ${ORG_A}, 'u', ${ownProject.id}, 'workspace')`
+        )
+      )
+    )
+    expect(cause.message).toMatch(/conversations_scope_matches_project/)
+  })
+
+  it('refuses a project conversation with no project', async () => {
+    const cause = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(
+          sql`insert into conversations (id, organization_id, created_by, project_id, scope)
+              values (${'conv_project_no_project_' + ORG_A}, ${ORG_A}, 'u', NULL, 'project')`
+        )
+      )
+    )
+    expect(cause.message).toMatch(/conversations_scope_matches_project/)
+  })
+
+  /**
+   * The value half. Kept separate from the shape half so a violation says which
+   * of the two rules was broken — a scope nobody can render is a different
+   * defect from a scope that contradicts its project column.
+   */
+  it('refuses a scope nothing knows how to render', async () => {
+    const cause = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(
+          sql`insert into conversations (id, organization_id, created_by, project_id, scope)
+              values (${'conv_scope_unknown_' + ORG_A}, ${ORG_A}, 'u', NULL, 'buero')`
+        )
+      )
+    )
+    expect(cause.message).toMatch(/conversations_scope_known/)
   })
 
   it('refuses to write a row belonging to another tenant', async () => {

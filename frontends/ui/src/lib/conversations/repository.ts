@@ -13,6 +13,7 @@
 
 import 'server-only'
 import { and, desc, eq, exists, inArray, isNull, ne, or, sql } from 'drizzle-orm'
+import { BadRequestError } from '@/lib/api/errors'
 import { getDb } from '@/lib/db'
 import { stripJsonNullBytes } from '@/lib/text/jsonb'
 import {
@@ -22,6 +23,7 @@ import {
   resourceShares,
   type Conversation,
   type ConversationRead,
+  type ConversationScope,
   type Message,
   type NewMessage,
   type ShareableResourceType,
@@ -98,9 +100,9 @@ function grantNamesCaller(organizationId: string, userId: string) {
 export async function listVisibleConversations(
   organizationId: string,
   userId: string,
-  options: { projectId?: string; limit?: number } = {},
+  options: { projectId?: string; scope?: ConversationScope; limit?: number } = {},
 ): Promise<Conversation[]> {
-  const { projectId, limit = CONVERSATION_LIST_LIMIT } = options
+  const { projectId, scope: scopeFilter, limit = CONVERSATION_LIST_LIMIT } = options
   const db = getDb()
   const orgScope = eq(conversations.organizationId, organizationId)
   const mine = eq(conversations.createdBy, userId)
@@ -129,7 +131,19 @@ export async function listVisibleConversations(
       )
     : and(orgScope, withoutContainer)
 
-  return db.select().from(conversations).where(scope).orderBy(desc(conversations.updatedAt)).limit(limit)
+  // The Büro sessions panel asks for workspace rows and must get NOTHING else
+  // (spec WS-8). Applied as a further AND rather than as a third branch: the
+  // visibility rules above are what a caller may see, and the level is what
+  // they asked for — folding them together is how one of the two ends up
+  // deciding the other.
+  const scoped = scopeFilter ? and(scope, eq(conversations.scope, scopeFilter)) : scope
+
+  return db
+    .select()
+    .from(conversations)
+    .where(scoped)
+    .orderBy(desc(conversations.updatedAt))
+    .limit(limit)
 }
 
 /**
@@ -284,6 +298,24 @@ export async function findConversationTenancy(
 /**
  * Set a conversation's blanket visibility, scoped to the organization in SQL.
  * Returns null when the row does not exist in this org (caller maps to 404).
+ *
+ * ## Why a workspace conversation is refused here
+ *
+ * A Büro conversation is private to its creator in phase 1 (spec AC-6), and
+ * that has to be enforced somewhere other than the interface. Widening one is
+ * not a small step: a workspace thread mounts projects (ADR-0054 phase 3), so
+ * sharing it means sharing whatever it has mounted, and AC-7 says a recipient
+ * must be able to view EVERY mounted project. Nothing computes that yet — the
+ * mounts table does not exist — so a widened workspace thread today would be a
+ * conversation shared on a rule nobody checked. Phase 4 builds the check
+ * (ADR-0032's grant path, extended); until then the answer is no.
+ *
+ * **This guard belongs one layer up**, beside the `allowedVisibilities` check
+ * in `lib/sharing/service.ts`, where the rest of the visibility policy lives.
+ * It is here because this is the single write path for the column — the sharing
+ * descriptor calls it directly — so a guard here cannot be routed around, and
+ * the alternative was a rule stated in a place that is not the place it is
+ * applied. Move it up when phase 4 replaces it.
  */
 export async function updateConversationVisibilityInOrg(
   conversationId: string,
@@ -291,6 +323,28 @@ export async function updateConversationVisibilityInOrg(
   visibility: ResourceVisibility,
 ): Promise<Conversation | null> {
   const db = getDb()
+
+  if (visibility !== 'private') {
+    const [existing] = await db
+      .select({ scope: conversations.scope })
+      .from(conversations)
+      .where(
+        and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)),
+      )
+      .limit(1)
+    // A missing row is NOT this guard's business: the caller maps null to 404,
+    // and answering "workspace conversations cannot be shared" for an id that
+    // does not exist would confirm the id (spec AC-9).
+    if (existing?.scope === 'workspace') {
+      throw new BadRequestError(
+        'A Büro conversation stays private in this phase. Sharing one has to check every ' +
+          'mounted project against every recipient (spec AC-7), which arrives with mounts in ' +
+          'phase 4 (ADR-0032, ADR-0054).',
+        { scope: 'workspace', allowed: ['private'] },
+      )
+    }
+  }
+
   const [row] = await db
     .update(conversations)
     .set({ visibility, updatedAt: new Date() })
@@ -318,6 +372,12 @@ export async function insertConversation(values: {
   createdBy: string
   title: string | null
   projectId: string | null
+  /**
+   * Omitted means `project`, the column default — which is correct only when
+   * `projectId` is set, because migration 0081 CHECKs the two against each
+   * other. The service decides this; the repository just carries it.
+   */
+  scope?: ConversationScope
   visibility?: ResourceVisibility
   jobId?: string | null
   subjectResourceType?: ShareableResourceType | null

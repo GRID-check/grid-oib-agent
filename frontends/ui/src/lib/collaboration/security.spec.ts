@@ -194,6 +194,12 @@ const session = {
   userId: 'user_me',
   organizationId: 'org_1',
   email: 'me@grid.test',
+  // `createConversation` with no project id creates a WORKSPACE conversation
+  // since ADR-0054, and that goes through `org:chat` — which `hasPermission`
+  // reads off these two fields. Without them the check throws instead of
+  // deciding, and the 404 asserted below would be the wrong error.
+  role: 'member',
+  permissions: ['org:chat'],
 } as unknown as AuthorizedSession
 
 /** In-process cache so the real `canUserAccessProject` can be exercised. */

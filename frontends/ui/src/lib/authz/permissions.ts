@@ -42,6 +42,19 @@ export const ORG_PERMISSIONS = {
   skillsManage: 'org:skills:manage',
   /** Create new projects in the organization. */
   projectsCreate: 'org:projects:create',
+  /**
+   * Ask Piloti at the ORGANISATION level — the Büro-Chat (ADR-0054), which
+   * reads the base corpus, the Archiv and organization memory with no project
+   * in scope.
+   *
+   * Held by the default Member role, so every member has it, and checked in the
+   * request rather than inferred from the absence of a project (spec AC-1,
+   * AC-2). The distinction matters: "this conversation has no project" is a
+   * shape, and a shape is not an authorization. Withholding it is how an
+   * organization keeps chat inside projects, where every turn is bounded by a
+   * per-project role.
+   */
+  chat: 'org:chat',
   /** See and manage who is in the organization and what role they hold. */
   membersManage: 'org:members:manage',
   /**

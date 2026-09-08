@@ -275,6 +275,21 @@ The scheduler also reuses `GRID_APP_DATABASE_URL`, `FRONTEND_INTERNAL_URL`, and 
 
 ---
 
+## Büro-Chat (ADR-0054)
+
+The organization-level chat at `/app/chat`, which reads the base corpus, the
+Archiv and organization memory with no project in scope, and mounts a bounded
+number of projects on demand. The surface itself is gated by the per-org
+`workspace-chat` WorkOS feature flag (fail-open while `GRID_ENFORCE_FEATURE_FLAGS`
+is off, like `organization-archiv`), which is a flag rather than a variable and
+so has no row here. See `docs/design/workspace-chat-spec.md`.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GRID_WORKSPACE_MAX_MOUNTED_PROJECTS` | No | `5` | How many projects one workspace ("Büro") conversation may mount at once. Enforced in `POST /api/conversations/:id/mounts` and nowhere else; the agent is told the cap in the refusal and offers deep research instead. Read through the single reader in `frontends/ui/src/lib/workspace/config.ts`, which clamps it to `[1, 20]` — below 1 the feature has no mount at all, and above 20 nothing has been measured. An unparseable value falls back to the default rather than clamping, because a typo must not silently become the minimum. A measured number: raise it only after the latency check at the cap passes (ADR-0044, ADR-0054). Frontend service. |
+
+---
+
 ## Application
 
 | Variable | Required | Default | Description |

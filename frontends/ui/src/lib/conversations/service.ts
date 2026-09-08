@@ -27,14 +27,22 @@
 import 'server-only'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
+import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { FEATURE_FLAGS, isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import { getBackendUrl } from '@/lib/backend-proxy'
-import { ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  UpstreamError,
+} from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type {
   Conversation,
   ConversationEngagement,
   ConversationRead,
+  ConversationScope,
   Message,
   ResourceRole,
   ResourceVisibility,
@@ -105,6 +113,14 @@ export interface CreateConversationInput {
   id: string
   title?: string | null
   projectId?: string | null
+  /**
+   * Which level of the hierarchy the new conversation belongs to (ADR-0054).
+   *
+   * Optional, and derived from `projectId` when absent — see
+   * {@link createConversation} for why the derivation is safe and what it is
+   * NOT allowed to derive.
+   */
+  scope?: ConversationScope
   subjectResourceType?: 'document' | null
   subjectResourceId?: string | null
 }
@@ -167,6 +183,14 @@ export interface ConversationWithAccess extends Conversation {
 export interface ListConversationsFilter {
   /** Scope the list to one project's conversations (plus legacy unscoped rows). */
   projectId?: string
+  /**
+   * Narrow the list to one level of the hierarchy (ADR-0054). The Büro sessions
+   * panel passes `workspace` and must receive workspace rows only (spec WS-8).
+   *
+   * A filter, never a widening: it is ANDed onto the visibility rules below, so
+   * it can only ever remove rows the caller could already see.
+   */
+  scope?: ConversationScope
 }
 
 /**
@@ -190,8 +214,12 @@ export async function listConversations(
   if (filter.projectId) {
     await requireProjectAccess(session, filter.projectId, 'project:view')
   }
+  if (filter.scope === 'workspace') {
+    requireWorkspaceChat(session)
+  }
   return listVisibleConversations(session.organizationId, session.userId, {
     projectId: filter.projectId,
+    scope: filter.scope,
   })
 }
 
@@ -258,6 +286,25 @@ export async function updateConversationEngagement(
 }
 
 /**
+ * Chatting at the ORGANISATION level, as a permission rather than as a shape
+ * (spec AC-1, AC-2).
+ *
+ * The temptation this exists to refuse is inferring the right from the absence
+ * of a project — "no project, so nobody's project role can be checked, so let
+ * it through". That reads a missing value as an allowance. `org:chat` is on the
+ * default Member role, so every member holds it and the check costs nothing;
+ * withholding it is how an organization keeps chat inside projects.
+ *
+ * `ForbiddenError`, not `NotFoundError`: the Büro is not a resource whose
+ * existence could be leaked by the refusal — it is the organization the caller
+ * is already authenticated into.
+ */
+function requireWorkspaceChat(session: AuthorizedSession): void {
+  if (hasPermission(session, ORG_PERMISSIONS.chat)) return
+  throw new ForbiddenError('Missing permission: org:chat')
+}
+
+/**
  * Create a conversation. When the caller links it to a project, they must be
  * able to CHAT in that project — otherwise any org member could attach
  * conversations to (and probe the existence of) arbitrary project ids, and a
@@ -269,15 +316,50 @@ export async function updateConversationEngagement(
  * both, so a tenant whose WorkOS provisioning has not been replayed since
  * `project:chat` shipped does not lose chat the day this deploys.
  *
+ * ## The level, and why it is derived rather than demanded
+ *
+ * A conversation with no project IS an organization conversation — that is what
+ * migration 0081's backfill says about every project-less row that already
+ * existed (spec MG-1), and the CHECK it adds makes any other combination
+ * unwritable. So a create that names no project and no scope produces a
+ * `workspace` row, which is the only thing it could ever have meant.
+ *
+ * What is NOT derived is the RIGHT to create one. Every workspace row goes
+ * through `org:chat`, whether the caller stated the scope or left it to be
+ * derived — otherwise omitting a field would be the way around the permission,
+ * which is exactly the inference spec AC-2 forbids. The one behaviour this
+ * changes for an existing caller: a custom org role that holds neither
+ * `org:chat` nor a catalog role that implies it can no longer open a
+ * project-less chat (the Archiv's file-native ask). Member and Admin both hold
+ * it from the catalog, including on sessions minted before it was provisioned.
+ *
  * Visibility is NOT set here: the column defaults to `private`, which is the
  * conversation descriptor's `defaultVisibility` (spec MG-2, ADR-0032). Sharing
- * is a deliberate act, so that the access chip means something.
+ * is a deliberate act, so that the access chip means something — and for a
+ * workspace conversation phase 1 keeps it there (spec AC-6, see
+ * `updateConversationVisibilityInOrg`).
  */
 export async function createConversation(
   session: AuthorizedSession,
   input: CreateConversationInput
 ): Promise<Conversation> {
-  if (input.projectId) {
+  const scope: ConversationScope = input.scope ?? (input.projectId ? 'project' : 'workspace')
+
+  if (scope === 'workspace') {
+    // The CHECK's twin at the edge. The route rejects this shape with a 400
+    // before it reaches here (zod `superRefine`); repeating it means the
+    // service is safe to call from anywhere, not only from behind that route.
+    if (input.projectId) {
+      throw new BadRequestError('A workspace conversation cannot name a project', {
+        scope,
+        projectId: input.projectId,
+      })
+    }
+    requireWorkspaceChat(session)
+  } else {
+    if (!input.projectId) {
+      throw new BadRequestError('A project conversation must name a project', { scope })
+    }
     await requireProjectAccess(session, input.projectId, CHAT_PERMISSIONS)
   }
 
@@ -287,6 +369,7 @@ export async function createConversation(
     createdBy: session.userId,
     title: input.title ?? null,
     projectId: input.projectId ?? null,
+    scope,
     subjectResourceType: input.subjectResourceType ?? null,
     subjectResourceId: input.subjectResourceId ?? null,
   })

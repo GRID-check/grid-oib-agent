@@ -82,8 +82,9 @@ vi.mock('./engagement', () => ({
   setEngagement: vi.fn(),
 }))
 
-import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
+import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { requireProjectAccess, type ProjectRole } from '@/lib/authz/projects'
 import { threadIsAwaitingHuman } from '@/lib/mentions/service'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
@@ -128,10 +129,28 @@ import {
 const CONVERSATION_ID = 'conv_1'
 const PROJECT_ID = '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
 
+/**
+ * `role` and `permissions` are real fields, not decoration: `org:chat` is
+ * checked through `hasPermission`, which reads both (the claim, or the bounded
+ * catalog implication for a session minted before provisioning). A session
+ * without them would throw inside the permission check rather than fail it,
+ * which is the wrong test passing for the wrong reason.
+ */
 const session = {
   userId: 'user_me',
   organizationId: 'org_1',
   email: 'me@grid.test',
+  role: 'member',
+  permissions: ['org:chat'],
+} as unknown as AuthorizedSession
+
+/** The same person on a custom org role that withholds `org:chat` (spec AC-1). */
+const sessionWithoutOrgChat = {
+  userId: 'user_me',
+  organizationId: 'org_1',
+  email: 'me@grid.test',
+  role: 'org-auditor',
+  permissions: [],
 } as unknown as AuthorizedSession
 
 /** The registry's single probe: existence, tenancy, container, visibility, creator. */
@@ -158,6 +177,7 @@ function stubConversation(
     id: CONVERSATION_ID,
     title: 'Brandschutz Stiegenhaus',
     tags: [],
+    scope: tenancy.projectId ? ('project' as const) : ('workspace' as const),
     // Unset, so the mode derives from the thread's author count (ADR-0036).
     engagement: null,
     createdAt: new Date('2026-07-01T10:00:00Z'),
@@ -309,7 +329,102 @@ describe('listing conversations', () => {
     expect(requireProjectAccess).not.toHaveBeenCalled()
     expect(listVisibleConversations).toHaveBeenCalledWith('org_1', 'user_me', {
       projectId: undefined,
+      scope: undefined,
     })
+  })
+
+  it('hands the Büro filter to the repository, so the panel gets workspace rows only', async () => {
+    await listConversations(session, { scope: 'workspace' })
+
+    expect(requireProjectAccess).not.toHaveBeenCalled()
+    expect(listVisibleConversations).toHaveBeenCalledWith('org_1', 'user_me', {
+      projectId: undefined,
+      scope: 'workspace',
+    })
+  })
+
+  it('refuses the Büro list without org:chat, before the repository is reached', async () => {
+    await expect(
+      listConversations(sessionWithoutOrgChat, { scope: 'workspace' })
+    ).rejects.toThrow(ForbiddenError)
+    expect(listVisibleConversations).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The Büro (ADR-0054). What is worth pinning is not that a column gets a value
+ * — it is that the two things which used to be one (no project / office chat)
+ * stay separable, and that the permission is checked rather than inferred.
+ */
+describe('creating a WORKSPACE conversation', () => {
+  beforeEach(() => {
+    vi.mocked(insertConversation).mockImplementation(
+      async (values) => ({ ...values, tags: [] }) as never
+    )
+  })
+
+  it('inserts a project-less workspace row after checking org:chat', async () => {
+    await createConversation(session, { id: CONVERSATION_ID, scope: 'workspace' })
+
+    expect(requireProjectAccess).not.toHaveBeenCalled()
+    expect(insertConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'workspace', projectId: null, organizationId: 'org_1' })
+    )
+  })
+
+  it('refuses a caller whose role withholds org:chat (spec AC-1)', async () => {
+    await expect(
+      createConversation(sessionWithoutOrgChat, { id: CONVERSATION_ID, scope: 'workspace' })
+    ).rejects.toThrow(ForbiddenError)
+    expect(insertConversation).not.toHaveBeenCalled()
+  })
+
+  it('rejects a workspace conversation that also names a project (400, not 500)', async () => {
+    await expect(
+      createConversation(session, {
+        id: CONVERSATION_ID,
+        scope: 'workspace',
+        projectId: PROJECT_ID,
+      })
+    ).rejects.toThrow(BadRequestError)
+    // The database would refuse it too (migration 0081), which is the point of
+    // having both: the CHECK is the invariant, this is the readable error.
+    expect(insertConversation).not.toHaveBeenCalled()
+  })
+
+  it('derives the level from the absence of a project, but never the permission', async () => {
+    // A create with neither scope nor project is what the Archiv's file-native
+    // ask has always sent. It is an organization conversation and always was —
+    // that is what migration 0081 backfilled the legacy rows to (spec MG-1) —
+    // so it lands as one rather than as an unwritable half-project row.
+    await createConversation(session, { id: CONVERSATION_ID })
+    expect(insertConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'workspace', projectId: null })
+    )
+
+    // ...and the permission is still checked, so omitting a field is not a way
+    // around it (spec AC-2).
+    vi.mocked(insertConversation).mockClear()
+    await expect(
+      createConversation(sessionWithoutOrgChat, { id: CONVERSATION_ID })
+    ).rejects.toThrow(ForbiddenError)
+    expect(insertConversation).not.toHaveBeenCalled()
+  })
+
+  it('leaves a project conversation on exactly the path it was on', async () => {
+    await createConversation(session, { id: CONVERSATION_ID, projectId: PROJECT_ID })
+
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, PROJECT_ID, CHAT_PERMISSIONS)
+    expect(insertConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'project', projectId: PROJECT_ID })
+    )
+  })
+
+  it('rejects an explicit project scope with no project to hang it on', async () => {
+    await expect(
+      createConversation(session, { id: CONVERSATION_ID, scope: 'project' })
+    ).rejects.toThrow(BadRequestError)
+    expect(insertConversation).not.toHaveBeenCalled()
   })
 })
 

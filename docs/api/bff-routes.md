@@ -40,7 +40,12 @@ Security behavior as of the ADR-0017 refactor:
   `Content-Disposition` on presigned URLs.
 - `POST /api/conversations` validates a supplied `projectId` via
   `project:view` FGA; message roles are restricted to
-  `user|assistant|system|tool`.
+  `user|assistant|system|tool`. A conversation with no project is a
+  **workspace** conversation (ADR-0054) and needs the org-tier `org:chat`
+  permission — checked in the request, never inferred from the absence of a
+  project (spec AC-2). Widening a workspace conversation's visibility is
+  refused in phase 1 (spec AC-6): sharing one has to check every mounted
+  project against every recipient, which arrives with mounts in phase 4.
 - `PUT /api/organization/settings` requires `org:settings:manage`.
 - List endpoints are bounded (projects 500, conversations 200, messages
   1000, documents 500, holds/deletions 200).
@@ -50,7 +55,7 @@ Security behavior as of the ADR-0017 refactor:
 | Method | Path | Auth | Description | Request | Response |
 |--------|------|------|-------------|---------|----------|
 | `GET` | `/api/auth/callback` | No | WorkOS AuthKit callback handler. Delegates to `@workos-inc/authkit-nextjs`'s `handleAuth()`. | Query params from WorkOS OAuth redirect | Redirect to app |
-| `GET` | `/api/auth/websocket-scope` | Varies | Internal endpoint called by `server.js` during WebSocket upgrade. Resolves collection scope, auth headers, and returns base64url-encoded scope + org/user IDs + access token. | `?projectId=&conversationId=` | `{ scope, header, organizationId?, userId?, accessToken? }` |
+| `GET` | `/api/auth/websocket-scope` | Varies | Internal endpoint called by `server.js` during WebSocket upgrade. Resolves collection scope, auth headers, and returns base64url-encoded scope + org/user IDs + access token. | `?projectId=&conversationId=&scope=` (`scope=workspace` forces no project, ADR-0054) | `{ scope, header, organizationId?, userId?, accessToken? }` |
 | `GET` | `/api/auth/connection-diagnostics` | Required | Browser-safe reason discovery for a failed chat WebSocket upgrade. The gateway collapses a budget-exhausted upgrade into a bare failed handshake the browser can't read, so the chat client calls this after retries are exhausted to learn whether the cause was budget exhaustion. Read-only; reuses the same budget-check logic (ADR-0015). | `?projectId=` | `{ budgetExhausted, blockedScope, canManageBudgets }` |
 
 Source: `frontends/ui/src/app/api/auth/callback/route.ts`, `frontends/ui/src/app/api/auth/websocket-scope/route.ts`, `frontends/ui/src/app/api/auth/connection-diagnostics/route.ts`
@@ -93,8 +98,8 @@ and the measurements behind it)
 
 | Method | Path | Auth | Description | Request Body / Params | Response |
 |--------|------|------|-------------|-----------------------|----------|
-| `GET` | `/api/conversations` | Required | List all conversations for the current org, ordered by `updatedAt` desc. | — | `[{ id, title, createdAt, updatedAt, ... }]` |
-| `POST` | `/api/conversations` | Required | Create a new conversation. | `{ id, title?, projectId? }` | `{ id, title, ... }` (201) |
+| `GET` | `/api/conversations` | Required | List the conversations the caller may see in the current org, ordered by `updatedAt` desc. `?projectId=` narrows to one project (and needs `project:view` on it); `?scope=workspace` narrows to Büro conversations (ADR-0054) and needs `org:chat`, which the default Member role holds. `?scope=project` is accepted and narrows the other way. An unknown scope is a 400. | — | `[{ id, title, scope, createdAt, updatedAt, ... }]` |
+| `POST` | `/api/conversations` | Required | Create a new conversation. `scope` says which level it belongs to and is **derived from `projectId` when omitted**, so a body that predates the Büro behaves exactly as before. `scope: 'workspace'` requires `org:chat` and no `projectId`; sending both is a **400** (the twin of migration 0081's CHECK, so a self-contradicting body is an error the client can read rather than a 500 from Postgres). A `projectId` still requires `project:chat`/`project:edit` on it. | `{ id, title?, projectId?, scope? }` | `{ id, title, scope, ... }` (201) |
 | `GET` | `/api/conversations/{id}` | Required | Get a single conversation. Verifies org ownership (404 if wrong org). | — | `{ id, title, ... }` |
 | `PATCH` | `/api/conversations/{id}` | Required | Rename a conversation. | `{ title }` | `{ id, title, ... }` |
 | `DELETE` | `/api/conversations/{id}` | Required | Delete a conversation. | — | `204 No Content` |
