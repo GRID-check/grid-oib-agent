@@ -73,6 +73,12 @@ const BOUNDARY_MIGRATIONS = [
   // project_register is: the row's own organization_id AND the tenant of the
   // project it names.
   '0083_conversation_mounts.sql',
+  // Adds project_sets and project_set_members — Sammlungen, a named set of
+  // projects mounted as one unit (ADR-0054, spec GR-2). The set is plain tenant
+  // data; the membership carries a project, so it is secured the way
+  // conversation_mounts is — the row's own organization_id AND the tenant of
+  // the project it names.
+  '0084_project_sets.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

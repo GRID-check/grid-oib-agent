@@ -21,6 +21,11 @@
  * The membership id is the load-bearing field: WorkOS FGA keys on it, so
  * without it there is no per-project decision to make and the request is
  * refused rather than widened.
+ *
+ * It accepts a **Sammlung** on the same terms as the session route (spec GR-2):
+ * `projectSetId` instead of `projectId`, expanded to the same mount rows
+ * through the same service, so the agent opening "Bezirk 3" and a person
+ * clicking it cannot diverge either.
  */
 
 import { z } from 'zod'
@@ -28,32 +33,39 @@ import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
 import { withTenant } from '@/lib/db/tenant-context'
 import {
   mountProject,
+  mountProjectSet,
   sessionForInternalMount,
   WorkspaceMountCapError,
   WorkspaceMountExclusionError,
 } from '@/lib/workspace/mounts-service'
 import {
+  exactlyOneMountTarget,
   mountCapResponse,
   mountExclusionResponse,
   mountResponse,
+  mountSetResponse,
+  MOUNT_TARGET_MESSAGE,
+  MOUNT_TARGET_SHAPE,
 } from '@/lib/workspace/mount-wire'
 
 type Params = { id: string }
 
-const internalMountSchema = z.object({
-  projectId: z.string().uuid(),
-  organizationId: z.string().min(1),
-  userId: z.string().min(1),
-  /** The (user, organization) pair WorkOS FGA keys on. Required, see above. */
-  organizationMembershipId: z.string().min(1),
-  /**
-   * Only the agent reaches this route, and the column it writes is what tells a
-   * reader who widened the conversation's scope (MT-5, MT-12). A literal rather
-   * than the actor enum: a caller that could claim `user` here would be able to
-   * attribute its own mount to a person.
-   */
-  mountedBy: z.literal('agent'),
-})
+const internalMountSchema = z
+  .object({
+    ...MOUNT_TARGET_SHAPE,
+    organizationId: z.string().min(1),
+    userId: z.string().min(1),
+    /** The (user, organization) pair WorkOS FGA keys on. Required, see above. */
+    organizationMembershipId: z.string().min(1),
+    /**
+     * Only the agent reaches this route, and the column it writes is what tells a
+     * reader who widened the conversation's scope (MT-5, MT-12). A literal rather
+     * than the actor enum: a caller that could claim `user` here would be able to
+     * attribute its own mount to a person.
+     */
+    mountedBy: z.literal('agent'),
+  })
+  .refine(exactlyOneMountTarget, { message: MOUNT_TARGET_MESSAGE })
 
 export const POST = internalApiRoute<Params>(
   'Internal Conversation Mounts',
@@ -67,11 +79,21 @@ export const POST = internalApiRoute<Params>(
         organizationMembershipId: body.organizationMembershipId,
       })
       try {
+        if (body.projectSetId) {
+          return mountSetResponse(
+            await mountProjectSet({
+              session,
+              conversationId: params.id,
+              projectSetId: body.projectSetId,
+              mountedBy: body.mountedBy,
+            })
+          )
+        }
         return mountResponse(
           await mountProject({
             session,
             conversationId: params.id,
-            projectId: body.projectId,
+            projectId: body.projectId as string,
             mountedBy: body.mountedBy,
           })
         )

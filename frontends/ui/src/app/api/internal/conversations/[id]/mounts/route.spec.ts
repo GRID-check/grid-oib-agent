@@ -36,7 +36,12 @@ vi.mock('@/lib/db/tenant-context', () => ({
 
 vi.mock('@/lib/workspace/mounts-service', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/workspace/mounts-service')>()
-  return { ...actual, mountProject: vi.fn(), sessionForInternalMount: vi.fn() }
+  return {
+    ...actual,
+    mountProject: vi.fn(),
+    mountProjectSet: vi.fn(),
+    sessionForInternalMount: vi.fn(),
+  }
 })
 
 import { NotFoundError } from '@/lib/api/errors'
@@ -44,6 +49,7 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { withTenant } from '@/lib/db/tenant-context'
 import {
   mountProject,
+  mountProjectSet,
   sessionForInternalMount,
   WorkspaceMountCapError,
   WorkspaceMountExclusionError,
@@ -61,7 +67,10 @@ const identity = {
   organizationMembershipId: 'om_1',
 }
 
+const SET = '99999999-9999-9999-9999-999999999999'
+
 const validBody = { projectId: PROJECT, ...identity, mountedBy: 'agent' }
+const validSetBody = { projectSetId: SET, ...identity, mountedBy: 'agent' }
 
 const routeContext = { params: Promise.resolve({ id: CONVERSATION }) }
 
@@ -89,6 +98,11 @@ beforeEach(() => {
   vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
   vi.mocked(sessionForInternalMount).mockResolvedValue(reconstructed)
   vi.mocked(mountProject).mockResolvedValue({ mount, grant, created: true })
+  vi.mocked(mountProjectSet).mockResolvedValue({
+    set: { id: SET, name: 'Bezirk 3' },
+    mounts: [{ mount, grant, created: true }],
+    skipped: [],
+  })
 })
 
 afterEach(() => {
@@ -193,5 +207,60 @@ describe('POST /api/internal/conversations/:id/mounts — as the USER (MT-3)', (
     vi.mocked(mountProject).mockRejectedValue(new NotFoundError())
 
     expect((await POST(makeRequest(validBody, REAL_TOKEN), routeContext)).status).toBe(404)
+  })
+})
+
+/**
+ * The agent opening a Sammlung (spec GR-2).
+ *
+ * `open_project` gets the same option a person's scope tree does, for the
+ * reason MT-2 gives for there being one endpoint at all: an agent that could
+ * only mount one project at a time would need its own way to loop, and that
+ * loop would be a second place the cap is decided.
+ */
+describe('POST /api/internal/conversations/:id/mounts — a Sammlung', () => {
+  it('expands the set as the reconstructed USER, never as the service', async () => {
+    const response = await POST(makeRequest(validSetBody, REAL_TOKEN), routeContext)
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toEqual({
+      set: { id: SET, name: 'Bezirk 3' },
+      mounts: [{ mount, grant, created: true }],
+      skipped: [],
+    })
+    expect(sessionForInternalMount).toHaveBeenCalledWith(identity)
+    expect(mountProjectSet).toHaveBeenCalledWith({
+      session: reconstructed,
+      conversationId: CONVERSATION,
+      projectSetId: SET,
+      mountedBy: 'agent',
+    })
+    expect(mountProject).not.toHaveBeenCalled()
+  })
+
+  it('refuses a body naming both a project and a Sammlung, or neither', async () => {
+    const both = { ...identity, mountedBy: 'agent', projectId: PROJECT, projectSetId: SET }
+    const neither = { ...identity, mountedBy: 'agent' }
+
+    expect((await POST(makeRequest(both, REAL_TOKEN), routeContext)).status).toBe(400)
+    expect((await POST(makeRequest(neither, REAL_TOKEN), routeContext)).status).toBe(400)
+    expect(mountProject).not.toHaveBeenCalled()
+    expect(mountProjectSet).not.toHaveBeenCalled()
+  })
+
+  it('hands the tool the cap refusal with the SET named, so it can offer deep research', async () => {
+    vi.mocked(mountProjectSet).mockRejectedValue(
+      new WorkspaceMountCapError(5, ['Seestadt'], 'Bezirk 3')
+    )
+
+    const response = await POST(makeRequest(validSetBody, REAL_TOKEN), routeContext)
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({
+      code: 'WORKSPACE_MOUNT_CAP',
+      cap: 5,
+      mounted: ['Seestadt'],
+      set: 'Bezirk 3',
+    })
   })
 })

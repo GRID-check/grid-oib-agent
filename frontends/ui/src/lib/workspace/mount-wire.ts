@@ -19,11 +19,37 @@
  */
 
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import type {
   MountResult,
+  MountSetResult,
   WorkspaceMountCapError,
   WorkspaceMountExclusionError,
 } from './mounts-service'
+
+/**
+ * What a mount request names: exactly one project, or exactly one Sammlung
+ * (spec GR-2, MT-2).
+ *
+ * The shape is shared rather than written twice because both adapters accept
+ * it, and the internal twin extends it with the envelope's identity fields. A
+ * body naming both is a 400 rather than a precedence rule: two targets in one
+ * call is a client bug, and inventing "the project wins" would make it a silent
+ * one.
+ */
+export const MOUNT_TARGET_SHAPE = {
+  projectId: z.string().uuid().optional(),
+  projectSetId: z.string().uuid().optional(),
+} as const
+
+export function exactlyOneMountTarget(body: {
+  projectId?: string
+  projectSetId?: string
+}): boolean {
+  return (body.projectId ? 1 : 0) + (body.projectSetId ? 1 : 0) === 1
+}
+
+export const MOUNT_TARGET_MESSAGE = 'Name exactly one of projectId or projectSetId'
 
 /** `201` for a new mount, `200` for the idempotent re-mount. */
 export function mountResponse(result: MountResult): Response {
@@ -31,6 +57,25 @@ export function mountResponse(result: MountResult): Response {
     { mount: result.mount, grant: result.grant },
     { status: result.created ? 201 : 200 }
   )
+}
+
+/**
+ * A Sammlung mounted as one unit (spec GR-2).
+ *
+ * A DIFFERENT shape from the single mount's, on purpose: `{ mount, grant }` is
+ * what the UI and the Python tool already read, and folding a set into it —
+ * one-element arrays, a nullable `set` — would make every existing reader parse
+ * a case it never asks for. The request says which shape it wants by which
+ * target it names.
+ *
+ * `201` when this call actually mounted something new, `200` when the
+ * conversation already read every project in the set. Same rule as the single
+ * mount, applied to the set: saying the same mount twice is not a second mount.
+ */
+export function mountSetResponse(result: MountSetResult): Response {
+  return NextResponse.json(result, {
+    status: result.mounts.some((entry) => entry.created) ? 201 : 200,
+  })
 }
 
 /**
@@ -59,6 +104,9 @@ export function mountCapResponse(error: WorkspaceMountCapError): Response {
       code: error.code,
       cap: error.cap,
       mounted: error.mounted,
+      // Present only when a SET is what did not fit, so the sentence can name
+      // the thing the person actually clicked.
+      ...(error.set ? { set: error.set } : {}),
     },
     { status: 409 }
   )

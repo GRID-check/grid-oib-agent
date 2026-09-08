@@ -7,6 +7,12 @@
  * project chat runs once (MT-16 — a link is not a way to widen scope, so it
  * takes exactly this path).
  *
+ * `POST` takes EITHER a project or a **Sammlung** (spec GR-2). A set is not a
+ * second mechanism: it expands to the same mount rows, through the same
+ * service, against the same cap — so this stayed one endpoint rather than
+ * becoming two, and MT-2's "one place a mount is authorized" keeps meaning what
+ * it meant.
+ *
  * Thin adapters. Every decision — the conversation role, `project:chat`, the
  * cap, idempotence, the grant — belongs to `lib/workspace/mounts-service`,
  * which the internal twin at `api/internal/conversations/[id]/mounts` also
@@ -18,41 +24,53 @@ import { apiRoute, parseJsonBody } from '@/lib/api/handler'
 import {
   listMounts,
   mountProject,
+  mountProjectSet,
   WorkspaceMountCapError,
   WorkspaceMountExclusionError,
 } from '@/lib/workspace/mounts-service'
 import {
+  exactlyOneMountTarget,
   mountCapResponse,
   mountExclusionResponse,
   mountResponse,
+  mountSetResponse,
+  MOUNT_TARGET_MESSAGE,
+  MOUNT_TARGET_SHAPE,
 } from '@/lib/workspace/mount-wire'
 
 type Params = { id: string }
 
-const mountSchema = z.object({
-  projectId: z.string().uuid(),
-})
+const mountSchema = z
+  .object(MOUNT_TARGET_SHAPE)
+  .refine(exactlyOneMountTarget, { message: MOUNT_TARGET_MESSAGE })
 
-export const GET = apiRoute<Params>(
-  async ({ session, params }) => listMounts(session, params.id),
-  {
-    authz: {
-      enforcedBy:
-        'listMounts (requireResourceAccess conversation viewer — the mounted set is a ' +
-        'property of the conversation, spec MT-14)',
-    },
-  }
-)
+export const GET = apiRoute<Params>(async ({ session, params }) => listMounts(session, params.id), {
+  authz: {
+    enforcedBy:
+      'listMounts (requireResourceAccess conversation viewer — the mounted set is a ' +
+      'property of the conversation, spec MT-14)',
+  },
+})
 
 export const POST = apiRoute<Params>(
   async ({ session, request, params }) => {
-    const { projectId } = await parseJsonBody(request, mountSchema)
+    const { projectId, projectSetId } = await parseJsonBody(request, mountSchema)
     try {
+      if (projectSetId) {
+        return mountSetResponse(
+          await mountProjectSet({
+            session,
+            conversationId: params.id,
+            projectSetId,
+            mountedBy: 'user',
+          })
+        )
+      }
       return mountResponse(
         await mountProject({
           session,
           conversationId: params.id,
-          projectId,
+          projectId: projectId as string,
           mountedBy: 'user',
         })
       )
@@ -68,9 +86,10 @@ export const POST = apiRoute<Params>(
   {
     authz: {
       enforcedBy:
-        'mountProject (requireResourceAccess conversation collaborator + ' +
-        'requireProjectAccess project:chat; createConversation checks org:chat when the ' +
-        'conversation does not exist yet)',
+        'mountProject / mountProjectSet (requireResourceAccess conversation collaborator + ' +
+        'requireProjectAccess project:chat per project; createConversation checks org:chat ' +
+        'when the conversation does not exist yet; a Sammlung additionally goes through ' +
+        'projectSetForMount, which checks org:chat and resolves the set inside the org)',
     },
   }
 )

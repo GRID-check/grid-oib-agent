@@ -267,7 +267,7 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
    * `POST /api/conversations`); this is what holds when a repository, a
    * backfill or somebody's psql session does not.
    */
-  it("refuses a workspace conversation that names a project", async () => {
+  it('refuses a workspace conversation that names a project', async () => {
     const [ownProject] = [
       ...(await withTenant({ organizationId: ORG_A }, () =>
         db.execute(sql`select id from projects where organization_id = ${ORG_A}`)
@@ -328,7 +328,9 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
 
   it('updates and deletes nothing in another tenant', async () => {
     await withTenant({ organizationId: ORG_A }, async () => {
-      await db.execute(sql`update projects set name = 'overwritten' where organization_id = ${ORG_B}`)
+      await db.execute(
+        sql`update projects set name = 'overwritten' where organization_id = ${ORG_B}`
+      )
       await db.execute(sql`delete from projects where organization_id = ${ORG_B}`)
     })
 
@@ -447,7 +449,7 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
    * — an ordinary, authorised action — would destroy org A's data. The policies
    * validate the referenced row's organization for exactly this reason.
    */
-  it('refuses to reference another tenant\'s row', async () => {
+  it("refuses to reference another tenant's row", async () => {
     const [projectOfB] = [
       ...(await withTenant({ organizationId: ORG_B }, () =>
         db.execute(sql`select id from projects where organization_id = ${ORG_B}`)
@@ -820,6 +822,214 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
         )
       )
       expect(unknownActor.message).toMatch(/conversation_mounts_actor_known/i)
+    })
+  })
+  /**
+   * Sammlungen and their memberships (0084, ADR-0054, spec GR-2).
+   *
+   * A Sammlung is a NAME over projects, which makes it the one object here that
+   * could hand somebody a project's name without handing them the project — so
+   * the boundary matters twice: once for the set, once for what it names. Four
+   * claims, each of them a constraint rather than a habit in the service:
+   *
+   *   1. a membership cannot cross the tenant boundary (the composite keys);
+   *   2. one organisation's Sammlungen are invisible to another;
+   *   3. two names differing only in case are the same name;
+   *   4. the two cascades go the right way and STOP — a purged project loses
+   *      its memberships, a deleted set loses its members, and neither touches
+   *      a conversation, because a mount made through a set is an ordinary
+   *      mount row from the moment it is written (spec MT-14).
+   */
+  describe('project_sets and project_set_members', () => {
+    const SET_CONVERSATION = `conv_sammlung_${ORG_A}`
+
+    async function projectOf(org: string): Promise<string> {
+      const rows = await withPlatformAccess('test: read the seeded project', () =>
+        db.execute(sql`select id from projects where organization_id = ${org} limit 1`)
+      )
+      return String([...rows][0].id)
+    }
+
+    async function makeSet(org: string, name: string): Promise<string> {
+      const rows = await withTenant({ organizationId: org }, () =>
+        db.execute(
+          sql`insert into project_sets (organization_id, name, created_by)
+              values (${org}, ${name}, 'u') returning id`
+        )
+      )
+      return String([...rows][0].id)
+    }
+
+    beforeAll(async () => {
+      await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(
+          sql`insert into conversations (id, organization_id, created_by, project_id, scope)
+              values (${SET_CONVERSATION}, ${ORG_A}, 'u', null, 'workspace')`
+        )
+      )
+    })
+
+    afterAll(async () => {
+      if (!db) return
+      await withPlatformAccess('test cleanup', async () => {
+        await db.execute(
+          sql`delete from conversation_mounts where conversation_id = ${SET_CONVERSATION}`
+        )
+        await db.execute(sql`delete from conversations where id = ${SET_CONVERSATION}`)
+        await db.execute(
+          sql`delete from project_sets where organization_id in (${ORG_A}, ${ORG_B})`
+        )
+      })
+    })
+
+    it('refuses a membership tying this tenant’s Sammlung to another tenant’s project', async () => {
+      const setA = await makeSet(ORG_A, `Bezirk cross ${Date.now()}`)
+      const projectB = await projectOf(ORG_B)
+
+      const cause = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_A }, () =>
+          db.execute(
+            sql`insert into project_set_members (set_id, organization_id, project_id)
+                values (${setA}, ${ORG_A}, ${projectB})`
+          )
+        )
+      )
+      // Belt and braces, either of which is the correct refusal: `(projectB,
+      // ORG_A)` is not a pair `projects` holds, and the policy's second half
+      // refuses a row naming a project outside the active tenant.
+      expect(cause.message).toMatch(/row-level security|violates foreign key/i)
+    })
+
+    it('hides one tenant’s Sammlungen — and their members — from another', async () => {
+      const setA = await makeSet(ORG_A, `Bezirk 3 ${Date.now()}`)
+      const projectA = await projectOf(ORG_A)
+      await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(
+          sql`insert into project_set_members (set_id, organization_id, project_id)
+              values (${setA}, ${ORG_A}, ${projectA})`
+        )
+      )
+
+      const [setsSeenByB, membersSeenByB] = await withTenant(
+        { organizationId: ORG_B },
+        async () =>
+          [
+            [...(await db.execute(sql`select id from project_sets where id = ${setA}`))],
+            [
+              ...(await db.execute(
+                sql`select project_id from project_set_members where set_id = ${setA}`
+              )),
+            ],
+          ] as const
+      )
+      expect(setsSeenByB).toEqual([])
+      expect(membersSeenByB).toEqual([])
+
+      const seenByA = await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`select project_id from project_set_members where set_id = ${setA}`)
+      )
+      expect([...seenByA].map((row) => String(row.project_id))).toEqual([projectA])
+    })
+
+    it('treats two names differing only in case as one name, per organisation', async () => {
+      const name = `Kunde Nord ${Date.now()}`
+      await makeSet(ORG_A, name)
+
+      const cause = await rejectionCause(() => makeSet(ORG_A, name.toUpperCase()))
+      expect(cause.message).toMatch(/uniq_project_sets_org_name/i)
+
+      // …and the other tenant is free to use it, which is what makes the index
+      // per-organisation rather than global.
+      await expect(makeSet(ORG_B, name)).resolves.toBeTruthy()
+    })
+
+    it('refuses a blank name', async () => {
+      // `lower('')` is a perfectly good unique key and a perfectly useless
+      // label, and the one place it surfaces is a refusal sentence naming the
+      // set — where a blank reads as a bug in the refusal.
+      const cause = await rejectionCause(() => makeSet(ORG_A, '   '))
+      expect(cause.message).toMatch(/project_sets_name_present/i)
+    })
+
+    it('drops the membership when the project is purged, and keeps the Sammlung', async () => {
+      const setA = await makeSet(ORG_A, `Bezirk purge ${Date.now()}`)
+      const doomed = await withTenant({ organizationId: ORG_A }, async () => {
+        const [row] = [
+          ...(await db.execute(
+            sql`insert into projects (organization_id, name, created_by, collection_name)
+                values (${ORG_A}, 'Projekt Donaufeld', 'u', ${'coll_set_' + Date.now()})
+                returning id`
+          )),
+        ]
+        await db.execute(
+          sql`insert into project_set_members (set_id, organization_id, project_id)
+              values (${setA}, ${ORG_A}, ${String(row.id)})`
+        )
+        return String(row.id)
+      })
+
+      await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`delete from projects where id = ${doomed}`)
+      )
+
+      const [members, sets] = await withTenant({ organizationId: ORG_A }, async () => [
+        [
+          ...(await db.execute(
+            sql`select project_id from project_set_members where project_id = ${doomed}`
+          )),
+        ],
+        [...(await db.execute(sql`select id from project_sets where id = ${setA}`))],
+      ])
+      // The cascade is the whole of the deletion story: the membership goes
+      // with its project, the Sammlung itself is untouched.
+      expect(members).toEqual([])
+      expect(sets).toHaveLength(1)
+    })
+
+    it('drops the members when the Sammlung goes, and leaves the CONVERSATION alone', async () => {
+      const setA = await makeSet(ORG_A, `Bezirk delete ${Date.now()}`)
+      const projectA = await projectOf(ORG_A)
+      await withTenant({ organizationId: ORG_A }, async () => {
+        await db.execute(
+          sql`insert into project_set_members (set_id, organization_id, project_id)
+              values (${setA}, ${ORG_A}, ${projectA})`
+        )
+        // What mounting that Sammlung leaves behind: an ordinary mount row,
+        // which names the PROJECT and knows nothing about the set.
+        await db.execute(
+          sql`insert into conversation_mounts
+                (conversation_id, organization_id, project_id, mounted_by)
+              values (${SET_CONVERSATION}, ${ORG_A}, ${projectA}, 'agent')
+              on conflict do nothing`
+        )
+      })
+
+      await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`delete from project_sets where id = ${setA}`)
+      )
+
+      const [members, mounts, conversations] = await withTenant(
+        { organizationId: ORG_A },
+        async () => [
+          [
+            ...(await db.execute(
+              sql`select project_id from project_set_members where set_id = ${setA}`
+            )),
+          ],
+          [
+            ...(await db.execute(
+              sql`select project_id from conversation_mounts where conversation_id = ${SET_CONVERSATION}`
+            )),
+          ],
+          [...(await db.execute(sql`select id from conversations where id = ${SET_CONVERSATION}`))],
+        ]
+      )
+
+      expect(members).toEqual([])
+      // Deleting the NAME a person mounted through must not change what a
+      // thread reads, any more than deleting a bookmark closes the page.
+      expect(mounts).toHaveLength(1)
+      expect(conversations).toHaveLength(1)
     })
   })
 })

@@ -34,13 +34,14 @@ vi.mock('@/lib/auth/require-auth', () => ({
 // pass while the shipped route fell through to a 500.
 vi.mock('@/lib/workspace/mounts-service', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/workspace/mounts-service')>()
-  return { ...actual, listMounts: vi.fn(), mountProject: vi.fn() }
+  return { ...actual, listMounts: vi.fn(), mountProject: vi.fn(), mountProjectSet: vi.fn() }
 })
 
 import { NotFoundError } from '@/lib/api/errors'
 import {
   listMounts,
   mountProject,
+  mountProjectSet,
   WorkspaceMountCapError,
   WorkspaceMountExclusionError,
 } from '@/lib/workspace/mounts-service'
@@ -72,9 +73,16 @@ const mount = {
 }
 const grant = { grant: 'eyJ2IjoxfQ', sig: 'abc123' }
 
+const SET = '99999999-9999-9999-9999-999999999999'
+
 beforeEach(() => {
   vi.mocked(listMounts).mockResolvedValue({ mounts: [], cap: 5 })
   vi.mocked(mountProject).mockResolvedValue({ mount, grant, created: true })
+  vi.mocked(mountProjectSet).mockResolvedValue({
+    set: { id: SET, name: 'Bezirk 3' },
+    mounts: [{ mount, grant, created: true }],
+    skipped: [],
+  })
 })
 
 afterEach(() => vi.clearAllMocks())
@@ -160,15 +168,116 @@ describe('POST /api/conversations/:id/mounts', () => {
     })
   })
 
-  it('refuses a body that does not name a project id', async () => {
+  it('refuses a body that names neither target, both, or a non-id', async () => {
     expect((await post({})).status).toBe(400)
     expect((await post({ projectId: 'Seestadt' })).status).toBe(400)
+    // Both is a client bug, and a precedence rule ("the project wins") would
+    // make it a silent one.
+    expect((await post({ projectId: PROJECT, projectSetId: SET })).status).toBe(400)
     expect(mountProject).not.toHaveBeenCalled()
+    expect(mountProjectSet).not.toHaveBeenCalled()
   })
 
   it('answers a project the caller may not reach as if it did not exist (MT-4)', async () => {
     vi.mocked(mountProject).mockRejectedValue(new NotFoundError())
 
     expect((await post({ projectId: PROJECT })).status).toBe(404)
+  })
+})
+
+/**
+ * The same endpoint, given a Sammlung (spec GR-2).
+ *
+ * MT-2 says one endpoint so that there is one place a mount is authorized; a
+ * set is not a reason for a second one. What differs is the answer's shape,
+ * because `{ mount, grant }` is what the UI and the Python tool already read
+ * and folding a set into it would make every existing reader parse a case it
+ * never asks for.
+ */
+describe('POST /api/conversations/:id/mounts — a Sammlung', () => {
+  it('mounts the set and answers 201 with one grant per mount', async () => {
+    const response = await post({ projectSetId: SET })
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toEqual({
+      set: { id: SET, name: 'Bezirk 3' },
+      mounts: [{ mount, grant, created: true }],
+      skipped: [],
+    })
+    expect(mountProjectSet).toHaveBeenCalledWith({
+      session: expect.objectContaining({ userId: 'user_1' }),
+      conversationId: CONVERSATION,
+      projectSetId: SET,
+      mountedBy: 'user',
+    })
+    // The single-project path is untouched by the new body.
+    expect(mountProject).not.toHaveBeenCalled()
+  })
+
+  it('answers 200 when the conversation already read every project in the set', async () => {
+    vi.mocked(mountProjectSet).mockResolvedValue({
+      set: { id: SET, name: 'Bezirk 3' },
+      mounts: [{ mount, grant, created: false }],
+      skipped: [],
+    })
+
+    expect((await post({ projectSetId: SET })).status).toBe(200)
+  })
+
+  it('carries the skipped members through to the client', async () => {
+    vi.mocked(mountProjectSet).mockResolvedValue({
+      set: { id: SET, name: 'Bezirk 3' },
+      mounts: [{ mount, grant, created: true }],
+      skipped: [{ projectId: 'p-b', projectName: 'Nordbahnhof', reason: 'forbidden' as const }],
+    })
+
+    const body = (await (await post({ projectSetId: SET })).json()) as {
+      skipped: Array<{ projectName: string }>
+    }
+
+    expect(body.skipped).toEqual([
+      { projectId: 'p-b', projectName: 'Nordbahnhof', reason: 'forbidden' },
+    ])
+  })
+
+  it('names the SET in the cap refusal, beside the cap and what is mounted', async () => {
+    vi.mocked(mountProjectSet).mockRejectedValue(
+      new WorkspaceMountCapError(5, ['Seestadt'], 'Bezirk 3')
+    )
+
+    const response = await post({ projectSetId: SET })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({
+      code: 'WORKSPACE_MOUNT_CAP',
+      cap: 5,
+      mounted: ['Seestadt'],
+      set: 'Bezirk 3',
+    })
+  })
+
+  it('leaves `set` off the cap refusal for a single project', async () => {
+    vi.mocked(mountProject).mockRejectedValue(new WorkspaceMountCapError(5, ['Seestadt']))
+
+    const body = (await (await post({ projectId: PROJECT })).json()) as Record<string, unknown>
+
+    expect(body).not.toHaveProperty('set')
+  })
+
+  it('refuses the whole set when it would shut a participant out (spec AC-8)', async () => {
+    vi.mocked(mountProjectSet).mockRejectedValue(new WorkspaceMountExclusionError(['Anna Meier']))
+
+    const response = await post({ projectSetId: SET })
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({
+      code: 'WORKSPACE_MOUNT_WOULD_EXCLUDE',
+      excluded: ['Anna Meier'],
+    })
+  })
+
+  it('answers a Sammlung the caller may not reach as if it did not exist', async () => {
+    vi.mocked(mountProjectSet).mockRejectedValue(new NotFoundError())
+    expect((await post({ projectSetId: SET })).status).toBe(404)
   })
 })

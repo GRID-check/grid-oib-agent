@@ -46,6 +46,7 @@ import { resolvePeople, unknownPerson } from '@/lib/sharing/directory'
 import { createConversation } from '@/lib/conversations/service'
 import { findConversationInOrg } from '@/lib/conversations/repository'
 import { usersExcludedByProject } from './conversation-sharing'
+import { projectSetForMount } from './project-sets-service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { MountActor } from '@/lib/db/schema'
 import { maxMountedProjects } from './config'
@@ -90,13 +91,23 @@ export interface MountResult {
 export class WorkspaceMountCapError extends ApiError {
   constructor(
     readonly cap: number,
-    readonly mounted: string[]
+    readonly mounted: string[],
+    /**
+     * The Sammlung this refusal is about, when a SET was what did not fit
+     * (spec GR-2). Both surfaces need it in the same sentence — "Bezirk 3 hat
+     * mehr Projekte, als eine Unterhaltung gleichzeitig lesen kann (5)" — and a
+     * set refusal that named only the cap would leave the person guessing which
+     * of the two things they clicked was too big.
+     */
+    readonly set?: string
   ) {
     super(
       409,
       'WORKSPACE_MOUNT_CAP',
-      `This conversation already has the maximum of ${cap} mounted project(s)`,
-      { cap, mounted }
+      set
+        ? `The Sammlung “${set}” does not fit: a conversation reads at most ${cap} project(s)`
+        : `This conversation already has the maximum of ${cap} mounted project(s)`,
+      { cap, mounted, set }
     )
   }
 }
@@ -182,7 +193,7 @@ export async function mountProject(input: MountProjectInput): Promise<MountResul
 
   const cap = maxMountedProjects()
   const before = await listConversationMounts(conversationId, organizationId)
-  const already = before.find((row) => row.projectId === projectId)
+  const already = before.some((row) => row.projectId === projectId)
 
   if (!already && before.length >= cap) {
     // Checked BEFORE the insert, so a refused mount writes nothing at all —
@@ -193,7 +204,25 @@ export async function mountProject(input: MountProjectInput): Promise<MountResul
     )
   }
 
-  if (!already) await assertMountKeepsEveryone(session, conversationId, projectId)
+  if (!already) await assertMountsKeepEveryone(session, conversationId, [projectId])
+
+  return commitMount({ session, conversationId, projectId, mountedBy, already })
+}
+
+/**
+ * The write, once the conversation, the project, the cap and the participants
+ * have all said yes.
+ *
+ * Extracted so that mounting a Sammlung and mounting one project are the same
+ * write and the same grant rather than two implementations of them (spec GR-2:
+ * one mechanism). Everything that DECIDES is above it, which is also why this
+ * function takes `already` rather than working it out again — the caller has
+ * already read the mounted set to answer the cap, and reading it twice is how
+ * two answers to one question appear.
+ */
+async function commitMount(input: MountProjectInput & { already: boolean }): Promise<MountResult> {
+  const { session, conversationId, projectId, mountedBy, already } = input
+  const { organizationId } = session
 
   const created = already
     ? false
@@ -230,6 +259,149 @@ export async function mountProject(input: MountProjectInput): Promise<MountResul
     }),
     created,
   }
+}
+
+/** Why a member of a Sammlung was left out of the mount it produced. */
+export type MountSkipReason = 'forbidden'
+
+/**
+ * One member of a Sammlung that was NOT mounted, and why.
+ *
+ * The only reason that ever appears here is `forbidden`: a project the caller
+ * may `project:view` but not `project:chat` in. They already know it exists and
+ * already know its name, so naming it is the actionable half of the refusal —
+ * "ask for chat access in Nordbahnhof" — and costs them nothing.
+ *
+ * A member the caller may not view AT ALL is not in this list and not counted
+ * anywhere in the answer. It is invisible, exactly as it is on the projects
+ * grid and in the register recall (spec AC-3, AC-4, MT-4): a Sammlung must not
+ * become the door through which somebody learns that a project they may not
+ * read exists.
+ */
+export interface SkippedMount {
+  projectId: string
+  projectName: string
+  reason: MountSkipReason
+}
+
+/** What mounting a Sammlung answers with. */
+export interface MountSetResult {
+  set: { id: string; name: string }
+  /** One entry per mounted project, each with its own grant. */
+  mounts: MountResult[]
+  skipped: SkippedMount[]
+}
+
+export interface MountProjectSetInput {
+  session: AuthorizedSession
+  conversationId: string
+  projectSetId: string
+  /** `user` from the scope tree, `agent` from `open_project` (MT-5). */
+  mountedBy: MountActor
+}
+
+/**
+ * Mount a Sammlung — every project in it the caller may chat in — as ONE unit
+ * (spec GR-2).
+ *
+ * There is no set-shaped scope anywhere downstream: this expands to the same
+ * `conversation_mounts` rows the same five clicks would have written, through
+ * the same {@link commitMount}, so a conversation records the PROJECTS it
+ * mounted and not the set it mounted them from. A Sammlung that gains a project
+ * tomorrow therefore does not silently widen a thread that mounted it today,
+ * and every rule that holds for a mount holds for each row this makes.
+ *
+ * ## Everything is decided before anything is written
+ *
+ * The three refusals a mount has are all evaluated over the WHOLE set first:
+ *
+ *  - the PROJECT gate, per member, by the same `authorizeMountableProject` a
+ *    single mount runs — which is what makes the three-way verdict
+ *    (mountable / visible-but-not-chattable / invisible) the same judgement
+ *    made in one place;
+ *  - the CAP, ONCE, against `existing + new distinct`. A set that does not fit
+ *    is refused whole, naming the cap and the set, rather than mounting three
+ *    of five and leaving the person to work out which two are missing;
+ *  - the PARTICIPANTS (spec AC-8), over the union of the new projects. A shared
+ *    thread may not gain a Sammlung that would shut somebody already in it out
+ *    of it, and refusing project-by-project would already have written the rows
+ *    for the harmless half of the set.
+ *
+ * So a refused set mount leaves the conversation exactly as it found it, which
+ * is the same promise a refused single mount makes.
+ */
+export async function mountProjectSet(input: MountProjectSetInput): Promise<MountSetResult> {
+  const { session, conversationId, projectSetId, mountedBy } = input
+  const { organizationId } = session
+
+  await authorizeMountableConversation(session, conversationId)
+  const { set, members } = await projectSetForMount(session, projectSetId)
+
+  const verdicts = await Promise.all(
+    members.map(async (member) => {
+      try {
+        await authorizeMountableProject(session, member.projectId)
+        return { member, verdict: 'mountable' as const }
+      } catch (error) {
+        // The same two refusals a single mount makes, read as classifications
+        // rather than as failures: 403 means "you know this project, you may
+        // not chat in it", 404 means "you may not know it at all".
+        if (error instanceof ForbiddenError) return { member, verdict: 'forbidden' as const }
+        if (error instanceof NotFoundError) return { member, verdict: 'invisible' as const }
+        throw error
+      }
+    })
+  )
+
+  const mountable = verdicts
+    .filter((entry) => entry.verdict === 'mountable')
+    .map((entry) => entry.member)
+  const skipped: SkippedMount[] = verdicts
+    .filter((entry) => entry.verdict === 'forbidden')
+    .map((entry) => ({
+      projectId: entry.member.projectId,
+      projectName: entry.member.projectName,
+      reason: 'forbidden',
+    }))
+
+  const cap = maxMountedProjects()
+  const before = await listConversationMounts(conversationId, organizationId)
+  const mountedIds = new Set(before.map((row) => row.projectId))
+  const fresh = mountable.filter((member) => !mountedIds.has(member.projectId))
+
+  if (before.length + fresh.length > cap) {
+    throw new WorkspaceMountCapError(
+      cap,
+      before.map((row) => row.projectName),
+      set.name
+    )
+  }
+
+  await assertMountsKeepEveryone(
+    session,
+    conversationId,
+    fresh.map((member) => member.projectId)
+  )
+
+  // Sequential on purpose. Each write reads the mounted set back to answer with
+  // the STORED row (see `commitMount`), and concurrent writes racing their own
+  // read-backs would make the attribution a reader sees depend on scheduling.
+  // At most `cap` of them, so the cost is bounded by the number the deployment
+  // already decided a conversation may read.
+  const mounts: MountResult[] = []
+  for (const member of mountable) {
+    mounts.push(
+      await commitMount({
+        session,
+        conversationId,
+        projectId: member.projectId,
+        mountedBy,
+        already: mountedIds.has(member.projectId),
+      })
+    )
+  }
+
+  return { set: { id: set.id, name: set.name }, mounts, skipped }
 }
 
 /**
@@ -341,34 +513,47 @@ async function authorizeMountableConversation(
  * they can no longer open — so the mount is refused and says who it would have
  * shut out.
  *
- * Three deliberate narrowings, so the common mount costs nothing:
+ * Takes a LIST because a Sammlung is mounted as one unit (GR-2): the rule then
+ * has to be answered over the whole set before any of it is written, or the
+ * harmless half of a set would already be in the conversation when the other
+ * half is refused. One project is the same call with one element.
  *
- *   - Only on a mount that is actually NEW. Re-mounting what is already
- *     mounted changes nobody's access and must stay idempotent.
+ * Four deliberate narrowings, so the common mount costs nothing:
+ *
+ *   - Only mounts that are actually NEW; the caller filters those out before
+ *     asking. Re-mounting what is already mounted changes nobody's access and
+ *     must stay idempotent.
  *   - Only the participants — the creator plus explicit grants
  *     (`resolveParticipants`), which is the same set the fan-out uses. A
  *     private thread with no grants has exactly one participant, the person
  *     mounting, and the check ends there.
- *   - Only the project being mounted, not every project already mounted. The
+ *   - Only the projects being mounted, not every project already mounted. The
  *     ones already there were checked when they were mounted or granted; a
  *     revocation since then is caught at READ time, which is where a rule that
  *     can stop holding belongs.
+ *   - One `resolveParticipants` for the whole set, and the excluded people are
+ *     UNIONed across it, so a person who would lose the thread over three of
+ *     its projects is named once.
  *
- * The acting user is skipped: they have just proved `project:chat` on this
- * project, which is strictly more than the `project:view` being asked of
+ * The acting user is skipped: they have just proved `project:chat` on these
+ * projects, which is strictly more than the `project:view` being asked of
  * everyone else.
  */
-async function assertMountKeepsEveryone(
+async function assertMountsKeepEveryone(
   session: AuthorizedSession,
   conversationId: string,
-  projectId: string
+  projectIds: readonly string[]
 ): Promise<void> {
+  if (projectIds.length === 0) return
   const participants = (
     await resolveParticipants(session.organizationId, 'conversation', conversationId)
   ).filter((userId) => userId !== session.userId)
   if (participants.length === 0) return
 
-  const excluded = await usersExcludedByProject(session, projectId, participants)
+  const perProject = await Promise.all(
+    projectIds.map((projectId) => usersExcludedByProject(session, projectId, participants))
+  )
+  const excluded = [...new Set(perProject.flat())]
   if (excluded.length === 0) return
 
   const people = await resolvePeople(session.organizationId, excluded)
@@ -428,7 +613,10 @@ export interface InternalMountIdentity {
 export async function sessionForInternalMount(
   identity: InternalMountIdentity
 ): Promise<AuthorizedSession> {
-  const role = await resolveMembershipRole(identity.organizationId, identity.organizationMembershipId)
+  const role = await resolveMembershipRole(
+    identity.organizationId,
+    identity.organizationMembershipId
+  )
   return {
     userId: identity.userId,
     email: '',

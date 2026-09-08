@@ -40,6 +40,10 @@ vi.mock('@/lib/sharing/directory', async (importOriginal) => ({
   resolvePeople: vi.fn(),
 }))
 vi.mock('./conversation-sharing', () => ({ usersExcludedByProject: vi.fn() }))
+// The Sammlung the set mount expands. Mocked because reading a set is
+// `project-sets-service`'s claim to make; what this suite asserts is what the
+// MOUNT does with the membership it is handed.
+vi.mock('./project-sets-service', () => ({ projectSetForMount: vi.fn() }))
 
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -52,6 +56,8 @@ import { requireResourceAccess } from '@/lib/sharing/access'
 import { resolvePeople } from '@/lib/sharing/directory'
 import { resolveParticipants } from '@/lib/sharing/service'
 import { usersExcludedByProject } from './conversation-sharing'
+import { projectSetForMount } from './project-sets-service'
+import type { ProjectSetMemberRow, ProjectSetRow } from './project-sets-repository'
 import { MOUNT_GRANT_TTL_SECONDS, verifyMountGrant } from './grant'
 import {
   deleteConversationMount,
@@ -63,6 +69,7 @@ import {
   listAuthorizedMounts,
   listMounts,
   mountProject,
+  mountProjectSet,
   sessionForInternalMount,
   unmountProject,
   WorkspaceMountCapError,
@@ -175,11 +182,10 @@ describe('mountProject — the gate (MT-2, MT-3)', () => {
     // The one deliberate exception to MT-4, implemented as an exception: this
     // caller can already see the project on their own projects page, so a 404
     // would be a lie that costs them the reason.
-    vi.mocked(requireProjectAccess).mockImplementation(
-      async (_session, _projectId, permission) =>
-        permission === 'project:view'
-          ? ({ role: 'project-viewer' } as never)
-          : Promise.reject(new NotFoundError())
+    vi.mocked(requireProjectAccess).mockImplementation(async (_session, _projectId, permission) =>
+      permission === 'project:view'
+        ? ({ role: 'project-viewer' } as never)
+        : Promise.reject(new NotFoundError())
     )
 
     const failure = await mountProject({
@@ -309,7 +315,9 @@ describe('mountProject — a mount never evicts a participant (spec AC-8)', () =
     vi.mocked(resolveParticipants).mockResolvedValue(['user_1', OTHER])
     vi.mocked(usersExcludedByProject).mockResolvedValue([OTHER])
     vi.mocked(resolvePeople).mockResolvedValue(
-      new Map([[OTHER, { userId: OTHER, email: null, name: 'Anna Meier', profilePictureUrl: null }]])
+      new Map([
+        [OTHER, { userId: OTHER, email: null, name: 'Anna Meier', profilePictureUrl: null }],
+      ])
     )
 
     const failure = await mountProject({
@@ -619,5 +627,207 @@ describe('sessionForInternalMount — the agent authorizes AS THE USER (MT-3)', 
     })
 
     expect(reconstructed.role).toBe('')
+  })
+})
+
+/**
+ * Mounting a Sammlung (spec GR-2).
+ *
+ * The claim under test is that a set is NOT a second mechanism: it expands to
+ * the same rows through the same write, and every refusal a single mount can
+ * make is evaluated over the whole set BEFORE any of it is written. So each
+ * test here is about the difference the plural makes — the cap counted once,
+ * the exclusion union, and the three-way verdict per member — and never about
+ * the mount rules themselves, which the suites above already own.
+ */
+describe('mountProjectSet — a Sammlung mounts as one unit (spec GR-2)', () => {
+  const BEZIRK: ProjectSetRow = {
+    id: '99999999-9999-9999-9999-999999999999',
+    name: 'Bezirk 3',
+    description: null,
+    createdBy: 'user_1',
+    createdAt: new Date('2026-09-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+  }
+
+  const member = (projectId: string, projectName: string): ProjectSetMemberRow => ({
+    setId: BEZIRK.id,
+    projectId,
+    projectName,
+    addedAt: new Date('2026-09-01T00:00:00.000Z'),
+  })
+
+  const withMembers = (members: ProjectSetMemberRow[]) =>
+    vi.mocked(projectSetForMount).mockResolvedValue({ set: BEZIRK, members })
+
+  const mountSet = () =>
+    mountProjectSet({
+      session: session(),
+      conversationId: CONVERSATION,
+      projectSetId: BEZIRK.id,
+      mountedBy: 'user',
+    })
+
+  it('mounts every readable member through the same write, one grant each', async () => {
+    withMembers([member('p-a', 'Seestadt'), member('p-b', 'Nordbahnhof')])
+    vi.mocked(listConversationMounts)
+      // the cap read, then one read-back per commit
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([mountRow({ projectId: 'p-a', projectName: 'Seestadt' })])
+      .mockResolvedValueOnce([
+        mountRow({ projectId: 'p-a', projectName: 'Seestadt' }),
+        mountRow({ projectId: 'p-b', projectName: 'Nordbahnhof' }),
+      ])
+
+    const result = await mountSet()
+
+    expect(result.set).toEqual({ id: BEZIRK.id, name: 'Bezirk 3' })
+    expect(result.mounts.map((entry) => entry.mount.projectId)).toEqual(['p-a', 'p-b'])
+    // A grant per mount: the answer is worth nothing without one, and the set
+    // gets no special grant of its own — there is no set-shaped scope.
+    for (const entry of result.mounts) {
+      expect(verifyMountGrant(entry.grant)).not.toBeNull()
+      expect(entry.created).toBe(true)
+    }
+    expect(insertConversationMount).toHaveBeenCalledTimes(2)
+    expect(result.skipped).toEqual([])
+  })
+
+  it('refuses a set larger than the cap, names the cap and the SET, and writes nothing', async () => {
+    vi.stubEnv('GRID_WORKSPACE_MAX_MOUNTED_PROJECTS', '2')
+    withMembers([
+      member('p-a', 'Seestadt'),
+      member('p-b', 'Nordbahnhof'),
+      member('p-c', 'Donaufeld'),
+    ])
+    vi.mocked(listConversationMounts).mockResolvedValue([])
+
+    const failure = await mountSet().catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(WorkspaceMountCapError)
+    const capError = failure as WorkspaceMountCapError
+    expect(capError.code).toBe('WORKSPACE_MOUNT_CAP')
+    expect(capError.cap).toBe(2)
+    // The set by name, because "Bezirk 3 passt nicht" is the sentence; a cap
+    // refusal that named only the number would leave the person guessing which
+    // of the two things they clicked was too big.
+    expect(capError.set).toBe('Bezirk 3')
+    // ONE cap decision over the resulting total, taken before any row: mounting
+    // two of the three and then refusing is exactly the outcome this forbids.
+    expect(insertConversationMount).not.toHaveBeenCalled()
+  })
+
+  it('counts the cap over existing + NEW distinct, so a partly mounted set still fits', async () => {
+    vi.stubEnv('GRID_WORKSPACE_MAX_MOUNTED_PROJECTS', '2')
+    withMembers([member('p-a', 'Seestadt'), member('p-b', 'Nordbahnhof')])
+    const already = mountRow({ projectId: 'p-a', projectName: 'Seestadt' })
+    vi.mocked(listConversationMounts)
+      .mockResolvedValueOnce([already])
+      .mockResolvedValue([already, mountRow({ projectId: 'p-b', projectName: 'Nordbahnhof' })])
+
+    const result = await mountSet()
+
+    // Two members, one of them already mounted: the total is two, not three.
+    expect(result.mounts.map((entry) => entry.created)).toEqual([false, true])
+    expect(insertConversationMount).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips a member the caller may view but not chat in, and NAMES it', async () => {
+    withMembers([member('p-a', 'Seestadt'), member('p-b', 'Nordbahnhof')])
+    vi.mocked(requireProjectAccess).mockImplementation(async (_session, projectId, permission) => {
+      if (projectId === 'p-b' && permission !== 'project:view') throw new NotFoundError()
+      return { role: 'project-viewer' } as never
+    })
+    vi.mocked(listConversationMounts)
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([mountRow({ projectId: 'p-a', projectName: 'Seestadt' })])
+
+    const result = await mountSet()
+
+    expect(result.mounts.map((entry) => entry.mount.projectId)).toEqual(['p-a'])
+    // Named, because this caller already knows Nordbahnhof exists and already
+    // knows what it is called — so the actionable half of the refusal costs
+    // them nothing.
+    expect(result.skipped).toEqual([
+      { projectId: 'p-b', projectName: 'Nordbahnhof', reason: 'forbidden' },
+    ])
+  })
+
+  it('leaves a member the caller may not see at all out of the answer ENTIRELY (MT-4)', async () => {
+    withMembers([member('p-a', 'Seestadt'), member('p-secret', 'Geheimprojekt')])
+    vi.mocked(requireProjectAccess).mockImplementation(async (_session, projectId) => {
+      if (projectId === 'p-secret') throw new NotFoundError()
+      return { role: 'project-editor' } as never
+    })
+    vi.mocked(listConversationMounts)
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([mountRow({ projectId: 'p-a', projectName: 'Seestadt' })])
+
+    const result = await mountSet()
+
+    expect(result.mounts.map((entry) => entry.mount.projectId)).toEqual(['p-a'])
+    // Not in `skipped`, not counted, not hinted at. A Sammlung must not become
+    // the door through which somebody learns that a project they may not read
+    // exists — the same rule the register recall keeps (spec AC-3, AC-4).
+    expect(result.skipped).toEqual([])
+    expect(JSON.stringify(result)).not.toContain('Geheimprojekt')
+    expect(JSON.stringify(result)).not.toContain('p-secret')
+  })
+
+  it('applies the exclusion rule to the WHOLE set, refusing before any row', async () => {
+    const OTHER = 'user_colleague'
+    withMembers([member('p-a', 'Seestadt'), member('p-b', 'Nordbahnhof')])
+    vi.mocked(listConversationMounts).mockResolvedValue([])
+    vi.mocked(resolveParticipants).mockResolvedValue(['user_1', OTHER])
+    // Excluded by the SECOND member only: one bad project refuses the set.
+    vi.mocked(usersExcludedByProject).mockImplementation(async (_session, projectId) =>
+      projectId === 'p-b' ? [OTHER] : []
+    )
+    vi.mocked(resolvePeople).mockResolvedValue(
+      new Map([
+        [OTHER, { userId: OTHER, email: null, name: 'Anna Meier', profilePictureUrl: null }],
+      ])
+    )
+
+    const failure = await mountSet().catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(WorkspaceMountExclusionError)
+    expect((failure as WorkspaceMountExclusionError).excluded).toEqual(['Anna Meier'])
+    // The harmless half of the set is not already in the conversation.
+    expect(insertConversationMount).not.toHaveBeenCalled()
+  })
+
+  it('names an excluded person once, however many projects would exclude them', async () => {
+    const OTHER = 'user_colleague'
+    withMembers([member('p-a', 'Seestadt'), member('p-b', 'Nordbahnhof')])
+    vi.mocked(listConversationMounts).mockResolvedValue([])
+    vi.mocked(resolveParticipants).mockResolvedValue(['user_1', OTHER])
+    vi.mocked(usersExcludedByProject).mockResolvedValue([OTHER])
+    vi.mocked(resolvePeople).mockResolvedValue(new Map())
+
+    const failure = await mountSet().catch((error: unknown) => error)
+
+    expect((failure as WorkspaceMountExclusionError).excluded).toEqual([OTHER])
+  })
+
+  it('takes the conversation gate before it even looks at the set', async () => {
+    vi.mocked(findConversationInOrg).mockResolvedValue({
+      id: CONVERSATION,
+      organizationId: ORG,
+      scope: 'project',
+    } as unknown as Conversation)
+
+    await expect(mountSet()).rejects.toBeInstanceOf(BadRequestError)
+    expect(projectSetForMount).not.toHaveBeenCalled()
+  })
+
+  it('answers an empty Sammlung with nothing mounted rather than an error', async () => {
+    withMembers([])
+    vi.mocked(listConversationMounts).mockResolvedValue([])
+
+    const result = await mountSet()
+
+    expect(result).toEqual({ set: { id: BEZIRK.id, name: 'Bezirk 3' }, mounts: [], skipped: [] })
+    expect(insertConversationMount).not.toHaveBeenCalled()
   })
 })

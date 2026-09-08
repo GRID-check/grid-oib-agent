@@ -25,6 +25,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `project-folders.ts` | `project_folders` |
 | `project-register.ts` | `project_register` |
 | `conversation-mounts.ts` | `conversation_mounts` |
+| `project-sets.ts` | `project_sets`, `project_set_members` |
 | `user-preferences.ts` | `user_preferences` |
 | `answer-feedback.ts` | `answer_feedback` |
 | `platform-lessons.ts` | `platform_lessons`, `platform_lesson_reports`, `platform_lesson_events` |
@@ -1064,3 +1065,91 @@ rows a deployment already has unwritable.
 carries — the row's own `organization_id` **and** the tenant of the project it
 names (spec AC-5). Covered by `tenant-isolation.integration.spec.ts`, which
 also asserts the purge cascade and the actor biconditional.
+
+---
+
+## project_sets, project_set_members (migration 0084, ADR-0054)
+
+A **Sammlung**: a named, reusable set of projects — a Bezirk, a client, a year —
+mounted into a Büro conversation as one unit. Schema:
+`frontends/ui/src/lib/db/schema/project-sets.ts`. Spec: `GR-2`.
+
+**The set is an addressing convenience, never a second kind of scope.** GR-2
+requires the generalisation to be "one table and no new mechanism", and that is
+what these two are: mounting a Sammlung writes the SAME `conversation_mounts`
+rows a person's five clicks would have written, through the same service, the
+same per-project `project:chat` check and the same cap. A conversation records
+the PROJECTS it mounted, never the set it mounted them from — so a Sammlung that
+gains a project tomorrow does not silently widen a thread that mounted it today.
+
+### project_sets
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY, default `gen_random_uuid()` | |
+| `organization_id` | `text` | NOT NULL | |
+| `name` | `text` | NOT NULL, `CHECK length(btrim(name)) > 0` | Unique per organization, case-insensitively — see the index below. A blank name is a perfectly good unique key and a perfectly useless label, and the one place it surfaces is a refusal sentence naming the set. |
+| `description` | `text` | nullable | One line of context. |
+| `created_by` | `text` | NOT NULL | The WorkOS user. Half of the edit rule: its creator may change it, and so may anyone holding `org:projects:administer`. |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | Stamped by the service on rename/describe. |
+
+`project_sets_id_organization_id_key` UNIQUE on (`id`, `organization_id`) is what
+gives `project_set_members`' composite foreign key a pair to point at — the same
+belt-and-braces `tasks` adopted in 0075.
+
+**Indexes:** `uniq_project_sets_org_name` UNIQUE on
+(`organization_id`, `lower(name)`). Two "Bezirk 3"s differing in case are two
+things nobody can tell apart, and the name is what a cap refusal says out loud.
+An expression index, so it lives in migration 0084 rather than in drizzle.
+
+### project_set_members
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `set_id` | `uuid` | NOT NULL, PK half | |
+| `organization_id` | `text` | NOT NULL | Denormalised so RLS filters without a join, and half of BOTH composite keys. |
+| `project_id` | `uuid` | NOT NULL, PK half | |
+| `added_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+PRIMARY KEY (`set_id`, `project_id`) — adding a project twice is the same
+membership, which is what makes `addProjects` idempotent.
+
+**Two composite foreign keys**, both `ON DELETE CASCADE`: `(set_id,
+organization_id)` → `project_sets (id, organization_id)` and `(project_id,
+organization_id)` → `projects (id, organization_id)`. A membership tying one
+tenant's Sammlung to another tenant's project is not merely refused by the
+policy, it has no pair to point at.
+
+**Neither cascade reaches a conversation.** Deleting a Sammlung takes its
+memberships and stops; purging a project takes its memberships and stops. A
+mount made through a set is an ordinary `conversation_mounts` row from the
+moment it is written (spec MT-14), so removing the name a person mounted through
+must not change what a thread reads.
+
+**Indexes:** `project_set_members_project_idx` on (`project_id`) — the purge's
+and a project surface's direction of travel ("which Sammlungen is this project
+in?").
+
+**A join table rather than a `uuid[]` on the set**, for the two reasons an array
+cannot cover: only a real foreign key makes a project purge take its memberships
+(so [the deletion pipeline](../architecture/deletion-pipeline.md) learns nothing
+new), and the project→sets direction is one an array answers with a scan.
+
+**No cap on the membership count.** A Sammlung of forty projects is a legitimate
+thing to own; MOUNTING it is what gets refused, by
+`GRID_WORKSPACE_MAX_MOUNTED_PROJECTS` in `lib/workspace/mounts-service.ts` and
+nowhere else, with a 409 naming the cap **and the set**.
+
+**RLS:** secured by 0084 — `project_sets` on its own `organization_id`,
+`project_set_members` with the same two-part predicate `conversation_mounts`
+carries (the row's own `organization_id` **and** the tenant of the project it
+names). Covered by `tenant-isolation.integration.spec.ts`, which also asserts
+the case-insensitive name index and both cascades.
+
+**Readability is computed per caller, never stored.** RLS keeps another tenant
+out; what a member of THIS tenant may see of a Sammlung is decided in
+`lib/workspace/project-sets-service.ts`, which runs the membership through the
+same `filterReadableProjects` the projects grid and the register recall use. A
+member of a firm-wide "Bezirk 3" sees the projects they are on and learns
+nothing about the rest — not their names, not their ids, not that they exist.
