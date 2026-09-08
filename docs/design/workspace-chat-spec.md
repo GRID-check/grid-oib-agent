@@ -47,7 +47,7 @@
 15. [Migration of existing data](#15-migration-of-existing-data)
 16. [Phasing](#16-phasing)
 17. [Acceptance criteria](#17-acceptance-criteria)
-18. [Open questions — decisions needed](#18-open-questions--decisions-needed)
+18. [Open questions — decided 2026-09-08](#18-open-questions--decided-2026-09-08)
 19. [Decisions to record as ADRs](#19-decisions-to-record-as-adrs)
 
 **Requirement ID prefixes.** `WS` the surface and the conversation · `KH` knowledge
