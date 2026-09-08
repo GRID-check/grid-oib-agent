@@ -15,6 +15,23 @@ When a user asks a question, the AI needs to know which knowledge sources to sea
 
 The Archiv collection is injected in `buildCollectionScopeFromRequest` (which has `session.organizationId`) and passed to `computeCollectionScope` as `archivCollectionName`; it rides right after the base corpus, so every project in the org retrieves across the shared Archiv with no per-project configuration.
 
+### Request scope: `project` or `workspace`
+
+`RequestContext.scope` names the surface the turn is asked from
+([ADR-0054](../adr/0054-workspace-chat-mounts-projects-on-demand.md)). It
+defaults to `project`, so every caller written before the Büro-Chat is unchanged.
+
+| `scope` | Collections | Active-project fallback | Project access check |
+|---|---|---|---|
+| `project` (default) | `[base, archiv_<org>?, proj_<id>?, s_<conversation>?]` | Yes — an absent `projectId` falls back to the stored `active_project_id` preference, degrading to no project when that project is unreadable | `project:chat` on an explicit `projectId`; the same check, swallowed, on the fallback |
+| `workspace` | `[base, archiv_<org>?, s_<conversation>?]` | **Never.** `includeProject` is false before any of that logic runs, so no preference is read and no FGA call is made | None — there is no project to check |
+
+A `projectId` passed alongside `scope: 'workspace'` is dropped, not honoured: the
+office surface must not acquire a project implicitly *or* explicitly through a
+channel that was never meant to carry one (spec KH-5, MG-3). Mounted projects
+reach a workspace turn through the mounts endpoint instead, and are not part of
+this slice.
+
 ---
 
 ## Architecture Overview
@@ -113,8 +130,8 @@ async function buildCollectionScopeFromRequest(
 
 During WebSocket upgrade (`/websocket` path):
 
-1. `server.js` parses `projectId` and `conversationId` from the WebSocket URL query string
-2. Calls `fetchCollectionScopeHeader()` which makes an internal HTTP GET to `http://127.0.0.1:{port}/api/auth/websocket-scope?projectId=...&conversationId=...`
+1. `server.js` parses `projectId`, `conversationId` and `scope` from the WebSocket URL query string
+2. Calls `fetchCollectionScopeHeader()` which makes an internal HTTP GET to `http://127.0.0.1:{port}/api/auth/websocket-scope?projectId=...&conversationId=...&scope=...` (`scope` omitted when absent). The per-process memo in front of that call is keyed on `(cookie, projectId, conversationId, scope)` — `scope` included, because a Büro upgrade and a project upgrade share a cookie and the Büro one carries no `projectId`, so without it the two would collapse onto one cache entry
 3. The `websocket-scope` route resolves the session from cookies, calls `buildCollectionScopeFromRequest`, and returns the header value
 4. `server.js` injects `x-grid-collection-scope` into the proxied WebSocket upgrade request headers
 5. Also forwards `x-grid-organization-id`, `x-grid-user-id`, and `authorization` (Bearer token) for user context
@@ -122,12 +139,14 @@ During WebSocket upgrade (`/websocket` path):
 **File**: `frontends/ui/src/app/api/auth/websocket-scope/route.ts`
 
 Internal endpoint that:
-- Reads `projectId` and `conversationId` from query params
+- Reads `projectId`, `conversationId` and `scope` from query params. `scope` is `project` (the default when absent) or `workspace`; anything else is a **400**
 - Resolves the Grid session from the encrypted WorkOS cookie
+- Requires the `workspace-chat` feature flag for `scope=workspace` (fail-open while `GRID_ENFORCE_FEATURE_FLAGS` is off, 403 otherwise)
 - Enforces project access if auth is required
+- Skips `loadProjectPromptView` / `loadProjectBundesland` and returns no `projectId` / `projectContext` for `scope=workspace`; the memory digest still runs and carries organisation memory into the office turn, and proposal decisions are built only when a project exists
 - Returns JSON with `{ scope, header, organizationId, userId, accessToken }`
 
-On 401/403, the WebSocket connection is rejected with the appropriate status code.
+On 400/401/403, the WebSocket connection is rejected with the appropriate status code.
 
 ---
 

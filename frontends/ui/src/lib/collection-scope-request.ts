@@ -15,10 +15,26 @@ import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { archivCollectionName } from '@/lib/archiv/collection'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 
+/**
+ * Which surface a turn is asked from (ADR-0054).
+ *
+ * `project` is the chat bound to one project, the only shape that existed
+ * before the Büro. `workspace` is the office turn: it has no project by
+ * construction, not by an absent value, which is the distinction spec §5.2
+ * (WS-7) demands and the reason this is a stated mode rather than
+ * `projectId === undefined`.
+ */
+export type RequestScope = 'project' | 'workspace'
+
 export interface RequestContext {
   projectId?: string
   includeProject?: boolean
   conversationId?: string
+  /**
+   * Defaults to `project`, so every caller that predates the Büro keeps its
+   * behaviour unchanged including the active-project fallback below.
+   */
+  scope?: RequestScope
 }
 
 /**
@@ -151,7 +167,14 @@ export async function buildCollectionScopeFromRequest(
 }> {
   const anonymous = !isAuthRequired()
 
-  const includeProject = context.includeProject !== false
+  // A Büro turn has no project, and MUST NOT acquire one — not from
+  // `context.projectId`, and above all not from the stored `active_project_id`
+  // preference the fallback below consults (spec KH-5, MG-3). The decision is
+  // made HERE, before any of that runs, so the workspace case is a stated mode
+  // rather than the accident of an absent value: with `includeProject` false
+  // there is no preference read, no FGA round-trip, and no `proj_` entry the
+  // rest of this function could produce.
+  const includeProject = context.scope !== 'workspace' && context.includeProject !== false
 
   let projectId = includeProject ? context.projectId : undefined
   const explicitProject = Boolean(projectId)

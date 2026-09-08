@@ -23,6 +23,9 @@ vi.mock('@/lib/db', () => ({ getDb: vi.fn() }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 vi.mock('@/lib/conversations/repository', () => ({ findConversationTenancy: vi.fn() }))
 vi.mock('@/lib/sharing/repository', () => ({ findGrantForSubject: vi.fn() }))
+// Mocked rather than driven through the db stub so the workspace specs below can
+// assert the STRONG claim: the office turn never reads the preference at all.
+vi.mock('@/lib/user-preferences/repository', () => ({ findUserPreferencesForSession: vi.fn() }))
 
 import { NotFoundError } from '@/lib/api/errors'
 import { isAuthzError } from '@/lib/auth-utils'
@@ -31,6 +34,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { findConversationTenancy } from '@/lib/conversations/repository'
 import { getDb } from '@/lib/db'
 import { findGrantForSubject } from '@/lib/sharing/repository'
+import { findUserPreferencesForSession } from '@/lib/user-preferences/repository'
 import { buildCollectionScopeFromRequest } from './collection-scope-request'
 
 const CONVERSATION_ID = 'conv_private_of_a_colleague'
@@ -56,6 +60,7 @@ beforeEach(() => {
   stubDb()
   vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-editor' } as never)
   vi.mocked(findGrantForSubject).mockResolvedValue(null)
+  vi.mocked(findUserPreferencesForSession).mockResolvedValue(null)
 })
 
 describe('a conversationId on the WS upgrade is authorized (F2)', () => {
@@ -146,5 +151,84 @@ describe('a conversationId on the WS upgrade is authorized (F2)', () => {
     await buildCollectionScopeFromRequest(session, { projectId: PROJECT_ID })
 
     expect(findConversationTenancy).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * ADR-0054 / spec KH-5, MG-3 — the Büro turn has no project, and must not
+ * acquire one.
+ *
+ * The removal is deliberate and total, which is why these specs assert on the
+ * *calls* and not only on the resulting scope: an office turn that happened to
+ * produce no `proj_` entry because the stale preference pointed at a project the
+ * caller can no longer read would still have paid for the FGA round-trip and
+ * would still be one membership change away from silently widening retrieval.
+ * The mode is what removes it, so nothing is asked in the first place.
+ */
+describe('scope: workspace never inherits an active project (KH-5)', () => {
+  const STALE_PROJECT_ID = 'e2f0a1b2-0000-4000-8000-000000000001'
+
+  beforeEach(() => {
+    // Flag enforcement off is the shipped default and the fail-open path the
+    // Archiv injection below rides (spec WS-15).
+    delete process.env.GRID_ENFORCE_FEATURE_FLAGS
+    vi.mocked(findConversationTenancy).mockResolvedValue(null)
+    vi.mocked(findUserPreferencesForSession).mockResolvedValue({
+      active_project_id: STALE_PROJECT_ID,
+    })
+  })
+
+  it('yields no proj_ entry, reads no preference and checks no project access', async () => {
+    const result = await buildCollectionScopeFromRequest(session, {
+      scope: 'workspace',
+      conversationId: CONVERSATION_ID,
+    })
+
+    expect(result.projectId).toBeUndefined()
+    expect(result.projectCollectionName).toBeUndefined()
+    expect(result.scope.some((collection) => collection.startsWith('proj_'))).toBe(false)
+    expect(findUserPreferencesForSession).not.toHaveBeenCalled()
+    expect(requireProjectAccess).not.toHaveBeenCalled()
+  })
+
+  it('drops a projectId handed to it alongside the workspace scope', async () => {
+    const result = await buildCollectionScopeFromRequest(session, {
+      scope: 'workspace',
+      projectId: PROJECT_ID,
+      conversationId: CONVERSATION_ID,
+    })
+
+    expect(result.projectId).toBeUndefined()
+    expect(result.scope).not.toContain(`proj_${PROJECT_ID}`)
+    expect(requireProjectAccess).not.toHaveBeenCalled()
+  })
+
+  it('still carries the base corpus, the org Archiv and the conversation shelf', async () => {
+    const { scope } = await buildCollectionScopeFromRequest(session, {
+      scope: 'workspace',
+      conversationId: CONVERSATION_ID,
+    })
+
+    expect(scope).toEqual([
+      'oib_knowledge',
+      `archiv_${session.organizationId}`,
+      `s_${CONVERSATION_ID}`,
+    ])
+  })
+
+  it('leaves project mode alone: the stale preference is still the fallback there', async () => {
+    // The counterweight to the three specs above. KH-5 removes the fallback for
+    // the office surface ONLY; a project request that names no project keeps the
+    // behaviour it has today, degrade included.
+    const { scope, projectId } = await buildCollectionScopeFromRequest(session, {
+      conversationId: CONVERSATION_ID,
+    })
+
+    expect(projectId).toBe(STALE_PROJECT_ID)
+    expect(scope).toContain(`proj_${STALE_PROJECT_ID}`)
+    expect(findUserPreferencesForSession).toHaveBeenCalledWith(
+      session.userId,
+      session.organizationId
+    )
   })
 })
