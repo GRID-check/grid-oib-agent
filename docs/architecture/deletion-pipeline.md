@@ -121,6 +121,14 @@ For each row: set `status='purging'`, run the entity's step list, then set `purg
 6. Delete WorkOS FGA resource (`deleteResourceByExternalId`, `cascadeDelete: true`)
 7. Delete `conversations` rows explicitly, then the `projects` row (cascades `documents`, `project_folders`, project-scoped `project_memory`; org-scoped memory untouched)
 
+**A project purge takes its mount rows and stops there** (ADR-0054, spec MT-15).
+`conversation_mounts` — which projects a Büro conversation reads — cascades from
+`projects` on the composite key, so step 7 removes it with no new step. A
+WORKSPACE conversation is **not** in step 1's "all conversation ids for the
+project" enumeration and must never be added to it: it belongs to the
+organisation, not to any project, and it survives the purge with its answers and
+their citations intact. What changes is only what the next turn may read.
+
 **User (GDPR erasure — Art. 17 requests come from individual data subjects, not orgs/projects):**
 
 The subtlety: content a user authored inside an organization's workspace (messages, uploaded documents, research runs) is generally the *organization's* business data, not the individual's personal data — GDPR does not require destroying the org's records, only removing the person's identifiability. The standard, defensible approach is **delete the account, anonymize the authorship**:

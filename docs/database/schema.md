@@ -24,6 +24,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `documents.ts` | `documents` |
 | `project-folders.ts` | `project_folders` |
 | `project-register.ts` | `project_register` |
+| `conversation-mounts.ts` | `conversation_mounts` |
 | `user-preferences.ts` | `user_preferences` |
 | `answer-feedback.ts` | `answer_feedback` |
 | `platform-lessons.ts` | `platform_lessons`, `platform_lesson_reports`, `platform_lesson_events` |
@@ -1014,3 +1015,52 @@ terminal ingest state, a rename — only stamp `stale_at`. The bounded reconcile
 (`POST /api/internal/workspace/register/reconcile`, 50 rows a call) rebuilds
 missing and stale rows through one code path, which is also the backfill for
 every project that predates the register (spec MG-2).
+
+---
+
+## conversation_mounts (migration 0083, ADR-0054)
+
+Which projects a **Büro conversation** currently reads. A workspace
+conversation has no project by construction (`conversations.scope =
+'workspace'`, 0081); mounting is how a bounded number of project corpora join
+its retrieval scope, and this table is where that fact lives between two turns.
+Schema: `frontends/ui/src/lib/db/schema/conversation-mounts.ts`. Spec:
+`MT-5, MT-7, MT-13…MT-15`.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY, default `gen_random_uuid()` | |
+| `conversation_id` | `text` | NOT NULL | Half of the first composite key. |
+| `organization_id` | `text` | NOT NULL | Denormalised so RLS filters without a join, and half of BOTH composite keys — which is what stops the copy from disagreeing with either side. |
+| `project_id` | `uuid` | NOT NULL | The mounted project. |
+| `mounted_by` | `text` | NOT NULL, `CHECK IN ('user','agent')` | A person chose it in the scope tree, or `open_project` mounted it mid-turn. Both go through one endpoint (MT-2), so this column is the only thing that tells them apart afterwards. |
+| `mounted_by_user_id` | `text` | nullable, biconditional CHECK | `("mounted_by" = 'user') = ("mounted_by_user_id" IS NOT NULL)`. A half-filled row is what makes an attribution chip a guess later, and a guess about who widened a conversation's scope is not something to discover in the UI. |
+| `mounted_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+**Two composite foreign keys**, both `ON DELETE CASCADE`: `(conversation_id,
+organization_id)` → `conversations (id, organization_id)` and `(project_id,
+organization_id)` → `projects (id, organization_id)`. A mount tying one tenant's
+conversation to another tenant's project is not merely refused by the policy, it
+has no pair to point at.
+
+**A project purge takes these rows and stops** (spec MT-15): the conversation
+belongs to the organisation and survives ([ADR-0011](../adr/0011-deletion-pipeline.md)),
+so the purge's "all conversation ids for this project" enumeration must never
+learn about this table. See
+[`docs/architecture/deletion-pipeline.md`](../architecture/deletion-pipeline.md).
+
+**Indexes:** `uniq_conversation_mounts` on (`conversation_id`, `project_id`) —
+what makes re-mounting idempotent and stops one project consuming the cap twice
+(the service inserts `ON CONFLICT DO NOTHING` and reads the existing row back);
+`conversation_mounts_project_idx` on (`project_id`) for the cascade's and a
+project surface's direction of travel.
+
+**The cap is not here.** `GRID_WORKSPACE_MAX_MOUNTED_PROJECTS` (default 5) is
+enforced in `lib/workspace/mounts-service.ts` and nowhere else. It is a
+deployment knob, not an invariant of the data: lowering it must not make the
+rows a deployment already has unwritable.
+
+**RLS:** secured by 0083 with the same two-part predicate `project_register`
+carries — the row's own `organization_id` **and** the tenant of the project it
+names (spec AC-5). Covered by `tenant-isolation.integration.spec.ts`, which
+also asserts the purge cascade and the actor biconditional.

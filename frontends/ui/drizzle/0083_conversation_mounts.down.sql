@@ -1,0 +1,14 @@
+-- Down for 0083. Deliberately NOT in `meta/_journal.json` — drizzle never
+-- applies a `.down.sql`; it is the hand-run rollback companion.
+--
+-- What is lost: the mounted SET, and nothing else. Every Büro conversation
+-- keeps its messages and every answer keeps the citations it was given, because
+-- a mount is what a conversation may READ next — never what it already said
+-- (spec MT-13 says the same thing about a single unmount). After a rollback an
+-- office thread starts again from the base corpus, the Archiv and the register,
+-- and a person re-mounts what they need. The Büro surface is behind the
+-- `workspace-chat` flag, so with the flag off nothing notices at all.
+--
+-- The policies and the grants go with the table: `grid_secure_table` attaches
+-- them to it, so `DROP TABLE` removes them.
+DROP TABLE IF EXISTS "conversation_mounts";

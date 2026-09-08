@@ -24,13 +24,41 @@ defaults to `project`, so every caller written before the Büro-Chat is unchange
 | `scope` | Collections | Active-project fallback | Project access check |
 |---|---|---|---|
 | `project` (default) | `[base, archiv_<org>?, proj_<id>?, s_<conversation>?]` | Yes — an absent `projectId` falls back to the stored `active_project_id` preference, degrading to no project when that project is unreadable | `project:chat` on an explicit `projectId`; the same check, swallowed, on the fallback |
-| `workspace` | `[base, archiv_<org>?, s_<conversation>?]` | **Never.** `includeProject` is false before any of that logic runs, so no preference is read and no FGA call is made | None — there is no project to check |
+| `workspace` | `[base, archiv_<org>?, proj_<mounted>*, s_<conversation>?]` | **Never.** `includeProject` is false before any of that logic runs, so no preference is read and no FGA call is made | None for the turn itself; `project:chat` per MOUNTED project, re-run on every upgrade |
 
 A `projectId` passed alongside `scope: 'workspace'` is dropped, not honoured: the
 office surface must not acquire a project implicitly *or* explicitly through a
-channel that was never meant to carry one (spec KH-5, MG-3). Mounted projects
-reach a workspace turn through the mounts endpoint instead, and are not part of
-this slice.
+channel that was never meant to carry one (spec KH-5, MG-3). The only project a
+workspace turn reads is one that was **mounted**.
+
+### Mounted projects (ADR-0054, spec MT-7)
+
+A Büro conversation's mounts are rows in `conversation_mounts`, written by the
+mounts endpoint ([`bff-routes.md`](../api/bff-routes.md#conversations)). The
+workspace branch of `buildCollectionScopeFromRequest` loads them and
+**re-authorizes every one** with `project:chat`, concurrently, before any of
+them reaches the scope (`listAuthorizedMounts`). That re-authorization is the
+whole revocation story for a mount: a permission taken away between two turns
+narrows the scope at the next WebSocket upgrade, and the grant's 15-minute
+lifetime bounds the window in between.
+
+Each check **fails closed on its own**: a project whose check errors is dropped
+from the scope and the rest of the turn proceeds, because the alternative to a
+narrower answer is no answer at all. The whole leg is non-fatal for the same
+reason the Archiv and memory legs are — failing this way can only ever REMOVE
+collections from a scope, never add one.
+
+Mounted collections sit **after** the office's own shelves and **before** the
+conversation's private one, which is the knowledge hierarchy's order. A project
+chat asks for no mounts at all: it has its one locked project, and the query's
+answer would always be empty.
+
+**Header budget.** Each mount adds a collection name plus its project's id and
+name to the scope header, which rides the WebSocket upgrade as a request header
+where 8 KB is the ceiling every proxy in the path agrees on. At the default cap
+of five mounts with 80-character names the encoded header stays well under it,
+and `collection-scope-request.spec.ts` asserts that bound rather than trusting
+it.
 
 ---
 
@@ -83,6 +111,7 @@ function computeCollectionScope(
 **ScopeContext**:
 - `projectId?: string` — if present, adds `proj_{projectId}`
 - `conversationId?: string` — if present, adds `s_{conversationId}`
+- `mountedCollectionNames?: readonly string[]` — the collections of the projects this conversation has MOUNTED (ADR-0054), **already re-authorized by the caller**. Passed in rather than resolved here, because deciding which mounts survive is an authorization question and this function is pure
 - `baseCollection?: string` — defaults to `process.env.BASE_COLLECTION_NAME || 'oib_knowledge'`
 
 ### `CollectionShelf` — the shelf a collection sits on
@@ -107,6 +136,30 @@ is a passage from a document and may ground a claim about the project's content;
 a `register` hit is navigation and structured fact — the agent may name the
 project and quote a profile fact from its Steckbrief, and may not say what its
 drawings show (spec PR-14, PR-15). A Steckbrief's source KIND stays `projekt`.
+
+### `projectId` / `projectName` — which project a collection belongs to
+
+`ScopedCollection` carries two more optional fields (ADR-0054, spec KH-13), set
+only on a mounted project's entry:
+
+```typescript
+interface ScopedCollection {
+  collection: string
+  shelf?: CollectionShelf
+  projectId?: string
+  projectName?: string
+}
+```
+
+The shelf says a chunk came from *a* project; in the Büro that is not enough,
+because a turn can read five of them and a citation that cannot name its project
+is a citation nobody can act on. Both fields are set at the one point where they
+are known for free — the BFF builds the scope, so it already holds the project's
+id and name — and travel as DATA the whole way down, exactly as the shelf does.
+Nothing downstream parses `proj_<uuid>` to recover them. Absent means "not a
+project collection", never "we could not tell". The Python twin is
+`ScopedCollection(project_id=…, project_name=…)` in
+`src/aiq_agent/knowledge/scoping.py`.
 
 The enum is declared twice on purpose and the two copies must change together
 — `frontends/ui/src/lib/collection-scope.ts` (`CollectionShelf`, the transport
@@ -142,9 +195,12 @@ The main entry point for SSE and WebSocket routes. It:
 
 2. Enforces project access via `requireProjectAccess(session, projectId, 'project:view')` when auth is required
 
-3. Calls `computeCollectionScope` and `buildCollectionScopeHeader`
+3. In the `workspace` branch only: loads the conversation's mounts and
+   re-authorizes each with `project:chat` (see *Mounted projects* above)
 
-4. Returns `{ scope, headerValue, projectId, conversationId }`
+4. Calls `computeCollectionScope` and `buildCollectionScopeHeader`
+
+5. Returns `{ scope, scopedCollections, headerValue, projectId, conversationId }`
 
 ```typescript
 async function buildCollectionScopeFromRequest(

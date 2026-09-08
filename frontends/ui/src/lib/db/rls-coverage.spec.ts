@@ -68,6 +68,11 @@ const BOUNDARY_MIGRATIONS = [
   // (ADR-0054). Derived project data, secured the way tasks is: the row's own
   // organization_id AND the tenant of the project it names.
   '0082_project_register.sql',
+  // Adds conversation_mounts — which projects a Büro conversation reads
+  // (ADR-0054). Tenant data with a project attached, secured exactly as
+  // project_register is: the row's own organization_id AND the tenant of the
+  // project it names.
+  '0083_conversation_mounts.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

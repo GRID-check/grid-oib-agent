@@ -644,4 +644,182 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
       expect(cause.message).toMatch(/project_register_embedding_complete/i)
     })
   })
+
+  /**
+   * The mounted projects of a Büro conversation (0083, ADR-0054).
+   *
+   * This table is the only place where a conversation and a project meet
+   * without one owning the other, which makes it the one place a mount could
+   * tie one tenant's thread to another tenant's corpus. Three claims, and each
+   * of them is a constraint rather than a habit somewhere in the service:
+   *
+   *   1. the pair cannot cross the tenant boundary at all (the composite keys);
+   *   2. a project purge takes its mounts AND STOPS — the conversation belongs
+   *      to the organisation and survives (spec MT-15, ADR-0011);
+   *   3. `mounted_by` and `mounted_by_user_id` are one fact, so the attribution
+   *      the UI renders is never a guess.
+   */
+  describe('conversation_mounts', () => {
+    const OFFICE_CONVERSATION = `conv_buero_${ORG_A}`
+
+    async function projectOf(org: string): Promise<string> {
+      const rows = await withPlatformAccess('test: read the seeded project', () =>
+        db.execute(sql`select id from projects where organization_id = ${org} limit 1`)
+      )
+      return String([...rows][0].id)
+    }
+
+    beforeAll(async () => {
+      // A Büro conversation: no project, and `scope = 'workspace'` because the
+      // 0081 CHECK ties the two together (the absence of a project is never the
+      // only thing that says which kind of conversation this is).
+      await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(
+          sql`insert into conversations (id, organization_id, created_by, project_id, scope)
+              values (${OFFICE_CONVERSATION}, ${ORG_A}, 'u', null, 'workspace')`
+        )
+      )
+    })
+
+    afterAll(async () => {
+      if (!db) return
+      await withPlatformAccess('test cleanup', async () => {
+        await db.execute(
+          sql`delete from conversation_mounts where organization_id in (${ORG_A}, ${ORG_B})`
+        )
+        await db.execute(sql`delete from conversations where id = ${OFFICE_CONVERSATION}`)
+      })
+    })
+
+    it('refuses a mount tying this tenant’s conversation to another tenant’s project', async () => {
+      const projectB = await projectOf(ORG_B)
+
+      const cause = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_A }, () =>
+          db.execute(
+            sql`insert into conversation_mounts
+                  (conversation_id, organization_id, project_id, mounted_by, mounted_by_user_id)
+                values (${OFFICE_CONVERSATION}, ${ORG_A}, ${projectB}, 'user', 'u')`
+          )
+        )
+      )
+      // Belt and braces, either of which is the correct refusal: `(projectB,
+      // ORG_A)` is not a pair `projects` holds, and the policy's second half
+      // refuses a row naming a project outside the active tenant.
+      expect(cause.message).toMatch(/row-level security|violates foreign key/i)
+    })
+
+    it('hides one tenant’s mounts from another', async () => {
+      const projectA = await projectOf(ORG_A)
+      await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(
+          sql`insert into conversation_mounts
+                (conversation_id, organization_id, project_id, mounted_by, mounted_by_user_id)
+              values (${OFFICE_CONVERSATION}, ${ORG_A}, ${projectA}, 'user', 'u')
+              on conflict do nothing`
+        )
+      )
+
+      const seenByB = await withTenant({ organizationId: ORG_B }, () =>
+        db.execute(sql`select conversation_id from conversation_mounts`)
+      )
+      expect([...seenByB]).toEqual([])
+
+      const seenByA = await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`select conversation_id from conversation_mounts`)
+      )
+      expect([...seenByA].map((row) => row.conversation_id)).toEqual([OFFICE_CONVERSATION])
+    })
+
+    it('drops the mount when the project is purged and KEEPS the conversation (MT-15)', async () => {
+      // A project of its own, so the purge under test destroys nothing the rest
+      // of this suite reads.
+      const doomed = await withTenant({ organizationId: ORG_A }, async () => {
+        const [row] = [
+          ...(await db.execute(
+            sql`insert into projects (organization_id, name, created_by, collection_name)
+                values (${ORG_A}, 'Projekt Seestadt', 'u', ${'coll_doomed_' + ORG_A})
+                returning id`
+          )),
+        ]
+        await db.execute(
+          sql`insert into conversation_mounts
+                (conversation_id, organization_id, project_id, mounted_by)
+              values (${OFFICE_CONVERSATION}, ${ORG_A}, ${String(row.id)}, 'agent')`
+        )
+        return String(row.id)
+      })
+
+      await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`delete from projects where id = ${doomed}`)
+      )
+
+      const [mounts, conversations] = await withTenant(
+        { organizationId: ORG_A },
+        async () =>
+          [
+            [
+              ...(await db.execute(
+                sql`select project_id from conversation_mounts where project_id = ${doomed}`
+              )),
+            ],
+            [
+              ...(await db.execute(
+                sql`select id from conversations where id = ${OFFICE_CONVERSATION}`
+              )),
+            ],
+          ] as const
+      )
+
+      // The cascade is the WHOLE of the deletion story for a mount: the row goes
+      // with its project, and the conversation — which belongs to the
+      // organisation — is untouched. A purge that enumerated "every conversation
+      // of this project" and learned about this table would take the office
+      // thread with it.
+      expect(mounts).toEqual([])
+      expect(conversations).toHaveLength(1)
+    })
+
+    it('refuses a half-filled attribution in either direction', async () => {
+      const projectA = await projectOf(ORG_A)
+
+      // A person's mount that names no person…
+      const anonymousUser = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_A }, () =>
+          db.execute(
+            sql`insert into conversation_mounts
+                  (conversation_id, organization_id, project_id, mounted_by, mounted_by_user_id)
+                values (${OFFICE_CONVERSATION}, ${ORG_A}, ${projectA}, 'user', null)`
+          )
+        )
+      )
+      expect(anonymousUser.message).toMatch(/conversation_mounts_user_is_named/i)
+
+      // …and an agent's mount that names one.
+      const attributedAgent = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_A }, () =>
+          db.execute(
+            sql`insert into conversation_mounts
+                  (conversation_id, organization_id, project_id, mounted_by, mounted_by_user_id)
+                values (${OFFICE_CONVERSATION}, ${ORG_A}, ${projectA}, 'agent', 'u')`
+          )
+        )
+      )
+      expect(attributedAgent.message).toMatch(/conversation_mounts_user_is_named/i)
+
+      // And an actor the renderer has never heard of. Written with a NULL user
+      // id on purpose, so the biconditional above is satisfied and only the
+      // vocabulary CHECK can be the one that fires.
+      const unknownActor = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_A }, () =>
+          db.execute(
+            sql`insert into conversation_mounts
+                  (conversation_id, organization_id, project_id, mounted_by, mounted_by_user_id)
+                values (${OFFICE_CONVERSATION}, ${ORG_A}, ${projectA}, 'workflow', null)`
+          )
+        )
+      )
+      expect(unknownActor.message).toMatch(/conversation_mounts_actor_known/i)
+    })
+  })
 })
