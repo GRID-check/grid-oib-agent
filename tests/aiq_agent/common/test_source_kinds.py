@@ -127,10 +127,27 @@ class TestBindingNote:
 class TestShelf:
     """The shelf — the wire vocabulary of ADR-0047, carried as data."""
 
-    def test_the_enum_holds_exactly_the_four_shelves(self):
-        # A fifth member is a wire change: the header, chunk metadata, the
-        # citation payload and the TS twin all have to learn it together.
-        assert {shelf.value for shelf in Shelf} == {"archiv", "project", "session", "base"}
+    def test_the_enum_holds_exactly_the_five_shelves(self):
+        # A member is a wire change: the header, chunk metadata, the citation
+        # payload and the TS twin all have to learn it together. `register` is
+        # the Projektregister (ADR-0054), added with its TS twin's 'register'
+        # and the label "Projektregister".
+        assert {shelf.value for shelf in Shelf} == {"archiv", "project", "register", "session", "base"}
+
+    def test_the_register_shelf_parses_and_renders(self):
+        # The fifth shelf, stated on its own so removing it is loud: a
+        # Steckbrief hit travels as shelf `register` and is qualified
+        # "Projektregister", never folded into "Projektwissen" (spec KH-2).
+        assert parse_shelf("register") is Shelf.REGISTER
+        assert shelf_qualifier(Shelf.REGISTER) == "Projektregister"
+        assert shelf_qualifier(Shelf.REGISTER) != shelf_qualifier(Shelf.PROJECT)
+
+    def test_an_unknown_shelf_is_still_none_beside_the_new_member(self):
+        # Adding a member must not turn the fail-closed parse into a fail-open
+        # one: everything that was unknown before is still unknown.
+        assert parse_shelf("projektregister") is None
+        assert parse_shelf("registry") is None
+        assert parse_shelf("") is None
 
     @pytest.mark.parametrize(
         "value,expected",

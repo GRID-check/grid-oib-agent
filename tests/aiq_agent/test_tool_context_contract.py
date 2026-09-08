@@ -52,6 +52,14 @@ def test_the_memory_tool_declares_its_project_scope():
     assert set(TOOL_CONTEXT_REQUIREMENTS["project_memory_remember"]) == {PROJECT_ID_HEADER, ORGANIZATION_ID_HEADER}
 
 
+def test_the_register_search_declares_its_organization_scope():
+    """The Projektregister never crosses the organisation (ADR-0054, PR-17), so
+    the organisation is what `find_projects` cannot run without. Named here so
+    that dropping the declaration is loud rather than silent — a tool with no
+    entry passes the worker test by having no requirements at all."""
+    assert set(TOOL_CONTEXT_REQUIREMENTS["workspace_find_projects"]) == {ORGANIZATION_ID_HEADER}
+
+
 def test_every_declared_requirement_names_a_function_type_the_config_binds(config: dict):
     """A requirement for a type nobody binds is a typo that would guard nothing."""
     bound_types = {entry.get("_type") for entry in config["functions"].values() if isinstance(entry, dict)}

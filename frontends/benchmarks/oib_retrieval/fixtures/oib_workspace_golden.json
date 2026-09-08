@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "description": "Golden Büro set for Projektregister recall (ADR-0054, plan slice P2.8). Twenty German questions asked in the office, in the three kinds the spec's worked examples name: A — a pure Baurecht question with no project at all, which must surface NO project; B — a question about one named or describable project, which must put that project in the top three register hits; C — a question that spans projects, which must put every named project in the top three. The office they are asked against is `register` below: ten synthetic Steckbriefe with the same fields the real table carries (name, status, Bundesland, use, construction, profile facts). Synthetic on purpose — a golden set built from a customer's register would be a golden set nobody outside that customer can run — so absolute numbers are about channel behaviour and the before/after delta is what this set is for. calibration_pending is true on every entry: the labels are the fixture's own construction, not a second reader's judgment.",
+  "calibration_pending": true,
+  "cohorts": ["A-baurecht", "B-ein-projekt", "C-mehrere-projekte"],
+  "gate": {
+    "metric": "right project in the top 3 register hits",
+    "threshold": 0.9,
+    "applies_to": ["B-ein-projekt", "C-mehrere-projekte"],
+    "note": "Kind A is scored the other way: a question with no project in it must return no project ABOVE the recall threshold, because naming one is the failure (spec PR-14/PR-15, Outcome A). It is a precision check, not a recall one."
+  },
+  "scorer": {
+    "status": "missing",
+    "what_is_missing": "There is no Python-side Projektregister to rank against. The register is a grid_app table written and read by the BFF (ADR-0054), and recall over it is Postgres hybrid search — `grid_cosine_similarity` over the row embedding fused with `to_tsvector('german', steckbrief)` — filtered to the caller's readable projects. `oib_retrieval_eval` has no arm that can run that: its channels (exact, sparse, recorded vector) all read the OIB document corpus, and none of them has a notion of a project row.",
+    "what_would_score_it": "Either (a) an `oib_retrieval_eval.register` arm that embeds `register[].steckbrief` with the production embedding model and reproduces the fusion offline, recorded the way `vector_channel_recorded.json` is recorded, or (b) an integration test on the BFF that runs `recallSteckbriefe` (plan slice P2.4) against these twenty questions on a seeded office. (b) measures the shipped path and is the one the phase gate should be read off; (a) is the offline proxy that could run in CI.",
+    "until_then": "tests/benchmarks/test_oib_workspace_register_recall.py loads this file, checks it is well formed, and SKIPS the scoring with this reason attached. The fixture is written now because the questions are the slow half and the labels are cheap while the design is fresh; the number it is quoted for does not exist yet, and nothing here should be reported as if it did."
+  },
+  "register": [
+    {
+      "id": "proj_seestadt",
+      "name": "Seestadt Baufeld D",
+      "steckbrief": "Wohnbau, 86 Wohneinheiten. Gebäudeklasse 5. Wien (Bauordnung für Wien). Holzbau-Hybrid: Stahlbeton-Kern, Decken und Außenwände in Brettsperrholz. Status: in Einreichung. Sprinkleranlage im gesamten Gebäude, Tiefgarage mit zwei Ebenen. Fluchtwege über zwei Sicherheitstreppenhäuser."
+    },
+    {
+      "id": "proj_donaufeld",
+      "name": "Donaufeld Bauteil 3",
+      "steckbrief": "Wohnbau mit Gewerbe im Erdgeschoss. Gebäudeklasse 5. Wien. Holzbau-Hybrid, vorgefertigte Elemente. Status: Einreichplanung. Brandschutzkonzept mit Abweichung bei der Fluchtweglänge im Erdgeschoss."
+    },
+    {
+      "id": "proj_krems",
+      "name": "Volksschule Krems",
+      "steckbrief": "Bildungsbau, 16 Klassen. Gebäudeklasse 4. Niederösterreich (NÖ Bauordnung 2014). Massivbau. Status: Vorentwurf. Barrierefreiheit nach OIB 4, Turnsaal als Versammlungsstätte."
+    },
+    {
+      "id": "proj_leoben",
+      "name": "Werkshalle Leoben",
+      "steckbrief": "Industriebau, Produktionshalle mit Bürotrakt. Steiermark. Stahlkonstruktion mit Sandwichfassade. Status: in Bau. Brandabschnitte über 1600 m², Rauch- und Wärmeabzugsanlage."
+    },
+    {
+      "id": "proj_innsbruck",
+      "name": "Wohnanlage Innsbruck West",
+      "steckbrief": "Wohnbau, 42 Wohneinheiten, geförderter Wohnbau. Gebäudeklasse 4. Tirol (Tiroler Bauordnung). Massivbau mit Holzfassade. Status: fertiggestellt. Stellplatzablöse beantragt."
+    },
+    {
+      "id": "proj_salzburg_hotel",
+      "name": "Hotel Salzburg Nonntal",
+      "steckbrief": "Beherbergungsbetrieb, 120 Zimmer. Gebäudeklasse 5. Salzburg. Massivbau. Status: in Bau. Beherbergungsstätte nach OIB 2.3, Brandmeldeanlage Vollschutz, zweiter Fluchtweg über Außentreppe."
+    },
+    {
+      "id": "proj_linz_sanierung",
+      "name": "Sanierung Bürohaus Linz",
+      "steckbrief": "Bestandssanierung Bürogebäude, Baujahr 1972. Gebäudeklasse 5. Oberösterreich. Status: Entwurf. Thermische Sanierung mit OIB 6 Nachweis, Bestandsschutz beim Treppenhaus, Aufzug nachgerüstet."
+    },
+    {
+      "id": "proj_graz_kiga",
+      "name": "Kindergarten Graz Süd",
+      "steckbrief": "Bildungsbau, sechsgruppiger Kindergarten. Gebäudeklasse 1. Steiermark. Holzbau in Massivholz. Status: Einreichung. Barrierefreiheit, Fluchtwege direkt ins Freie aus jedem Gruppenraum."
+    },
+    {
+      "id": "proj_wien_dachgeschoss",
+      "name": "Dachgeschossausbau Wien Neubau",
+      "steckbrief": "Dachgeschossausbau über Gründerzeithaus, 6 Wohneinheiten. Gebäudeklasse 5. Wien. Holzriegelbau auf Bestand. Status: in Einreichung. Ausnahme bei der Stellplatzverpflichtung beantragt, zweiter Fluchtweg über Anleiterung."
+    },
+    {
+      "id": "proj_klagenfurt_pflege",
+      "name": "Pflegeheim Klagenfurt",
+      "steckbrief": "Pflegeeinrichtung, 90 Betten. Gebäudeklasse 4. Kärnten. Massivbau. Status: Vorentwurf. Bauten mit erhöhtem Personenrisiko nach OIB 2.2, Evakuierungskonzept horizontal."
+    }
+  ],
+  "entries": [
+    {
+      "id": "ws-a-01",
+      "kind": "A",
+      "cohort": "A-baurecht",
+      "question": "Wie lang darf ein Fluchtweg in GK4 maximal sein?",
+      "expected_projects": [],
+      "notes": "The spec's Example A, verbatim. Nothing in it is about the office; a register hit here is the failure."
+    },
+    {
+      "id": "ws-a-02",
+      "kind": "A",
+      "cohort": "A-baurecht",
+      "question": "Ab welcher Absturzhöhe brauche ich eine Absturzsicherung und wie hoch muss sie sein?",
+      "expected_projects": [],
+      "notes": "Pure OIB 4. The word 'Höhe' must not pull a project in on its Steckbrief's storey count."
+    },
+    {
+      "id": "ws-a-03",
+      "kind": "A",
+      "cohort": "A-baurecht",
+      "question": "Was schreibt die OIB-Richtlinie 6 zum Heizwärmebedarf bei Sanierungen vor?",
+      "expected_projects": [],
+      "notes": "The lexical trap: 'Sanierung' appears verbatim in proj_linz_sanierung's Steckbrief, and the question is still about the Richtlinie, not about that project."
+    },
+    {
+      "id": "ws-a-04",
+      "kind": "A",
+      "cohort": "A-baurecht",
+      "question": "Welche Gebäudeklasse hat ein freistehendes Einfamilienhaus mit zwei Geschossen?",
+      "expected_projects": [],
+      "notes": "Gebäudeklasse is in every Steckbrief. A question ABOUT the classification is not a question about a project that has one."
+    },
+    {
+      "id": "ws-a-05",
+      "kind": "A",
+      "cohort": "A-baurecht",
+      "question": "Wann gilt eine Treppe als Sicherheitstreppenhaus?",
+      "expected_projects": [],
+      "notes": "Same trap as ws-a-03 against proj_seestadt's 'Sicherheitstreppenhäuser'."
+    },
+    {
+      "id": "ws-a-06",
+      "kind": "A",
+      "cohort": "A-baurecht",
+      "question": "Braucht ein Kindergarten nach OIB 4 einen barrierefreien Zugang?",
+      "expected_projects": [],
+      "notes": "A building TYPE that one project happens to be. The question asks what the Richtlinie requires of the type, and the answer must not become a claim about Graz Süd."
+    },
+    {
+      "id": "ws-b-01",
+      "kind": "B",
+      "cohort": "B-ein-projekt",
+      "question": "Was ist der Status vom Projekt Seestadt Baufeld D?",
+      "expected_projects": ["proj_seestadt"],
+      "notes": "Named outright. The floor case: if this misses, nothing else in cohort B can be trusted."
+    },
+    {
+      "id": "ws-b-02",
+      "kind": "B",
+      "cohort": "B-ein-projekt",
+      "question": "Wie war noch mal die Gebäudeklasse bei der Volksschule in Krems?",
+      "expected_projects": ["proj_krems"],
+      "notes": "Named loosely ('die Volksschule in Krems' vs 'Volksschule Krems'), and answerable from the Steckbrief alone."
+    },
+    {
+      "id": "ws-b-03",
+      "kind": "B",
+      "cohort": "B-ein-projekt",
+      "question": "Wie haben wir die Sprinkler-Steigleitung im Projekt Seestadt gelöst?",
+      "expected_projects": ["proj_seestadt"],
+      "notes": "The spec's Example B follow-up. Recall must find the project; the ANSWER needs the project mounted, which is the turn-shape eval's job, not this set's."
+    },
+    {
+      "id": "ws-b-04",
+      "kind": "B",
+      "cohort": "B-ein-projekt",
+      "question": "Welches Projekt haben wir gerade in Leoben?",
+      "expected_projects": ["proj_leoben"],
+      "notes": "Named by place only."
+    },
+    {
+      "id": "ws-b-05",
+      "kind": "B",
+      "cohort": "B-ein-projekt",
+      "question": "Das Hotel in Salzburg — wie viele Zimmer waren das?",
+      "expected_projects": ["proj_salzburg_hotel"],
+      "notes": "Described by use and place, never named. A profile fact is the answer."
+    },
+    {
+      "id": "ws-b-06",
+      "kind": "B",
+      "cohort": "B-ein-projekt",
+      "question": "Bei welchem Projekt haben wir eine Ausnahme bei der Stellplatzverpflichtung beantragt?",
+      "expected_projects": ["proj_wien_dachgeschoss"],
+      "notes": "One distinguishing fact, buried in the middle of a Steckbrief. proj_innsbruck's 'Stellplatzablöse' is the near-miss that makes this discriminating."
+    },
+    {
+      "id": "ws-b-07",
+      "kind": "B",
+      "cohort": "B-ein-projekt",
+      "question": "Welches unserer Projekte ist ein Pflegeheim?",
+      "expected_projects": ["proj_klagenfurt_pflege"],
+      "notes": "Use-only lookup with exactly one answer in the office."
+    },
+    {
+      "id": "ws-b-08",
+      "kind": "B",
+      "cohort": "B-ein-projekt",
+      "question": "Wo genau war der Dachgeschossausbau, den wir gerade eingereicht haben?",
+      "expected_projects": ["proj_wien_dachgeschoss"],
+      "notes": "Two facts at once — the use and the status — and neither alone is unique in the office."
+    },
+    {
+      "id": "ws-b-09",
+      "kind": "B",
+      "cohort": "B-ein-projekt",
+      "question": "Welches Projekt hatte die Abweichung bei der Fluchtweglänge im Erdgeschoss?",
+      "expected_projects": ["proj_donaufeld"],
+      "notes": "A Brandschutz fact that reads like a Baurecht question. The tell that it is not: 'welches Projekt'."
+    },
+    {
+      "id": "ws-b-10",
+      "kind": "B",
+      "cohort": "B-ein-projekt",
+      "question": "Bei welchem Projekt sanieren wir ein Bürohaus aus den Siebzigern?",
+      "expected_projects": ["proj_linz_sanierung"],
+      "notes": "Paraphrased year ('aus den Siebzigern' vs 'Baujahr 1972') — the case a lexical channel alone cannot reach."
+    },
+    {
+      "id": "ws-c-01",
+      "kind": "C",
+      "cohort": "C-mehrere-projekte",
+      "question": "In welchen Projekten haben wir GK5 mit Holzbau?",
+      "expected_projects": ["proj_seestadt", "proj_donaufeld"],
+      "notes": "The spec's Example B opener, verbatim. Two projects, both of which must be in the top three."
+    },
+    {
+      "id": "ws-c-02",
+      "kind": "C",
+      "cohort": "C-mehrere-projekte",
+      "question": "Welche Projekte haben wir aktuell in Wien?",
+      "expected_projects": ["proj_seestadt", "proj_donaufeld", "proj_wien_dachgeschoss"],
+      "notes": "Three, which is the whole top-three window: a fourth project ranked above any of them is a miss."
+    },
+    {
+      "id": "ws-c-03",
+      "kind": "C",
+      "cohort": "C-mehrere-projekte",
+      "question": "Wo überall bauen wir gerade Bildungsbauten?",
+      "expected_projects": ["proj_krems", "proj_graz_kiga"],
+      "notes": "A category ('Bildungsbau') that both Steckbriefe state and neither question repeats verbatim."
+    },
+    {
+      "id": "ws-c-04",
+      "kind": "C",
+      "cohort": "C-mehrere-projekte",
+      "question": "Vergleiche die Brandschutzkonzepte von Seestadt und Donaufeld.",
+      "expected_projects": ["proj_seestadt", "proj_donaufeld"],
+      "notes": "The spec's Example C. Recall's job is to find both; comparing their CONTENT needs both mounted, which is the mount cap's business."
+    }
+  ]
+}

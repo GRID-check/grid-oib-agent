@@ -86,6 +86,15 @@ class ChatResearcherState(BaseModel):
     # the deliberate way back to deep research.
     deep_research_declined: bool | None = None
     project_context: str | None = None
+    # The office shape of the same per-turn context (ADR-0054): set instead of a
+    # project profile when the turn has an organization and NO project — the
+    # organization's memory plus the Projektregister recall for this question,
+    # rendered as `WORKSPACE_CONTEXT v1`. Its presence is what the prompt
+    # branches on: the project instructions ("this project's files", "patch only
+    # properties of THIS project") must be REPLACED in the Büro, not joined
+    # (spec AG-3), so the project block is guarded on this being absent.
+    # Refreshed per turn like `project_context`, and None on every project turn.
+    workspace_context: str | None = None
     # The bounded PLATFORM_LESSONS digest — anonymized failure patterns
     # distilled from user down-votes across the whole platform
     # (docs/architecture/platform-failure-learning.md). Fetched per turn by the

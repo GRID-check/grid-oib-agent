@@ -881,12 +881,13 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
         # a failure in one never affects the other.
         async def _load_project_context():
             """Live per-turn project context (profile + memory digest) plus the
-            platform-lessons digest.
+            platform-lessons digest — or, in the Büro, the workspace context.
 
-            Returns the 3-tuple consumed below. Fail-open: on any error the
+            Returns the 4-tuple consumed below. Fail-open: on any error the
             defaults are returned so the turn proceeds without a live digest.
             """
             _project_context = None
+            _workspace_context = None
             _platform_lessons = None
 
             # Anonymized fleet-wide failure patterns distilled from user
@@ -914,7 +915,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 from aiq_agent.project_context import compose_project_context
             except ImportError:
                 _platform_lessons = await _load_platform_lessons()
-                return (_project_context, _platform_lessons, _stage_facts)
+                return (_project_context, _workspace_context, _platform_lessons, _stage_facts)
 
             # Parse the signed request-context envelope ONCE per turn: each
             # accessor helper otherwise re-reads the header and re-runs the
@@ -926,24 +927,65 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             _project_id = _ctx.project_id
             _org_id = _ctx.organization_id
 
-            # Live per-turn digest; fall back to the connection-time header value.
-            async def _load_live_digest() -> str | None:
+            # An organization and NO project is the Büro (ADR-0054): the turn is
+            # in the office, above the projects. It is not a project turn with a
+            # field missing — the absence of a project is information the prompt
+            # has to be given (spec AG-6).
+            from aiq_agent.knowledge.workspace_digest import is_workspace_turn
+
+            _is_workspace_turn = is_workspace_turn(organization_id=_org_id, project_id=_project_id)
+
+            # Live per-turn digest; falls back to the connection-time header
+            # value. Returns (memory digest, workspace context block): in the
+            # Büro ONE round trip carries both, because the workspace endpoint
+            # answers with the organization's memory digest AND the
+            # Projektregister recall for this question. Asking for the same read
+            # twice would put a second BFF call on every office turn's critical
+            # path for the same bytes.
+            async def _load_live_digest() -> tuple[str | None, str | None]:
+                if _is_workspace_turn:
+                    try:
+                        from aiq_agent.knowledge.workspace_digest import fetch_workspace_digest
+                        from aiq_agent.knowledge.workspace_digest import render_workspace_context
+
+                        _recall = await asyncio.to_thread(
+                            fetch_workspace_digest,
+                            organization_id=_org_id,
+                            membership_id=_ctx.organization_membership_id,
+                            query=query_text,
+                        )
+                        # Rendered even when the fetch failed (it fails open to
+                        # None): the block is what tells the model it is in the
+                        # office at all, and a turn whose recall was lost has to
+                        # say so rather than look like a turn with no matching
+                        # projects. A successful fetch is authoritative even when
+                        # empty; only a failure keeps the header value.
+                        _block = render_workspace_context(_recall)
+                        if _recall is None:
+                            return (_ctx.project_memory, _block)
+                        return (_recall.digest, _block)
+                    except Exception:
+                        logger.warning("Workspace digest fetch failed; using connection-time digest", exc_info=True)
+                        return (_ctx.project_memory, None)
                 if not (_project_id or _org_id):
-                    return _ctx.project_memory
+                    return (_ctx.project_memory, None)
                 try:
                     from aiq_agent.knowledge.project_memory import fetch_memory_digest
 
                     # A successful fetch is authoritative even when empty (memory
                     # may have been cleared); only a failure keeps the header value.
-                    return await asyncio.to_thread(
-                        fetch_memory_digest,
-                        project_id=_project_id,
-                        organization_id=_org_id,
-                        query=query_text,
+                    return (
+                        await asyncio.to_thread(
+                            fetch_memory_digest,
+                            project_id=_project_id,
+                            organization_id=_org_id,
+                            query=query_text,
+                        ),
+                        None,
                     )
                 except Exception:
                     logger.warning("Live memory digest fetch failed; using connection-time digest", exc_info=True)
-                    return _ctx.project_memory
+                    return (_ctx.project_memory, None)
 
             # Which post-answer stages are on is decided per TURN, not per
             # socket. The feature header is written once at the WS upgrade
@@ -968,15 +1010,22 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             # Three independent BFF round-trips that ran one after another,
             # inside a branch that was itself already gathered with the
             # document and registry loads: the lessons digest, the live memory
-            # digest and the stage flags. Each fails open on its own, so the
-            # gather cannot let one failure lose the others.
-            _platform_lessons, _memory_digest, _enabled_stages = await asyncio.gather(
+            # digest (in the Büro, the workspace digest) and the stage flags.
+            # Each fails open on its own, so the gather cannot let one failure
+            # lose the others.
+            _platform_lessons, _digests, _enabled_stages = await asyncio.gather(
                 _load_platform_lessons(),
                 _load_live_digest(),
                 _load_enabled_stages(),
             )
+            _memory_digest, _workspace_context = _digests
 
-            _project_context = compose_project_context(_profile_context, _memory_digest)
+            # In the Büro the composed context IS the workspace block: the
+            # downstream readers of `project_context` (the Normenregister block,
+            # the norm doctrine, the post-answer stages) keep reading one field,
+            # and the prompt tells the two shapes apart by `workspace_context`
+            # rather than by parsing this string.
+            _project_context = _workspace_context or compose_project_context(_profile_context, _memory_digest)
 
             _stage_facts = TurnFacts(
                 conversation_id=nat_context_conversation_id,
@@ -989,7 +1038,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                 bundesland=_ctx.bundesland,
                 enabled_stages=_enabled_stages,
             )
-            return (_project_context, _platform_lessons, _stage_facts)
+            return (_project_context, _workspace_context, _platform_lessons, _stage_facts)
 
         # Check if API keys are missing and return graceful error response
         if api_key_error_response:
@@ -1212,7 +1261,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
             # (one more concurrent query costs the first byte nothing); only
             # the WAIT it may trigger stays after, where it is a decision.
             (
-                (_project_context, _platform_lessons, _stage_facts),
+                (_project_context, _workspace_context, _platform_lessons, _stage_facts),
                 available_documents,
                 session_registry,
                 (scope_names, pending),
@@ -1282,6 +1331,7 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
                     focus_shelf=_focus_shelf,
                     skip_clarifier=skip_clarifier,
                     project_context=_project_context,
+                    workspace_context=_workspace_context,
                     platform_lessons=_platform_lessons,
                 )
                 # Unified LLM cost capture + budget enforcement for the whole turn

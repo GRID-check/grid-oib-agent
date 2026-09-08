@@ -50,6 +50,14 @@ PROJECT_ID_HEADER = "x-grid-project-id"
 MEMORY_REFLECTION_FEATURE_HEADER = "x-grid-feature-memory-reflection"
 ORGANIZATION_ID_HEADER = "x-grid-organization-id"
 USER_ID_HEADER = "x-grid-user-id"
+# The caller's WorkOS organization MEMBERSHIP, which is a different identity
+# from the user id: `checkResourcePermission` on the BFF keys readability on
+# the membership, not on the user (ADR-0038), so anything asking the BFF "which
+# projects may this caller read" — register recall, the `find_projects` tool —
+# has to send it. Dual-written like every header above: the signed envelope
+# carries `organizationMembershipId` and the gateway also sends this individual
+# header, and the envelope wins when both are present.
+ORGANIZATION_MEMBERSHIP_ID_HEADER = "x-grid-organization-membership-id"
 
 #: What each project-scoped tool needs from the request context to run at all,
 #: keyed by the NAT function TYPE (`_type:` in the config — the stable identity;
@@ -62,6 +70,14 @@ USER_ID_HEADER = "x-grid-user-id"
 #: contract lived in two hand-maintained lists that nothing compared.
 TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "project_memory_remember": (PROJECT_ID_HEADER, ORGANIZATION_ID_HEADER),
+    # The Projektregister search (ADR-0054). The organization is what makes the
+    # question answerable at all — the register never crosses that boundary
+    # (spec PR-17) — so it is the requirement. The MEMBERSHIP header is what
+    # filters the answer to projects this caller may read, and is deliberately
+    # NOT required here: a worker run that has no membership must come back with
+    # no projects, never with the organization's whole register. That is the
+    # fail-closed side, and it lives in the BFF endpoint.
+    "workspace_find_projects": (ORGANIZATION_ID_HEADER,),
 }
 
 # Consolidated signed context envelope (backlog T3-9 follow-up, 2026-07-16).
@@ -297,6 +313,10 @@ class GridRequestContext:
     """
 
     organization_id: str | None = None
+    #: The caller's membership in :attr:`organization_id` — the identity the
+    #: BFF's per-project readability check keys on. ``None`` outside an
+    #: authenticated org session and on any producer that predates the field.
+    organization_membership_id: str | None = None
     user_id: str | None = None
     project_id: str | None = None
     collection_scope: list[str] | None = None
@@ -338,6 +358,7 @@ class GridRequestContext:
         scope_entries = _as_scope_entries(_read_json_header(COLLECTION_SCOPE_HEADER))
         return cls(
             organization_id=_normalize_raw_id(_read_header(ORGANIZATION_ID_HEADER)),
+            organization_membership_id=_normalize_raw_id(_read_header(ORGANIZATION_MEMBERSHIP_ID_HEADER)),
             user_id=_normalize_raw_id(_read_header(USER_ID_HEADER)),
             project_id=_normalize_raw_id(_read_header(PROJECT_ID_HEADER)),
             collection_scope=_scope_names(scope_entries),
@@ -412,6 +433,7 @@ class GridRequestContext:
         scope_entries = _as_scope_entries(payload.get("collectionScope"))
         return cls(
             organization_id=_normalize_raw_id(payload.get("organizationId")),
+            organization_membership_id=_normalize_raw_id(payload.get("organizationMembershipId")),
             user_id=_normalize_raw_id(payload.get("userId")),
             project_id=_normalize_raw_id(payload.get("projectId")),
             collection_scope=_scope_names(scope_entries),
@@ -479,6 +501,7 @@ class GridRequestContext:
         scope_entries = _as_scope_entries(json_field(COLLECTION_SCOPE_HEADER))
         return cls(
             organization_id=_normalize_raw_id(raw(ORGANIZATION_ID_HEADER)),
+            organization_membership_id=_normalize_raw_id(raw(ORGANIZATION_MEMBERSHIP_ID_HEADER)),
             user_id=_normalize_raw_id(raw(USER_ID_HEADER)),
             project_id=_normalize_raw_id(raw(PROJECT_ID_HEADER)),
             collection_scope=_scope_names(scope_entries),
@@ -551,6 +574,19 @@ def get_organization_id_from_context() -> str | None:
     organization-scoped memory writes. None in anonymous mode.
     """
     return GridRequestContext.from_context().organization_id
+
+
+def get_organization_membership_id_from_context() -> str | None:
+    """Read the caller's organization membership (``X-Grid-Organization-Membership-Id``).
+
+    The BFF decides what a caller may read per MEMBERSHIP, not per user
+    (`checkResourcePermission`, ADR-0038), so every internal call that asks it
+    to filter by readability — the workspace digest, the `find_projects` tool —
+    passes this along with the organization id. ``None`` when the producer is
+    older than the field or the session is anonymous; the BFF then serves the
+    organization-wide half and no projects, which is the fail-closed side.
+    """
+    return GridRequestContext.from_context().organization_membership_id
 
 
 def get_memory_reflection_enabled_from_context() -> bool:

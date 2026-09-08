@@ -502,6 +502,10 @@ class ChatResearcherAgent:
                     available_documents=state.available_documents,
                     in_flight_documents=state.in_flight_documents,
                     project_context=state.project_context,
+                    # The office branch's switch (ADR-0054). Without it here the
+                    # Büro turn renders the project prompt with a workspace
+                    # block inside it, which is the one shape spec AG-3 forbids.
+                    workspace_context=state.workspace_context,
                     platform_lessons=state.platform_lessons,
                     focus_file_name=state.focus_file_name,
                     focus_shelf=state.focus_shelf,
@@ -928,6 +932,10 @@ class ChatResearcherAgent:
                 "clarifier_result": None,
                 "skip_clarifier": state.skip_clarifier,
                 "project_context": state.project_context,
+                # Refreshed per turn for the same reason, and listed here so a
+                # checkpointed office block never leaks onto a later project
+                # turn of the same conversation.
+                "workspace_context": state.workspace_context,
                 # Refreshed per turn like project_context: the register layer
                 # fetched this turn's digest, and a checkpointed value from an
                 # earlier turn would outlive a curation change.

@@ -174,7 +174,57 @@ def web_search_tool(query: str) -> str:
     return _record("web_search_tool", query, _WEB_HIT)
 
 
+# --- The office (ADR-0054) -------------------------------------------------
+#
+# Two more stubs and one context block, because the two office behaviours are
+# the same KIND of thing as the two above: what the turn DOES is the model's
+# reading of its prompt, and the only honest way to measure it is the trace.
+# `open_project` does not exist as a NAT function yet (it lands with mounting,
+# phase 3); the prompt already names it, so the stub is what lets these shapes
+# be measured the moment the prompt does. When the real tool arrives, delete
+# the stub, not the shapes.
+
+_WORKSPACE_CONTEXT = """WORKSPACE_CONTEXT v1
+
+Diese Unterhaltung läuft im Büro, nicht in einem Projekt.
+
+## Passende Projekte (Projektregister)
+Die 2 bestpassenden Projekte, auf die dieser Nutzer zugreifen darf — eine BEGRENZTE Auswahl
+zu dieser Frage, nicht die Liste aller Projekte des Büros. Jeder Eintrag ist ein Steckbrief:
+Name, Kennung und Profilfakten. Er enthält KEINE Dokumentinhalte, und du darfst aus ihm nichts
+über den Inhalt der Projektunterlagen ableiten. Weitere Projekte findest du mit `find_projects`.
+
+### Seestadt Baufeld D (id: proj_seestadt)
+Wohnbau, Gebäudeklasse 5, Wien, Holzbau-Hybrid, Status: in Einreichung.
+
+### Volksschule Krems (id: proj_krems)
+Bildungsbau, Niederösterreich, Massivbau, Status: Vorentwurf.
+"""
+
+
+@tool
+def find_projects(query: str) -> str:
+    """Find projects in this office by what they are. Returns names, ids and profile facts — never document content."""
+    return _record(
+        "find_projects",
+        query,
+        "1 matching project(s), best first. Steckbriefe only — profile facts, no document content.\n\n"
+        "### Seestadt Baufeld D (id: proj_seestadt)\nWohnbau, Gebäudeklasse 5, Wien, Holzbau-Hybrid.",
+    )
+
+
+@tool
+def open_project(project_id: str) -> str:
+    """Bring a project into view for this conversation, so its documents can be searched and cited."""
+    return _record(
+        "open_project",
+        project_id,
+        f"Projekt {project_id} ist jetzt eingeblendet; seine Dateien sind durchsuchbar.",
+    )
+
+
 _TOOLS = [knowledge_search, ris_search_tool, ris_fetch_tool, web_search_tool]
+_OFFICE_TOOLS = [*_TOOLS, find_projects, open_project]
 
 # Transport, not behaviour: the one class of failure a rerun is allowed for.
 # ``APIConnectionError`` covers the timeout subclass; the two status errors are
@@ -199,7 +249,7 @@ def _shallow_model_name() -> str:
     return os.environ.get(env_var) or default
 
 
-def _build_agent() -> ShallowResearcherAgent:
+def _build_agent(tools: list | None = None) -> ShallowResearcherAgent:
     """The real agent, the real prompt, the real model; stub tools."""
     from langchain_openai import ChatOpenAI
 
@@ -221,7 +271,7 @@ def _build_agent() -> ShallowResearcherAgent:
     provider.set_default(llm, group=AgentGroup.SHALLOW_RESEARCH)
     return ShallowResearcherAgent(
         llm_provider=provider,
-        tools=_TOOLS,
+        tools=tools if tools is not None else _TOOLS,
         # The repair pass re-searches after a failed verification. That is a
         # second decision made by the pipeline, not the first one made by the
         # model, and the first is what this eval measures.
@@ -229,12 +279,19 @@ def _build_agent() -> ShallowResearcherAgent:
     )
 
 
-async def _run_turn(agent: ShallowResearcherAgent, question: str) -> ShallowResearchAgentState:
+async def _run_turn(
+    agent: ShallowResearcherAgent, question: str, *, workspace_context: str | None = None
+) -> ShallowResearchAgentState:
     """One turn, with a single rerun for a transport failure only."""
     for attempt in (1, 2):
         _CALLS.clear()
         try:
-            return await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content=question)]))
+            return await agent.run(
+                ShallowResearchAgentState(
+                    messages=[HumanMessage(content=question)],
+                    workspace_context=workspace_context,
+                )
+            )
         except _TRANSPORT_ERRORS as exc:
             if attempt == 2:
                 raise
@@ -262,6 +319,12 @@ def _data_source_registry():
 @pytest.fixture(scope="module")
 def agent() -> ShallowResearcherAgent:
     return _build_agent()
+
+
+@pytest.fixture(scope="module")
+def office_agent() -> ShallowResearcherAgent:
+    """The same agent with the office half of the tool set bound."""
+    return _build_agent(_OFFICE_TOOLS)
 
 
 async def test_a_greeting_is_answered_directly_without_a_search(agent):
@@ -311,3 +374,52 @@ async def test_a_plain_domain_question_still_searches(agent):
     assert _data_source_calls(), f"a domain question retrieved nothing; answer was: {_answer_text(result)[:400]}"
     assert result.source_lookup_attempted is True
     assert result.escalation_requested is False, result.answer_escalation_reason
+
+
+async def test_an_office_question_answers_from_the_register_and_says_where_it_got_it(office_agent):
+    """ADR-0054, office shape 1: nothing is mounted, so the register is the answer.
+
+    The Steckbriefe in the context already name the project this question is
+    about. The failure this pins is the tempting one — reaching past a
+    navigation hit into content the turn cannot see — so the assertion is that
+    the project IS named (the register was used) and that no document search was
+    run to dress the answer up as file-grounded (PR-15, AG-5).
+    """
+    result = await _run_turn(
+        office_agent,
+        "In welchen unserer Projekte haben wir Gebäudeklasse 5 in Holzbau gemacht?",
+        workspace_context=_WORKSPACE_CONTEXT,
+    )
+    answer = _answer_text(result)
+
+    assert "Seestadt" in answer, f"the register hit was not used; answer was: {answer[:400]}"
+    assert not [call for call in _CALLS if call[0] == "open_project"], (
+        f"nothing needed mounting for a Steckbrief question: {_CALLS}"
+    )
+    assert not [call for call in _CALLS if call[0] == "knowledge_search"], (
+        f"a register question searched project documents: {_CALLS}"
+    )
+
+
+async def test_a_question_about_a_projects_documents_mounts_it_first(office_agent):
+    """ADR-0054, office shape 2: content needs the project in view.
+
+    "How did we solve X in Seestadt" cannot be answered from a Steckbrief. The
+    turn must bring the project into view before it claims anything about its
+    files — and `open_project` must come BEFORE any document search, because a
+    search that ran first read a scope the user never authorised.
+    """
+    result = await _run_turn(
+        office_agent,
+        "Wie haben wir die Sprinkler-Steigleitung im Projekt Seestadt Baufeld D gelöst? "
+        "Sag mir, was in den Projektunterlagen dazu steht.",
+        workspace_context=_WORKSPACE_CONTEXT,
+    )
+
+    names = [name for name, _query in _CALLS]
+    assert "open_project" in names, f"claimed a project's content without mounting it: {_CALLS}"
+    if "knowledge_search" in names:
+        assert names.index("open_project") < names.index("knowledge_search"), (
+            f"searched the project's documents before mounting it: {_CALLS}"
+        )
+    assert _answer_text(result).strip(), "the office turn produced an empty answer"

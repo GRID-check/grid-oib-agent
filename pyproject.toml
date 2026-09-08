@@ -80,6 +80,10 @@ aiq_deep_researcher = "aiq_agent.agents.deep_researcher.register"
 aiq_clarifier = "aiq_agent.agents.clarifier.register"
 aiq_data_source_registry = "aiq_agent.common.data_source_registry"
 aiq_project_memory = "aiq_agent.agents.project_memory.register"
+# The Büro's own tools (ADR-0054): `find_projects` searches the
+# Projektregister. Its own entry point rather than a line in project_memory's,
+# because it is a different surface with a different context requirement.
+aiq_workspace = "aiq_agent.agents.workspace.register"
 aiq_cards = "aiq_agent.cards.register"
 aiq_compliance_checker = "aiq_agent.agents.compliance_checker.register"
 aiq_bim = "aiq_agent.agents.bim.register"

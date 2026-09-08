@@ -46,7 +46,10 @@ verify`.** It needs PostgreSQL server binaries, so it runs separately. Run it
 whenever you touch the tenant boundary — and whenever you touch a claim that is
 really about SQL. The script (`scripts/rls-test-db.sh`) runs a fixed list of
 `*.integration.spec.ts` files, not a glob: tenant isolation, the two BIM query
-suites, and the memory service's "one fact, one live row" consolidation suite.
+suites, the memory service's "one fact, one live row" consolidation suite, and
+the Projektregister's recall suite — the tenancy gate ADR-0054 demands, where a
+project the member may not read has to stay out of the Büro even when it wins
+the ranking.
 A new database-backed spec has to be added to that list, or it only ever runs
 on a developer's machine. Each of those files also carries a
 `GRID_RLS_SUITE_REQUIRED` guard so the CI job fails if the database goes
@@ -94,6 +97,17 @@ agent on the real prompt against the shallow model through OpenRouter, with
 stub tools that record every call, so the assertion is on the trace rather
 than on the prose.
 
+Two more shapes belong to the Büro (ADR-0054), for the same reason: what an
+office turn may say from a Projektregister hit is prompt, not code. An office
+question whose answer is in the Steckbriefe must answer from them and mount
+nothing; a question about a project's *documents* must bring that project into
+view (`open_project`) **before** it searches, because a search that ran first
+read a scope nobody authorised. Both run on a stub office — a fixed
+`WORKSPACE_CONTEXT v1` block and stubbed `find_projects` / `open_project` tools
+— so the trace is again what is asserted. `open_project` does not exist as a NAT
+function until mounting lands; the stub is what lets the shape be measured while
+the prompt already names the tool.
+
 It needs a model, so it is not in `task verify` and skips itself without
 `OPENROUTER_API_KEY` (the `live` marker in `pyproject.toml` names the class).
 Locally:
@@ -101,6 +115,18 @@ Locally:
 ```bash
 OPENROUTER_API_KEY=… task be:eval:turn-shapes
 ```
+
+The Büro's other gate — register recall, "the right project in the top three
+≥ 90% of the golden set" — is **not measurable yet**. The twenty-question set
+exists
+([`oib_workspace_golden.json`](../../frontends/benchmarks/oib_retrieval/fixtures/oib_workspace_golden.json),
+kinds A/B/C with a synthetic office to rank against), and the scorer does not:
+the Projektregister is a `grid_app` table the BFF reads with Postgres hybrid
+search, and `oib_retrieval_eval` has no arm that ranks project rows.
+[`test_oib_workspace_register_recall.py`](../../tests/benchmarks/test_oib_workspace_register_recall.py)
+holds the fixture to its shape and skips the scoring with that reason attached;
+the fixture's `scorer` block names the two ways to build the instrument. Until
+one exists, do not quote a number for that gate.
 
 `GRID_DEFAULT_MODEL` moves the model under test, the same way it moves the
 config's boot floor. In CI,

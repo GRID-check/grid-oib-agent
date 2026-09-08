@@ -66,6 +66,10 @@ class ShallowResearchAgentState(BaseModel):
     # ceiling. Per-turn: the chat node builds a fresh state each turn.
     interaction_iterations: int = 0
     project_context: str | None = None
+    # The Büro's context block (`WORKSPACE_CONTEXT v1`), threaded through from
+    # ChatResearcherState — see the note there. Present only on an office turn;
+    # the prompt's office branch renders it and the project branch stands down.
+    workspace_context: str | None = None
     # Anonymized fleet-wide failure patterns distilled from user feedback,
     # threaded through from ChatResearcherState (see the note there).
     platform_lessons: str | None = None

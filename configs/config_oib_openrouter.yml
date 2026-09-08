@@ -514,6 +514,14 @@ functions:
   remember:
     _type: project_memory_remember
 
+  # The Projektregister search (ADR-0054). Answers "which projects do we have
+  # that ..." from the office's Steckbriefe — names, ids and profile facts,
+  # never document content. Refuses (as a string) outside an organisation; the
+  # readable set is decided by the BFF per membership, not here.
+  find_projects:
+    _type: workspace_find_projects
+    max_results: 5
+
   # Rich UI cards: the agent calls emit_card mid-answer when a structured
   # element (legal basis, dimension/stair diagram, summary) adds value. Cards
   # are validated and delivered alongside the written answer.
@@ -607,6 +615,10 @@ functions:
       - ifc_measure
       - ask_user
       - compliance_check
+      # The office half of the tool set (ADR-0054): in the Büro the turn has no
+      # project, and finding the right one is the first move. Harmless in a
+      # project chat, where the model has no reason to reach for it.
+      - find_projects
     verbose: true
     max_llm_turns: 10
     # A CEILING, NOT A QUOTA — and the number is the floor of the longest chain

@@ -160,6 +160,26 @@ These routes are **not registered by custom code** — they are provided by the 
 | `PATCH` | `/v1/admin/oib/documents/{file_name}/doc-class` | Admin token | Set a base-corpus document's explicit `doc_class` ("Dokumentart"). Store-authoritative — no re-ingest. `400` off-vocabulary, `404` when no metadata row. | `{ doc_class }` | `{ file_name, doc_class }` | `add_oib_routes` |
 | `PATCH` | `/v1/admin/oib/documents/{file_name}/display-title` | Admin token | Rename a base-corpus document (user-facing `display_title` on citation chips). Store-authoritative — no re-ingest. Empty/null clears the override, restoring the derived default. `404` when no metadata row. | `{ display_title }` | `{ file_name, display_title }` | `add_oib_routes` |
 
+## Outbound: what the agent calls on the BFF
+
+The other direction, and easy to miss because it is not a route this service
+serves: a handful of agent tools reach INTO the Next.js BFF over the compose
+network, authenticated with the shared `GRID_INTERNAL_API_TOKEN` sent as
+`X-Grid-Internal-Token`. The `grid_app` database has exactly one writer (the
+BFF), so anything a tool needs from it arrives this way.
+
+| Tool (NAT `_type`) | Bound as | Calls | Needs from the request context | On failure |
+|---|---|---|---|---|
+| `project_memory_remember` | `remember` | `POST /api/internal/memory` | `x-grid-project-id`, `x-grid-organization-id` | Returns an honest error string, or a `memory_proposal` card when the org write is denied by policy. Never raises |
+| `workspace_find_projects` | `find_projects` | `GET /api/internal/workspace/digest` | `x-grid-organization-id`; `x-grid-organization-membership-id` decides which projects are readable | Returns an error string. Never raises. Without an organization it refuses rather than returning an empty list — the Projektregister never crosses the organization boundary (ADR-0054) |
+
+Two turn-start reads use the same seam without being tools, both blocking calls
+made through `asyncio.to_thread` under `_DIGEST_TIMEOUT_SECONDS` and both
+fail-open (`knowledge/project_memory.py`, `knowledge/workspace_digest.py`):
+`GET /api/internal/memory/digest` re-serves the live memory digest every turn,
+and `GET /api/internal/workspace/digest` serves the office turn its organization
+memory plus the Projektregister recall for the question in one round trip.
+
 ## Health
 
 | Method | Path | Description | Response | Handler |

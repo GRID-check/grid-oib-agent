@@ -825,6 +825,9 @@ class ShallowResearcherAgent:
                     # `render_prompt_template` hands it to the inventory block.
                     in_flight_documents=state.in_flight_documents,
                     project_context=state.project_context,
+                    # Present only in the Büro; the template's office branch
+                    # renders it and stands the project branch down.
+                    workspace_context=state.workspace_context,
                     platform_lessons=render_lessons_block(state.platform_lessons),
                     focus_file_name=state.focus_file_name,
                     focus_shelf_label=_shelf_label(state.focus_shelf),
