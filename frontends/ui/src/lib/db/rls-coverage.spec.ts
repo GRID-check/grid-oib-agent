@@ -64,6 +64,10 @@ const BOUNDARY_MIGRATIONS = [
   // tenant data, so a PLATFORM table: every tenant reads, only the platform
   // role writes.
   '0079_pricing_and_credits.sql',
+  // Adds project_register — the Projektregister's one Steckbrief per project
+  // (ADR-0054). Derived project data, secured the way tasks is: the row's own
+  // organization_id AND the tenant of the project it names.
+  '0082_project_register.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

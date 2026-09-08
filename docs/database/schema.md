@@ -23,6 +23,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `messages.ts` | `messages` |
 | `documents.ts` | `documents` |
 | `project-folders.ts` | `project_folders` |
+| `project-register.ts` | `project_register` |
 | `user-preferences.ts` | `user_preferences` |
 | `answer-feedback.ts` | `answer_feedback` |
 | `platform-lessons.ts` | `platform_lessons`, `platform_lesson_reports`, `platform_lesson_events` |
@@ -963,3 +964,53 @@ reaches every tenant) and the anonymization boundary.
   `docs/architecture/semantic-notes.md` for why the vector is a column rather
   than a second store, and where that stops being the right call.
   Schema: `frontends/ui/src/lib/db/schema/platform-lessons.ts`.
+
+---
+
+## project_register (migration 0082, ADR-0054)
+
+One *Steckbrief* per project — the **Projektregister** the Büro-Chat reads to
+answer *which* project a question is about, without putting a single project
+document into the retrieval scope. Schema:
+`frontends/ui/src/lib/db/schema/project-register.ts`. Spec: `PR-1…PR-9`.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `project_id` | `uuid` | PRIMARY KEY | One row per project, so the project id is the key. |
+| `organization_id` | `text` | NOT NULL | Denormalised so RLS filters without a join. |
+| `project_name` | `text` | NOT NULL | The name the office answers with; a rename marks the row stale. |
+| `status` | `text` | nullable | Read out of `projects.profile.facts` (the `projektphase` intake answer). **`projects` has no status column**, so NULL is the ordinary state for a project nobody has taken through intake. |
+| `bundesland` | `text` | nullable | The validated intake token; NULL for a value outside the vocabulary. |
+| `steckbrief` | `text` | NOT NULL, `CHECK char_length <= 3000` | The prompt block. The budget is a database invariant rather than a convention the builder is trusted to keep: five of these plus the office memory digest have to fit in one turn's prompt (spec PR-3). |
+| `document_count` | `integer` | NOT NULL, default 0 | The whole corpus, not the twenty lines the block samples. |
+| `last_activity_at` | `timestamptz` | nullable | Newest of the project's documents, conversations, memory and profile write. |
+| `embedding` / `embedding_model` / `embedded_at` | `real[]` / `text` / `timestamptz` | `CHECK` all-three-or-none | Row-resident, exactly as `project_memory` carries one (0069) — no pgvector, no second store (PR-8). A vector is comparable only within one model, so the fingerprint is part of the same fact and the CHECK says so. |
+| `stale_at` | `timestamptz` | nullable | Set by a writer, cleared by the build. |
+| `built_at` / `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+**Composite foreign key:** `(project_id, organization_id)` → `projects (id,
+organization_id)` `ON DELETE CASCADE` — the belt-and-braces `tasks` adopted in
+0075. A Steckbrief cannot be planted under another tenant's project, and a
+project purge takes its row with it, so the deletion pipeline needs no new step.
+
+**Indexes:** `project_register_stale_idx` on (`organization_id`, `stale_at`)
+**PARTIAL** `WHERE stale_at IS NOT NULL` — the reconcile's own query, partial
+because the steady state is "nothing is stale"; `project_register_fts_idx`, a
+GIN index over `to_tsvector('german', steckbrief)` — the lexical half of hybrid
+recall (PR-9). Both are expression/partial indexes drizzle cannot express, so
+they live in migration 0082 with the CHECKs.
+
+**RLS:** secured by 0082 with the two-part predicate `tasks` carries — the row's
+own `organization_id` **and** the tenant of the project it names (spec PR-17,
+AC-5). Covered by `tenant-isolation.integration.spec.ts` and by
+`register-recall.integration.spec.ts`, which is the readability gate on top of
+it: RLS keeps a tenant out, the FGA filter in `lib/workspace/register-service.ts`
+keeps a member out of a project inside their own tenant.
+
+**Every column is derived.** The BFF is the single writer (PR-5):
+`rebuildProjectRegisterRow` reads the four sources and upserts, and the four
+write-through points — a profile save, a memory write, a document reaching a
+terminal ingest state, a rename — only stamp `stale_at`. The bounded reconcile
+(`POST /api/internal/workspace/register/reconcile`, 50 rows a call) rebuilds
+missing and stale rows through one code path, which is also the backfill for
+every project that predates the register (spec MG-2).

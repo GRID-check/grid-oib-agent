@@ -16,6 +16,7 @@ import {
   polaritySignature,
 } from '@/lib/knowledge/consolidation'
 import { formatBoundedDigest } from '@/lib/knowledge/digest-format'
+import { markProjectRegisterStale } from '@/lib/workspace/register-service'
 import {
   cosineSimilaritySql,
   embedNote,
@@ -498,6 +499,11 @@ export async function createProjectMemoryItem(
   try {
     if (!supersedeTarget) {
       const [item] = await db.insert(projectMemory).values(insertValues).returning()
+      // A memory write changes the Steckbrief's headline (spec PR-6). DEBOUNCED
+      // on purpose: stamped stale, never rebuilt inline — `remember` fires
+      // several times in one turn and a rebuild embeds 3000 characters. Never
+      // throws, so a register outage cannot cost a note its write.
+      void markProjectRegisterStale(values.projectId, values.organizationId)
       return item
     }
     // One transaction: the replacement must never land without the old entry
@@ -513,6 +519,7 @@ export async function createProjectMemoryItem(
       // Reported only for a retirement this call performed (a concurrent writer
       // may have retired the target first, matching zero rows).
       if (retired.length > 0) options.onSuperseded?.(supersedeTarget.id)
+      void markProjectRegisterStale(values.projectId, values.organizationId)
       return item
     })
   } catch (err) {

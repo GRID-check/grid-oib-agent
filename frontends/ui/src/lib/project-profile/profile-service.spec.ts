@@ -22,8 +22,13 @@ vi.mock('@/lib/cache', () => ({
   invalidateCached: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('@/lib/workspace/register-service', () => ({
+  markProjectRegisterStale: vi.fn().mockResolvedValue(undefined),
+}))
+
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { invalidateCached } from '@/lib/cache'
+import { markProjectRegisterStale } from '@/lib/workspace/register-service'
 import {
   findProjectProfileInOrg,
   setProjectProfileSummaryInOrg,
@@ -212,6 +217,18 @@ describe('profile writes invalidate both profile-derived cache keys (Fix 1)', ()
 
     expect(invalidateCached).toHaveBeenCalledWith('promptview:org-1:proj-1')
     expect(invalidateCached).toHaveBeenCalledWith('bundesland:org-1:proj-1')
+  })
+
+  it('marks the project Steckbrief stale — the profile IS most of it', async () => {
+    // The register write-through (ADR-0054, spec PR-6) sits at the same choke
+    // point as the cache invalidation, so the wizard save and the agent patch
+    // are both covered by one call.
+    await saveProjectProfile(session, 'proj-1', storedProfile, 5)
+    expect(markProjectRegisterStale).toHaveBeenCalledWith('proj-1', 'org-1')
+
+    vi.mocked(markProjectRegisterStale).mockClear()
+    await patchProjectProfile(session, 'proj-1', [])
+    expect(markProjectRegisterStale).toHaveBeenCalledWith('proj-1', 'org-1')
   })
 })
 

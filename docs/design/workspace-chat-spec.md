@@ -538,8 +538,13 @@ document corpus: it answers *which*, never *what the file says*.
   register MUST NOT introduce a vector-database dependency of its own.
 
 - **PR-9 (MUST).** Recall over the register MUST be hybrid — vector similarity and
-  text search — and MUST be filtered to the projects this user may read **in the query
-  that runs**, not after it.
+  text search — and MUST return only projects this user may read.
+  *Erratum 2026-09-08:* the first wording asked for the filter "in the query that
+  runs". Readability is a WorkOS FGA fact, not a column, so the implementation
+  ranks, over-fetches three times the limit, then filters through the one
+  readability check the project list uses (`filterReadableProjects`), and slices.
+  The tenancy gate is `frontends/ui/src/lib/workspace/register-recall.integration.spec.ts`,
+  run by `task db:test:rls`.
 
 ### 7.3 How the agent gets it
 

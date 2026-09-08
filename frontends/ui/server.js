@@ -61,6 +61,12 @@ function buildGridRequestContextEnvelopeHeaders(input) {
   // `buildGridRequestContextEnvelopePayload`'s docstring in request-context.ts
   // (the canonical definition this function is pinned to).
   if (input.bundesland) payload.bundesland = input.bundesland
+  // `organizationMembershipId` (ADR-0054): the (user, organization) pair WorkOS
+  // FGA keys on, which the Büro's workspace digest needs to filter the
+  // Projektregister to what this caller may read. Appended LAST in key order
+  // for the same reason `bundesland` was — every pre-existing signed payload
+  // stays byte-identical.
+  if (input.organizationMembershipId) payload.organizationMembershipId = input.organizationMembershipId
 
   const json = JSON.stringify(payload)
   const headers = {
@@ -651,6 +657,13 @@ const startServer = async () => {
           if (result.data?.organizationId) {
             req.headers['x-grid-organization-id'] = result.data.organizationId
             req.headers['x-grid-user-id'] = result.data.userId
+            // The membership, beside the user. Authorization is keyed on it
+            // (see request-context.ts), and the Büro's per-turn register recall
+            // is the first consumer. Dual-written like every field above.
+            if (result.data.organizationMembershipId) {
+              req.headers['x-grid-organization-membership-id'] =
+                result.data.organizationMembershipId
+            }
           }
           if (result.data?.accessToken) {
             req.headers['authorization'] = `Bearer ${result.data.accessToken}`
@@ -742,6 +755,7 @@ const startServer = async () => {
             buildGridRequestContextEnvelopeHeaders({
               organizationId: result.data?.organizationId,
               userId: result.data?.userId,
+              organizationMembershipId: result.data?.organizationMembershipId,
               projectId: result.data?.projectId,
               // Shelf-bearing entries when the resolver supplied them, bare
               // names otherwise. The envelope is the copy `scoping.py` trusts

@@ -74,8 +74,20 @@ describe('authorityTag', () => {
 })
 
 describe('Shelf (ADR-0047)', () => {
-  test('is exactly the four wire shelves', () => {
-    expect([...SHELVES]).toEqual(['archiv', 'project', 'session', 'base'])
+  test('is exactly the five wire shelves', () => {
+    // `register` is the Projektregister (ADR-0054) — a knowledge level of its
+    // own, not a sub-case of `project`, because a Steckbrief may name a project
+    // and may NOT ground a claim about what its documents say (spec KH-2,
+    // PR-15).
+    expect([...SHELVES]).toEqual(['archiv', 'project', 'register', 'session', 'base'])
+  })
+
+  test('narrows the register shelf, which a Steckbrief hit travels on', () => {
+    expect(asShelf('register')).toBe('register')
+    expect(asShelf(' Register ')).toBe('register')
+    // The German label is RENDERING and never transport: nothing parses a
+    // shelf back out of it (ADR-0047 §5).
+    expect(asShelf('Projektregister')).toBeUndefined()
   })
 
   test('accepts a shelf the wire states, case- and whitespace-tolerantly', () => {
@@ -110,6 +122,7 @@ describe('shelfLabel', () => {
   test('renders each shelf in German', () => {
     expect(shelfLabel('archiv')).toBe('Büroarchiv')
     expect(shelfLabel('project')).toBe('Projektwissen')
+    expect(shelfLabel('register')).toBe('Projektregister')
     expect(shelfLabel('base')).toBe('Basiswissen')
   })
 
@@ -140,6 +153,7 @@ describe('scopeForQualifier (citation keys — the versioned fallback)', () => {
       'archiv',
       'project',
       'base',
+      'register',
       'session',
     ])
   })

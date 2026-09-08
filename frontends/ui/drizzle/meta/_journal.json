@@ -575,6 +575,13 @@
       "when": 1789344000006,
       "tag": "0081_conversation_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1789430400006,
+      "tag": "0082_project_register",
+      "breakpoints": true
     }
   ]
 }

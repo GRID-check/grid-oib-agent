@@ -7,6 +7,10 @@ vi.mock('@/lib/db', () => ({
   getDb: vi.fn(),
 }))
 
+vi.mock('@/lib/workspace/register-service', () => ({
+  markProjectRegisterStale: vi.fn().mockResolvedValue(undefined),
+}))
+
 // Replace drizzle operators with plain descriptor objects so the specs can
 // assert on the exact conditions the service builds, without a database.
 vi.mock('drizzle-orm', () => ({
@@ -51,6 +55,7 @@ vi.mock('@/lib/knowledge/embeddings', async (importOriginal) => {
 })
 
 import { getDb } from '@/lib/db'
+import { markProjectRegisterStale } from '@/lib/workspace/register-service'
 import { embedNote } from '@/lib/knowledge/embeddings'
 import type { ProjectMemoryItem } from '@/lib/db/schema'
 import { asDb, makeMemoryItem } from '@/test-utils/db-fixtures'
@@ -337,6 +342,10 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
     expect(result).toEqual({ id: 'new-1' })
     expect(values).toHaveBeenCalledTimes(1)
     expect(set).not.toHaveBeenCalled()
+    // The register write-through (ADR-0054, spec PR-6): a memory write changes
+    // the Steckbrief's headline, and it is STAMPED rather than rebuilt because
+    // `remember` fires several times in one turn.
+    expect(markProjectRegisterStale).toHaveBeenCalledWith('proj-1', 'org-1')
   })
 
   /**

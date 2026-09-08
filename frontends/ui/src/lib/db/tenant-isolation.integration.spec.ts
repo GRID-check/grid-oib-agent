@@ -551,4 +551,97 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
       await db.execute(sql`delete from conversations where id = ${conversationId}`)
     })
   })
+
+  /**
+   * The Projektregister (0082, ADR-0054). It is a DERIVED table — every column
+   * copies something `projects`, `project_memory` and `documents` hold — which
+   * is exactly why it needs its own boundary test: a derived copy is the kind
+   * of table somebody adds without thinking of tenancy, and it carries the
+   * Steckbriefe an office chat reads by name.
+   */
+  describe('project_register', () => {
+    async function projectOf(org: string): Promise<string> {
+      const rows = await withPlatformAccess('test: read the seeded project', () =>
+        db.execute(sql`select id from projects where organization_id = ${org} limit 1`)
+      )
+      return String([...rows][0].id)
+    }
+
+    afterAll(async () => {
+      if (!db) return
+      await withPlatformAccess('test cleanup', () =>
+        db.execute(sql`delete from project_register where organization_id in (${ORG_A}, ${ORG_B})`)
+      )
+    })
+
+    it('refuses a Steckbrief planted under another tenant', async () => {
+      const projectA = await projectOf(ORG_A)
+      const cause = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_B }, () =>
+          db.execute(
+            sql`insert into project_register (project_id, organization_id, project_name, steckbrief)
+                values (${projectA}, ${ORG_B}, 'stolen', 'PROJECT_STECKBRIEF v1')`
+          )
+        )
+      )
+      // Either half of the belt-and-braces may fire first: the composite
+      // foreign key has no `(projectA, ORG_B)` pair to point at, and the policy
+      // refuses the row on its own. Both are the correct refusal.
+      expect(cause.message).toMatch(/row-level security|violates foreign key/i)
+    })
+
+    it('hides one tenant’s Steckbriefe from another', async () => {
+      const projectA = await projectOf(ORG_A)
+      await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(
+          sql`insert into project_register (project_id, organization_id, project_name, steckbrief)
+              values (${projectA}, ${ORG_A}, 'Projekt A', 'PROJECT_STECKBRIEF v1')`
+        )
+      )
+
+      const seenByB = await withTenant({ organizationId: ORG_B }, () =>
+        db.execute(sql`select project_name from project_register`)
+      )
+      expect([...seenByB]).toEqual([])
+
+      const seenByA = await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`select project_name from project_register`)
+      )
+      expect([...seenByA].map((row) => row.project_name)).toEqual(['Projekt A'])
+    })
+
+    it('refuses a Steckbrief over the 3000-character budget', async () => {
+      // The budget is a database invariant, not a convention the builder is
+      // trusted to keep (spec PR-3): five of these plus the office digest have
+      // to fit in one prompt, so a builder bug must fail here rather than as a
+      // context overflow in production.
+      const projectB = await projectOf(ORG_B)
+      const cause = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_B }, () =>
+          db.execute(
+            sql`insert into project_register (project_id, organization_id, project_name, steckbrief)
+                values (${projectB}, ${ORG_B}, 'Projekt B', ${'x'.repeat(3001)})`
+          )
+        )
+      )
+      expect(cause.message).toMatch(/project_register_steckbrief_bounded/i)
+    })
+
+    it('refuses a vector with no model fingerprint beside it', async () => {
+      // A similarity score against an unknown embedder is noise wearing the
+      // right shape, so the three embedding columns are one fact and the
+      // database says so.
+      const projectB = await projectOf(ORG_B)
+      const cause = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_B }, () =>
+          db.execute(
+            sql`insert into project_register
+                  (project_id, organization_id, project_name, steckbrief, embedding)
+                values (${projectB}, ${ORG_B}, 'Projekt B', 'PROJECT_STECKBRIEF v1', '{0.1,0.2}')`
+          )
+        )
+      )
+      expect(cause.message).toMatch(/project_register_embedding_complete/i)
+    })
+  })
 })

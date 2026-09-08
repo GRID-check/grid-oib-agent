@@ -34,7 +34,15 @@ interface GridRequestContextFixtureCase {
   name: string
   comment?: string
   input: GridRequestContextInput
-  headers: Record<string, string>
+  /**
+   * `string | undefined` rather than `string`: each case names only the
+   * headers ITS input produces, and TypeScript widens the JSON import's union
+   * of case objects by marking every key another case has as `?: undefined`.
+   * The assertion below is `toEqual`, which compares values, so nothing is
+   * lost — and the alternative, an `as unknown as` double cast over the whole
+   * fixture, would silence a real shape change too.
+   */
+  headers: Record<string, string | undefined>
 }
 
 interface GridRequestContextEnvelopeFixtureCase {
@@ -147,6 +155,54 @@ describe('bundesland (backlog T3-9 follow-up, 2026-07-16, user-mandated) — env
     const decoded = JSON.parse(Buffer.from(wire[GRID_HEADER_NAMES.REQUEST_CONTEXT], 'base64url').toString('utf8'))
     expect(decoded.bundesland).toBe('wien')
     expect(Object.keys(wire).some((name) => name.toLowerCase().includes('bundesland'))).toBe(false)
+  })
+})
+
+describe('organizationMembershipId (ADR-0054) — dual-written like the user id', () => {
+  it('emits its own individual header beside X-Grid-User-Id', () => {
+    // Unlike `bundesland`, this one DOES get an individual header: it belongs
+    // to the same identity triple the gateway already forwards raw, and the
+    // Python side reads it through the same path as the user id.
+    expect(
+      buildGridRequestContextHeaders({ userId: 'user_1', organizationMembershipId: 'om_1' })
+    ).toEqual({
+      [GRID_HEADER_NAMES.USER_ID]: 'user_1',
+      [GRID_HEADER_NAMES.ORGANIZATION_MEMBERSHIP_ID]: 'om_1',
+    })
+  })
+
+  it('is omitted, header and field alike, when the producer has none', () => {
+    // A producer with no membership must OMIT rather than send a placeholder:
+    // the digest route treats "no membership" as "show no projects", and an
+    // empty string reaching `authorization.check` would be a call that cannot
+    // succeed for a caller who deserved an honest empty answer.
+    for (const value of [null, undefined, '']) {
+      expect(buildGridRequestContextHeaders({ organizationMembershipId: value })).toEqual({})
+      expect(buildGridRequestContextEnvelopePayload({ organizationMembershipId: value })).toEqual({})
+    }
+  })
+
+  it('is appended as the LAST payload key, after bundesland', () => {
+    const json = JSON.stringify(
+      buildGridRequestContextEnvelopePayload({
+        organizationId: 'org_1',
+        bundesland: 'wien',
+        organizationMembershipId: 'om_1',
+      })
+    )
+    expect(json).toBe('{"organizationId":"org_1","bundesland":"wien","organizationMembershipId":"om_1"}')
+  })
+
+  it('rides both halves of the dual write', () => {
+    const wire = buildGridRequestContextWireHeaders(
+      { organizationId: 'org_1', organizationMembershipId: 'om_1' },
+      'secret'
+    )
+    expect(wire[GRID_HEADER_NAMES.ORGANIZATION_MEMBERSHIP_ID]).toBe('om_1')
+    const decoded = JSON.parse(
+      Buffer.from(wire[GRID_HEADER_NAMES.REQUEST_CONTEXT], 'base64url').toString('utf8')
+    )
+    expect(decoded.organizationMembershipId).toBe('om_1')
   })
 })
 

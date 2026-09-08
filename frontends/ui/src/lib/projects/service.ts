@@ -9,9 +9,7 @@
 
 import 'server-only'
 import { getWorkOS } from '@/lib/workos/client'
-import { requireProjectAccess } from '@/lib/authz/projects'
-import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
-import { checkResourcePermission } from '@/lib/authz/resource-check'
+import { filterReadableProjects, requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { neutralizeCollaborationForProject } from '@/lib/collaboration/cleanup'
 import {
@@ -28,6 +26,7 @@ import type {
   ProjectMemoryItem,
   ProjectMemoryKind,
 } from '@/lib/db/schema'
+import { markProjectRegisterStale } from '@/lib/workspace/register-service'
 import { getProjectOverviewData } from './overview-query'
 import {
   createProjectMemoryItem,
@@ -67,21 +66,10 @@ export async function listProjects(
   const projects = await listProjectsInOrg(session.organizationId, { order })
   // The same permission-gated bypass `requireProjectAccess` applies, checked the
   // same way — if these two ever disagreed the grid would list projects the
-  // detail view then refuses, or hide ones it would have opened.
-  if (hasPermission(session, ORG_PERMISSIONS.projectsAdminister)) return projects
-
-  const visible = await Promise.all(
-    projects.map(async (project) => {
-      const allowed = await checkResourcePermission({
-        organizationMembershipId: session.organizationMembershipId,
-        permissionSlug: 'project:view',
-        resourceExternalId: project.id,
-        resourceTypeSlug: 'project',
-      })
-      return allowed ? project : null
-    })
-  )
-  return visible.filter((project): project is Project => project !== null)
+  // detail view then refuses, or hide ones it would have opened. The Büro's
+  // register recall asks the same function about its own candidates, so the
+  // office and the grid cannot come to different answers (spec AC-4).
+  return filterReadableProjects(session, projects)
 }
 
 /**
@@ -212,6 +200,11 @@ export async function updateProjectName(
   await requireProjectAccess(session, projectId, 'project:manage')
   const project = await renameProjectInOrg(projectId, session.organizationId, name)
   if (!project) throw new NotFoundError()
+  // The name is the first line of the project's Steckbrief and the thing the
+  // office answers with, so a rename that did not reach the register would
+  // have the Büro naming a project nobody in the office calls that any more
+  // (spec PR-6).
+  void markProjectRegisterStale(projectId, session.organizationId)
   return project
 }
 

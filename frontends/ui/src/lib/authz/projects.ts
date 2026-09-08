@@ -137,3 +137,47 @@ export async function requireProjectAccess(
   }
   return { role: 'project-viewer' }
 }
+
+/**
+ * Narrow a set of projects to the ones this session may VIEW — the one
+ * readability computation in the product.
+ *
+ * It exists as its own function because two surfaces need the same answer
+ * about different inputs. The projects grid asks about every project in the
+ * tenant ({@link import('@/lib/projects/service').listProjects}); the Büro's
+ * register recall asks about the handful of Steckbriefe a question ranked
+ * highest, and asking it about the whole tenant instead would cost forty FGA
+ * round-trips to discard thirty-five of them. If the two ever computed
+ * readability separately, the office would name projects the grid hides — the
+ * precise failure ADR-0038 closed and spec AC-3/AC-4 restate.
+ *
+ * Same shape as {@link requireProjectAccess}'s: the org-admin bypass is the
+ * PERMISSION `org:projects:administer`, the per-project checks run
+ * concurrently, and each one FAILS CLOSED on its own, so a project whose check
+ * errors is omitted rather than shown.
+ *
+ * TENANCY IS THE CALLER'S JOB. This function decides reachability, not
+ * ownership: every caller must already have restricted its input to the
+ * session's own organization (both do — one queries by `organizationId`, the
+ * other reads a table whose RLS predicate pins it).
+ */
+export async function filterReadableProjects<T extends { id: string }>(
+  session: AuthorizedSession,
+  candidates: readonly T[]
+): Promise<T[]> {
+  if (candidates.length === 0) return []
+  if (hasPermission(session, ORG_PERMISSIONS.projectsAdminister)) return [...candidates]
+
+  const visible: Array<T | null> = await Promise.all(
+    candidates.map(async (candidate): Promise<T | null> => {
+      const allowed = await checkResourcePermission({
+        organizationMembershipId: session.organizationMembershipId,
+        permissionSlug: 'project:view',
+        resourceExternalId: candidate.id,
+        resourceTypeSlug: 'project',
+      })
+      return allowed ? candidate : null
+    })
+  )
+  return visible.filter((candidate): candidate is T => candidate !== null)
+}

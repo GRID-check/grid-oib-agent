@@ -123,6 +123,12 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
     if (session) {
       response.organizationId = session.organizationId
       response.userId = session.userId
+      // The (user, organization) pair WorkOS FGA keys on. `server.js` forwards
+      // it as `x-grid-organization-membership-id` and signs it into the
+      // request-context envelope, which is how the Büro's workspace digest can
+      // filter the Projektregister to the projects THIS caller may read without
+      // a WorkOS round trip of its own (ADR-0054, spec AC-4).
+      response.organizationMembershipId = session.organizationMembershipId
       response.accessToken = session.accessToken
     }
 

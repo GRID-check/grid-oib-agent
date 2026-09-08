@@ -100,11 +100,28 @@ export const kindForLane = (lane: string | null | undefined): SourceKind => {
 // dropped into the chat); a `baurecht`-kind document sits on `base`. Neither
 // enum is derivable from the other, so neither is defined in terms of the other.
 
-/** The four shelves a retrieved chunk can come from. */
-export type Shelf = 'archiv' | 'project' | 'session' | 'base'
+/**
+ * The five shelves a retrieved chunk can come from.
+ *
+ * `register` is the Projektregister (ADR-0054): a *Steckbrief*, the bounded
+ * fingerprint of one project the Büro reads to answer WHICH project a question
+ * is about. It is a shelf of its own and not a sub-case of `project`, because
+ * the two carry different licences — a `project` hit is a passage from a
+ * document and may ground a claim about the project's CONTENT; a `register`
+ * hit is navigation and structured fact, and may not (spec KH-2, PR-14, PR-15).
+ * A Steckbrief's source KIND is `projekt`, like everything else about a
+ * project; the shelf is what says it is the index rather than the corpus.
+ */
+export type Shelf = 'archiv' | 'project' | 'register' | 'session' | 'base'
 
 /** Every shelf, for iteration. Kept in step with {@link Shelf} by `satisfies`. */
-export const SHELVES = ['archiv', 'project', 'session', 'base'] as const satisfies readonly Shelf[]
+export const SHELVES = [
+  'archiv',
+  'project',
+  'register',
+  'session',
+  'base',
+] as const satisfies readonly Shelf[]
 
 const SHELF_SET: ReadonlySet<string> = new Set<string>(SHELVES)
 
@@ -146,6 +163,8 @@ export const shelfLabel = (shelf: Shelf): string => {
       return 'Büroarchiv'
     case 'project':
       return 'Projektwissen'
+    case 'register':
+      return 'Projektregister'
     case 'session':
       return 'Private Sitzung'
     case 'base':
@@ -176,6 +195,12 @@ export const CITATION_KEY_QUALIFIERS: ReadonlyArray<readonly [qualifier: string,
   ['Büroarchiv', 'archiv'],
   ['Projektwissen', 'project'],
   ['Basiswissen', 'base'],
+  // `Projektregister` joins the vocabulary for the same reason `Private
+  // Sitzung` did, not as a legacy artefact: the backend appends a qualifier
+  // whenever one retrieved name is ambiguous across shelves, and a reader that
+  // does not know this one fails to strip it — the key then misses
+  // `FILENAME_RE` and the whole citation resolves to null.
+  ['Projektregister', 'register'],
   // `session` DOES appear in keys written from ADR-0047 onward, even though no
   // legacy key can contain it. The qualifier is not purely a legacy artefact:
   // the backend still appends one to disambiguate a citation key when two

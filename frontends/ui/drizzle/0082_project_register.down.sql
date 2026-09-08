@@ -1,0 +1,13 @@
+-- Down for 0082. Deliberately NOT in `meta/_journal.json` — drizzle never
+-- applies a `.down.sql`; it is the hand-run rollback companion.
+--
+-- What is lost: nothing that is not derived. Every column of
+-- `project_register` is a copy of something `projects`, `projects.profile`,
+-- `project_memory` and `documents` still hold, so dropping the table costs the
+-- office its index and costs the tenant no knowledge. Re-running the reconcile
+-- after a re-apply rebuilds every row from those same four sources (spec
+-- MG-2), which is why the backfill and the repair are one code path.
+--
+-- The policies and the grants go with the table: `grid_secure_table` attaches
+-- them to it, so `DROP TABLE` removes them.
+DROP TABLE IF EXISTS "project_register";

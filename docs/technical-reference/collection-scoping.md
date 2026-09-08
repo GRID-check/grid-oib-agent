@@ -85,6 +85,37 @@ function computeCollectionScope(
 - `conversationId?: string` — if present, adds `s_{conversationId}`
 - `baseCollection?: string` — defaults to `process.env.BASE_COLLECTION_NAME || 'oib_knowledge'`
 
+### `CollectionShelf` — the shelf a collection sits on
+
+The wire shelf enum (ADR-0047), carried explicitly on every scope entry and
+never derived from an `archiv_`/`proj_`/`s_` name prefix:
+
+| Shelf | What sits on it | German label (rendering only) |
+|---|---|---|
+| `base` | The platform's OIB corpus. | Basiswissen |
+| `archiv` | The organisation's shared Archiv (ADR-0024). | Büroarchiv |
+| `register` | The Projektregister — one bounded *Steckbrief* per project (ADR-0054). | Projektregister |
+| `project` | A mounted project's own corpus. | Projektwissen |
+| `session` | A file the user attached to one conversation. | Private Sitzung |
+
+The order above is the knowledge hierarchy (spec KH-1), and it is the order
+every surface that ranks or groups by level uses.
+
+`register` is a level in its own right and deliberately **not** folded into
+`project` (spec KH-2), because the two carry different licences: a `project` hit
+is a passage from a document and may ground a claim about the project's content;
+a `register` hit is navigation and structured fact — the agent may name the
+project and quote a profile fact from its Steckbrief, and may not say what its
+drawings show (spec PR-14, PR-15). A Steckbrief's source KIND stays `projekt`.
+
+The enum is declared twice on purpose and the two copies must change together
+— `frontends/ui/src/lib/collection-scope.ts` (`CollectionShelf`, the transport
+type) and `frontends/ui/src/features/chat/lib/source-kinds.ts` (`Shelf`, the
+rendering type), mirrored by `src/aiq_agent/common/source_kinds.py`. Both fail
+CLOSED on an unknown member: a shelf added on one side renders unattributed on
+the other until both are updated, which is the behaviour ADR-0047 chose over
+guessing.
+
 ### `buildCollectionScopeHeader(scope)`
 
 Encodes the scope array into a base64url-encoded header value:

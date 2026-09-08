@@ -98,6 +98,16 @@ vector store is bad at). The vector store is a derived index (§5).
 4. **Profile graduation, inverse** — accepting a `ProjectProfilePatchCard` can also
    drop a `derived_fact` memory item for provenance.
 
+**A memory write is also a Projektregister writer (ADR-0054).** Every successful
+`createProjectMemoryItem` stamps the project's *Steckbrief* `stale_at`, because
+the Steckbrief carries a memory headline drawn from these rows and a stale one
+would have the Büro quoting a fact the project has since replaced. It is a STAMP
+and never an inline rebuild: `remember` fires several times in one turn, and a
+rebuild reads four tables, composes 3000 characters and embeds them. The bounded
+reconcile does the work (spec PR-6, PR-7). The call cannot throw — a register
+outage must never cost a note its write — so nothing about memory's own
+guarantees changes here.
+
 ### 3.2 Consolidate — the anti-drift gate (runs on every write)
 Before persisting a new item:
 - Embed it, find the top-k most similar existing active items.
@@ -141,6 +151,18 @@ adjudication of genuine two-sided conflicts.
 Injection format tags each item so the model treats it correctly, e.g.:
 `[decision · user-confirmed] Client chose the Fluchttunnel option (conv #3).`
 `[open_question · unverified] Is the Aufzug a Feuerwehraufzug?`
+
+**The digest seam is shared with the office (ADR-0054).** The live per-turn read
+`GET /api/internal/memory/digest` has a sibling, `GET
+/api/internal/workspace/digest`, which serves a Büro turn BOTH halves of its
+context in one round trip: the ORGANISATION memory digest — literally
+`buildProjectMemoryDigest(undefined, organizationId)`, the same call this route
+makes for a project-less caller, so there is one implementation of organisation
+memory and not two — and the top *Steckbriefe* from the Projektregister,
+filtered to the projects that caller may read. The two halves share a round trip
+because they are read at the same instant by the same caller; they share nothing
+else, and a register failure degrades to an empty project list while the digest
+is still served.
 
 **Precedence — memory never outranks the live turn.** The digest is concatenated
 into `project_context` (`compose_project_context`), whose answering prompt tells

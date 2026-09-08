@@ -94,17 +94,21 @@ node -e '
   }
 done
 
-# Every suite here needs the same cluster and the same restricted role. The BIM
-# and memory ones are here rather than in the unit shards because every claim
-# they make is a claim about SQL — jsonb property filters, grouped aggregates,
+# Every suite here needs the same cluster and the same restricted role. The BIM,
+# memory and register-recall ones are here rather than in the unit shards
+# because every claim they make is a claim about SQL — jsonb property filters, grouped aggregates,
 # the element-to-model tenancy join, "one fact, one live row" through a raw
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query and memory consolidation suites as grid_app_rw"
+# The register-recall suite is the tenancy gate ADR-0054 demands: a project the
+# member may not read must stay out of the Buero even when it wins the ranking,
+# and only a real ranking can show that.
+echo "==> running the isolation, BIM query, memory and register-recall suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
     src/lib/bim/query.integration.spec.ts \
     src/lib/bim/model-shelf.integration.spec.ts \
-    src/lib/projects/memory-service.integration.spec.ts
+    src/lib/projects/memory-service.integration.spec.ts \
+    src/lib/workspace/register-recall.integration.spec.ts

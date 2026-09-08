@@ -25,6 +25,7 @@
  * |--------------------------------------|-----------------------------------------|----------------------------------------------------------|
  * | X-Grid-Organization-Id                | raw string                              | server.js WS upgrade (~line 300)                         |
  * | X-Grid-User-Id                        | raw string                              | server.js WS upgrade (~line 301)                         |
+ * | X-Grid-Organization-Membership-Id     | raw string                              | ADR-0054; dual-written beside X-Grid-User-Id             |
  * | X-Grid-Project-Id                     | raw string                              | server.js WS upgrade (~line 322)                         |
  * | X-Grid-Collection-Scope               | base64url(JSON.stringify(string[]))     | `collection-scope.ts` buildCollectionScopeHeader          |
  * | X-Grid-Project-Context                | base64url(utf8 text)                    | server.js WS upgrade (~line 313)                         |
@@ -74,6 +75,24 @@ export interface GridRequestContextInput {
   organizationId?: string | null
   /** → `X-Grid-User-Id` (raw). Omitted when falsy. */
   userId?: string | null
+  /**
+   * → `X-Grid-Organization-Membership-Id` (raw) AND the envelope field
+   * `organizationMembershipId`. Omitted when falsy.
+   *
+   * The (user, organization) pair as WorkOS itself identifies it. It is a
+   * separate field from `userId` because authorization is keyed on it and not
+   * on the user: `authorization.check` — the per-resource FGA call behind every
+   * project permission — takes an `organizationMembershipId`, and one user in
+   * two organizations is two memberships with two different sets of grants.
+   *
+   * Added for the Büro-Chat (ADR-0054), whose workspace digest has to filter
+   * the Projektregister to the projects THIS caller may read on the turn's
+   * critical path. The alternative was to resolve the membership from
+   * (userId, organizationId) inside the digest route and cache it org-keyed —
+   * one WorkOS round trip on every turn, to recover something the producer
+   * already had in its session. Carrying it is a field; resolving it is a hop.
+   */
+  organizationMembershipId?: string | null
   /** → `X-Grid-Project-Id` (raw). Omitted when falsy (no active project). */
   projectId?: string | null
   /**
@@ -137,6 +156,8 @@ export interface GridRequestContextInput {
 export const GRID_HEADER_NAMES = {
   ORGANIZATION_ID: 'X-Grid-Organization-Id',
   USER_ID: 'X-Grid-User-Id',
+  /** The (user, organization) pair FGA keys on; see the input field's docs. */
+  ORGANIZATION_MEMBERSHIP_ID: 'X-Grid-Organization-Membership-Id',
   PROJECT_ID: 'X-Grid-Project-Id',
   COLLECTION_SCOPE: 'X-Grid-Collection-Scope',
   PROJECT_CONTEXT: 'X-Grid-Project-Context',
@@ -206,6 +227,9 @@ export function buildGridRequestContextHeaders(input: GridRequestContextInput): 
   }
   if (input.userId) {
     headers[GRID_HEADER_NAMES.USER_ID] = input.userId
+  }
+  if (input.organizationMembershipId) {
+    headers[GRID_HEADER_NAMES.ORGANIZATION_MEMBERSHIP_ID] = input.organizationMembershipId
   }
   if (input.projectId) {
     headers[GRID_HEADER_NAMES.PROJECT_ID] = input.projectId
@@ -277,7 +301,8 @@ export interface GridRequestContextEnvelope {
  * the individual headers is also absent here — see the cross-language
  * contract fixture's `envelopeCases`), and a FIXED key order (organizationId,
  * userId, projectId, collectionScope, projectContext, projectMemory,
- * modelOverrides, budget, disabledSources, memoryReflectionEnabled) so the
+ * modelOverrides, budget, disabledSources, memoryReflectionEnabled,
+ * bundesland, organizationMembershipId) so the
  * signed bytes are deterministic across producers/runs for the same input —
  * required for the fixture's precomputed `header`/`signature` values to be
  * exact-match assertable rather than semantic-JSON-equal.
@@ -323,6 +348,14 @@ export function buildGridRequestContextEnvelopePayload(input: GridRequestContext
   }
   if (input.bundesland) {
     payload.bundesland = input.bundesland
+  }
+  // `organizationMembershipId` is appended LAST for the same reason
+  // `bundesland` was: every pre-existing case's signed bytes stay
+  // byte-identical, so the contract fixture's precomputed header/signature
+  // values did not have to be recomputed. A new field goes on the END of this
+  // list, always.
+  if (input.organizationMembershipId) {
+    payload.organizationMembershipId = input.organizationMembershipId
   }
 
   return payload

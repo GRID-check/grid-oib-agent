@@ -41,6 +41,7 @@ import {
   invalidateProjectProfileCaches,
 } from './prompt-view'
 import { buildProjectSummaryText } from './brief-view'
+import { markProjectRegisterStale } from '@/lib/workspace/register-service'
 import {
   isPatchAlreadyApplied,
   normalizeProfilePatchOperations,
@@ -213,6 +214,10 @@ async function persistProfile(
   // the 5-min TTL. This is the single choke point for the wizard save and agent
   // patches, so both write paths are covered here.
   await invalidateProjectProfileCaches(projectId, organizationId)
+  // The profile IS most of a Steckbrief, so a save makes the register's copy
+  // wrong (spec PR-6). Stamped rather than rebuilt: the office reads the
+  // register at turn start, and a wizard save must not wait on an embedding.
+  void markProjectRegisterStale(projectId, organizationId)
   return updated
 }
 
