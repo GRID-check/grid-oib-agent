@@ -48,6 +48,8 @@ Files render as cards in a responsive grid. Each card shows:
 
 The last tile of the grid is a dashed **upload card** listing the actually accepted file types and the size limit; drag-and-drop anywhere on the workspace also works.
 
+Right-click a file, a folder, or the empty listing — the same operations as the ⋯ menu, laid out the way Finder and Explorer are: Open, Ask about this, Download, Rename, Move, Copy origin path, Delete on a file; Open, New folder inside, Rename, Move, Delete on a folder; New folder, Upload, View and Sort on empty canvas. The ⋯ stays, top-right on both file and folder tiles, so the menu is still there if you never right-click.
+
 The **detail view** (the list toggle) is a dense sortable table for a corpus past what a card grid can hold. It is fully keyboard-navigable: one tab stop into the list, then arrows to walk it and Home/End to jump to either end — and the tab stop stays on the row you walked to, so tabbing away and back does not return you to the top. Enter opens the row.
 
 A **search field** above the grid filters the current listing client-side by file name, ingestion tags, and the AI description. Top-level folders additionally appear as a quick-filter **chip row** above the grid (the same selection the sidebar folder tree drives — no separate navigation model).

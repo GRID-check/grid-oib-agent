@@ -1,0 +1,10 @@
+---
+features:
+  - >
+    Right-click in a project's Files works the way Finder and Explorer taught
+    it: a file, a folder, and the empty listing each open their own menu.
+    Files offer Open, Ask about this, Download, Rename, Move, Copy origin path
+    and Delete; folders offer Open, New folder inside, Rename, Move and Delete;
+    empty canvas offers New folder, Upload, View and Sort. The ⋯ on a file or
+    folder is the same list, now top-right on both tiles, so the menu is still
+    there if you never right-click.

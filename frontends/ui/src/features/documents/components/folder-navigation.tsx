@@ -285,6 +285,11 @@ interface FolderTileProps {
   onOpen: (id: string) => void
   onRenameFolder: FolderNavProps['onRenameFolder']
   onDeleteFolder: FolderNavProps['onDeleteFolder']
+  /** Replaces the built-in ⋯ when the caller owns the menu (right-click + overflow). */
+  actions?: ReactNode
+  /** Controlled rename; omit to keep the in-place editor private to the tile. */
+  editing?: boolean
+  onEditingChange?: (editing: boolean) => void
   /**
    * Move a document into this folder, when the surface supports dragging one
    * here. Absent on surfaces that do not (the Archiv has no folders at all).
@@ -426,10 +431,15 @@ export function FolderCard({
   onDropDocument,
   onDropFolder,
   canAcceptFolder,
+  actions,
+  editing: editingProp,
+  onEditingChange,
 }: FolderTileProps): JSX.Element {
   const t = useTranslations('files')
   const { locale } = useLocale()
-  const [editing, setEditing] = useState(false)
+  const [uncontrolledEditing, setUncontrolledEditing] = useState(false)
+  const editing = editingProp ?? uncontrolledEditing
+  const setEditing = onEditingChange ?? setUncontrolledEditing
   const drop = useFolderDropTarget({
     folderId: folder.id,
     onDropDocument: onDropDocument ?? (() => {}),
@@ -451,11 +461,13 @@ export function FolderCard({
       {...drop.dropProps}
     >
       <div
-        className="absolute right-1.5 top-1.5 z-[1] md:opacity-0 md:group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none"
+        className="absolute right-1.5 top-1.5 z-[1] md:opacity-0 md:group-hover:opacity-100 group-focus-within:opacity-100 has-[[data-state=open]]:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none"
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
-        <FolderActionsMenu folder={folder} onStartRename={() => setEditing(true)} onDeleteFolder={onDeleteFolder} />
+        {actions ?? (
+          <FolderActionsMenu folder={folder} onStartRename={() => setEditing(true)} onDeleteFolder={onDeleteFolder} />
+        )}
       </div>
       <button
         type="button"
@@ -530,10 +542,15 @@ export function FolderRow({
   onDropDocument,
   onDropFolder,
   canAcceptFolder,
+  actions,
+  editing: editingProp,
+  onEditingChange,
 }: FolderTileProps): JSX.Element {
   const t = useTranslations('files')
   const { locale } = useLocale()
-  const [editing, setEditing] = useState(false)
+  const [uncontrolledEditing, setUncontrolledEditing] = useState(false)
+  const editing = editingProp ?? uncontrolledEditing
+  const setEditing = onEditingChange ?? setUncontrolledEditing
   const drop = useFolderDropTarget({
     folderId: folder.id,
     onDropDocument: onDropDocument ?? (() => {}),
@@ -617,11 +634,13 @@ export function FolderRow({
           </>
         )}
       </button>
-      <FolderActionsMenu
-        folder={folder}
-        onStartRename={() => setEditing(true)}
-        onDeleteFolder={onDeleteFolder}
-      />
+      {actions ?? (
+        <FolderActionsMenu
+          folder={folder}
+          onStartRename={() => setEditing(true)}
+          onDeleteFolder={onDeleteFolder}
+        />
+      )}
       <ChevronRight
         className="text-muted-foreground/40 group-hover:text-muted-foreground size-3.5 shrink-0 transition-colors duration-quick ease-out motion-reduce:transition-none"
         aria-hidden
