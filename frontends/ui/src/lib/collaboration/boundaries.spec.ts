@@ -41,6 +41,14 @@ vi.mock('@/lib/conversations/repository', () => ({
   updateConversationVisibilityInOrg: vi.fn(),
 }))
 
+// A workspace (or legacy project-less) conversation's sharing rule reads its
+// mounts (ADR-0054, spec AC-7); this spec has no database, and none of these
+// conversations mounts anything, so the answer is always "no mounts".
+vi.mock('@/lib/workspace/mounts-repository', () => ({
+  listConversationMounts: vi.fn().mockResolvedValue([]),
+  countConversationMounts: vi.fn().mockResolvedValue(0),
+}))
+
 vi.mock('@/lib/sharing/repository', () => ({
   SHARE_ROSTER_LIMIT: 200,
   countGrantsForResource: vi.fn(),
