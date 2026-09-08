@@ -73,6 +73,8 @@ def _build_run_agent_payload(
     memory_reflection_enabled,
     memory_reflection_llm,
     force_skills,
+    portfolio,
+    project_ids,
 ) -> dict:
     """Build the JSON-serializable ``run_agent_job`` kwargs a DB worker replays.
 
@@ -120,6 +122,8 @@ def _build_run_agent_payload(
         "memory_reflection_enabled": memory_reflection_enabled,
         "memory_reflection_llm": memory_reflection_llm,
         "force_skills": force_skills,
+        "portfolio": portfolio,
+        "project_ids": project_ids,
         # No owner at submit time (unclaimed): the DB worker fills in its own
         # worker id at replay for the runner's still-owner publish gate
         # (hardening item 10). Travels inside the encrypted payload like the
@@ -392,6 +396,11 @@ async def submit_agent_job(
     memory_reflection_llm: str | None = None,
     force_skills: list[str] | None = None,
     conversation_id: str | None = None,
+    # Portfolio-Recherche (ADR-0054, spec DR-4). Optional and defaulted off, so
+    # every existing caller — the chat escalation, the skills scheduler, the
+    # legacy alias below — submits exactly the job it submitted before.
+    portfolio: bool = False,
+    project_ids: list[str] | None = None,
 ) -> str:
     """
     Submit an agent job to the Dask cluster.
@@ -435,6 +444,15 @@ async def submit_agent_job(
             injected onto the worker's agent state as ``force_skills`` where
             the agent's state model declares the field (Agent Skills feature;
             the consumer lives in ``src/aiq_agent``).
+        portfolio: Run the deep researcher as a Portfolio-Recherche — one
+            bounded sub-run per readable project, then one cross-project report
+            (ADR-0054, spec DR-4). Honored only for an OFFICE run (an
+            organization and no project); anything else runs unchanged, because
+            a project run already has exactly one project and iterating it would
+            be the same run with extra steps.
+        project_ids: Which projects that portfolio run should read. Intersected
+            with what the caller may read, never added to it — the readable set
+            is the BFF's answer and this list can only narrow it.
 
     Returns:
         The job ID.
@@ -632,6 +650,8 @@ async def submit_agent_job(
                 memory_reflection_enabled=memory_reflection_enabled,
                 memory_reflection_llm=memory_reflection_llm,
                 force_skills=force_skills,
+                portfolio=portfolio,
+                project_ids=project_ids,
             )
             await job_store._create_job(
                 config_file=config_path or None,
@@ -668,6 +688,8 @@ async def submit_agent_job(
                     memory_reflection_enabled,
                     memory_reflection_llm,
                     force_skills,
+                    portfolio,
+                    project_ids,
                     None,  # claim_owner: no queue claim on the Dask path (see run_agent_job)
                 ],
             )

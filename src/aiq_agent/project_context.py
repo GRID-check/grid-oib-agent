@@ -68,8 +68,25 @@ ORGANIZATION_MEMBERSHIP_ID_HEADER = "x-grid-organization-membership-id"
 #: (`aiq_api.jobs.runner.WORKER_IDENTITY_HEADERS`). `remember` answered "no
 #: project in scope" on every deep-research run for weeks because this
 #: contract lived in two hand-maintained lists that nothing compared.
+#:
+#: A requirement is the MINIMUM every path that runs the tool supplies, never
+#: the union of what each path happens to have. A tool that runs in two shapes
+#: declares what BOTH shapes carry and refuses the rest at its own call site,
+#: where the missing field is decidable; declaring the wider set here would fail
+#: this contract on a path the tool actually serves. Both such tools say so
+#: below.
 TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
-    "project_memory_remember": (PROJECT_ID_HEADER, ORGANIZATION_ID_HEADER),
+    # `remember` runs in two shapes (ADR-0054, spec AG-8). In a PROJECT turn it
+    # writes project memory and needs the project id; in the Büro there is no
+    # project and it writes ORGANISATION memory — scope `organization`,
+    # `project_id` null — authorized by the BFF as the acting user. The
+    # organisation is therefore the only thing both shapes cannot run without,
+    # and it is what this row states. The project id is not dropped from the
+    # contract, only from THIS row: `test_tool_context_contract` asserts
+    # separately that the worker still injects it, because a project run whose
+    # project id went missing would silently escalate every finding to the whole
+    # office instead of failing.
+    "project_memory_remember": (ORGANIZATION_ID_HEADER,),
     # The Projektregister search (ADR-0054). The organization is what makes the
     # question answerable at all — the register never crosses that boundary
     # (spec PR-17) — so it is the requirement. The MEMBERSHIP header is what
@@ -86,6 +103,17 @@ TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     # and are deliberately not requirements: a run that has neither must be
     # refused BY THE ENDPOINT, not silently mounted by a caller that skipped it.
     "workspace_open_project": (ORGANIZATION_ID_HEADER, USER_ID_HEADER),
+    # The two BIM tools (ADR-0045, ADR-0054 spec AG-10). They address a model
+    # through the BFF's internal BIM routes, which scope every read to ONE
+    # organisation — so the organisation is what neither can run without. The
+    # PROJECT is no longer read off the context alone: since the Büro can hold
+    # several mounted projects and a project chat exactly one, both tools take
+    # an explicit `project_id` argument that must name a project this turn has
+    # in view, defaulting to the turn's own project when it has one
+    # (`agents/bim/register.resolve_tool_project`). Declaring the project id
+    # here would state a requirement the office turn legitimately does not meet.
+    "ifc_query": (ORGANIZATION_ID_HEADER,),
+    "ifc_measure": (ORGANIZATION_ID_HEADER,),
 }
 
 # Consolidated signed context envelope (backlog T3-9 follow-up, 2026-07-16).
@@ -582,6 +610,18 @@ def get_organization_id_from_context() -> str | None:
     organization-scoped memory writes. None in anonymous mode.
     """
     return GridRequestContext.from_context().organization_id
+
+
+def get_user_id_from_context() -> str | None:
+    """Read the acting user's id (``X-Grid-User-Id``).
+
+    WHO the turn runs for. Needed wherever the BFF authorizes an internal write
+    AS THAT PERSON rather than as the service token — mounting a project, and an
+    organisation-scoped memory write (ADR-0054, spec AG-8) — never as an
+    attribution field a tool writes into content. ``None`` in anonymous mode and
+    on any producer older than the header.
+    """
+    return GridRequestContext.from_context().user_id
 
 
 def get_organization_membership_id_from_context() -> str | None:

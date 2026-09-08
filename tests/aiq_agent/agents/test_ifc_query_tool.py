@@ -671,11 +671,12 @@ class TestTheDescriptionDescribesTheRealTool:
         from aiq_agent.agents.bim import register
 
         tree = ast.parse(inspect.getsource(register))
-        description = next(
-            ast.literal_eval(node.value)
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "_TOOL_DESCRIPTION"
-        )
+        # The description as the tool YIELDS it, read off the module rather than
+        # off one of the literals it is composed from: the `project_id`
+        # paragraph is shared with `ifc_measure` and is therefore appended, not
+        # spelled out here, and a test that read only the literal would stop
+        # covering the one argument both BIM tools now take.
+        description = register.IFC_QUERY_DESCRIPTION
         parameters = next(
             [argument.arg for argument in node.args.args + node.args.kwonlyargs]
             for node in ast.walk(tree)
@@ -703,6 +704,10 @@ class TestTheDescriptionDescribesTheRealTool:
         neighbours = {
             "knowledge_search",
             "project_profile_patch",
+            # How a project reaches the office turn's view in the first place
+            # (ADR-0054): the `project_id` paragraph tells the model to bring
+            # one in rather than to guess an id.
+            "open_project",
         }
         named = set(re.findall(r"[a-z][a-z0-9]*_[a-z0-9_]+", description))
 

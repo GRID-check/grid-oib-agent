@@ -48,6 +48,8 @@ def _sample_payload():
         memory_reflection_enabled=True,
         memory_reflection_llm="card_llm",
         force_skills=["oib-thermal-check"],
+        portfolio=True,
+        project_ids=["proj-uuid-1", "proj-uuid-2"],
     )
 
 
@@ -63,3 +65,9 @@ def test_payload_is_json_serializable():
     assert restored["job_id"] == "job-1"
     assert restored["parent_workflow_trace_id"] == 123
     assert restored["available_documents"] == [{"file_name": "d.pdf", "summary": "s"}]
+    # A Portfolio-Recherche is replayed as one (ADR-0054, spec DR-4): the flag
+    # and the named projects are part of what the job IS, so a DB worker that
+    # dropped them would quietly run an ordinary single-scope deep run and
+    # report it as a portfolio.
+    assert restored["portfolio"] is True
+    assert restored["project_ids"] == ["proj-uuid-1", "proj-uuid-2"]

@@ -1224,7 +1224,23 @@ The agent reaches the second through the `ifc_query` tool
 (`src/aiq_agent/agents/bim/register.py`), which posts to
 `POST /api/internal/bim/query` with the shared service token — the same
 single-writer separation the `remember` tool uses. Models are addressed by
-project and file name; no UUID travels through a conversation.
+project and file name; no MODEL uuid travels through a conversation.
+
+**Which project (ADR-0054, spec AG-10)**: both model-addressing tools —
+`ifc_query` and `ifc_measure` — take an explicit `project_id` argument, resolved
+by the one function `agents/bim/register.resolve_tool_project`. Empty inside a
+project chat means the conversation's own project. In the **Büro** there is no
+such project and there may be several in view, so the argument is required and
+must name one of them (the turn's signed scope entries plus whatever
+`open_project` mounted mid-turn — `knowledge/mounts.mounted_projects`). The tool
+never picks for the model, not even when exactly one project is in view: a silent
+pick is how one project's Brüstungshöhe gets reported as another's. Refusals name
+the projects that ARE in view, because a bare "no" is answered with the same id
+again, and only the genuinely unfixable case ("no project is in view at all")
+carries "do not retry". The context contract declares the ORGANISATION for both
+tools and not the project (`TOOL_CONTEXT_REQUIREMENTS`): the project is an
+argument now, and declaring it would state a requirement the office turn
+legitimately does not meet.
 
 ### What a large model costs, and where that cost was removed
 
@@ -1476,6 +1492,54 @@ organisation. Its turn-start context is the workspace digest, fetched by the
 worker the way the memory digest is (`_resolve_run_context`) and composed into
 `project_context` as the office block, with `workspace_context` on the state as
 the flag that says which shape it is.
+
+**Portfolio-Recherche — one run, one sub-run per project (ADR-0054, spec
+DR-4…DR-8)**: the Büro reads at most `GRID_WORKSPACE_MAX_MOUNTED_PROJECTS`
+projects in a live turn, and this is the one path that reads more. A submit
+carrying `portfolio: true` (with an optional `project_ids` list) makes the
+worker iterate instead of running once:
+`aiq_api.jobs.runner._run_portfolio_job` picks the projects, and for each one
+re-injects `X-Grid-Collection-Scope` narrowed to **base + Archiv + that project**
+before running the ordinary deep-research agent again. There is no portfolio
+agent and no new store; the arithmetic — selection, narrowing, the budget share,
+the report — is pure functions in
+`src/aiq_agent/agents/deep_researcher/portfolio.py`.
+
+Four decisions a reader should not have to reverse-engineer:
+
+- **Who may be read is the workspace digest's answer**, not the mounts twin's.
+  The digest already filters the Projektregister to what this *membership* may
+  read (ADR-0038) and persists nothing; the twin authorizes identically but also
+  writes a mount row and spends the per-conversation cap — the very ceiling a
+  portfolio run exists to exceed. A `project_ids` list is INTERSECTED with that
+  answer, never added to it, and the ids that fall out are named in the report
+  ("nicht verfügbar") rather than dropped. It fails **closed**: a digest that
+  cannot be reached reads nothing.
+- **The budget is divided, not spent first-come.** Each sub-run gets its own
+  `BudgetGuardCallback` for `GRID_MAX_RUN_COMPLETION_TOKENS // n`
+  (ADR-0015, `common.budget_guard.configured_completion_ceiling`), and the
+  run-wide guard is deliberately **not** installed on top: one shared pool gives
+  the first project everything and the last one nothing.
+- **A project that fails is a line in the report, not the end of the run**
+  (DR-8). A sub-run's exception is recorded against that project and the loop
+  continues; only the organisation's USD budget (`BudgetExceededError`) stops it,
+  and the projects after that are marked "wurde nicht mehr gelesen" rather than
+  attempted. Cancellation is re-raised, never swallowed into a per-project note.
+- **The report is one document with one numbering.** Each sub-run numbers its
+  citations from 1, so `renumber_citations` shifts each section's `[N]` markers
+  and its `verified_sources` past the sections before it. The result is returned
+  in the shape a single run returns (`report` + `verified_sources`), so cards,
+  the persisted output, the thread turn and the transparency lift all work on a
+  portfolio run without knowing it was one.
+
+Sub-runs share the job but not its file scope: each gets `job_id`-`p<n>` so one
+project's draft cannot be read by the next, and graph checkpointing is off for a
+portfolio run (one thread id across sub-runs would make project two resume
+project one). Progress rides the existing `job.phase` channel as
+`portfolio_started` (with the project count) / `portfolio_project_started` /
+`portfolio_synthesis_started`. The run reads at most `PORTFOLIO_MAX_PROJECTS`
+(10) projects, which is the digest endpoint's own recall ceiling — the report
+says how many of how many were read and never implies it saw the whole office.
 
 **Durable checkpointing (backlog T3-8, 2026-07-16, `5bea711`)**: optional
 LangGraph checkpointing for the deep-research graph, configured via

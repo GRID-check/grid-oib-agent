@@ -127,6 +127,69 @@ def get_turn_mounts() -> tuple[ScopedCollection, ...]:
     return () if registry is None else registry.snapshot()
 
 
+@dataclass(frozen=True)
+class MountedProject:
+    """A project this turn may read, as the turn knows it: id, and name if stated."""
+
+    id: str
+    name: str | None = None
+
+    def label(self) -> str:
+        """How the project is named to a model — the name, with its id beside it."""
+        return f"{self.name} (id: {self.id})" if self.name else self.id
+
+
+def mounted_projects() -> tuple[MountedProject, ...]:
+    """Every project in view for this turn, in the order the turn learned of it.
+
+    Two sources, one list, because a project reaches a turn two ways and a tool
+    asking "may I read project X" must not care which:
+
+    * the SCOPE the BFF signed for this turn — a project chat's own project, and
+      in the office every mount persisted on the conversation, re-authorized on
+      the WebSocket upgrade; and
+    * the mounts this turn earned WHILE IT RAN, through ``open_project``.
+
+    ``knowledge.scoping.get_scoped_collections_from_context`` already unions the
+    second onto the first, so it is asked first and :func:`get_turn_mounts` is
+    read only to cover the case it answers ``None`` for — a turn with no readable
+    scope header at all, which is every CLI and test run that still mounted
+    something.
+
+    Only entries that NAME a project contribute: ``project_id`` is what a tool
+    can be given as an argument and what a refusal can list back. A project-shelf
+    entry from a producer that predates the identity fields (ADR-0054) carries
+    none, and is invisible here rather than being guessed at from its collection
+    id — the collection name is authorization, never identity.
+    """
+    found: dict[str, MountedProject] = {}
+
+    def _collect(entries: object) -> None:
+        for entry in entries or ():  # type: ignore[union-attr]
+            project_id = getattr(entry, "project_id", None)
+            if not isinstance(project_id, str) or not project_id.strip():
+                continue
+            key = project_id.strip()
+            name = getattr(entry, "project_name", None)
+            name = name.strip() if isinstance(name, str) and name.strip() else None
+            existing = found.get(key)
+            if existing is None:
+                found[key] = MountedProject(key, name)
+            elif existing.name is None and name:
+                # First entry wins on order, but a name learned later still
+                # improves how the project is named back to the model.
+                found[key] = MountedProject(key, name)
+
+    try:
+        from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
+
+        _collect(get_scoped_collections_from_context())
+    except Exception:  # pragma: no cover - defensive: a tool must not die on its scope
+        logger.debug("Scope read failed while listing mounted projects", exc_info=True)
+    _collect(get_turn_mounts())
+    return tuple(found.values())
+
+
 def _base64url_decode_text(raw: str) -> str:
     padded = raw + "=" * (-len(raw) % 4)
     return base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")

@@ -8,6 +8,34 @@
 > per-project *Steckbrief* in a `grid_app` register table with a row-resident
 > embedding, read by the Büro-Chat. "Similar projects" and precedents are
 > queries over that table, not the separate pgvector index sketched below.
+>
+> **First artifact shipped:** *Portfolio-Recherche* — the "ask the portfolio"
+> item below, in the shape this repo could actually build. A deep-research run
+> reads the register's readable projects **one bounded sub-run at a time** and
+> writes one report with a section and citations per project
+> (`src/aiq_agent/agents/deep_researcher/portfolio.py`,
+> [backend deep dive §7](../architecture/backend-deep-dive.md#7-deep-research-async-jobs)).
+> Read what it settles before designing on top of the sketch below:
+>
+> - **Iteration, not fan-out.** Sequential sub-runs bound the cost by projects ×
+>   a share chosen in advance; a single index queried across the office bounds it
+>   by nothing. That is also what keeps every passage attributable to one
+>   project, which the report needs and a merged retrieval would have to
+>   reconstruct.
+> - **Retrieval stays per project.** No cross-project embedding index exists, and
+>   this artifact did not need one: each sub-run reads that project's own
+>   collection. What is shared is the *register* — one Steckbrief row per project
+>   — which is navigation, not content.
+> - **Authorization is per project, per run, and fails closed.** Which projects
+>   may be read is the workspace digest's answer for that membership, and a
+>   digest that cannot be reached reads nothing. Any future cross-project index
+>   inherits this bar: a shared index that cannot answer "may THIS person read
+>   THIS passage" is not shippable here.
+> - **The ceiling is honest.** One run reads at most ten projects, because that
+>   is what the register endpoint serves; the report says how many of how many it
+>   read. Item 2 below ("80% of mixed-use projects…") is still out of reach — it
+>   needs the whole portfolio in one query, which is the bulk readable-set
+>   endpoint nobody has written yet.
 
 ## The Problem
 

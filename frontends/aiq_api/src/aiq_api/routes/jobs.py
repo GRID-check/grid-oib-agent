@@ -74,6 +74,25 @@ class JobSubmitRequest(BaseModel):
             "data-source tools; unmapped utility tools remain available."
         ),
     )
+    portfolio: bool = Field(
+        False,
+        description=(
+            "Run this as a Portfolio-Recherche (ADR-0054, spec DR-4): the deep researcher reads the "
+            "caller's readable projects one bounded sub-run at a time and writes one cross-project "
+            "report. Only meaningful for an office run — one that has an organization and no project "
+            "— and ignored for any other agent. Default false, so every existing caller is unchanged."
+        ),
+    )
+    project_ids: list[str] | None = Field(
+        None,
+        max_length=50,
+        description=(
+            "Which projects a portfolio run should read. Omit to let the run take the projects the "
+            "office register offers for this question. Named ids are INTERSECTED with what the caller "
+            "may read — never added to it — and any that are not readable are named in the report as "
+            "not read."
+        ),
+    )
 
 
 JOB_SUBMIT_EXAMPLES: dict[str, dict] = {
@@ -660,6 +679,8 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
                 expiry_seconds=expiry,
                 data_sources=req.data_sources,
                 auth_token=auth_token,
+                portfolio=req.portfolio,
+                project_ids=req.project_ids,
             )
         except JobAdmissionError as e:
             raise HTTPException(429, str(e), headers={"Retry-After": str(e.retry_after_seconds)})

@@ -43,6 +43,9 @@ from .event_store import BatchingEventStore
 from .event_store import EventStore
 from .outcome_notify import notify_job_outcome
 from .phase_events import PHASE_DONE
+from .phase_events import PHASE_PORTFOLIO_PROJECT_STARTED
+from .phase_events import PHASE_PORTFOLIO_STARTED
+from .phase_events import PHASE_PORTFOLIO_SYNTHESIS_STARTED
 from .phase_events import PhaseProgressCallback
 from .phase_events import emit_phase_event
 
@@ -911,6 +914,164 @@ def _workflow_reflection_llm_ref(config: Any) -> str | None:
     return str(ref) if ref else None
 
 
+def _is_office_run(identity: dict) -> bool:
+    """Whether this job runs for the office rather than for one project.
+
+    The same rule the agent side states as ``workspace_digest.is_workspace_turn``
+    — an organisation and no project (ADR-0054, spec AG-6) — asked here of the
+    identity a worker was GIVEN at submit time, because a Dask worker has no
+    request to read it off.
+    """
+    from aiq_agent.knowledge.workspace_digest import is_workspace_turn
+
+    return is_workspace_turn(
+        organization_id=identity.get("organization_id"),
+        project_id=identity.get("project_id"),
+    )
+
+
+def _portfolio_synthesizer(llm: Any):
+    """The cross-project pass, as the callable the portfolio loop takes.
+
+    ``None`` when the job has no model to write it with, which the loop already
+    treats as "ship the sections alone" — the same shape a failed synthesis
+    takes, so there is one behaviour and not two.
+    """
+    if llm is None:
+        return None
+
+    from aiq_agent.agents.deep_researcher.portfolio import PortfolioRun
+    from aiq_agent.agents.deep_researcher.portfolio import synthesis_prompt
+
+    async def _synthesize(run: PortfolioRun) -> str:
+        from langchain_core.messages import HumanMessage
+
+        # The orchestrator model, the one the card pass also borrows: the
+        # per-project sections were written by the writer already, and this pass
+        # only compares them.
+        response = await llm.ainvoke([HumanMessage(content=synthesis_prompt(run))])
+        content = getattr(response, "content", response)
+        return content if isinstance(content, str) else str(content)
+
+    return _synthesize
+
+
+async def _run_portfolio_job(
+    *,
+    job_id: str,
+    query: str,
+    identity: dict,
+    collection_scope: list | None,
+    project_ids: list[str] | None,
+    context_state: Any,
+    run_project,
+    synthesize=None,
+    event_store: Any = None,
+) -> dict[str, Any]:
+    """A Portfolio-Recherche: several sub-runs in sequence, one report out.
+
+    The glue, and deliberately only the glue — which projects, which scope,
+    which share of the budget and how the pieces become one document all live in
+    ``aiq_agent.agents.deep_researcher.portfolio``, where they are pure
+    functions. What is HERE is the part that needs a worker: narrowing the
+    scope header before each sub-run, and telling the stream where the run has
+    got to.
+
+    ``run_project(project, ceiling, sub_job_id)`` runs one sub-run and returns
+    whatever the agent returned; its report and its sources are read off that
+    with the same two extractors a single run's result goes through, so a
+    portfolio section carries exactly the provenance a single deep answer does
+    (spec DR-6).
+
+    Returns a result in the shape the rest of ``run_agent_job`` already reads —
+    ``report`` plus ``verified_sources`` — rather than a type of its own, so
+    cards, the persisted output, the thread turn and the transparency lift all
+    keep working on a portfolio run without knowing it was one.
+    """
+    from aiq_agent.agents.deep_researcher.portfolio import narrow_scope_to_project
+    from aiq_agent.agents.deep_researcher.portfolio import render_portfolio_report
+    from aiq_agent.agents.deep_researcher.portfolio import resolve_portfolio_projects
+    from aiq_agent.agents.deep_researcher.portfolio import run_portfolio_iteration
+    from aiq_agent.common import configured_completion_ceiling
+
+    # Blocking HTTP to the BFF, like every other digest read on this path.
+    selection = await asyncio.to_thread(
+        resolve_portfolio_projects,
+        organization_id=identity.get("organization_id"),
+        membership_id=identity.get("organization_membership_id"),
+        query=query,
+        requested_ids=project_ids,
+        collection_scope=collection_scope,
+    )
+    logger.info(
+        "Job %s runs as a Portfolio-Recherche over %d project(s); %d requested id(s) are not readable",
+        job_id,
+        len(selection.projects),
+        len(selection.unreadable),
+    )
+    if not collection_scope:
+        # The narrowed scope is built FROM the run's own scope, so with none to
+        # narrow each sub-run sees its project and nothing above it — no OIB
+        # corpus, no Archiv. Said out loud here because the no-scope warning
+        # further up describes the opposite outcome ("project collections will
+        # be invisible"), which is what happens to every run except this one.
+        logger.warning(
+            "Job %s is a Portfolio-Recherche with no collection scope to narrow; each sub-run will "
+            "read its project alone, without the base corpus or the Archiv",
+            job_id,
+        )
+    emit_phase_event(
+        event_store,
+        PHASE_PORTFOLIO_STARTED,
+        count=len(selection.projects),
+        projects=[project.label() for project in selection.projects],
+        not_readable=list(selection.unreadable),
+    )
+
+    total = len(selection.projects)
+    order = {project.id: index for index, project in enumerate(selection.projects, start=1)}
+
+    async def _one(project, ceiling: int | None):
+        index = order.get(project.id, 0)
+        emit_phase_event(
+            event_store,
+            PHASE_PORTFOLIO_PROJECT_STARTED,
+            project=project.label(),
+            index=index,
+            total=total,
+        )
+        # THE narrowing. Everything above the projects stays, every other
+        # project's entry goes, and this project's entry is added carrying its
+        # id and name — so a passage retrieved here can only be attributed to
+        # the project it came from (spec DR-6).
+        _inject_worker_headers(
+            context_state,
+            {COLLECTION_SCOPE_HEADER: _collection_scope_header(narrow_scope_to_project(collection_scope, project))},
+        )
+        # A sub-run's job id is the job's, suffixed: it scopes the sandbox the
+        # writer drafts in, so two projects cannot read each other's files. The
+        # suffix stays in the character set a Modal sandbox name allows.
+        result = await run_project(project, ceiling, f"{job_id}-p{index}")
+        return _extract_result(result), _extract_verified_sources(result) or ()
+
+    async def _synthesize_with_event(run):
+        emit_phase_event(event_store, PHASE_PORTFOLIO_SYNTHESIS_STARTED, count=len(run.read_projects()))
+        return await synthesize(run)
+
+    run = await run_portfolio_iteration(
+        query=query,
+        selection=selection,
+        run_project=_one,
+        run_ceiling=configured_completion_ceiling(),
+        synthesize=_synthesize_with_event if synthesize is not None else None,
+    )
+    report, sources = render_portfolio_report(run)
+    output: dict[str, Any] = {"report": report}
+    if sources:
+        output["verified_sources"] = sources
+    return output
+
+
 async def run_agent_job(
     configure_logging: bool,
     log_level: int,
@@ -948,6 +1109,10 @@ async def run_agent_job(
     memory_reflection_enabled: bool = False,
     memory_reflection_llm: str | None = None,
     force_skills: list[str] | None = None,
+    # Portfolio-Recherche (ADR-0054, spec DR-4). Defaulted off, so every job
+    # submitted before this existed replays into exactly the run it was.
+    portfolio: bool = False,
+    project_ids: list[str] | None = None,
     # DB-queue claim owner (the worker's own id) for the still-owner publish
     # gate. None on the Dask path, which has no claim table, and at submit
     # time (unclaimed); the DB worker fills in its own id at replay. Must stay
@@ -1017,6 +1182,16 @@ async def run_agent_job(
             where the state model declares the field — the same guarded path
             ``data_sources``/``project_context`` take (Agent Skills feature;
             the state-field consumer is added by ``src/aiq_agent``).
+        portfolio: Run this job as a Portfolio-Recherche: one bounded
+            deep-research sub-run per readable project, in sequence, then one
+            cross-project report (ADR-0054, spec DR-4…DR-8). Honored only for a
+            deep-research job that is an OFFICE run — an organisation and no
+            project. Anything else runs exactly as it did before, because a
+            project run already has its one project and iterating it would be
+            the same run with extra steps.
+        project_ids: Which projects that portfolio run should read. Intersected
+            with what the acting membership may read and never added to it; the
+            ones that fall out are NAMED in the report as not read.
         claim_owner: Optional DB-queue claim owner (worker id) for the
             still-owner publish gate. ``None`` (Dask path, or unclaimed at
             submit) skips the ownership check and only the terminal verdict
@@ -1374,6 +1549,25 @@ async def run_agent_job(
                     # detector understands, and long-running fan-out research is
                     # the run-away-cost shape the budget cap exists for.
                     is_deep_research_job = getattr(fn_config, "type", None) == "deep_research_agent"
+                    # A Portfolio-Recherche is this same deep run, iterated
+                    # (ADR-0054, spec DR-4). The flag alone does not make one:
+                    # it must be the deep agent, and it must be an OFFICE run —
+                    # an organisation and no project — because a project run
+                    # already has its one project, and honoring the flag there
+                    # would read the whole office from inside a single project's
+                    # conversation. Refused loudly rather than silently, because
+                    # a caller that asked for a portfolio and got an ordinary run
+                    # would read the answer as if it had covered the office.
+                    is_portfolio_job = bool(portfolio) and is_deep_research_job and _is_office_run(_identity)
+                    if portfolio and not is_portfolio_job:
+                        logger.warning(
+                            "Job %s asked for a Portfolio-Recherche but is not an office deep run "
+                            "(agent=%s, organization=%s, project=%s); running it unchanged",
+                            job_id,
+                            getattr(fn_config, "type", None),
+                            bool(_identity.get("organization_id")),
+                            bool(_identity.get("project_id")),
+                        )
                     if is_deep_research_job:
                         callbacks.append(
                             PhaseProgressCallback(
@@ -1384,26 +1578,54 @@ async def run_agent_job(
 
                         from aiq_agent.common import create_budget_guard_callback
 
-                        budget_guard_callback = create_budget_guard_callback()
+                        # A portfolio run's ceiling is not spent as one pool: each
+                        # sub-run carries its OWN guard for its own share
+                        # (`_run_portfolio_job`), so the last project is as well
+                        # funded as the first. One shared guard on top of those
+                        # would fire inside whichever project happened to cross
+                        # the line and then refuse every project after it — the
+                        # "five thorough sections and twenty-five stubs" shape the
+                        # share exists to prevent.
+                        budget_guard_callback = None if is_portfolio_job else create_budget_guard_callback()
                         if budget_guard_callback is not None:
                             callbacks.append(budget_guard_callback)
 
                     # Durable checkpointing (T3-8): None unless deep_research_agent.checkpoint_db is
                     # configured, in which case DeepResearcherAgent resumes via job_id as thread_id.
-                    checkpointer = await _resolve_deep_research_checkpointer(fn_config)
+                    #
+                    # Never for a portfolio run. Each sub-run carries its own
+                    # id (so its files stay its own), and a checkpointer keyed on
+                    # that id would write threads the job's purge
+                    # (`_purge_deep_checkpoint`, which knows only the job id) can
+                    # never collect — a leak per project, forever. What DR-8 asks
+                    # of a portfolio run — a partial report when it cannot finish
+                    # — is delivered by the per-project outcomes instead, which
+                    # is a stronger guarantee than a resumable graph and needs no
+                    # store.
+                    checkpointer = None if is_portfolio_job else await _resolve_deep_research_checkpointer(fn_config)
+
+                    def _build_agent(*, agent_job_id: str, extra_callbacks: list | None = None):
+                        """One agent instance on this job's config, callbacks and tools.
+
+                        A function because a portfolio run needs SEVERAL — one per
+                        project, each with its own budget guard and its own
+                        sandbox/file scope, so one project's draft report cannot
+                        be read by the next.
+                        """
+                        return _create_agent_instance(
+                            agent_cls=agent_cls,
+                            llm_provider=provider,
+                            llm=llm,
+                            tools=tools,
+                            fn_config=fn_config,
+                            verbose=verbose,
+                            callbacks=[*callbacks, *(extra_callbacks or [])],
+                            job_id=agent_job_id,
+                            checkpointer=checkpointer,
+                        )
 
                     # Instantiate agent with callbacks
-                    agent = _create_agent_instance(
-                        agent_cls=agent_cls,
-                        llm_provider=provider,
-                        llm=llm,
-                        tools=tools,
-                        fn_config=fn_config,
-                        verbose=verbose,
-                        callbacks=callbacks,
-                        job_id=job_id,
-                        checkpointer=checkpointer,
-                    )
+                    agent = None if is_portfolio_job else _build_agent(agent_job_id=job_id)
 
                     # Run agent - LLM/tool events will be nested under workflow span.
                     # Unified LLM cost tracking covers every model call in the job;
@@ -1431,21 +1653,59 @@ async def run_agent_job(
                         # a document card.
                         _bound_card_registry() as card_registry,
                     ):
-                        result = await _run_agent(
-                            agent=agent,
-                            input_text=input_text,
-                            monitor=cancellation_monitor,
-                            available_documents=available_documents,
-                            data_sources=data_sources,
-                            event_store=event_store,
-                            user_info=user_info,
-                            clarifier_result=clarifier_result,
-                            project_context=agent_project_context,
-                            workspace_context=workspace_context,
-                            platform_lessons=platform_lessons,
-                            force_skills=force_skills,
-                            organization_id=_job_org_id,
-                        )
+                        if is_portfolio_job:
+
+                            async def _run_one_project(project: Any, ceiling: int | None, sub_job_id: str) -> Any:
+                                """One project's sub-run: this run, narrowed to that project."""
+                                from aiq_agent.common import create_budget_guard_callback
+
+                                guard = create_budget_guard_callback(ceiling) if ceiling else None
+                                return await _run_agent(
+                                    agent=_build_agent(
+                                        agent_job_id=sub_job_id,
+                                        extra_callbacks=[guard] if guard is not None else None,
+                                    ),
+                                    input_text=input_text,
+                                    monitor=cancellation_monitor,
+                                    available_documents=available_documents,
+                                    data_sources=data_sources,
+                                    event_store=event_store,
+                                    user_info=user_info,
+                                    clarifier_result=clarifier_result,
+                                    project_context=agent_project_context,
+                                    workspace_context=workspace_context,
+                                    platform_lessons=platform_lessons,
+                                    force_skills=force_skills,
+                                    organization_id=_job_org_id,
+                                )
+
+                            result = await _run_portfolio_job(
+                                job_id=job_id,
+                                query=input_text,
+                                identity=_identity,
+                                collection_scope=collection_scope,
+                                project_ids=project_ids,
+                                context_state=context_state,
+                                run_project=_run_one_project,
+                                synthesize=_portfolio_synthesizer(llm),
+                                event_store=event_store,
+                            )
+                        else:
+                            result = await _run_agent(
+                                agent=agent,
+                                input_text=input_text,
+                                monitor=cancellation_monitor,
+                                available_documents=available_documents,
+                                data_sources=data_sources,
+                                event_store=event_store,
+                                user_info=user_info,
+                                clarifier_result=clarifier_result,
+                                project_context=agent_project_context,
+                                workspace_context=workspace_context,
+                                platform_lessons=platform_lessons,
+                                force_skills=force_skills,
+                                organization_id=_job_org_id,
+                            )
 
                     # Emit WORKFLOW_END event for Phoenix
                     context.intermediate_step_manager.push_intermediate_step(

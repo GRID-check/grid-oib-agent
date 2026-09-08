@@ -48,9 +48,47 @@ def test_the_worker_supplies_what_every_bound_tool_needs(config: dict, agent: st
     assert missing == {}, f"{agent} binds tools the job worker cannot serve: {missing}"
 
 
-def test_the_memory_tool_declares_its_project_scope():
-    """The one requirement that has already bitten, stated as data."""
-    assert set(TOOL_CONTEXT_REQUIREMENTS["project_memory_remember"]) == {PROJECT_ID_HEADER, ORGANIZATION_ID_HEADER}
+def test_the_memory_tool_declares_the_one_thing_both_its_shapes_need():
+    """`remember` runs in TWO shapes and the declaration states their minimum.
+
+    In a project turn it writes project memory; in the Büro there is no project
+    and it writes ORGANISATION memory (ADR-0054, spec AG-8), so requiring the
+    project id here would state a requirement the office turn legitimately does
+    not meet — and this contract is checked against every path that binds the
+    tool, not against the paths that happen to be project-scoped. The
+    organisation is what neither shape can run without: without it there is
+    nowhere to record a finding at all, and the tool says exactly that.
+    """
+    assert set(TOOL_CONTEXT_REQUIREMENTS["project_memory_remember"]) == {ORGANIZATION_ID_HEADER}
+
+
+def test_the_worker_still_injects_the_project_id_the_office_turn_does_not_have():
+    """The other half of the row above, and the reason dropping it is safe.
+
+    A PROJECT run's `remember` writes project memory, and it can only do that if
+    the worker injects the project id — which is not covered by the requirement
+    any more, because the office shape has no project. Pinned here instead: a
+    worker that stopped injecting it would not fail the requirement, it would
+    quietly escalate every finding of every project run to the whole office.
+    """
+    assert PROJECT_ID_HEADER in WORKER_IDENTITY_HEADERS
+
+
+def test_the_bim_tools_declare_the_organisation_and_not_the_project(config: dict):
+    """The building-model tools take their project as an ARGUMENT (spec AG-10).
+
+    They are bound in the Büro as well as in a project chat, and there the turn
+    has no project to read off the context — it has a mounted set, and the model
+    names which of it to read. What neither can run without is the organisation:
+    every BIM route scopes its reads to one tenant. Named here for the same
+    reason as the rows above — a tool with no entry passes the worker test by
+    having no requirements at all.
+    """
+    for kind in ("ifc_query", "ifc_measure"):
+        assert set(TOOL_CONTEXT_REQUIREMENTS[kind]) == {ORGANIZATION_ID_HEADER}
+    # And they are bound where the office turn runs, which is what makes the
+    # office branch of the resolver reachable at all.
+    assert {"ifc_query", "ifc_measure"} <= set(_bound_tool_types(config, "shallow_research_agent").values())
 
 
 def test_the_register_search_declares_its_organization_scope():

@@ -226,12 +226,25 @@ def insert_memory_item(
     provenance_type: str = "agent",
     supersedes_content: str | None = None,
     salience: float | None = None,
+    user_id: str | None = None,
+    organization_membership_id: str | None = None,
 ) -> str | None:
     """Record one memory item via the internal BFF endpoint.
 
     ``provenance_type`` distinguishes how the item was captured: ``agent`` for a
     deliberate in-turn ``remember`` call, ``distillation`` for the async
     post-answer reflection stage. It lets the UI label the two differently.
+
+    ``user_id``/``organization_membership_id`` are WHO the turn runs for, and
+    they are sent on the ORGANISATION-scoped branch only. An org item lands in
+    every project's digest across the tenant, so that write is authorized as the
+    acting person (``org:memory:write``, spec AG-8) rather than as the service
+    token; the route reads them nowhere else, and a project-scoped write is
+    addressed by its project row and needs no acting user. Sending them anyway
+    would put an identity on a write that does not authorize by it. A caller
+    that omits them on an org write is not rejected as malformed — the route
+    refuses it with the same ``ORG_MEMORY_DISABLED`` code every other policy
+    denial uses, which the tool degrades into the proposal card (spec AG-9).
 
     ``supersedes_content`` is the verbatim content of an existing entry this
     finding makes obsolete, quoted back from the digest the caller was shown.
@@ -277,6 +290,13 @@ def insert_memory_item(
         payload["organizationId"] = organization_id
     if conversation_id:
         payload["sourceConversationId"] = conversation_id
+    if scope == "organization":
+        # See the docstring: the acting identity travels on this branch alone,
+        # because this is the only branch the BFF authorizes by it.
+        if user_id:
+            payload["userId"] = user_id
+        if organization_membership_id:
+            payload["organizationMembershipId"] = organization_membership_id
     if supersedes_content and supersedes_content.strip():
         payload["supersedesContent"] = supersedes_content.strip()[:2000]
     if salience is not None:

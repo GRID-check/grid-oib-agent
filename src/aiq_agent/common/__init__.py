@@ -23,6 +23,7 @@ from nat.data_models.api_server import UserMessageContentRoleType
 
 from .budget_guard import BudgetGuardCallback
 from .budget_guard import RunBudgetExceededError
+from .budget_guard import configured_completion_ceiling
 from .budget_guard import create_budget_guard_callback
 from .callbacks import VerboseTraceCallback
 from .citation_verification import SourceRegistry
@@ -116,6 +117,7 @@ __all__ = [
     "all_mapped_tools_filtered_out",
     "CONTINUATION_TURN",
     "content_to_text",
+    "configured_completion_ceiling",
     "create_budget_guard_callback",
     "apply_model_override",
     "apply_zdr_routing",

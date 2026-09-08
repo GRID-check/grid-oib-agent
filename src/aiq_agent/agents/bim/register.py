@@ -48,6 +48,18 @@ VALID_OPERATIONS = {
     "compliance-diff",
 }
 
+#: What every model-addressing tool says about its `project_id` argument. One
+#: text because the rule is one rule (spec AG-10) and two wordings would drift
+#: into two rules — the model reads a description as the contract.
+PROJECT_ARGUMENT_DESCRIPTION = (
+    "Which project's building model to read. Leave it empty inside a project conversation: the "
+    "conversation's own project is used. In the office (Büro) it is REQUIRED and must be the id of "
+    "a project that is already in view — the `id:` of a project you brought in with "
+    "`open_project`. A project that is not in view is refused, and the refusal names the ones that "
+    "are; never guess an id."
+)
+
+
 _TOOL_DESCRIPTION = (
     "Query the project's IFC/BIM model for EXACT facts about the building: element counts, "
     "rooms and their areas, storeys, property values (fire rating, U-value, load-bearing, …), "
@@ -168,6 +180,12 @@ _TOOL_DESCRIPTION = (
     "leave it empty when there is only one. Report the numbers this tool returns as they are — "
     "do not recompute, round differently, or extrapolate them."
 )
+
+#: What the tool actually yields: the body above plus the ONE shared paragraph
+#: about `project_id`. Composed rather than written out a second time — the two
+#: model-addressing tools must not drift into two rules about which project they
+#: read (spec AG-10), and a description IS the contract the model reads.
+IFC_QUERY_DESCRIPTION = _TOOL_DESCRIPTION + "\n\nproject_id: " + PROJECT_ARGUMENT_DESCRIPTION
 
 
 # The Hauptnutzung values the rule catalogue knows — mirroring
@@ -290,11 +308,95 @@ def _bcf_link(
 #: this one it cannot fix at all, and without being told so it will keep trying
 #: until its tool budget runs out — spending the turn instead of answering.
 NO_PROJECT_TEXT = (
-    "Error: this conversation is not attached to a project, so no BIM model can be selected. "
-    "Do not retry — no argument to this tool can fix it. Tell the user (in German) that the "
-    "question refers to a building model and that they need to open the conversation inside the "
-    "project the model belongs to. Do not state anything about the building."
+    "Error: this conversation is not attached to a project and no project is in view, so no BIM "
+    "model can be selected. Do not retry with a project id you have not been shown — no argument "
+    "to this tool can fix it. Tell the user (in German) that the question refers to a building "
+    "model and that the project it belongs to has to be brought into view first (in the office "
+    "with `open_project`), or the conversation opened inside that project. Do not state anything "
+    "about the building."
 )
+
+
+def _ask_which_project(mounted: tuple) -> str:
+    """The refusal for an office call that named no project while several are in view.
+
+    Unlike :data:`NO_PROJECT_TEXT` this one IS fixable by calling again, so it
+    must not carry "do not retry": the model has everything it needs, it simply
+    did not say which project it meant (spec AG-10 — the tool never picks for
+    it, not even when exactly one project is in view, because a silent pick is
+    how one project's Brüstungshöhe gets reported as another's).
+    """
+    names = ", ".join(project.label() for project in mounted)
+    return (
+        "Error: this conversation is in the office and holds more than one shelf, so a building "
+        f"model has to be named. Projects in view: {names}. Call this tool again with "
+        "`project_id` set to the id of the one you mean; do not pick one for the user if the "
+        "question does not say which."
+    )
+
+
+def _refuse_unmounted_project(requested: str, mounted: tuple) -> str:
+    """The refusal for a project that is not in view, naming the ones that are.
+
+    Naming them is the point: the model asked for a building fact it cannot have
+    from this turn, and the only recoverable next move is either one of these
+    projects or bringing the requested one in. A bare "no" produces a retry with
+    the same id, which is how a turn is spent instead of answered.
+    """
+    if mounted:
+        names = ", ".join(project.label() for project in mounted)
+        return (
+            f"Error: project '{requested}' is not in view for this conversation, so its building "
+            f"model cannot be read. In view right now: {names}. Either ask about one of those, or "
+            "bring the project into view first with `open_project` and then call this tool again. "
+            "Do not repeat this call with the same id, and do not state anything about the "
+            "building of a project that is not in view."
+        )
+    return (
+        f"Error: project '{requested}' is not in view for this conversation, and no project is. "
+        "Bring the project into view first with `open_project`, then call this tool again. Do not "
+        "repeat this call with the same id, and do not state anything about the building."
+    )
+
+
+def resolve_tool_project(explicit: str | None, turn_project_id: str | None) -> tuple[str | None, str | None]:
+    """Decide WHICH project a model-addressing tool call reads, or why it cannot.
+
+    Returns ``(project_id, refusal)`` — exactly one of the two is set.
+
+    The rule, in the order it is applied (ADR-0054, spec AG-10):
+
+    * no id given → the turn's own project, which a project chat always has and
+      the Büro never does. An office call is refused here rather than at the
+      BFF, because "which of the projects in view did you mean" is a question
+      only this turn can answer and a 400 from the model route reads to the
+      agent as a fixable argument error (the failure ``NO_PROJECT_TEXT`` was
+      written for). The refusal asks for the argument when projects ARE in view,
+      and says the unfixable thing only when none are.
+    * an id that IS the turn's project → itself. A project chat may name its own
+      project explicitly, and re-checking it against the mounted list would
+      refuse the ordinary case on a producer that sends no project identity on
+      the scope entry.
+    * an id in view for this turn → that project. The mounted set is the
+      authorization the office already earned (a signed grant, or a persisted
+      mount re-authorized on the upgrade); this function trusts it and adds
+      nothing to it.
+    * anything else → a refusal naming what IS in view.
+    """
+    from aiq_agent.knowledge.mounts import mounted_projects
+
+    requested = (explicit or "").strip()
+    if not requested:
+        if turn_project_id:
+            return turn_project_id, None
+        mounted = mounted_projects()
+        return None, (_ask_which_project(mounted) if mounted else NO_PROJECT_TEXT)
+    if turn_project_id and requested == turn_project_id:
+        return requested, None
+    mounted = mounted_projects()
+    if any(project.id == requested for project in mounted):
+        return requested, None
+    return None, _refuse_unmounted_project(requested, mounted)
 
 
 def _build_query(
@@ -841,6 +943,7 @@ async def ifc_query(tool_config: IfcQueryConfig, builder: Builder):
 
     async def _ifc_query(
         operation: str = "overview",
+        project_id: str = "",
         filters: str = "",
         metric: str = "count",
         quantity: str = "",
@@ -857,19 +960,17 @@ async def ifc_query(tool_config: IfcQueryConfig, builder: Builder):
         organization_id = get_organization_id_from_context()
         if not organization_id:
             return "Error: organization unknown for this session — the BIM model cannot be queried. Do not retry."
-        project_id = get_project_id_from_context()
-        if not project_id:
-            # The route requires `projectId` OR `modelId`, and this tool has
-            # never sent a `modelId` — it addresses a model by project and file
-            # name. So a project-less conversation produced a request that could
-            # only 400, which arrives as a REJECTION: „there was a problem with
-            # the arguments, call the tool again". The agent then retries a call
-            # that cannot succeed, for as many turns as it is allowed.
-            #
-            # Refused here instead, where it is actually decidable, and phrased
-            # as the fact it is: the conversation is not attached to a project,
-            # which is something only the user can change.
-            return NO_PROJECT_TEXT
+        # WHICH project's model. The route requires `projectId` OR `modelId`,
+        # and this tool has never sent a `modelId` — it addresses a model by
+        # project and file name. So an unresolved project produced a request
+        # that could only 400, which arrives as a REJECTION: „there was a
+        # problem with the arguments, call the tool again". The agent then
+        # retries a call that cannot succeed, for as many turns as it is
+        # allowed. Resolved here instead, where it is decidable: the turn's own
+        # project, or one the office brought into view (spec AG-10).
+        resolved_project_id, refusal = resolve_tool_project(project_id, get_project_id_from_context())
+        if refusal is not None:
+            return refusal
 
         query = _build_query(
             operation=(operation or "overview").strip().lower(),
@@ -890,7 +991,7 @@ async def ifc_query(tool_config: IfcQueryConfig, builder: Builder):
             result = await asyncio.to_thread(
                 run_bim_query,
                 organization_id=organization_id,
-                project_id=project_id,
+                project_id=resolved_project_id,
                 query=query,
                 model_name=(model_name or "").strip() or None,
                 compare_with_name=(compare_with or "").strip() or None,
@@ -924,6 +1025,6 @@ async def ifc_query(tool_config: IfcQueryConfig, builder: Builder):
             )
 
         _trace(query, result)
-        return _render(result, project_id, gebaeudeklasse or 0, (hauptnutzung or "").strip().lower())
+        return _render(result, resolved_project_id, gebaeudeklasse or 0, (hauptnutzung or "").strip().lower())
 
-    yield FunctionInfo.from_fn(_ifc_query, description=_TOOL_DESCRIPTION)
+    yield FunctionInfo.from_fn(_ifc_query, description=IFC_QUERY_DESCRIPTION)

@@ -966,13 +966,17 @@ class TestAConversationWithoutAProjectIsRefusedBeforeTheNetwork:
     it is a request that should never be made, refused where the reason is known.
     """
 
-    def test_both_halves_of_the_bim_surface_say_the_same_thing(self):
-        from aiq_agent.agents.bim.measure_register import NO_PROJECT_TEXT as measure_text
-        from aiq_agent.agents.bim.register import NO_PROJECT_TEXT as query_text
+    def test_both_halves_of_the_bim_surface_decide_it_the_same_way(self):
+        """One resolver, so the two tools cannot disagree about which project
+        they read or how they refuse (spec AG-10). They used to share a string;
+        now they share the function that produces it, which is the stronger
+        version of the same invariant — the office branch has three outcomes and
+        a shared constant could only pin one."""
+        from aiq_agent.agents.bim import measure_register
+        from aiq_agent.agents.bim import register
 
-        # Literally the same string: an agent that learns it from one tool has
-        # to read it correctly from the other.
-        assert measure_text is query_text
+        assert measure_register.resolve_tool_project is register.resolve_tool_project
+        assert measure_register.PROJECT_ARGUMENT_DESCRIPTION is register.PROJECT_ARGUMENT_DESCRIPTION
 
     def test_it_forbids_the_retry_that_used_to_burn_the_turn(self):
         from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
@@ -984,7 +988,11 @@ class TestAConversationWithoutAProjectIsRefusedBeforeTheNetwork:
         from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
 
         assert "not attached to a project" in NO_PROJECT_TEXT
-        assert "inside the project" in NO_PROJECT_TEXT
+        # Two ways out now, because there are two surfaces: open the
+        # conversation in the project, or — in the office — bring the project
+        # into view first (ADR-0054).
+        assert "opened inside that project" in NO_PROJECT_TEXT
+        assert "open_project" in NO_PROJECT_TEXT
         # And forbids the failure mode that made this worth finding: filling the
         # silence with something plausible about the building.
         assert "Do not state anything about the building" in NO_PROJECT_TEXT
@@ -1518,9 +1526,10 @@ class TestTheDescriptionDescribesTheRealTool:
 
         dispatched = set(inspect.signature(_build_call).parameters)
         fields = set(IfcMeasureInput.model_fields)
-        # `model_name` chooses WHICH file to open and never reaches the engine
-        # call, so it is the one field with no counterpart.
-        assert fields - dispatched == {"model_name"}
+        # `model_name` chooses WHICH file to open and `project_id` chooses
+        # WHICH project's files to choose among; neither reaches the engine
+        # call, so they are the two fields with no counterpart.
+        assert fields - dispatched == {"model_name", "project_id"}
         assert dispatched - fields == set()
 
     def test_every_operation_it_names_is_one_the_tool_accepts(self):
