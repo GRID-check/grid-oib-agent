@@ -12,12 +12,12 @@ import {
   PinOff,
   Plus,
   Trash2,
+  Undo2,
 } from 'lucide-react'
-import {
-  PROJECT_MEMORY_KINDS,
-  type ProjectMemoryItem,
-  type ProjectMemoryKind,
-} from '@/lib/db/schema'
+import { PROJECT_MEMORY_KINDS, type ProjectMemoryKind } from '@/lib/db/schema'
+// Type-only, so nothing from the service (drizzle, `getDb`) reaches this
+// client bundle — the import is erased at compile time.
+import type { ProjectMemoryItemWithSupersession } from '@/lib/projects/memory-service'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -46,7 +46,18 @@ import type { Translator } from '@/i18n'
  */
 
 /** Memory item as it arrives over the wire (timestamps serialize to strings). */
-type MemoryItem = Omit<ProjectMemoryItem, 'createdAt' | 'updatedAt' | 'lastReferencedAt'> & {
+/**
+ * The list endpoint's item, with the timestamps as they survive JSON.
+ *
+ * Both ends of a supersession ride along (ADR-0055): the note that retired this
+ * one and the note this one retired. Taken from the service's own type rather
+ * than restated here — a hand-written mirror is a fork whose drift is invisible,
+ * because each copy looks locally correct.
+ */
+type MemoryItem = Omit<
+  ProjectMemoryItemWithSupersession,
+  'createdAt' | 'updatedAt' | 'lastReferencedAt'
+> & {
   createdAt: string
   updatedAt: string
   lastReferencedAt: string | null
@@ -251,6 +262,37 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
     setConfirmingDeleteId(null)
   }
 
+  /**
+   * Undo a supersession: reinstate the retired note and retire its replacement.
+   *
+   * The route is the audited inverse of the write that retired it, so the panel
+   * does not patch two rows itself — it asks once and reloads. Org-scoped items
+   * go through the organization route, as every other write here does.
+   */
+  const restoreItem = async (target: MemoryItem) => {
+    setBusyId(target.id)
+    try {
+      const res = await fetch(`${itemUrl(target)}/restore`, { method: 'POST' })
+      // `409` says something true about the STORE, not about the request: the
+      // note is already back, or another writer moved the pair since this list
+      // was fetched. Reporting it as a failure would invite a second press at a
+      // store that is already in the asked-for state — so it reloads, which is
+      // the action that actually helps, and says why.
+      if (res.status === 409) {
+        load({ cancelled: false })
+        toast.message(t('memory.superseded.restoreStale'))
+        return
+      }
+      if (!res.ok) throw new Error(t('memory.errors.requestFailed', { status: res.status }))
+      load({ cancelled: false })
+      toast.success(t('memory.superseded.restored'))
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t('memory.superseded.restoreFailed'))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const submitEdit = async (target: MemoryItem) => {
     const content = editDraft.trim()
     if (!content) return
@@ -259,8 +301,16 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
     toast.success(t('memory.updated'))
   }
 
-  const visible =
-    items?.filter((it) => it.status !== 'superseded' && it.status !== 'dismissed') ?? []
+  /**
+   * Retired notes STAY (ADR-0055, C5).
+   *
+   * They used to be filtered out here, which is what made a correction the
+   * quietest event in the system: the replaced note vanished, and a reader had
+   * no way to see what changed or to put it back. It stays, dimmed, saying what
+   * took its place — and the replacement says what it replaced. `dismissed` is
+   * a different fact, a note a person threw away, and stays hidden.
+   */
+  const visible = items?.filter((it) => it.status !== 'dismissed') ?? []
   /**
    * What the conflict badge says on hover: the note this one contradicts, by
    * its own words. An agent finding that disagreed with a pinned, confirmed or
@@ -432,7 +482,15 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                 const busy = busyId === item.id
                 const isEditing = editingId === item.id
                 return (
-                  <Item key={item.id} className="group items-start">
+                  <Item
+                    key={item.id}
+                    className={
+                      item.status === 'superseded'
+                        ? 'group items-start opacity-70'
+                        : 'group items-start'
+                    }
+                    data-status={item.status}
+                  >
                     <ItemContent>
                       {isEditing ? (
                         <div className="space-y-2">
@@ -483,6 +541,30 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                             )}
                             <span className="min-w-0">{item.content}</span>
                           </p>
+                          {/* A retired note stays and says what took its
+                              place; the replacement says what it replaced. Two
+                              halves of one correction, each readable from the
+                              other's row (ADR-0055, C5). */}
+                          {item.status === 'superseded' && (
+                            <p
+                              className="text-muted-foreground mt-1.5 text-xs leading-snug"
+                              data-testid="memory-superseded"
+                            >
+                              {item.supersededBy
+                                ? t('memory.superseded.replacedBy', {
+                                    content: item.supersededBy.content,
+                                  })
+                                : t('memory.superseded.replacedUnknown')}
+                            </p>
+                          )}
+                          {item.supersedes && item.status !== 'superseded' && (
+                            <p
+                              className="text-muted-foreground mt-1.5 text-xs leading-snug"
+                              data-testid="memory-supersedes"
+                            >
+                              {t('memory.superseded.replaces', { content: item.supersedes.content })}
+                            </p>
+                          )}
                           {item.conflictsWithId && (
                             <Badge
                               variant="outline"
@@ -515,22 +597,42 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
 
                     {!isEditing && (
                       <ItemActions className="duration-quick pointer-coarse:opacity-100 gap-1 opacity-0 transition-opacity ease-out focus-within:opacity-100 group-hover:opacity-100 motion-reduce:opacity-100 motion-reduce:transition-none">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-muted-foreground hover:text-foreground size-7"
-                          onClick={() => patchItem(item, { pinned: !item.pinned })}
-                          disabled={busy}
-                          aria-label={item.pinned ? t('memory.unpin') : t('memory.pin')}
-                          title={item.pinned ? t('memory.unpinTitle') : t('memory.pinTitle')}
-                        >
-                          {item.pinned ? (
-                            <PinOff className="size-3.5" aria-hidden />
-                          ) : (
-                            <Pin className="size-3.5" aria-hidden />
-                          )}
-                        </Button>
-                        {item.verification !== 'user_confirmed' && (
+                        {/* A retired note gets ONE action, and it is the way
+                            back. Pinning, confirming or editing a note that is
+                            no longer in force would be four controls for a row
+                            nothing reads (ADR-0055, C5). */}
+                        {item.status === 'superseded' && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-muted-foreground hover:text-foreground size-7"
+                            onClick={() => void restoreItem(item)}
+                            disabled={busy}
+                            aria-label={t('memory.superseded.restore')}
+                            title={t('memory.superseded.restore')}
+                            data-testid="memory-restore"
+                          >
+                            <Undo2 className="size-3.5" aria-hidden />
+                          </Button>
+                        )}
+                        {item.status !== 'superseded' && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-muted-foreground hover:text-foreground size-7"
+                            onClick={() => patchItem(item, { pinned: !item.pinned })}
+                            disabled={busy}
+                            aria-label={item.pinned ? t('memory.unpin') : t('memory.pin')}
+                            title={item.pinned ? t('memory.unpinTitle') : t('memory.pinTitle')}
+                          >
+                            {item.pinned ? (
+                              <PinOff className="size-3.5" aria-hidden />
+                            ) : (
+                              <Pin className="size-3.5" aria-hidden />
+                            )}
+                          </Button>
+                        )}
+                        {item.verification !== 'user_confirmed' && item.status !== 'superseded' && (
                           <Button
                             variant="ghost"
                             size="icon"
@@ -543,17 +645,19 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                             <Check className="size-3.5" aria-hidden />
                           </Button>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-muted-foreground hover:text-foreground size-7"
-                          onClick={() => startEdit(item)}
-                          disabled={busy}
-                          aria-label={t('memory.edit')}
-                          title={t('memory.editTitle')}
-                        >
-                          <Pencil className="size-3.5" aria-hidden />
-                        </Button>
+                        {item.status !== 'superseded' && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-muted-foreground hover:text-foreground size-7"
+                            onClick={() => startEdit(item)}
+                            disabled={busy}
+                            aria-label={t('memory.edit')}
+                            title={t('memory.editTitle')}
+                          >
+                            <Pencil className="size-3.5" aria-hidden />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"

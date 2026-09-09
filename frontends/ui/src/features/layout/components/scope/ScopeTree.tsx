@@ -24,7 +24,7 @@
  */
 
 import { useState, type FC } from 'react'
-import { Archive, ArrowRight, FileText, FolderKanban, MessageSquare, Plus, Scale, X, type LucideIcon } from 'lucide-react'
+import { Archive, ArrowRight, Brain, FileText, FolderKanban, MessageSquare, Plus, Scale, X, type LucideIcon } from 'lucide-react'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -48,6 +48,10 @@ const LEVEL_ICON: Record<ScopeLevelId, LucideIcon> = {
   archiv: Archive,
   register: FolderKanban,
   project: FileText,
+  // The same glyph the „Piloti hat sich gemerkt" chip and the memory panel
+  // already wear. A reader who follows this row must land somewhere they
+  // recognise, and the glyph is what carries that across three surfaces.
+  memory: Brain,
   session: MessageSquare,
 }
 
@@ -72,6 +76,15 @@ export interface ScopeTreeProps {
   onResetPreset?: () => void
   /** The offer behind the cap. */
   onDeepResearch: () => void
+  /**
+   * Opens the memory panel — where notes are read, corrected and removed.
+   *
+   * The memory level LINKS there and never becomes a page of its own: this
+   * tree reports what a turn reads, and curating what it may read is a
+   * different job with a surface that already exists. Absent where there is no
+   * panel to open (the Büro without an organization memory).
+   */
+  onOpenMemory?: () => void
   /**
    * Only in a project chat: the doorway into the Büro with this project in
    * view. It replaces the disabled "Alle Projekte · Bald verfügbar" row, which
@@ -134,6 +147,7 @@ export const ScopeTree: FC<ScopeTreeProps> = ({
   onRetry,
   onResetPreset,
   onDeepResearch,
+  onOpenMemory,
   onAskInWorkspace,
 }) => {
   const t = useTranslations('chat')
@@ -219,6 +233,50 @@ export const ScopeTree: FC<ScopeTreeProps> = ({
                   <p className="text-muted-foreground pl-8 pr-1 text-xs leading-snug">
                     {t('workspace.tree.projectLocked', { project: level.lockedProjectName })}
                   </p>
+                )}
+
+                {level.id === 'memory' && (
+                  <>
+                    {level.memory && (
+                      <p
+                        className="text-muted-foreground pl-8 pr-1 text-xs leading-snug"
+                        data-testid="scope-tree-memory-counts"
+                      >
+                        {t('workspace.tree.memoryCounts', {
+                          carried: level.memory.carried,
+                          total: level.memory.total,
+                        })}
+                        {level.memory.omitted > 0 && (
+                          <>
+                            {' '}
+                            {/* The omission count in the READER's words. The
+                                digest tells the model "N further notes
+                                omitted"; this row is the same number said to
+                                the person, which is the divergence ADR-0055
+                                exists to close. */}
+                            <span data-testid="scope-tree-memory-omitted">
+                              {t('workspace.tree.memoryOmitted', { omitted: level.memory.omitted })}
+                            </span>
+                          </>
+                        )}
+                      </p>
+                    )}
+                    {onOpenMemory && (
+                      <div className="pl-6">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={onOpenMemory}
+                          data-testid="scope-tree-memory-open"
+                          className="pointer-coarse:min-h-11 h-8 w-full justify-start px-1.5 text-xs"
+                        >
+                          <Brain className="size-3.5" aria-hidden="true" />
+                          {t('workspace.tree.memoryOpen')}
+                        </Button>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {level.id === 'project' && level.mounted && (

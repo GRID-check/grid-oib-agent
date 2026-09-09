@@ -248,6 +248,12 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
   // that does not end in `.` is taken as the whole path (ADR-0054, the
   // Portfolio-Recherche hand-off; the key carries `{count}`).
   'status.escalation.portfolio': 'thinking.turnStatus.status.escalationPortfolio',
+  // Same reason, twice more (ADR-0055): `status.memory` is not a string leaf
+  // either, so both memory keys name their whole path. `search` is the agent
+  // reaching PAST the injected digest; `superseded` is a write retiring earlier
+  // notes — the quietest event in the system until it got a line.
+  'status.memory.search': 'thinking.turnStatus.status.memorySearch',
+  'status.memory.superseded': 'thinking.turnStatus.status.memorySuperseded',
   // Skill keys drop the `skill.` segment: it is already the dictionary group.
   'skill.activated': 'thinking.',
   'skill.forced': 'thinking.',

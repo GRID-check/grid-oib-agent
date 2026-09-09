@@ -140,13 +140,18 @@ export const chat: typeof en.chat = {
         archiv: 'Büroarchiv',
         register: 'Projektregister',
         project: 'Projekt',
+        memory: 'Gedächtnis',
         session: 'Diese Unterhaltung',
       },
       hints: {
         base: 'OIB-Richtlinien und Rechtsquellen.',
         archiv: 'Standards und Details der ganzen Organisation.',
         register: 'Nur Namen und Steckbriefe — keine Dokumente.',
-        project: 'Unterlagen und Gedächtnis der eingeblendeten Projekte.',
+        // Das Projekt bringt seine UNTERLAGEN mit; das Gedächtnis steht
+        // seit ADR-0055 als eigene Zeile darunter und nimmt das Wort hier
+        // aus dem Satz, damit nicht zwei Zeilen dasselbe versprechen.
+        project: 'Unterlagen der eingeblendeten Projekte.',
+        memory: 'Was Piloti gelernt hat.',
         session: 'Dateien, die Sie hier angehängt haben.',
       },
       // „ausgeschlossen“ ist eine Entscheidung, „nicht verfügbar“ eine
@@ -165,6 +170,17 @@ export const chat: typeof en.chat = {
       mountAdd: '+ Projekt einblenden',
       mountRemove: '{project} ausblenden',
       resetPreset: 'Voreinstellung zurücksetzen',
+      // „Im Blick“ heißt gelesen — nicht verwendet. Was eine Notiz in der
+      // Antwort bewirkt hat, weiß niemand, auch das Modell nicht (ADR-0055).
+      memoryCounts:
+        '{carried, plural, one {# Notiz} other {# Notizen}} von {total} im Blick.',
+      // Dieselbe Zahl, die der Auszug dem MODELL nennt, jetzt auch den
+      // Lesenden. Dass die beiden auseinanderliefen, ist der Anlass des ganzen
+      // Eintrags.
+      memoryOmitted:
+        '{omitted, plural, one {# weitere Notiz ist} other {# weitere Notizen sind}} diesmal nicht mitgelesen worden.',
+      memoryOpen: 'Gedächtnis öffnen',
+      memoryNoOrganization: 'Für Ihre Organisation ist noch nichts gemerkt.',
     },
     mounted: {
       label: 'Im Blick',
@@ -279,6 +295,20 @@ export const chat: typeof en.chat = {
       },
       levelEmpty: 'nichts eingeblendet',
       levelCount: '{docs, plural, one {# Dokument} other {# Dokumente}}',
+      // Das Gedächtnis steht NEBEN den Ebenen, nicht in ihnen: eine Ebene ist
+      // ein Regal, das gelesen wurde und dessen Belege sich öffnen lassen —
+      // eine Notiz ist nichts davon (ADR-0055).
+      memory: {
+        title: 'Gedächtnis',
+        notEvidence: 'Kein Beleg — Notizen, die beim Antworten mitgelesen wurden.',
+        carried: '{carried, plural, one {# Notiz} other {# Notizen}} im Blick',
+        none: 'nichts mitgelesen',
+        of: 'von {total}',
+        omitted:
+          '{omitted, plural, one {# weitere Notiz} other {# weitere Notizen}} nicht mitgelesen',
+        searched:
+          'Über den laufenden Auszug hinaus im Gedächtnis gesucht: {searched, plural, one {# Notiz} other {# Notizen}}.',
+      },
     },
     registerMount: {
       label: 'In diese Unterhaltung holen:',
@@ -865,6 +895,23 @@ export const chat: typeof en.chat = {
     savedProject: 'Im Gedächtnis dieses Projekts gespeichert.',
     dismissed: 'Nicht gespeichert.',
     error: 'Erkenntnis konnte nicht gespeichert werden',
+    // WARUM überhaupt gefragt wird: die Reichweite. Organisationswissen wird in
+    // jedem Projekt dieser Organisation mitgelesen — deshalb schreibt Piloti es
+    // nie selbst, sondern legt es vor (ADR-0055, C6).
+    orgReach:
+      'Organisationsweit heißt: in jedem Projekt dieser Organisation mitgelesen. Deshalb legt Piloti das vor, statt es selbst zu schreiben.',
+    // WER annehmen darf. Eine Rechte-Aussage, kein Ausfall: „derzeit nicht
+    // verfügbar“ war die falsche Auskunft, weil sie zum Warten einlädt statt
+    // zum Fragen.
+    orgPermission:
+      'Organisationsweit merken darf, wer das Recht „Organisationsgedächtnis schreiben“ hat (org:memory:write). Ohne dieses Recht bleibt „Nur in diesem Projekt speichern“.',
+    orgDenied:
+      'Ihnen fehlt das Recht, organisationsweit zu merken (org:memory:write). Eine Administratorin oder ein Administrator Ihrer Organisation kann es vergeben — oder Sie speichern die Erkenntnis nur in diesem Projekt.',
+    // Der andere Grund hinter demselben Code: nicht Ihr Recht fehlt, sondern
+    // die Installation hat es abgeschaltet. Jemanden nach einem Recht fragen
+    // zu lassen, das gar nicht die verschlossene Tür ist, wäre der falsche Satz.
+    orgSwitchedOff:
+      'Organisationsweites Merken ist in dieser Installation abgeschaltet. Das entscheidet der Betrieb, nicht Ihre Rolle — die Erkenntnis lässt sich weiterhin in diesem Projekt speichern.',
     kind: {
       decision: 'Entscheidung',
       constraint: 'Vorgabe',
@@ -966,6 +1013,15 @@ export const chat: typeof en.chat = {
         // Die Büro-Eskalation über mehrere Projekte (ADR-0054); `count` kommt als Zahl im Text.
         escalationPortfolio:
           'Kurzrecherche reicht nicht — Portfolio-Recherche über {count, plural, one {ein Projekt} other {# Projekte}} startet',
+        // Das Gedächtnis wird auf JEDER Runde als Auszug mitgelesen; dass hier
+        // darüber hinaus gesucht wurde, ist die Entscheidung, die eine Zeile
+        // verdient — und die Zahl ist der Grund, warum sie eine eigene ist.
+        memorySearch:
+          'Im Gedächtnis nachgesehen — {count, plural, one {# weitere Notiz} other {# weitere Notizen}} gelesen',
+        // Die bis hierher leiseste Änderung im System: eine Notiz ersetzt eine
+        // frühere, und niemand erfuhr davon.
+        memorySuperseded:
+          '{count, plural, one {Eine frühere Notiz wurde} other {# frühere Notizen wurden}} durch eine neue ersetzt',
       },
     },
     // Das eine Skill-Ereignis, das Lesende sehen, danach unterschieden, WER
@@ -984,6 +1040,9 @@ export const chat: typeof en.chat = {
       webSearch: 'Websuche',
       ris: 'RIS',
       corpus: 'OIB-Wissen',
+      // Der Speicher, in dem Piloti Notizen zum Projekt hält — nicht der
+      // Basis-Korpus, weshalb dieser Chip vor `corpus` entschieden wird.
+      memory: 'Gedächtnis',
       assistant: 'Assistent',
       reading: 'Lesen',
       // Ein Chip pro Skill, den dieser Turn tatsächlich angewendet hat.
@@ -1322,6 +1381,40 @@ export const chat: typeof en.chat = {
       distillation: 'nach der Antwort ergänzt',
       inTurn: 'während der Antwort notiert',
     },
+    // Eine Korrektur, laut ausgesprochen (ADR-0055, C5). Bis hierher war das
+    // Ersetzen einer Notiz das leiseste Ereignis im System: die alte
+    // verschwand aus dem Gedächtnis, und weder sehen noch rückgängig machen
+    // ließ sich das.
+    superseded: {
+      notice: 'Piloti hat eine frühere Notiz ersetzt.',
+      replaces: 'Neu: „{content}“',
+      replaced: 'Bisher: „{content}“',
+      undo: 'Rückgängig',
+      undone: 'Die frühere Notiz gilt wieder.',
+      undoFailed: 'Das ließ sich gerade nicht rückgängig machen.',
+      // 409: entweder gilt die frühere Notiz schon wieder, oder jemand
+      // anderes hat das Paar inzwischen bewegt. Kein Fehlschlag.
+      undoStale: 'Daran hat sich inzwischen etwas geändert — im Gedächtnis steht der aktuelle Stand.',
+      // Im Gedächtnis-Panel: die ausgemusterte Notiz bleibt stehen und sagt,
+      // was an ihre Stelle getreten ist — und die neue sagt, was sie ersetzt.
+      panelRetired: 'Ersetzt durch: „{content}“',
+      panelReplaces: 'Ersetzt: „{content}“',
+      panelRestore: 'Frühere Notiz wiederherstellen',
+      panelRestored: 'Wiederhergestellt.',
+      panelRestoreFailed: 'Die Notiz konnte nicht wiederhergestellt werden.',
+    },
+  },
+  // Der Marker unter der Antwort: WAS gelesen wurde, nie was gewirkt hat.
+  memoryContext: {
+    trigger: '{count, plural, one {# Notiz} other {# Notizen}} aus dem Gedächtnis im Blick',
+    triggerAria:
+      '{count, plural, one {# Notiz war} other {# Notizen waren}} beim Antworten im Blick — Liste öffnen',
+    // Der Satz, der den Marker ehrlich hält. „Gelesen“ lässt sich belegen,
+    // „verwendet“ nicht — auch das Modell weiß es nicht über sich selbst.
+    readNotUsed:
+      'Diese Notizen standen beim Antworten im Kontext. Ob eine davon die Antwort geprägt hat, lässt sich nicht sagen — sie sind kein Beleg.',
+    omitted:
+      '{omitted, plural, one {# weitere Notiz} other {# weitere Notizen}} aus dem Gedächtnis sind diesmal nicht mitgelesen worden.',
   },
   confidence: {
     label: 'Einschätzung: {level}',

@@ -29,8 +29,19 @@ interface MemoryProposalCardProps {
 }
 
 /**
- * Confirmation card emitted by the `remember` tool when an org-scoped memory
- * write can't be completed by the agent's service token (default-deny). The
+ * The organization proposal card: a finding whose scope is the whole tenant,
+ * put to a person because only a person may widen it that far.
+ *
+ * Emitted by the `remember` tool — and, since ADR-0055, by the post-answer
+ * reflection stage — when an org-scoped memory write cannot be completed by the
+ * agent's service token (default-deny). It is the REVIEW half of the gate
+ * ADR-0054 built: the write is refused for everyone, the card asks, and
+ * acceptance runs through the reader's own authenticated session with
+ * `org:memory:write`. The card says both of those things in as many words,
+ * because "why am I being asked this" and "who can say yes" are the questions
+ * a proposal has to answer to be one.
+ *
+ * The
  * agent never writes org-wide memory silently; instead the user completes the
  * write through their OWN authenticated session — org-wide (allowed for any org
  * member) or scoped to just this project. Mirrors ProjectProfilePatchCard:
@@ -69,7 +80,33 @@ export function MemoryProposalCard({
         body: JSON.stringify({ kind, content, confidence }),
       })
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
+        const body: { code?: string; error?: string } = await res.json().catch(() => ({}))
+        // A refused ORG write is a PERMISSION, not an outage. `403
+        // ORG_MEMORY_DISABLED` reached the reader as "service unavailable",
+        // which is the wrong instruction twice over: it invites waiting, and it
+        // hides the two things that would actually work — asking an
+        // administrator for `org:memory:write`, or saving to this project
+        // instead. The sentence is ours, never the server's `error` string
+        // (ADR-0055, C6).
+        if (res.status === 403 || body.code === 'ORG_MEMORY_DISABLED') {
+          // ONE code, TWO causes, and they need two different sentences — the
+          // whole point of the ordering fix on the server (ADR-0055, C6). A
+          // permission denial is about the acting user and has a remedy they
+          // can pursue: ask an administrator, or save to this project. The
+          // deployment off-switch is about the installation and has neither —
+          // telling that person to ask for a permission would send them at a
+          // door that is not the locked one.
+          //
+          // The code cannot separate them (the Python proposal-card branch keys
+          // on it and must stay one branch), so the message does. The match is
+          // narrow and the DEFAULT is the permission sentence, because that is
+          // the one a person can act on and the one that is true in every
+          // ordinary deployment.
+          const deploymentOff = /switched off|deployment|disabled/i.test(body.error ?? '')
+          throw new Error(
+            t(deploymentOff ? 'memoryProposal.orgSwitchedOff' : 'memoryProposal.orgDenied')
+          )
+        }
         throw new Error(body.error || `${t('memoryProposal.error')} (${res.status})`)
       }
       setIsSubmitting(false)
@@ -118,6 +155,17 @@ export function MemoryProposalCard({
       </div>
 
       <p className="text-sm leading-relaxed text-foreground">{content}</p>
+
+      {/* WHY this is being asked, and WHO may answer it. An organization write
+          is the one write whose blast radius is every project in the tenant, so
+          the card states the reach before the buttons and names the permission
+          that accepts it (ADR-0055, C6). */}
+      <p className="text-xs leading-relaxed text-muted-foreground" data-testid="memory-proposal-reach">
+        {t('memoryProposal.orgReach')}
+      </p>
+      <p className="text-xs leading-relaxed text-muted-foreground" data-testid="memory-proposal-permission">
+        {t('memoryProposal.orgPermission')}
+      </p>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 

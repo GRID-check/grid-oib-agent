@@ -39,11 +39,13 @@
  * graph, for the people who need it.
  */
 
+import type { MemoryContext } from '@/adapters/api/schemas'
+import { searchedMemory } from './memory-context'
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
 import type { CitedDocument } from './citations'
 import type { Shelf } from './source-kinds'
 import { asSourceKind, kindForLane } from './source-kinds'
-import type { TraceLaneCard, TraceSourceHit } from './trace-lanes'
+import { isMemoryLane, type TraceLaneCard, type TraceSourceHit } from './trace-lanes'
 
 /** The six bands of the Herleitung, in fixed authority order. */
 export type KnowledgeLevel =
@@ -135,6 +137,11 @@ export const levelForHit = (
   hit: Pick<TraceSourceHit, 'shelf'>,
   lane: Pick<TraceLaneCard, 'key' | 'kind'>
 ): KnowledgeLevel | null => {
+  // Memory is not a corpus and reaches NO band here. Without this the lane
+  // would fall through `kindForLane`'s fail-open to `web` and a note Piloti
+  // wrote would be counted, coloured and tallied as an outside source — the
+  // one rendering ADR-0055 forbids outright.
+  if (isMemoryLane(lane.key)) return null
   if (hit.shelf) return SHELF_LEVEL[hit.shelf]
   const kind = asSourceKind(lane.kind) ?? kindForLane(lane.key)
   if (kind === 'baurecht') return 'law'
@@ -226,3 +233,63 @@ export const groupByLevel = (
 
   return KNOWLEDGE_LEVEL_ORDER.map((level) => groups.get(level) ?? emptyGroup(level))
 }
+
+
+// ---------------------------------------------------------------------------
+// The memory band — beside the levels, never one of them (ADR-0055)
+// ---------------------------------------------------------------------------
+
+/** One note the turn read, as the memory band renders it. */
+export interface MemoryEntry {
+  /** Row id — the render key, and what the panel link resolves. */
+  id: string
+  /** `decision` | `constraint` | `open_question` | `derived_fact` | `preference`. */
+  kind: string
+  /** The note itself, shown verbatim. */
+  content: string
+}
+
+/**
+ * What the Herleitung says about memory on one turn.
+ *
+ * Deliberately NOT a {@link LevelGroup}. A level is a shelf that was READ FOR
+ * EVIDENCE and every one of them can be opened, quoted and checked; a note is
+ * something Piloti wrote down, and putting it in the same list — even last,
+ * even grey — would make the band's own promise ("this is where the answer came
+ * from") cover a claim nothing can verify. It renders after the levels, under
+ * its own heading, with its own sentence saying it is not evidence.
+ */
+export interface MemoryBand {
+  /** Notes the digest carried into this turn, in the order it carried them. */
+  entries: MemoryEntry[]
+  /** Notes in scope, before the digest's cap. */
+  total: number
+  /** Notes the digest left out — the number it disclosed to the model. */
+  omitted: number
+  /** Notes `search_memory` returned this turn; `0` when it was never called. */
+  searched: number
+  /** Whether the turn reached past the digest at all. */
+  searchedMemory: boolean
+}
+
+/**
+ * The memory band for a turn, or `null` when the turn read no memory at all.
+ *
+ * `null` and "read nothing" are different facts and stay different: a turn that
+ * carried zero notes out of forty still knows the forty exist and says so;
+ * a turn with no memory context knows nothing and the band does not render.
+ */
+export const memoryBand = (context: MemoryContext | undefined): MemoryBand | null =>
+  context
+    ? {
+        entries: context.carried.map((note) => ({
+          id: note.id,
+          kind: note.kind,
+          content: note.content,
+        })),
+        total: context.total,
+        omitted: context.omitted,
+        searched: context.searched,
+        searchedMemory: searchedMemory(context),
+      }
+    : null

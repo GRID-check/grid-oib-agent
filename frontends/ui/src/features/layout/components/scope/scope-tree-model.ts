@@ -1,5 +1,5 @@
 /**
- * The Wissensbasis, as data — the five knowledge levels in authority order and
+ * The Wissensbasis, as data — the six knowledge levels in authority order and
  * what each of them is doing on THIS turn (`workspace-chat-ui.md` §4).
  *
  * A pure model rather than logic inside the tree, for the same reason
@@ -27,11 +27,32 @@
 import type { SourceSignal } from '../../lib/source-presets'
 import type { ConversationScope } from '@/features/chat/lib/project-scope'
 
-/** The five levels, in the fixed authority order the tree renders them in. */
-export type ScopeLevelId = 'base' | 'archiv' | 'register' | 'project' | 'session'
+/**
+ * The six levels, in the fixed authority order the tree renders them in.
+ *
+ * `memory` sits AFTER `project` and BEFORE `session` (ADR-0055): what Piloti
+ * has learned about a project is narrower than the project's documents and
+ * wider than one conversation's attachments. It is the one level that is read
+ * on EVERY turn, which is precisely why its absence from this list was the
+ * hole the tree could not show.
+ */
+export type ScopeLevelId = 'base' | 'archiv' | 'register' | 'project' | 'memory' | 'session'
 
 /** Same four words the Datenbasis uses — see the module header. */
 export type ScopeLevelState = 'on' | 'off' | 'unavailable' | 'always'
+
+/**
+ * What the memory level states: carried out of total, with the omission the
+ * digest already disclosed to the model.
+ */
+export interface MemoryLevelCounts {
+  /** Notes the digest actually carried into this turn. */
+  carried: number
+  /** Notes in scope, before the digest's cap. */
+  total: number
+  /** Notes the digest left out — `total - carried` as the backend counted it. */
+  omitted: number
+}
 
 /** One project this conversation may read, as the tree renders it. */
 export interface MountedProject {
@@ -55,6 +76,15 @@ export interface ScopeLevel {
   reason?: { key: string; values?: Record<string, string> }
   /** Only ever set on `project`: the projects in view, in mount order. */
   mounted?: MountedProject[]
+  /**
+   * Only ever set on `memory`: what THIS turn's digest carried, out of how
+   * many notes exist, and how many it had to leave out.
+   *
+   * The omission count is the same number the digest text discloses to the
+   * model (ADR-0055): what the model is told and what the reader is told must
+   * not diverge, and this level exists because they did.
+   */
+  memory?: MemoryLevelCounts
   /**
    * Only on `project`, and only in a project chat: the one project this chat is
    * locked to. Distinct from `mounted`, which is the Büro's growable list.
@@ -82,12 +112,28 @@ export interface BuildScopeLevelsInput {
   preset?: { label: string; excludes: readonly ScopeLevelId[] } | null
   /** Whether the reader may still mount (the cap is not reached). */
   canMount?: boolean
+  /**
+   * What the last answered turn read out of memory, when one has been answered.
+   * `null`/absent means "not known yet", which is NOT the same as zero: the
+   * level still renders `always`, it just states no counts.
+   */
+  memory?: MemoryLevelCounts | null
+  /**
+   * Whether this tenant has organization-scoped memory at all. Only consulted
+   * OUTSIDE a project, where organization notes are the only ones in scope —
+   * without them the level is a door that is shut, and says so.
+   */
+  hasOrganizationMemory?: boolean
 }
 
 /** Which `--source-*` family each level paints with (§6). */
 const LEVEL_SIGNAL: Record<ScopeLevelId, SourceSignal> = {
   base: 'law',
   archiv: 'office',
+  // Memory takes `--source-auto` GREY, the one family that is not a corpus.
+  // It is not evidence and must never be paintable as any tier of it: what a
+  // note states was never retrieved from a document that could be opened.
+  memory: 'auto',
   // The register, the projects and the conversation are ALL the project family:
   // a Steckbrief is not a different tier of trust from a project document, only
   // a coarser grain of the same one. The glyph carries the distinction.
@@ -109,6 +155,8 @@ export const buildScopeLevels = ({
   sessionAttachmentCount = 0,
   preset = null,
   canMount = true,
+  memory = null,
+  hasOrganizationMemory = true,
 }: BuildScopeLevelsInput): ScopeLevel[] => {
   const isWorkspace = scope === 'workspace'
   const excluded = (id: ScopeLevelId): boolean => (preset?.excludes ?? []).includes(id)
@@ -167,6 +215,17 @@ export const buildScopeLevels = ({
     )
   }
 
+  // Memory. It has no `off`: the reader cannot switch it off from HERE, because
+  // the place a note is removed is the memory panel, and a switch here would
+  // promise a per-turn exclusion the backend does not have. A preset narrows
+  // which CORPORA are read and says nothing about what Piloti has learned, so
+  // no preset reaches this row either.
+  levels.push(
+    isWorkspace && !hasOrganizationMemory
+      ? level('memory', 'unavailable', { reason: { key: 'workspace.tree.memoryNoOrganization' } })
+      : level('memory', 'always', { ...(memory ? { memory } : {}) })
+  )
+
   levels.push(
     sessionAttachmentCount > 0
       ? level('session', excluded('session') ? 'off' : 'always', {
@@ -177,6 +236,10 @@ export const buildScopeLevels = ({
 
   return levels
 }
+
+/** The memory level, for a caller that only wants the Gedächtnis half. */
+export const memoryLevel = (levels: readonly ScopeLevel[]): ScopeLevel | undefined =>
+  levels.find((entry) => entry.id === 'memory')
 
 /** The project level, for a caller that only wants the mounting half. */
 export const projectLevel = (levels: readonly ScopeLevel[]): ScopeLevel | undefined =>

@@ -20,6 +20,7 @@
  */
 
 import { PROJECT_MEMORY_KINDS } from '@/lib/db/schema'
+import { validateGridCards, type GridCard } from '@/shared/cards/schemas'
 
 /** One follow-up question, the same shape the `follow_ups` card has always had. */
 export interface StoredFollowUp {
@@ -53,9 +54,26 @@ export interface StoredMemoryItem {
   content: string
 }
 
-/** `memory_reflection` payload, v1 (§5.1). */
+/**
+ * A firm-wide finding the stage PROPOSED and nobody wrote (ADR-0055, C6).
+ *
+ * The same `memory_proposal` card the in-turn `remember` tool emits, so the
+ * reader is offered one thing in one shape whether the proposal was made while
+ * the answer was written or after it. It is a separate key from `items`, and
+ * must stay one: `items` are rows that EXIST in `project_memory`, a proposal is
+ * a question, and a client that rendered one as the other would claim a
+ * firm-wide note that nobody made.
+ */
+export type StoredMemoryProposal = Extract<GridCard, { type: 'memory_proposal' }>
+
+/** `memory_reflection` payload, v1 (§5.1) + proposals (ADR-0055). */
 export interface StoredMemoryReflectionStage {
   items: StoredMemoryItem[]
+  /**
+   * Organization-scoped findings offered for a person to accept. Absent rather
+   * than empty — an empty list is not an offer, and the wire is absent too.
+   */
+  proposals?: StoredMemoryProposal[]
 }
 
 /**
@@ -140,11 +158,41 @@ const MEMORY_KINDS: ReadonlySet<string> = new Set(PROJECT_MEMORY_KINDS)
  * malformed row must not cost the reader the other four, because unlike a set
  * of suggestion chips these are things that were WRITTEN to their project.
  */
+/**
+ * The proposals half of the payload, bounded the same way the items are.
+ *
+ * Read through `validateGridCards`, which is the ONE place a card is checked
+ * against the generated schema — a second hand-written check here would be a
+ * fork whose drift is invisible, and it is exactly the card the turn's own
+ * pipeline already parses. Anything that is not a `memory_proposal` is dropped:
+ * this key is not a general card channel, and a stage that could store any card
+ * type would be an unbounded map of client JSON on a hot table.
+ *
+ * The strings are capped again after parsing, because the generated schema
+ * bounds the SHAPE and not the length, and this is jsonb on `messages`.
+ */
+function sanitizeMemoryProposals(input: unknown): StoredMemoryProposal[] {
+  if (!Array.isArray(input)) return []
+  const out: StoredMemoryProposal[] = []
+  for (const card of validateGridCards(input)) {
+    if (out.length >= MAX_MEMORY_ITEMS) break
+    // A hole is a card the schema rejected. Positions carry no meaning here —
+    // these are offers, not indexed slots in an answer — so a hole is dropped
+    // rather than kept.
+    if (!card || card.type !== 'memory_proposal') continue
+    const title = cap(card.title, MAX_MEMORY_CONTENT_CHARS)
+    const content = cap(card.content, MAX_MEMORY_CONTENT_CHARS)
+    if (!title || !content) continue
+    out.push({ ...card, title, content })
+  }
+  return out
+}
+
 export function sanitizeMemoryReflectionStage(input: unknown): StoredMemoryReflectionStage | null {
-  if (!isRecord(input) || !Array.isArray(input.items)) return null
+  if (!isRecord(input)) return null
 
   const items: StoredMemoryItem[] = []
-  for (const raw of input.items) {
+  for (const raw of Array.isArray(input.items) ? input.items : []) {
     if (items.length >= MAX_MEMORY_ITEMS) break
     if (!isRecord(raw)) continue
     const id = cap(raw.id, MAX_MEMORY_ID_CHARS)
@@ -154,7 +202,13 @@ export function sanitizeMemoryReflectionStage(input: unknown): StoredMemoryRefle
     items.push({ id, kind, content })
   }
 
-  return items.length > 0 ? { items } : null
+  const proposals = sanitizeMemoryProposals(input.proposals)
+
+  // EITHER list is enough to keep the stage. It used to be `items` alone, which
+  // silently discarded a proposals-only payload — the ordinary shape of a
+  // reflection pass that found one firm-wide thing and wrote nothing.
+  if (items.length === 0 && proposals.length === 0) return null
+  return proposals.length > 0 ? { items, proposals } : { items }
 }
 
 /**

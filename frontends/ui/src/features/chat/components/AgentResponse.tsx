@@ -57,6 +57,8 @@ import { DiagramFilingProvider } from '@/features/diagrams/diagram-filing-contex
 import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDisclosure'
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
+import { MemoryContextMarker } from './MemoryContextMarker'
+import type { MemoryContext } from '@/adapters/api/schemas'
 import { turnMemoryItems, type TurnMemoryItem } from '../lib/turn-memory'
 import { answerMetaToAnatomy } from '../lib/answer-meta-cards'
 import { AnatomyBlock, AnatomyMasthead } from './AnswerAnatomy'
@@ -204,6 +206,15 @@ export interface AgentResponseProps {
    * "degraded in zero ways" is the ordinary case and is not stated.
    */
   degradedReasons?: string[]
+  /**
+   * What this turn READ out of memory (ADR-0055) — the notes the digest
+   * carried, how many it left out, how many exist, and how many
+   * `search_memory` returned.
+   *
+   * Rendered as the marker under the sources row, never as a citation: it
+   * states what was in context and never that anything was used.
+   */
+  memoryContext?: MemoryContext
   /**
    * Skills whose full instructions the agent loaded while writing this answer
    * (`use_skill`), in activation order. Absent on a turn that activated none,
@@ -589,6 +600,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   degradedReasons,
   skillsActivated,
   skillsHidden,
+  memoryContext,
   showReasoning = false,
   showConfidenceChip = true,
   messageId,
@@ -973,6 +985,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           isStreaming={stillArriving}
         />
 
+        {/* What the turn read out of memory. UNDER the sources row and not
+            inside it: influence is not evidence, and the two must not share a
+            block (ADR-0055). */}
+        <MemoryContextMarker memoryContext={memoryContext} projectId={projectId} />
+
         {/* No copy actions here, deliberately. This variant is the box-less
             rendering used INSIDE another container (the thinking process, the
             dev turn surfaces) — it has no consolidated meta row, so the buttons
@@ -1164,6 +1181,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             isStreaming={stillArriving}
             withDivider={false}
           />
+          <MemoryContextMarker memoryContext={memoryContext} projectId={projectId} />
           {reserveMetaRow && (
             <div
               className={

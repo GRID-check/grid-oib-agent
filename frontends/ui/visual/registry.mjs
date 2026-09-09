@@ -323,7 +323,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/scope-tree',
     description:
-      'The Wissensbasis behind the scope chip (ADR-0054): the five knowledge levels in fixed authority order, each stating its status in WORDS beside the colour and the glyph — Basiswissen and Büroarchiv `immer`, the Projektregister `immer` in the Büro, two projects in view with a remove control each, and "Diese Unterhaltung" carrying the one attached file. The hierarchy is fixed so a reader can see the hole in it; that is what this shot is evidence of.',
+      'The Wissensbasis behind the scope chip (ADR-0054, ADR-0055): the six knowledge levels in fixed authority order, each stating its status in WORDS beside the colour and the glyph — Basiswissen and Büroarchiv `immer`, the Projektregister `immer` in the Büro, two projects in view with a remove control each, the new „Gedächtnis" row stating `3 von 47 im Blick` with the omission the digest reported to the model, and "Diese Unterhaltung" carrying the one attached file. The hierarchy is fixed so a reader can see the hole in it; that is what this shot is evidence of.',
     waitFor: '[data-testid="scope-tree"]',
   },
   {
@@ -341,6 +341,38 @@ export const SCREENSHOT_TARGETS = [
     description:
       'Five projects in view — the cap. The "+ Projekt einblenden" row is gone and its REASON stands in its place, visible where the reader would have pressed it rather than only in a footer; the chip reads "Büro · 5". The offer behind the cap (deep research) lives in the picker footer, which opens from here.',
     waitFor: '[data-testid="scope-tree-cap-reason"]',
+  },
+  {
+    id: 'memory-marker',
+    mobile: true,
+    path: '/dev/memory-visibility?variant=marker',
+    description:
+      'The memory marker under an answer, expanded (ADR-0055): "3 Notizen aus dem Gedächtnis im Blick", the three notes each linking into the memory panel, and the sentence that keeps it honest — these were in context, whether any of them shaped the answer cannot be said, they are not evidence. Grey is `--source-auto`, the one provenance family that is not a corpus; no citation token appears on it, and it sits UNDER the "Belegt durch" row rather than inside it. The omission count the digest gives the model is stated to the reader on the same line.',
+    waitFor: '[data-testid="memory-context-marker"]',
+  },
+  {
+    id: 'memory-herleitung',
+    mobile: true,
+    path: '/dev/memory-visibility?variant=herleitung',
+    description:
+      'The Herleitung with its memory band, photographed BESIDE the knowledge levels it must not join. The six levels read as they always did — Basiswissen 4, Büroarchiv "nichts eingeblendet", Projekt with its one project — and then a hairline, a heading, and the sentence "Kein Beleg" BEFORE any number. A level is a shelf whose hits can be opened; a note is not, which is why memory is a band of its own rather than a seventh row.',
+    waitFor: '[data-testid="herleitung-memory"]',
+  },
+  {
+    id: 'memory-superseded',
+    mobile: true,
+    path: '/dev/memory-visibility?variant=superseded',
+    description:
+      'A correction, said out loud in the transcript (ADR-0055): what Piloti now believes, what it believed before, and the undo that restores the retired note. Until this shot existed the event was invisible — polarity supersession retired the old note and nothing read `supersedes_id`, so the replaced note simply vanished. It is the same notice-with-undo molecule a project mount uses, which is the point: one voice for every durable change to what later turns read.',
+    waitFor: '[data-testid="memory-superseded-notice"]',
+  },
+  {
+    id: 'memory-proposal',
+    mobile: true,
+    path: '/dev/memory-visibility?variant=proposal',
+    description:
+      'The organization proposal card with the two sentences it was missing: WHY it is being asked — org-wide means read in every project in this tenant, which is why Piloti proposes rather than writes — and WHO may accept it, the holder of `org:memory:write`. The project-scoped alternative stays offered beside the org-wide Yes, so a reader without the permission still has somewhere to put the finding.',
+    waitFor: '[data-testid="memory-proposal-permission"]',
   },
   {
     id: 'project-sets',

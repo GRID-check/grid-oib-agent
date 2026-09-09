@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { KNOWLEDGE_LEVEL_ORDER, groupByLevel, levelForHit } from './herleitung-levels'
+import { KNOWLEDGE_LEVEL_ORDER, groupByLevel, levelForHit, memoryBand } from './herleitung-levels'
 import type { CitedDocument } from './citations'
 import type { TraceLaneCard } from './trace-lanes'
 
@@ -141,5 +141,51 @@ describe('deduplication', () => {
     const law = groups.find((group) => group.level === 'law')
     expect(law?.hitCount).toBe(1)
     expect(law?.entries).toHaveLength(1)
+  })
+})
+
+
+/**
+ * Memory is BESIDE the levels, never among them (ADR-0055). The two properties
+ * that matter: a memory lane reaches no evidence band at all, and the band it
+ * does produce keeps the digest's own omission count.
+ */
+describe('the memory band', () => {
+  it('never lands in an evidence level, not even the web one', () => {
+    // Without the guard `kindForLane` fails open to `web`, and a note Piloti
+    // wrote would be tallied as a source from the internet.
+    expect(levelForHit({}, { key: 'memory', kind: undefined })).toBeNull()
+    expect(levelForHit({}, { key: 'memory_project', kind: undefined })).toBeNull()
+  })
+
+  it('is not counted by groupByLevel', () => {
+    const groups = groupByLevel([
+      lane({ key: 'memory', label: 'Gedächtnis', signal: 'auto', sources: [{ name: 'note-1' }] }),
+    ])
+    expect(groups.every((group) => group.hitCount === 0)).toBe(true)
+  })
+
+  it('carries the notes, the totals and whether the turn searched', () => {
+    const band = memoryBand({
+      carried: [{ id: 'm1', kind: 'decision', content: 'Zwei Stiegenhäuser.' }],
+      omitted: 44,
+      total: 47,
+      searched: 3,
+    })
+    expect(band?.entries).toEqual([{ id: 'm1', kind: 'decision', content: 'Zwei Stiegenhäuser.' }])
+    expect(band?.total).toBe(47)
+    expect(band?.omitted).toBe(44)
+    expect(band?.searchedMemory).toBe(true)
+  })
+
+  it('does not render for a turn that read no memory', () => {
+    expect(memoryBand(undefined)).toBeNull()
+  })
+
+  it('still renders when the digest carried nothing — the store size is a fact', () => {
+    const band = memoryBand({ carried: [], omitted: 47, total: 47, searched: 0 })
+    expect(band?.entries).toEqual([])
+    expect(band?.total).toBe(47)
+    expect(band?.searchedMemory).toBe(false)
   })
 })

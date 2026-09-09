@@ -101,7 +101,25 @@ const RESEARCH_AGENT_STEP_RE =
  * (ADR-0026) so the Herleitung fan-out and the "Belegt durch" chips agree on
  * every lane — notably external norms (`norm_extern`) are `law`, not `web`.
  */
-export const laneKeyToSignal = (key: string): SourceSignal => KIND_TO_SIGNAL[kindForLane(key)]
+/**
+ * The lane key `search_memory` reports under, and its `memory_*` family.
+ *
+ * Memory is the one lane that is NOT a corpus (ADR-0055). It has no
+ * `SourceKind` and must never acquire one: `kindForLane` fails open to `web`,
+ * so a memory lane left to the ordinary path would be tinted, tallied and
+ * grouped as an outside source — a note Piloti wrote rendered as evidence from
+ * the internet. Everything that classifies a lane checks this first.
+ */
+export const MEMORY_LANE_KEY = 'memory'
+
+/** Whether a lane key belongs to the memory family (`memory`, `memory_*`). */
+export const isMemoryLane = (key: string | null | undefined): boolean => {
+  const value = (key ?? '').trim().toLowerCase()
+  return value === MEMORY_LANE_KEY || value.startsWith(`${MEMORY_LANE_KEY}_`)
+}
+
+export const laneKeyToSignal = (key: string): SourceSignal =>
+  isMemoryLane(key) ? 'auto' : KIND_TO_SIGNAL[kindForLane(key)]
 
 /**
  * Host of a source URL, lowercased, or `null` when it has none.
@@ -186,7 +204,10 @@ export const parseTraceLanesBlock = (payload: string): TraceLaneCard[] | null =>
         // persisted (or a stream produced) before the block carried `kind`. It
         // is the same shared lane→kind table the backend applies, so the two
         // agree by construction — it is a decode fallback, not a classifier.
-        const kind = asSourceKind(lane.kind) ?? kindForLane(key)
+        // A memory lane carries NO kind, deliberately: `SourceKind` is the
+        // display taxonomy of retrieved passages and memory is not one. It
+        // takes `--source-auto` grey through `laneKeyToSignal` instead.
+        const kind = isMemoryLane(key) ? undefined : (asSourceKind(lane.kind) ?? kindForLane(key))
         const sources = (lane.sources || [])
           .map((s): TraceSourceHit | null => {
             const name = (s.name || '').trim()
@@ -201,7 +222,16 @@ export const parseTraceLanesBlock = (payload: string): TraceLaneCard[] | null =>
           typeof lane.hitCount === 'number' && lane.hitCount > 0
             ? lane.hitCount
             : Math.max(sources.length, 1)
-        return { key, label, hitCount, sources, kind, signal: KIND_TO_SIGNAL[kind] }
+        return {
+          key,
+          label,
+          hitCount,
+          sources,
+          ...(kind ? { kind } : {}),
+          // From the KIND the backend stated, exactly as before — the lane key
+          // is only consulted for the one lane that has no kind at all.
+          signal: kind ? KIND_TO_SIGNAL[kind] : 'auto',
+        }
       })
       .filter((c): c is TraceLaneCard => c != null)
   } catch {

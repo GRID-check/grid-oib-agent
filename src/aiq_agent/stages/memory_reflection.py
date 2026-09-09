@@ -110,34 +110,6 @@ class MemoryReflectionPayload(BaseModel):
     )
 
 
-# ── KNOWN DEBT: the client half of `proposals` (ADR-0055, contract C6) ────────
-#
-# The producer half is complete and the shape is in the shared wire contract
-# (`shared/stages/frames.json`, `memory_reflection.ready`), which both halves
-# read. The CLIENT half is not, and until it lands a proposal reaches the
-# browser and is dropped there rather than rendered. Recorded here, at the field
-# that produces it, rather than as a log line — the pattern
-# `docs/architecture/adding-a-shareable-resource-type.md` uses for a known leak.
-#
-# Two edits, in files this track does not own:
-#
-# 1. `frontends/ui/src/lib/conversations/message-stages.ts` —
-#    `sanitizeMemoryReflectionStage` returns `null` unless `items` holds at least
-#    one usable row, so a proposals-only payload is discarded whole. It needs to
-#    read `proposals` through the card sanitiser the same way the turn's own
-#    cards are read, store them on `StoredMemoryReflectionStage`, and return a
-#    stage object when EITHER list survives.
-# 2. `frontends/ui/src/features/chat/lib/turn-memory.ts` — it already renders a
-#    `memory_proposal` card as one of the two things the "Piloti hat sich
-#    gemerkt" chip is made of; it reads them off the turn's CARDS. It needs to
-#    merge `message.stages.memoryReflection.proposals` into that same list, so a
-#    proposal made after the answer is the same offer as one made during it.
-#
-# Nothing about the producer changes when they land: the frame is already the
-# shape the fixture pins. Until then an office finding is proposed, delivered,
-# and seen by nobody — which is a gap in the reader's surface, never a write.
-
-
 def _gate(facts: TurnFacts) -> GateDecision:
     """The existing predicate, moved verbatim, plus the truncation skip.
 

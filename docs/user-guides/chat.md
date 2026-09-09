@@ -109,11 +109,57 @@ never grants project access.
 
 Answers that only cite Steckbriefe carry a footer under them — *In diese Unterhaltung holen: [Seestadt Nord] einblenden* — so the follow-up question does not mean going back to the tree.
 
+### What Piloti remembers, and what it read of it
+
+The Wissensbasis has a **Gedächtnis** row, between Projekt and Diese
+Unterhaltung: *Was Piloti gelernt hat*. It is `immer` and carries no switch —
+notes are removed in the memory panel, not per turn — and it states what this
+turn actually saw of the store: *3 Notizen von 47 im Blick. 44 weitere Notizen
+sind diesmal nicht mitgelesen worden.* That second number used to be told only
+to the model. **Gedächtnis öffnen** goes to the project's memory panel.
+
+Under an answer, one quiet line says the same thing for that turn: *3 Notizen
+aus dem Gedächtnis im Blick*. Open it and you see the notes, each linking into
+the panel. It is deliberately **not** a citation and never joins the *Belegt
+durch* row — it is grey, and it says so in words: these notes were in context
+while the answer was written, and whether any of them shaped it cannot be said.
+A note is something Piloti wrote down, not a passage anyone can open, so it is
+never dressed as evidence.
+
+**When Piloti corrects itself, it says so.** A note that replaces an earlier one
+produces a line in the transcript with both sentences — what was believed
+before, what is believed now — and **Rückgängig** beside them, which reinstates
+the earlier note and retires the replacement. In the memory panel the retired
+note stays visible, dimmed, saying what took its place; the replacement says
+what it replaced. Nothing about a correction disappears.
+
+**Firm-wide memory is proposed, never written.** When a finding would hold for
+every project in the office, Piloti puts it up as a card rather than saving it:
+org-wide means it is read in every project in the organization, and accepting it
+needs the *Organisationsgedächtnis schreiben* permission (`org:memory:write`).
+Without that permission the card still offers **Nur in diesem Projekt
+speichern** — and if you press the org-wide button anyway, the answer names the
+missing permission rather than pretending the service is down. Where firm-wide
+memory is switched off for the whole installation, it says *that* instead: an
+operator decision is not something to ask your administrator for a permission
+about.
+
+A proposal can also arrive a few seconds after the answer, when Piloti has
+finished thinking it over. It is the same card, in the same place, with the same
+two buttons — a finding proposed after the answer is not a second kind of
+offer — and one found twice is shown once.
+
 ### Where an answer came from
 
 In the Büro a citation from a project names it: *Projekt Seestadt Nord · Brandschutz.pdf · S. 7*; a citation from the register names itself first and the project second, *Steckbrief · Seestadt Nord*, because a Steckbrief is a fact about a project rather than a file from inside one. Opening the citation offers **Im Projekt weiterfragen**, which lands in that project's own chat with your question already in the box. In a project chat the project line is left out — you are standing in it.
 
 The **Herleitung** groups what was read by knowledge level, in the same order as the Wissensbasis: Basiswissen → Büroarchiv → Projektregister → Projekt (one group per project) → Diese Unterhaltung → Web. Levels that were not read are shown grey and say *nichts eingeblendet*, rather than being left out — a level missing from the list would be indistinguishable from a level that found nothing.
+
+Under those levels, hairline-separated, sits **Gedächtnis** — and the first
+thing it says is *Kein Beleg*. It states how many notes were in context, out of
+how many exist, and whether Piloti went looking beyond the running excerpt. It
+is a band of its own rather than a seventh level for one reason: a level is a
+shelf whose hits you can open and check, and a note is not.
 
 Documents sit on four nested shelves. Asking **which files** sit where is answered from that shelf only:
 

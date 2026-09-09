@@ -34,7 +34,7 @@ const workspaceLevels = (
   })
 
 describe('the hierarchy', () => {
-  it('renders all five levels in authority order on BOTH surfaces', () => {
+  it('renders all six levels in authority order on BOTH surfaces', () => {
     const { rerender } = render(<ScopeTree {...props} levels={workspaceLevels()} />)
     const ids = () =>
       screen
@@ -45,6 +45,7 @@ describe('the hierarchy', () => {
       'scope-level-archiv',
       'scope-level-register',
       'scope-level-project',
+      'scope-level-memory',
       'scope-level-session',
     ])
 
@@ -59,6 +60,7 @@ describe('the hierarchy', () => {
       'scope-level-archiv',
       'scope-level-register',
       'scope-level-project',
+      'scope-level-memory',
       'scope-level-session',
     ])
   })
@@ -177,5 +179,65 @@ describe('a refusal', () => {
     expect(screen.getByText('That project could not be added right now.')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(onRetry).toHaveBeenCalled()
+  })
+})
+
+
+/**
+ * The level ADR-0055 added, and the one property it exists for: a layer read on
+ * EVERY turn states, where it is read, how much of itself the turn saw.
+ */
+describe('the memory level', () => {
+  const carried = { memory: { carried: 3, total: 47, omitted: 44 } }
+
+  it('states carried-of-total on both surfaces', () => {
+    const { rerender } = render(<ScopeTree {...props} levels={workspaceLevels(carried)} />)
+    expect(screen.getByTestId('scope-tree-memory-counts')).toHaveTextContent('3')
+    expect(screen.getByTestId('scope-tree-memory-counts')).toHaveTextContent('47')
+
+    rerender(
+      <ScopeTree
+        {...props}
+        levels={buildScopeLevels({ scope: 'project', projectName: 'Seestadt Nord', ...carried })}
+      />
+    )
+    expect(screen.getByTestId('scope-tree-memory-counts')).toHaveTextContent('3')
+    expect(screen.getByTestId('scope-tree-memory-counts')).toHaveTextContent('47')
+  })
+
+  it('says in the READER\'s words how many were left out', () => {
+    render(<ScopeTree {...props} levels={workspaceLevels(carried)} />)
+    // The same number the digest discloses to the MODEL. The two diverging is
+    // the inversion this level exists to close, so the count is asserted here
+    // and not merely the presence of a sentence.
+    expect(screen.getByTestId('scope-tree-memory-omitted')).toHaveTextContent('44')
+  })
+
+  it('says nothing about counts before a turn has reported any', () => {
+    render(<ScopeTree {...props} levels={workspaceLevels()} />)
+    expect(screen.getByTestId('scope-level-memory').dataset.state).toBe('always')
+    expect(screen.queryByTestId('scope-tree-memory-counts')).not.toBeInTheDocument()
+  })
+
+  it('is a closed door in the Büro with no organization memory, and says why', () => {
+    render(
+      <ScopeTree
+        {...props}
+        levels={workspaceLevels({ hasOrganizationMemory: false })}
+      />
+    )
+    const row = screen.getByTestId('scope-level-memory')
+    expect(row.dataset.state).toBe('unavailable')
+    // The reason is stated, not implied by the dimming: a row that cannot be
+    // opened and does not say why is the shape this design is written against.
+    expect(screen.getByText('Nothing remembered for your organization yet.')).toBeInTheDocument()
+  })
+
+  it('links to the panel rather than becoming a page of its own', async () => {
+    const onOpenMemory = vi.fn()
+    const user = userEvent.setup()
+    render(<ScopeTree {...props} levels={workspaceLevels(carried)} onOpenMemory={onOpenMemory} />)
+    await user.click(screen.getByTestId('scope-tree-memory-open'))
+    expect(onOpenMemory).toHaveBeenCalledTimes(1)
   })
 })

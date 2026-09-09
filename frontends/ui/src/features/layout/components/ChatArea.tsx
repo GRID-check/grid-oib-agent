@@ -45,6 +45,8 @@ import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
 // reason the collaboration imports above are: existing specs mock that barrel,
 // and a new export on it would have to be added to every one of those mocks.
 import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
+import { MemoryStageProposals, MemorySupersededNotices } from '@/features/chat/components'
+import { turnMemoryItems, turnMemoryProposals } from '@/features/chat/lib/turn-memory'
 import { WorkspaceEmptyState } from './WorkspaceEmptyState'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import { cn } from '@/lib/utils'
@@ -136,6 +138,9 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const getThinkingStepsForMessage = useChatStore((s) => s.getThinkingStepsForMessage)
   const dismissErrorCard = useChatStore((s) => s.dismissErrorCard)
   const retryLastUserMessage = useChatStore((s) => s.retryLastUserMessage)
+  // The project a supersession's restore route belongs to. Read here rather
+  // than threaded per message: it is a property of the CHAT, not of a turn.
+  const projectId = useChatStore((s) => s.projectId)
   const t = useTranslations('research')
   const tCollaboration = useTranslations('collaboration')
   const { user } = useAuth()
@@ -895,6 +900,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             choicePrompt={choicePrompt}
                             onChoiceRespond={handlePromptRespond}
                             escalationReason={agentMsg?.escalationReason}
+                            memoryContext={agentMsg?.memoryContext}
                           />
                         </div>
                       )}
@@ -913,6 +919,31 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       in the THREAD either, the answer no longer streaming, the
                       reader not already typing) is enforced where the frame
                       arrives, in `applyStageFrame`. */}
+                      {/* A correction Piloti made to its own memory, stated
+                      where it happened and undoable from here (ADR-0055). Above
+                      the follow-ups, which stay last: a supersession is about
+                      the answer just given, an offer is about the next one. */}
+                      {message.stages?.memoryReflection && (
+                        <div className="flex w-full flex-col gap-2">
+                          <MemorySupersededNotices
+                            items={turnMemoryItems({ stages: message.stages })}
+                            projectId={projectId}
+                          />
+                          {/* A firm-wide finding the reflection pass proposed.
+                          It arrives on the stage frame because the turn's card
+                          registry is unbound by the time the pass runs, so this
+                          is the only place it can be drawn — `GridCards` reads
+                          `message.cards` and cannot see it. */}
+                          <MemoryStageProposals
+                            proposals={turnMemoryProposals({
+                              stages: message.stages,
+                              cards: message.cards,
+                            })}
+                            messageId={message.id}
+                          />
+                        </div>
+                      )}
+
                       {message.stages?.followUps && (
                         <div className="w-full">
                           <FollowUpsRail items={message.stages.followUps.items} />
@@ -1190,6 +1221,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           degradedReasons={message.degradedReasons}
           skillsActivated={message.skillsActivated}
           skillsHidden={message.skillsHidden}
+          memoryContext={message.memoryContext}
           showReasoning={showReasoning}
           showConfidenceChip={showConfidenceChip}
           messageId={message.id}

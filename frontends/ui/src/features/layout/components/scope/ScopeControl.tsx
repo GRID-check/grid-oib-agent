@@ -57,6 +57,7 @@ import { ProjectSetManager } from './ProjectSetManager'
 import { ScopeChip } from './ScopeChip'
 import { ScopeTree } from './ScopeTree'
 import { buildScopeLevels, type ScopeLevelId } from './scope-tree-model'
+import { latestMemoryCounts } from '@/features/chat/lib/memory-context'
 
 export interface ScopeControlProps {
   /** Which surface the composer is standing on. */
@@ -84,7 +85,17 @@ const PRESET_SIGNAL: Record<SourcePresetId, 'law' | 'office' | 'project'> = {
   project: 'project',
 }
 
-const LEVEL_SIGNALS: Record<ScopeLevelId, 'law' | 'office' | 'project'> = {
+/**
+ * The CORPUS levels and their family. `memory` is deliberately absent: a source
+ * preset narrows which corpora a turn reads and says nothing about what Piloti
+ * has learned, so deriving memory's exclusion from a family it does not share
+ * with any preset would switch it off under every one of them — the exact
+ * lookalike-choice the state vocabulary exists to prevent.
+ */
+const LEVEL_SIGNALS: Record<
+  Exclude<ScopeLevelId, 'memory'>,
+  'law' | 'office' | 'project'
+> = {
   base: 'law',
   archiv: 'office',
   register: 'project',
@@ -93,7 +104,7 @@ const LEVEL_SIGNALS: Record<ScopeLevelId, 'law' | 'office' | 'project'> = {
 }
 
 const excludedByPreset = (preset: SourcePresetId): ScopeLevelId[] =>
-  (Object.keys(LEVEL_SIGNALS) as ScopeLevelId[]).filter(
+  (Object.keys(LEVEL_SIGNALS) as Array<Exclude<ScopeLevelId, 'memory'>>).filter(
     (id) => LEVEL_SIGNALS[id] !== PRESET_SIGNAL[preset]
   )
 
@@ -133,6 +144,12 @@ export const ScopeControl: FC<ScopeControlProps> = ({
   const unmountProject = useChatStore((s) => s.unmountProject)
   const clearMountRefusal = useChatStore((s) => s.clearMountRefusal)
   const resetMounts = useChatStore((s) => s.resetMounts)
+  // What the LAST answered turn read out of memory. Read off the transcript,
+  // never fetched: the counts the tree states must be the counts an answer was
+  // actually given, and a second query would be a second thing that can be
+  // wrong — the same rule the mount list follows one field above.
+  const messages = useChatStore((s) => s.currentConversation?.messages)
+  const memoryCounts = useMemo(() => latestMemoryCounts(messages), [messages])
 
   const activePreset = useLayoutStore((s) => s.activeSourcePreset)
   const applySourcePreset = useLayoutStore((s) => s.applySourcePreset)
@@ -183,8 +200,25 @@ export const ScopeControl: FC<ScopeControlProps> = ({
         sessionAttachmentCount,
         preset,
         canMount: canMountMore({ mounts, mountCap }),
+        memory: memoryCounts,
+        // Outside a project, organization notes are the only ones in scope. The
+        // client is never told whether the tenant has any, so it infers from the
+        // one turn that would know: a Büro answer that reported a memory context
+        // of zero notes in total. Absent knowledge reads as available, because
+        // memory IS read on every turn (ADR-0054) and a row claiming otherwise
+        // would be the more confident lie.
+        hasOrganizationMemory: !isWorkspace || memoryCounts === null || memoryCounts.total > 0,
       }),
-    [scope, projectName, isWorkspace, mounts, mountCap, sessionAttachmentCount, preset]
+    [
+      scope,
+      projectName,
+      isWorkspace,
+      mounts,
+      mountCap,
+      sessionAttachmentCount,
+      preset,
+      memoryCounts,
+    ]
   )
 
   const handleMount = useCallback(
@@ -227,6 +261,15 @@ export const ScopeControl: FC<ScopeControlProps> = ({
   const handleResetPreset = useCallback(() => {
     applySourcePreset(null, enabledDataSourceIds)
   }, [applySourcePreset, enabledDataSourceIds])
+
+  // The memory level LINKS to the panel; it never becomes a page. Only a
+  // project chat has one to open — organization notes are curated in the
+  // organization settings, which is not this control's doorway.
+  const handleOpenMemory = useCallback(() => {
+    if (!projectId) return
+    setOpen(false)
+    router.push(`/app/projects/${encodeURIComponent(projectId)}/settings#project-memory`)
+  }, [projectId, router])
 
   const handleAskInWorkspace = useCallback(() => {
     if (!projectId) return
@@ -299,6 +342,7 @@ export const ScopeControl: FC<ScopeControlProps> = ({
       onRetry={conversationId ? () => void loadMounts(conversationId) : undefined}
       onResetPreset={activePreset ? handleResetPreset : undefined}
       onDeepResearch={handleDeepResearch}
+      onOpenMemory={projectId ? handleOpenMemory : undefined}
       onAskInWorkspace={!isWorkspace && projectId ? handleAskInWorkspace : undefined}
     />
   )

@@ -177,3 +177,65 @@ describe('sanitizeStages', () => {
     expect(sanitizeStages(undefined)).toBeNull()
   })
 })
+
+
+/**
+ * The proposals half of the payload (ADR-0055, C6).
+ *
+ * The bug this closes is not a rendering one: a proposals-only payload — the
+ * ordinary shape of a reflection pass that found one firm-wide thing and wrote
+ * nothing — was discarded WHOLE at this boundary, so the offer reached the
+ * browser and died here.
+ */
+describe('sanitizeMemoryReflectionStage — proposals', () => {
+  const card = (content = 'Fluchtwegpläne im Maßstab 1:100.') => ({
+    type: 'memory_proposal',
+    title: 'Neue Erkenntnis merken',
+    content,
+    kind: 'preference',
+    confidence: 'medium',
+  })
+
+  it('keeps a proposals-only payload, which used to be thrown away entirely', () => {
+    expect(sanitizeMemoryReflectionStage({ items: [], proposals: [card()] })).toEqual({
+      items: [],
+      proposals: [card()],
+    })
+  })
+
+  it('keeps both lists, and keeps them SEPARATE', () => {
+    // A proposal folded into `items` would claim a firm-wide row that does not
+    // exist. The two keys are the contract's own guard against that.
+    const out = sanitizeMemoryReflectionStage({
+      items: [{ id: 'row-1', kind: 'constraint', content: 'Das Projekt liegt in Wien.' }],
+      proposals: [card()],
+    })
+    expect(out?.items).toHaveLength(1)
+    expect(out?.proposals).toHaveLength(1)
+  })
+
+  it('omits `proposals` rather than storing an empty list', () => {
+    const out = sanitizeMemoryReflectionStage({
+      items: [{ id: 'row-1', kind: 'constraint', content: 'Das Projekt liegt in Wien.' }],
+      proposals: [],
+    })
+    expect(out).toEqual({ items: [{ id: 'row-1', kind: 'constraint', content: 'Das Projekt liegt in Wien.' }] })
+    expect(out && 'proposals' in out).toBe(false)
+  })
+
+  it('is not a general card channel — anything but a memory_proposal is dropped', () => {
+    // This key is jsonb on a hot table. A stage that could store any card type
+    // would be an unbounded map of client JSON.
+    expect(
+      sanitizeMemoryReflectionStage({
+        items: [],
+        proposals: [{ type: 'callout', kind: 'achtung', title: 'x', text: 'y' }],
+      }),
+    ).toBeNull()
+  })
+
+  it('still returns null when neither list survives', () => {
+    expect(sanitizeMemoryReflectionStage({ items: [], proposals: [] })).toBeNull()
+    expect(sanitizeMemoryReflectionStage({ proposals: 'nope' })).toBeNull()
+  })
+})

@@ -18,7 +18,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
-import { turnMemoryItems } from './turn-memory'
+import { turnMemoryItems, turnMemoryProposals } from './turn-memory'
 
 const proposal = (content: string): GridCard =>
   ({
@@ -105,5 +105,91 @@ describe('turnMemoryItems', () => {
       cardInteractions: { 'callout-0': { decision: 'savedOrg', decidedAt: 'x' } as CardInteractions[string] },
     })
     expect(items).toEqual([])
+  })
+})
+
+
+/**
+ * The two producers of an OFFER, merged into one (ADR-0055, C6).
+ *
+ * A reflection pass runs after the answer, when the turn's card registry is
+ * already unbound, so an organization-scoped finding it wants to offer arrives
+ * on the stage frame instead. What these hold is that this changes nothing the
+ * reader can see: one offer, one shape, one decision — and a proposal is still
+ * never a write.
+ */
+describe('proposals from both producers', () => {
+  const staged = (content: string) => ({
+    memoryReflection: {
+      items: [],
+      proposals: [
+        {
+          type: 'memory_proposal' as const,
+          title: 'Neue Erkenntnis merken',
+          content,
+          kind: 'preference' as const,
+          confidence: 'medium' as const,
+        },
+      ],
+    },
+  })
+
+  it('offers the answer\'s own cards first, then the stage\'s', () => {
+    const merged = turnMemoryProposals({
+      cards: [proposal('Zwei Stiegenhäuser.')],
+      stages: staged('Fluchtwegpläne im Maßstab 1:100.'),
+    })
+    expect(merged.map((p) => p.origin)).toEqual(['inTurn', 'distillation'])
+    expect(merged.map((p) => p.card.content)).toEqual([
+      'Zwei Stiegenhäuser.',
+      'Fluchtwegpläne im Maßstab 1:100.',
+    ])
+  })
+
+  it('dedupes rather than stacks — one finding is one offer', () => {
+    // The two producers mint ids independently, so only the content can say
+    // they are the same offer. The turn's card wins: it was on screen first and
+    // it is the one already holding the reader's decision.
+    const merged = turnMemoryProposals({
+      cards: [proposal('Fluchtwegpläne im Maßstab 1:100.')],
+      stages: staged('  fluchtwegpläne  im MASSSTAB 1:100. '.replace('MASSSTAB', 'Maßstab')),
+    })
+    expect(merged).toHaveLength(1)
+    expect(merged[0].origin).toBe('inTurn')
+  })
+
+  it('keys a stage proposal outside cardKey\'s namespace', () => {
+    // `memory_proposal-3` would collide with the answer's own fourth card the
+    // moment the model emits one, and a decision would then be attributed to a
+    // card the reader never saw.
+    const merged = turnMemoryProposals({ cards: [], stages: staged('Etwas Neues.') })
+    expect(merged[0].key).toBe('stage:memory_proposal-0')
+    expect(merged[0].key).not.toMatch(/^memory_proposal-\d+$/)
+  })
+
+  it('records a stage proposal only once the reader accepted it', () => {
+    const stages = staged('Etwas Neues.')
+    expect(turnMemoryItems({ stages, cardInteractions: {} })).toEqual([])
+
+    const items = turnMemoryItems({
+      stages,
+      cardInteractions: {
+        'stage:memory_proposal-0': { decision: 'savedOrg', decidedAt: 'x' } as CardInteractions[string],
+      },
+    })
+    expect(items).toEqual([
+      {
+        id: 'stage:memory_proposal-0',
+        kind: 'preference',
+        content: 'Etwas Neues.',
+        provenance: 'distillation',
+      },
+    ])
+  })
+
+  it('never turns an unanswered proposal into a recorded finding', () => {
+    // The rule that keeps the two lists distinct all the way to the reader:
+    // rendering an offer as a write would claim a firm-wide note nobody made.
+    expect(turnMemoryItems({ stages: staged('Etwas Neues.') })).toEqual([])
   })
 })

@@ -73,6 +73,10 @@ export type ExecutedStepInput = Pick<ThinkingStep, 'functionName' | 'isComplete'
 /** i18n keys under `chat.thinking.stepName.*`, matched on the lowercased function name. */
 const STEP_NAME_RULES: Array<{ match: RegExp; key: string }> = [
   { match: /web[_-]?search|tavily/, key: 'webSearch' },
+  // Before the corpus rule: `search_memory` is a search and would otherwise be
+  // named "OIB-Wissen" by `/knowledge|retriev|corpus/` — a memory read wearing
+  // the base corpus's noun, which is the one mislabel ADR-0055 must not make.
+  { match: /memory|gedaechtnis/, key: 'memory' },
   { match: /ris/, key: 'ris' },
   { match: /knowledge|retriev|corpus/, key: 'corpus' },
   { match: /shallow|assistant/, key: 'assistant' },

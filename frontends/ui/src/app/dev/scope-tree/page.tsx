@@ -5,7 +5,7 @@
  * Not linked anywhere and 404s outside development.
  *
  * What this capture is evidence of: the hierarchy is FIXED and the reader can
- * see the hole in it. Every variant renders all five levels in the same order,
+ * see the hole in it. Every variant renders all six levels in the same order,
  * and what differs between them is which levels are `immer`, which are
  * `ausgeschlossen` with a reason, and which are `nicht verfügbar` with a closed
  * door — the four Datenbasis words, in words, beside the colour and the glyph
@@ -22,6 +22,10 @@
  * - `capped` — five projects in view: the add row is gone, its reason is
  *   visible in its place, and the cap's offer is the one path that reads more
  *   than the cap allows.
+ *
+ * Since ADR-0055 the sixth level is „Gedächtnis", between Projekt and Diese
+ * Unterhaltung. It is `immer` and carries no switch — the panel is where a note
+ * is removed — and it states `3 von 47` with the omission the digest reported.
  *
  * The tree renders INLINE rather than inside its `Popover`. The popover is
  * `components/ui/popover.tsx` and is photographed wherever it is already used;
@@ -68,6 +72,10 @@ const ScopeTreePreview = (): React.ReactElement => {
     // variants and the empty case is not the only one ever photographed.
     sessionAttachmentCount: isProject ? 0 : 1,
     canMount: !capped,
+    // The level ADR-0055 added: read on every turn, stating how much of itself
+    // this turn saw. The omission is the number the digest gives the MODEL,
+    // said to the reader too — which is the whole point of the row.
+    memory: { carried: 3, total: 47, omitted: 44 },
   })
 
   return (
@@ -88,6 +96,7 @@ const ScopeTreePreview = (): React.ReactElement => {
             onMount={noop}
             onUnmount={noop}
             onDeepResearch={noop}
+            onOpenMemory={noop}
             onAskInWorkspace={isProject ? noop : undefined}
           />
         </div>

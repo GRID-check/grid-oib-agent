@@ -15,6 +15,11 @@
  * Undo does not delete the notice. The mount HAPPENED and the transcript is a
  * history, so the notice stays and its control is replaced by the sentence
  * "… wieder ausgeblendet."
+ *
+ * The alert, the undo link and the failure line are `NoticeWithUndo` — the
+ * molecule this component was the first of, now shared with the memory
+ * supersession notice (ADR-0055). Only the glyph and the sentences are this
+ * file's.
  */
 
 import { type FC } from 'react'
@@ -23,6 +28,7 @@ import { FolderKanban, Info, Users } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useTranslations } from '@/i18n'
+import { NoticeWithUndo } from './NoticeWithUndo'
 
 /** Why this project is in view — the sentence changes with the answer. */
 export type MountNoticeReason = 'agent' | 'user' | 'fromProject'
@@ -54,37 +60,17 @@ export const MountNotice: FC<MountNoticeProps> = ({
   const t = useTranslations('chat')
 
   return (
-    <Alert
-      role="status"
-      aria-live="polite"
-      data-testid="mount-notice"
-      className="animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance motion-reduce:animate-none"
+    <NoticeWithUndo
+      icon={FolderKanban}
+      testId="mount-notice"
+      undoLabel={t('workspace.mount.undo')}
+      onUndo={undone ? undefined : onUndo}
+      failureText={undoFailed ? t('workspace.mount.unavailable') : undefined}
     >
-      <FolderKanban aria-hidden="true" />
-      <AlertDescription className="flex w-full flex-wrap items-center gap-x-2 gap-y-1">
-        <span className="text-foreground">
-          {undone
-            ? t('workspace.mount.undone', { project: projectName })
-            : t(REASON_KEY[by], { project: projectName })}
-        </span>
-        {!undone && onUndo && (
-          <Button
-            type="button"
-            variant="link"
-            size="sm"
-            onClick={onUndo}
-            className="h-auto p-0 text-xs"
-          >
-            {t('workspace.mount.undo')}
-          </Button>
-        )}
-        {undoFailed && (
-          <span className="text-muted-foreground text-xs">
-            {t('workspace.mount.unavailable')}
-          </span>
-        )}
-      </AlertDescription>
-    </Alert>
+      {undone
+        ? t('workspace.mount.undone', { project: projectName })
+        : t(REASON_KEY[by], { project: projectName })}
+    </NoticeWithUndo>
   )
 }
 

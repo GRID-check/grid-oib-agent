@@ -129,8 +129,10 @@ import { useLayoutStore } from '@/features/layout/store'
 import { TechnicalSteps } from './TechnicalSteps'
 import type { ThinkingStep, CitationSource } from '../../types'
 import { deriveTraceLanes } from '../../lib/trace-lanes'
-import { groupByLevel } from '../../lib/herleitung-levels'
+import { groupByLevel, memoryBand } from '../../lib/herleitung-levels'
 import { HerleitungLevels } from './HerleitungLevels'
+import { HerleitungMemory } from './HerleitungMemory'
+import type { MemoryContext } from '@/adapters/api/schemas'
 import { buildCitationModel, totalHits, type CitedDocument } from '../../lib/citations'
 import { SourceCard } from './SourceCard'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -457,6 +459,12 @@ export interface ReasoningFlowProps {
   choicePrompt?: ChoicePrompt
   onChoiceRespond?: (promptId: string, choice: string) => void
   escalationReason?: string
+  /**
+   * What the turn read out of memory (ADR-0055). Rendered as its OWN band
+   * after the knowledge levels, never as one of them: a note is not a shelf
+   * and must never be counted as evidence.
+   */
+  memoryContext?: MemoryContext
   /** Turn is still streaming — edges animate and the graph keeps growing. */
   live?: boolean
 }
@@ -1134,6 +1142,7 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
     choicePrompt,
     onChoiceRespond,
     escalationReason,
+    memoryContext,
     live,
   } = props
   const t = useTranslations('chat')
@@ -1169,6 +1178,7 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
    * lane — which levels this turn did NOT read.
    */
   const levelGroups = useMemo(() => groupByLevel(traceLanes, cards), [traceLanes, cards])
+  const memory = useMemo(() => memoryBand(memoryContext), [memoryContext])
   const layout = useMemo(() => planFan(width || FALLBACK_W, cards.length), [width, cards.length])
 
   /**
@@ -1266,6 +1276,7 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
           not exist yet — the same live gate the truncation and cutoff lines
           take above. */}
       {!live && <HerleitungLevels groups={levelGroups} />}
+      {!live && <HerleitungMemory band={memory} />}
 
       {showTechnicalReasoning && steps.length > 0 && (
         <div className="border-t border-base pt-2">

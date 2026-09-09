@@ -21,6 +21,7 @@ import {
   type NATIntermediateStepContent,
   type NATErrorContent,
   type NATStageMessage,
+  type MemoryContext,
   NATIncomingMessageSchema,
   NATMessageType,
   NATSchemaType,
@@ -66,6 +67,15 @@ export interface ResponseTransparency {
   truncationReason?: string
   /** Ways the answer came out weaker than a healthy run, as stable tokens. */
   degradedReasons?: string[]
+  /**
+   * What this turn READ out of project/organization memory — the digest's own
+   * selection plus anything `search_memory` returned (ADR-0055).
+   *
+   * It says what was in context, never what shaped the answer: the second is a
+   * claim nothing on either side can verify, and the marker that renders this
+   * is worded accordingly. Absent when the turn had no memory at all.
+   */
+  memoryContext?: MemoryContext
   /** Marks the answer text as a queue-rejection notice, NOT a research answer. */
   jobAdmissionRejected?: boolean
   /** Retry hint (seconds) — only alongside jobAdmissionRejected. */
@@ -693,6 +703,7 @@ export class NATWebSocketClient {
             degradedReasons: message.degraded_reasons,
             skillsActivated: message.skills_activated,
             skillsHidden: message.skills_hidden,
+            memoryContext: message.memory_context,
             jobAdmissionRejected: message.job_admission_rejected,
             retryAfterSeconds: message.retry_after_seconds,
             answerMeta: sanitizeAnswerMeta(message.answer_meta) ?? undefined,

@@ -707,6 +707,10 @@ const buildAgentResponseMessage = (
     ...(opts.transparency?.skillsActivated && opts.transparency.skillsActivated.length > 0
       ? { skillsActivated: opts.transparency.skillsActivated }
       : {}),
+    // Kept whole, and kept even when `carried` is empty: a turn that read the
+    // store and found nothing to carry is a different fact from a turn with no
+    // memory at all, and only the second is an absent field.
+    ...(opts.transparency?.memoryContext ? { memoryContext: opts.transparency.memoryContext } : {}),
   }
 }
 
@@ -1577,6 +1581,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
         ...(transparency?.skillsActivated && transparency.skillsActivated.length > 0
           ? { skillsActivated: transparency.skillsActivated }
           : {}),
+        ...(transparency?.memoryContext ? { memoryContext: transparency.memoryContext } : {}),
         isStreaming: false,
       }
     })

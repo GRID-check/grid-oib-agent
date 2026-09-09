@@ -3,14 +3,16 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { buildScopeLevels, projectLevel } from './scope-tree-model'
+import { buildScopeLevels, memoryLevel, projectLevel } from './scope-tree-model'
 
 const ids = (input: Parameters<typeof buildScopeLevels>[0]) =>
   buildScopeLevels(input).map((level) => level.id)
 
 describe('level order', () => {
   it('is the fixed authority order, on both surfaces', () => {
-    const order = ['base', 'archiv', 'register', 'project', 'session']
+    // `memory` sits after `project` and before `session` (ADR-0055): narrower
+    // than the project's documents, wider than one conversation's files.
+    const order = ['base', 'archiv', 'register', 'project', 'memory', 'session']
     expect(ids({ scope: 'workspace' })).toEqual(order)
     expect(ids({ scope: 'project', projectName: 'Seestadt Nord' })).toEqual(order)
   })
@@ -112,5 +114,66 @@ describe('provenance', () => {
     expect(signal('register')).toBe('project')
     expect(signal('project')).toBe('project')
     expect(signal('session')).toBe('project')
+  })
+})
+
+
+/**
+ * The level read on EVERY turn (ADR-0055). Its properties are the ones the
+ * design turns on: it cannot be switched off from here, it states what the turn
+ * saw of it, and outside a project with nothing to read it is an honest closed
+ * door rather than an absent row.
+ */
+describe('the memory level', () => {
+  it('is `always` on both surfaces — no preset reaches it', () => {
+    for (const preset of [null, { label: 'Büroarchiv', excludes: ['project'] as const }]) {
+      expect(
+        memoryLevel(buildScopeLevels({ scope: 'workspace', preset: preset ?? null }))?.state
+      ).toBe('always')
+      expect(
+        memoryLevel(
+          buildScopeLevels({ scope: 'project', projectName: 'X', preset: preset ?? null })
+        )?.state
+      ).toBe('always')
+    }
+  })
+
+  it('carries the counts the turn reported, omission included', () => {
+    const level = memoryLevel(
+      buildScopeLevels({
+        scope: 'project',
+        projectName: 'Seestadt Nord',
+        memory: { carried: 3, total: 47, omitted: 44 },
+      })
+    )
+    expect(level?.memory).toEqual({ carried: 3, total: 47, omitted: 44 })
+  })
+
+  it('states no counts before a turn has reported any — zero would be invented', () => {
+    expect(memoryLevel(buildScopeLevels({ scope: 'project', projectName: 'X' }))?.memory)
+      .toBeUndefined()
+  })
+
+  it('paints in --source-auto, never a corpus family', () => {
+    // A note is not evidence and must not be paintable as any tier of it.
+    expect(memoryLevel(buildScopeLevels({ scope: 'workspace' }))?.signal).toBe('auto')
+  })
+
+  it('is a closed door in the Büro with no organization memory, WITH a reason', () => {
+    const level = memoryLevel(
+      buildScopeLevels({ scope: 'workspace', hasOrganizationMemory: false })
+    )
+    expect(level?.state).toBe('unavailable')
+    expect(level?.reason?.key).toBe('workspace.tree.memoryNoOrganization')
+  })
+
+  it('stays `always` in a PROJECT chat even with no organization memory', () => {
+    // The flag is about organization notes, which are the only ones in scope
+    // outside a project. Inside one, the project's own memory is always read.
+    expect(
+      memoryLevel(
+        buildScopeLevels({ scope: 'project', projectName: 'X', hasOrganizationMemory: false })
+      )?.state
+    ).toBe('always')
   })
 })

@@ -164,13 +164,18 @@ export const chat = {
         archiv: 'Office archive',
         register: 'Project register',
         project: 'Project',
+        memory: 'Memory',
         session: 'This conversation',
       },
       hints: {
         base: 'OIB guidelines and legal sources.',
         archiv: 'Standards and details from the whole organization.',
         register: 'Names and profiles only — no documents.',
-        project: 'Documents and memory of the projects in view.',
+        // Memory has its own row since ADR-0055, so this line no longer
+        // promises it: two rows promising one thing is how a hierarchy stops
+        // meaning anything.
+        project: 'Documents of the projects in view.',
+        memory: 'What Piloti has learned.',
         session: 'Files you attached here.',
       },
       /**
@@ -192,6 +197,15 @@ export const chat = {
       mountAdd: '+ Add a project',
       mountRemove: 'Remove {project}',
       resetPreset: 'Reset the preset',
+      // "In view" means read, never used. What a note did to an answer is
+      // something nobody knows, the model included (ADR-0055).
+      memoryCounts: '{carried, plural, one {# note} other {# notes}} of {total} in view.',
+      // The same number the digest gives the MODEL, given to the reader too.
+      // Those two diverging is what this whole record is about.
+      memoryOmitted:
+        '{omitted, plural, one {# further note was} other {# further notes were}} not read this time.',
+      memoryOpen: 'Open memory',
+      memoryNoOrganization: 'Nothing remembered for your organization yet.',
     },
     // The row above the composer: what this conversation may read right now.
     mounted: {
@@ -322,6 +336,19 @@ export const chat = {
        * is a reader working out which is which.
        */
       levelCount: '{docs, plural, one {# document} other {# documents}}',
+      // Memory sits BESIDE the levels, never among them: a level is a shelf
+      // that was read and whose evidence can be opened — a note is neither
+      // (ADR-0055).
+      memory: {
+        title: 'Memory',
+        notEvidence: 'Not evidence — notes that were in context while answering.',
+        carried: '{carried, plural, one {# note} other {# notes}} in view',
+        none: 'nothing read',
+        of: 'of {total}',
+        omitted: '{omitted, plural, one {# further note} other {# further notes}} not read',
+        searched:
+          'Searched memory beyond the running digest: {searched, plural, one {# note} other {# notes}}.',
+      },
     },
     // The standing control under a register-only answer (§10.3).
     registerMount: {
@@ -910,6 +937,23 @@ export const chat = {
     savedProject: 'Saved to this project’s memory.',
     dismissed: 'Not saved.',
     error: 'Could not save the finding',
+    // WHY it is asked at all: the reach. Organization memory is read in every
+    // project in this organization, which is why Piloti proposes it instead of
+    // writing it (ADR-0055, C6).
+    orgReach:
+      'Org-wide means read in every project in this organization. That is why Piloti proposes it rather than writing it itself.',
+    // WHO may accept. A permission statement, never an outage: "temporarily
+    // unavailable" was the wrong answer, because it invites waiting instead of
+    // asking.
+    orgPermission:
+      'Remembering org-wide is for whoever holds “write organization memory” (org:memory:write). Without it, “Save to just this project” stays open.',
+    orgDenied:
+      'You do not hold the permission to remember this org-wide (org:memory:write). An administrator of your organization can grant it — or you can save the finding to this project only.',
+    // The other cause behind the same code: not your permission, but the
+    // installation. Sending someone to ask for a permission that is not the
+    // locked door would be the wrong sentence.
+    orgSwitchedOff:
+      'Org-wide memory is switched off in this installation. That is an operator decision, not your role — the finding can still be saved to this project.',
     kind: {
       decision: 'Decision',
       constraint: 'Constraint',
@@ -1019,6 +1063,15 @@ export const chat = {
         escalation: 'A quick lookup is not enough — starting deep research',
         escalationPortfolio:
           'A quick lookup is not enough — starting a portfolio search across {count, plural, one {one project} other {# projects}}',
+        // Memory rides along as a digest on EVERY turn; that the agent went
+        // past it is the decision worth a line — and the number is why the
+        // line is its own.
+        memorySearch:
+          'Looked further into memory — read {count, plural, one {# more note} other {# more notes}}',
+        // The quietest change in the system until it got a sentence: a note
+        // replaced an earlier one and nobody was told.
+        memorySuperseded:
+          '{count, plural, one {An earlier note was} other {# earlier notes were}} replaced by a new one',
       },
     },
     // The one skill event a reader sees, keyed on WHO decided. Two sentences
@@ -1036,6 +1089,9 @@ export const chat = {
       webSearch: 'Web search',
       ris: 'RIS',
       corpus: 'OIB knowledge',
+      // The store Piloti keeps its project notes in — not the base corpus,
+      // which is why this chip is decided before `corpus`.
+      memory: 'Memory',
       assistant: 'Assistant',
       reading: 'Reading',
       // One chip per skill the turn actually applied. `{name}` is resolved by
@@ -1356,6 +1412,39 @@ export const chat = {
       distillation: 'added after the response',
       inTurn: 'noted during the response',
     },
+    // A correction, said out loud (ADR-0055, C5). Until now replacing a note
+    // was the quietest event in the system: the old one vanished from the
+    // panel, and it could be neither seen nor undone.
+    superseded: {
+      notice: 'Piloti replaced an earlier note.',
+      replaces: 'Now: “{content}”',
+      replaced: 'Before: “{content}”',
+      undo: 'Undo',
+      undone: 'The earlier note is in force again.',
+      undoFailed: 'That could not be undone just now.',
+      // 409: either the earlier note is already back, or someone else moved
+      // the pair in the meantime. Not a failure.
+      undoStale: 'Something changed here in the meantime — memory holds the current state.',
+      // In the memory panel: the retired note stays and says what took its
+      // place, and the replacement says what it replaced.
+      panelRetired: 'Replaced by: “{content}”',
+      panelReplaces: 'Replaced: “{content}”',
+      panelRestore: 'Restore the earlier note',
+      panelRestored: 'Restored.',
+      panelRestoreFailed: 'The note could not be restored.',
+    },
+  },
+  // The marker under the answer: WHAT was read, never what it did.
+  memoryContext: {
+    trigger: '{count, plural, one {# note} other {# notes}} from memory in view',
+    triggerAria:
+      '{count, plural, one {# note was} other {# notes were}} in view while answering — open the list',
+    // The sentence that keeps the marker honest. "Read" can be shown; "used"
+    // cannot — not even by the model about itself.
+    readNotUsed:
+      'These notes were in context while the answer was written. Whether any of them shaped it cannot be said — they are not evidence.',
+    omitted:
+      '{omitted, plural, one {# further note} other {# further notes}} from memory {omitted, plural, one {was} other {were}} not read this time.',
   },
   confidence: {
     label: 'Confidence: {level}',

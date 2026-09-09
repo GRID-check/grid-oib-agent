@@ -9,6 +9,7 @@ import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
+import type { MemoryContext } from '@/adapters/api/schemas'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { StageFrame } from './stores/messages-store'
 import type { MountsSlice } from './stores/mounts-store'
@@ -181,6 +182,16 @@ export interface AnswerTransparency {
   skillsActivated?: string[]
   /** The grid-hidden subset of skillsActivated — muted in the disclosure, never dropped. */
   skillsHidden?: string[]
+  /**
+   * What this turn READ out of project/organization memory (ADR-0055): the
+   * notes the injected digest was built from, how many were left out, how many
+   * exist, and how many `search_memory` returned. Absent when the turn had no
+   * memory at all.
+   *
+   * READ, never USED — the marker under the answer is worded on that
+   * distinction and must never claim a note shaped the answer.
+   */
+  memoryContext?: MemoryContext
   /**
    * The answer's structured anatomy (verdict / takeaways / callout) — native
    * answer fields, gated backend-side and sanitized at the wire boundary,
@@ -473,6 +484,16 @@ export interface ChatMessage {
   skillsActivated?: string[]
   /** The grid-hidden subset of skillsActivated — muted in the disclosure, never dropped. */
   skillsHidden?: string[]
+  /**
+   * What this turn READ out of project/organization memory (ADR-0055): the
+   * notes the injected digest was built from, how many were left out, how many
+   * exist, and how many `search_memory` returned. Absent when the turn had no
+   * memory at all.
+   *
+   * READ, never USED — the marker under the answer is worded on that
+   * distinction and must never claim a note shaped the answer.
+   */
+  memoryContext?: MemoryContext
   /**
    * The answer's structured anatomy (verdict / takeaways / callout) — native
    * answer fields of this message, gated backend-side and sanitized on every
