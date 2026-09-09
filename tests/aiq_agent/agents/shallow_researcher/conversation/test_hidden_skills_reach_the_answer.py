@@ -4,7 +4,7 @@ The shallow researcher records which of the skills it activated are
 ``grid-hidden`` (the house voice, the card grammar) on its own state, and the
 frontend mutes exactly those rows in the "Skills used" disclosure. Between
 those two ends is a Python-to-Python hop inside the chat agent — shallow result
-→ ``ChatResearcherState`` → ``ChatResponse`` — and that hop is what was
+→ ``ConversationState`` → ``ChatResponse`` — and that hop is what was
 missing: both ends were tested, the hop was not, so ``skills_hidden`` was set
 on every answer with skills and reached no reader on any of them. Hidden skills
 rendered at full weight in the disclosure, which is the one thing the field
@@ -13,7 +13,7 @@ exists to prevent.
 So this pins the HOP. Nothing here stubs the chat agent's graph or the lift:
 a real ``ShallowResearchAgentState`` — the same object the shallow register
 sets ``skills_hidden`` on — is returned by the shallow node, run through the
-real ``ChatResearcherAgent``, through the real ``apply_state_extras``,
+real ``ConversationGraph``, through the real ``apply_state_extras``,
 and out the real ``response_to_chunks``. What is asserted is the terminal
 chunk, which is where ``test_stream_extras_reach_the_frame`` picks the field up
 and follows it the rest of the way to the websocket frame. A rename on either
@@ -26,9 +26,9 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
-from aiq_agent.agents.chat_researcher.models import ChatResearcherState
+from aiq_agent.agents.shallow_researcher.conversation import ConversationGraph
 from aiq_agent.agents.shallow_researcher.markers import ESCALATION_MARKER
+from aiq_agent.agents.shallow_researcher.models import ConversationState
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.common import _create_chat_response
 from aiq_agent.turn.response import apply_state_extras
@@ -40,11 +40,10 @@ VISIBLE = "forecast-analysis"
 
 
 def _agent(shallow_fn, deep_fn=None):
-    return ChatResearcherAgent(
+    return ConversationGraph(
         shallow_research_fn=shallow_fn,
         deep_research_fn=deep_fn or (lambda state: None),
         clarifier_fn=None,
-        enable_clarifier=False,
     )
 
 
@@ -70,7 +69,7 @@ async def _turn(shallow_fn, deep_fn=None):
     list it mutes — so an answer that drops ``skills_activated`` would hide a
     leaking mute list from the chunk, and the state is where that shows.
     """
-    state = ChatResearcherState(messages=[HumanMessage(content="Wie tief darf der Erker sein?")])
+    state = ConversationState(messages=[HumanMessage(content="Wie tief darf der Erker sein?")])
     result = await _agent(shallow_fn, deep_fn).run(state, thread_id="t")
 
     response = _create_chat_response("die Antwort", response_id="r1", model="chat_researcher")

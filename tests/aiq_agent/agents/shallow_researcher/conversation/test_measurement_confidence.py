@@ -16,18 +16,17 @@ The four claims under test, and only the first is the feature:
    turn does not rescue it.
 """
 
-from unittest.mock import MagicMock
-
 import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
-from aiq_agent.agents.chat_researcher.agent import _finalize_shallow_answer
-from aiq_agent.agents.chat_researcher.models import ChatResearcherState
+from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
+from aiq_agent.agents.shallow_researcher.conversation import ConversationGraph
+from aiq_agent.agents.shallow_researcher.conversation import _finalize_answer
 from aiq_agent.agents.shallow_researcher.markers import MEASUREMENT_CONFIDENCE_CEILING
 from aiq_agent.agents.shallow_researcher.markers import answer_confidence_capped_reason
 from aiq_agent.agents.shallow_researcher.markers import surface_answer_confidence
+from aiq_agent.agents.shallow_researcher.models import ConversationState
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 
 # The two answers the whole design turns on: the same measured sentence, once
@@ -195,34 +194,30 @@ class TestFinalizeShallowAnswerCarriesTheSignals:
 
     def test_measured_answer_surfaces_medium(self):
         msg = AIMessage(content=f"{KELLER_MEASURED}\n[CONFIDENCE:high]")
-        update = _finalize_shallow_answer(msg, _signals(answer_measurement_grounded=True))
+        update = _finalize_answer(msg, _signals(answer_measurement_grounded=True))
         assert update["answer_confidence"] == "medium"
         assert update["answer_confidence_capped_reason"] == "measurement_only"
         assert "[CONFIDENCE" not in update["messages"][0].content
 
     def test_mixed_answer_does_not_launder_through_the_node(self):
         msg = AIMessage(content=KELLER_MEASURED_PLUS_VERDICT)
-        update = _finalize_shallow_answer(
-            msg, _signals(answer_measurement_grounded=True, answer_normative_claim_uncited=True)
-        )
+        update = _finalize_answer(msg, _signals(answer_measurement_grounded=True, answer_normative_claim_uncited=True))
         assert update["answer_confidence"] == "low"
         assert update["answer_confidence_capped_reason"] == "normative_claim_uncited"
 
     def test_model_defaults_leave_an_ungrounded_answer_capped(self):
-        update = _finalize_shallow_answer(AIMessage(content="Der Keller erfüllt OIB 4."), _signals())
+        update = _finalize_answer(AIMessage(content="Der Keller erfüllt OIB 4."), _signals())
         assert update["answer_confidence"] == "low"
         assert update["answer_confidence_capped_reason"] == "ungrounded"
 
 
 class TestMeasurementConfidenceEndToEnd:
-    """Propagation from a shallow result through ``ChatResearcherAgent.run()``."""
+    """Propagation from a shallow result through ``ConversationGraph.run()``."""
 
     @pytest.fixture
     def deep_fn(self):
         async def deep(state):
-            result = MagicMock()
-            result.messages = list(state.messages) + [AIMessage(content="Deep report.")]
-            return result
+            return DeepResearchAgentState(messages=list(state.messages) + [AIMessage(content="Deep report.")])
 
         return deep
 
@@ -241,18 +236,17 @@ class TestMeasurementConfidenceEndToEnd:
         return shallow
 
     def _agent(self, shallow_fn, deep_fn):
-        return ChatResearcherAgent(
+        return ConversationGraph(
             shallow_research_fn=shallow_fn,
             deep_research_fn=deep_fn,
             clarifier_fn=None,
-            enable_clarifier=False,
         )
 
     @pytest.mark.asyncio
     async def test_measured_answer_arrives_at_medium(self, deep_fn):
         shallow = self._shallow(KELLER_MEASURED, measured=True, normative=False)
         agent = self._agent(shallow, deep_fn)
-        state = ChatResearcherState(messages=[HumanMessage(content="Wie hoch ist der Keller?")])
+        state = ConversationState(messages=[HumanMessage(content="Wie hoch ist der Keller?")])
         result = await agent.run(state, thread_id="m1")
         assert result.answer_confidence == "medium"
         assert result.answer_confidence_capped_reason == "measurement_only"
@@ -262,7 +256,7 @@ class TestMeasurementConfidenceEndToEnd:
         """End to end: the legal claim does not reach the user at "medium"."""
         shallow = self._shallow(KELLER_MEASURED_PLUS_VERDICT, measured=True, normative=True)
         agent = self._agent(shallow, deep_fn)
-        state = ChatResearcherState(messages=[HumanMessage(content="Reicht die Kellerhöhe?")])
+        state = ConversationState(messages=[HumanMessage(content="Reicht die Kellerhöhe?")])
         result = await agent.run(state, thread_id="m2")
         assert result.answer_confidence == "low"
         assert result.answer_confidence_capped_reason == "normative_claim_uncited"
@@ -334,9 +328,7 @@ class TestTheSingleSourceFallbackDoesNotLaunder:
     @pytest.fixture
     def deep_fn(self):
         async def deep(state):
-            result = MagicMock()
-            result.messages = list(state.messages) + [AIMessage(content="Deep report.")]
-            return result
+            return DeepResearchAgentState(messages=list(state.messages) + [AIMessage(content="Deep report.")])
 
         return deep
 
@@ -355,13 +347,12 @@ class TestTheSingleSourceFallbackDoesNotLaunder:
                 answer_confidence_marker="high",
             )
 
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=shallow,
             deep_research_fn=deep_fn,
             clarifier_fn=None,
-            enable_clarifier=False,
         )
-        state = ChatResearcherState(messages=[HumanMessage(content="Reicht die Kellerhöhe?")])
+        state = ConversationState(messages=[HumanMessage(content="Reicht die Kellerhöhe?")])
         result = await agent.run(state, thread_id="f1")
         assert result.answer_confidence == "low"
         assert result.answer_confidence_capped_reason == "normative_claim_uncited"

@@ -17,11 +17,11 @@ from aiq_agent.turn.api_seam import async_job_dispatch
 from aiq_agent.turn.api_seam import submit_agent_job
 
 if TYPE_CHECKING:
-    from aiq_agent.agents.chat_researcher.models import ChatResearcherState
+    from aiq_agent.agents.shallow_researcher.models import ConversationState
 
 logger = logging.getLogger(__name__)
 
-JobSubmitter = Callable[["ChatResearcherState"], Awaitable[str]]
+JobSubmitter = Callable[["ConversationState"], Awaitable[str]]
 
 
 class DispatchSettings(Protocol):
@@ -31,7 +31,7 @@ class DispatchSettings(Protocol):
     memory_reflection_llm: str | None
 
 
-def job_query(state: ChatResearcherState) -> str:
+def job_query(state: ConversationState) -> str:
     """The question the worker researches: the preserved query, else the latest user turn."""
     query = state.original_query or (get_latest_user_query(state.messages) if state.messages else None)
     if not query:
@@ -39,7 +39,7 @@ def job_query(state: ChatResearcherState) -> str:
     return query if isinstance(query, str) else str(query)
 
 
-async def submit_deep_research_job(state: ChatResearcherState, *, memory_reflection_llm: str | None) -> str:
+async def submit_deep_research_job(state: ConversationState, *, memory_reflection_llm: str | None) -> str:
     """Submit this turn's deep research as a worker job; returns the job id.
 
     The structured fields travel as fields (not prose-folded into the input)
@@ -93,7 +93,7 @@ def build_deep_research_job_submitter(config: DispatchSettings) -> JobSubmitter 
     # serialization boundary without depending on the subclass.
     reflection_llm = str(config.memory_reflection_llm) if config.memory_reflection_llm else None
 
-    async def _submit(state: ChatResearcherState) -> str:
+    async def _submit(state: ConversationState) -> str:
         return await submit_deep_research_job(state, memory_reflection_llm=reflection_llm)
 
     return _submit

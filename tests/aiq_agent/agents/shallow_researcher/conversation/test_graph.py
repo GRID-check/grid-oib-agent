@@ -1,4 +1,4 @@
-"""Tests for the ChatResearcherAgent.
+"""Tests for the ConversationGraph.
 
 Since ADR-0052 there is no classifier in front of the answering agent: every
 turn enters ``shallow_research`` with the full tool set, and the shape of the
@@ -13,14 +13,12 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.chat_researcher.agent import CONVERSATION_SCOPED_FIELDS
-from aiq_agent.agents.chat_researcher.agent import TURN_SCOPED_FIELDS
-from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
-from aiq_agent.agents.chat_researcher.agent import as_shallow_state
-from aiq_agent.agents.chat_researcher.agent import escalation
-from aiq_agent.agents.chat_researcher.models import ChatResearcherState
-from aiq_agent.agents.chat_researcher.models import ShallowResult
+from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
+from aiq_agent.agents.shallow_researcher.conversation import CONVERSATION_SCOPED_FIELDS
+from aiq_agent.agents.shallow_researcher.conversation import TURN_SCOPED_FIELDS
+from aiq_agent.agents.shallow_researcher.conversation import ConversationGraph
 from aiq_agent.agents.shallow_researcher.markers import ESCALATION_MARKER
+from aiq_agent.agents.shallow_researcher.models import ConversationState
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 
 
@@ -38,8 +36,8 @@ def _shallow_result(messages, answer: str, *, escalating: bool = False, direct: 
     )
 
 
-class TestChatResearcherAgent:
-    """Tests for the ChatResearcherAgent class."""
+class TestConversationGraph:
+    """Tests for the ConversationGraph class."""
 
     @pytest.fixture
     def mock_shallow_research(self):
@@ -56,11 +54,12 @@ class TestChatResearcherAgent:
         """Create a mock deep research function."""
 
         async def deep(state):
-            result = MagicMock()
-            result.messages = list(state.messages) + [
-                AIMessage(content="Here's a comprehensive report."),
-            ]
-            return result
+            return DeepResearchAgentState(
+                messages=list(state.messages)
+                + [
+                    AIMessage(content="Here's a comprehensive report."),
+                ]
+            )
 
         return deep
 
@@ -81,8 +80,8 @@ class TestChatResearcherAgent:
         return clarifier
 
     def test_init_with_defaults(self, mock_shallow_research, mock_deep_research, mock_clarifier):
-        """Test ChatResearcherAgent initialization with defaults."""
-        agent = ChatResearcherAgent(
+        """Test ConversationGraph initialization with defaults."""
+        agent = ConversationGraph(
             shallow_research_fn=mock_shallow_research,
             deep_research_fn=mock_deep_research,
             clarifier_fn=mock_clarifier,
@@ -92,7 +91,7 @@ class TestChatResearcherAgent:
 
     def test_graph_property(self, mock_shallow_research, mock_deep_research, mock_clarifier):
         """Test that graph property returns the compiled graph."""
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=mock_shallow_research,
             deep_research_fn=mock_deep_research,
             clarifier_fn=mock_clarifier,
@@ -108,7 +107,7 @@ class TestChatResearcherAgent:
         The compiled graph has no ``intent_classifier`` node, and the only edge
         out of START goes to ``shallow_research``.
         """
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=mock_shallow_research,
             deep_research_fn=mock_deep_research,
             clarifier_fn=mock_clarifier,
@@ -130,13 +129,13 @@ class TestChatResearcherAgent:
         async def direct_shallow(state_input):
             return _shallow_result(state_input.messages, "Hello! I'm an AI assistant.", direct=True)
 
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=direct_shallow,
             deep_research_fn=mock_deep_research,
             clarifier_fn=mock_clarifier,
         )
 
-        state = ChatResearcherState(messages=[HumanMessage(content="Hello!")])
+        state = ConversationState(messages=[HumanMessage(content="Hello!")])
         result = await agent.run(state, thread_id="test-thread")
 
         assert result.routing_decision == "meta"
@@ -146,13 +145,13 @@ class TestChatResearcherAgent:
     @pytest.mark.asyncio
     async def test_run_shallow_research_flow(self, mock_shallow_research, mock_deep_research, mock_clarifier):
         """A researched answer (a source was consulted) is observed as shallow."""
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=mock_shallow_research,
             deep_research_fn=mock_deep_research,
             clarifier_fn=mock_clarifier,
         )
 
-        state = ChatResearcherState(messages=[HumanMessage(content="What is CUDA?")])
+        state = ConversationState(messages=[HumanMessage(content="What is CUDA?")])
         result = await agent.run(state, thread_id="test-thread")
 
         assert result is not None
@@ -165,13 +164,13 @@ class TestChatResearcherAgent:
         async def escalating_shallow(state_input):
             return _shallow_result(state_input.messages, "Partial answer.", escalating=True)
 
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=escalating_shallow,
             deep_research_fn=mock_deep_research,
             clarifier_fn=mock_clarifier,
         )
 
-        state = ChatResearcherState(
+        state = ConversationState(
             messages=[HumanMessage(content="Compare CUDA vs OpenCL")],
         )
         result = await agent.run(state, thread_id="test-thread")
@@ -194,19 +193,20 @@ class TestChatResearcherAgent:
         async def tracking_deep(state):
             nonlocal deep_called
             deep_called = True
-            result = MagicMock()
-            result.messages = list(state.messages) + [
-                AIMessage(content="Here's a comprehensive report."),
-            ]
-            return result
+            return DeepResearchAgentState(
+                messages=list(state.messages)
+                + [
+                    AIMessage(content="Here's a comprehensive report."),
+                ]
+            )
 
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=direct_shallow,
             deep_research_fn=tracking_deep,
             clarifier_fn=mock_clarifier,
         )
 
-        state = ChatResearcherState(
+        state = ConversationState(
             messages=[HumanMessage(content="Remember for the whole org: the firm is Grid and Partners")],
         )
         result = await agent.run(state, thread_id="test-thread")
@@ -221,13 +221,13 @@ class TestChatResearcherAgent:
     @pytest.mark.asyncio
     async def test_run_with_empty_messages(self, mock_shallow_research, mock_deep_research, mock_clarifier):
         """Test run() handles empty messages."""
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=mock_shallow_research,
             deep_research_fn=mock_deep_research,
             clarifier_fn=mock_clarifier,
         )
 
-        state = ChatResearcherState(messages=[])
+        state = ConversationState(messages=[])
         result = await agent.run(state, thread_id="test-thread")
 
         assert result is not None
@@ -239,13 +239,13 @@ class TestChatResearcherAgent:
         async def direct_shallow(state_input):
             return _shallow_result(state_input.messages, "Hi there!", direct=True)
 
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=direct_shallow,
             deep_research_fn=mock_deep_research,
             clarifier_fn=mock_clarifier,
         )
 
-        state = ChatResearcherState(messages=[HumanMessage(content="Hi")])
+        state = ConversationState(messages=[HumanMessage(content="Hi")])
         result = await agent.run(state)
 
         assert result is not None
@@ -259,13 +259,13 @@ class TestChatResearcherAgent:
             captured_state["data_sources"] = state_input.data_sources
             return _shallow_result(state_input.messages, "Hello!", direct=True)
 
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=capturing_shallow,
             deep_research_fn=mock_deep_research,
             clarifier_fn=mock_clarifier,
         )
 
-        state = ChatResearcherState(
+        state = ConversationState(
             messages=[HumanMessage(content="Hello!")],
             data_sources=["gdrive", "confluence"],
         )
@@ -280,13 +280,13 @@ class TestChatResearcherAgent:
         async def direct_shallow(state_input):
             return _shallow_result(state_input.messages, "Hello!", direct=True)
 
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=direct_shallow,
             deep_research_fn=mock_deep_research,
             clarifier_fn=mock_clarifier,
         )
 
-        state = ChatResearcherState(
+        state = ConversationState(
             messages=[HumanMessage(content="Hello!")],
             collection_scope=["oib_knowledge", "proj_project-1", "s_conv-1"],
         )
@@ -303,13 +303,13 @@ class TestChatResearcherAgent:
             captured_state["data_sources"] = state_input.data_sources
             return _shallow_result(state_input.messages, "Hello!", direct=True)
 
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=capturing_shallow,
             deep_research_fn=mock_deep_research,
             clarifier_fn=mock_clarifier,
         )
 
-        state = ChatResearcherState(
+        state = ConversationState(
             messages=[HumanMessage(content="Hello!")],
             data_sources=None,
         )
@@ -326,13 +326,13 @@ class TestChatResearcherAgent:
             captured_state["data_sources"] = state_input.data_sources
             return _shallow_result(state_input.messages, "Hello!", direct=True)
 
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=capturing_shallow,
             deep_research_fn=mock_deep_research,
             clarifier_fn=mock_clarifier,
         )
 
-        state = ChatResearcherState(
+        state = ConversationState(
             messages=[HumanMessage(content="Hello!")],
             data_sources=[],
         )
@@ -354,20 +354,20 @@ class TestChatResearcherAgent:
             seen["shelf"] = get_listing_shelf()
             return _shallow_result(state_input.messages, "Im Büroarchiv liegen drei Dateien.", direct=True)
 
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=observing_shallow,
             deep_research_fn=mock_deep_research,
             clarifier_fn=mock_clarifier,
         )
 
         await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content="welche Dateien hast du im Büroarchiv")]),
+            ConversationState(messages=[HumanMessage(content="welche Dateien hast du im Büroarchiv")]),
             thread_id="t",
         )
         assert seen["shelf"] == Shelf.ARCHIV
 
         await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content="was sagt OIB-RL 2 zum Brandschutz")]),
+            ConversationState(messages=[HumanMessage(content="was sagt OIB-RL 2 zum Brandschutz")]),
             thread_id="t2",
         )
         assert seen["shelf"] is None
@@ -396,9 +396,9 @@ class TestRoutingBoundary:
 
         async def deep(state):
             calls["deep"] = True
-            result = MagicMock()
-            result.messages = list(state.messages) + [AIMessage(content="Here's a comprehensive report.")]
-            return result
+            return DeepResearchAgentState(
+                messages=list(state.messages) + [AIMessage(content="Here's a comprehensive report.")]
+            )
 
         async def clarifier(state_input):
             calls["clarifier"] = True
@@ -423,12 +423,12 @@ class TestRoutingBoundary:
         deep research."""
         calls, shallow_answering, deep, clarifier = trackers
 
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=shallow_answering("Das liegt außerhalb meines Fachgebiets. …", direct=True),
             deep_research_fn=deep,
             clarifier_fn=clarifier,
         )
-        state = ChatResearcherState(messages=[HumanMessage(content="How do I bake a cake?")])
+        state = ConversationState(messages=[HumanMessage(content="How do I bake a cake?")])
         result = await agent.run(state, thread_id="t")
 
         assert calls["shallow"] is True, "the shallow agent answers every turn, off-topic ones included"
@@ -444,12 +444,12 @@ class TestRoutingBoundary:
         question is answered directly — no clarifier, no deep escalation."""
         calls, shallow_answering, deep, clarifier = trackers
 
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=shallow_answering("Here's a quick answer with sources."),
             deep_research_fn=deep,
             clarifier_fn=clarifier,
         )
-        state = ChatResearcherState(messages=[HumanMessage(content="Was regelt die OIB-Richtlinie 2?")])
+        state = ConversationState(messages=[HumanMessage(content="Was regelt die OIB-Richtlinie 2?")])
         result = await agent.run(state, thread_id="t")
 
         assert calls["shallow"] is True
@@ -463,12 +463,12 @@ class TestRoutingBoundary:
         clarifier (the HITL push-back point) before deep research runs."""
         calls, shallow_answering, deep, clarifier = trackers
 
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=shallow_answering("Das braucht eine breitere Recherche.", escalating=True),
             deep_research_fn=deep,
             clarifier_fn=clarifier,
         )
-        state = ChatResearcherState(
+        state = ConversationState(
             messages=[HumanMessage(content="Vergleiche die OIB-2-Anforderungen über alle Gebäudeklassen")],
         )
         result = await agent.run(state, thread_id="t")
@@ -499,21 +499,18 @@ class TestAppendContextMessage:
 
         async def deep(state):
             calls.append("deep")
-            result = MagicMock()
-            result.messages = list(state.messages)
-            return result
+            return DeepResearchAgentState(messages=list(state.messages))
 
         return calls, shallow, deep
 
-    def _agent(self, trackers) -> ChatResearcherAgent:
+    def _agent(self, trackers) -> ConversationGraph:
         from langgraph.checkpoint.memory import InMemorySaver
 
         _calls, shallow, deep = trackers
-        return ChatResearcherAgent(
+        return ConversationGraph(
             shallow_research_fn=shallow,
             deep_research_fn=deep,
             clarifier_fn=None,
-            enable_clarifier=False,
             checkpointer=InMemorySaver(),
         )
 
@@ -537,7 +534,7 @@ class TestAppendContextMessage:
 
         # 1. Matthias asks Piloti.
         await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content="Ist das Atrium ein eigener Abschnitt?")]),
+            ConversationState(messages=[HumanMessage(content="Ist das Atrium ein eigener Abschnitt?")]),
             thread_id="conv-1",
         )
         # 2/3. Matthias tags Anna, Anna answers — neither is an agent turn. Measured
@@ -557,7 +554,7 @@ class TestAppendContextMessage:
 
         agent.shallow_research_fn = capture_shallow
         await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content="@Piloti given that, recheck")]),
+            ConversationState(messages=[HumanMessage(content="@Piloti given that, recheck")]),
             thread_id="conv-1",
         )
 
@@ -590,7 +587,7 @@ class TestTurnBoundary:
 
     def test_the_reset_set_is_every_field_that_is_not_conversation_scoped(self):
         assert CONVERSATION_SCOPED_FIELDS == {"messages", "deep_research_declined"}
-        assert TURN_SCOPED_FIELDS == set(ChatResearcherState.model_fields) - CONVERSATION_SCOPED_FIELDS
+        assert TURN_SCOPED_FIELDS == set(ConversationState.model_fields) - CONVERSATION_SCOPED_FIELDS
 
     @pytest.mark.asyncio
     async def test_in_flight_documents_reach_the_shallow_agent(self):
@@ -600,11 +597,9 @@ class TestTurnBoundary:
             seen["in_flight"] = state_input.in_flight_documents
             return _shallow_result(state_input.messages, "Die Datei wird noch gelesen.", direct=True)
 
-        agent = ChatResearcherAgent(shallow_research_fn=shallow, deep_research_fn=_unused, clarifier_fn=None)
+        agent = ConversationGraph(shallow_research_fn=shallow, deep_research_fn=_unused, clarifier_fn=None)
         await agent.run(
-            ChatResearcherState(
-                messages=[HumanMessage(content="Was steht im Plan?")], in_flight_documents=["plan.pdf"]
-            ),
+            ConversationState(messages=[HumanMessage(content="Was steht im Plan?")], in_flight_documents=["plan.pdf"]),
             thread_id="t",
         )
 
@@ -615,47 +610,33 @@ class TestTurnBoundary:
         async def shallow(state_input):
             return _shallow_result(state_input.messages, "Antwort [1].")
 
-        agent = ChatResearcherAgent(shallow_research_fn=shallow, deep_research_fn=_unused, clarifier_fn=None)
-        result = await agent.run(ChatResearcherState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
-        assert isinstance(result, ChatResearcherState)
+        agent = ConversationGraph(shallow_research_fn=shallow, deep_research_fn=_unused, clarifier_fn=None)
+        result = await agent.run(ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
+        assert isinstance(result, ConversationState)
 
 
 class TestEscalation:
-    """The one pure predicate the escalation edge and the clarifier read."""
+    """The one bit the escalation edge and the clarifier read."""
 
     def test_only_an_explicit_ask_escalates(self):
-        asked = ShallowResult(answer="a", escalate_to_deep=True, escalation_reason="zu breit")
-        assert escalation(ChatResearcherState(messages=[], shallow_result=asked)) is asked
-        assert (
-            escalation(
-                ChatResearcherState(messages=[], shallow_result=ShallowResult(answer="a", escalate_to_deep=False))
-            )
-            is None
-        )
-        assert escalation(ChatResearcherState(messages=[])) is None
+        assert ConversationState(messages=[], escalate_to_deep=True).escalate_to_deep is True
+        assert not ConversationState(messages=[], escalate_to_deep=False).escalate_to_deep
+        assert not ConversationState(messages=[]).escalate_to_deep
 
-    def test_insufficiency_prose_alone_is_not_an_ask(self):
-        state = ChatResearcherState(messages=[AIMessage(content="Ich konnte keine Informationen dazu finden.")])
-        assert escalation(state) is None
+    @pytest.mark.asyncio
+    async def test_insufficiency_prose_alone_is_not_an_ask(self):
+        """A hedging answer that did NOT set the structured ask ends the turn.
 
+        German legal hedging in a successful answer ("nicht finden", "weitere
+        Recherche erforderlich") false-positived a substring match and
+        surprise-escalated good answers; the ask is structured for that reason.
+        """
 
-class TestAsShallowState:
-    """The shallow agent's result is the model it is typed to return; a stub
-    that is not one keeps only the attributes it really set."""
+        async def shallow(state_input):
+            return _shallow_result(state_input.messages, "Ich konnte keine Informationen dazu finden.")
 
-    def test_a_real_state_passes_through_untouched(self):
-        state = ShallowResearchAgentState(messages=[], answer_citation_grounded=True)
-        assert as_shallow_state(state) is state
+        agent = ConversationGraph(shallow_research_fn=shallow, deep_research_fn=_unused, clarifier_fn=_unused)
+        result = await agent.run(ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id="t")
 
-    def test_an_auto_vivified_attribute_reads_as_the_default_not_as_a_signal(self):
-        stub = MagicMock()
-        stub.messages = [AIMessage(content="Antwort.")]
-        stub.escalation_requested = False
-        stub.answer_confidence_marker = "high"
-
-        state = as_shallow_state(stub)
-
-        assert state.answer_confidence_marker == "high"
-        assert state.answer_citation_grounded is False, "a MagicMock attribute must not count as grounding"
-        assert state.answer_measurement_grounded is False
-        assert state.verified_sources is None
+        assert not result.escalate_to_deep
+        assert result.routing_decision == "shallow"

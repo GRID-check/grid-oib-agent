@@ -16,9 +16,9 @@ strings are emitted verbatim by backend code and are always English:
 
 | String | Source |
 | --- | --- |
-| Budget exhausted (`BudgetExceededError` default message) | `src/aiq_agent/common/cost_tracking.py` (~L82-88), sent via `src/aiq_agent/agents/chat_researcher/register.py` (~L606-610) |
+| Budget exhausted (`BudgetExceededError` default message) | `src/aiq_agent/common/cost_tracking.py` (~L82-88), turned into the refused turn's response by `src/aiq_agent/turn/admission.py` |
 | Job-cap / admission messages (`JobAdmissionError`) | `frontends/aiq_api/src/aiq_api/jobs/submit.py` (~L61-89) |
-| "No response generated." | `src/aiq_agent/agents/chat_researcher/register.py` (~L633) |
+| "No response generated." | `src/aiq_agent/turn/response.py` (`NO_RESPONSE_TEXT`) |
 
 These reach the user directly, without passing through any LLM, so no prompt
 change can localize them.

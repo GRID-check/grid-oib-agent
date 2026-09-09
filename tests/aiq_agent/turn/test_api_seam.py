@@ -10,10 +10,16 @@ from aiq_agent.turn.api_seam import AuthError
 from aiq_agent.turn.api_seam import skip_clarifier_requested
 
 AGENT_SRC = pathlib.Path(api_seam.__file__).resolve().parents[1]
-#: The packages this seam speaks for. ``aiq_agent/auth`` carries its own,
-#: older inversion (``auth/utils.py``, ``auth/workos_validator.py``) that is
-#: not this seam's to undo.
-GUARDED = (AGENT_SRC / "turn", AGENT_SRC / "agents" / "chat_researcher")
+#: The packages this seam speaks for: the per-turn harness, the workflow entry
+#: point, and the researcher that owns the conversation graph (which reads
+#: ``AuthError`` through the seam). ``aiq_agent/auth`` carries its own, older
+#: inversion (``auth/utils.py``, ``auth/workos_validator.py``) that is not this
+#: seam's to undo.
+GUARDED = (
+    AGENT_SRC / "turn",
+    AGENT_SRC / "agents" / "chat_researcher",
+    AGENT_SRC / "agents" / "shallow_researcher",
+)
 
 
 def _imports_of(path: pathlib.Path) -> set[str]:

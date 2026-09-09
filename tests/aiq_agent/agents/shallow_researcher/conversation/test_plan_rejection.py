@@ -28,9 +28,9 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 
-from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
-from aiq_agent.agents.chat_researcher.models import ChatResearcherState
+from aiq_agent.agents.shallow_researcher.conversation import ConversationGraph
 from aiq_agent.agents.shallow_researcher.markers import ESCALATION_MARKER
+from aiq_agent.agents.shallow_researcher.models import ConversationState
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 
 PROCEDURAL_QUESTION = "Wie läuft das Baubewilligungsverfahren in Wien ab?"
@@ -102,7 +102,7 @@ def _build(shallow, deep, clarifier, **kwargs):
     ``MemorySaver`` is the in-process equivalent.
     """
     kwargs.setdefault("checkpointer", MemorySaver())
-    return ChatResearcherAgent(
+    return ConversationGraph(
         shallow_research_fn=shallow,
         deep_research_fn=deep,
         clarifier_fn=clarifier,
@@ -118,7 +118,7 @@ class TestRejectionDegradesToAnAnswer:
         agent = _build(shallow, deep, clarifier)
 
         result = await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="reject-1",
         )
 
@@ -145,7 +145,7 @@ class TestRejectionDegradesToAnAnswer:
 
         agent = _build(capturing_shallow, deep, clarifier)
         await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="reject-2",
         )
 
@@ -167,7 +167,7 @@ class TestRejectionDegradesToAnAnswer:
         agent = _build(shallow, deep, clarifier)
 
         result = await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="reject-3",
         )
 
@@ -206,7 +206,7 @@ class TestCancellationEndsTheTurnWithAReceipt:
         agent = _build(shallow, deep, clarifier)
 
         result = await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="cancel-1",
         )
 
@@ -226,7 +226,7 @@ class TestCancellationEndsTheTurnWithAReceipt:
         agent = _build(shallow, deep, clarifier)
 
         result = await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="cancel-2",
         )
 
@@ -241,13 +241,13 @@ class TestCancellationEndsTheTurnWithAReceipt:
         agent = _build(shallow, deep, clarifier)
 
         result = await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="cancel-3",
         )
         assert result.deep_research_declined is True
 
         result = await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="cancel-3",
         )
 
@@ -264,7 +264,7 @@ class TestRejectionIsRemembered:
         agent = _build(shallow, deep, clarifier)
 
         result = await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="sticky-1",
         )
 
@@ -278,13 +278,13 @@ class TestRejectionIsRemembered:
         agent = _build(shallow, deep, clarifier)
 
         await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="sticky-2",
         )
         assert calls["clarifier"] == 1
 
         result = await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content="Und wie lange dauert die Bauverhandlung?")]),
+            ConversationState(messages=[HumanMessage(content="Und wie lange dauert die Bauverhandlung?")]),
             thread_id="sticky-2",
         )
 
@@ -310,14 +310,14 @@ class TestRejectionIsRemembered:
 
         agent = _build(shallow, deep, clarifier)
         await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="thread-a",
         )
         assert calls["deep"] == 0
 
         agent2 = _build(shallow, deep, approving_clarifier)
         await agent2.run(
-            ChatResearcherState(messages=[HumanMessage(content="Umfassende Studie zum Holzbau in der DACH-Region")]),
+            ConversationState(messages=[HumanMessage(content="Umfassende Studie zum Holzbau in der DACH-Region")]),
             thread_id="thread-b",
         )
 
@@ -340,12 +340,12 @@ class TestRejectionIsRemembered:
 
         # Turn 1: the plan is rejected; the fallback answer asks to escalate.
         await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
+            ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="escalate-1",
         )
         # Turn 2: same conversation, the shallow answer asks to escalate again.
         result = await agent.run(
-            ChatResearcherState(messages=[HumanMessage(content="Und die Fristen?")]),
+            ConversationState(messages=[HumanMessage(content="Und die Fristen?")]),
             thread_id="escalate-1",
         )
 

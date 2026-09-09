@@ -21,7 +21,7 @@ from aiq_agent.stages import TurnFacts
 from nat.data_models.api_server import ChatResponse
 
 if TYPE_CHECKING:
-    from aiq_agent.agents.chat_researcher.models import ChatResearcherState
+    from aiq_agent.agents.shallow_researcher.models import ConversationState
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ RESPONSE_LIFTS: tuple[tuple[str, str, str | None], ...] = (
 )
 
 
-def answer_text(state: ChatResearcherState) -> str:
+def answer_text(state: ConversationState) -> str:
     """The delivered answer: the last message's content, as text."""
     if not state.messages:
         return NO_RESPONSE_TEXT
@@ -59,7 +59,7 @@ def answer_text(state: ChatResearcherState) -> str:
     return content if isinstance(content, str) else str(content)
 
 
-def apply_state_extras(response: ChatResponse, state: ChatResearcherState) -> None:
+def apply_state_extras(response: ChatResponse, state: ConversationState) -> None:
     """Lift every present extra in :data:`RESPONSE_LIFTS` off ``state`` onto ``response``."""
     for field, attribute, requires in RESPONSE_LIFTS:
         value = getattr(state, field)
@@ -68,7 +68,7 @@ def apply_state_extras(response: ChatResponse, state: ChatResearcherState) -> No
         setattr(response, attribute, value)
 
 
-def build_response(state: ChatResearcherState, *, cards: list | None, workflow_id: str) -> ChatResponse:
+def build_response(state: ConversationState, *, cards: list | None, workflow_id: str) -> ChatResponse:
     """The wire response for a finished turn: answer text, cards, and the extras."""
     response = _create_chat_response(answer_text(state), response_id="research_response", model=workflow_id)
     if cards:
@@ -93,7 +93,7 @@ def emitted_card_types(cards: object) -> frozenset[str]:
 def post_answer_turn_facts(
     request_facts: TurnFacts,
     *,
-    state: ChatResearcherState,
+    state: ConversationState,
     response: ChatResponse,
     query_text: str,
     cards: object,

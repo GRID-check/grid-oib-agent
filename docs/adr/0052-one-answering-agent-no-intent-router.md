@@ -93,7 +93,7 @@ shallow_research ─(envelope.escalate_to_deep?)─▶ clarifier ─▶ deep_res
   report ("erstell mir einen Bericht") escalates immediately, without a
   retrieval first.
 - **`routing_decision` stays on the wire, observed after the answer**
-  (`chat_researcher.agent.observed_routing`): `meta` when the agent consulted no
+  (`ShallowResearchAgentState.observed_routing`): `meta` when the agent consulted no
   data source and gave no self-assessment, `shallow` otherwise, `deep` set by
   the clarifier hand-off, `error` on a failed turn. `routing_reason`, the live
   status keys `status.routing.*` and `emit_routing` are gone. The post-answer
@@ -131,8 +131,9 @@ shallow_research ─(envelope.escalate_to_deep?)─▶ clarifier ─▶ deep_res
 
 The shape of the graph and the binding are tests, not comments:
 
-- `tests/aiq_agent/agents/chat_researcher/test_agent.py`: the compiled graph
-  has no classifier node and its entry point is `shallow_research`.
+- `tests/aiq_agent/agents/shallow_researcher/conversation/test_graph.py`: the
+  compiled graph has no classifier node and its entry point is
+  `shallow_research`.
 - `tests/aiq_agent/agents/shallow_researcher/test_agent.py`: the full tool set
   is bound on every turn; there is no narrowed binding to fall into.
 - `tests/aiq_agent/common/test_turn_status.py`: the live status vocabulary
@@ -190,5 +191,6 @@ the drift signal, not the merge gate.
   (deleted with this ADR); the bug it recorded, a valid persona answer discarded
   for an empty source registry, is resolved by the envelope carrying no
   `confidence` on a direct reply.
-- The graph: `src/aiq_agent/agents/chat_researcher/agent.py` (`_build_graph`,
-  `observed_routing`). The envelope: `src/aiq_agent/common/answer_envelope.py`.
+- The graph: `src/aiq_agent/agents/shallow_researcher/conversation.py`
+  (`_build_graph`); the observation: `ShallowResearchAgentState.observed_routing`.
+  The envelope: `src/aiq_agent/common/answer_envelope.py`.

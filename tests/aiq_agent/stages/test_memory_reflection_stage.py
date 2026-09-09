@@ -17,6 +17,7 @@ from aiq_agent.stages.flags import legacy_enabled_stages
 from aiq_agent.stages.flags import stages_for_flag_slug
 from aiq_agent.stages.memory_reflection import MEMORY_REFLECTION
 from aiq_agent.stages.memory_reflection import MemoryReflectionPayload
+from aiq_agent.stages.memory_reflection import matches_escalation_keywords
 from aiq_agent.stages.spec import StageContext
 from aiq_agent.stages.spec import TurnFacts
 
@@ -171,3 +172,26 @@ class TestHandler:
         assert kwargs["project_id"] == "proj_1"
         assert kwargs["organization_id"] == "org_1"
         assert kwargs["conversation_id"] == "conv_1"
+
+
+class TestMatchesEscalationKeywords:
+    """The insufficiency heuristic, read ONLY by this stage's gate: escalation
+    itself requires the researcher's explicit structured ask."""
+
+    def test_english_phrase_hits(self):
+        assert matches_escalation_keywords("Unfortunately I don't have enough information to answer.") is True
+
+    def test_german_phrase_one_hits(self):
+        assert matches_escalation_keywords("Es liegen nicht genügend Informationen vor.") is True
+
+    def test_german_phrase_two_hits(self):
+        assert matches_escalation_keywords("Weitere Recherche erforderlich, um dies zu klären.") is True
+
+    def test_adequate_german_answer_no_hit(self):
+        content = "Die OIB-Richtlinie 2 regelt den Brandschutz umfassend und eindeutig."
+        assert matches_escalation_keywords(content) is False
+
+    def test_keyword_before_last_800_chars_no_hit(self):
+        # Keyword placed well before the last 800 characters is not matched.
+        content = "unable to find" + ("x" * 900)
+        assert matches_escalation_keywords(content) is False

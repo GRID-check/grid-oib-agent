@@ -18,8 +18,8 @@ from unittest.mock import patch
 
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.chat_researcher.models import ChatResearcherState
 from aiq_agent.agents.chat_researcher.register import ChatDeepResearcherConfig
+from aiq_agent.agents.shallow_researcher.models import ConversationState
 from aiq_agent.turn.dispatch import build_deep_research_job_submitter
 
 
@@ -30,7 +30,7 @@ def _config(**overrides):
 
 
 def _state():
-    return ChatResearcherState(messages=[HumanMessage(content="Wie hoch darf die Brüstung sein?")])
+    return ConversationState(messages=[HumanMessage(content="Wie hoch darf die Brüstung sein?")])
 
 
 class TestDispatchGate:
@@ -97,7 +97,7 @@ class TestJobQuery:
     def test_the_preserved_query_wins(self):
         from aiq_agent.turn.dispatch import job_query
 
-        state = ChatResearcherState(messages=[HumanMessage(content="neu")], original_query="ursprünglich")
+        state = ConversationState(messages=[HumanMessage(content="neu")], original_query="ursprünglich")
         assert job_query(state) == "ursprünglich"
 
     def test_falls_back_to_the_latest_user_message(self):
@@ -111,4 +111,4 @@ class TestJobQuery:
         from aiq_agent.turn.dispatch import job_query
 
         with pytest.raises(RuntimeError, match="without a query"):
-            job_query(ChatResearcherState(messages=[]))
+            job_query(ConversationState(messages=[]))

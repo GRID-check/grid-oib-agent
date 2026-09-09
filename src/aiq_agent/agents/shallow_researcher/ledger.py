@@ -23,7 +23,7 @@ from aiq_agent.common.citation_verification import source_origin_token
 
 from .answer_pipeline import CitedSource
 from .answer_pipeline import FinalAnswer
-from .markers import answer_confidence_capped_reason
+from .markers import CappedReason
 from .models import ShallowResearchAgentState
 
 logger = logging.getLogger(__name__)
@@ -34,8 +34,8 @@ def citations_removed_summary(removed_citations: Sequence[dict[str, Any]]) -> di
 
     ``{"count": int, "reasons": [str, ...]}`` (reasons deduplicated in
     first-seen order, max 5) only when at least one citation was removed;
-    otherwise ``None`` so the ``citations_removed`` field stays absent. The
-    shape matches the chat researcher's ``_normalize_citations_removed``.
+    otherwise ``None`` so the ``citations_removed`` field stays absent. This IS
+    the wire shape — the conversation graph lifts the field unchanged.
     """
     if not removed_citations:
         return None
@@ -73,9 +73,13 @@ def record_turn_ledger(
     *,
     turn_sources: Sequence[SourceEntry],
     wire: Sequence[dict[str, Any]],
-    measurement_grounded: bool,
+    capped_reason: CappedReason | None,
 ) -> None:
     """One citation-health row for this turn. Best-effort: ``record_turn`` never raises.
+
+    ``capped_reason`` is the finished state's own — the guard runs once per
+    turn, where the signals it reads live, and both the ledger row and the wire
+    read that one answer.
 
     ``source_count`` is THIS turn's retrieval, not the cumulative conversation
     registry: it is the denominator ``cited_count`` is measured against, and
@@ -91,14 +95,7 @@ def record_turn_ledger(
         unverified_quote_count=final.unverified_quote_count,
         grounded=final.citation_grounded,
         fallback_used=final.citation_fallback_used,
-        confidence_capped_reason=answer_confidence_capped_reason(
-            final.confidence_marker,
-            final.citation_grounded,
-            final.quotes_verified,
-            measurement_grounded=measurement_grounded,
-            normative_claim_uncited=final.normative_claim_uncited,
-            citation_fallback_used=final.citation_fallback_used,
-        ),
+        confidence_capped_reason=capped_reason,
         source_origins=[source_origin_token(entry).strip("[]").lower() or None for entry in turn_sources],
         source_lanes=[source.get("lane") for source in wire],
         source_tools=[entry.tool_name or None for entry in turn_sources],
@@ -117,11 +114,12 @@ def assemble_result(
     turn_sources: Sequence[SourceEntry],
     turn_measurements: Sequence[MeasurementSource],
 ) -> ShallowResearchAgentState:
-    """The graph's output plus every signal of the final answer, as the state the chat node reads.
+    """The graph's output plus every signal of the final answer, as the state the
+    conversation graph reads.
 
     ``answer_measurement_grounded`` was written by the tools node (the only
     place that sees raw tool results) and is echoed, not recomputed, so both
-    grounding signals reach the chat node by the same path.
+    grounding signals reach the conversation graph by the same path.
     """
     measurement_grounded = bool(graph_result.get("answer_measurement_grounded", False))
     wire = wire_sources(final.cited)
@@ -144,6 +142,9 @@ def assemble_result(
     summary = citations_removed_summary(final.removed_citations)
     if summary is not None:
         result["citations_removed"] = summary
+    state = ShallowResearchAgentState.model_validate(result)
     if final.answered and (final.source_lookup_attempted or measurement_grounded):
-        record_turn_ledger(final, turn_sources=turn_sources, wire=wire, measurement_grounded=measurement_grounded)
-    return ShallowResearchAgentState.model_validate(result)
+        record_turn_ledger(
+            final, turn_sources=turn_sources, wire=wire, capped_reason=state.answer_confidence_capped_reason
+        )
+    return state

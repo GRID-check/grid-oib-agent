@@ -10,6 +10,17 @@ from pydantic import BaseModel
 
 from aiq_agent.knowledge import AvailableDocument
 
+from ..markers import CappedReason
+from ..markers import ConfidenceLevel
+from ..markers import answer_confidence_capped_reason
+from ..markers import surface_answer_confidence
+
+#: What KIND of turn the answering agent made of it, read off what it did.
+#: Only two of the four ``routing_decision`` values can be observed here —
+#: ``deep`` and ``error`` are facts about the conversation graph's path, not
+#: about the answer, and are set by the nodes that take them.
+ObservedRouting = Literal["meta", "shallow"]
+
 
 class ShallowResearchAgentState(BaseModel):
     """
@@ -188,8 +199,8 @@ class ShallowResearchAgentState(BaseModel):
     # Transparency summary of citations dropped by ``verify_citations`` this turn
     # (``{"count": int, "reasons": [str, ...]}``). Populated by ``run()`` ONLY
     # when ≥1 citation was removed; None otherwise. The chat orchestrator lifts
-    # it onto the terminal chunk via ``_normalize_citations_removed`` so the FE
-    # can note "N Quellenangabe(n) entfernt (nicht verifizierbar)".
+    # it onto the terminal chunk unchanged so the FE can note
+    # "N Quellenangabe(n) entfernt (nicht verifizierbar)".
     citations_removed: dict[str, Any] | None = None
     # INTERNAL per-run render cache — NOT part of the public state contract.
     # Every input to the system-prompt render (system_prompt, tools_info,
@@ -201,3 +212,57 @@ class ShallowResearchAgentState(BaseModel):
     # concurrent runs of the shared compiled graph never collide. Defaults to
     # None (first call / graph-direct path renders inline as before).
     cached_system_prompt: str | None = None
+
+    # -- derived signals --------------------------------------------------------
+    # Read-only properties, NOT fields: they are pure functions of the signals
+    # above, so they are computed where those signals live instead of being
+    # re-derived by every reader. Properties rather than fields on purpose —
+    # LangGraph builds one channel per model FIELD, and a derived value is not
+    # something a node may write.
+
+    @property
+    def observed_routing(self) -> ObservedRouting:
+        """What kind of turn this was, read off what the turn did.
+
+        Nothing classifies a turn up front (ADR-0052); the model has every tool
+        on every turn and picks the reply's shape itself. Two facts of the
+        finished answer say which shape it picked: whether it consulted a data
+        source, and whether it graded itself (a direct reply — a greeting, a
+        shelf listing, an off-topic decline, "what can you do" — carries no
+        confidence marker, because there is nothing to grade). Neither →
+        ``meta``, the transparency surface's word for a direct reply. Either →
+        ``shallow``: a researched answer, or at least one the model presented
+        as one.
+        """
+        if not self.source_lookup_attempted and self.answer_confidence_marker is None:
+            return "meta"
+        return "shallow"
+
+    @property
+    def answer_confidence(self) -> ConfidenceLevel | None:
+        """The self-assessment as it may be SURFACED, after the overconfidence guard.
+
+        ``answer_confidence_marker`` is what the model claimed;
+        :func:`~aiq_agent.agents.shallow_researcher.markers.surface_answer_confidence`
+        decides how much of that claim the evidence in this same state supports.
+        """
+        return surface_answer_confidence(
+            self.answer_confidence_marker,
+            self.answer_citation_grounded,
+            self.answer_quotes_verified,
+            measurement_grounded=self.answer_measurement_grounded,
+            normative_claim_uncited=self.answer_normative_claim_uncited,
+            citation_fallback_used=self.answer_citation_fallback_used,
+        )
+
+    @property
+    def answer_confidence_capped_reason(self) -> CappedReason | None:
+        """Why the guard lowered the model's own level, when it did; else None."""
+        return answer_confidence_capped_reason(
+            self.answer_confidence_marker,
+            self.answer_citation_grounded,
+            self.answer_quotes_verified,
+            measurement_grounded=self.answer_measurement_grounded,
+            normative_claim_uncited=self.answer_normative_claim_uncited,
+            citation_fallback_used=self.answer_citation_fallback_used,
+        )

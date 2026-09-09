@@ -25,7 +25,6 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from aiq_agent.agents.chat_researcher.register import _response_to_chunks
 from aiq_agent.common import _create_chat_response
 from aiq_agent.common.model_overrides import AgentGroup
 from aiq_agent.stages import registry
@@ -33,6 +32,7 @@ from aiq_agent.stages import runner
 from aiq_agent.stages.spec import GateDecision
 from aiq_agent.stages.spec import StageSpec
 from aiq_agent.stages.spec import TurnFacts
+from aiq_agent.turn.streaming import response_to_chunks
 from aiq_api import websocket_reconnect
 from aiq_api.websocket_reconnect import ReconnectableWebSocketMessageHandler
 from aiq_api.websocket_reconnect import WebSocketSessionRegistry
@@ -167,7 +167,7 @@ async def _emit_answer(session_registry: WebSocketSessionRegistry, socket: _Sock
     handler._message_parent_id = PARENT_ID
 
     response = _create_chat_response(ANSWER, response_id="r1", model="chat_researcher")
-    chunks = _response_to_chunks(response, stream=True)
+    chunks = response_to_chunks(response, stream=True)
     for chunk in chunks[:-1]:
         await handler.create_websocket_message(
             data_model=chunk,

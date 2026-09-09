@@ -1,7 +1,7 @@
 """Tests for self-assessed answer-confidence surfacing in the shallow node.
 
-Covers the node-level assembly (`_finalize_shallow_answer`) and end-to-end
-propagation through ``ChatResearcherAgent.run()``: the guard caps ungrounded
+Covers the node-level assembly (`_finalize_answer`) and end-to-end
+propagation through ``ConversationGraph.run()``: the guard caps ungrounded
 self-reports, escalation/error branches surface nothing, and a control marker
 left in the text is always stripped from the user-visible answer.
 
@@ -10,15 +10,14 @@ The signals are the shallow agent's structured state fields
 the contract; nothing here is re-parsed from the answer text.
 """
 
-from unittest.mock import MagicMock
-
 import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
-from aiq_agent.agents.chat_researcher.agent import _finalize_shallow_answer
-from aiq_agent.agents.chat_researcher.models import ChatResearcherState
+from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
+from aiq_agent.agents.shallow_researcher.conversation import ConversationGraph
+from aiq_agent.agents.shallow_researcher.conversation import _finalize_answer
+from aiq_agent.agents.shallow_researcher.models import ConversationState
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 
@@ -29,48 +28,50 @@ def _signals(**fields) -> ShallowResearchAgentState:
     return ShallowResearchAgentState(messages=[], **fields)
 
 
-class TestFinalizeShallowAnswer:
-    """Node-level assembly of the shallow answer update dict."""
+class TestFinalizeAnswer:
+    """Node-level assembly of the answer update dict."""
 
     def test_grounded_high_surfaces_high_and_strips_a_leaked_marker(self):
         msg = AIMessage(content="OIB-Richtlinie 2 [1].\n\n[CONFIDENCE:high]")
-        update = _finalize_shallow_answer(msg, _signals(answer_citation_grounded=True, answer_confidence_marker="high"))
+        update = _finalize_answer(msg, _signals(answer_citation_grounded=True, answer_confidence_marker="high"))
         assert update["answer_confidence"] == "high"
-        assert update["shallow_result"] is None
+        assert update["escalate_to_deep"] is False
         assert update["messages"][0].content == "OIB-Richtlinie 2 [1]."
 
     def test_ungrounded_high_capped_to_low(self):
-        update = _finalize_shallow_answer(AIMessage(content="Some claim."), _signals(answer_confidence_marker="high"))
+        update = _finalize_answer(AIMessage(content="Some claim."), _signals(answer_confidence_marker="high"))
         assert update["answer_confidence"] == "low"
         assert update["answer_confidence_capped_reason"] == "ungrounded"
 
     def test_no_marker_surfaces_nothing(self):
         msg = AIMessage(content="A plain answer with no marker.")
-        update = _finalize_shallow_answer(msg, _signals(answer_citation_grounded=True))
+        update = _finalize_answer(msg, _signals(answer_citation_grounded=True))
         assert update["answer_confidence"] is None
-        assert update["shallow_result"] is None
+        assert update["escalate_to_deep"] is False
         assert update["messages"][0].content == "A plain answer with no marker."
 
     def test_escalation_surfaces_nothing_and_escalates(self):
         msg = AIMessage(content="Partial answer.\n[CONFIDENCE:low]\n[ESCALATE_TO_DEEP]")
-        update = _finalize_shallow_answer(
+        update = _finalize_answer(
             msg, _signals(escalation_requested=True, answer_citation_grounded=True, answer_confidence_marker="low")
         )
-        # Escalation supersedes the shallow answer → no chip.
-        assert update["answer_confidence"] is None
-        assert update["shallow_result"].escalate_to_deep is True
+        # Escalation supersedes the shallow answer → no chip. The key is
+        # ABSENT rather than None: every turn-scoped field is already at its
+        # default when the node runs, so the hand-off writes only the ask.
+        assert "answer_confidence" not in update
+        assert update["escalate_to_deep"] is True
         # Both markers stripped from the user-visible text.
         assert update["messages"][0].content == "Partial answer."
 
     def test_non_string_content_passthrough(self):
         msg = AIMessage(content=[{"type": "text", "text": "structured"}])
-        update = _finalize_shallow_answer(msg, _signals(answer_citation_grounded=True))
-        # Non-string content omits the key entirely → no signal downstream.
+        update = _finalize_answer(msg, _signals(answer_citation_grounded=True))
+        # Non-string content omits every key → no signal downstream.
         assert update.get("answer_confidence") is None
-        assert update["shallow_result"] is None
+        assert "escalate_to_deep" not in update
 
     def test_the_reason_rides_with_the_level(self):
-        update = _finalize_shallow_answer(
+        update = _finalize_answer(
             AIMessage(content="OIB 2 [1]."),
             _signals(
                 answer_citation_grounded=True,
@@ -82,31 +83,29 @@ class TestFinalizeShallowAnswer:
         assert update["answer_confidence_reason"] == "Keine Quelle zur Sonderregel"
 
     def test_escalation_drops_reason(self):
-        update = _finalize_shallow_answer(
+        update = _finalize_answer(
             AIMessage(content="Partial."),
             _signals(
                 escalation_requested=True, answer_confidence_marker="high", answer_confidence_marker_reason="Grund"
             ),
         )
-        assert update["answer_confidence"] is None
-        assert update["answer_confidence_reason"] is None
+        assert "answer_confidence" not in update
+        assert "answer_confidence_reason" not in update
 
     def test_an_empty_answer_is_an_error_turn(self):
-        update = _finalize_shallow_answer(AIMessage(content="  \n[CONFIDENCE:high]"), _signals())
+        update = _finalize_answer(AIMessage(content="  \n[CONFIDENCE:high]"), _signals())
         assert update["routing_decision"] == "error"
-        assert update["shallow_result"].escalate_to_deep is False
+        assert update["escalate_to_deep"] is False
         assert "An error occurred" in update["messages"][0].content
 
 
 class TestConfidenceEndToEnd:
-    """Propagation of answer_confidence through ChatResearcherAgent.run()."""
+    """Propagation of answer_confidence through ConversationGraph.run()."""
 
     @pytest.fixture
     def deep_fn(self):
         async def deep(state):
-            result = MagicMock()
-            result.messages = list(state.messages) + [AIMessage(content="Deep report.")]
-            return result
+            return DeepResearchAgentState(messages=list(state.messages) + [AIMessage(content="Deep report.")])
 
         return deep
 
@@ -134,17 +133,16 @@ class TestConfidenceEndToEnd:
         return shallow
 
     def _agent(self, shallow_fn, deep_fn, **kw):
-        return ChatResearcherAgent(
+        return ConversationGraph(
             shallow_research_fn=shallow_fn,
             deep_research_fn=deep_fn,
             clarifier_fn=None,
-            enable_clarifier=False,
             **kw,
         )
 
-    async def _run(self, shallow, deep_fn, thread_id: str) -> ChatResearcherState:
+    async def _run(self, shallow, deep_fn, thread_id: str) -> ConversationState:
         agent = self._agent(shallow, deep_fn)
-        return await agent.run(ChatResearcherState(messages=[HumanMessage(content="Frage?")]), thread_id=thread_id)
+        return await agent.run(ConversationState(messages=[HumanMessage(content="Frage?")]), thread_id=thread_id)
 
     @pytest.mark.asyncio
     async def test_grounded_high_surfaces_high(self, deep_fn):

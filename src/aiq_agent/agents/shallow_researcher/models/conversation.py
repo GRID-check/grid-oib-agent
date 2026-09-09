@@ -1,4 +1,8 @@
-"""State models for chat researcher agent.
+"""The state of one conversation with the researcher.
+
+This is the CONVERSATION-scoped state — the one the checkpointer persists
+between turns — as distinct from :class:`ShallowResearchAgentState`, which is
+one research turn's own working state and is never checkpointed.
 
 NOTE: any new pydantic state type added below (or nested inside these fields)
 MUST also be added to the checkpointer allow-list in
@@ -17,18 +21,23 @@ from pydantic import BaseModel
 
 from aiq_agent.knowledge import AvailableDocument
 
-from .result import ShallowResult
+#: Which path a turn took. ``meta`` and ``shallow`` are OBSERVED off the
+#: finished answer (``ShallowResearchAgentState.observed_routing``); ``deep``
+#: and ``error`` are set by the nodes that take those paths.
+RoutingDecision = Literal["meta", "shallow", "deep", "error"]
 
 
-class ChatResearcherState(BaseModel):
+class ConversationState(BaseModel):
     """
-    State for the main chat researcher workflow graph.
+    State for the conversation graph: one answering agent, one escalation path.
 
     Attributes:
         messages: Conversation history with LangGraph message reducer.
         user_info: Optional user information for personalization.
         data_sources: Optional list of user-selected data source IDs.
-        shallow_result: Result from shallow research (if executed).
+        escalate_to_deep: Whether this turn's answering agent asked for deep
+            research (ADR-0052: the ask is the agent's own, made in its answer
+            envelope, and this is the one bit the escalation edge reads).
         clarifier_result: Log from clarifier agent dialog.
         original_query: The latest user query, preserved for deep research.
         available_documents: User-uploaded documents with summaries for context.
@@ -50,7 +59,16 @@ class ChatResearcherState(BaseModel):
     messages: Annotated[list[AnyMessage], add_messages]
     user_info: dict[str, Any] | None = None
     data_sources: list[str] | None = None
-    shallow_result: ShallowResult | None = None
+    # The answering agent asked for deep research this turn. None and False are
+    # the same fact ("it did not ask"); the field is nullable only because every
+    # turn-scoped field is reset to its default at turn entry.
+    escalate_to_deep: bool | None = None
+    # The agent's own clause for WHY it asked, carried from the answering node
+    # to the clarifier node. Deliberately NOT ``escalation_reason``: that one is
+    # the WIRE field and is set only once the hand-off actually happens, so a
+    # suppressed ask (``deep_research_declined``) never narrates an escalation
+    # that did not occur.
+    escalation_ask_reason: str | None = None
     clarifier_result: str | None = None
     original_query: str | None = None
     available_documents: list[AvailableDocument] | None = None
@@ -99,14 +117,13 @@ class ChatResearcherState(BaseModel):
     # already passed through the deterministic overconfidence guard. Surfaced to
     # the frontend as an honest self-assessment chip. None means "no signal"
     # (marker absent/malformed, or an error/escalation turn) — nothing renders.
-    # Distinct from the internal ShallowResult.confidence error-certainty proxy.
     answer_confidence: Literal["low", "medium", "high"] | None = None
     # Structured sources from the shallow researcher's registry (wire dicts with
     # file_name/page/collection/origin). Attached to ChatResponse as ``sources``.
     verified_sources: list[dict[str, Any]] | None = None
     # --- Transparency extras (WP-A) -------------------------------------------
     # All optional/additive: absent means "unknown/not applicable". Lifted onto
-    # the terminal ChatResponseChunk (register._STREAM_EXTRA_FIELDS) and then onto
+    # the terminal ChatResponseChunk (``turn.streaming.STREAM_EXTRA_FIELDS``) and onto
     # the terminal system_response_message (websocket_reconnect), same path as
     # ``answer_confidence``/``deep_research_job_id``. Never null-spammed.
     #
@@ -114,11 +131,12 @@ class ChatResearcherState(BaseModel):
     # before it: ``meta`` when the agent neither consulted a source nor graded
     # itself (a direct reply), ``shallow`` for a researched answer, ``deep``
     # once the clarifier hands over, ``error`` on a failed turn. See
-    # ``agent.observed_routing``.
-    routing_decision: Literal["meta", "shallow", "deep", "error"] | None = None
-    # Present only when a shallow→deep escalation happened this turn. Set by the
-    # clarifier node from ``ShallowResult.escalation_reason`` or, on the
-    # keyword-fallback path, the fixed German notice.
+    # ``ShallowResearchAgentState.observed_routing``.
+    routing_decision: RoutingDecision | None = None
+    # Present only when a shallow→deep escalation ACTUALLY happened this turn:
+    # set by the clarifier node from ``escalation_ask_reason``. An ask the
+    # conversation suppressed (``deep_research_declined``) never reaches it, so
+    # the wire never narrates an escalation that did not occur.
     escalation_reason: str | None = None
     # Present only when the self-reported confidence was downgraded. Five causes:
     #   "ungrounded"              nothing verified and nothing measured.
@@ -183,7 +201,7 @@ class ChatResearcherState(BaseModel):
     # Ordered names of the skills whose BODY reached the model this turn, in
     # delivery order (``use_skill``), deduped — never a skill that was merely
     # forced, which shaped nothing. Set on the success path of
-    # ``_finalize_shallow_answer`` and lifted onto the terminal ChatResponse
+    # ``conversation._answer_update`` and lifted onto the terminal ChatResponse
     # ONLY when present (escaped escalations and generation failures leave it
     # None), the ``skills_activated`` transparency extra.
     skills_activated: list[str] | None = None
@@ -191,7 +209,7 @@ class ChatResearcherState(BaseModel):
     # voice and the card grammar, craft machinery the reader has no use for
     # reading as a topic. Carried for the same reason and by the same route as
     # ``skills_activated`` (set on the success path of
-    # ``_finalize_shallow_answer``, dropped on escalation, lifted onto the
+    # ``conversation._answer_update``, dropped on escalation, lifted onto the
     # terminal ChatResponse only when non-empty): the disclosure NAMES these
     # skills like any other — the transparency doctrine forbids an instruction
     # class the product declines to admit ran — and only DE-EMPHASISES them

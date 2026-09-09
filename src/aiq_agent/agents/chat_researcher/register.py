@@ -1,9 +1,10 @@
-"""NAT register function for the chat researcher workflow.
+"""NAT register function for the chat workflow.
 
-One answering agent per turn, with escalation to deep research as that
-agent's own decision (ADR-0052). This module is the workflow's entry point:
-the config, the wiring of the sibling NAT functions into the graph, and a
-``_run`` that composes the per-turn harness from :mod:`aiq_agent.turn`.
+The workflow's entry point and nothing else: the config, the wiring of the
+sibling NAT functions into the researcher's conversation graph
+(:mod:`aiq_agent.agents.shallow_researcher.conversation`), and a ``_run`` that
+composes the per-turn harness from :mod:`aiq_agent.turn`. The answering agent,
+the escalation edge and the conversation state all belong to the researcher.
 """
 
 import asyncio
@@ -15,6 +16,8 @@ from typing import Any
 from langchain_core.messages import HumanMessage
 from pydantic import Field
 
+from aiq_agent.agents.shallow_researcher.conversation import ConversationGraph
+from aiq_agent.agents.shallow_researcher.models import ConversationState
 from aiq_agent.common import AgentGroup
 from aiq_agent.common import filter_tools_by_sources
 from aiq_agent.common import format_tool_unavailability_error
@@ -47,6 +50,8 @@ from aiq_agent.turn.inventory import Inventory
 from aiq_agent.turn.inventory import load_inventory
 from aiq_agent.turn.inventory import resolve_scope
 from aiq_agent.turn.inventory import shelves_in_scope
+from aiq_agent.turn.payload import TurnInputs
+from aiq_agent.turn.payload import extract_turn_inputs
 from aiq_agent.turn.registries import TurnRegistries
 from aiq_agent.turn.registries import turn_registries
 from aiq_agent.turn.response import build_response
@@ -63,16 +68,7 @@ from nat.data_models.component_ref import LLMRef
 from nat.data_models.function import FunctionBaseConfig
 from nat.data_models.streaming import Streaming
 
-from .agent import ChatResearcherAgent
-from .models import ChatResearcherState
-from .utils import TurnInputs
-from .utils import extract_turn_inputs
-
 logger = logging.getLogger(__name__)
-
-# The one outside-module importer of this name (tests/aiq_agent/stages) reads
-# it from here; the implementation lives in aiq_agent.turn.streaming.
-_response_to_chunks = response_to_chunks
 
 
 ########################################################
@@ -150,15 +146,21 @@ async def _stage_llm(builder: Builder, ref: LLMRef | None, stage: str):
         return None
 
 
-async def _build_agent(config: ChatDeepResearcherConfig, builder: Builder) -> ChatResearcherAgent:
+async def _build_agent(config: ChatDeepResearcherConfig, builder: Builder) -> ConversationGraph:
+    """Resolve the sibling NAT functions into the researcher's conversation graph.
+
+    ``enable_clarifier`` is spent HERE, on whether a clarifier is resolved at
+    all: a deployment that runs without one hands the graph ``None`` and the
+    escalation goes straight to deep research. The graph never sees the flag —
+    one switch, read once, instead of the same decision in three places.
+    """
     shallow_fn = await builder.get_function("shallow_research_agent")
     deep_fn = await builder.get_function("deep_research_agent")
     clarifier_fn = await builder.get_function("clarifier_agent") if config.enable_clarifier else None
-    return ChatResearcherAgent(
+    return ConversationGraph(
         shallow_research_fn=shallow_fn.ainvoke,
         deep_research_fn=deep_fn.ainvoke,
         clarifier_fn=clarifier_fn.ainvoke if clarifier_fn else None,
-        enable_clarifier=config.enable_clarifier,
         max_history_tokens=config.max_history_tokens,
         deep_research_job_submitter=build_deep_research_job_submitter(config),
         checkpointer=await get_checkpointer(config.checkpoint_db),
@@ -168,8 +170,8 @@ async def _build_agent(config: ChatDeepResearcherConfig, builder: Builder) -> Ch
 
 def _turn_state(
     inputs: TurnInputs, context: TurnContext, inventory: Inventory, header_scope, *, skip_clarifier: bool
-) -> ChatResearcherState:
-    return ChatResearcherState(
+) -> ConversationState:
+    return ConversationState(
         messages=[HumanMessage(content=inputs.query_text)],
         user_info=user_info_from_principal(),
         data_sources=inputs.data_sources,
@@ -186,7 +188,7 @@ def _turn_state(
 
 
 def _answer_chunks(
-    outcome: TurnOutcome[ChatResearcherState],
+    outcome: TurnOutcome[ConversationState],
     registries: TurnRegistries,
     context: TurnContext,
     inputs: TurnInputs,
@@ -217,7 +219,7 @@ def _answer_chunks(
     return response_to_chunks(response, stream=True)
 
 
-def _turn_runner(agent: ChatResearcherAgent, config: ChatDeepResearcherConfig, stage_llms: dict, workflow_id: str):
+def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, stage_llms: dict, workflow_id: str):
     """The per-turn entry point NAT calls, composed from ``aiq_agent.turn``."""
     any_stage_llm = any(llm is not None for llm in stage_llms.values())
 

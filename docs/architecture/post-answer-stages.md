@@ -367,8 +367,8 @@ override, and the ADR-0022 BYOK credential swap by construction.
 ### 2.3 What a stage receives
 
 `TurnFacts` — frozen, request-context-free, captured at schedule time by the one
-call site, exactly as the reflection block does today
-(`chat_researcher/register.py:867-915`):
+call site (`chat_researcher/register.py`, from `turn.context` and
+`turn.response.post_answer_turn_facts`):
 
 ```
 conversation_id, ws_parent_id (the turn key), organization_id, project_id, user_id,

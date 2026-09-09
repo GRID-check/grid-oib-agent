@@ -5,9 +5,9 @@ from unittest.mock import MagicMock
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.chat_researcher.utils import _extract_query_and_sources
-from aiq_agent.agents.chat_researcher.utils import _extract_query_from_text
-from aiq_agent.agents.chat_researcher.utils import _extract_text_from_message
+from aiq_agent.turn.payload import _extract_query_and_sources
+from aiq_agent.turn.payload import _extract_query_from_text
+from aiq_agent.turn.payload import _extract_text_from_message
 
 
 class TestExtractTextFromMessageString:

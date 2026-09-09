@@ -461,7 +461,7 @@ turn, and neither of them is the model: the user's own request, and the
 platform's standard tier.
 
 - Chat turns: `_extract_query_and_sources` / `_extract_query_from_text` in
-  `src/aiq_agent/agents/chat_researcher/utils.py` parse `data_sources` and
+  `src/aiq_agent/turn/payload.py` parse `data_sources` and
   `skills` out of the turn input. The JSON envelope mirrors the
   `data_sources` mechanism, so a message like
   `{"query": "...", "data_sources": ["web_search"], "skills": ["forecast-analysis"]}`
@@ -612,8 +612,8 @@ The deep-research side is different by construction: it does NOT use the
 config): per-agent skill *sources* wired through `SkillsMiddleware` with a
 `FilesystemBackend` over `src/aiq_agent/skills/builtin/` and read-only
 filesystem permission rules (`factory.runtime_skill_filesystem_permissions`).
-`force_skills` is never passed to deep research — the chat orchestrator drops
-it (`chat_researcher/agent.py`).
+`force_skills` is never passed to deep research — the conversation graph drops
+it (`shallow_researcher/conversation.py`).
 
 ## Data model (grid_app, Drizzle)
 
@@ -1204,8 +1204,9 @@ history surfaces, and the run-history link and job-glyph rendering that
   `standard` skill is forced without being asked for, that the user's own
   forces are listed before it, and that a user forcing a standard skill by name
   does not list it twice.
-- `tests/aiq_agent/agents/chat_researcher/` — the envelope parsing
-  (`test_utils.py`, `test_register_helpers.py`) and per-turn skill forcing.
+- `tests/aiq_agent/turn/test_payload.py` and
+  `tests/aiq_agent/turn/test_payload_parsing.py` — the envelope parsing;
+  `tests/aiq_agent/agents/shallow_researcher/` — per-turn skill forcing.
 - BFF vitest, toolbox: `lib/skills/service.spec.ts` (authz, tenant filters,
   snapshot and targeting semantics — pinned against the Python cases — plus the
   `platform standard skills` block, which asserts each of the standard-tier

@@ -3,7 +3,7 @@
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.chat_researcher.models import ChatResearcherState
+from aiq_agent.agents.shallow_researcher.models import ConversationState
 from aiq_agent.common import _create_chat_response
 from aiq_agent.stages import TurnFacts
 from aiq_agent.turn.response import RESPONSE_LIFTS
@@ -14,9 +14,9 @@ from aiq_agent.turn.response import post_answer_turn_facts
 from aiq_agent.turn.streaming import STREAM_EXTRA_FIELDS
 
 
-def _state(**fields) -> ChatResearcherState:
+def _state(**fields) -> ConversationState:
     fields.setdefault("messages", [HumanMessage(content="Frage?"), AIMessage(content="Mindestens 100 cm.")])
-    return ChatResearcherState(**fields)
+    return ConversationState(**fields)
 
 
 def _response():
@@ -32,8 +32,8 @@ class TestResponseLifts:
 
     def test_every_lift_reads_a_state_field(self):
         for field, _attribute, requires in RESPONSE_LIFTS:
-            assert field in ChatResearcherState.model_fields
-            assert requires is None or requires in ChatResearcherState.model_fields
+            assert field in ConversationState.model_fields
+            assert requires is None or requires in ConversationState.model_fields
 
     def test_present_values_are_lifted_and_absent_ones_are_not_set(self):
         response = _response()

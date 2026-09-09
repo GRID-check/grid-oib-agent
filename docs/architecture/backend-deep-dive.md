@@ -67,7 +67,9 @@ Browser WebSocket
 ```
 
 Key files:
-- Graph build: `src/aiq_agent/agents/chat_researcher/agent.py` (`_build_graph`, nodes).
+- Graph build: `src/aiq_agent/agents/shallow_researcher/conversation.py` (`_build_graph`,
+  nodes). The escalation edge and the conversation-scoped state belong to the
+  researcher; the workflow only wires them up.
 - Workflow registration + response creation: `src/aiq_agent/agents/chat_researcher/register.py`.
 - WS wire types (NAT, vendored): `.venv/Lib/site-packages/nat/data_models/api_server.py`
   — `ChatResponse` and the WS message models are `extra="allow"`, so extra
@@ -90,21 +92,23 @@ so the frontend can read them at `message.<field>` (not nested under
 
 **Transparency extras (WP-A).** The same lift carries a family of optional,
 additive "why did the turn behave this way?" signals. Each rides
-`register._STREAM_EXTRA_FIELDS` onto the terminal `ChatResponseChunk`
-(`_response_to_chunks`), then `websocket_reconnect.py` lifts it onto the terminal
+`turn.streaming.STREAM_EXTRA_FIELDS` onto the terminal `ChatResponseChunk`
+(`response_to_chunks`), then `websocket_reconnect.py` lifts it onto the terminal
 `system_response` message via `_TRANSPARENCY_EXTRA_FIELDS` / `_pull_response_extra`.
 All are **absent unless applicable** (never null-spammed) and reset at the turn
-boundary in `ChatResearcherAgent.run()`:
+boundary in `ConversationGraph.run()`:
 
 - `routing_decision` (`meta`/`shallow`/`deep`/`error`) — which path the turn
-  took, OBSERVED after the answer (`chat_researcher.agent.observed_routing`):
+  took, OBSERVED after the answer
+  (`ShallowResearchAgentState.observed_routing`, a derived property of the
+  finished research state):
   `meta` when the agent consulted no data source and gave no self-assessment,
   `shallow` otherwise, `deep` set by the clarifier hand-off, `error` on a
   failed turn. Nothing decides it up front (ADR-0052), so there is no
   `routing_reason`.
 - `escalation_reason` — set by the clarifier node only on a shallow→deep
-  escalation, and only from the structured `ShallowResult.escalation_reason`
-  carried by the shallow agent's envelope (`escalate_to_deep` plus the model's
+  escalation, and only from the structured `escalation_ask_reason` the
+  answering node wrote from the shallow agent's envelope (`escalate_to_deep` plus the model's
   own one-clause `escalation_reason`). There is no keyword/prose fallback: a substring match on the answer tail ("nicht
   finden", "weitere Recherche erforderlich") false-positived on successful
   German legal answers and surprise-escalated them to deep research. Likewise
@@ -275,7 +279,7 @@ client  user_message  content.text = {"query": …, "data_sources": […],
            • format_context_turn()  → "Anna Weber: <text>", capped at 4000 chars
            • append_conversation_context()  → the registered appender
       4. continue  ← no process_workflow_request, no socket registration
-  → ChatResearcherAgent.append_context_message()
+  → ConversationGraph.append_context_message()
       graph.aupdate_state({thread_id}, {"messages": [HumanMessage(...)]})
 ```
 
@@ -619,7 +623,7 @@ alone.
 **The subject is also a prompt fact, not only a retrieval hint.** Scoping
 retrieval to the right file answers "where do I look"; it does not answer "what
 is *this document*". `register.py` lifts the turn ContextVars onto
-`ChatResearcherState.focus_file_name` / `.focus_shelf`, the graph carries them
+`ConversationState.focus_file_name` / `.focus_shelf`, the graph carries them
 into `ShallowResearchAgentState`, and the answering prompt (`researcher.j2`
 §"This turn's subject") names the file — so a bare "fass zusammen" has an
 antecedent. Without that the model asked which document the user meant while
@@ -1424,7 +1428,7 @@ answer are unaffected, and the fallback says so.
 
 - The `deep_research` graph node submits a Dask job and returns the stub message
   **plus** a structured `deep_research_job_id` (added in this pass), threaded
-  through `ChatResearcherState` → `ChatResponse.deep_research_job_id` → monkeypatch
+  through `ConversationState` → `ChatResponse.deep_research_job_id` → monkeypatch
   → `message.deep_research_job_id`.
 - The frontend (`use-websocket-chat.ts`) opens the research panel from the
   **structured field** (`deepResearchJobId`), falling back to the old prose regex

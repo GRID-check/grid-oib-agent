@@ -18,9 +18,9 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from aiq_agent.agents.chat_researcher.models import ChatResearcherState
 from aiq_agent.agents.shallow_researcher.agent import ShallowResearcherAgent
 from aiq_agent.agents.shallow_researcher.agent import _shelf_label
+from aiq_agent.agents.shallow_researcher.models import ConversationState
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import render_prompt_template
@@ -177,30 +177,29 @@ class TestSubjectSurvivesTheGraphHandoff:
 
     @pytest.mark.asyncio
     async def test_shallow_node_forwards_the_subject(self):
-        from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
+        from aiq_agent.agents.shallow_researcher.conversation import ConversationGraph
 
         captured: dict = {}
 
         async def shallow(state):
             captured["focus_file_name"] = state.focus_file_name
             captured["focus_shelf"] = state.focus_shelf
-            result = MagicMock()
-            result.messages = list(state.messages) + [AIMessage(content="Zusammenfassung.")]
-            result.escalation_requested = False
-            result.answer_confidence_marker = None
-            return result
+            return ShallowResearchAgentState(
+                messages=list(state.messages) + [AIMessage(content="Zusammenfassung.")],
+                escalation_requested=False,
+            )
 
         async def unused(state):  # pragma: no cover — the route never reaches these
             raise AssertionError("shallow turn must not escalate")
 
-        agent = ChatResearcherAgent(
+        agent = ConversationGraph(
             shallow_research_fn=shallow,
             deep_research_fn=unused,
             clarifier_fn=unused,
         )
 
         await agent.run(
-            ChatResearcherState(
+            ConversationState(
                 messages=[HumanMessage(content="fass zusammen")],
                 focus_file_name=SUBJECT,
                 focus_shelf="project",

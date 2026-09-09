@@ -44,13 +44,40 @@ from aiq_agent.stages.spec import TurnFacts
 logger = logging.getLogger(__name__)
 
 #: Canned error/empty answers that must never be reflected on. Moved verbatim
-#: from ``chat_researcher/register.py``.
+#: from the chat workflow's register.
 REFLECTION_NON_ANSWERS = (
     "No response generated.",
     "An error occurred",
     "The search tools did not return any results",
     "I searched the available sources but couldn't retrieve anything usable",
 )
+
+#: Phrases that make the tail of an answer an insufficiency statement rather
+#: than a finding. Only the reflection gate reads them: escalation itself
+#: requires the researcher's explicit structured ask, because a substring match
+#: on German legal hedging false-positived on successful answers.
+_INSUFFICIENCY_PHRASES = (
+    "i don't have enough information",
+    "unable to find",
+    "need more research",
+    "keine ausreichenden informationen",
+    "nicht genügend informationen",
+    "konnte keine informationen",
+    "keine informationen gefunden",
+    "nicht finden",
+    "weitere recherche erforderlich",
+    "genauere prüfung erforderlich",
+)
+
+#: How much of the answer's tail is examined for them.
+_INSUFFICIENCY_TAIL_CHARS = 800
+
+
+def matches_escalation_keywords(content: str) -> bool:
+    """Whether the tail of an answer reads as an insufficiency statement."""
+    tail = content[-_INSUFFICIENCY_TAIL_CHARS:].lower()
+    return any(phrase in tail for phrase in _INSUFFICIENCY_PHRASES)
+
 
 #: Paths with nothing durable to record: a direct reply (greeting, shelf
 #: listing, off-topic decline) or an error. Reflecting on them only risks
@@ -100,8 +127,6 @@ def _gate(facts: TurnFacts) -> GateDecision:
     opinion about its own answer. Each failed condition names itself, so the
     gate's own correctness is measurable rather than assumed.
     """
-    from aiq_agent.agents.chat_researcher.agent import matches_escalation_keywords
-
     if facts.deep_research_job_id:
         # The chat turn is only a stub; the report path reflects on the worker
         # once the report exists.
