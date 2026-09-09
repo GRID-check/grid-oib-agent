@@ -328,9 +328,10 @@ Key properties:
 - Overrides are strictly request-scoped: build-time providers/agents are
   never mutated; `with_model_overrides` returns `self` (identity check) when
   nothing applies, so the prebuilt agent path stays hot.
-- The clarifier builds its graph in `__init__`, so an active override
-  constructs a request-scoped agent — the same shape as the existing
-  per-request data-source rebuild.
+- The clarifier builds its graph once, at registration. An active override
+  (or a narrowed data-source selection) produces a frozen `TurnConfig` that
+  rides on the LangGraph config for that one request; the agent, its prompts
+  and its compiled graph are never rebuilt. The deep agent still rebuilds.
 - Async jobs — both deep research and the post-answer memory-reflection
   stage — re-apply the map inside the Dask worker rather than inheriting it:
   request contextvars don't survive into a background job, so

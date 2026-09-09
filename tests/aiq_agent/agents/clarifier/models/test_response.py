@@ -1,6 +1,11 @@
-"""Tests for ClarificationResponse model."""
+"""Tests for the models the clarifier asks its two LLMs to return."""
+
+import pytest
+from pydantic import ValidationError
 
 from aiq_agent.agents.clarifier.models import ClarificationResponse
+from aiq_agent.agents.clarifier.models import PlanResponse
+from aiq_agent.common import strict_json_response_format
 
 
 class TestClarificationResponse:
@@ -17,16 +22,6 @@ class TestClarificationResponse:
         response = ClarificationResponse(needs_clarification=False, clarification_question=None)
         assert response.needs_clarification is False
         assert response.clarification_question is None
-
-    def test_is_complete_when_not_needed(self):
-        """Test is_complete returns True when clarification not needed."""
-        response = ClarificationResponse(needs_clarification=False, clarification_question=None)
-        assert response.is_complete() is True
-
-    def test_is_complete_when_needed(self):
-        """Test is_complete returns False when clarification is needed."""
-        response = ClarificationResponse(needs_clarification=True, clarification_question="What scope?")
-        assert response.is_complete() is False
 
     def test_is_valid_with_question_mark(self):
         """Test is_valid returns True when question contains '?'."""
@@ -67,10 +62,23 @@ class TestClarificationResponse:
         assert response.needs_clarification is True
         assert response.clarification_question == "What focus area?"
 
-    def test_default_clarification_question_is_none(self):
-        """Test clarification_question defaults to None."""
+    def test_complete_is_the_sentinel_the_graph_writes(self):
+        """The "nothing more to ask" reply, built in one place."""
+        response = ClarificationResponse.complete()
+        assert response.needs_clarification is False
+        assert response.clarification_question is None
+        assert response.options == []
+
+    def test_an_omitted_optional_key_is_filled_in(self):
+        """The tool-bound path carries no schema, so a two-key reply still parses."""
         response = ClarificationResponse(needs_clarification=False)
         assert response.clarification_question is None
+        assert response.options == []
+
+    def test_an_unknown_key_is_rejected(self):
+        """extra=forbid is what puts additionalProperties:false in the schema."""
+        with pytest.raises(ValidationError):
+            ClarificationResponse.model_validate({"needs_clarification": False, "surprise": 1})
 
     def test_options_default_to_empty(self):
         """Options are optional: a prose-only clarification is still valid."""
@@ -115,3 +123,35 @@ class TestClarificationResponse:
         """The agent replays this JSON through the graph; the field must survive."""
         response = ClarificationResponse(needs_clarification=True, clarification_question="Which one?", options=["A"])
         assert '"options":["A"]' in response.model_dump_json()
+
+
+class TestStrictSchemas:
+    """Both models are sent as strict json_schema; strict mode has rules."""
+
+    @pytest.mark.parametrize("schema", [ClarificationResponse, PlanResponse])
+    def test_every_property_is_required(self, schema):
+        """A property missing from `required` is a provider 400, not a warning."""
+        emitted = strict_json_response_format(schema)["json_schema"]
+
+        assert emitted["strict"] is True
+        assert sorted(emitted["schema"]["required"]) == sorted(emitted["schema"]["properties"])
+        assert emitted["schema"]["additionalProperties"] is False
+
+
+class TestPlanResponse:
+    """The planner's reply."""
+
+    def test_title_and_sections(self):
+        plan = PlanResponse(title="A Plan", sections=["One", "Two"])
+
+        assert plan.title == "A Plan"
+        assert plan.sections == ["One", "Two"]
+
+    def test_sections_must_be_strings(self):
+        with pytest.raises(ValidationError):
+            PlanResponse(title="A Plan", sections=[1, 2])
+
+    def test_both_keys_are_required(self):
+        """Nothing sensible to default a plan to; a half plan is a parse failure."""
+        with pytest.raises(ValidationError):
+            PlanResponse(title="A Plan")

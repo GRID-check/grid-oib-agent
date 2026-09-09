@@ -3,6 +3,7 @@
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
+from aiq_agent.agents.clarifier.models import ClarificationResponse
 from aiq_agent.agents.clarifier.models import ClarifierAgentState
 from aiq_agent.agents.clarifier.models import ClarifierResult
 
@@ -12,36 +13,23 @@ class TestClarifierAgentState:
 
     def test_create_with_messages(self):
         """Test creating state with messages."""
-        messages = [HumanMessage(content="Research AI agents")]
-        state = ClarifierAgentState(messages=messages)
+        state = ClarifierAgentState(messages=[HumanMessage(content="Research AI agents")])
 
         assert len(state.messages) == 1
         assert state.messages[0].content == "Research AI agents"
 
-    def test_default_max_turns(self):
-        """Test default max_turns is 3."""
-        state = ClarifierAgentState(messages=[])
-        assert state.max_turns == 3
-
     def test_default_data_sources(self):
         """Test default data_sources is None."""
-        state = ClarifierAgentState(messages=[])
-        assert state.data_sources is None
+        assert ClarifierAgentState(messages=[]).data_sources is None
 
     def test_custom_data_sources(self):
         """Test custom data_sources."""
         state = ClarifierAgentState(messages=[], data_sources=["web_search"])
         assert state.data_sources == ["web_search"]
 
-    def test_custom_max_turns(self):
-        """Test custom max_turns."""
-        state = ClarifierAgentState(messages=[], max_turns=5)
-        assert state.max_turns == 5
-
     def test_default_clarifier_log(self):
         """Test default clarifier_log is empty string."""
-        state = ClarifierAgentState(messages=[])
-        assert state.clarifier_log == ""
+        assert ClarifierAgentState(messages=[]).clarifier_log == ""
 
     def test_custom_clarifier_log(self):
         """Test custom clarifier_log."""
@@ -50,33 +38,22 @@ class TestClarifierAgentState:
 
     def test_default_iteration(self):
         """Test default iteration is 0."""
-        state = ClarifierAgentState(messages=[])
-        assert state.iteration == 0
+        assert ClarifierAgentState(messages=[]).iteration == 0
 
     def test_custom_iteration(self):
         """Test custom iteration."""
-        state = ClarifierAgentState(messages=[], iteration=2)
-        assert state.iteration == 2
+        assert ClarifierAgentState(messages=[], iteration=2).iteration == 2
 
-    def test_remaining_questions_full(self):
-        """Test remaining_questions when iteration is 0."""
-        state = ClarifierAgentState(messages=[], max_turns=3, iteration=0)
-        assert state.remaining_questions == 3
+    def test_the_turn_limit_is_not_on_the_state(self):
+        """It is configuration, and a copy here was only ever stamped over by run()."""
+        assert "max_turns" not in ClarifierAgentState.model_fields
 
-    def test_remaining_questions_partial(self):
-        """Test remaining_questions after some iterations."""
-        state = ClarifierAgentState(messages=[], max_turns=3, iteration=1)
-        assert state.remaining_questions == 2
+    def test_the_parsed_clarification_rides_on_the_state(self):
+        """Parsed once by the node that received it, read by the router and the ask node."""
+        state = ClarifierAgentState(messages=[], clarification=ClarificationResponse.complete())
 
-    def test_remaining_questions_zero(self):
-        """Test remaining_questions when max turns reached."""
-        state = ClarifierAgentState(messages=[], max_turns=3, iteration=3)
-        assert state.remaining_questions == 0
-
-    def test_remaining_questions_negative(self):
-        """Test remaining_questions when iteration exceeds max_turns."""
-        state = ClarifierAgentState(messages=[], max_turns=3, iteration=5)
-        assert state.remaining_questions == -2
+        assert state.clarification is not None
+        assert state.clarification.needs_clarification is False
 
     def test_multiple_messages(self):
         """Test state with multiple messages."""
@@ -85,20 +62,18 @@ class TestClarifierAgentState:
             AIMessage(content="What aspect?"),
             HumanMessage(content="Technical"),
         ]
-        state = ClarifierAgentState(messages=messages)
-        assert len(state.messages) == 3
+        assert len(ClarifierAgentState(messages=messages).messages) == 3
 
     def test_model_validate(self):
         """Test validation from dict."""
         data = {
             "messages": [{"type": "human", "content": "Hello"}],
-            "max_turns": 5,
             "iteration": 1,
             "clarifier_log": "Log",
             "data_sources": ["confluence", "sharepoint"],
         }
         state = ClarifierAgentState.model_validate(data)
-        assert state.max_turns == 5
+
         assert state.iteration == 1
         assert state.clarifier_log == "Log"
         assert state.data_sources == ["confluence", "sharepoint"]
@@ -110,9 +85,11 @@ class TestClarifierResult:
     def test_default_values(self):
         """Test default values for ClarifierResult."""
         result = ClarifierResult()
+
         assert result.clarifier_log == ""
         assert result.plan_title is None
         assert result.plan_sections == []
+        assert result.plan_outcome is None
         assert result.plan_approved is False
         assert result.plan_rejected is False
         assert result.plan_cancelled is False
@@ -123,21 +100,54 @@ class TestClarifierResult:
             clarifier_log="Test log",
             plan_title="Research Plan",
             plan_sections=["Intro", "Analysis"],
-            plan_approved=True,
-            plan_rejected=False,
+            plan_outcome="approved",
         )
+
         assert result.clarifier_log == "Test log"
         assert result.plan_title == "Research Plan"
         assert result.plan_sections == ["Intro", "Analysis"]
         assert result.plan_approved is True
         assert result.plan_rejected is False
 
+    def test_exactly_one_flag_can_be_true(self):
+        """The three booleans are derived, so they cannot contradict each other."""
+        for outcome, expected in (("approved", 0), ("shallow", 1), ("cancelled", 2)):
+            result = ClarifierResult(plan_outcome=outcome)
+            flags = [result.plan_approved, result.plan_rejected, result.plan_cancelled]
+
+            assert flags.count(True) == 1
+            assert flags[expected] is True
+
+    def test_the_flags_survive_serialization(self):
+        """The caller reads them off the model; NAT may read them off the dump."""
+        dumped = ClarifierResult(plan_outcome="cancelled").model_dump()
+
+        assert dumped["plan_cancelled"] is True
+        assert dumped["plan_approved"] is False
+
+    def test_from_state_projects_the_finished_state(self):
+        """The result is the state's product, copied field for field."""
+        state = ClarifierAgentState(
+            messages=[HumanMessage(content="Research AI")],
+            clarifier_log="Turn 1",
+            plan_title="A Plan",
+            plan_sections=["One"],
+            plan_outcome="shallow",
+        )
+
+        result = ClarifierResult.from_state(state)
+
+        assert result.clarifier_log == "Turn 1"
+        assert result.plan_title == "A Plan"
+        assert result.plan_sections == ["One"]
+        assert result.plan_rejected is True
+
     def test_get_approved_plan_context_when_approved(self):
         """Test get_approved_plan_context returns formatted string when approved."""
         result = ClarifierResult(
             plan_title="AI Research Report",
             plan_sections=["Introduction", "Background", "Analysis"],
-            plan_approved=True,
+            plan_outcome="approved",
         )
         context = result.get_approved_plan_context()
 
@@ -150,30 +160,21 @@ class TestClarifierResult:
 
     def test_get_approved_plan_context_when_not_approved(self):
         """Test get_approved_plan_context returns None when not approved."""
-        result = ClarifierResult(
-            plan_title="Research Plan",
-            plan_sections=["Section 1"],
-            plan_approved=False,
-        )
+        result = ClarifierResult(plan_title="Research Plan", plan_sections=["Section 1"], plan_outcome="shallow")
+
         assert result.get_approved_plan_context() is None
 
     def test_get_approved_plan_context_when_no_title(self):
         """Test get_approved_plan_context returns None when no title."""
-        result = ClarifierResult(
-            plan_title=None,
-            plan_sections=["Section 1"],
-            plan_approved=True,
-        )
+        result = ClarifierResult(plan_title=None, plan_sections=["Section 1"], plan_outcome="approved")
+
         assert result.get_approved_plan_context() is None
 
     def test_get_approved_plan_context_empty_sections(self):
         """Test get_approved_plan_context with empty sections."""
-        result = ClarifierResult(
-            plan_title="Research Plan",
-            plan_sections=[],
-            plan_approved=True,
-        )
+        result = ClarifierResult(plan_title="Research Plan", plan_sections=[], plan_outcome="approved")
         context = result.get_approved_plan_context()
+
         assert context is not None
         assert "Research Plan" in context
         assert "Sections:" in context

@@ -85,6 +85,11 @@ delivered to the backend as a per-request header.
   kept in sync by hand.
 - Request-scoped overrides rebuild the clarifier/deep agents when active
   (same shape as the existing data-source rebuild), a small per-request cost.
+  *(Amended 2026-09-09: the clarifier no longer rebuilds. It compiles its
+  graph once at registration and carries the request's override, credential,
+  ZDR flag and tool selection as a frozen `TurnConfig` on the LangGraph
+  config. The deep agent still rebuilds; the cost recorded here is now the
+  deep agent's alone.)*
 - YAML defaults and DB overrides are two places to look when debugging which
   model actually served a request (mitigated by the usage ledger's
   `requested_model`/`model` columns, ADR-0015).

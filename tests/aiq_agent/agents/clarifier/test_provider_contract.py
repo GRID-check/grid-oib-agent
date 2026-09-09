@@ -2,8 +2,8 @@
 
 Reproduces the production path behind issue #294 (and its siblings #291-#293,
 #333, #335, #336, #340). The stack trace lands on
-``clarifier/agent.py`` ``agent_node`` -> ``bound_llm.ainvoke(messages)``, and the
-reason it reached a provider at all is architectural rather than local:
+``clarifier/agent.py`` ``clarifier_node`` -> ``binding.llm.ainvoke(messages)``,
+and the reason it reached a provider at all is architectural rather than local:
 
 ``chat_researcher`` hands the clarifier a *conversation window*
 (``trim_message_history(state.messages)``). On an escalated turn that window
