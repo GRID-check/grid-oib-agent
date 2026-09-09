@@ -96,6 +96,7 @@ export async function requireProjectAccess(
   const check = (permissionSlug: ProjectPermission) =>
     checkResourcePermission({
       organizationMembershipId: session.organizationMembershipId,
+      organizationId: session.organizationId,
       permissionSlug,
       resourceExternalId: projectId,
       resourceTypeSlug: 'project',
@@ -172,6 +173,7 @@ export async function filterReadableProjects<T extends { id: string }>(
     candidates.map(async (candidate): Promise<T | null> => {
       const allowed = await checkResourcePermission({
         organizationMembershipId: session.organizationMembershipId,
+        organizationId: session.organizationId,
         permissionSlug: 'project:view',
         resourceExternalId: candidate.id,
         resourceTypeSlug: 'project',

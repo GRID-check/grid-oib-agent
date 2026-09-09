@@ -57,26 +57,38 @@ export interface PlatformModelDefaultInput {
  * want the error surfaced rather than silently showing "no defaults".
  */
 export async function getPlatformModelDefaults(): Promise<PlatformModelDefaults> {
-  return getCached(DEFAULTS_CACHE_KEY, DEFAULTS_CACHE_TTL_MS, async () => {
-    const db = getDb()
-    const rows = await withPlatformAccess(
-      'platform model defaults are fleet-wide configuration, owned by no tenant',
-      () =>
-        db
-          .select({
-            agentGroup: platformModelDefaults.agentGroup,
-            model: platformModelDefaults.model,
-          })
-          .from(platformModelDefaults)
-    )
-    const flat: PlatformModelDefaults = {}
-    for (const row of rows) {
-      // A group retired from the registry stays in the table until someone
-      // saves again; drop it here so it can never reach the backend.
-      if (AGENT_GROUP_IDS.includes(row.agentGroup)) flat[row.agentGroup] = row.model
-    }
-    return flat
-  })
+  return getCached(DEFAULTS_CACHE_KEY, DEFAULTS_CACHE_TTL_MS, readPlatformModelDefaults)
+}
+
+/**
+ * The same read, straight from the database, bypassing the cache.
+ *
+ * Only for the compare-before-invalidate in `savePlatformModelDefaults`. That
+ * comparison decides whether the whole fleet is evicted, so it must be made
+ * against what is actually stored: a cache hit up to `DEFAULTS_CACHE_TTL_MS`
+ * old can equal the incoming save and suppress the invalidation for a change
+ * that really happened, leaving every replica on the old models until the TTL
+ * expires. The org path reads uncached for this reason too.
+ */
+async function readPlatformModelDefaults(): Promise<PlatformModelDefaults> {
+  const db = getDb()
+  const rows = await withPlatformAccess(
+    'platform model defaults are fleet-wide configuration, owned by no tenant',
+    () =>
+      db
+        .select({
+          agentGroup: platformModelDefaults.agentGroup,
+          model: platformModelDefaults.model,
+        })
+        .from(platformModelDefaults)
+  )
+  const flat: PlatformModelDefaults = {}
+  for (const row of rows) {
+    // A group retired from the registry stays in the table until someone
+    // saves again; drop it here so it can never reach the backend.
+    if (AGENT_GROUP_IDS.includes(row.agentGroup)) flat[row.agentGroup] = row.model
+  }
+  return flat
 }
 
 /** Full rows (model + who/when + snapshot) for the platform admin surface. */
@@ -86,6 +98,11 @@ export async function listPlatformModelDefaults(): Promise<PlatformModelDefault[
     'platform model defaults are fleet-wide configuration, owned by no tenant',
     () => db.select().from(platformModelDefaults).orderBy(asc(platformModelDefaults.agentGroup))
   )
+}
+
+function platformDefaultsEqual(a: PlatformModelDefaults, b: PlatformModelDefaults): boolean {
+  const keys = Object.keys(a)
+  return keys.length === Object.keys(b).length && keys.every((key) => b[key] === a[key])
 }
 
 /**
@@ -112,6 +129,17 @@ export async function savePlatformModelDefaults(
   const db = executor ?? getDb()
   const entries = Object.entries(input.defaults)
   const keep = entries.map(([agentGroup]) => agentGroup)
+
+  // Read before writing: a platform save that changes nothing must not evict
+  // every backend replica's hot entry (the prefix delete below moves the whole
+  // fleet). Unreadable-before means "unknown", which invalidates — a save that
+  // cannot prove it was a no-op is treated as a change, never as a skip.
+  let previous: PlatformModelDefaults | null = null
+  try {
+    previous = await readPlatformModelDefaults()
+  } catch {
+    previous = null
+  }
 
   const rows = await withPlatformAccess(
     'platform model defaults are fleet-wide configuration, owned by no tenant',
@@ -165,14 +193,20 @@ export async function savePlatformModelDefaults(
       })
   )
 
-  await invalidatePlatformModelDefaults()
+  await invalidatePlatformModelDefaults({
+    backend: previous === null || !platformDefaultsEqual(previous, input.defaults),
+  })
   return rows
 }
 
 /** Drop the cached defaults (after a write, or from tests). */
-export async function invalidatePlatformModelDefaults(): Promise<void> {
+export async function invalidatePlatformModelDefaults(options: { backend?: boolean } = {}): Promise<void> {
+  const { backend = true } = options
   await invalidateCached(DEFAULTS_CACHE_KEY)
   // A platform default moves every org that follows it; the backend's
-  // per-org copies all have to go.
-  await invalidateEveryBackendModelConfig()
+  // per-org copies all have to go — unless the save changed nothing, in
+  // which case the fleet-wide eviction is skipped (see `savePlatformModelDefaults`).
+  if (backend) {
+    await invalidateEveryBackendModelConfig()
+  }
 }

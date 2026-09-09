@@ -1,0 +1,8 @@
+---
+upgrade:
+  - >
+    Document search now runs on a new embedding model. Search indexes built
+    before this change no longer match it and must be rebuilt: delete the
+    search index volume, then re-ingest the base corpus and all project
+    collections. Deployments that pin the embedding model explicitly are not
+    affected.

@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Belege unter einer Antwort erscheinen nicht mehr doppelt. Nannte die
+    Antwort eine Richtlinie im Text anders als in ihrer Quellenliste, legte
+    das dieselbe Quelle zweimal an — einmal mit Vorschau, einmal nur mit
+    Kopieren. Beide Schreibweisen gehören jetzt zu einem Beleg.

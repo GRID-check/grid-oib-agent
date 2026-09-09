@@ -368,6 +368,17 @@ class TestOrgScopedFallbackResolution:
         assert M.get_zdr_only_from_context() is False
 
 
+class TestCacheTtlConstants:
+    """The propagation bounds docs/architecture/org-model-configuration.md promises."""
+
+    def test_ttls(self):
+        from aiq_agent.common import model_overrides as M
+
+        assert M._POSITIVE_TTL_SECONDS == 10
+        assert M._NEGATIVE_TTL_SECONDS == 1
+        assert M._SHARED_TTL_SECONDS == 60
+
+
 class TestSharedTier:
     """The org's config lives in the shared cache between replicas, and the BFF's
     deletion of that key is what an admin save propagates through."""
@@ -427,6 +438,130 @@ class TestSharedTier:
         entry = M._resolve_org_config("org_1")
         assert entry.overrides == {} and entry.zdr_only is False
         assert cache.get_json(M.shared_model_config_key("org_1")) is None
+
+    def test_missing_token_resolution_writes_nothing_to_the_shared_tier(self, monkeypatch):
+        """No GRID_INTERNAL_API_TOKEN -> ({}, False) with no L2 write, so an
+        unconfigured backend cannot shadow a real config for a full TTL."""
+        from aiq_agent.common import cache
+        from aiq_agent.common import model_overrides as M
+
+        monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
+        entry = M._resolve_org_config("org_1")
+        assert entry.overrides == {} and entry.zdr_only is False
+        assert cache.get_json(M.shared_model_config_key("org_1")) is None
+
+    def test_empty_success_writes_L1_only(self, monkeypatch):
+        """A genuine ({}, False) answer memoises in-process (no refetch storm)
+        but stays out of L2, where it would shadow a concurrent admin save."""
+        from aiq_agent.common import cache
+        from aiq_agent.common import model_overrides as M
+
+        calls = []
+
+        def empty(org):
+            calls.append(org)
+            return {}, False
+
+        monkeypatch.setattr(M, "_fetch_org_config", empty)
+        assert M.resolve_org_model_overrides("org_1") == {}
+        assert M.resolve_org_zdr_only("org_1") is False
+        assert calls == ["org_1"]
+        assert cache.get_json(M.shared_model_config_key("org_1")) is None
+
+    def test_an_authoritative_empty_config_is_cached_in_l2(self, monkeypatch):
+        """An unconfigured org is the DEFAULT state, and it is a real answer.
+
+        While only populated records reached L2, the majority case never
+        populated it at all: every replica went back to the BFF every L1 TTL
+        for every unconfigured org, which is exactly what L2 exists to stop.
+        """
+        from aiq_agent.common import cache
+        from aiq_agent.common import model_overrides as M
+
+        calls = []
+
+        def empty(org):
+            calls.append(org)
+            return {}, False
+
+        # A trust channel means `_fetch_org_config` actually ASKED the BFF, so
+        # ({}, False) is the BFF's answer rather than "we never asked".
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "test-token")
+        monkeypatch.setattr(M, "_fetch_org_config", empty)
+        assert M.resolve_org_model_overrides("org_1") == {}
+        assert cache.get_json(M.shared_model_config_key("org_1")) == {"overrides": {}, "zdr_only": False}
+
+    def test_concurrent_turns_for_one_org_share_a_single_fetch(self, monkeypatch):
+        """The ~1s negative TTL is affordable only because the fetch is coalesced.
+
+        Without it every concurrent turn raced past the expired entry and opened
+        its own request, each paying the full timeout while the BFF is down —
+        the retry-thunder the negative cache exists to prevent. The fetch is
+        held open here so every thread really is in flight at once; otherwise
+        the first one returns, populates the tiers, and the race never happens.
+        """
+        import threading
+        import time as stdlib_time
+
+        from aiq_agent.common import cache
+        from aiq_agent.common import model_overrides as M
+
+        cache.reset_local_store()
+        calls = []
+        entered = threading.Event()
+        proceed = threading.Event()
+
+        def slow(org):
+            calls.append(org)
+            entered.set()
+            proceed.wait(timeout=5)
+            return {"deep_research": "x-ai/grok-4.5"}, False
+
+        monkeypatch.setattr(M, "_fetch_org_config", slow)
+        results = []
+        threads = [
+            threading.Thread(target=lambda: results.append(M.resolve_org_model_overrides("org_1"))) for _ in range(8)
+        ]
+        for thread in threads:
+            thread.start()
+        # The first fetch is now parked inside `slow`. Give the other seven time
+        # to reach the resolver: they either queue on the org lock (coalesced)
+        # or open their own request (thunder), and that is the whole assertion.
+        assert entered.wait(timeout=5)
+        stdlib_time.sleep(0.25)
+        proceed.set()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        assert calls == ["org_1"], f"one fetch for eight concurrent turns, got {len(calls)}"
+        assert all(r == {"deep_research": "x-ai/grok-4.5"} for r in results)
+
+    def test_error_negative_cache_expires_in_about_one_second(self, monkeypatch):
+        """A failed fetch fails open but retries quickly: held within the 1s
+        negative TTL, retried past it — so a transient BFF outage (and its ZDR
+        bit) never pins the fleet, and recovery is a second away, not ten."""
+        import time as stdlib_time
+
+        from aiq_agent.common import model_overrides as M
+
+        now = [1000.0]
+        monkeypatch.setattr(stdlib_time, "monotonic", lambda: now[0])
+
+        calls = []
+
+        def boom(org):
+            calls.append(org)
+            raise RuntimeError("bff down")
+
+        monkeypatch.setattr(M, "_fetch_org_config", boom)
+        assert M.resolve_org_model_overrides("org_1") == {}
+        assert calls == ["org_1"]
+        now[0] += 0.5
+        assert M.resolve_org_model_overrides("org_1") == {}
+        assert calls == ["org_1"]
+        now[0] += 0.6
+        assert M.resolve_org_model_overrides("org_1") == {}
+        assert calls == ["org_1", "org_1"]
 
     def test_a_malformed_shared_value_is_ignored(self, monkeypatch):
         from aiq_agent.common import cache

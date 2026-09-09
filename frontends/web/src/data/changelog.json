@@ -32,6 +32,33 @@
   },
   "releases": [
     {
+      "id": "2026-09-09",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-09",
+      "summary": null,
+      "sections": [
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Belege unter einer Antwort erscheinen nicht mehr doppelt. Nannte die Antwort eine Richtlinie im Text anders als in ihrer Quellenliste, legte das dieselbe Quelle zweimal an — einmal mit Vorschau, einmal nur mit Kopieren. Beide Schreibweisen gehören jetzt zu einem Beleg.",
+              "de": "Belege unter einer Antwort erscheinen nicht mehr doppelt. Nannte die Antwort eine Richtlinie im Text anders als in ihrer Quellenliste, legte das dieselbe Quelle zweimal an — einmal mit Vorschau, einmal nur mit Kopieren. Beide Schreibweisen gehören jetzt zu einem Beleg."
+            }
+          ]
+        },
+        {
+          "key": "upgrade",
+          "notes": [
+            {
+              "en": "Document search now runs on a new embedding model. Search indexes built before this change no longer match it and must be rebuilt: delete the search index volume, then re-ingest the base corpus and all project collections. Deployments that pin the embedding model explicitly are not affected.",
+              "de": "Document search now runs on a new embedding model. Search indexes built before this change no longer match it and must be rebuilt: delete the search index volume, then re-ingest the base corpus and all project collections. Deployments that pin the embedding model explicitly are not affected."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-09-08",
       "kind": "date",
       "version": null,

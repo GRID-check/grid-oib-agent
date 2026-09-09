@@ -385,10 +385,20 @@ export async function saveOrgSettings(
   patch: OrgSettingsPatch,
   request: Request
 ): Promise<OrgSettings> {
+  // Read before writing: the backend's shared record carries the model
+  // overrides + ZDR only, so the cross-tier delete fires solely when a
+  // backend-relevant field actually moves. A displayName/locale save — or a
+  // settings patch that leaves both fields untouched — skips it.
+  const before = await getOrgSettings(session.organizationId)
   const settings = await updateOrgSettings(session.organizationId, patch)
   await invalidateCached(webSearchCacheKey(session.organizationId))
   await invalidateCached(zdrOnlyCacheKey(session.organizationId))
-  await invalidateBackendModelConfig(session.organizationId)
+  if (
+    before.settings.zdrOnly !== settings.settings.zdrOnly ||
+    before.settings.webSearchEnabled !== settings.settings.webSearchEnabled
+  ) {
+    await invalidateBackendModelConfig(session.organizationId)
+  }
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },

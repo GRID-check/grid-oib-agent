@@ -27,7 +27,7 @@ The **real** backend front-end plugin is `frontends/aiq_api` (`_type: aiq_api`).
 commit `2570b1b`; its one live route, `/v1/ingest`, was ported into `aiq_api`.)
 
 The working config is `configs/config_oib_openrouter.yml` (OpenRouter DeepSeek +
-OpenRouter embeddings). `config_grid_oib.yml` (Kimi) is not currently working.
+OpenRouter embeddings), the only config left in `configs/`.
 
 ## 2. Chat request lifecycle (WebSocket-only)
 

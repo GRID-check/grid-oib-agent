@@ -19,9 +19,12 @@ still fits through ``AIQ_RERANKER_BASE_URL``.
 
 Fail-open, like every other retrieval enhancement in this package: any
 transport error, timeout, unknown provider name, or unparseable body returns
-``None`` and the caller keeps the order it already had. The reference config
-turns it on (``reranker_provider: openrouter``); the env default stays
-``none`` so a bare process acquires no outbound dependency it did not ask for.
+``None`` and the caller keeps the order it already had. Per-search failure
+warnings are throttled to one per 5 minutes (debug inside the window), and
+five consecutive failures trip a 5-minute breaker that disables the
+cross-encoder outright. The reference config turns it on
+(``reranker_provider: openrouter``); the env default stays ``none`` so a bare
+process acquires no outbound dependency it did not ask for.
 """
 
 from __future__ import annotations
@@ -29,17 +32,39 @@ from __future__ import annotations
 import logging
 import math
 import os
+import threading
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 PROVIDER = "openrouter"
+#: Provider names this module used to speak and no longer does. They fail LOUD
+#: (error, not warning) in :func:`resolve_cross_encoder` so a stale config is
+#: noticed instead of silently degrading to the judge.
+_REMOVED_PROVIDERS = ("cohere", "voyage", "jina", "nvidia")
 _PATH = "/rerank"
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 _DEFAULT_MODEL = "cohere/rerank-v3.5"
 _KEY_ENV = "OPENROUTER_API_KEY"
 _RESULTS_KEY = "results"
 _SCORE_KEY = "relevance_score"
+
+#: Consecutive failed reranks before the breaker trips, and how long a tripped
+#: breaker disables the cross-encoder. Module-level on purpose: the failure is
+#: a provider property, not a per-instance one, and ``resolve_cross_encoder``
+#: builds once at startup.
+_BREAKER_THRESHOLD = 5
+_BREAKER_COOLDOWN_SECONDS = 300.0
+
+_breaker_lock = threading.Lock()
+_consecutive_failures = 0
+_breaker_tripped_until = 0.0  # time.monotonic() timestamp; 0.0 means closed
+#: ``None`` means "not warned yet in this process". A float sentinel cannot say
+#: that: ``time.monotonic()`` is time since boot on Linux, so a fresh container
+#: reads well under the cooldown and ``now - 0.0 < _BREAKER_COOLDOWN_SECONDS``
+#: swallowed the one warning the throttle exists to guarantee.
+_last_failure_warn_at: float | None = None
 
 
 def _env_float(name: str, fallback: float) -> float:
@@ -95,12 +120,12 @@ DEFAULT_BASE_URL = os.environ.get("AIQ_RERANKER_BASE_URL", "").strip()
 # @environment_variable AIQ_RERANKER_TIMEOUT_SECONDS
 # @category Knowledge Layer
 # @type float
-# @default 10.0
+# @default 3.0
 # @required false
-# Per-request timeout. Cross-encoders answer in ~100ms; 10s is already a generous
-# bound on a provider having a bad day, and reranking must never hold a turn open
-# longer than the retrieval it is improving.
-DEFAULT_TIMEOUT_SECONDS = _env_float("AIQ_RERANKER_TIMEOUT_SECONDS", 10.0)
+# Per-request timeout. Cross-encoders answer in ~100ms; 3s bounds a provider
+# having a bad day, and a hang must never cost more than a fraction of the 30s
+# LLM-judge fallback it precedes — worst case a turn pays 3s + 30s.
+DEFAULT_TIMEOUT_SECONDS = _env_float("AIQ_RERANKER_TIMEOUT_SECONDS", 3.0)
 
 # @environment_variable AIQ_RERANKER_MAX_DOC_CHARS
 # @category Knowledge Layer
@@ -117,6 +142,83 @@ DEFAULT_TIMEOUT_SECONDS = _env_float("AIQ_RERANKER_TIMEOUT_SECONDS", 10.0)
 DEFAULT_MAX_DOC_CHARS = max(1, int(_env_float("AIQ_RERANKER_MAX_DOC_CHARS", 4000.0)))
 
 
+def _breaker_open() -> bool:
+    """True while the breaker is tripped; recovers after the cooldown passes."""
+    global _consecutive_failures, _breaker_tripped_until
+    now = time.monotonic()
+    with _breaker_lock:
+        if _breaker_tripped_until and now < _breaker_tripped_until:
+            return True
+        if _breaker_tripped_until:
+            _breaker_tripped_until = 0.0
+            _consecutive_failures = 0
+            logger.info("Cross-encoder breaker cooled down; retrying the provider")
+        return False
+
+
+def _record_success() -> None:
+    """A usable ranking resets the consecutive-failure count."""
+    global _consecutive_failures
+    with _breaker_lock:
+        _consecutive_failures = 0
+
+
+def _record_failure() -> None:
+    """Count one failed rerank; trip the breaker at the threshold (warns once)."""
+    global _consecutive_failures, _breaker_tripped_until
+    with _breaker_lock:
+        _consecutive_failures += 1
+        if _consecutive_failures >= _BREAKER_THRESHOLD and not _breaker_tripped_until:
+            _breaker_tripped_until = time.monotonic() + _BREAKER_COOLDOWN_SECONDS
+            logger.warning(
+                "Cross-encoder failed %d times in a row; disabling it for %ds, falling back to the LLM judge",
+                _consecutive_failures,
+                int(_BREAKER_COOLDOWN_SECONDS),
+            )
+
+
+def _throttled_warning(message: str, *args: Any) -> None:
+    """One warning per cooldown window; debug for the rest (log-throttle).
+
+    A failing provider is hit up to 8 times per turn, so an unthrottled warning
+    per search buries the log. The first failure per window warns; subsequent
+    ones debug with the identical text.
+    """
+    global _last_failure_warn_at
+    now = time.monotonic()
+    with _breaker_lock:
+        emit_warning = _last_failure_warn_at is None or now - _last_failure_warn_at >= _BREAKER_COOLDOWN_SECONDS
+        if emit_warning:
+            _last_failure_warn_at = now
+    if emit_warning:
+        logger.warning(message, *args)
+    else:
+        logger.debug(message, *args)
+
+
+def _reset_breaker_state() -> None:
+    """Reset breaker and throttle state. Tests only — production never calls this."""
+    global _consecutive_failures, _breaker_tripped_until, _last_failure_warn_at
+    with _breaker_lock:
+        _consecutive_failures = 0
+        _breaker_tripped_until = 0.0
+        _last_failure_warn_at = None
+
+
+def _normalize_base_url(base_url: str) -> str:
+    """Normalize a reranker base URL: strip whitespace, trailing slashes, and a
+    trailing ``/rerank`` path segment.
+
+    The request path is appended by the caller, so a user-supplied
+    ``AIQ_RERANKER_BASE_URL`` ending in ``/rerank`` would otherwise double-append
+    (``.../rerank/rerank``) and fail every call.
+    """
+    normalized = (base_url or "").strip().rstrip("/")
+    if normalized.lower().endswith(_PATH):
+        normalized = normalized[: -len(_PATH)].rstrip("/")
+    return normalized
+
+
 def available_providers() -> tuple[str, ...]:
     """Provider names this module can talk to (excluding ``none``)."""
     return (PROVIDER,)
@@ -127,8 +229,13 @@ def _resolve_api_key(base_url: str, model: str, organization_id: str | None) -> 
 
     ``AIQ_RERANKER_API_KEY`` wins, then ``OPENROUTER_API_KEY``, then host
     inference — the same chain every other bespoke call site in this deployment
-    uses, so an org's BYOK key reaches reranking for free on the hosts the
-    resolver knows.
+    uses.
+
+    BYOK is NOT wired here: the registration call site builds the reranker once
+    at startup with no organization in scope, so ``organization_id`` is always
+    ``None`` there and the platform key is used.
+    TODO(byok): resolve the key per search from the turn's organization id
+    instead of once at construction.
     """
     try:
         from aiq_agent.common.credential_resolution import resolve_llm_credential
@@ -224,7 +331,7 @@ class CrossEncoderReranker:
         if provider != PROVIDER:
             raise ValueError(f"Unknown reranker provider {provider!r}; expected one of {available_providers()}")
         self.provider = provider
-        self.base_url = (base_url or DEFAULT_BASE_URL or _DEFAULT_BASE_URL).rstrip("/")
+        self.base_url = _normalize_base_url(base_url or DEFAULT_BASE_URL or _DEFAULT_BASE_URL)
         self.model = model or DEFAULT_MODEL or _DEFAULT_MODEL
         self.timeout_seconds = timeout_seconds
         self.max_doc_chars = max_doc_chars
@@ -253,7 +360,10 @@ class CrossEncoderReranker:
         if not chunks or not query:
             return None
         if not self.configured:
-            logger.warning("Cross-encoder provider %r has no API key resolved; skipping", self.provider)
+            _throttled_warning("Cross-encoder provider %r has no API key resolved; skipping", self.provider)
+            return None
+        if _breaker_open():
+            logger.debug("Cross-encoder breaker tripped; keeping retrieval order")
             return None
 
         documents = [str(getattr(chunk, "content", ""))[: self.max_doc_chars] for chunk in chunks]
@@ -263,6 +373,10 @@ class CrossEncoderReranker:
             # an ImportError here must degrade to "no opinion" like every other failure.
             import httpx
 
+            # Cost is currently untracked: this call bypasses the LangChain callback
+            # path GridCostTracker hooks, so no ledger row is emitted for the rerank
+            # model. TODO(cost-tracking): emit a usage event (model, search_units)
+            # per call once the ledger accepts non-LLM events.
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
                     url,
@@ -276,7 +390,8 @@ class CrossEncoderReranker:
                 response.raise_for_status()
                 payload = response.json()
         except Exception as e:
-            logger.warning(
+            _record_failure()
+            _throttled_warning(
                 "Cross-encoder rerank via %s failed (%s: %s); keeping retrieval order",
                 self.provider,
                 type(e).__name__,
@@ -286,8 +401,11 @@ class CrossEncoderReranker:
 
         indices = _parse_rankings(payload, len(chunks))
         if indices is None:
-            logger.warning("Cross-encoder %s returned no usable ranking; keeping retrieval order", self.provider)
+            _record_failure()
+            _throttled_warning("Cross-encoder %s returned no usable ranking; keeping retrieval order", self.provider)
             return None
+
+        _record_success()
 
         ranked = [chunks[i] for i in indices]
         # A provider honouring top_n returns a subset. The unranked remainder keeps
@@ -311,7 +429,9 @@ def resolve_cross_encoder(
 
     Returns ``None`` — never raises — for ``none``/empty, an unknown provider name,
     or a key that does not resolve, so a misconfiguration degrades to the
-    previous behaviour instead of taking retrieval down.
+    previous behaviour instead of taking retrieval down. The four removed
+    provider names (cohere/voyage/jina/nvidia) log an error naming the removal
+    and the migration, then fall back the same way.
     """
     candidate = provider if provider is not None else DEFAULT_PROVIDER
     if not isinstance(candidate, str):
@@ -321,11 +441,18 @@ def resolve_cross_encoder(
     if name in {"", "none", "off", "false", "0", "llm_judge"}:
         return None
     if name != PROVIDER:
-        logger.warning(
-            "Unknown reranker provider %r; expected one of %s. Falling back to the LLM judge.",
-            name,
-            available_providers(),
-        )
+        if name in _REMOVED_PROVIDERS:
+            logger.error(
+                "Reranker provider %r was removed; only 'openrouter' is supported. "
+                "Migrate with `reranker_provider: openrouter`. Falling back to the LLM judge.",
+                name,
+            )
+        else:
+            logger.warning(
+                "Unknown reranker provider %r; expected one of %s. Falling back to the LLM judge.",
+                name,
+                available_providers(),
+            )
         return None
 
     reranker = CrossEncoderReranker(

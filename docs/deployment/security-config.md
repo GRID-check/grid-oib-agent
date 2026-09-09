@@ -147,7 +147,7 @@ AIQ_EXTRACT_TABLES=true
 AIQ_EXTRACT_IMAGES=true
 AIQ_EXTRACT_CHARTS=true
 # defaults, shown for completeness
-AIQ_VLM_MODEL=google/gemma-4-31b-it
+AIQ_VLM_MODEL=openai/gpt-5.6-luna
 AIQ_VLM_BASE_URL=https://openrouter.ai/api/v1
 ```
 

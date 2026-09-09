@@ -192,7 +192,7 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     )
     reranker_model: str | None = Field(
         default=None,
-        description="Cross-encoder model id. None uses the provider's multilingual default.",
+        description="Cross-encoder model id (default cohere/rerank-v3.5, multilingual — a German corpus needs one).",
     )
     rerank_candidates: int = Field(
         default=15,
@@ -1536,7 +1536,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
     # Cross-encoder reranking, when configured. Primary when present; the LLM judge
     # above stays as the fallback. Returns None (never raises) for 'none', an unknown
-    # provider, or a key that does not resolve.
+    # provider, or a key that does not resolve. Built once at startup with no
+    # organization in scope, so org BYOK is not threaded here — the platform key
+    # is used (see cross_encoder._resolve_api_key).
     cross_encoder = None
     try:
         from knowledge_layer.cross_encoder import resolve_cross_encoder
