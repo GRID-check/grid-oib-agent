@@ -326,4 +326,3 @@ class TestTheSharedFixtureShowsACorrection:
         """Absent, never null. The optional key needs both cases in one fixture,
         or the contract only ever describes the correction."""
         assert any("supersedes" not in item for item in self._ready_payload()["items"])
-
