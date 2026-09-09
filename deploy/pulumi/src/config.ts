@@ -758,6 +758,23 @@ export interface GridConfig {
     allowAgentOrgMemory: boolean;
   };
 
+  /**
+   * PostHog product analytics (fail-open).
+   *
+   * Both values are optional: an empty host or token keeps the browser client
+   * disabled (`isPosthogEnabled() === false` in
+   * `frontends/ui/src/lib/analytics/posthog.ts`), so a stack that has not
+   * adopted analytics deploys exactly as before. The project token is a public
+   * `phc_` key by design (it ships in the client bundle), so it lives in plain
+   * config like `workosClientId`, not in ESC secrets.
+   */
+  posthog: {
+    /** e.g. `https://eu.i.posthog.com`. Empty = analytics disabled. */
+    host: string;
+    /** Public project token (`phc_…`). Empty = analytics disabled. */
+    projectToken: string;
+  };
+
   /** Cross-service internal token + admin token (must match across services). */
   internal: {
     apiToken: pulumi.Output<string>;
@@ -2293,6 +2310,11 @@ export function loadConfig(): GridConfig {
       byokSecretBackend: cfg.get("byokSecretBackend") ?? "",
       byokLocalKek: cfg.getSecret("byokLocalKek") ?? pulumi.output(""),
       allowAgentOrgMemory: bool(cfg, "allowAgentOrgMemory", false),
+    },
+
+    posthog: {
+      host: cfg.get("posthogHost") ?? "",
+      projectToken: cfg.get("posthogProjectToken") ?? "",
     },
 
     internal: {

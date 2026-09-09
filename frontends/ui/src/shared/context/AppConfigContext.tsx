@@ -11,6 +11,7 @@
 'use client'
 
 import { createContext, useContext, type ReactNode } from 'react'
+import type { PostHogConfig } from '@/lib/analytics/posthog'
 
 /**
  * File upload configuration for validation limits
@@ -55,6 +56,13 @@ export interface AppConfig {
   authRequired: boolean
   /** File upload validation configuration */
   fileUpload: FileUploadConfig
+  /**
+   * PostHog analytics configuration (fail-open). Optional so dev previews and
+   * specs that construct an `AppConfig` by hand stay untouched — absent means
+   * disabled, and the single reader (`PostHogIdentitySync` in providers)
+   * falls back to the disabled config.
+   */
+  posthog?: PostHogConfig
 }
 
 const AppConfigContext = createContext<AppConfig | null>(null)

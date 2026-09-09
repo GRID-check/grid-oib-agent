@@ -24,6 +24,19 @@ vi.mock('@workos-inc/authkit-nextjs/components', () => ({
   AuthKitProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
+// PostHogIdentitySync reads useAuth; the AuthKit mock above provides no
+// session, so stub the adapter at an unauthenticated, auth-disabled state.
+vi.mock('@/adapters/auth', () => ({
+  useAuth: () => ({
+    isAuthenticated: false,
+    isLoading: false,
+    authRequired: false,
+    user: null,
+    signIn: vi.fn(async () => {}),
+    signOut: vi.fn(async () => {}),
+  }),
+}))
+
 vi.mock('@/features/layout', () => ({
   useLayoutStore: Object.assign(
     (selector: (state: typeof layoutState) => unknown) => selector(layoutState),

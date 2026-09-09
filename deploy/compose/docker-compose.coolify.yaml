@@ -472,6 +472,10 @@ services:
       - WORKOS_API_KEY=${WORKOS_API_KEY:-}
       - NEXT_PUBLIC_WORKOS_REDIRECT_URI=https://${SERVICE_FQDN_FRONTEND}/api/auth/callback
       - WORKOS_REDIRECT_URI=https://${SERVICE_FQDN_FRONTEND}/api/auth/callback
+      # PostHog product analytics (fail-open: unset means no events leave the
+      # browser — see frontends/ui/src/lib/analytics/posthog.ts).
+      - NEXT_PUBLIC_POSTHOG_HOST=${NEXT_PUBLIC_POSTHOG_HOST:-}
+      - NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN:-}
       - WORKOS_COOKIE_PASSWORD=${WORKOS_COOKIE_PASSWORD:-}
       # BYOK LLM credentials (ADR-0022): secret backend for tenant API keys.
       - GRID_BYOK_SECRET_BACKEND=${GRID_BYOK_SECRET_BACKEND:-}
