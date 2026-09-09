@@ -234,7 +234,7 @@ Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
 - **Reflection can retire what it corrects**, not only append. Each finding
   carries a `supersedes` field (part of the strict structured-output contract, so
   the model has a sanctioned way to return one): the verbatim content of the entry
-  it replaces, copied from the digest it was shown. `_sanitize_findings` honours
+  it replaces, copied from the digest it was shown. `_finding_from_entry` honours
   it ONLY when it matches one COMPLETE entry of the shown digest (normalized
   equality against the parsed entry contents, not a substring test — a truncated
   quote like "Client chose a flat" for "Client chose a flat roof" would otherwise

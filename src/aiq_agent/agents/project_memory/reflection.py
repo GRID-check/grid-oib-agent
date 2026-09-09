@@ -17,8 +17,10 @@ semaphore, the pending cap and the outcome span. This module is the body of the
 handler and nothing else.
 
 Design guarantees kept here:
-- **Never crashes the turn.** Every failure path is caught and logged; the worst
-  outcome is that no memory is recorded.
+- **Never crashes the turn on a finding.** A write that fails is logged and
+  dropped; the worst outcome is that no memory is recorded. A provider fault on
+  the one LLM call propagates to the stage runner, which owns the timeout and
+  the failure span — swallowing it here would only hide the outage.
 - **Context-free execution.** All request-scoped values (ids, digest, text) are
   passed in explicitly, so the pass is safe to run after the request context has
   been torn down.
@@ -35,23 +37,68 @@ import re
 from typing import Any
 from typing import Literal
 
+from langchain_core.messages import HumanMessage
+from langchain_core.messages import SystemMessage
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import ValidationError
+from pydantic import model_validator
 
 from aiq_agent.common.json_utils import extract_json
 from aiq_agent.common.llm_factory import strict_json_response_format
+from aiq_agent.common.message_utils import content_to_text
 from aiq_agent.knowledge.project_memory import VALID_CONFIDENCES
-from aiq_agent.knowledge.project_memory import VALID_KINDS
 from aiq_agent.knowledge.project_memory import insert_memory_item
 from aiq_agent.knowledge.project_memory import looks_like_personal_data
 
 logger = logging.getLogger(__name__)
 
+# A reflection turn records a small, curated set — it is a safety net for what
+# the in-turn `remember` tool missed, not a bulk extractor.
+MAX_NEW_ITEMS = 5
+_MAX_CONTENT_CHARS = 500
+_MAX_ANSWER_CHARS = 4000
+_MAX_QUERY_CHARS = 2000
+# The existing memory digest grows as project memory accumulates; every other
+# input to this prompt is already sliced, so cap the digest too — otherwise the
+# background reflection LLM call's token cost grows unbounded with memory size.
+# Head-sliced to match the query/answer slices above (the digest's ordering is
+# owned by the BFF, so we don't assume newest-first/last).
+_MAX_DIGEST_CHARS = 6000
+#: The rating a finding gets when the model did not supply a usable one. The
+#: recall scorer weighs salience at 2 of 5.5 total, so the midpoint leaves the
+#: finding neutral rather than wrong.
+_NEUTRAL_IMPORTANCE = 5
+
+
+def _lowered(value: Any) -> Any:
+    """A trimmed, lowercased copy of a string; anything else untouched."""
+    return value.strip().lower() if isinstance(value, str) else value
+
+
+def _one_of(value: Any, allowed: set[str], fallback: str) -> str:
+    """``value`` folded into ``allowed``, or ``fallback`` when it is not in it."""
+    text = _lowered(value)
+    return text if text in allowed else fallback
+
+
+def _clamped_importance(value: Any) -> int:
+    """``value`` as an importance rating in 1..10, defaulting when unreadable."""
+    try:
+        importance = int(value)
+    except (TypeError, ValueError):
+        return _NEUTRAL_IMPORTANCE
+    return min(10, max(1, importance))
+
 
 class _ReflectionFinding(BaseModel):
     """One durable project finding proposed by the reflection stage."""
 
+    # ``forbid`` is what makes the generated json_schema carry
+    # ``additionalProperties: false``, which OpenRouter's strict mode requires.
+    # Parsing stays forgiving via the validator below, so the strict wire
+    # contract never costs a usable finding on the plain-call fallback.
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["decision", "constraint", "open_question", "derived_fact", "preference"] = Field(
@@ -77,6 +124,32 @@ class _ReflectionFinding(BaseModel):
         )
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _tolerate_a_loose_reply(cls, data: Any) -> Any:
+        """Read forgivingly what the wire schema declares strictly.
+
+        A reply that came back through native structured output already fits.
+        The fallback path (no ``response_format``) does not: a model writes
+        ``"High"``, omits ``importance``, or adds a key the prompt never asked
+        for, and each of those used to be handled by 40 lines of imperative
+        coercion downstream. Folded here, one validated model is the only shape
+        the rest of this module handles. Only ``kind`` has no safe default — a
+        guessed category mislabels the row — so an unreadable one still fails.
+        """
+        if not isinstance(data, dict):
+            return data
+        known = {key: value for key, value in data.items() if key in cls.model_fields}
+        known["kind"] = _lowered(known.get("kind"))
+        known["content"] = str(known.get("content") or "").strip()[:_MAX_CONTENT_CHARS]
+        known["confidence"] = _one_of(known.get("confidence"), VALID_CONFIDENCES, "medium")
+        # Importance, elicited at write time the way Generative Agents rates
+        # poignancy: one integer from the SAME structured call, so it costs
+        # nothing extra. Stored as salience in [0,1].
+        known["importance"] = _clamped_importance(known.get("importance"))
+        known["supersedes"] = str(known.get("supersedes") or "").strip()
+        return known
+
 
 class ReflectionOutput(BaseModel):
     """Strict structured-output contract for the memory-reflection stage.
@@ -90,22 +163,6 @@ class ReflectionOutput(BaseModel):
 
     findings: list[_ReflectionFinding] = Field(description="Durable project findings; empty list if none.")
 
-
-# A reflection turn records a small, curated set — it is a safety net for what
-# the in-turn `remember` tool missed, not a bulk extractor.
-MAX_NEW_ITEMS = 5
-_MAX_CONTENT_CHARS = 500
-# A supersede quote must stay verbatim to resolve, so it is capped at the write
-# endpoint's `supersedesContent` limit rather than the tighter content cap.
-_MAX_SUPERSEDES_CHARS = 2000
-_MAX_ANSWER_CHARS = 4000
-_MAX_QUERY_CHARS = 2000
-# The existing memory digest grows as project memory accumulates; every other
-# input to this prompt is already sliced, so cap the digest too — otherwise the
-# background reflection LLM call's token cost grows unbounded with memory size.
-# Head-sliced to match the query/answer slices above (the digest's ordering is
-# owned by the BFF, so we don't assume newest-first/last).
-_MAX_DIGEST_CHARS = 6000
 
 REFLECTION_SYSTEM_PROMPT = (
     "You are Grid's memory-reflection step. You run in the background AFTER the user "
@@ -143,10 +200,14 @@ REFLECTION_SYSTEM_PROMPT = (
     "kind must be one of: decision, constraint, open_question, derived_fact, preference.\n"
     "confidence is one of: low, medium, high.\n"
     "content must be ONE concise, self-contained sentence about this project.\n"
+    "importance is an integer 1-10: how much future answers depend on this finding — 1-3 "
+    "incidental, 4-6 useful context, 7-8 shapes answers, 9-10 getting it wrong invalidates "
+    "answers.\n"
     "supersedes is the verbatim content of the entry being replaced, or an empty string.\n\n"
     f"Return AT MOST {MAX_NEW_ITEMS} findings. If nothing qualifies, return an empty list — "
     "that is the common and correct outcome. Respond with ONLY a JSON object of the form: "
-    '{"findings": [{"kind": "...", "content": "...", "confidence": "...", "supersedes": "..."}]}'
+    '{"findings": [{"kind": "...", "content": "...", "confidence": "...", "importance": 5, '
+    '"supersedes": "..."}]}'
 )
 
 
@@ -175,61 +236,70 @@ def _normalize(text: str) -> str:
 _DIGEST_ENTRY_RE = re.compile(r'^\s*-\s*\[[^\]]*\]\s*"(.*)"\s*$')
 
 
-def _digest_entry_contents(memory_digest: str | None) -> set[str]:
+def _digest_entry_contents(memory_digest: str | None) -> frozenset[str]:
     """Normalized contents of the COMPLETE entries displayed in the digest.
 
     A supersede quote must name one whole entry: a substring check would accept
     a truncated quote ("Client chose a flat" for "Client chose a flat roof"),
     which the frontend's fuzzy resolver would then happily resolve — retiring an
     entry the model never actually quoted.
+
+    No unescaping needed: ``_normalize`` drops the backslashes and quotes
+    ``formatDigestLines`` adds.
     """
-    if not memory_digest:
-        return set()
-    contents: set[str] = set()
-    for line in memory_digest.splitlines():
-        match = _DIGEST_ENTRY_RE.match(line)
-        if not match:
-            continue
-        # No unescaping needed: _normalize drops the backslashes and quotes
-        # formatDigestLines adds.
-        normalized = _normalize(match.group(1))
-        if normalized:
-            contents.add(normalized)
-    return contents
+    matches = (_DIGEST_ENTRY_RE.match(line) for line in (memory_digest or "").splitlines())
+    return frozenset(filter(None, (_normalize(match.group(1)) for match in matches if match)))
 
 
-def _content_in_digest(content: str, memory_digest: str | None) -> bool:
+def _content_in_digest(content: str, normalized_digest: str) -> bool:
     """True when a finding is already (near-)present in the digest it was shown.
 
     A cheap normalized-substring guard so the stage cannot re-store an item that
     was literally in front of the LLM. It does NOT catch semantic paraphrase or
     items outside the bounded digest — full de-duplication is the write-time
     consolidation gate (design §3.2), still a follow-up.
+
+    ``normalized_digest`` is ``_normalize``d once by the caller: the digest runs
+    to ~6 kB and every finding in a batch asks the same question of it.
     """
-    if not memory_digest:
-        return False
-    norm_content = _normalize(content)
-    if not norm_content:
-        return False
-    return norm_content in _normalize(memory_digest)
+    normalized_content = _normalize(content)
+    return bool(normalized_content) and normalized_content in normalized_digest
 
 
-# Coarse PII/secret guards (audit finding S4). This is a denylist, not a
-# guarantee of privacy — it catches the shapes of data most likely to leak
-# into a "durable finding" (contact details, government IDs, credentials),
-# not every possible personal fact a user might mention. Findings are meant to
-# be project facts ("uses steel frame construction"), never data about a
-# specific person, so a hit here drops the whole finding rather than trying
-# to redact just the matched span.
-def _looks_like_pii(content: str) -> bool:
-    """Whether a finding's text matches a coarse PII/secret shape (audit S4).
+def _finding_from_entry(
+    entry: Any,
+    *,
+    normalized_digest: str,
+    digest_entries: frozenset[str],
+) -> _ReflectionFinding | None:
+    """One insertable finding from a proposed entry, or None when it does not qualify.
 
-    The shapes live on the write path both memory writers share
-    (``knowledge.project_memory.looks_like_personal_data``); this stage still
-    screens its own batch first so a dropped finding never counts against the
-    per-pass cap.
+    Drops anything malformed, out-of-vocabulary, empty, already present in the
+    digest, or matching a PII/secret shape (audit finding S4). The guard runs
+    HERE and not only at the write endpoint so a dropped finding never counts
+    against ``MAX_NEW_ITEMS``.
     """
-    return looks_like_personal_data(content)
+    try:
+        finding = _ReflectionFinding.model_validate(entry)
+    except ValidationError:
+        return None
+    if not finding.content:
+        return None
+    # Never re-store something already sitting in the digest we showed the LLM.
+    if _content_in_digest(finding.content, normalized_digest):
+        return None
+    if looks_like_personal_data(finding.content):
+        logger.warning("Memory reflection: dropped a %s finding matching a PII/secret pattern", finding.kind)
+        return None
+    # A supersede quote retires an existing entry, so it is only honoured when it
+    # names one COMPLETE entry of the digest the model was shown. A hallucinated,
+    # paraphrased or truncated quote is dropped (the finding is still recorded)
+    # rather than sent on to be fuzzy-matched against a real item — the ≥0.7
+    # Jaccard resolver would resolve a partial quote too.
+    if not finding.supersedes or _normalize(finding.supersedes) in digest_entries:
+        return finding
+    logger.info("Memory reflection: ignoring a supersedes quote that is not a shown digest entry")
+    return finding.model_copy(update={"supersedes": ""})
 
 
 def _sanitize_findings(
@@ -237,76 +307,142 @@ def _sanitize_findings(
     *,
     has_project: bool,
     memory_digest: str | None = None,
-) -> list[dict[str, str]]:
+) -> list[_ReflectionFinding]:
     """Validate LLM-proposed findings into insertable **project-scoped** items.
 
     The autonomous reflection stage records project-scoped findings ONLY — it
     never writes ``organization`` scope. Firm-wide memory poisons every project
     in the tenant and there is no write-time authorization gate or human review,
     so org-wide writes stay a deliberate, human-driven action (audit finding S1).
-    Drops anything malformed, out-of-vocabulary, empty, already present in the
-    digest, matching a PII/secret shape (audit finding S4), or when no project
-    is in scope.
+
+    The cap applies to what SURVIVES the filters, not to what the model
+    proposed: a dropped finding must not cost a real one its slot.
     """
     if not isinstance(raw, list) or not has_project:
         return []
+    normalized_digest = _normalize(memory_digest or "")
     digest_entries = _digest_entry_contents(memory_digest)
-    items: list[dict[str, str]] = []
-    for entry in raw[:MAX_NEW_ITEMS]:
-        if not isinstance(entry, dict):
-            continue
-        kind = str(entry.get("kind", "")).strip().lower()
-        content = str(entry.get("content", "")).strip()
-        confidence = str(entry.get("confidence", "medium")).strip().lower()
+    proposed = (
+        _finding_from_entry(entry, normalized_digest=normalized_digest, digest_entries=digest_entries) for entry in raw
+    )
+    return [finding for finding in proposed if finding is not None][:MAX_NEW_ITEMS]
 
-        if kind not in VALID_KINDS or not content:
-            continue
-        if confidence not in VALID_CONFIDENCES:
-            confidence = "medium"
-        if len(content) > _MAX_CONTENT_CHARS:
-            content = content[:_MAX_CONTENT_CHARS]
-        # Never re-store something already sitting in the digest we showed the LLM.
-        if _content_in_digest(content, memory_digest):
-            continue
-        if _looks_like_pii(content):
-            logger.warning("Memory reflection: dropped a %s finding matching a PII/secret pattern", kind)
-            continue
 
-        # A supersede quote retires an existing entry, so it is only honoured
-        # when it names one COMPLETE entry of the digest the model was shown. A
-        # hallucinated, paraphrased or truncated quote is dropped (the finding is
-        # still recorded) rather than sent on to be fuzzy-matched against a real
-        # item — the ≥0.7 Jaccard resolver would resolve a partial quote too.
-        supersedes = str(entry.get("supersedes", "")).strip()
-        if supersedes and _normalize(supersedes) not in digest_entries:
-            logger.info("Memory reflection: ignoring a supersedes quote that is not a shown digest entry")
-            supersedes = ""
+#: The statuses a provider answers with when it rejects the request's SHAPE (an
+#: unsupported ``response_format``) — never auth, quota, a server fault or a
+#: transport error, all of which fail the same way without the parameter and
+#: whose retry only doubles the cost of the slowest case.
+#:
+#: Duplicated from ``shallow_researcher/envelope_call.is_parameter_rejection``
+#: rather than imported: that module sits inside the shallow-research package,
+#: whose ``__init__`` pulls the whole agent in, and this one is imported from a
+#: post-answer stage. It belongs in ``common/`` — see the round-1 report.
+_PARAMETER_REJECTION_STATUSES = frozenset({400, 422})
 
-        # Importance, elicited at write time the way Generative Agents rates
-        # poignancy: one integer from the SAME structured call, so it costs
-        # nothing extra. Stored as salience in [0,1]; the recall scorer weighs
-        # it at 2 of 5.5 total, so a malformed value defaulting to the midpoint
-        # merely leaves this finding neutral rather than wrong.
-        try:
-            importance = int(entry.get("importance", 5))
-        except (TypeError, ValueError):
-            importance = 5
-        importance = min(10, max(1, importance))
 
-        item = {
-            "kind": kind,
-            "content": content,
-            "confidence": confidence,
-            "scope": "project",
-            "salience": str(round(importance / 10.0, 2)),
-        }
-        if supersedes:
-            # Bounded by the write endpoint's limit, not the tighter content cap:
-            # truncating a verified verbatim quote would turn it back into the
-            # partial quote the check above just rejected.
-            item["supersedes"] = supersedes[:_MAX_SUPERSEDES_CHARS]
-        items.append(item)
-    return items
+def _rejects_response_format(exc: BaseException) -> bool:
+    """Whether ``exc`` is the provider refusing the request's parameters.
+
+    Duck-typed on the status code so it holds for ``openai.APIStatusError``
+    (``status_code``), ``httpx.HTTPStatusError`` and ``requests.HTTPError``
+    (``response.status_code``) alike.
+    """
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    return status in _PARAMETER_REJECTION_STATUSES
+
+
+async def _propose(llm: Any, messages: list[Any]) -> str:
+    """Ask the reflection model for findings and return its reply as text.
+
+    Requests native strict json_schema structured output; the response-healing
+    plugin (forced on OpenRouter LLMs in llm_factory) repairs any fenced/prose
+    JSON provider-side. The call is tool-free, so binding ``response_format``
+    cannot silently cost it a tool call the way it can on a tool-bound one
+    (``shallow_researcher/envelope_call.py``). A provider that rejects the
+    parameter gets one plain retry; anything else propagates.
+    """
+    response_format = strict_json_response_format(ReflectionOutput)
+    try:
+        response = await llm.bind(response_format=response_format).ainvoke(messages)
+    except Exception as exc:  # noqa: BLE001 - re-raised unless it is the provider rejecting the parameter
+        if not _rejects_response_format(exc):
+            raise
+        logger.warning("Reflection response_format rejected by the provider (%s); retrying without it", exc)
+        response = await llm.ainvoke(messages)
+    return content_to_text(getattr(response, "content", response))
+
+
+async def _write_finding(
+    finding: _ReflectionFinding,
+    *,
+    project_id: str | None,
+    organization_id: str | None,
+    conversation_id: str | None,
+) -> dict[str, str] | None:
+    """Record one finding, returning the row the frame carries, or None if it did not land."""
+    item_id = await asyncio.to_thread(
+        insert_memory_item,
+        # Always project scope — org-wide writes are excluded (audit S1).
+        scope="project",
+        project_id=project_id,
+        organization_id=organization_id,
+        kind=finding.kind,
+        content=finding.content,
+        confidence=finding.confidence,
+        conversation_id=conversation_id,
+        # Tag reflection writes so the UI can distinguish them from a
+        # deliberate in-turn `remember` ('agent') call.
+        provenance_type="distillation",
+        salience=round(finding.importance / 10.0, 2),
+        # Retires the entry this finding corrects (frontend resolves the quote;
+        # unresolvable or human-curated targets are left alone).
+        supersedes_content=finding.supersedes or None,
+    )
+    if not item_id:
+        return None
+    if finding.supersedes:
+        logger.info("Memory reflection: recorded %s item %s as a correction", finding.kind, item_id)
+    return {"id": item_id, "kind": finding.kind, "content": finding.content}
+
+
+async def _record_findings(
+    findings: list[_ReflectionFinding],
+    *,
+    project_id: str | None,
+    organization_id: str | None,
+    conversation_id: str | None,
+) -> list[dict[str, str]]:
+    """Write every finding concurrently, keeping the rows that landed, in order.
+
+    The writes are independent HTTP round trips against one endpoint, so they
+    are gathered rather than walked: five sequential 5s-timeout calls inside a
+    45s stage budget is the whole batch riding on the slowest link. Order is
+    preserved, which the frame's "in write order" contract depends on. Two
+    near-duplicate findings in one batch now race the BFF's dedup; the partial
+    UNIQUE indexes make the loser an error that is logged and dropped, the same
+    outcome the sequential second write reached by merging.
+    """
+    results = await asyncio.gather(
+        *(
+            _write_finding(
+                finding,
+                project_id=project_id,
+                organization_id=organization_id,
+                conversation_id=conversation_id,
+            )
+            for finding in findings
+        ),
+        return_exceptions=True,
+    )
+    recorded: list[dict[str, str]] = []
+    for finding, result in zip(findings, results, strict=True):
+        if isinstance(result, BaseException):
+            logger.warning("Memory reflection: failed to record a %s finding (%r)", finding.kind, result)
+        elif result is not None:
+            recorded.append(result)
+    return recorded
 
 
 async def run_memory_reflection(
@@ -322,9 +458,9 @@ async def run_memory_reflection(
     """Run one reflection pass and record any qualifying findings.
 
     Returns the memory items written — ``id``, ``kind`` and ``content`` each —
-    empty when nothing qualified or on any recoverable failure. Intended to be
-    awaited inside a guarded background task; it never raises for expected
-    failure modes.
+    empty when nothing qualified or when every write failed. A fault on the LLM
+    call itself propagates to the stage runner, which owns the timeout and the
+    failure span.
 
     The return carries what was WRITTEN and not merely how much, because the
     post-answer stage wrapping this call puts it on the wire: the chip that
@@ -332,66 +468,26 @@ async def run_memory_reflection(
     of ids would make the browser ask the database for text the writer already
     had in hand (``docs/architecture/post-answer-stages.md`` §5.1).
     """
-    from langchain_core.messages import HumanMessage
-    from langchain_core.messages import SystemMessage
-
     messages = [
         SystemMessage(content=REFLECTION_SYSTEM_PROMPT),
         HumanMessage(content=_build_user_prompt(query, answer, memory_digest)),
     ]
-    # Request native strict json_schema structured output; the response-healing
-    # plugin (forced on OpenRouter LLMs in llm_factory) repairs any fenced/prose
-    # JSON provider-side. Fall back to a plain call when the model/binding
-    # rejects response_format, since reflection is a best-effort background pass.
-    try:
-        structured_llm = llm.bind(response_format=strict_json_response_format(ReflectionOutput))
-        response = await structured_llm.ainvoke(messages)
-    except Exception as exc:  # noqa: BLE001 - never let a binding quirk drop reflection
-        logger.warning("Reflection structured-output request failed (%s); retrying without response_format", exc)
-        response = await llm.ainvoke(messages)
-    content = getattr(response, "content", response)
-    text = content if isinstance(content, str) else str(content)
-
-    parsed = extract_json(text)
-    findings = parsed.get("findings") if isinstance(parsed, dict) else None
-    items = _sanitize_findings(
-        findings,
+    parsed = extract_json(await _propose(llm, messages))
+    findings = _sanitize_findings(
+        parsed.get("findings") if isinstance(parsed, dict) else None,
         has_project=bool(project_id),
         memory_digest=memory_digest,
     )
-    if not items:
+    if not findings:
         logger.info("Memory reflection: no new durable findings for this turn")
         return []
 
-    recorded: list[dict[str, str]] = []
-    for item in items:
-        scope = item["scope"]  # always "project" — org-wide writes are excluded (S1)
-        try:
-            item_id = await asyncio.to_thread(
-                insert_memory_item,
-                scope=scope,
-                project_id=project_id if scope == "project" else None,
-                organization_id=organization_id,
-                kind=item["kind"],
-                content=item["content"],
-                confidence=item["confidence"],
-                conversation_id=conversation_id,
-                # Tag reflection writes so the UI can distinguish them from a
-                # deliberate in-turn `remember` ('agent') call.
-                provenance_type="distillation",
-                salience=float(item.get("salience", "0.5")),
-                # Retires the entry this finding corrects (frontend resolves the
-                # quote; unresolvable or human-curated targets are left alone).
-                supersedes_content=item.get("supersedes"),
-            )
-        except Exception:
-            logger.exception("Memory reflection: failed to record a %s finding", item["kind"])
-            continue
-        if item_id:
-            recorded.append({"id": item_id, "kind": item["kind"], "content": item["content"]})
-            if item.get("supersedes"):
-                logger.info("Memory reflection: recorded %s item %s as a correction", item["kind"], item_id)
-
+    recorded = await _record_findings(
+        findings,
+        project_id=project_id,
+        organization_id=organization_id,
+        conversation_id=conversation_id,
+    )
     if recorded:
         logger.info("Memory reflection recorded %d new memory item(s)", len(recorded))
     return recorded

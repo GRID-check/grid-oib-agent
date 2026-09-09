@@ -1,0 +1,12 @@
+---
+fixes:
+  - >
+    Piloti sometimes ended a conversation without noting anything it had learned
+    about the project. Its limit on how much it may note down was counted before
+    duplicates and entries holding personal data were discarded, so a few
+    discarded entries could use up the whole allowance. The limit now counts only
+    what is actually kept.
+  - >
+    Notes taken automatically after an answer now record how important they are,
+    so the ones that matter appear first in the project memory. Until now they
+    were all filed as equally important.

@@ -2,11 +2,14 @@
 
 import asyncio
 import dataclasses
+import threading
 
 import pytest
 
 from aiq_agent.agents.project_memory import reflection as R
 from aiq_agent.common import AgentGroup
+from aiq_agent.knowledge.project_memory import VALID_CONFIDENCES
+from aiq_agent.knowledge.project_memory import VALID_KINDS
 from aiq_agent.stages import TurnFacts
 from aiq_agent.stages import registry as stage_registry
 from aiq_agent.stages import schedule_post_answer_stages
@@ -37,6 +40,54 @@ class _FakeLLM:
         return _FakeResponse(self._content)
 
 
+class _ProviderError(Exception):
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class _NestedStatus:
+    """An SDK error that carries its status on ``response``, not on itself."""
+
+    def __init__(self, status_code: int) -> None:
+        self.response = type("_Response", (), {"status_code": status_code})()
+
+
+class _RejectingLLM:
+    """A model whose provider refuses the bound ``response_format`` with a 400."""
+
+    def __init__(self, content: str, *, status_code: int = 400, nested: bool = False) -> None:
+        self._content = content
+        self._status_code = status_code
+        self._nested = nested
+        self.bound_calls = 0
+        self.plain_calls = 0
+
+    def bind(self, **kwargs):
+        outer = self
+
+        class _Bound:
+            async def ainvoke(self, messages):
+                outer.bound_calls += 1
+                if outer._nested:
+                    error = _ProviderError("response_format is not supported", 0)
+                    error.status_code = None
+                    error.response = _NestedStatus(outer._status_code).response
+                    raise error
+                raise _ProviderError("response_format is not supported", outer._status_code)
+
+        return _Bound()
+
+    async def ainvoke(self, messages):
+        self.plain_calls += 1
+        return _FakeResponse(self._content)
+
+
+def _sanitize(raw, **kwargs):
+    kwargs.setdefault("has_project", True)
+    return R._sanitize_findings(raw, **kwargs)
+
+
 class TestBuildUserPrompt:
     """The reflection prompt must cap the (growing) memory digest, like it already
     caps the query and answer, so the background LLM call's token cost stays
@@ -60,6 +111,18 @@ class TestBuildUserPrompt:
         assert "(no project memory recorded yet)" in prompt
 
 
+class TestFindingVocabulary:
+    """The wire schema spells its enums out; the client owns the same vocabulary.
+    Nothing checks the two against each other at import, so a rename on either
+    side would just start dropping findings — pin them."""
+
+    def test_kinds_match_the_write_clients_vocabulary(self):
+        assert set(R._ReflectionFinding.model_fields["kind"].annotation.__args__) == VALID_KINDS
+
+    def test_confidences_match_the_write_clients_vocabulary(self):
+        assert set(R._ReflectionFinding.model_fields["confidence"].annotation.__args__) == VALID_CONFIDENCES
+
+
 class TestSanitizeFindings:
     def test_drops_invalid_kind_and_empty_content(self):
         raw = [
@@ -67,22 +130,38 @@ class TestSanitizeFindings:
             {"kind": "decision", "content": ""},
             {"kind": "constraint", "content": "Facade must be brick."},
         ]
-        items = R._sanitize_findings(raw, has_project=True)
+        items = _sanitize(raw)
         assert len(items) == 1
-        assert items[0]["kind"] == "constraint"
-        assert items[0]["confidence"] == "medium"  # defaulted
-        assert items[0]["scope"] == "project"  # forced
+        assert items[0].kind == "constraint"
+        assert items[0].confidence == "medium"  # defaulted
 
-    def test_org_scope_is_forced_to_project(self):
-        # The autonomous stage NEVER writes org-wide memory (audit finding S1);
-        # a model-proposed organization scope is coerced to project.
+    def test_folds_case_and_whitespace_in_the_enums(self):
+        """A reply that came back without native structured output writes what it
+        pleases; ``"Decision"`` is the same value, not a different one."""
+        raw = [{"kind": " Decision ", "content": "Flat roof chosen.", "confidence": "HIGH"}]
+        items = _sanitize(raw)
+        assert (items[0].kind, items[0].confidence) == ("decision", "high")
+
+    def test_an_out_of_vocabulary_confidence_defaults_to_medium(self):
+        raw = [{"kind": "decision", "content": "Flat roof chosen.", "confidence": "very sure"}]
+        assert _sanitize(raw)[0].confidence == "medium"
+
+    def test_a_model_proposed_scope_is_ignored(self):
+        # The autonomous stage NEVER writes org-wide memory (audit finding S1),
+        # so it carries no scope at all — an extra key the model invents is not
+        # a reason to drop an otherwise good finding either.
         raw = [{"kind": "preference", "content": "Client prefers metric drawings.", "scope": "organization"}]
-        items = R._sanitize_findings(raw, has_project=True)
-        assert items and items[0]["scope"] == "project"
+        items = _sanitize(raw)
+        assert len(items) == 1
+        assert not hasattr(items[0], "scope")
 
     def test_dropped_when_no_project_in_scope(self):
         raw = [{"kind": "decision", "content": "Anything."}]
-        assert R._sanitize_findings(raw, has_project=False) == []
+        assert _sanitize(raw, has_project=False) == []
+
+    def test_content_is_truncated_to_the_cap(self):
+        raw = [{"kind": "decision", "content": "x" * (R._MAX_CONTENT_CHARS + 100)}]
+        assert len(_sanitize(raw)[0].content) == R._MAX_CONTENT_CHARS
 
     def test_drops_content_already_in_digest(self):
         digest = 'PROJECT_MEMORY v1\n- [decision | high | agent] "Client chose a flat roof"'
@@ -90,8 +169,8 @@ class TestSanitizeFindings:
             {"kind": "decision", "content": "Client chose a flat roof."},  # already present
             {"kind": "constraint", "content": "Budget capped at 2M."},  # new
         ]
-        items = R._sanitize_findings(raw, has_project=True, memory_digest=digest)
-        assert [i["content"] for i in items] == ["Budget capped at 2M."]
+        items = _sanitize(raw, memory_digest=digest)
+        assert [i.content for i in items] == ["Budget capped at 2M."]
 
     def test_keeps_a_correction_that_contradicts_a_digest_entry(self):
         """A correction is NOT a restatement. The digest guard drops findings already
@@ -110,9 +189,9 @@ class TestSanitizeFindings:
             }
         ]
 
-        items = R._sanitize_findings(raw, has_project=True, memory_digest=digest)
+        items = _sanitize(raw, memory_digest=digest)
 
-        assert [i["content"] for i in items] == ["Für Bergsteiggasse ist OIB-RL 2.1 anwendbar (betriebsanlage=true)."]
+        assert [i.content for i in items] == ["Für Bergsteiggasse ist OIB-RL 2.1 anwendbar (betriebsanlage=true)."]
 
     def test_passes_through_a_supersedes_quote_present_in_the_digest(self):
         """The correction has to RETIRE what it corrects, or the stale entry stays
@@ -130,9 +209,9 @@ class TestSanitizeFindings:
             }
         ]
 
-        items = R._sanitize_findings(raw, has_project=True, memory_digest=digest)
+        items = _sanitize(raw, memory_digest=digest)
 
-        assert items[0]["supersedes"] == "OIB-RL 2.1 ist für dieses Projekt nicht anwendbar"
+        assert items[0].supersedes == "OIB-RL 2.1 ist für dieses Projekt nicht anwendbar"
 
     def test_drops_a_supersedes_quote_that_is_not_in_the_digest(self):
         """A supersede quote retires a real row, so a hallucinated or paraphrased
@@ -148,10 +227,10 @@ class TestSanitizeFindings:
             }
         ]
 
-        items = R._sanitize_findings(raw, has_project=True, memory_digest=digest)
+        items = _sanitize(raw, memory_digest=digest)
 
-        assert [i["content"] for i in items] == ["Budget capped at 2M."]
-        assert "supersedes" not in items[0]
+        assert [i.content for i in items] == ["Budget capped at 2M."]
+        assert items[0].supersedes == ""
 
     def test_drops_a_truncated_supersedes_quote(self):
         """A quote must name one COMPLETE digest entry. A partial quote passes a
@@ -167,10 +246,10 @@ class TestSanitizeFindings:
             }
         ]
 
-        items = R._sanitize_findings(raw, has_project=True, memory_digest=digest)
+        items = _sanitize(raw, memory_digest=digest)
 
-        assert [i["content"] for i in items] == ["Client switched to a pitched roof."]
-        assert "supersedes" not in items[0]
+        assert [i.content for i in items] == ["Client switched to a pitched roof."]
+        assert items[0].supersedes == ""
 
     def test_accepts_a_quote_that_only_differs_in_punctuation_and_case(self):
         """Verbatim is checked on the normalized entry, so re-wrapping or a lost
@@ -185,24 +264,76 @@ class TestSanitizeFindings:
             }
         ]
 
-        items = R._sanitize_findings(raw, has_project=True, memory_digest=digest)
+        items = _sanitize(raw, memory_digest=digest)
 
-        assert items[0]["supersedes"] == "client chose a FLAT roof."
+        assert items[0].supersedes == "client chose a FLAT roof."
 
-    def test_no_supersedes_key_when_the_finding_replaces_nothing(self):
+    def test_no_supersedes_when_the_finding_replaces_nothing(self):
         raw = [{"kind": "constraint", "content": "Budget capped at 2M.", "supersedes": ""}]
 
-        items = R._sanitize_findings(raw, has_project=True, memory_digest="(none)")
+        items = _sanitize(raw, memory_digest="(none)")
 
-        assert "supersedes" not in items[0]
+        assert items[0].supersedes == ""
 
     def test_caps_at_max_items(self):
         raw = [{"kind": "derived_fact", "content": f"Fact {i}."} for i in range(20)]
-        items = R._sanitize_findings(raw, has_project=True)
-        assert len(items) == R.MAX_NEW_ITEMS
+        assert len(_sanitize(raw)) == R.MAX_NEW_ITEMS
+
+    def test_the_cap_counts_what_survived_the_filters(self):
+        """A dropped finding must not cost a real one its slot: the cap used to be
+        applied to the raw list, so five PII entries in front of a good one meant
+        the good one was never even looked at."""
+        raw = [{"kind": "derived_fact", "content": f"Reach owner{i}@example.com."} for i in range(R.MAX_NEW_ITEMS)]
+        raw.append({"kind": "constraint", "content": "Budget capped at 2M."})
+
+        items = _sanitize(raw)
+
+        assert [i.content for i in items] == ["Budget capped at 2M."]
 
     def test_non_list_returns_empty(self):
-        assert R._sanitize_findings({"findings": []}, has_project=True) == []
+        assert _sanitize({"findings": []}) == []
+
+    def test_entries_that_are_not_objects_are_dropped(self):
+        assert _sanitize(["Client chose a flat roof.", None, 7]) == []
+
+
+class TestImportance:
+    """Importance is elicited from the same structured call and stored as salience."""
+
+    def test_is_carried_through_as_an_integer(self):
+        raw = [{"kind": "decision", "content": "Flat roof chosen.", "importance": 9}]
+        assert _sanitize(raw)[0].importance == 9
+
+    def test_defaults_to_the_neutral_midpoint_when_absent(self):
+        # The fallback path never shows the model the field, so a missing rating
+        # must leave the finding neutral rather than drop it.
+        raw = [{"kind": "decision", "content": "Flat roof chosen."}]
+        assert _sanitize(raw)[0].importance == R._NEUTRAL_IMPORTANCE
+
+    @pytest.mark.parametrize("value", [0, -3, 99, "not a number", None])
+    def test_an_unusable_rating_never_drops_the_finding(self, value):
+        raw = [{"kind": "decision", "content": "Flat roof chosen.", "importance": value}]
+        items = _sanitize(raw)
+        assert len(items) == 1
+        assert 1 <= items[0].importance <= 10
+
+    @pytest.mark.asyncio
+    async def test_reaches_the_write_as_a_salience_in_zero_to_one(self, monkeypatch):
+        recorded = []
+        monkeypatch.setattr(R, "insert_memory_item", lambda **k: recorded.append(k) or "id-1")
+        llm = _FakeLLM('{"findings": [{"kind": "decision", "content": "Flat roof.", "importance": 8}]}')
+
+        await R.run_memory_reflection(
+            llm=llm,
+            query="q",
+            answer="a",
+            project_id="proj-1",
+            organization_id=None,
+            conversation_id="c",
+            memory_digest=None,
+        )
+
+        assert recorded[0]["salience"] == 0.8
 
 
 class TestReflectionSystemPrompt:
@@ -225,6 +356,15 @@ class TestReflectionSystemPrompt:
         assert "VERBATIM into `supersedes`" in prompt
         # Bounded on purpose: `supersedes` archives a row, so "related" is not enough.
         assert "must leave `supersedes` as an empty string" in prompt
+
+    def test_every_required_field_is_named_in_the_example(self):
+        """The example is the whole contract on the fallback path, where nothing
+        enforces the schema. ``importance`` used to be missing from it, so every
+        finding on that path landed at the neutral midpoint."""
+        required = R.ReflectionOutput.model_json_schema()["$defs"]["_ReflectionFinding"]["required"]
+        example = R.REFLECTION_SYSTEM_PROMPT[R.REFLECTION_SYSTEM_PROMPT.index('{"findings"') :]
+        for field in required:
+            assert f'"{field}"' in example
 
     def test_supersedes_is_part_of_the_structured_output_contract(self):
         """Strict json_schema output requires every field to be declared, or the
@@ -249,31 +389,30 @@ class TestSanitizeFindingsPii:
     )
     def test_drops_pii_shaped_content(self, content):
         raw = [{"kind": "derived_fact", "content": content}]
-        assert R._sanitize_findings(raw, has_project=True) == []
+        assert _sanitize(raw) == []
 
     def test_keeps_findings_without_pii(self):
         raw = [{"kind": "constraint", "content": "Facade must use brick cladding per client decision."}]
-        items = R._sanitize_findings(raw, has_project=True)
-        assert len(items) == 1
+        assert len(_sanitize(raw)) == 1
 
     def test_mixed_batch_drops_only_pii_entry(self):
         raw = [
             {"kind": "constraint", "content": "Budget capped at 2M."},
             {"kind": "derived_fact", "content": "Reach the owner at owner@example.com for approvals."},
         ]
-        items = R._sanitize_findings(raw, has_project=True)
-        assert [i["content"] for i in items] == ["Budget capped at 2M."]
+        items = _sanitize(raw)
+        assert [i.content for i in items] == ["Budget capped at 2M."]
 
 
 class TestContentInDigest:
     def test_matches_ignoring_case_and_punctuation(self):
-        assert R._content_in_digest("Client chose a flat roof.", '... "client chose a flat roof" ...')
+        assert R._content_in_digest("Client chose a flat roof.", R._normalize('... "client chose a flat roof" ...'))
 
     def test_absent_returns_false(self):
-        assert not R._content_in_digest("Budget capped at 2M.", '"Client chose a flat roof"')
+        assert not R._content_in_digest("Budget capped at 2M.", R._normalize('"Client chose a flat roof"'))
 
     def test_no_digest_returns_false(self):
-        assert not R._content_in_digest("anything", None)
+        assert not R._content_in_digest("anything", "")
 
 
 class TestRunMemoryReflection:
@@ -386,6 +525,67 @@ class TestRunMemoryReflection:
         assert rf["json_schema"]["strict"] is True
 
     @pytest.mark.asyncio
+    async def test_a_provider_that_refuses_response_format_still_records(self, monkeypatch):
+        """The parameter is a preference, not a requirement: a 400 naming it drops
+        to a plain call, which the fenced-JSON extractor still reads."""
+        monkeypatch.setattr(R, "insert_memory_item", lambda **k: "id-1")
+        llm = _RejectingLLM('```json\n{"findings": [{"kind": "decision", "content": "Flat roof."}]}\n```')
+
+        ids = await R.run_memory_reflection(
+            llm=llm,
+            query="q",
+            answer="a",
+            project_id="proj-1",
+            organization_id=None,
+            conversation_id="c",
+            memory_digest=None,
+        )
+
+        assert (llm.bound_calls, llm.plain_calls) == (1, 1)
+        assert [item["id"] for item in ids] == ["id-1"]
+
+    @pytest.mark.asyncio
+    async def test_a_rejection_is_recognised_on_the_sdks_response_object(self, monkeypatch):
+        """``openai.APIStatusError`` carries ``status_code`` itself; an httpx or
+        requests error carries it on ``response``. Both are the same refusal."""
+        monkeypatch.setattr(R, "insert_memory_item", lambda **k: "id-1")
+        llm = _RejectingLLM('{"findings": [{"kind": "decision", "content": "Flat roof."}]}', nested=True)
+
+        ids = await R.run_memory_reflection(
+            llm=llm,
+            query="q",
+            answer="a",
+            project_id="proj-1",
+            organization_id=None,
+            conversation_id="c",
+            memory_digest=None,
+        )
+
+        assert llm.plain_calls == 1
+        assert [item["id"] for item in ids] == ["id-1"]
+
+    @pytest.mark.asyncio
+    async def test_a_provider_fault_is_not_retried(self, monkeypatch):
+        """Retrying a timeout or a 500 without ``response_format`` doubles the cost
+        of the slowest case and buys nothing — only a parameter rejection falls
+        through. The stage runner owns the failure."""
+        monkeypatch.setattr(R, "insert_memory_item", lambda **k: pytest.fail("should not insert"))
+        llm = _RejectingLLM("{}", status_code=503)
+
+        with pytest.raises(_ProviderError):
+            await R.run_memory_reflection(
+                llm=llm,
+                query="q",
+                answer="a",
+                project_id="proj-1",
+                organization_id=None,
+                conversation_id="c",
+                memory_digest=None,
+            )
+
+        assert llm.plain_calls == 0
+
+    @pytest.mark.asyncio
     async def test_empty_findings_records_nothing(self, monkeypatch):
         monkeypatch.setattr(R, "insert_memory_item", lambda **k: pytest.fail("should not insert on empty findings"))
         llm = _FakeLLM('{"findings": []}')
@@ -432,6 +632,84 @@ class TestRunMemoryReflection:
             memory_digest=None,
         )
         assert ids == []  # error swallowed, nothing recorded
+
+    @pytest.mark.asyncio
+    async def test_one_failing_write_does_not_cost_the_others(self, monkeypatch):
+        def flaky(**kwargs):
+            if kwargs["content"] == "Second.":
+                raise RuntimeError("memory service down")
+            return f"id-{kwargs['content'][0]}"
+
+        monkeypatch.setattr(R, "insert_memory_item", flaky)
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "decision", "content": "First."}, '
+            '{"kind": "decision", "content": "Second."}, '
+            '{"kind": "decision", "content": "Third."}]}'
+        )
+
+        ids = await R.run_memory_reflection(
+            llm=llm,
+            query="q",
+            answer="a",
+            project_id="proj-1",
+            organization_id=None,
+            conversation_id="c",
+            memory_digest=None,
+        )
+
+        assert [item["content"] for item in ids] == ["First.", "Third."]
+
+    @pytest.mark.asyncio
+    async def test_writes_run_concurrently_and_report_in_order(self, monkeypatch):
+        """Five sequential 5s-timeout round trips inside a 45s stage budget was the
+        whole batch riding on the slowest link. The frame's payload contract is
+        still "in write order", so ordering survives the gather."""
+        # Every write must be in flight before any of them may finish; a
+        # sequential loop deadlocks the barrier and fails with BrokenBarrierError.
+        in_flight = threading.Barrier(3, timeout=10)
+
+        def blocking(**kwargs):
+            in_flight.wait()
+            return f"id-{kwargs['content'][0]}"
+
+        monkeypatch.setattr(R, "insert_memory_item", blocking)
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "decision", "content": "Alpha."}, '
+            '{"kind": "decision", "content": "Beta."}, '
+            '{"kind": "decision", "content": "Gamma."}]}'
+        )
+
+        ids = await asyncio.wait_for(
+            R.run_memory_reflection(
+                llm=llm,
+                query="q",
+                answer="a",
+                project_id="proj-1",
+                organization_id=None,
+                conversation_id="c",
+                memory_digest=None,
+            ),
+            timeout=10,
+        )
+
+        assert [item["content"] for item in ids] == ["Alpha.", "Beta.", "Gamma."]
+
+    @pytest.mark.asyncio
+    async def test_an_unknown_project_records_nothing(self, monkeypatch):
+        # The client answers None when the target does not exist; that is not an
+        # error and must not reach the frame as a row without an id.
+        monkeypatch.setattr(R, "insert_memory_item", lambda **k: None)
+        llm = _FakeLLM('{"findings": [{"kind": "constraint", "content": "Budget capped at 2M."}]}')
+        ids = await R.run_memory_reflection(
+            llm=llm,
+            query="q",
+            answer="a",
+            project_id="proj-1",
+            organization_id=None,
+            conversation_id="c",
+            memory_digest=None,
+        )
+        assert ids == []
 
 
 class TestMemoryReflectionAsAStage:
