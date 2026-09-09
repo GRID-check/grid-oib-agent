@@ -615,6 +615,134 @@ class TestOrganisationFindingsArriveAsProposals:
         assert recorded[0]["project_id"] == "proj-1"
 
 
+class TestACorrectionIsCarriedToTheReader:
+    """ADR-0055 C5. A supersession was the quietest event in the system: the
+    replaced note vanished from the panel and the transcript said nothing. The
+    pass now carries what it retired on the row that retired it, so the turn
+    that made the correction is the turn that states it."""
+
+    @staticmethod
+    def _insert_that_retires(retired_id, retired_content):
+        """A write path that reports a retirement, the way the BFF route does."""
+
+        def insert(**kwargs):
+            on_superseded = kwargs.get("on_superseded")
+            if on_superseded is not None:
+                on_superseded(retired_id, retired_content)
+            return "id-new"
+
+        return insert
+
+    @pytest.mark.asyncio
+    async def test_a_recorded_correction_names_the_note_it_retired(self, monkeypatch):
+        monkeypatch.setattr(
+            R,
+            "insert_memory_item",
+            self._insert_that_retires("id-old", "OIB-RL 2.1 ist nicht anwendbar"),
+        )
+        digest = '- [derived_fact | medium | unverified] "OIB-RL 2.1 ist nicht anwendbar"'
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "derived_fact", "content": "OIB-RL 2.1 ist anwendbar, '
+            'es handelt sich um eine Betriebsanlage.", "confidence": "high", '
+            '"supersedes": "OIB-RL 2.1 ist nicht anwendbar"}]}'
+        )
+
+        outcome = await R.run_memory_reflection(
+            llm=llm,
+            query="Doch, es ist eine Betriebsanlage.",
+            answer="Dann ist OIB-RL 2.1 sehr wohl anwendbar.",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest=digest,
+        )
+
+        assert outcome.recorded[0]["supersedes"] == {
+            "id": "id-old",
+            "content": "OIB-RL 2.1 ist nicht anwendbar",
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_retirement_is_the_writes_word_and_not_the_models_quote(self, monkeypatch):
+        """The model quotes what it MEANT to replace; the write path reports what
+        it DID replace. The two differ — the quote is resolved fuzzily, and a
+        polarity supersession retires a note nobody quoted — and only the second
+        may be stated as a fact."""
+        monkeypatch.setattr(R, "insert_memory_item", lambda **k: "id-new")
+        digest = '- [derived_fact | medium | unverified] "OIB-RL 2.1 ist nicht anwendbar"'
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "derived_fact", "content": "OIB-RL 2.1 ist anwendbar.", '
+            '"confidence": "high", "supersedes": "OIB-RL 2.1 ist nicht anwendbar"}]}'
+        )
+
+        outcome = await R.run_memory_reflection(
+            llm=llm,
+            query="q",
+            answer="a",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest=digest,
+        )
+
+        # The quote WAS sent (the write is what resolves it), and nothing was
+        # retired, so the row states no correction.
+        assert "supersedes" not in outcome.recorded[0]
+
+    @pytest.mark.asyncio
+    async def test_one_correction_does_not_bleed_onto_the_next_finding(self, monkeypatch):
+        """Two findings, one correction. The sink is per write, so the second
+        row must not inherit the first row's retired note."""
+        calls = {"n": 0}
+
+        def insert(**kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                kwargs["on_superseded"]("id-old", "Das Dach ist ein Satteldach.")
+            return f"id-{calls['n']}"
+
+        monkeypatch.setattr(R, "insert_memory_item", insert)
+        llm = _FakeLLM(
+            '{"findings": ['
+            '{"kind": "decision", "content": "Das Dach wird ein Flachdach.", "confidence": "high", "supersedes": ""},'
+            '{"kind": "constraint", "content": "Die Attika bleibt unter 1,10 m.", '
+            '"confidence": "high", "supersedes": ""}]}'
+        )
+
+        outcome = await R.run_memory_reflection(
+            llm=llm,
+            query="q",
+            answer="a",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest="(none)",
+        )
+
+        assert outcome.recorded[0]["supersedes"]["id"] == "id-old"
+        assert "supersedes" not in outcome.recorded[1]
+
+    @pytest.mark.asyncio
+    async def test_the_retired_words_are_capped_like_every_other_string_here(self, monkeypatch):
+        monkeypatch.setattr(R, "insert_memory_item", self._insert_that_retires("id-old", "ä" * 900))
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "decision", "content": "Flachdach gewählt.", '
+            '"confidence": "high", "supersedes": ""}]}'
+        )
+
+        outcome = await R.run_memory_reflection(
+            llm=llm,
+            query="q",
+            answer="a",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest="(none)",
+        )
+
+        assert len(outcome.recorded[0]["supersedes"]["content"]) == R._MAX_CONTENT_CHARS
+
+
 class TestMemoryReflectionAsAStage:
     """The same behaviours the bespoke scheduler used to guarantee, now going
     through the post-answer stage runner. This is the migration's own test: what

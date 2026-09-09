@@ -18,6 +18,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from contextvars import ContextVar
 from contextvars import Token
 from dataclasses import dataclass
@@ -480,6 +481,7 @@ def insert_memory_item(
     salience: float | None = None,
     user_id: str | None = None,
     organization_membership_id: str | None = None,
+    on_superseded: Callable[[str, str], None] | None = None,
 ) -> str | None:
     """Record one memory item via the internal BFF endpoint.
 
@@ -505,6 +507,20 @@ def insert_memory_item(
     ``superseded`` and links the new row via ``supersedes_id``. An unresolvable
     quote is ignored, and human-curated entries are never retired this way, so
     passing it is always safe — the write still happens either way.
+
+    ``on_superseded`` is called with ``(id, content)`` of the note THIS write
+    retired, when it retired one. It exists because a supersession is a stated
+    event in the transcript (ADR-0055) and the reader is shown the retired
+    note's own words: the route reports both, having just loaded that row, and
+    a caller that wanted them later would have to ask the database for text
+    somebody already held. It is a callback and not a second return value
+    because the retirement is an OCCASIONAL fact about the write, and every
+    caller that does not render it should not have to unpack one.
+
+    Not the same channel as :func:`record_turn_memory_supersession`, which is
+    the live status line and is a no-op outside a turn — the post-answer
+    reflection stage runs after the turn's context is gone, which is exactly
+    when this callback is the only way the fact reaches a reader.
 
     Returns the new item id, or None when the target (project/org) is unknown.
     Raises RuntimeError on configuration problems and urllib errors on
@@ -580,6 +596,14 @@ def insert_memory_item(
                 superseded_id = body.get("supersededId")
                 if isinstance(superseded_id, str) and superseded_id.strip():
                     record_turn_memory_supersession(superseded_id.strip())
+                    # The retired note's own words, reported beside its id. Both
+                    # or neither: a present id with no content is a frontend
+                    # that predates the field, and half a supersession renders
+                    # as a correction the reader cannot check — so the caller is
+                    # told nothing rather than something unverifiable.
+                    superseded_content = body.get("supersededContent")
+                    if on_superseded is not None and isinstance(superseded_content, str) and superseded_content.strip():
+                        on_superseded(superseded_id.strip(), superseded_content.strip())
             return item_id
     except urllib.error.HTTPError as exc:
         if exc.code == 404:

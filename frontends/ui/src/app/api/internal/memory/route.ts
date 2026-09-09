@@ -153,11 +153,23 @@ export const POST = internalApiRoute(
         // Reported by the service, never derived from the returned row: a duplicate
         // or paraphrase refresh returns an EXISTING item whose `supersedesId` may
         // record a retirement performed by an earlier request.
-        const outcome: { supersededId: string | null } = { supersededId: null }
+        //
+        // The retired entry's own words travel back beside its id, because the
+        // caller renders them (ADR-0055: a supersession is a STATED event in the
+        // transcript, and "Piloti replaced a note" without the two sentences is a
+        // report nobody can check). This is the one moment they cost nothing —
+        // the service has the row loaded — and the one moment they are certainly
+        // right: the caller's `supersedesContent` is a QUOTE that was resolved
+        // fuzzily, and in the polarity case there is no quote at all.
+        const outcome: { supersededId: string | null; supersededContent: string | null } = {
+          supersededId: null,
+          supersededContent: null,
+        }
         const writeOptions = {
           supersedesContent,
-          onSuperseded: (id: string) => {
-            outcome.supersededId = id
+          onSuperseded: (superseded: { id: string; content: string }) => {
+            outcome.supersededId = superseded.id
+            outcome.supersededContent = superseded.content
           },
         }
 
@@ -196,7 +208,10 @@ export const POST = internalApiRoute(
 
         // `supersededId` is null when the quote resolved to nothing, or to an entry
         // the agent may not retire — the caller can then be honest about what it did.
-        return { item, supersededId: outcome.supersededId }
+        // `supersededContent` is null in exactly the same cases and never in any
+        // other: the two are set together or not at all, so a caller may treat a
+        // present id with an absent content as a version skew rather than a fact.
+        return { item, supersededId: outcome.supersededId, supersededContent: outcome.supersededContent }
       }
     )
   },

@@ -63,34 +63,19 @@ export interface TurnMemoryItem {
   /**
    * The note this one RETIRED, when the write was a correction (ADR-0055, C5).
    *
-   * Read defensively off the stage payload rather than required of it: the
-   * stored stage is the BFF's shape, and a build whose backend does not yet
-   * carry the field simply renders no supersession notice — which is the
-   * behaviour that existed before, not a new failure.
+   * Optional because most writes replace nothing, not because it is doubtful:
+   * `StoredMemoryItem` in `lib/conversations/message-stages.ts` declares and
+   * sanitises it, so what arrives here is bounded, and an item without it
+   * simply added something new. A stored stage written by an older build
+   * carries no `supersedes` and renders no notice — the behaviour that existed
+   * before, not a new failure.
    *
-   * **The producer half is `StoredMemoryItem`** in
-   * `lib/conversations/message-stages.ts`, whose key set is deliberately CLOSED
-   * — an unknown key is dropped on write. So until `supersedes` is declared and
-   * sanitised there, this field never arrives and `MemorySupersededNotices`
-   * renders nothing. The memory panel shows the same correction regardless; it
-   * is only the transcript half that waits on that declaration.
+   * The retired note's id and words both, because the notice states both
+   * halves and offers the undo against that id. The memory panel shows the
+   * same correction; this is the half that reaches a reader who never leaves
+   * the transcript, which is the inversion ADR-0055 exists to fix.
    */
   supersedes?: { id: string; content: string }
-}
-
-/**
- * A stored reflection item, plus the supersession the write path records.
- *
- * `StoredMemoryItem` is owned by the persistence layer and carries the three
- * fields the chip has always needed. The supersession rides alongside it, so
- * this widening is where the optional field is READ — never a second copy of
- * the stored shape.
- */
-type ReflectionItem = {
-  id: string
-  kind: string
-  content: string
-  supersedes?: { id: string; content: string } | null
 }
 
 /**
@@ -218,7 +203,7 @@ export function turnMemoryItems({ stages, cards, cardInteractions }: TurnMemoryI
     })
   }
 
-  for (const item of (stages?.memoryReflection?.items ?? []) as ReflectionItem[]) {
+  for (const item of stages?.memoryReflection?.items ?? []) {
     items.push({
       id: item.id,
       kind: item.kind,

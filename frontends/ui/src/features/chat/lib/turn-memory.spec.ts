@@ -193,3 +193,45 @@ describe('proposals from both producers', () => {
     expect(turnMemoryItems({ stages: staged('Etwas Neues.') })).toEqual([])
   })
 })
+
+describe('a correction, carried to the turn that made it', () => {
+  const RETIRED = { id: 'row-0', content: 'Das oberste Fluchtniveau beträgt 6,50 m.' }
+  const corrected = {
+    memoryReflection: {
+      items: [
+        {
+          id: 'row-1',
+          kind: 'derived_fact',
+          content: 'Das oberste Fluchtniveau beträgt 9,80 m.',
+          supersedes: RETIRED,
+        },
+      ],
+    },
+  }
+
+  it('hands the notice both notes, so the reader can check the correction', () => {
+    // `MemorySupersededNotices` filters on exactly this field and renders both
+    // sentences from it. If it stops arriving the notice silently disappears
+    // and the correction is once again visible only in the memory panel.
+    expect(turnMemoryItems({ stages: corrected })).toEqual([
+      {
+        id: 'row-1',
+        kind: 'derived_fact',
+        content: 'Das oberste Fluchtniveau beträgt 9,80 m.',
+        provenance: 'distillation',
+        supersedes: RETIRED,
+      },
+    ])
+  })
+
+  it('leaves the key off a finding that replaced nothing', () => {
+    expect(turnMemoryItems({ stages: reflected })[0]).not.toHaveProperty('supersedes')
+  })
+
+  it('never lists the retired note as something this turn recorded', () => {
+    // A retired note is not a live one. It is nested under its replacement and
+    // must never become an item of its own.
+    expect(turnMemoryItems({ stages: corrected }).map((item) => item.id)).toEqual(['row-1'])
+  })
+})
+

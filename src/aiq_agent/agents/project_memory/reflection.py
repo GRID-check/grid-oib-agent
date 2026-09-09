@@ -43,6 +43,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
@@ -140,9 +141,19 @@ class ReflectionOutcome:
     for any of them. They are a separate field rather than rows with a flag
     precisely so that nothing downstream can render a proposal as a write: the
     truthfulness rule ADR-0055 sets for the memory marker is the same rule here.
+
+    A recorded row that RETIRED an earlier note also carries ``supersedes``:
+    ``{"id", "content"}`` of the note it replaced, and only when a retirement
+    actually happened. It rides here because the correction is a fact about
+    THIS turn and ADR-0055 makes it a stated event in the transcript — the
+    reader is shown both halves ("Before: …" / "Now: …"), and a reader who has
+    to walk to the memory panel to see that Piloti corrected itself is the
+    inversion the decision exists to fix. It is a nested object and not two
+    flat keys because it is one fact about one other row, and absent — never
+    ``{}`` — when the write replaced nothing.
     """
 
-    recorded: list[dict[str, str]] = field(default_factory=list)
+    recorded: list[dict[str, Any]] = field(default_factory=list)
     proposed: list[dict[str, Any]] = field(default_factory=list)
 
     def __bool__(self) -> bool:
@@ -161,6 +172,27 @@ _MAX_QUERY_CHARS = 2000
 # Head-sliced to match the query/answer slices above (the digest's ordering is
 # owned by the BFF, so we don't assume newest-first/last).
 _MAX_DIGEST_CHARS = 6000
+
+
+def _retirement_sink() -> tuple[dict[str, str], Callable[[str, str], None]]:
+    """A place for one write to report the note it retired, and the callback.
+
+    A factory rather than a closure written inside the write loop: the sink
+    must be per-item (a second write must not inherit the first one's
+    correction), and a function defined in a loop that closes over the loop
+    variable is the shape that produces exactly that bug.
+
+    The retired content is capped like every other string in this payload —
+    it rides a jsonb column on a hot table and is rendered in one line.
+    """
+    retired: dict[str, str] = {}
+
+    def note(superseded_id: str, superseded_content: str) -> None:
+        retired["id"] = superseded_id
+        retired["content"] = superseded_content[:_MAX_CONTENT_CHARS]
+
+    return retired, note
+
 
 REFLECTION_SYSTEM_PROMPT = (
     "You are Grid's memory-reflection step. You run in the background AFTER the user "
@@ -487,9 +519,14 @@ async def run_memory_reflection(
         logger.info("Memory reflection: no new durable findings for this turn")
         return ReflectionOutcome()
 
-    recorded: list[dict[str, str]] = []
+    recorded: list[dict[str, Any]] = []
     proposed: list[dict[str, Any]] = []
     for item in items:
+        # Per item, and filled by the write itself: what the model QUOTED is a
+        # guess at the target (the BFF resolves it fuzzily, and the polarity
+        # path retires a note nobody quoted), so the only honest answer to
+        # "which note did this replace" is the one the write path reports.
+        retired, note_retirement = _retirement_sink()
         # `project` is written; `organization` is PROPOSED (ADR-0055, contract
         # C6). Both take the same write path, because the BFF is what tells the
         # two apart: it authorizes an org write as the acting user's
@@ -519,6 +556,8 @@ async def run_memory_reflection(
                 # by its project row and needs no acting user.
                 user_id=user_id,
                 organization_membership_id=organization_membership_id,
+                # Told, not derived: see `retired` above.
+                on_superseded=note_retirement,
             )
         except OrgMemoryDisabledError:
             # The expected outcome of an organisation proposal, not a failure:
@@ -540,9 +579,21 @@ async def run_memory_reflection(
             logger.exception("Memory reflection: failed to record a %s finding", item["kind"])
             continue
         if item_id:
-            recorded.append({"id": item_id, "kind": item["kind"], "content": item["content"]})
-            if item.get("supersedes"):
-                logger.info("Memory reflection: recorded %s item %s as a correction", item["kind"], item_id)
+            row: dict[str, Any] = {"id": item_id, "kind": item["kind"], "content": item["content"]}
+            if retired:
+                # Only a retirement that HAPPENED. The old log fired on the
+                # model's quote, which is not the same event: an unresolvable
+                # or human-curated target leaves the earlier note live, and
+                # saying "corrected" there would state a correction the store
+                # never made.
+                row["supersedes"] = retired
+                logger.info(
+                    "Memory reflection: recorded %s item %s as a correction retiring %s",
+                    item["kind"],
+                    item_id,
+                    retired["id"],
+                )
+            recorded.append(row)
 
     if recorded:
         logger.info("Memory reflection recorded %d new memory item(s)", len(recorded))

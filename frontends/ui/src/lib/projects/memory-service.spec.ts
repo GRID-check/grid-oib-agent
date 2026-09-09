@@ -858,7 +858,12 @@ describe('createProjectMemoryItem paraphrase de-duplication', () => {
 
     expect(values).not.toHaveBeenCalled()
     expect(set).toHaveBeenCalledWith(expect.objectContaining({ status: 'superseded' }))
-    expect(onSuperseded).toHaveBeenCalledWith('stale-3')
+    // The retired note's own words travel with its id: the transcript notice
+    // renders them, and this is the only moment the row is in hand.
+    expect(onSuperseded).toHaveBeenCalledWith({
+      id: 'stale-3',
+      content: 'The stairwell must be pressurised (Druckbelueftung)',
+    })
   })
 
   /**
@@ -914,7 +919,10 @@ describe('createProjectMemoryItem paraphrase de-duplication', () => {
       { supersedesContent: 'The stairwell must be pressurised', onSuperseded }
     )
 
-    expect(onSuperseded).toHaveBeenCalledWith('stale-4')
+    expect(onSuperseded).toHaveBeenCalledWith({
+      id: 'stale-4',
+      content: 'The stairwell must be pressurised',
+    })
 
     // A concurrent writer got there first: the conditional update matches no
     // row, so this write must not claim the retirement.

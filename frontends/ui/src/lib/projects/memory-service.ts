@@ -484,12 +484,19 @@ export interface CreateMemoryOptions {
    */
   supersedesContent?: string | null
   /**
-   * Called with the id of the entry THIS call retired. Callers that report the
+   * Called with the entry THIS call retired. Callers that report the
    * retirement (the internal endpoint's `supersededId`) must not read it off
    * the returned row: a duplicate/paraphrase refresh returns an EXISTING row,
    * whose `supersedesId` may record a retirement from an earlier correction.
+   *
+   * The retired entry's own `content` rides along with its id, because the
+   * transcript half of ADR-0055 renders the note's words ("Bisher: …") and this
+   * is the one moment they are already in hand. Deriving them anywhere later
+   * costs a read of a row that was just loaded here — and in the polarity case
+   * the caller never quoted the retired entry at all, so there is nothing
+   * downstream to derive them FROM.
    */
-  onSuperseded?: (supersededId: string) => void
+  onSuperseded?: (superseded: { id: string; content: string }) => void
 }
 
 /** Refresh a duplicate in place: recency + the best-known confidence. */
@@ -555,7 +562,7 @@ export async function createProjectMemoryItem(
         .set({ status: 'superseded', updatedAt: new Date() })
         .where(and(eq(projectMemory.id, named.id), eq(projectMemory.status, 'active')))
         .returning({ id: projectMemory.id })
-      if (retired.length > 0) options.onSuperseded?.(named.id)
+      if (retired.length > 0) options.onSuperseded?.({ id: named.id, content: named.content })
     }
     return refreshed
   }
@@ -616,7 +623,8 @@ export async function createProjectMemoryItem(
         .returning({ id: projectMemory.id })
       // Reported only for a retirement this call performed (a concurrent writer
       // may have retired the target first, matching zero rows).
-      if (retired.length > 0) options.onSuperseded?.(supersedeTarget.id)
+      if (retired.length > 0)
+        options.onSuperseded?.({ id: supersedeTarget.id, content: supersedeTarget.content })
       void markProjectRegisterStale(values.projectId, values.organizationId)
       return item
     })

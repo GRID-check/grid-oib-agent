@@ -8,6 +8,8 @@ timeout, and a gate that finally reads ``research_truncated``.
 """
 
 import dataclasses
+import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -45,6 +47,24 @@ def _gate(**overrides):
 _WRITTEN = [
     {"id": "9d2f6b41", "kind": "constraint", "content": "Das Projekt liegt in Wien."},
     {"id": "1a7c9e02", "kind": "derived_fact", "content": "Das oberste Fluchtniveau beträgt 9,80 m."},
+]
+
+#: The note a correction retired, as the write path reports it (ADR-0055 C5) —
+#: the id the undo is addressed to, and the words the notice shows beside the
+#: new ones. Reported by the write, never derived from the model's quote.
+_RETIRED = {
+    "id": "4c8e1d73-2a95-4b06-b1f7-3e9d0a2b4c68",
+    "content": "Das oberste Fluchtniveau beträgt 6,50 m.",
+}
+
+#: One recorded finding that REPLACED an earlier note.
+_CORRECTED = [
+    {
+        "id": "1a7c9e02-5b64-4d19-8e3a-0f5b6c7d8e91",
+        "kind": "derived_fact",
+        "content": "Das oberste Fluchtniveau beträgt 9,80 m.",
+        "supersedes": _RETIRED,
+    }
 ]
 
 #: One organisation finding the BFF refused, offered instead (ADR-0055 C6). It is
@@ -226,6 +246,50 @@ class TestHandler:
         assert all(item.id and item.kind for item in items)
 
     @pytest.mark.asyncio
+    async def test_a_correction_says_which_note_it_replaced_and_what_it_said(self):
+        """ADR-0055 C5, on the wire.
+
+        Without this key the transcript cannot state a supersession at all — the
+        panel is the only place the correction shows, which is the inversion the
+        decision exists to fix. Id AND content, because the notice renders both
+        sentences and offers the undo against the id.
+        """
+        with patch(
+            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            return_value=_outcome(_CORRECTED),
+        ):
+            payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
+
+        items = MemoryReflectionPayload.model_validate(payload).items
+        assert items[0].supersedes is not None
+        assert items[0].supersedes.id == _RETIRED["id"]
+        assert items[0].supersedes.content == _RETIRED["content"]
+        assert payload["items"][0]["supersedes"] == _RETIRED
+
+    @pytest.mark.asyncio
+    async def test_a_write_that_replaced_nothing_carries_no_key_at_all(self):
+        """Absent, never null: on this envelope the two are the same fact and
+        only one of them is the contract (§4.1)."""
+        with patch(
+            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            return_value=_outcome(_WRITTEN),
+        ):
+            payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
+        assert all("supersedes" not in row for row in payload["items"])
+
+    @pytest.mark.asyncio
+    async def test_a_retired_note_never_arrives_as_a_recorded_finding(self):
+        """The retired note is nested under the row that replaced it and is not
+        a member of `items`. A reader must never be told that a note this turn
+        RETIRED is a note this turn WROTE."""
+        with patch(
+            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            return_value=_outcome(_CORRECTED),
+        ):
+            payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
+        assert _RETIRED["id"] not in [row["id"] for row in payload["items"]]
+
+    @pytest.mark.asyncio
     async def test_the_pass_sees_the_digest_the_agent_saw_this_turn(self):
         facts = _facts(memory_digest='- [decision | high | verified] "Flachdach"')
         with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=_outcome()) as run:
@@ -236,3 +300,30 @@ class TestHandler:
         assert kwargs["project_id"] == "proj_1"
         assert kwargs["organization_id"] == "org_1"
         assert kwargs["conversation_id"] == "conv_1"
+
+
+class TestTheSharedFixtureShowsACorrection:
+    """`shared/stages/frames.json` is the contract both halves read, and it is
+    the only thing that can make them disagree out loud. A fixture that never
+    exercises `supersedes` would leave the client free to stop parsing it while
+    every test stayed green — which is exactly how the transcript half came to
+    be wired and dark in the first place."""
+
+    @staticmethod
+    def _ready_payload() -> dict:
+        path = Path(__file__).resolve().parents[3] / "shared" / "stages" / "frames.json"
+        return json.loads(path.read_text(encoding="utf-8"))["delivered"]["memory_reflection.ready"]["payload"]
+
+    def test_the_fixture_carries_an_item_that_replaced_an_earlier_note(self) -> None:
+        superseding = [item for item in self._ready_payload()["items"] if "supersedes" in item]
+        assert superseding, (
+            "the memory_reflection.ready fixture no longer shows a supersession, so nothing holds "
+            "either half to it (ADR-0055 C5)"
+        )
+        assert set(superseding[0]["supersedes"]) == {"id", "content"}
+
+    def test_the_fixture_also_shows_an_item_that_replaced_nothing(self) -> None:
+        """Absent, never null. The optional key needs both cases in one fixture,
+        or the contract only ever describes the correction."""
+        assert any("supersedes" not in item for item in self._ready_payload()["items"])
+

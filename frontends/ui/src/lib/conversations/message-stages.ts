@@ -52,6 +52,39 @@ export interface StoredMemoryItem {
   id: string
   kind: string
   content: string
+  /**
+   * The note this item RETIRED, when it retired one (ADR-0055, C5).
+   *
+   * A supersession used to be the quietest event in the system — the replaced
+   * note vanished from the memory panel and the transcript said nothing — so
+   * the correction a reader had just asked for looked exactly like one that
+   * never happened. The transcript half renders it as a notice with an undo,
+   * and this key is the whole of what it needs: `MemorySupersededNotices`
+   * reads no other source, and until this was declared here the field was
+   * dropped on write and the notice never appeared.
+   *
+   * Absent, never null, on an item that replaced nothing.
+   */
+  supersedes?: StoredSupersededNote
+}
+
+/**
+ * The note a stored item retired: its id, and its own words.
+ *
+ * A RETIRED row, and it is nested under the item that replaced it precisely so
+ * that it can never be read as a live one — it is not a member of `items`, and
+ * nothing that walks `items` will ever hand it to a reader as something this
+ * turn recorded.
+ *
+ * `content` and not the id alone, because the notice states both halves
+ * ("Bisher: …" beside "Neu: …") and a correction the reader cannot check is
+ * what sent them to the panel in the first place. The backend supplies it from
+ * the write path, which held the retired row already; the browser never asks
+ * for it.
+ */
+export interface StoredSupersededNote {
+  id: string
+  content: string
 }
 
 /**
@@ -188,6 +221,26 @@ function sanitizeMemoryProposals(input: unknown): StoredMemoryProposal[] {
   return out
 }
 
+/**
+ * The retired note on one item, bounded exactly like the item itself.
+ *
+ * Both halves or neither: an id with no text renders a correction the reader
+ * cannot check, and text with no id has nothing to undo — so a half-formed
+ * supersession is dropped rather than stored. Dropping it costs the notice and
+ * keeps the item, which is the right trade: the finding was written either
+ * way, and the memory panel still shows the same correction.
+ *
+ * Capped with the item's own limits and not looser ones. This is jsonb on a
+ * hot table fed from a browser, and the retired note is one line in a notice.
+ */
+function sanitizeSupersededNote(input: unknown): StoredSupersededNote | undefined {
+  if (!isRecord(input)) return undefined
+  const id = cap(input.id, MAX_MEMORY_ID_CHARS)
+  const content = cap(input.content, MAX_MEMORY_CONTENT_CHARS)
+  if (!id || !content) return undefined
+  return { id, content }
+}
+
 export function sanitizeMemoryReflectionStage(input: unknown): StoredMemoryReflectionStage | null {
   if (!isRecord(input)) return null
 
@@ -199,7 +252,8 @@ export function sanitizeMemoryReflectionStage(input: unknown): StoredMemoryRefle
     const content = cap(raw.content, MAX_MEMORY_CONTENT_CHARS)
     const kind = typeof raw.kind === 'string' ? raw.kind.trim() : ''
     if (!id || !content || !MEMORY_KINDS.has(kind)) continue
-    items.push({ id, kind, content })
+    const supersedes = sanitizeSupersededNote(raw.supersedes)
+    items.push(supersedes ? { id, kind, content, supersedes } : { id, kind, content })
   }
 
   const proposals = sanitizeMemoryProposals(input.proposals)

@@ -239,3 +239,55 @@ describe('sanitizeMemoryReflectionStage — proposals', () => {
     expect(sanitizeMemoryReflectionStage({ proposals: 'nope' })).toBeNull()
   })
 })
+
+describe('sanitizeMemoryReflectionStage — the note a correction retired', () => {
+  const RETIRED = { id: 'old-1', content: 'OIB-RL 2.1 ist hier nicht anwendbar.' }
+  const CORRECTION = {
+    id: 'new-1',
+    kind: 'derived_fact',
+    content: 'OIB-RL 2.1 ist anwendbar, es handelt sich um eine Betriebsanlage.',
+    supersedes: RETIRED,
+  }
+
+  it('keeps the retired note, which is the whole of what the transcript needs', () => {
+    // The key set here is CLOSED — an undeclared key is dropped on write. This
+    // is the declaration, and until it existed `MemorySupersededNotices` had
+    // nothing to render: the correction showed only in the memory panel, which
+    // is the inversion ADR-0055 exists to fix.
+    expect(sanitizeMemoryReflectionStage({ items: [CORRECTION] })).toEqual({ items: [CORRECTION] })
+  })
+
+  it('leaves the key off an item that replaced nothing', () => {
+    const stage = sanitizeMemoryReflectionStage({
+      items: [{ id: 'a', kind: 'decision', content: 'Flachdach beschlossen.' }],
+    })
+    expect(stage?.items[0]).not.toHaveProperty('supersedes')
+  })
+
+  it('caps the retired words with the item\'s own limit', () => {
+    const stage = sanitizeMemoryReflectionStage({
+      items: [{ ...CORRECTION, supersedes: { id: 'old-1', content: 'x'.repeat(5000) } }],
+    })
+    expect(stage?.items[0].supersedes?.content).toHaveLength(500)
+  })
+
+  it('drops a half-formed supersession and keeps the finding', () => {
+    // Both halves or neither: an id with no words states a correction the
+    // reader cannot check, and words with no id have nothing to undo. The
+    // finding was written either way, so it stays.
+    for (const half of [{ id: 'old-1' }, { content: 'nur Text' }, 'nicht einmal ein Objekt', null]) {
+      const stage = sanitizeMemoryReflectionStage({ items: [{ ...CORRECTION, supersedes: half }] })
+      expect(stage?.items[0]).toEqual({
+        id: CORRECTION.id,
+        kind: CORRECTION.kind,
+        content: CORRECTION.content,
+      })
+    }
+  })
+
+  it('never lets a retired note in as a recorded finding of its own', () => {
+    const stage = sanitizeMemoryReflectionStage({ items: [CORRECTION] })
+    expect(stage?.items.map((item) => item.id)).toEqual(['new-1'])
+  })
+})
+

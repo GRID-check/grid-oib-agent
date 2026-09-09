@@ -233,7 +233,7 @@ describe.skipIf(!url)('memory consolidation against live Postgres', () => {
     const stale = await remember(projectId, 'constraint', claim)
     const retired: string[] = []
     const current = await remember(projectId, 'constraint', correction, {
-      onSuperseded: (id) => retired.push(id),
+      onSuperseded: ({ id }) => retired.push(id),
     })
 
     const rows = await rowsOf(projectId)
@@ -266,7 +266,7 @@ describe.skipIf(!url)('memory consolidation against live Postgres', () => {
       'Natural smoke extraction was approved for the stairwell instead',
       {
         supersedesContent: 'The stairwell must be pressurised (Druckbelueftung)',
-        onSuperseded: (id) => retired.push(id),
+        onSuperseded: ({ id }) => retired.push(id),
       }
     )
 

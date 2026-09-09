@@ -65,6 +65,32 @@ _SKIP_ROUTES = {"meta", "error"}
 REFLECTION_TIMEOUT_S = 45.0
 
 
+class MemorySupersededNote(BaseModel):
+    """The note a recorded finding RETIRED — the correction, said out loud.
+
+    A supersession used to be the quietest event in the system: the replaced
+    note simply vanished from the memory panel, so a reader could see neither
+    that Piloti had corrected itself nor what it had corrected, and had nothing
+    to undo it with. ADR-0055 makes it a STATED event in the transcript, and
+    this is the half of that the wire carries.
+
+    ``content`` and not the id alone, because both sentences are the point: the
+    notice reads „Bisher: …" beside „Neu: …", and a report the reader cannot
+    check is the report that sent them to the panel in the first place. It is
+    reported by the WRITE PATH — the BFF returns the retired row's own words
+    beside its id — and never derived from the quote the model supplied: that
+    quote is resolved fuzzily, and a polarity supersession retires a note the
+    model never quoted at all.
+
+    A RETIRED note, never a live one. It is nested under the item that replaced
+    it and is never a member of ``items``, so nothing downstream can render it
+    as a finding this turn recorded.
+    """
+
+    id: str = Field(description="Id of the retired project_memory row.")
+    content: str = Field(description="The retired note's own words, as the reader is shown them.")
+
+
 class MemoryReflectionItem(BaseModel):
     """One ``project_memory`` row this stage wrote, as the reader sees it.
 
@@ -77,6 +103,13 @@ class MemoryReflectionItem(BaseModel):
     id: str = Field(description="Id of the project_memory row.")
     kind: str = Field(description="decision | constraint | open_question | derived_fact | preference.")
     content: str = Field(description="The finding, verbatim as it was written.")
+    supersedes: MemorySupersededNote | None = Field(
+        default=None,
+        description=(
+            "The note this finding retired, when it retired one. Absent — never null — "
+            "otherwise, the rule this whole envelope follows (§4.1)."
+        ),
+    )
 
 
 class MemoryReflectionPayload(BaseModel):

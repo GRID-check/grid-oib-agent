@@ -144,7 +144,7 @@ describe('POST /api/internal/memory', () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
     vi.mocked(createProjectMemoryItemForProject).mockImplementation(
       async (_projectId, _values, options) => {
-        options?.onSuperseded?.('item-old')
+        options?.onSuperseded?.({ id: 'item-old', content: 'OIB-RL 2.1 is not applicable here' })
         return makeMemoryItem({ id: 'item-new', supersedesId: 'item-old' })
       }
     )
@@ -163,8 +163,12 @@ describe('POST /api/internal/memory', () => {
       expect.objectContaining({ supersedesContent: 'OIB-RL 2.1 is not applicable here' })
     )
     // The caller is told which entry was actually retired (null when the quote
-    // resolved to nothing, or to an entry an agent may not touch).
-    expect((await response.json()).supersededId).toBe('item-old')
+    // resolved to nothing, or to an entry an agent may not touch) — AND its own
+    // words, which the transcript notice renders and which no later caller
+    // could get without asking the database for a row this write already held.
+    const body = await response.json()
+    expect(body.supersededId).toBe('item-old')
+    expect(body.supersededContent).toBe('OIB-RL 2.1 is not applicable here')
   })
 
   /**
@@ -187,7 +191,11 @@ describe('POST /api/internal/memory', () => {
     )
 
     expect(response.status).toBe(201)
-    expect((await response.json()).supersededId).toBeNull()
+    const body = await response.json()
+    expect(body.supersededId).toBeNull()
+    // Both halves are absent together: a content without a retirement would
+    // let a transcript state a correction that did not happen.
+    expect(body.supersededContent).toBeNull()
   })
 
   it('denies agent org-scoped writes by default (403), before touching the DB', async () => {

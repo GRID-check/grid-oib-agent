@@ -153,6 +153,82 @@ def test_a_background_write_does_not_push_a_line_into_a_closed_turn(monkeypatch)
     assert said == []
 
 
+def test_the_retired_note_reaches_the_caller_with_its_own_words(monkeypatch):
+    """ADR-0055 C5, the producer end.
+
+    The transcript states the correction and shows BOTH notes, so the writer has
+    to hand its caller the retired note's text and not only its id. It is the
+    route that supplies it — it had the row loaded to retire it — and this is the
+    seam that carries it, so a post-answer stage never asks the database for
+    words somebody already held.
+    """
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    retired: list[tuple[str, str]] = []
+    body = {
+        "item": {"id": "new-1"},
+        "supersededId": "old-1",
+        "supersededContent": "OIB-RL 2.1 ist nicht anwendbar",
+    }
+    with _patched_opener(monkeypatch, body=body):
+        item_id = pm.insert_memory_item(
+            scope="project",
+            project_id="p1",
+            organization_id="o1",
+            kind="decision",
+            content="OIB-RL 2.1 ist sehr wohl anwendbar",
+            supersedes_content="OIB-RL 2.1 ist nicht anwendbar",
+            on_superseded=lambda item, content: retired.append((item, content)),
+        )
+    assert item_id == "new-1"
+    assert retired == [("old-1", "OIB-RL 2.1 ist nicht anwendbar")]
+
+
+def test_a_write_that_retired_nothing_reports_no_correction(monkeypatch):
+    """The quote resolved to nothing, or to an entry an agent may not retire.
+    Nothing was replaced, so nothing may be stated as replaced."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    retired: list[tuple[str, str]] = []
+    with _patched_opener(monkeypatch, body={"item": {"id": "new-1"}, "supersededId": None}):
+        pm.insert_memory_item(
+            scope="project",
+            project_id="p1",
+            organization_id="o1",
+            kind="decision",
+            content="x",
+            on_superseded=lambda item, content: retired.append((item, content)),
+        )
+    assert retired == []
+
+
+def test_an_id_without_its_words_states_nothing(monkeypatch):
+    """A frontend that predates `supersededContent` sends the id alone.
+
+    Half a supersession renders as a correction the reader cannot check, so the
+    caller is told nothing — the behaviour that existed before the field — rather
+    than something it would have to invent the other half of. The status line,
+    which needs only the count, still hears about it.
+    """
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    retired: list[tuple[str, str]] = []
+    said: list[int] = []
+    monkeypatch.setattr("aiq_agent.common.turn_status.emit_memory_superseded", said.append)
+    token = pm.begin_turn_memory_log()
+    try:
+        with _patched_opener(monkeypatch, body={"item": {"id": "new-1"}, "supersededId": "old-1"}):
+            pm.insert_memory_item(
+                scope="project",
+                project_id="p1",
+                organization_id="o1",
+                kind="decision",
+                content="x",
+                on_superseded=lambda item, content: retired.append((item, content)),
+            )
+    finally:
+        pm.end_turn_memory_log(token)
+    assert retired == []
+    assert said == [1]
+
+
 def test_profile_graduation_is_not_a_kind_this_side_knows(monkeypatch):
     """ADR-0055 contract C7, from the Python half.
 
