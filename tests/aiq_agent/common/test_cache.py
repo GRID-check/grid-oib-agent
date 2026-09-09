@@ -143,8 +143,31 @@ class _PartialPipeline:
 
 
 class _PartialClient:
+    """A server whose pipelined EXPIRE fails; the repair path is recorded.
+
+    ``repair_fails`` stands for the deployment where EXPIRE is denied outright
+    (an ACL, or Redis < 7.0 rejecting ``NX``) rather than blipping — the case
+    where the counter would otherwise never get a TTL at all.
+    """
+
+    def __init__(self, ttl: int = -1, repair_fails: bool = False) -> None:
+        self.ttl_calls: list[str] = []
+        self.expire_calls: list[tuple[str, int]] = []
+        self._ttl = ttl
+        self._repair_fails = repair_fails
+
     def pipeline(self):
         return _PartialPipeline()
+
+    def ttl(self, key: str):
+        self.ttl_calls.append(key)
+        return self._ttl
+
+    def expire(self, key: str, seconds: int):
+        self.expire_calls.append((key, seconds))
+        if self._repair_fails:
+            raise ResponseError("EXPIRE denied")
+        return True
 
 
 class _SelectiveClient(_DictClient):
@@ -273,9 +296,28 @@ class TestFailOpen:
         assert cache.incr_fixed_window("rl", 60) == 2
 
     def test_incr_partial_apply_returns_server_count_without_local_fallback(self):
-        _install(_PartialClient())
+        client = _PartialClient()
+        _install(client)
         assert cache.incr_fixed_window("rl", 60) == 7
         assert cache._local_store == {}
+        # The count is authoritative, but the dropped EXPIRE left the key with
+        # no TTL: without the repair it never rolls over and the limiter denies
+        # this key permanently.
+        assert client.expire_calls == [("rl", 60)]
+
+    def test_incr_partial_apply_leaves_a_ticking_window_alone(self):
+        client = _PartialClient(ttl=42)
+        _install(client)
+        assert cache.incr_fixed_window("rl", 60) == 7
+        # EXPIRE ... NX correctly refuses a key that already has a TTL, so the
+        # repair must not slide the window it is checking.
+        assert client.expire_calls == []
+
+    def test_incr_falls_back_locally_when_the_window_ttl_cannot_be_repaired(self):
+        client = _PartialClient(repair_fails=True)
+        _install(client)
+        # A count that never resets is worse than an advisory per-process one.
+        assert cache.incr_fixed_window("rl", 60) is None
 
     @pytest.mark.parametrize("exc", [c[0] for c in _per_key_cases()], ids=_PER_KEY_IDS)
     def test_incr_per_key_returns_none_without_tripping_breaker(self, exc):

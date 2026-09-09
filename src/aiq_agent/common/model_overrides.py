@@ -67,6 +67,30 @@ _NEGATIVE_TTL_SECONDS = 1.0
 # always pay the full TTLs — see docs/architecture/org-model-configuration.md.
 _SHARED_TTL_SECONDS = 60.0
 
+# One in-flight resolution per org per replica. The negative TTL above is
+# deliberately ~1s so a transient BFF outage (and with it the org's ZDR bit)
+# never pins the fleet -- but a TTL that short is nearly no negative cache at
+# all under load: every concurrent turn for the org raced past the expired
+# entry and opened its own request, and each one costs the full request
+# timeout while the BFF is down. Coalescing them is what makes the fast
+# recovery affordable; the alternative, a longer TTL, buys it by pinning a
+# stale ZDR bit, which is the wrong currency.
+_inflight_lock = threading.Lock()
+_inflight_fetches: dict[str, threading.Lock] = {}
+
+
+def _org_fetch_lock(organization_id: str) -> threading.Lock:
+    with _inflight_lock:
+        lock = _inflight_fetches.get(organization_id)
+        if lock is None:
+            if len(_inflight_fetches) > 512:
+                for key, held in [(k, v) for k, v in _inflight_fetches.items() if not v.locked()]:
+                    del _inflight_fetches[key]
+                    del held
+            lock = threading.Lock()
+            _inflight_fetches[organization_id] = lock
+        return lock
+
 
 def shared_model_config_key(organization_id: str) -> str:
     """The Dragonfly key the BFF invalidates; keep in step with `lib/model-config/service.ts`."""
@@ -179,6 +203,16 @@ def reset_overrides_cache() -> None:
         _overrides_cache.clear()
 
 
+def _has_internal_trust_channel() -> bool:
+    """Whether :func:`_fetch_org_config` can actually ASK the BFF.
+
+    Distinguishes its two ``({}, False)`` returns: "the BFF says this org is
+    unconfigured" (authoritative, cacheable) from "there is no internal token,
+    so we fell back to YAML without asking" (not an answer about the org).
+    """
+    return bool(os.environ.get("GRID_INTERNAL_API_TOKEN"))
+
+
 def _fetch_org_config(organization_id: str) -> tuple[dict[str, str], bool]:
     """One HTTP round-trip to the BFF's internal model-overrides endpoint.
 
@@ -263,6 +297,25 @@ def _resolve_org_config(organization_id: str | None) -> _OverridesCacheEntry | N
             annotate_current_span(cache_model_config="hit")
             return entry
 
+    # One resolution per org at a time (see `_org_fetch_lock`). Everything from
+    # here down either reads L2 or opens a BFF request, and N concurrent turns
+    # for one org need exactly one of those, not N.
+    with _org_fetch_lock(organization_id):
+        return _resolve_org_config_locked(organization_id)
+
+
+def _resolve_org_config_locked(organization_id: str) -> _OverridesCacheEntry:
+    from aiq_agent.common.profiler import annotate_current_span
+
+    now = time.monotonic()
+    # Re-check L1: whoever held the lock before us has just populated it, which
+    # is the whole point of coalescing.
+    with _overrides_cache_lock:
+        entry = _overrides_cache.get(organization_id)
+        if entry is not None and entry.expires_at > now:
+            annotate_current_span(cache_model_config="hit-coalesced")
+            return entry
+
     shared = _read_shared(organization_id)
     if shared is not None:
         overrides, zdr_only = shared
@@ -272,12 +325,16 @@ def _resolve_org_config(organization_id: str | None) -> _OverridesCacheEntry | N
         try:
             overrides, zdr_only = _fetch_org_config(organization_id)
             ttl = _POSITIVE_TTL_SECONDS
-            # L1 only for empty successes: ({}, False) is also what a missing
-            # GRID_INTERNAL_API_TOKEN and a genuinely unconfigured org resolve
-            # to, and writing it to L2 would let "no configuration" shadow a
-            # concurrent admin save for the full shared TTL. A populated record
-            # is the only thing L2 may hold.
-            if overrides or zdr_only:
+            # ({}, False) means two different things, and only one of them is
+            # cacheable. Without a trust channel we never ASKED anyone, so
+            # writing it to L2 would let "no configuration" shadow a real one
+            # fleet-wide for the full shared TTL. With one, the BFF answered
+            # authoritatively that this org is unconfigured -- which is the
+            # DEFAULT state of most orgs, so refusing to cache it sent every
+            # replica back to the BFF every L1 TTL, for the majority case, and
+            # made the "L2 keeps a fresh replica off the BFF" claim above false
+            # exactly where it mattered most.
+            if overrides or zdr_only or _has_internal_trust_channel():
                 _write_shared(organization_id, overrides, zdr_only)
             annotate_current_span(cache_model_config="miss")
         except Exception as exc:  # noqa: BLE001 - fail open by design

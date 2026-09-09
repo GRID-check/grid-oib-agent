@@ -57,26 +57,38 @@ export interface PlatformModelDefaultInput {
  * want the error surfaced rather than silently showing "no defaults".
  */
 export async function getPlatformModelDefaults(): Promise<PlatformModelDefaults> {
-  return getCached(DEFAULTS_CACHE_KEY, DEFAULTS_CACHE_TTL_MS, async () => {
-    const db = getDb()
-    const rows = await withPlatformAccess(
-      'platform model defaults are fleet-wide configuration, owned by no tenant',
-      () =>
-        db
-          .select({
-            agentGroup: platformModelDefaults.agentGroup,
-            model: platformModelDefaults.model,
-          })
-          .from(platformModelDefaults)
-    )
-    const flat: PlatformModelDefaults = {}
-    for (const row of rows) {
-      // A group retired from the registry stays in the table until someone
-      // saves again; drop it here so it can never reach the backend.
-      if (AGENT_GROUP_IDS.includes(row.agentGroup)) flat[row.agentGroup] = row.model
-    }
-    return flat
-  })
+  return getCached(DEFAULTS_CACHE_KEY, DEFAULTS_CACHE_TTL_MS, readPlatformModelDefaults)
+}
+
+/**
+ * The same read, straight from the database, bypassing the cache.
+ *
+ * Only for the compare-before-invalidate in `savePlatformModelDefaults`. That
+ * comparison decides whether the whole fleet is evicted, so it must be made
+ * against what is actually stored: a cache hit up to `DEFAULTS_CACHE_TTL_MS`
+ * old can equal the incoming save and suppress the invalidation for a change
+ * that really happened, leaving every replica on the old models until the TTL
+ * expires. The org path reads uncached for this reason too.
+ */
+async function readPlatformModelDefaults(): Promise<PlatformModelDefaults> {
+  const db = getDb()
+  const rows = await withPlatformAccess(
+    'platform model defaults are fleet-wide configuration, owned by no tenant',
+    () =>
+      db
+        .select({
+          agentGroup: platformModelDefaults.agentGroup,
+          model: platformModelDefaults.model,
+        })
+        .from(platformModelDefaults)
+  )
+  const flat: PlatformModelDefaults = {}
+  for (const row of rows) {
+    // A group retired from the registry stays in the table until someone
+    // saves again; drop it here so it can never reach the backend.
+    if (AGENT_GROUP_IDS.includes(row.agentGroup)) flat[row.agentGroup] = row.model
+  }
+  return flat
 }
 
 /** Full rows (model + who/when + snapshot) for the platform admin surface. */
@@ -124,7 +136,7 @@ export async function savePlatformModelDefaults(
   // cannot prove it was a no-op is treated as a change, never as a skip.
   let previous: PlatformModelDefaults | null = null
   try {
-    previous = await getPlatformModelDefaults()
+    previous = await readPlatformModelDefaults()
   } catch {
     previous = null
   }

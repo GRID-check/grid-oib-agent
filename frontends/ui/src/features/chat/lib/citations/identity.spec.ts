@@ -12,6 +12,8 @@ import { describe, test, expect } from 'vitest'
 import {
   buildCitationModel,
   citationSnippet,
+  documentIdentity,
+  identityMatches,
   normalizeFileName,
   oibDocumentKey,
   parseKbLocator,
@@ -95,6 +97,39 @@ describe('normalizeFileName', () => {
   test('is empty-safe', () => {
     expect(normalizeFileName(undefined)).toBe('')
     expect(normalizeFileName('   ')).toBe('')
+  })
+
+  test('only strips a real document extension, not any dot near the end', () => {
+    // The strip was `\.[a-z0-9]{2,5}$`, a "dot near the end" test rather than
+    // an extension test — and `find()` applies this to TITLES. Two Bescheide a
+    // day apart both lost their last segment and matched as one document.
+    expect(normalizeFileName('Bescheid vom 12.03')).not.toBe(normalizeFileName('Bescheid vom 12.04'))
+    expect(normalizeFileName('Bescheid vom 12.03')).toBe('bescheid-vom-12.03')
+  })
+})
+
+describe('documentIdentity and the file extension', () => {
+  test('two formats of one name are two documents', () => {
+    // They shared `doc:<collection>:einreichplan` and merged into a single
+    // chip carrying both documents' loci, whose page opened whichever won.
+    const pdf = documentIdentity({ fileName: 'Einreichplan.pdf', collection: 'projekt_a' })
+    const docx = documentIdentity({ fileName: 'Einreichplan.docx', collection: 'projekt_a' })
+    expect(pdf).not.toBe(docx)
+    expect(identityMatches(pdf, docx)).toBe(false)
+  })
+
+  test('the written list still meets the wire', () => {
+    // The answer's `## Quellen` line carries no collection and often no
+    // extension; that permissiveness is what identityMatches is for.
+    const wire = documentIdentity({ fileName: 'oib-rl_2_ausgabe_mai_2023.pdf', collection: 'oib_knowledge' })
+    const written = documentIdentity({ fileName: 'oib-rl-2 ausgabe mai 2023' })
+    expect(identityMatches(wire, written)).toBe(true)
+  })
+
+  test('a collection-less key of another format does not merge', () => {
+    const wire = documentIdentity({ fileName: 'Einreichplan.pdf', collection: 'projekt_a' })
+    const other = documentIdentity({ fileName: 'Einreichplan.docx' })
+    expect(identityMatches(wire, other)).toBe(false)
   })
 })
 

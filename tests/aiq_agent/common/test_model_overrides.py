@@ -468,6 +468,74 @@ class TestSharedTier:
         assert calls == ["org_1"]
         assert cache.get_json(M.shared_model_config_key("org_1")) is None
 
+    def test_an_authoritative_empty_config_is_cached_in_l2(self, monkeypatch):
+        """An unconfigured org is the DEFAULT state, and it is a real answer.
+
+        While only populated records reached L2, the majority case never
+        populated it at all: every replica went back to the BFF every L1 TTL
+        for every unconfigured org, which is exactly what L2 exists to stop.
+        """
+        from aiq_agent.common import cache
+        from aiq_agent.common import model_overrides as M
+
+        calls = []
+
+        def empty(org):
+            calls.append(org)
+            return {}, False
+
+        # A trust channel means `_fetch_org_config` actually ASKED the BFF, so
+        # ({}, False) is the BFF's answer rather than "we never asked".
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "test-token")
+        monkeypatch.setattr(M, "_fetch_org_config", empty)
+        assert M.resolve_org_model_overrides("org_1") == {}
+        assert cache.get_json(M.shared_model_config_key("org_1")) == {"overrides": {}, "zdr_only": False}
+
+    def test_concurrent_turns_for_one_org_share_a_single_fetch(self, monkeypatch):
+        """The ~1s negative TTL is affordable only because the fetch is coalesced.
+
+        Without it every concurrent turn raced past the expired entry and opened
+        its own request, each paying the full timeout while the BFF is down —
+        the retry-thunder the negative cache exists to prevent. The fetch is
+        held open here so every thread really is in flight at once; otherwise
+        the first one returns, populates the tiers, and the race never happens.
+        """
+        import threading
+        import time as stdlib_time
+
+        from aiq_agent.common import cache
+        from aiq_agent.common import model_overrides as M
+
+        cache.reset_local_store()
+        calls = []
+        entered = threading.Event()
+        proceed = threading.Event()
+
+        def slow(org):
+            calls.append(org)
+            entered.set()
+            proceed.wait(timeout=5)
+            return {"deep_research": "x-ai/grok-4.5"}, False
+
+        monkeypatch.setattr(M, "_fetch_org_config", slow)
+        results = []
+        threads = [
+            threading.Thread(target=lambda: results.append(M.resolve_org_model_overrides("org_1"))) for _ in range(8)
+        ]
+        for thread in threads:
+            thread.start()
+        # The first fetch is now parked inside `slow`. Give the other seven time
+        # to reach the resolver: they either queue on the org lock (coalesced)
+        # or open their own request (thunder), and that is the whole assertion.
+        assert entered.wait(timeout=5)
+        stdlib_time.sleep(0.25)
+        proceed.set()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        assert calls == ["org_1"], f"one fetch for eight concurrent turns, got {len(calls)}"
+        assert all(r == {"deep_research": "x-ai/grok-4.5"} for r in results)
+
     def test_error_negative_cache_expires_in_about_one_second(self, monkeypatch):
         """A failed fetch fails open but retries quickly: held within the 1s
         negative TTL, retried past it — so a transient BFF outage (and its ZDR

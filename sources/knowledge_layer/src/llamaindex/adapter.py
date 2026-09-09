@@ -63,12 +63,23 @@ from aiq_agent.knowledge.schema import RetrievalResult
 logger = logging.getLogger(__name__)
 
 
-def _env_float(name: str, fallback: float) -> float:
-    """Read a positive finite float from the environment, failing open to ``fallback``.
+#: Sentinel for "strictly positive", which is not expressible as a `minimum`
+#: float: 0 must be rejectable for a timeout and accepted for a count.
+_POSITIVE = float("-inf")
+
+
+def _env_float(name: str, fallback: float, *, minimum: float = _POSITIVE) -> float:
+    """Read a finite float from the environment, failing open to ``fallback``.
 
     A module-scope ``float(os.environ[...])`` makes a typo'd env var raise at IMPORT
     time, taking down the whole knowledge layer. A misconfiguration must degrade to
     the default, not to an unimportable module.
+
+    ``minimum`` defaults to "strictly positive", which is right for a timeout or a
+    batch size but WRONG for a count whose zero means "off": rejecting
+    ``AIQ_MAX_RENDERED_PAGES=0`` silently restored the default of 20 and the
+    deployment paid VLM cost it had explicitly opted out of. Pass ``minimum=0``
+    for those.
     """
     raw = os.environ.get(name, "")
     try:
@@ -77,20 +88,27 @@ def _env_float(name: str, fallback: float) -> float:
         if raw:
             logger.warning("%s=%r is not a number; using %s", name, raw, fallback)
         return fallback
-    if value <= 0 or not math.isfinite(value):
-        logger.warning("%s=%r must be positive and finite; using %s", name, raw, fallback)
+    if not math.isfinite(value):
+        logger.warning("%s=%r must be finite; using %s", name, raw, fallback)
+        return fallback
+    if minimum is _POSITIVE:
+        if value <= 0:
+            logger.warning("%s=%r must be positive and finite; using %s", name, raw, fallback)
+            return fallback
+    elif value < minimum:
+        logger.warning("%s=%r must be >= %s; using %s", name, raw, minimum, fallback)
         return fallback
     return value
 
 
-def _env_int(name: str, fallback: int) -> int:
+def _env_int(name: str, fallback: int, *, minimum: float = _POSITIVE) -> int:
     """Integer half of :func:`_env_float`: garbage degrades to ``fallback``.
 
     Truncates (never rounds up) so a fractional value cannot exceed the stated
     budget. Clamping stays at the call site, where the existing ``max(1, ...)``
     guards already live.
     """
-    return int(_env_float(name, float(fallback)))
+    return int(_env_float(name, float(fallback), minimum=minimum))
 
 
 # Default VLM model for image captioning: the house model every deployment
@@ -303,13 +321,13 @@ PAGE_RENDER_MAX_DIM = _env_int("AIQ_PAGE_RENDER_MAX_DIM", 2048)
 
 # A page is treated as "visual" (→ rendered + VLM-captioned) when its
 # watermark-stripped extractable text is shorter than this many characters...
-VISUAL_PAGE_MIN_TEXT_CHARS = _env_int("AIQ_VISUAL_PAGE_MIN_TEXT_CHARS", 200)
+VISUAL_PAGE_MIN_TEXT_CHARS = _env_int("AIQ_VISUAL_PAGE_MIN_TEXT_CHARS", 200, minimum=0)
 # ...OR it carries at least this many vector path objects (a plan/section/
 # elevation is typically hundreds-to-tens-of-thousands of paths).
-VISUAL_PAGE_MIN_PATHS = _env_int("AIQ_VISUAL_PAGE_MIN_PATHS", 300)
+VISUAL_PAGE_MIN_PATHS = _env_int("AIQ_VISUAL_PAGE_MIN_PATHS", 300, minimum=0)
 # Hard cap on rendered pages per document, to bound VLM cost/latency on large
 # plan sets. Excess visual pages are skipped (logged), text still indexed.
-MAX_RENDERED_PAGES = _env_int("AIQ_MAX_RENDERED_PAGES", 20)
+MAX_RENDERED_PAGES = _env_int("AIQ_MAX_RENDERED_PAGES", 20, minimum=0)
 
 # @environment_variable AIQ_VLM_TIMEOUT_SECONDS
 # @category Knowledge Layer
@@ -4026,7 +4044,7 @@ class LlamaIndexRetriever(BaseRetriever):
     # @default 512
     # @required false
     # Maximum cached query embeddings per retriever (LRU).
-    EMBED_CACHE_MAX = _env_int("AIQ_QUERY_EMBED_CACHE_SIZE", 512)
+    EMBED_CACHE_MAX = _env_int("AIQ_QUERY_EMBED_CACHE_SIZE", 512, minimum=0)
     # @environment_variable AIQ_STATIC_RESULT_CACHE_COLLECTIONS
     # @category Knowledge Layer
     # @type str

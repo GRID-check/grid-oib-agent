@@ -282,7 +282,26 @@ class TestCancellationStatus:
                 with track_agent_profile(agent_name="chat_researcher", identity={"organization_id": "org_1"}):
                     with profiled_span("setup.ingest_wait"):
                         raise GeneratorExit()
-        assert all(s["status"] != "error" for s in post.call_args.args[0]["spans"])
+        spans = post.call_args.args[0]["spans"]
+        assert all(s["status"] != "error" for s in spans)
+        # "not marked error" was also satisfied by not recording the span AT
+        # ALL, which is what narrowing to `except Exception` actually did: the
+        # span stayed open and the waterfall lost the row that says where the
+        # turn stopped. Assert it is present and cancelled, not merely not-error.
+        span = next(s for s in spans if s["name"] == "setup.ingest_wait")
+        assert span["status"] == "cancelled"
+
+    @pytest.mark.parametrize("exc", [KeyboardInterrupt, SystemExit], ids=["keyboard-interrupt", "system-exit"])
+    def test_a_non_exception_unwind_still_closes_the_span(self, exc):
+        from aiq_agent.common.profiler import profiled_span
+
+        with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
+            with pytest.raises(exc):
+                with track_agent_profile(agent_name="chat_researcher", identity={"organization_id": "org_1"}):
+                    with profiled_span("setup.ingest_wait"):
+                        raise exc()
+        span = next(s for s in post.call_args.args[0]["spans"] if s["name"] == "setup.ingest_wait")
+        assert span["status"] == "error"
 
 
 class TestDeferredFlush:

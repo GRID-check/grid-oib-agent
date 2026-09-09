@@ -240,8 +240,17 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
                 try:
                     return await asyncio.to_thread(get_zdr_only_from_context)
                 except Exception:
-                    logger.debug("ZDR lookup failed; continuing without", exc_info=True)
-                    return False
+                    # Fails CLOSED, unlike its two siblings above. A missing
+                    # override costs the org its model choice; a missing ZDR
+                    # bit sends the org's prompts to endpoints that may retain
+                    # them, which is the ADR-0014 control itself. Note this is
+                    # NOT the "BFF is down" path -- `resolve_org_zdr_only`
+                    # already answers False for that, deliberately. Reaching
+                    # here means the lookup itself broke unexpectedly, so it
+                    # logs at error rather than debug: a privacy control that
+                    # switches itself off must never do it quietly.
+                    logger.error("ZDR lookup failed; pinning ZDR routing for this turn", exc_info=True)
+                    return True
 
             model_overrides, org_credential, zdr_only = await asyncio.gather(
                 _read_model_overrides(),

@@ -342,12 +342,15 @@ def profiled_node(name: str, fn: Any) -> Any:
         token = current_span_var.set(span_id)
         try:
             result = await fn(*args, **kwargs)
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, GeneratorExit):
             # Abandoned, not failed: a cancelled turn must not read as an error.
             profiler.end_span(span_id, status="cancelled")
             raise
         except Exception as exc:
             profiler.end_span(span_id, status="error", error=str(exc))
+            raise
+        except BaseException as exc:  # KeyboardInterrupt, SystemExit
+            profiler.end_span(span_id, status="error", error=type(exc).__name__)
             raise
         else:
             profiler.end_span(span_id, status="ok")
@@ -377,12 +380,20 @@ def profiled_span(name: str, kind: SpanKind = "node"):
     token = current_span_var.set(span_id)
     try:
         yield
-    except asyncio.CancelledError:
-        # Abandoned, not failed: a cancelled turn must not read as an error.
+    except (asyncio.CancelledError, GeneratorExit):
+        # Abandoned, not failed: a cancelled turn, or a consumer that closed
+        # the generator driving this block, must not read as an error.
         profiler.end_span(span_id, status="cancelled")
         raise
     except Exception as exc:
         profiler.end_span(span_id, status="error", error=str(exc))
+        raise
+    except BaseException as exc:
+        # KeyboardInterrupt, SystemExit. Narrowing to `Exception` left every
+        # non-``Exception`` unwind with the span still in `_open`, so the
+        # waterfall silently lost the row instead of showing where the turn
+        # stopped -- which is exactly the turn somebody opens the waterfall for.
+        profiler.end_span(span_id, status="error", error=type(exc).__name__)
         raise
     else:
         profiler.end_span(span_id, status="ok")

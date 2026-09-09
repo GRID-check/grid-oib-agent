@@ -276,6 +276,29 @@ def delete(key: str) -> bool:
     return True
 
 
+def _repair_window_ttl(client: Any, key: str, window_seconds: int, cause: BaseException) -> None:
+    """Give a fixed-window counter a TTL when the pipelined ``EXPIRE`` was dropped.
+
+    ``EXPIRE ... NX`` needs Redis >= 7.0, and an ACL can deny EXPIRE outright,
+    so this is a standing deployment property rather than a blip: every INCR on
+    that key lands on a key with no expiry until someone notices. Retrying with
+    a plain EXPIRE covers both causes, and it is issued only when the key really
+    has no TTL, so it cannot slide a window that is already ticking.
+
+    Raises on failure, which puts the caller on the local per-process window —
+    an advisory count is a better answer than a count that never resets.
+    """
+    ttl = client.ttl(key)
+    if isinstance(ttl, int) and ttl >= 0:
+        return
+    logger.warning(
+        "Shared cache dropped EXPIRE on %s (%s); repairing the window TTL",
+        key,
+        type(cause).__name__,
+    )
+    client.expire(key, window_seconds)
+
+
 def incr_fixed_window(key: str, window_seconds: int) -> int | None:
     """Increment a fixed-window counter (rate limiting).
 
@@ -304,9 +327,14 @@ def incr_fixed_window(key: str, window_seconds: int) -> int | None:
             count = results[0] if isinstance(results, (list, tuple)) else results
             if isinstance(count, BaseException):
                 raise count
-            # Partial-apply safe: INCR landed but EXPIRE did not (results[1]
-            # is an error) — the count is still authoritative, so return it
-            # rather than falling back to a local counter.
+            # INCR landed but EXPIRE did not. `raise_on_error=False` reports
+            # that as an exception IN the results list, which this used to
+            # drop on the floor -- and a counter with no TTL is not a window
+            # counter: it grows without bound, never rolls over, and the
+            # limiter denies that key permanently, silently. Repair it.
+            expire = results[1] if isinstance(results, (list, tuple)) and len(results) > 1 else None
+            if isinstance(expire, BaseException):
+                _repair_window_ttl(client, key, window_seconds, expire)
             return int(count)
         except Exception as exc:
             _on_store_error("incr", key, exc)

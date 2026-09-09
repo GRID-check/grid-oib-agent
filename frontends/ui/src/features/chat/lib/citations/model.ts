@@ -295,12 +295,40 @@ export const normalizeUrl = (url: string): string => url.trim().toLowerCase().re
  * `rev.1`) would reintroduce the identity collapse that keeps two revisions of
  * one corpus list apart.
  */
-export const normalizeFileName = (value: string | undefined | null): string =>
+const DOCUMENT_EXTENSION_RE =
+  /\.(?:pdf|docx?|xlsx?|pptx?|odt|ods|odp|rtf|txt|md|csv|tsv|html?|xml|json|zip|dwg|dxf|ifc|png|jpe?g|tiff?|bmp|gif|webp|svg)$/
+
+/**
+ * Case- and separator-normalized, extension PRESERVED. The identity form.
+ *
+ * `Einreichplan.pdf` and `Einreichplan.docx` are two uploads, not one: while
+ * identity dropped the extension they shared `doc:<collection>:einreichplan`,
+ * merged into a single chip carrying both documents' loci, and its page opened
+ * whichever won the race. Same collapse the file's other comments describe,
+ * reached through the extension instead of the name.
+ */
+export const normalizeFileKey = (value: string | undefined | null): string =>
   (value ?? '')
     .trim()
     .toLowerCase()
     .replace(/[_\s-]+/g, '-')
-    .replace(/\.[a-z0-9]{2,5}$/, '')
+
+/** The known document extension a name carries (`.pdf`), or `''`. */
+export const documentExtensionOf = (value: string | undefined | null): string =>
+  normalizeFileKey(value).match(DOCUMENT_EXTENSION_RE)?.[0] ?? ''
+
+/**
+ * The MATCHING form: {@link normalizeFileKey} with a known document extension
+ * dropped, so the answer's written spelling (`oib-rl 2`, no extension) meets
+ * the wire's (`oib-rl_2.pdf`).
+ *
+ * The strip is an allowlist, not `\.[a-z0-9]{2,5}$`. That pattern was not an
+ * extension test but a "dot near the end" test, and this function is also
+ * applied to TITLES: „Bescheid vom 12.03" and „Bescheid vom 12.04" both lost
+ * their last segment and matched each other as one document.
+ */
+export const normalizeFileName = (value: string | undefined | null): string =>
+  normalizeFileKey(value).replace(DOCUMENT_EXTENSION_RE, '')
 
 /** Minimal facts needed to identify a document, from any producer. */
 export interface DocumentIdentityInput {
@@ -359,7 +387,7 @@ export const documentIdentity = (input: DocumentIdentityInput): string => {
   // Compared NORMALIZED: the wire and the answer's written list spell one
   // filename two ways (separators, case, a missing extension), and raw keys
   // made them two documents. The original spelling stays on the document.
-  const fileName = normalizeFileName(input.fileName)
+  const fileName = normalizeFileKey(input.fileName)
   if (fileName) {
     const collection = input.collection?.trim().toLowerCase()
     return collection ? `doc:${collection}:${fileName}` : `doc:${fileName}`
@@ -391,6 +419,13 @@ export const documentIdentity = (input: DocumentIdentityInput): string => {
  */
 export const identityMatches = (a: string, b: string): boolean => {
   if (a === b) return true
+  /** The raw (extension-bearing) filename half of a `doc:` key. */
+  const fileKeyOf = (key: string): string => {
+    if (!key.startsWith('doc:')) return ''
+    const rest = key.slice('doc:'.length)
+    const sep = rest.indexOf(':')
+    return sep === -1 ? rest : rest.slice(sep + 1)
+  }
   const fileOf = (key: string): { collection: string | null; file: string } | null => {
     if (!key.startsWith('doc:')) return null
     const rest = key.slice('doc:'.length)
@@ -404,6 +439,13 @@ export const identityMatches = (a: string, b: string): boolean => {
   const fa = fileOf(a)
   const fb = fileOf(b)
   if (!fa || !fb || fa.file !== fb.file || !fa.file) return false
+  // Stems agree. Two keys that both name a FORMAT are the same document only
+  // if it is the same format — `Einreichplan.pdf` is not `Einreichplan.docx`.
+  // A key with no extension is the written list's spelling of either, so it
+  // stays permissive, which is what this function is for.
+  const extA = documentExtensionOf(fileKeyOf(a))
+  const extB = documentExtensionOf(fileKeyOf(b))
+  if (extA && extB && extA !== extB) return false
   // One side collection-less, the other collection-bearing: the permissive
   // half of the primary key. Two collection-bearing keys with different
   // collections are two documents (`Plan.pdf` per shelf), never merged.
