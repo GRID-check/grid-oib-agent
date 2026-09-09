@@ -106,6 +106,142 @@ vulnerabilities:
   #
   # One entry survives, below, because amqp091-go is still 1.12.0.
 
+  # ── Go stdlib inside `usr/bin/migrate` in the Langfuse images (ADR-0044) ──
+  #
+  # These eight WERE boxed as a property of otelcol-contrib. That was only
+  # ever half true, and deleting them with the collector bump proved it: a
+  # trivy ignore matches on the CVE id across every scanned image, and the
+  # same Go 1.26.5 standard library is compiled into `usr/bin/migrate` — the
+  # golang-migrate binary in the Langfuse web and worker images. The
+  # collector no longer needs them; that binary still does. Restored under
+  # the name of what actually carries them, so the next person who clears
+  # one image does not silently unbox another.
+  #
+  # Shared reachability: `migrate` is a one-shot schema migration, run at
+  # container start against the ClickHouse and Postgres URLs the deployment
+  # configures. It opens no listener, parses no attacker-supplied document,
+  # and is not running while the service serves traffic. Every entry below
+  # is a parser or transport defect reachable only by feeding the process
+  # hostile input, which nothing in this deployment does.
+  #
+  # Drop the whole block when the Langfuse images ship a `migrate` built
+  # with Go >= 1.26.6 — verify with `go version -m usr/bin/migrate` on the
+  # candidate image rather than trusting the tag.
+
+  - id: CVE-2026-33818
+    expired_at: 2026-10-09
+    statement: |
+      encoding/asn1 — denial of service via excessive recursion in Unmarshal.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
+
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
+
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
+
+  - id: CVE-2026-39821
+    expired_at: 2026-10-09
+    statement: |
+      golang.org/x/net/idna — privilege escalation via incorrect Punycode
+      label processing.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
+
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
+
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
+
+  - id: CVE-2026-46600
+    expired_at: 2026-10-09
+    statement: |
+      golang.org/x/net/dns/dnsmessage — denial of service parsing an invalid
+      SVCB or HTTPS record.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
+
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
+
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
+
+  - id: CVE-2026-56853
+    expired_at: 2026-10-09
+    statement: |
+      net/http — ReadHeaderTimeout not applied on the unencrypted HTTP/2
+      check.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
+
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
+
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
+
+  - id: CVE-2026-56858
+    expired_at: 2026-10-09
+    statement: |
+      html/template — incorrect JavaScript regexp context tracking.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
+
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
+
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
+
+  - id: CVE-2026-56859
+    expired_at: 2026-10-09
+    statement: |
+      encoding/xml — denial of service via unbounded recursion during decode.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
+
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
+
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
+
+  - id: CVE-2026-56860
+    expired_at: 2026-10-09
+    statement: |
+      net/url — quadratic complexity in resolvePath.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
+
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
+
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
+
+  - id: CVE-2026-56862
+    expired_at: 2026-10-09
+    statement: |
+      crypto/tls — denial of service via indefinite post-handshake messages.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
+
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
+
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
   # ── github.com/rabbitmq/amqp091-go inside otelcol-contrib (ADR-0029) ──────
   #
   # Separate from every block above: a toolchain rebuild does not clear it, and
