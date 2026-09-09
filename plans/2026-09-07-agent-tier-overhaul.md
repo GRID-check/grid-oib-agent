@@ -115,6 +115,36 @@ alias, and `KNOWN_AGENTS` accepting both names for one release.
 
 Each is a feature or a design, not dead code. Recommendation first.
 
+**Answered 2026-09-09.** The owner's calls, and what they change:
+
+| # | Decision | Answer |
+|---|---|---|
+| 1 | Dissolve `chat_researcher` into the researcher | **Yes** |
+| 2 | Collapse `clarifier` into the researcher | **Yes** |
+| 3 | Compliance check: job, skill, or delete | **Defer.** Stays registered and unreachable; not moved in round 2, because moving a directory whose fate is undecided is churn |
+| 4 | Deep research: the fixed-graph rewrite | Not asked; still open, still its own project |
+| 5 | Delete the sandbox, source router, domain catalog | Largely moot — develop deleted the demo config that carried them |
+| 6 | Memory: one write path | Not asked; still open, still touches the frontend |
+
+Plus: the `shallow_researcher` → `researcher` rename is **in**, folded into this
+branch rather than deferred to its own PR, and kept as its own commit so it can
+be reverted alone.
+
+**Order.** The dissolve comes before the rename, against the instinct to make
+names right first. Dissolving decides which registrations survive; renaming
+afterwards names only the survivors, so the ~70 files carrying a `shallow_*`
+identifier are touched once and there is one data migration rather than two.
+
+**The rename's real cost, measured.** Three identifier families, not one:
+the Python package (`shallow_researcher`, free), the NAT `_type`
+(`shallow_research_agent`, a config change plus a dual-name window), and the
+`AgentGroup` (`shallow_research`, a `platform_models.agent_group` value). Plus
+the skill agent name in `platform_skills.metadata->>'grid-agents'`, seeded by
+ten past migrations and live in current rows. **`jobs.agent_type` is not
+affected** — it defaults to `deep_researcher` and the researcher never runs as a
+job. So: two migrated columns, one dual-name window, and every past migration
+keeps its old string because migrations are history.
+
 ### 1. Dissolve `chat_researcher` into the researcher — recommended
 
 After ADR-0052 the researcher makes the escalation decision itself; this module
@@ -218,4 +248,5 @@ Touches the frontend; not part of this overhaul.
   every existing test green, no public name changed.
 - Round 2: the layout above, `PLR1702` on for the refactored paths, docs and
   entry points updated, `task verify` green.
-- Round 3: the six decisions above answered; each yes becomes its own PR.
+- Round 3: the six decisions above answered; each yes becomes its own commit.
+  Four are answered; 4 and 6 stay open and 3 is deferred by choice.
