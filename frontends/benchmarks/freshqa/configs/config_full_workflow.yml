@@ -1,5 +1,5 @@
 # Deep Agent Workflow Configuration
-# Full workflow with intent classification, depth routing, and research agents. Nemotron on integrate.api; add judge (OpenAI or Gemini) for evaluator.
+# Full workflow with research agents. Nemotron on integrate.api; add judge (OpenAI or Gemini) for evaluator.
 
 general:
   telemetry:
@@ -9,14 +9,6 @@ general:
         level: INFO
 
 llms:
-  nemotron_llm_intent:
-    _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
-    base_url: "https://openrouter.ai/api/v1"
-    temperature: 0.7
-    top_p: 0.7
-    max_tokens: 8192
-    api_key: ${OPENROUTER_API_KEY}
 
   nemotron_super_llm:
     _type: openai
@@ -49,10 +41,6 @@ functions:
     _type: tavily_internet_search
     max_results: 5
 
-  intent_classifier:
-    _type: intent_classifier
-    llm: nemotron_llm_intent
-
   shallow_research_agent:
     _type: shallow_research_agent
     llm: nemotron_super_llm
@@ -81,7 +69,7 @@ workflow:
 
 eval:
   general:
-    workflow_alias: "freshqa_eval_full_workflow_with_intent_classifier_and_depth_router"
+    workflow_alias: "freshqa_eval_full_workflow"
     output_dir: frontends/benchmarks/freshqa/results
     max_concurrency: 1
     dataset:
