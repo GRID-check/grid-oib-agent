@@ -19,7 +19,7 @@ Multimodal options:
     extract_tables: Enable table extraction via pdfplumber (default: False)
     extract_charts: Enable chart extraction with VLM data extraction (default: False)
     extract_images: Enable image extraction with VLM captioning (default: False)
-    vlm_model: VLM model for captioning (default: google/gemma-4-31b-it)
+    vlm_model: VLM model for captioning (default: openai/gpt-5.6-luna)
     vlm_base_url: VLM model base URL (default: https://openrouter.ai/api/v1)
 
 Chart extraction uses the VLM to:
@@ -93,10 +93,11 @@ def _env_int(name: str, fallback: int) -> int:
     return int(_env_float(name, float(fallback)))
 
 
-# Default VLM model for image captioning: the model and host the production
-# compose file runs, so a deployment that sets nothing calls OpenRouter with
-# OPENROUTER_API_KEY. Nothing in this repo calls a NVIDIA endpoint any more.
-DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "google/gemma-4-31b-it")
+# Default VLM model for image captioning: the house model every deployment
+# already holds a key for, so captioning needs no second credential. It takes
+# image input (verified on OpenRouter); caption quality on OIB tables and
+# drawings is still unevaluated, like its predecessor's was.
+DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "openai/gpt-5.6-luna")
 # Default VLM model base URL
 DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://openrouter.ai/api/v1")
 
@@ -1887,7 +1888,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         extract_tables: Enable table extraction from PDFs (default: False)
         extract_charts: Enable chart extraction with structured data (default: False)
         extract_images: Enable image extraction with VLM captioning (default: False)
-        vlm_model: VLM for captioning (default: google/gemma-4-31b-it)
+        vlm_model: VLM for captioning (default: openai/gpt-5.6-luna)
 
     Environment variables:
         AIQ_CHROMA_DIR: Default ChromaDB persistence directory

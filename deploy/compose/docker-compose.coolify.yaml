@@ -73,7 +73,7 @@ services:
       # via the shared resolver). An explicitly set value wins; otherwise the
       # OpenRouter key is used even if provider inference is ever disabled.
       - AIQ_EMBED_API_KEY=${AIQ_EMBED_API_KEY:-${OPENROUTER_API_KEY}}
-      - AIQ_VLM_MODEL=${AIQ_VLM_MODEL:-google/gemma-4-31b-it}
+      - AIQ_VLM_MODEL=${AIQ_VLM_MODEL:-openai/gpt-5.6-luna}
       - AIQ_VLM_BASE_URL=${AIQ_VLM_BASE_URL:-https://openrouter.ai/api/v1}
       # ── Databases (single Postgres, three logical DBs; see init-db.sql) ──
       - NAT_JOB_STORE_DB_URL=postgresql+asyncpg://aiq:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/aiq_jobs

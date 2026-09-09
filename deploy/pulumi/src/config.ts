@@ -2276,7 +2276,7 @@ export function loadConfig(): GridConfig {
       tavilyApiKey: cfg.requireSecret("tavilyApiKey"),
       embedModel: cfg.get("embedModel") ?? "openai/text-embedding-3-large",
       embedBaseUrl: cfg.get("embedBaseUrl") ?? "https://openrouter.ai/api/v1",
-      vlmModel: cfg.get("vlmModel") ?? "google/gemma-4-31b-it",
+      vlmModel: cfg.get("vlmModel") ?? "openai/gpt-5.6-luna",
       vlmBaseUrl: cfg.get("vlmBaseUrl") ?? "https://openrouter.ai/api/v1",
     },
 

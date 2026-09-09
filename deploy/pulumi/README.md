@@ -228,7 +228,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | **LLM / models** | | |
 | 🔒 **`openrouterApiKey`** / 🔒 **`tavilyApiKey`** | — | Provider keys |
 | `embedModel` / `embedBaseUrl` | text-embedding-3-large / OpenRouter | Embeddings |
-| `vlmModel` / `vlmBaseUrl` | gemma-4-31b-it / OpenRouter | Vision model |
+| `vlmModel` / `vlmBaseUrl` | gpt-5.6-luna / OpenRouter | Vision model |
 | **Auth / platform** | | |
 | `requireAuth` | `true` | WorkOS AuthKit enforcement |
 | **`workosClientId`** / 🔒 `workosApiKey` / 🔒 `workosCookiePassword` | — | WorkOS |
