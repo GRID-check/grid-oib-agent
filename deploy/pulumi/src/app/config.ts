@@ -320,6 +320,13 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // route's explicit runtime override and is immune to build-time inlining.
     { name: "NEXT_PUBLIC_WORKOS_REDIRECT_URI", value: `https://${cfg.ingress.appDomain}/api/auth/callback` },
     { name: "WORKOS_REDIRECT_URI", value: `https://${cfg.ingress.appDomain}/api/auth/callback` },
+    // PostHog product analytics (fail-open: empty host/token keeps the
+    // browser client disabled — see frontends/ui/src/lib/analytics/posthog.ts).
+    // Read by the BFF per request into AppConfig, so pointing a deployment at
+    // a different project needs no rebuild (the Docker image builds with no
+    // env files; a build-time read would bake `undefined` into the bundle).
+    { name: "NEXT_PUBLIC_POSTHOG_HOST", value: cfg.posthog.host },
+    { name: "NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN", value: cfg.posthog.projectToken },
     // BYOK.
     { name: "GRID_BYOK_SECRET_BACKEND", value: cfg.auth.byokSecretBackend },
     sref("GRID_BYOK_LOCAL_KEK"),

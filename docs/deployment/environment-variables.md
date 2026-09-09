@@ -225,6 +225,8 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 | `PORT` | No | `3000` | Node.js gateway listen port. |
 | `FRONTEND_PORT` | No | `3000` | Docker host port mapping for the frontend container. |
 | `GRID_PROJECT_KNOWLEDGE_PAGE_ENABLED` | No | `false` | Fallback that shows the project-level Knowledge page (nav section plus the `/knowledge` route) when `GRID_ENFORCE_FEATURE_FLAGS` is off. With enforcement on, the per-org `project-knowledge-page` WorkOS flag decides instead. The platform owner's base-knowledge manager is independent of this. Frontend service. |
+| `NEXT_PUBLIC_POSTHOG_HOST` | No | _(unset)_ | Public PostHog host (e.g. `https://eu.i.posthog.com`). Read by the BFF per request into `AppConfig`, so no rebuild is needed to change it. Unset (or unset token) keeps the browser client disabled — no events leave the browser. Frontend service. On Kubernetes it is set from the Pulumi stack key `grid-oib:posthogHost`. |
+| `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN` | No | _(unset)_ | Public PostHog project token (`phc_…`). Public by design (it ships in the client bundle), so it lives in plain config, not in secrets. Same runtime-plumbing and fail-open behaviour as `NEXT_PUBLIC_POSTHOG_HOST`. On Kubernetes it is set from the Pulumi stack key `grid-oib:posthogProjectToken`. |
 
 ---
 
