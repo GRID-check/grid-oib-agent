@@ -2,7 +2,7 @@
 
 The workflow's entry point and nothing else: the config, the wiring of the
 sibling NAT functions into the researcher's conversation graph
-(:mod:`aiq_agent.agents.shallow_researcher.conversation`), and a ``_run`` that
+(:mod:`aiq_agent.agents.researcher.conversation`), and a ``_run`` that
 composes the per-turn harness from :mod:`aiq_agent.turn`. The answering agent,
 the escalation edge and the conversation state all belong to the researcher.
 """
@@ -16,10 +16,10 @@ from typing import Any
 from langchain_core.messages import HumanMessage
 from pydantic import Field
 
-from aiq_agent.agents.shallow_researcher.clarify import ClarifierSettings
-from aiq_agent.agents.shallow_researcher.clarify import build_clarifier
-from aiq_agent.agents.shallow_researcher.conversation import ConversationGraph
-from aiq_agent.agents.shallow_researcher.models import ConversationState
+from aiq_agent.agents.researcher.clarify import ClarifierSettings
+from aiq_agent.agents.researcher.clarify import build_clarifier
+from aiq_agent.agents.researcher.conversation import ConversationGraph
+from aiq_agent.agents.researcher.models import ConversationState
 from aiq_agent.common import AgentGroup
 from aiq_agent.common import filter_tools_by_sources
 from aiq_agent.common import format_tool_unavailability_error
@@ -180,10 +180,14 @@ async def _build_agent(config: ChatDeepResearcherConfig, builder: Builder) -> Co
     escalation goes straight to deep research. The graph never sees the flag —
     one switch, read once, instead of the same decision in three places.
     """
-    shallow_fn = await builder.get_function("shallow_research_agent")
+    # The NAT function NAME, not its `_type` (which is `research_agent`). The
+    # name is what NAT emits as `Function Start: …` and what every stored turn
+    # keeps as `functionName`, so it is a persisted identifier and stays put —
+    # see the comment on the block in `configs/config_oib_openrouter.yml`.
+    research_fn_impl = await builder.get_function("shallow_research_agent")
     deep_fn = await builder.get_function("deep_research_agent")
     return ConversationGraph(
-        shallow_research_fn=shallow_fn.ainvoke,
+        research_fn=research_fn_impl.ainvoke,
         deep_research_fn=deep_fn.ainvoke,
         clarifier_fn=await _build_clarifier(config, builder),
         max_history_tokens=config.max_history_tokens,

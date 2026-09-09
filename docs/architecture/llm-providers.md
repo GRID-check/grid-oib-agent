@@ -29,7 +29,7 @@ runtime (see `org-model-configuration.md`), except for `summary_llm` and
 ```yaml
 # configs/config_oib_openrouter.yml (excerpt) — an OpenAI-compatible LLM
 llms:
-  shallow_llm:
+  research_llm:
     _type: openai
     base_url: "https://openrouter.ai/api/v1"
     model_name: openai/gpt-5.6-luna
@@ -52,7 +52,7 @@ different models/parameters. Point them all at your endpoint to switch providers
 ## Runtime per-org model overrides (ADR-0014)
 
 The YAML remains the *default* layer. On top of it, org admins can re-point
-each **agent group** (clarifier, shallow research, deep research,
+each **agent group** (clarifier, research, deep research,
 deep-research router, memory reflection) at a different OpenRouter model at
 runtime — per tenant, versioned, validated against the OpenRouter catalog,
 no restart. The BFF forwards the active configuration as the
@@ -117,7 +117,7 @@ bounded by per-org/member/project budgets — see
   builds `ChatOpenAI(use_responses_api=True, use_previous_response_id=True)`
   when it is `responses`, so no app-side shim exists or is needed. Only roles
   that require a Responses-only capability set it — today that is
-  `shallow_llm` when `shallow_research_agent.deferred_tool_loading` is
+  `research_llm` when `shallow_research_agent.deferred_tool_loading` is
   enabled, because OpenRouter's server-side tool search has no Chat
   Completions equivalent. Enabling that feature without this line fails the
   workflow build deliberately (`verify_deferred_tool_loading`) rather than
@@ -155,7 +155,7 @@ bounded by per-org/member/project budgets — see
   schemas*, i.e. the pre-ADR-0048 behaviour. The gate is scoped to
   `shallow_research_agent` and lives on its per-agent settings object, never in
   module scope: it is not, and must not become, a fleet-wide model policy.
-  Since ADR-0052 the shallow agent binds its full tool set on every turn,
+  Since ADR-0052 the researcher binds its full tool set on every turn,
   greetings included, so this gate is what keeps the per-turn schema floor
   from growing with the tool list.
 - `reasoning_effort` is a **native** `ChatOpenAI` field

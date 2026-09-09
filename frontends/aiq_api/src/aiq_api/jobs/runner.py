@@ -763,8 +763,8 @@ async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
             if llm_ref not in llm_cache:
                 llm_cache[llm_ref] = await get_langchain_llm(builder, llm_ref)
             default_llm = llm_cache[llm_ref]
-            if getattr(fn_config, "type", None) == "shallow_research_agent":
-                default_group = AgentGroup.SHALLOW_RESEARCH
+            if getattr(fn_config, "type", None) == "research_agent":
+                default_group = AgentGroup.RESEARCH
 
     provider = LLMProvider()
     provider.set_default(default_llm, group=default_group)
@@ -1394,7 +1394,7 @@ async def run_agent_job(
                     # - Grid response cards, re-emitted with the report artifact.
                     #   Additive: card failures never fail the job.
                     # - Project-memory reflection. The chat path runs this
-                    #   post-answer for shallow/meta turns but skips deep jobs
+                    #   post-answer for chat/meta turns but skips deep jobs
                     #   (the report exists only now). Awaited, guarded and
                     #   fail-open — the user already has the report, so this
                     #   never affects the job outcome, only its bookkeeping.
@@ -1697,7 +1697,7 @@ def _create_agent_instance(
     except TypeError:
         pass
 
-    # Try llm_provider + tools pattern (ShallowResearcherAgent style)
+    # Try llm_provider + tools pattern (ResearcherAgent style)
     try:
         return agent_cls(
             llm_provider=llm_provider,
@@ -1958,7 +1958,7 @@ async def _run_deep_research_reflection(
     """Best-effort project-memory reflection over a finished deep-research report.
 
     The synchronous chat path runs a post-answer reflection stage for
-    shallow/meta turns but deliberately skips deep-research jobs (see
+    chat/meta turns but deliberately skips deep-research jobs (see
     chat_researcher/register.py, ``not deep_research_job_id``) because the report
     does not exist until the async job completes. This closes that gap on the
     worker, where the report and the submitting identity are both in hand.
@@ -2174,7 +2174,7 @@ def _extract_answer_transparency(result: Any) -> dict[str, Any]:
 
     # The answer's own self-assessment, read here so it rides the SAME dict to
     # the same two surfaces instead of growing a second lift with its own bugs.
-    # The three travel together on purpose: the shallow path has always sent the
+    # The three travel together on purpose: the chat path has always sent the
     # level with its reason, because "niedrig" alone tells a reader their answer
     # might be wrong and nothing about what to check, and a level whose reason
     # was dropped in transport is the exact complaint that pairing exists to

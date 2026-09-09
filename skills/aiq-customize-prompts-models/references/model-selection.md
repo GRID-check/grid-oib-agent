@@ -46,7 +46,7 @@ with `LLMProvider.configure(LLMRole.<ROLE>, llm)`
 An unset role falls back to the provider default (the `orchestrator_llm` model).
 There is **no** generic `llm` field on the deep research agent.
 
-**Clarifier** (`src/aiq_agent/agents/shallow_researcher/clarify.py`,
+**Clarifier** (`src/aiq_agent/agents/researcher/clarify.py`,
 `ClarifierSettings`, configured as the `clarifier:` block on
 `chat_deepresearcher_agent`) defines `llm` (its
 default) and `planner_llm`. It does **not** use `LLMProvider.configure` for the

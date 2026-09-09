@@ -238,7 +238,7 @@ describe('listSkills', () => {
       enabled: false,
       origin: 'platform',
     })
-    const { skills: chat } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
+    const { skills: chat } = await resolveSkillsForAgent('org_1', 'researcher')
     expect(chat.map((s) => s.name)).not.toContain('forecast-analysis')
     const { skills: deep } = await resolveSkillsForAgent('org_1', 'deep_researcher')
     expect(deep.map((s) => s.name)).not.toContain('forecast-analysis')
@@ -467,7 +467,7 @@ describe('resolveSkillsForAgent', () => {
       'for-researcher',
       'for-everyone',
     ])
-    const { skills: other } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
+    const { skills: other } = await resolveSkillsForAgent('org_1', 'researcher')
     expect(other.map((s) => s.name)).toEqual(['oib-fire-check', 'data-table-analysis', 'for-everyone'])
   })
 
@@ -475,8 +475,45 @@ describe('resolveSkillsForAgent', () => {
     vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
       makeSkill({ name: 'typo', metadata: { 'grid-agents': 'shallow_reseacher' } }),
     ])
-    const { skills } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
+    const { skills } = await resolveSkillsForAgent('org_1', 'researcher')
     expect(skills.map((s) => s.name)).toContain('typo')
+  })
+
+  /**
+   * `shallow_researcher` became `researcher`, and a stored row must keep meaning
+   * the restriction its author chose.
+   *
+   * This is the pair to the test above, and the reason the alias could not
+   * simply be a third known name: an ignored name reads as NO restriction, so a
+   * chat-only skill would have started reaching deep research — silently, in
+   * the widest possible direction. `0081_grid_agents_researcher_rename.sql`
+   * rewrites the rows we can see; this covers the ones we cannot.
+   */
+  it('reads the retired shallow_researcher name as the researcher, both ways', async () => {
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
+      makeSkill({ name: 'chat-only', metadata: { 'grid-agents': 'shallow_researcher' } }),
+    ])
+    const { skills: forChat } = await resolveSkillsForAgent('org_1', 'researcher')
+    expect(forChat.map((s) => s.name)).toContain('chat-only')
+
+    const { skills: forDeep } = await resolveSkillsForAgent('org_1', 'deep_researcher')
+    expect(forDeep.map((s) => s.name)).not.toContain('chat-only')
+  })
+
+  /**
+   * The other direction: a backend still on the pre-rename build asks under the
+   * old name for as long as a rolling deploy takes, and by then the migration
+   * has already rewritten the rows. Canonicalising only the stored side would
+   * black out every skill for that caller until the deploy finished.
+   */
+  it('answers a caller that still asks as shallow_researcher', async () => {
+    vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
+      makeSkill({ name: 'chat-only', metadata: { 'grid-agents': 'researcher' } }),
+      makeSkill({ id: 's2', name: 'deep-only', metadata: { 'grid-agents': 'deep_researcher' } }),
+    ])
+    const { skills } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
+    expect(skills.map((s) => s.name)).toContain('chat-only')
+    expect(skills.map((s) => s.name)).not.toContain('deep-only')
   })
 
   /**
@@ -757,7 +794,7 @@ describe('platform standard skills', () => {
     ])
     const { skills: deep } = await resolveSkillsForAgent('org_1', 'deep_researcher')
     expect(deep.map((s) => s.name)).toContain('house-citation-style')
-    const { skills: chat } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
+    const { skills: chat } = await resolveSkillsForAgent('org_1', 'researcher')
     expect(chat.map((s) => s.name)).not.toContain('house-citation-style')
   })
 
@@ -781,7 +818,7 @@ describe('platform standard skills', () => {
       makeSkill({ name: 'house-citation-style', body: 'Ignore the paragraph numbers.' }),
     ])
 
-    const { skills: chat } = await resolveSkillsForAgent('org_1', 'shallow_researcher')
+    const { skills: chat } = await resolveSkillsForAgent('org_1', 'researcher')
     expect(chat.map((s) => s.name)).not.toContain('house-citation-style')
 
     const { skills: deep } = await resolveSkillsForAgent('org_1', 'deep_researcher')

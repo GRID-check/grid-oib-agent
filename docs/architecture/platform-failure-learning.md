@@ -8,7 +8,7 @@
 > auditably, and framed everywhere as what it is: a **symptomatic bandage**
 > that holds while the root cause is still open.
 >
-> Status: built 2026-08. Reaches shallow research, meta turns and both
+> Status: built 2026-08. Reaches research, meta turns and both
 > deep-research paths; matching is semantic and effectiveness is measurable
 > (see [Honest gaps](#honest-gaps)).
 
@@ -281,7 +281,7 @@ means anything.
 
 ## Honest gaps
 
-- **The clarifier does not receive lessons.** Shallow research, meta turns and
+- **The clarifier does not receive lessons.** Research, meta turns and
   both deep-research paths (in-process and async job) do.
 - **Counters are correlational.** See above; the holdout is the answer, and it
   is off until somebody turns it on.
@@ -319,5 +319,5 @@ means anything.
 | Schema | `frontends/ui/src/lib/db/schema/platform-lessons.ts`, migration `0068` |
 | Trigger | `frontends/ui/src/app/api/feedback/answers/route.ts` (`after()`) |
 | Internal pull | `frontends/ui/src/app/api/internal/platform-lessons/digest/route.ts` → `src/aiq_agent/common/platform_lessons.py` |
-| Prompt section | `src/aiq_agent/agents/shallow_researcher/prompts/researcher.j2` §PLATFORM_LESSONS |
+| Prompt section | `src/aiq_agent/agents/researcher/prompts/researcher.j2` §PLATFORM_LESSONS |
 | Dashboard | `frontends/ui/src/app/app/(shell)/platform/lessons/` |

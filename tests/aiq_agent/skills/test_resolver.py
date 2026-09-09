@@ -27,7 +27,7 @@ def _reset_cache():
 @pytest.fixture
 def resolver(monkeypatch: pytest.MonkeyPatch) -> SkillResolver:
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "test-token")
-    resolver = SkillResolver(agent="shallow_researcher")
+    resolver = SkillResolver(agent="researcher")
     resolver._builtin_by_name = {s.name: s for s in BUILTIN}
     return resolver
 
@@ -44,7 +44,7 @@ def test_org_rows_shadow_builtin_by_name(resolver: SkillResolver) -> None:
     with mock.patch.object(
         resolver,
         "_fetch_org_skills",
-        return_value=[_row("calc", metadata={"grid-agents": "shallow_researcher"}), _row("org-only")],
+        return_value=[_row("calc", metadata={"grid-agents": "researcher"}), _row("org-only")],
     ):
         resolved = resolver.resolve("org-1")
     assert {s.name: s for s in resolved}["calc"].origin == "org"
@@ -126,7 +126,7 @@ def test_org_row_with_a_stored_grid_execution_still_resolves(resolver: SkillReso
                 metadata={
                     "grid-execution": "deep-research",
                     "grid-schedulable": "true",
-                    "grid-agents": "shallow_researcher",
+                    "grid-agents": "researcher",
                 },
             )
         ],
@@ -245,10 +245,10 @@ def _capture_fetch_query(agent: str | None, monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_fetch_sends_the_snake_case_organization_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    query = _capture_fetch_query("shallow_researcher", monkeypatch)
+    query = _capture_fetch_query("researcher", monkeypatch)
     assert query["organization_id"] == "org-42"
     assert "organizationId" not in query
-    assert query["agent"] == "shallow_researcher"
+    assert query["agent"] == "researcher"
     assert query["__url"] == "http://frontend:3000/api/internal/skills/resolve"
     assert query["__token_header"] == "x-grid-internal-token"
 
@@ -266,9 +266,50 @@ def test_unknown_grid_agents_names_do_not_delete_the_skill(resolver: SkillResolv
     from aiq_agent.skills.resolver import _agent_allows
 
     typo = Skill(name="typo", description="d", body="b", metadata={"grid-agents": "shallow_reseacher"})
-    assert _agent_allows(typo, "shallow_researcher") is True
+    assert _agent_allows(typo, "researcher") is True
     real = Skill(name="real", description="d", body="b", metadata={"grid-agents": "deep_researcher"})
-    assert _agent_allows(real, "shallow_researcher") is False
+    assert _agent_allows(real, "researcher") is False
+
+
+def test_the_retired_agent_name_still_scopes_a_skill_to_the_researcher() -> None:
+    """`shallow_researcher` is `researcher`, and reads as a RESTRICTION either way.
+
+    The failure this pins is the silent one. Both resolvers ignore a name they
+    do not know, and an allowlist of only unknown names is treated as absent —
+    so had the rename shipped without the alias, every stored
+    `grid-agents: shallow_researcher` row would have read as "no restriction"
+    and the chat-scoped skills would have started reaching deep research. The
+    forward migration rewrites the rows we can see; this is what covers a row
+    written by an older BFF mid-deploy, or restored from a backup.
+    """
+    from aiq_agent.skills.resolver import _agent_allows
+
+    retired = Skill(name="voice", description="d", body="b", metadata={"grid-agents": "shallow_researcher"})
+    assert _agent_allows(retired, "researcher") is True
+    assert _agent_allows(retired, "deep_researcher") is False
+
+    both = Skill(
+        name="cards", description="d", body="b", metadata={"grid-agents": "shallow_researcher,deep_researcher"}
+    )
+    assert _agent_allows(both, "researcher") is True
+    assert _agent_allows(both, "deep_researcher") is True
+
+
+def test_a_caller_still_asking_under_the_retired_name_gets_the_same_answer() -> None:
+    """The CALLER's name is canonicalised too, not only the stored one.
+
+    A backend on the pre-rename build asks for `shallow_researcher` for as long
+    as a rolling deploy takes. Normalising only the stored side would drop every
+    migrated row for that caller — the same skill blackout, in the other
+    direction, for the length of the deploy.
+    """
+    from aiq_agent.skills.resolver import _agent_allows
+
+    migrated = Skill(name="voice", description="d", body="b", metadata={"grid-agents": "researcher"})
+    assert _agent_allows(migrated, "shallow_researcher") is True
+
+    deep_only = Skill(name="report", description="d", body="b", metadata={"grid-agents": "deep_researcher"})
+    assert _agent_allows(deep_only, "shallow_researcher") is False
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +329,7 @@ CURATED = Skill(
 @pytest.fixture
 def catalog_resolver(monkeypatch: pytest.MonkeyPatch) -> SkillResolver:
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "test-token")
-    resolver = SkillResolver(agent="shallow_researcher")
+    resolver = SkillResolver(agent="researcher")
     resolver._builtin_by_name = {s.name: s for s in (*BUILTIN, CURATED)}
     return resolver
 
@@ -328,7 +369,7 @@ def test_machinery_survives_a_failed_fetch(catalog_resolver: SkillResolver) -> N
 def test_unrecognised_catalog_value_reads_as_machinery(monkeypatch: pytest.MonkeyPatch) -> None:
     """The closed default: a typo must not expose an internal instruction as an offer."""
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "test-token")
-    resolver = SkillResolver(agent="shallow_researcher")
+    resolver = SkillResolver(agent="researcher")
     typo = Skill(
         name="typo",
         description="Meant to be curated.",
@@ -355,11 +396,11 @@ def test_served_skills_leave_the_builtin_FILES_where_they_are(monkeypatch: pytes
         SkillResolver,
         "_fetch_org_skills",
         return_value=[
-            _row("piloti-voice", metadata={"grid-agents": "shallow_researcher,deep_researcher"}),
+            _row("piloti-voice", metadata={"grid-agents": "researcher,deep_researcher"}),
             # The BFF also re-sends machinery, stamped origin=org. The mount
             # already has the file; serving it here would put execute-skills
             # in front of the writer.
-            _row("brandschutz", metadata={"grid-agents": "shallow_researcher,deep_researcher"}),
+            _row("brandschutz", metadata={"grid-agents": "researcher,deep_researcher"}),
         ],
     ):
         served = resolve_served_skills("deep_researcher", "org-1")
@@ -373,7 +414,7 @@ def test_served_skills_still_honour_grid_agents(monkeypatch: pytest.MonkeyPatch)
     with mock.patch.object(
         SkillResolver,
         "_fetch_org_skills",
-        return_value=[_row("chat-only", metadata={"grid-agents": "shallow_researcher"})],
+        return_value=[_row("chat-only", metadata={"grid-agents": "researcher"})],
     ):
         assert resolve_served_skills("deep_researcher", "org-1") == ()
 

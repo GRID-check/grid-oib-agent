@@ -1,7 +1,7 @@
 """Final-answer streaming: the already-final text as deltas plus one terminal chunk.
 
 The chat turn is generated, citation-verified, and sanitized fully buffered
-(verify_citations/sanitize_report need the complete answer, and a shallow
+(verify_citations/sanitize_report need the complete answer, and a chat
 answer can still escalate to deep research — so raw token streaming would
 leak unverified citations or superseded text). We therefore stream the
 ALREADY-FINAL text as deltas: progressive rendering, not a change to the
@@ -35,7 +35,7 @@ STREAM_EXTRA_FIELDS = (
     "job_admission_rejected",
     "retry_after_seconds",
     # The answer's structured anatomy (verdict / takeaways / callout), gated by
-    # the shallow agent — a native answer field, never a card.
+    # the researcher — a native answer field, never a card.
     "answer_meta",
     # Agent Skills: which skills ran this turn, in the order their bodies were
     # fetched, and the ``grid-hidden`` subset the disclosure mutes until the

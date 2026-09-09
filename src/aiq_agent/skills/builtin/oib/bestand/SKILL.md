@@ -4,7 +4,7 @@ description: >
   Was nach Umbau, Nutzungsänderung oder größerer Renovierung noch bindet.
 metadata:
   grid-catalog: curated
-  grid-agents: shallow_researcher,deep_researcher
+  grid-agents: researcher,deep_researcher
   grid-cards: requirement_checklist,condition_tree,legal_basis
 ---
 

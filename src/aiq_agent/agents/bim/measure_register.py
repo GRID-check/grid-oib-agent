@@ -71,7 +71,7 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-# The failure texts, under the names the shallow researcher's tests fix.
+# The failure texts, under the names the researcher's tests fix.
 _rejected_text = rejected_text
 _unrunnable_text = unrunnable_text
 _too_large_text = too_large_text

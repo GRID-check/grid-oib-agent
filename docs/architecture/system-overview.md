@@ -162,7 +162,7 @@ Chat is **WebSocket-only** (ADR 0009). A turn runs through a LangGraph workflow
 full tool set → (escalate?) → clarifier → deep research** (ADR-0052). There is
 no classifier in front of it: the agent decides per turn, in its answer
 envelope, whether to reply directly, to research and cite, or to hand off to
-deep research. Shallow research answers directly from retrieval; deep research is
+deep research. Research answers directly from retrieval; deep research is
 dispatched as an async job (§5.5). Responses stream back through a monkeypatched
 NAT WebSocket handler that lifts structured fields (cards, deep-research job id)
 onto the message. → `docs/architecture/backend-deep-dive.md` §2.

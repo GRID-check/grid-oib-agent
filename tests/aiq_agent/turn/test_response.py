@@ -3,7 +3,7 @@
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.shallow_researcher.models import ConversationState
+from aiq_agent.agents.researcher.models import ConversationState
 from aiq_agent.common import _create_chat_response
 from aiq_agent.stages import TurnFacts
 from aiq_agent.turn.response import RESPONSE_LIFTS

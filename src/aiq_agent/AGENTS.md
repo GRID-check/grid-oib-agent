@@ -32,7 +32,7 @@ everything passes.
 back. `messung` is reproducible instead, carries GlobalIds and a tolerance, and
 travels its own channel (`agents/bim/measurement_sources.py`). Putting one in
 the `SourceRegistry` would let a basement measurement ground an uncited legal
-verdict, the exact laundering path `shallow_researcher.grounding` exists to
+verdict, the exact laundering path `researcher.grounding` exists to
 close. The header of `common/source_kinds.py` is the full argument.
 
 **`doc_class` is human-set and beats every filename guess.** The fine

@@ -81,7 +81,7 @@ describe('AGENT_FOR_OUTPUT', () => {
     // The mirror of `_OUTPUT_AGENT_TYPES` in routes/skills.py, and what the
     // skill picker filters `grid-agents` by.
     expect(AGENT_FOR_OUTPUT).toEqual({
-      chat: 'shallow_researcher',
+      chat: 'researcher',
       'deep-research': 'deep_researcher',
     })
   })

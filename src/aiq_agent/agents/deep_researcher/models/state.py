@@ -64,7 +64,7 @@ class DeepResearchAgentState(BaseModel):
     # Evidence-gathering was CUT OFF, not completed: the run hit its wall-clock
     # budget or the orchestrator's step limit and the answer was salvaged from
     # whatever it had reached by then. Set ONLY on a cutoff (None otherwise), so
-    # presence is the fact — the same contract the shallow researcher's
+    # presence is the fact — the same contract the researcher's
     # ``research_truncated`` uses, and the field the websocket layer already
     # lifts onto the terminal frame.
     research_truncated: bool | None = None
@@ -89,7 +89,7 @@ class DeepResearchAgentState(BaseModel):
     # wire-ready dicts from ``source_entry_to_wire``, each carrying the ``[N]``
     # label it wears in the prose plus the locator (document/file/page), the
     # coarse ``kind`` and the norm registry's binding note. Same field name and
-    # same shape as the shallow researcher's, because the two feed one reader:
+    # same shape as the researcher's, because the two feed one reader:
     # the job runner lifts it into the job output and into the message metadata
     # as ``sources``, where the BFF's ``normalizeAgentAnswerMetadata`` decodes
     # it into the stored ``citations`` envelope. Without it a deep answer's
@@ -112,11 +112,11 @@ class DeepResearchAgentState(BaseModel):
     # The writer's own self-assessment of how well the report is grounded in the
     # sources it cited, parsed from the trailing ``[CONFIDENCE:...]`` marker in
     # ``/shared/output.md`` and already passed through the deterministic
-    # overconfidence guard. Same three names and shapes the shallow/chat path
+    # overconfidence guard. Same three names and shapes the chat path
     # uses, because one reader consumes both: the job runner lifts them onto the
     # job output and the frontend renders one confidence chip either way. A deep
     # answer used to carry none of this, so the chip the product shows beside
-    # every shallow answer was simply missing on the longest reports it writes —
+    # every chat answer was simply missing on the longest reports it writes —
     # which reads as a broken feature, not as "not assessed". None means "no
     # signal" (marker absent or malformed) and nothing renders.
     answer_confidence: Literal["low", "medium", "high"] | None = None
@@ -125,7 +125,7 @@ class DeepResearchAgentState(BaseModel):
     # guard capped the level, this reason may still argue for the pre-cap one.
     answer_confidence_reason: str | None = None
     # Why the surfaced level is lower than the writer claimed, in the shared
-    # five-token taxonomy (see ``shallow_researcher.markers.CappedReason``).
+    # five-token taxonomy (see ``researcher.markers.CappedReason``).
     # Deep never measures an IFC model and has no single-source fallback, so in
     # practice only ``ungrounded`` and ``quote_unverified`` can occur here — the
     # other three are kept so a surface never has to branch on which agent wrote

@@ -1,7 +1,7 @@
 """Shared helpers for NAT human-in-the-loop (HITL) prompts.
 
 Two places stop a run to ask the user something — the clarification step
-(`agents/shallow_researcher/clarify.py`) and the shallow researcher's
+(`agents/researcher/clarify.py`) and the researcher's
 `ask_user` tool — and both need the same two halves of NAT's HITL protocol:
 
 1. build the prompt, choosing the prompt type that can actually carry answer

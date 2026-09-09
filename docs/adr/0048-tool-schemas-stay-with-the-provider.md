@@ -7,7 +7,7 @@
 
 ## Context
 
-The shallow researcher binds eleven tools and force-synthesizes after five tool
+The researcher binds eleven tools and force-synthesizes after five tool
 iterations. Two of those eleven — `ifc_query` and `ifc_measure` — carry the
 descriptions that make them usable at all: twelve documented operations, a
 provenance vocabulary, the refusal cases. Measured through the real builder,
@@ -16,7 +16,7 @@ schema, ≈14 000 input tokens**, and they ride on every request the agent makes
 including the ones that never touch the building.
 
 The repo already answered the "which tools" half of this in
-`shallow_researcher/tool_search.py`: a local BM25 ranking narrows the bound set
+`researcher/tool_search.py`: a local BM25 ranking narrows the bound set
 *outside* the tool loop, because this agent cannot afford to spend one of five
 iterations on a discovery call. That module's own docstring states the
 constraint this ADR inherits — **turns are the scarce resource, not tokens** —
@@ -70,14 +70,14 @@ it defers three times over.**
 
 `src/aiq_agent/common/deferred_tool_loading.py`, behind one function —
 `bind_tools_deferred(llm, tools, settings=…)` — which every research-turn
-binding goes through (`ShallowResearcherAgent._bind_research_tools`).
+binding goes through (`ResearcherAgent._bind_research_tools`).
 
 The in-house precedent for rewriting a model request is
 `ToolVisibilityMiddleware` in `deep_researcher/custom_middleware.py`, which
 overrides `request.tools` in `wrap_model_call`. It was **not** the right shape
 here, for a structural reason: `AgentMiddleware` only runs under
 `create_agent`, and the agent this feature exists for does not use it. The
-shallow researcher builds a raw `StateGraph` and calls `llm.bind_tools(...)`
+researcher builds a raw `StateGraph` and calls `llm.bind_tools(...)`
 directly at three sites (construction, tool-search-narrowed, meta). A
 middleware would have applied to `deep_researcher` — which is not
 turn-budgeted, is not the surface carrying the BIM schemas, and whose
@@ -99,7 +99,7 @@ whose schemas are a few hundred characters, and the tool-search apparatus costs
 `OpenAIModelConfig` inherits `api_type` from `LLMBaseConfig`, and
 `nat.plugins.langchain.llm.openai_langchain` already builds
 `ChatOpenAI(use_responses_api=True, use_previous_response_id=True)` when it is
-`responses`. One line of YAML on `shallow_llm` — `api_type: responses` — is the
+`responses`. One line of YAML on `research_llm` — `api_type: responses` — is the
 whole enablement. This is worth recording because the repo's previous two
 encounters with this class of problem (`DeferredStructuredOutputMiddleware`,
 `enforce_chat_request_contract`) both needed workarounds, and the reflex to
@@ -206,7 +206,7 @@ dead on arrival; a *floor* miss only warns.
 scores and the floor all live on the per-agent `DeferredToolLoadingSettings`,
 never in module scope, so two agents could hold different policies at once.
 `deferred_tool_loading` sits under `shallow_research_agent`, `api_type: responses`
-is on `shallow_llm` alone, and the module is imported only by that agent — so
+is on `research_llm` alone, and the module is imported only by that agent — so
 `intent_classifier`, `clarifier_llm`, `summary_llm` and the `deep_*` roles never
 enter this path. Deferral pays only where a large tool surface meets a tight
 turn budget (~60 KB of BIM schemas on a 5-iteration budget); an intent
@@ -299,7 +299,7 @@ it makes the cheap turns cheap. A deployment whose questions all hit
 - **`bind_tools(tool.extras["defer_loading"])`, langchain-openai's own path.**
   It emits the top-level flat function OpenRouter silently drops. It is the bug,
   not the feature.
-- **An `AgentMiddleware`.** Only runs under `create_agent`; the shallow
+- **An `AgentMiddleware`.** Only runs under `create_agent`; the
   researcher does not use it. See *Where the reshaping lives*.
 - **A contract subclass in `llm_factory`**, like `enforce_chat_request_contract`.
   It would apply fleet-wide from one place, but the payload has to know *which*

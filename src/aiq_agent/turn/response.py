@@ -4,7 +4,7 @@ post-answer stages' facts.
 State field name in, response attribute (or ``TurnFacts`` field) out. Kept as
 module-level functions with a table rather than inline code in the workflow
 because inline they could only be exercised by standing up the whole NAT
-workflow — which is how ``skills_hidden`` could be set by the shallow
+workflow — which is how ``skills_hidden`` could be set by the
 researcher, declared by the frontend, and still never reach a reader, and how
 ``research_truncated`` rode the wire for months without the one stage gate
 that needed it ever reading it.
@@ -21,7 +21,7 @@ from aiq_agent.stages import TurnFacts
 from nat.data_models.api_server import ChatResponse
 
 if TYPE_CHECKING:
-    from aiq_agent.agents.shallow_researcher.models import ConversationState
+    from aiq_agent.agents.researcher.models import ConversationState
 
 logger = logging.getLogger(__name__)
 

@@ -186,7 +186,7 @@ python3 $SKILL_DIR/scripts/aiq.py research "<REFINED_QUERY>" [agent_type]
 ```
 
 - Choose `agent_type` to match the desired depth (for example a deep agent for a
-  thorough pass, or `shallow_researcher` for a quick one); list options with
+  thorough pass, or `researcher` for a quick one); list options with
   `agents` if unsure.
 - Treat a redo as a new job: state the target endpoint again before sending
   (Step 2), then poll and present as in Steps 3-5.
@@ -301,7 +301,7 @@ job completes. If the job failed, show the returned status and do not retry auto
 python3 $SKILL_DIR/scripts/aiq.py chat "How does that compare on cost? (context: local AIQ deep research vs web search)"
 
 # Redo: re-run research with a narrower query and explicit depth.
-python3 $SKILL_DIR/scripts/aiq.py research "AIQ deep research cost on a single workstation" shallow_researcher
+python3 $SKILL_DIR/scripts/aiq.py research "AIQ deep research cost on a single workstation" researcher
 ```
 
 Expected output: a routed chat response or a new `deep_research_running` job ID

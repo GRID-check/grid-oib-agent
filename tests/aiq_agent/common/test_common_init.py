@@ -403,7 +403,7 @@ class TestGetCheckpointer:
         from langgraph.checkpoint.base import empty_checkpoint
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-        from aiq_agent.agents.shallow_researcher.models import ConversationState
+        from aiq_agent.agents.researcher.models import ConversationState
         from aiq_agent.common import _build_checkpointer_serde
         from aiq_agent.knowledge.schema import AvailableDocument
 
@@ -465,7 +465,7 @@ class TestGetCheckpointer:
         from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
         from pydantic import BaseModel
 
-        from aiq_agent.agents.shallow_researcher.models import ConversationState
+        from aiq_agent.agents.researcher.models import ConversationState
         from aiq_agent.common import _build_checkpointer_serde
 
         class RetiredStateType(BaseModel):

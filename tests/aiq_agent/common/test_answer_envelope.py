@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 
-from aiq_agent.agents.shallow_researcher.markers import detect_and_strip_confidence_marker
+from aiq_agent.agents.researcher.markers import detect_and_strip_confidence_marker
 from aiq_agent.common.answer_envelope import ENVELOPE_VERSION
 from aiq_agent.common.answer_envelope import SUMMARY_MAX_CHARS
 from aiq_agent.common.answer_envelope import AnswerMeta

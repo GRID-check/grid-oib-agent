@@ -18,7 +18,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from aiq_agent.agents.chat_researcher import register as register_mod
 from aiq_agent.agents.chat_researcher.register import ChatDeepResearcherConfig
 from aiq_agent.agents.chat_researcher.register import chat_deepresearcher_agent
-from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
+from aiq_agent.agents.researcher.models import ResearchAgentState
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.project_context import GridRequestContext
 from aiq_agent.turn import context as context_mod
@@ -60,7 +60,7 @@ async def _never(_state):  # pragma: no cover - the turn never escalates here
 
 
 async def _shallow(state):
-    return ShallowResearchAgentState(
+    return ResearchAgentState(
         messages=list(state.messages) + [AIMessage(content=ANSWER)],
         escalation_requested=False,
         source_lookup_attempted=True,

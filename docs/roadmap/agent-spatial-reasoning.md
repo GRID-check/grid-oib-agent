@@ -507,7 +507,7 @@ description: Wie eine Frage zum BIM-Modell beantwortet wird - erst das
   Vokabular des Modells feststellen, dann filtern, Zahlen nur aus aggregate,
   und raeumliche Fragen sofort und praezise als nicht entscheidbar kennzeichnen.
 metadata:
-  grid-agents: shallow_researcher,deep_researcher
+  grid-agents: researcher,deep_researcher
   grid-cards: ifc_viewer,ifc_schedule,ifc_element
 ---
 

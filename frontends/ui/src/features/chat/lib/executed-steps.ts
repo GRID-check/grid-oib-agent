@@ -75,6 +75,8 @@ const STEP_NAME_RULES: Array<{ match: RegExp; key: string }> = [
   { match: /web[_-]?search|tavily/, key: 'webSearch' },
   { match: /ris/, key: 'ris' },
   { match: /knowledge|retriev|corpus/, key: 'corpus' },
+  // `shallow` is the wire name (`shallow_research_agent`), kept when the agent
+  // itself was renamed to `researcher` because it is stored per turn.
   { match: /shallow|assistant/, key: 'assistant' },
   { match: /read|fetch/, key: 'reading' },
 ]

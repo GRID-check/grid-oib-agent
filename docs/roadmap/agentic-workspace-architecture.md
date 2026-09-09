@@ -56,7 +56,7 @@ that closes a loop is named where it ran.
 | fix | A deep run whose post-hoc cards could not be produced records `cards_generation_failed` as a degraded reason, worded under the answer and in the Herleitung graph, instead of looking like a run that had nothing to propose | `cards/generate.py`, `jobs/runner.py`, `turn-events.ts`, `message-provenance.ts` |
 | fix | The Report tab's source list carries the `[N]` the report cites by: the report route returns the persisted numbered sources, and both load paths merge them into the citation list | `routes/jobs.py`, `deep-research-client.ts`, `use-deep-research.ts`, `use-load-job-data.ts` |
 | fix | The OIB display title reads any edition off the filename, not only "Mai 2023"; the three document-metadata resolvers log a failed store read instead of silently falling back | `common/norm_registry.py`, `sources/knowledge_layer/src/register.py` |
-| D · L0 | The turn's one repair: a failed citation or quote triggers one retrieval aimed at the failing text and one rewrite, re-verified, the better answer ships (`repair_pass`, `status.repair`) | `shallow_researcher/agent.py` |
+| D · L0 | The turn's one repair: a failed citation or quote triggers one retrieval aimed at the failing text and one rewrite, re-verified, the better answer ships (`repair_pass`, `status.repair`) | `researcher/agent.py` |
 | D · L1 | The retrieval loop: a sufficiency judge beside the reranker, alternative formulations retrieved from every collection and fused into the same RRF, a second rerank; `status.retrieval.requery` on the live line and `requery_queries` in the trace | `knowledge_layer/requery.py`, `register.py`, `config_oib_openrouter.yml` |
 | D · L5 | The turn holds for an attachment still being indexed (`GRID_INGEST_WAIT_SECONDS`, `status.documents.waiting`), re-reads the inventory when it finishes; the in-flight filter that never fired is fixed | `chat_researcher/register.py`, `knowledge/ingest_status_store.py` |
 | fix | Deep research no longer dies of one slow source: a tool's own timeout is a tool error the model routes around; the writer's call bound matches its output (600 s, one retry); a budget exhaustion keeps its actionable message; the banner names the real cause | `deep_researcher/tools/source_tool_batching.py`, `deep_researcher/agent.py`, `jobs/runner.py`, `config_oib_openrouter.yml` |
@@ -134,7 +134,7 @@ named in `deploy/compose/docker-compose.coolify.yaml:131`.
 
 | Question | Answer today | Evidence |
 |---|---|---|
-| Can the agent loop? | Yes, a ReAct loop with a ceiling of 7 charged tool calls plus reserved skill loads. The accounting charges per *emitted* call, so three parallel searches cost three | `shallow_researcher/agent.py:997`, config `:648-705` (a 55-line trace of which German question shapes truncate) |
+| Can the agent loop? | Yes, a ReAct loop with a ceiling of 7 charged tool calls plus reserved skill loads. The accounting charges per *emitted* call, so three parallel searches cost three | `researcher/agent.py:997`, config `:648-705` (a 55-line trace of which German question shapes truncate) |
 | Does it check its own answer? | Only subtractively: unresolvable `[N]` are deleted, a fabricated quote is annotated, the confidence chip is capped. Nothing re-searches or rewrites | `common/citation_verification.py:2295-2365`, `deep_researcher/agent.py:1090-1097` ("it still ships") |
 | Can it act? | Two write tools: `remember` (project memory) and `ris_fetch_tool` (ingests into the session shelf). Everything else reads or renders | config `:630-644`; `project_memory/register.py:150-186` |
 | Can it act without a human click? | No. Org memory writes and profile patches become proposal cards the user accepts | `register.py:171-186`, `cards/models.py:280-289` |
@@ -231,7 +231,7 @@ What remains, ranked by consequence:
    `backlog.md` T2-CIT1. Not tunable; needs a polarity-aware token check.
 3. **No retrieval loop.** Nothing judges sufficiency and re-queries. The deep
    researcher asks the model for an `evidence_judgment` score and leaves the
-   re-query to its discretion; the shallow path caps `knowledge_search` at two
+   re-query to its discretion; the chat path caps `knowledge_search` at two
    calls by description. Multi-query and decomposition are missing while the
    fusion machinery to merge them is written and tested. `register.py:66`,
    `hybrid.py:29`.
@@ -297,7 +297,7 @@ What a delegated task needs, and what already exists for each:
 | Execution | Two correct DB-claimed worker tiers (`FOR UPDATE SKIP LOCKED`, heartbeat, stale reclaim, leader-elected reaper) | `aiq_api/jobs/queue.py`, `scheduler/db.js`, `purger/db.js` | One shared claim library; a `kind` on the queue so a non-research step can be queued; a migration and RLS for `research_job_queue`, which is created by runtime DDL |
 | Trigger | A job: prompt, optional skill snapshot, output kind, cron | `schema/jobs.ts:98` | An overlap policy (`skip_if_running` / `queue`); an event trigger of any kind |
 | Playbook | Skills: versioned, org-owned, platform-shadowable, snapshotted, progressively disclosed | `skills/resolver.py`, `runtime.py` | Nothing. This is the most finished part |
-| Plan + approval | The clarifier's plan preview with approve / short answer / cancel | `shallow_researcher/clarify.py` (`preview_plan`) | It is an `asyncio` future on a live socket. A job has no socket, so it cannot be approved |
+| Plan + approval | The clarifier's plan preview with approve / short answer / cancel | `researcher/clarify.py` (`preview_plan`) | It is an `asyncio` future on a live socket. A job has no socket, so it cannot be approved |
 | Artifact | `fileGeneratedDocument`, `authored_by` / `authored_by_producer`, the "KI-generiert — nicht geprüft" block, deliberately not indexed | `lib/documents/generated.ts`, migration 0063 | Filing happens only on an interactive report GET. A scheduled run's report expires with `job_info` in 24 h and is filed by nobody (`api/jobs/async/[...path]/route.ts:237-245`) |
 | Notification | Inbox with six typed items, per-filter empty states, deep links that hold the anchor | `schema/inbox.ts:45-63`, `lib/inbox/registry.ts` | No `task.*` or `job.*` type. ADR-0035 priced one at "a registry entry plus two translations" and named a failed workflow run as the motivating case |
 | Review | Assignment *is* approval for a filed report ("being answerable for the content is the approval") | `agent-authored-reports.md:107-111` | No queue of agent output awaiting a human. The `Unvergeben + Von Piloti` filter is one page in one project |
@@ -514,7 +514,7 @@ The one new table, and the seams that already exist hung off it.
 | Change | Module | Kind |
 |---|---|---|
 | `tasks` table with lifecycle, pinned requester, plan, budget, deadline, concurrency policy; `jobs` creates tasks | `frontends/ui/src/lib/db/schema/tasks.ts`, `lib/tasks/`, migration with `grid_secure_table` | new row, generalises `jobs`/`job_runs`/`mention_requests` |
-| Persist the clarifier's plan on the task; approval is a row transition resolved by an event, not a socket future | `shallow_researcher/clarify.py` (`preview_plan`), `lib/tasks/` | generalisation |
+| Persist the clarifier's plan on the task; approval is a row transition resolved by an event, not a socket future | `researcher/clarify.py` (`preview_plan`), `lib/tasks/` | generalisation |
 | File the run's artifact at completion as the pinned requester, off the interactive GET | `lib/documents/research-report.ts`, `api/jobs/async/[...path]/route.ts:247` | generalisation; the route comment names this as "v1.1, decision 10" |
 | Audit actions `task.created … task.accepted`; per-task budget and deadline enforced by `GridCostTracker` and `BudgetGuardCallback` | `lib/audit/schemas.mjs`, `common/budget_guard.py`, `lib/request-context.ts` | generalisation |
 | A review surface: the `Unvergeben + Von Piloti` preset becomes the inbox row's landing view; accept / reject / edit writes a decision the next run reads | `documents/lib/file-filters.ts:20,80`, `file-filter-menu.tsx` | generalisation |
@@ -535,7 +535,7 @@ The loops that make the agent trustworthy unattended.
 
 | Change | Module |
 |---|---|
-| One bounded repair pass in the turn: on `citations_removed > 0`, an unverified quote or a capped confidence, one more retrieval and one rewrite, then ship with the marker if it still fails | `shallow_researcher/agent.py:1150-1400`, `deep_researcher/agent.py:1049-1160` |
+| One bounded repair pass in the turn: on `citations_removed > 0`, an unverified quote or a capped confidence, one more retrieval and one rewrite, then ship with the marker if it still fails | `researcher/agent.py:1150-1400`, `deep_researcher/agent.py:1049-1160` |
 | Retrieve → judge → re-query inside `knowledge_search`: a sufficiency judgement over the fused pool, one paraphrase fan-out merged by the existing RRF | `sources/knowledge_layer/src/register.py:1312`, `hybrid.py:29` |
 | A checker step on every task kind: the compliance matrix is re-read against its own citations before filing | `agents/compliance_checker/agent.py:503`, task runner |
 | The event seam with three consumers: ingest terminal state (hold the turn, tell the agent), `oib_status` STALE (re-check affected projects), a watched folder | `knowledge/ingest_status_store.py`, `oib_status.py:31-55`, `lib/tasks/triggers/` |

@@ -2,7 +2,7 @@
  * The skills-transparency extras, from the terminal frame to the answer's props.
  *
  * `grid-hidden` metadata makes `SkillRuntime.hidden_activated` name a skill,
- * the shallow researcher puts that list on `skills_hidden`, the aiq_api lifts
+ * the researcher puts that list on `skills_hidden`, the aiq_api lifts
  * it onto the terminal frame beside `skills_activated`, and the disclosure
  * reads the pair: `skills_activated` is the record of what shaped the answer
  * and `skills_hidden` is the subset it mutes until the reader turns the

@@ -3,7 +3,7 @@ name: bebauung
 description: >
   Bauwich, Widmung und GFZ. Land und Gemeinde, nicht OIB.
 metadata:
-  grid-agents: shallow_researcher,deep_researcher
+  grid-agents: researcher,deep_researcher
   grid-cards: setback_plan,density_check,building_section,parking_requirement,legal_basis
 ---
 

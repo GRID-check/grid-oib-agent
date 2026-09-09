@@ -1,10 +1,10 @@
 """Live turn-shape eval for the two behaviours ADR-0052 moved from code into the prompt.
 
-ADR-0052 deleted the intent classifier: every turn enters the shallow
+ADR-0052 deleted the intent classifier: every turn enters the
 researcher with every tool bound, and what the turn IS is decided by the model
 with the tools in hand. Two things that used to be routing are now the model's
 judgment, pinned only by the ``<output_contract>`` block of
-``src/aiq_agent/agents/shallow_researcher/prompts/researcher.j2``:
+``src/aiq_agent/agents/researcher/prompts/researcher.j2``:
 
 1. a greeting or a question about the assistant is a direct reply, and calls
    no data-source tool;
@@ -12,7 +12,7 @@ judgment, pinned only by the ``<output_contract>`` block of
    the envelope) BEFORE any retrieval of its own.
 
 This file is the eval the ADR said those behaviours lacked. It builds the real
-``ShallowResearcherAgent`` on the real system prompt against the real shallow
+``ResearcherAgent`` on the real system prompt against the researcher's own
 model through OpenRouter, with STUB tools in place of the retrieval stack: the
 stubs record every call and return a plausible hit, so the trace shows exactly
 what the model chose to do and nothing here needs a corpus, a database or a
@@ -43,8 +43,8 @@ import pytest
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from aiq_agent.agents.shallow_researcher.agent import ShallowResearcherAgent
-from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
+from aiq_agent.agents.researcher.agent import ResearcherAgent
+from aiq_agent.agents.researcher.models import ResearchAgentState
 from aiq_agent.common import AgentGroup
 from aiq_agent.common import LLMProvider
 from aiq_agent.common.data_source_registry import populate_from_config
@@ -182,32 +182,32 @@ _TOOLS = [knowledge_search, ris_search_tool, ris_fetch_tool, web_search_tool]
 _TRANSPORT_ERRORS = (openai.APIConnectionError, openai.RateLimitError, openai.InternalServerError)
 
 
-def _shallow_model_name() -> str:
-    """The shallow researcher's model as the OIB config would boot it.
+def _research_model_name() -> str:
+    """The researcher's model as the OIB config would boot it.
 
-    Read from ``shallow_llm.model_name`` rather than hard-coded here, so the
+    Read from ``research_llm.model_name`` rather than hard-coded here, so the
     eval follows the boot floor when it moves (``${GRID_DEFAULT_MODEL:-…}``
     resolved the way the config loader resolves it). The live default an actual
     user gets is admin-set (ADR-0014); the boot floor is what a model-free
     process runs on, and the closest thing to a fixed reference this eval has.
     """
-    block = _OIB_CONFIG.read_text(encoding="utf-8").split("shallow_llm:", 1)[1]
+    block = _OIB_CONFIG.read_text(encoding="utf-8").split("research_llm:", 1)[1]
     match = re.search(r"model_name:\s*\$\{(\w+):-([^}]+)\}", block)
     if match is None:
-        raise AssertionError(f"could not find shallow_llm.model_name in {_OIB_CONFIG}")
+        raise AssertionError(f"could not find research_llm.model_name in {_OIB_CONFIG}")
     env_var, default = match.group(1), match.group(2).strip()
     return os.environ.get(env_var) or default
 
 
-def _build_agent() -> ShallowResearcherAgent:
+def _build_agent() -> ResearcherAgent:
     """The real agent, the real prompt, the real model; stub tools."""
     from langchain_openai import ChatOpenAI
 
     llm = ChatOpenAI(
-        model=_shallow_model_name(),
+        model=_research_model_name(),
         base_url=_OPENROUTER_BASE_URL,
         api_key=os.environ["OPENROUTER_API_KEY"],
-        # The plumbing ``shallow_llm`` fixes in the config, which no override
+        # The plumbing ``research_llm`` fixes in the config, which no override
         # may touch: sampling, the low reasoning tier of the quick-answer path,
         # a bounded request and the client-side retry count.
         temperature=1.0,
@@ -218,8 +218,8 @@ def _build_agent() -> ShallowResearcherAgent:
     # What ``get_langchain_llm`` does to every fleet model at build time.
     llm = enforce_chat_request_contract(apply_openrouter_structured_defaults(llm))
     provider = LLMProvider()
-    provider.set_default(llm, group=AgentGroup.SHALLOW_RESEARCH)
-    return ShallowResearcherAgent(
+    provider.set_default(llm, group=AgentGroup.RESEARCH)
+    return ResearcherAgent(
         llm_provider=provider,
         tools=_TOOLS,
         # The repair pass re-searches after a failed verification. That is a
@@ -229,12 +229,12 @@ def _build_agent() -> ShallowResearcherAgent:
     )
 
 
-async def _run_turn(agent: ShallowResearcherAgent, question: str) -> ShallowResearchAgentState:
+async def _run_turn(agent: ResearcherAgent, question: str) -> ResearchAgentState:
     """One turn, with a single rerun for a transport failure only."""
     for attempt in (1, 2):
         _CALLS.clear()
         try:
-            return await agent.run(ShallowResearchAgentState(messages=[HumanMessage(content=question)]))
+            return await agent.run(ResearchAgentState(messages=[HumanMessage(content=question)]))
         except _TRANSPORT_ERRORS as exc:
             if attempt == 2:
                 raise
@@ -246,7 +246,7 @@ def _data_source_calls() -> list[tuple[str, str]]:
     return [call for call in _CALLS if call[0] in _DATA_SOURCE_TOOL_NAMES]
 
 
-def _answer_text(result: ShallowResearchAgentState) -> str:
+def _answer_text(result: ResearchAgentState) -> str:
     content = result.messages[-1].content
     return content if isinstance(content, str) else str(content)
 
@@ -260,7 +260,7 @@ def _data_source_registry():
 
 
 @pytest.fixture(scope="module")
-def agent() -> ShallowResearcherAgent:
+def agent() -> ResearcherAgent:
     return _build_agent()
 
 
@@ -283,8 +283,8 @@ async def test_a_greeting_is_answered_directly_without_a_search(agent):
 async def test_a_commissioned_report_escalates_before_any_retrieval(agent):
     """ADR-0052, behaviour 2: a commissioned Prüfbericht is handed off at once.
 
-    The prompt says a commissioned report needs no retrieval of the shallow
-    agent's own first. So the envelope must carry ``escalate_to_deep`` with a
+    The prompt says a commissioned report needs no retrieval of the agent's
+    own first. So the envelope must carry ``escalate_to_deep`` with a
     reason, and the trace must be empty of data-source calls — the hand-off is
     the final answer, so any recorded retrieval happened before it.
     """

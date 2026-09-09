@@ -4,7 +4,7 @@ description: >
   Was diesem Bauansuchen für dieses Land noch fehlt.
 metadata:
   grid-catalog: curated
-  grid-agents: shallow_researcher,deep_researcher
+  grid-agents: researcher,deep_researcher
   grid-cards: process_map,requirement_checklist,legal_basis
 ---
 

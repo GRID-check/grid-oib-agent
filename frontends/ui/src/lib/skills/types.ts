@@ -161,14 +161,41 @@ export function isAutoInvokeSkill(metadata: Record<string, string>): boolean {
  * `KNOWN_AGENTS` use, so the feature carries ONE agent vocabulary end to end
  * rather than one per layer.
  */
-export const KNOWN_SKILL_AGENTS = ['shallow_researcher', 'deep_researcher'] as const
+export const KNOWN_SKILL_AGENTS = ['researcher', 'deep_researcher'] as const
 export type KnownSkillAgent = (typeof KNOWN_SKILL_AGENTS)[number]
 
 /**
  * The agent a chat turn runs on, and therefore the one a `/name` invocation
  * from the composer resolves against.
  */
-export const CHAT_SKILL_AGENT: KnownSkillAgent = 'shallow_researcher'
+export const CHAT_SKILL_AGENT: KnownSkillAgent = 'researcher'
+
+/**
+ * Retired `grid-agents` names, and the agent each one now means.
+ *
+ * `shallow_researcher` became `researcher`. The name is author-written and was
+ * seeded by ten past migrations, so stored rows outlive the rename:
+ * `0081_grid_agents_researcher_rename.sql` rewrites what we can see, this map
+ * covers a row an older BFF wrote mid-deploy, a restored backup, or a skill
+ * somebody re-imports from an export taken before the rename.
+ *
+ * An alias and not a third `KNOWN_SKILL_AGENTS` entry, because both other
+ * readings fail in silence: ignored, an allowlist of only unknown names reads
+ * as absent and a chat-only skill leaks into deep research; known,
+ * `{shallow_researcher}` does not contain `researcher` and the skill vanishes
+ * from chat instead.
+ *
+ * Mirrored in `features/skills/lib/agent-scope.ts` (client-side, dependency-free
+ * by design) and in `src/aiq_agent/skills/resolver.py::AGENT_ALIASES`.
+ */
+const SKILL_AGENT_ALIASES: Record<string, KnownSkillAgent> = {
+  shallow_researcher: 'researcher',
+}
+
+/** The current name for `name`, following one retired alias. */
+export function canonicalSkillAgent(name: string): string {
+  return SKILL_AGENT_ALIASES[name] ?? name
+}
 
 /**
  * The card types a skill prefers, in author order; `[]` when unset.

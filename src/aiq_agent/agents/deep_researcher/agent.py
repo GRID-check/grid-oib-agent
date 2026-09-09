@@ -14,8 +14,8 @@ from uuid import uuid4
 from langchain_core.tools import BaseTool
 from langgraph.types import Checkpointer
 
-from aiq_agent.agents.shallow_researcher.markers import ConfidenceLevel
-from aiq_agent.agents.shallow_researcher.markers import detect_and_strip_confidence_marker
+from aiq_agent.agents.researcher.markers import ConfidenceLevel
+from aiq_agent.agents.researcher.markers import detect_and_strip_confidence_marker
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import citation_events
 from aiq_agent.common import load_prompt
@@ -105,7 +105,7 @@ def _resolve_skills_blocking(organization_id: str | None) -> tuple[Skill, ...]:
 def _skills_block(runtime: SkillRuntime) -> str | None:
     """The writer's skills section: the catalog, then what is required of it.
 
-    The same two blocks the shallow researcher renders, from the same runtime,
+    The same two blocks the researcher renders, from the same runtime,
     so a skill that names both agents is presented to both of them in the same
     words. None when the run resolved no skills — the writer prompt then shows
     no skills section at all rather than an empty heading.
@@ -164,7 +164,7 @@ class DeepResearchRunArtifacts:
     #: This run's resolved skills. The runtime accumulates the activation list
     #: DURING the run and ``_finalize`` reports it — a runtime that went out of
     #: scope at graph-build time is why deep research shipped
-    #: ``skills_activated=None`` on every answer while shallow reported it.
+    #: ``skills_activated=None`` on every answer while the researcher reported it.
     skill_runtime: SkillRuntime
 
 

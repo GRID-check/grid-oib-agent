@@ -46,7 +46,7 @@ export type SkillOrigin = (typeof SKILL_ORIGINS)[number]
  * What a job produces — the user's choice on the job, and the only thing that
  * decides which agent runs it.
  *
- *   - `chat`          shallow_researcher; the finished run is materialised into
+ *   - `chat`          researcher; the finished run is materialised into
  *                     a real conversation the user can open and continue.
  *   - `deep-research` deep_researcher; the finished run is a report.
  *

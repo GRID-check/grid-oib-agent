@@ -60,7 +60,7 @@ model rather than a catalog the model opts into.
 
 ## Decision
 
-We will build a GRID-owned skills engine for the chat (`shallow_researcher`)
+We will build a GRID-owned skills engine for the chat (`researcher`)
 side and keep the deepagents-native mechanism for deep research.
 
 **Skill model.** A skill is a `SKILL.md` with YAML frontmatter
@@ -169,8 +169,12 @@ preference in the loaded body. Absent means no preference — an empty
 than one they never touched.
 
 **One agent vocabulary, and one gate.** Targeting uses the `AGENT_REGISTRY`
-identifiers `shallow_researcher` / `deep_researcher` everywhere — frontmatter,
-resolver, BFF. Two spellings for one agent (`deep_research_agent` vs.
+identifiers `researcher` / `deep_researcher` everywhere — frontmatter,
+resolver, BFF. (The chat identifier was `shallow_researcher` when this was
+decided and was renamed later; the vocabulary is what this ADR fixes, not the
+spelling. Both resolvers accept the old name as an alias, and
+`frontends/ui/drizzle/0081_grid_agents_researcher_rename.sql` moved the stored
+rows.) Two spellings for one agent (`deep_research_agent` vs.
 `deep_researcher`) meant a `grid-agents` value that was correct in one file and
 inert in the other. The five builtin skills declare `grid-agents:
 deep_researcher` and nothing else, and the BFF forwards platform metadata

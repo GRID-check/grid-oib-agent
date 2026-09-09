@@ -521,7 +521,7 @@ def test_lowering_the_threshold_admits_exactly_those_models():
 def test_the_floor_is_per_settings_object_not_global():
     # Two thresholds alive in ONE process. If either leaked into the other the
     # floor would be module-level policy, which it must never be — this feature
-    # belongs to the shallow researcher, not to the fleet.
+    # belongs to the researcher, not to the fleet.
     strict = DeferredToolLoadingSettings(
         enabled=True,
         min_intelligence_index=50,

@@ -79,7 +79,7 @@ dotenv -f deploy/.env run nat eval \
 Other harness configs:
 
 - `frontends/benchmarks/freshqa/configs/config_full_workflow.yml`
-- `frontends/benchmarks/freshqa/configs/config_shallow_research_only.yml`
+- `frontends/benchmarks/freshqa/configs/config_research_only.yml`
 - `frontends/benchmarks/deepsearch_qa/configs/config_deepsearch_qa.yml`
 - `frontends/benchmarks/oib_compliance/configs/config_oib_compliance_eval.yml` —
   golden OIB-compliance eval suite (backlog T4-5, 2026-07-16): 4 fixed cases

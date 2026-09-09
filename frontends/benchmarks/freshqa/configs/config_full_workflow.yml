@@ -42,7 +42,7 @@ functions:
     max_results: 5
 
   shallow_research_agent:
-    _type: shallow_research_agent
+    _type: research_agent
     llm: nemotron_super_llm
     tools:
       - web_search_tool

@@ -163,10 +163,16 @@ const NODE_LABEL_KEYS: Record<string, string> = {
   // working, for the live trace and for turns persisted before the collapse.
   clarifier_agent: 'nodeName.clarification',
   ask_user: 'nodeName.askUser',
-  // The shallow node doubles as the conversational assistant (greetings,
+  // The researcher doubles as the conversational assistant (greetings,
   // capability questions, memory) AND the quick-lookup path — so "Shallow
   // Research Agent" mislabels a simple greeting as a research run. It reads
   // neutrally, as the assistant, for every turn it handles.
+  //
+  // The two KEYS keep the old spelling on purpose. The agent was renamed
+  // `shallow_researcher` -> `researcher`, but these are the NAT function name
+  // and the LangGraph node name, which are stored verbatim as `functionName`
+  // in every turn persisted so far — and the backend still emits them for
+  // exactly that reason. They are data, not a description of the agent.
   shallow_research_agent: 'stepName.assistant',
   shallow_research: 'stepName.assistant',
   deep_research_agent: 'nodeName.deepResearch',

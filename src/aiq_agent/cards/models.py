@@ -107,7 +107,7 @@ class CardModel(BaseModel):
 
     It runs on EVERY emission path, because all of them go through
     ``grid_card_adapter`` or :func:`validate_cards` — the ``emit_card`` tool, the
-    post-hoc batch generator, the shallow-researcher DSML path, project memory
+    post-hoc batch generator, the researcher DSML path, project memory
     and surfaced documents. Identifier-shaped fields (IFC GlobalIds, model file
     names, JSON-pointer paths) inherit it too and are unaffected: none of the
     three constructs can occur in one.
@@ -2590,7 +2590,7 @@ def validate_cards(raw: list[dict]) -> list[dict]:
 
     Envelope types (``ENVELOPE_CARD_TYPES``) are dropped for the same closing
     reason: no surface asks a model for them any more — they are answer_meta
-    fields on the shallow contract, and nothing at all on this one — so an
+    fields on the chat contract, and nothing at all on this one — so an
     occurrence here is a model reaching for a shape its catalog no longer
     offers.
     """

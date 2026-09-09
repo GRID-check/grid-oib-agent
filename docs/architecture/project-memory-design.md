@@ -147,7 +147,7 @@ into `project_context` (`compose_project_context`), whose answering prompt tells
 the model to treat confirmed facts as *binding constraints it must never
 contradict*. That rule is meant for the intake profile; inherited by agent-authored
 `unverified` notes it turns stale memory into something the agent defends. The
-answering prompt (`shallow_researcher/prompts/researcher.j2`) therefore carves
+answering prompt (`researcher/prompts/researcher.j2`) therefore carves
 `PROJECT_MEMORY` out explicitly: prior notes, not confirmed facts and not law;
 `user_confirmed` alone carries a confirmed fact's weight; entries run pinned-first
 then newest-first; the current conversation always wins; and a memory entry is

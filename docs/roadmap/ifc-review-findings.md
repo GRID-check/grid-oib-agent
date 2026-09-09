@@ -104,7 +104,7 @@ still green.
   `<cards>` block, and the async path generates cards post-hoc from the answer
   text, which is deliberately not shown the IFC card types (it has no tool rows
   to copy ids from). So a deep answer about the building is prose with element
-  links. Fix by giving `deep_researcher/prompts/` the same guidance the shallow
+  links. Fix by giving `deep_researcher/prompts/` the same guidance the researcher
   researcher now carries — not by relaxing the post-hoc restriction.
 - **No camera in a viewer card.** `buildModelHref` encodes and parses one
   (`model-link.ts:67`), and `ifc-viewer-card-spec.md:54` specifies it, but the

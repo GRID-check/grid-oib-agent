@@ -767,7 +767,7 @@ def extract_sources_from_tool_result(
     This means new sources (Bing, Perplexity, etc.) work automatically
     without any parser registration — as long as their output contains URLs.
 
-    The non-URL fallback is permissive on purpose: callers (the shallow and
+    The non-URL fallback is permissive on purpose: callers (the researcher and
     deep researchers) are responsible for deciding which tool calls are
     eligible to contribute sources, typically by limiting capture to the
     agent's loaded tool set. The optional ``source_id`` is stored on the
@@ -2601,7 +2601,7 @@ def verify_citations(
     # Origin token per validated citation number, e.g. {1: "[Web]", 3: "[KB]"}.
     # Applied AFTER the [N] marker in the cleaned_ref_lines pass so the
     # LLM-written source section gains the same deterministic labels the
-    # fallback-synthesized and shallow-chat paths already carry. Lines that
+    # fallback-synthesized and chat paths already carry. Lines that
     # already start with a token are left as-is (idempotent).
     origin_tokens: dict[int, str] = {}
 

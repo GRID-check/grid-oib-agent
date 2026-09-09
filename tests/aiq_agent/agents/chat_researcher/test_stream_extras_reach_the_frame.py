@@ -22,7 +22,7 @@ two sides. The direction is the point. The handler lifts names off whatever
 response reaches it, so it may legitimately know a field this register never
 sets, and pinning equality would report the wider list as the bug.
 ``skills_hidden`` was that case until the chat agent learned to carry it: the
-shallow researcher recorded the ``grid-hidden`` subset on its own state, the
+researcher recorded the ``grid-hidden`` subset on its own state, the
 chat node dropped it, and the disclosure rendered the house voice at full weight
 on every answer. Both lists name it now.
 

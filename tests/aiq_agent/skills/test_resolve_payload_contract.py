@@ -49,7 +49,7 @@ from aiq_agent.skills.resolver import SkillResolver
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "skills_resolve" / "resolve_payload.json"
 
-AGENT = "shallow_researcher"
+AGENT = "researcher"
 ORGANIZATION = "org_1"
 
 #: The house voice in the sample — the row the whole crossing exists for.

@@ -43,7 +43,7 @@ T = TypeVar("T")
 # collection = mid-level dir name, skill = leaf dir name. Only the collections
 # NAMED in `deep_research_skills.agents` are mounted for a subagent — today
 # `research` and `synthesis`. The chat-side collections (`bim`, `oib`,
-# `presentation`) live under the same root and reach the shallow researcher
+# `presentation`) live under the same root and reach the researcher
 # through `SkillResolver` instead, so adding one here is not a deep-research
 # change and mounting one would hand the writer instructions it cannot carry out.
 BUILTIN_SKILLS_DIR = Path(__file__).resolve().parents[2] / "skills" / "builtin"

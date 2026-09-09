@@ -325,7 +325,7 @@ difference is the whole ergonomics of the feature.
 | Invocation | Deliverable | Default destination | Authorization |
 |---|---|---|---|
 | **Deep research** (chat or job, `jobs.output = 'deep-research'`) | one report | **`/projects/<p>/files/`**, into a folder named on the submit form | **commissioned** — the run was requested with a form that showed where the report will land |
-| Shallow / chat turn | any work product | `/projects/<p>/work/` | **confirmed** — the agent offers `fs_publish`, the user clicks |
+| Chat turn | any work product | `/projects/<p>/work/` | **confirmed** — the agent offers `fs_publish`, the user clicks |
 | Compliance run, BCF export, take-off, Raumbuch | export node | `/work/` | confirmed |
 | Job with `output = 'chat'` | a conversation | — | — |
 

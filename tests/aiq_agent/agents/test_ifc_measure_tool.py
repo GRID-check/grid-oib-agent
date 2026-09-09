@@ -2237,7 +2237,7 @@ class TestAMalformedCallIsRefusedBeforeTheToolRuns:
     and the permitted set travels with the error out of the schema itself.
 
     What it does NOT buy is the turn back. The iteration budget is charged when
-    the model EMITS the call (`shallow_researcher.agent`), nothing refunds it,
+    the model EMITS the call (`researcher.agent`), nothing refunds it,
     and the ToolNode hands the ValidationError back as the tool result rather
     than short-circuiting the loop — so a rejected call costs the same fifth of
     the budget either way. The saving is upstream of all of that: a value the

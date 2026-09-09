@@ -270,7 +270,7 @@ export type AttachableSkill = {
 /**
  * The skills attachable to a job with this output kind.
  *
- * `chat` runs on `shallow_researcher`, `deep-research` on `deep_researcher`
+ * `chat` runs on `researcher`, `deep-research` on `deep_researcher`
  * (`AGENT_FOR_OUTPUT`, the mirror of the backend's `_OUTPUT_AGENT_TYPES`), and
  * availability is resolved from `grid-agents` — the ONE gate. The picker must
  * not offer a skill the chosen output cannot run, which is exactly why the

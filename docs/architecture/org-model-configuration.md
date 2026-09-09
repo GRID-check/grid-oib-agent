@@ -152,13 +152,22 @@ capability requirements) mirrored by `AgentGroup` in
 | Group id | Covers (config LLMs) | Requirements (catalog) |
 |---|---|---|
 | `clarifier` | `clarifier_llm` (agent + planner) | `tools`, ≥32k |
-| `shallow_research` | `shallow_llm` | `tools`, ≥64k |
+| `shallow_research` | `research_llm` | `tools`, ≥64k |
 | `deep_research` | `deep_orchestrator_llm`, `deep_planner_llm`, `deep_researcher_llm` (+ writer) | `tools`, ≥128k |
 | `deep_research_router` | `deep_router_llm` | text input, ≥16k |
 | `memory_reflection` | `memory_reflection_llm` (= `card_llm` in the reference config) | text input, ≥32k |
 | `follow_ups` | `follow_ups_llm` | text input, ≥32k, reasoning off |
 | `ingest_vlm` | the ingestion VLM (image captioning + rendered-drawing description) | **image input** (`requiresImageInput`) — vision models only |
 | `compliance_check` | `compliance_llm` | text input, ≥32k |
+
+The id `shallow_research` is a PERSISTED KEY and is deliberately not
+renamed. The chat agent it covers is now called the researcher — the
+registry's `label` says so, which is what a label is for — but the id is the
+value stored in `platform_model_defaults.agent_group`, in
+`platform_models.agent_group` and in the `X-Grid-Model-Overrides` header.
+An unknown group id is dropped silently on both sides
+(`sanitize_model_overrides`), so changing it would revert every live
+override to the platform default with nothing logged.
 
 Requirements are enforced twice: the picker endpoint only lists passing
 models, and the save endpoint re-validates server-side (422 on mismatch).

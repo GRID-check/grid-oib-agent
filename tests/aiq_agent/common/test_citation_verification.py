@@ -954,7 +954,7 @@ class TestVerifyCitations:
         assert "Finding [1][3]." in result.verified_report
 
     def test_references_with_dashes(self, registry):
-        """Shallow researcher uses '- [N] Title - URL' format."""
+        """Researcher uses '- [N] Title - URL' format."""
         report = "Finding [1].\n\n**References:**\n- [1] Article 1 - https://valid.com/article1"
         result = verify_citations(report, registry)
         assert len(result.valid_citations) == 1

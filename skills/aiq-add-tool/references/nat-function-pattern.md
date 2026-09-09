@@ -115,7 +115,7 @@ functions:
     max_results: 10
 
   shallow_research_agent:
-    _type: shallow_research_agent
+    _type: research_agent
     llm: research_llm
     tools:
       - my_search

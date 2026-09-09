@@ -40,6 +40,7 @@ from aiq_agent.skills.models import preferred_cards
 from aiq_agent.skills.models import skill_hidden
 from aiq_agent.skills.models import split_metadata_list
 from aiq_agent.skills.resolver import KNOWN_AGENTS
+from aiq_agent.skills.resolver import canonical_agent
 from tests.aiq_agent.skills.seeded_skill_rows import DRIZZLE_DIR
 from tests.aiq_agent.skills.seeded_skill_rows import EFFECTIVE_SEEDS
 from tests.aiq_agent.skills.seeded_skill_rows import REPO_ROOT
@@ -113,9 +114,18 @@ def test_seeded_grid_cards_survive_the_read_path(tag: str, row: dict[str, str]):
 
 @pytest.mark.parametrize(("tag", "row"), SEEDS, ids=SEED_IDS)
 def test_seeded_grid_agents_are_agents_the_resolver_knows(tag: str, row: dict[str, str]):
-    """An unknown agent name is logged and ignored at resolve time — never here."""
+    """An unknown agent name is logged and ignored at resolve time — never here.
+
+    Through ``canonical_agent``, because a seed is history and the vocabulary
+    moved under it: ten of these rows were written when the chat agent was
+    ``shallow_researcher``, and the resolver reads them through the same alias.
+    That is the whole point of asserting against the resolver's own function
+    rather than a literal set — a name it can still resolve passes, and one it
+    cannot fails here instead of going silent in production.
+    """
     metadata = json.loads(row["metadata"])
-    assert set(split_metadata_list(metadata.get("grid-agents", ""))) <= KNOWN_AGENTS
+    named = {canonical_agent(name) for name in split_metadata_list(metadata.get("grid-agents", ""))}
+    assert named <= KNOWN_AGENTS
 
 
 @pytest.mark.parametrize(("tag", "row"), SEEDS, ids=SEED_IDS)
@@ -203,7 +213,7 @@ def test_the_generic_card_seed_carries_the_craft_the_tool_no_longer_states():
 #: Surfaces the seeds are asserted against. Answer shape is taught on three
 #: prompts and the split between them is what these last tests pin; the deep
 #: agent module is read for the second delivery channel it opens.
-SHALLOW_PROMPT = REPO_ROOT / "src/aiq_agent/agents/shallow_researcher/prompts/researcher.j2"
+SHALLOW_PROMPT = REPO_ROOT / "src/aiq_agent/agents/researcher/prompts/researcher.j2"
 DEEP_WRITER_PROMPT = REPO_ROOT / "src/aiq_agent/agents/deep_researcher/prompts/writer.j2"
 DEEP_AGENT = REPO_ROOT / "src/aiq_agent/agents/deep_researcher/agent.py"
 
@@ -483,7 +493,8 @@ def test_seeded_grid_agents_all_have_a_surface_that_delivers_the_skill(tag: str,
     delivering = _agents_with_a_delivery_surface()
     assert delivering == KNOWN_AGENTS, "an agent the resolver knows has nowhere to deliver a skill"
     metadata = json.loads(row["metadata"])
-    assert set(split_metadata_list(metadata.get("grid-agents", ""))) <= delivering
+    named = {canonical_agent(name) for name in split_metadata_list(metadata.get("grid-agents", ""))}
+    assert named <= delivering
 
 
 def test_the_card_scope_migration_changes_only_the_scope():
@@ -509,6 +520,10 @@ def test_the_card_scope_migration_changes_only_the_scope():
 
     before = json.loads(seeded["metadata"])
     after = json.loads(rescoped["metadata"])
+    # The names 0054 and 0056 actually wrote. `shallow_researcher` was renamed
+    # to `researcher` afterwards, and past migrations keep the string they
+    # shipped with: they are history, and a database that applied them already
+    # would never see an edit here.
     assert set(split_metadata_list(before["grid-agents"])) == {"shallow_researcher", "deep_researcher"}
     assert set(split_metadata_list(after["grid-agents"])) == {"shallow_researcher"}
     # Everything else about the row is 0054's, including the five inlined shapes.

@@ -31,7 +31,7 @@ const FIRE_SKILL = {
   name: 'oib-brandschutz-check',
   description: 'Prüft das Projekt gegen die OIB-Richtlinie 2 (Brandschutz).',
   body: 'Handle als Brandschutz-Prüfer und nenne jede Abweichung mit ihrer Klausel.',
-  metadata: { 'grid-agents': 'shallow_researcher' },
+  metadata: { 'grid-agents': 'researcher' },
   origin: 'platform' as const,
 }
 

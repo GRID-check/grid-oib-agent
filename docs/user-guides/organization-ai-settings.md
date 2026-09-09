@@ -10,9 +10,8 @@ Choose which OpenRouter model each *agent group* runs on:
 
 | Group | What it does |
 |---|---|
-| Intent & routing | classifies each message and answers meta questions |
 | Clarifier | asks follow-up questions and drafts research plans |
-| Shallow research | the default research agent |
+| Research | the default research agent, and the one that answers every chat turn |
 | Deep research | orchestrator/planner/researcher/writer for deep runs |
 | Deep-research source router | routes deep-research subtasks to sources |
 | Memory reflection | background pass that distills project memory |

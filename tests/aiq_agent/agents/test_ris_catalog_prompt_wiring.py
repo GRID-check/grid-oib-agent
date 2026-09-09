@@ -13,7 +13,7 @@ from aiq_agent.common.norm_registry import reset_registry_cache
 from aiq_agent.common.prompt_utils import render_prompt_template
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SHALLOW_TEMPLATE = REPO_ROOT / "src" / "aiq_agent" / "agents" / "shallow_researcher" / "prompts" / "researcher.j2"
+SHALLOW_TEMPLATE = REPO_ROOT / "src" / "aiq_agent" / "agents" / "researcher" / "prompts" / "researcher.j2"
 DEEP_TEMPLATE = REPO_ROOT / "src" / "aiq_agent" / "agents" / "deep_researcher" / "prompts" / "researcher.j2"
 
 _HEADING = "## Normenregister (verifizierte Normen, Rang und Rolle annotiert)"

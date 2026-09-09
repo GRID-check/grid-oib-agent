@@ -19,7 +19,7 @@ from unittest.mock import patch
 from langchain_core.messages import HumanMessage
 
 from aiq_agent.agents.chat_researcher.register import ChatDeepResearcherConfig
-from aiq_agent.agents.shallow_researcher.models import ConversationState
+from aiq_agent.agents.researcher.models import ConversationState
 from aiq_agent.turn.dispatch import build_deep_research_job_submitter
 
 

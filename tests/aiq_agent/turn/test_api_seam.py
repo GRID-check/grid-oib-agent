@@ -18,7 +18,7 @@ AGENT_SRC = pathlib.Path(api_seam.__file__).resolve().parents[1]
 GUARDED = (
     AGENT_SRC / "turn",
     AGENT_SRC / "agents" / "chat_researcher",
-    AGENT_SRC / "agents" / "shallow_researcher",
+    AGENT_SRC / "agents" / "researcher",
 )
 
 

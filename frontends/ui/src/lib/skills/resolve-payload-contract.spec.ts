@@ -78,7 +78,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const FIXTURE = resolvePath(HERE, '../../../../../tests/fixtures/skills_resolve/resolve_payload.json')
 const SAMPLE = JSON.parse(readFileSync(FIXTURE, 'utf-8')) as Array<Record<string, unknown>>
 
-const AGENT = 'shallow_researcher'
+const AGENT = 'researcher'
 const ORG = 'org_1'
 
 /**

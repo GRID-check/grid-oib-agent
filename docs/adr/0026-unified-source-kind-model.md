@@ -117,14 +117,14 @@ loss points. Fixed in this rollout:
   `## Trace-Lanes` fan-out still showed them. This was the concrete
   chip-vs-Herleitung asymmetry ("shows in thinking, no chip"). Dedup is now
   keyed on `(filename, page)`.
-- **All-or-nothing wire serialization (fixed).** The shallow researcher wrapped
+- **All-or-nothing wire serialization (fixed).** The researcher wrapped
   the whole `verified_sources` serialization in one `try/except`; a single bad
   `SourceEntry` zeroed every chip for the turn. Now per-entry best-effort.
 
 Deferred (tracked; larger / deep-research-scoped, not the primary shallow-chat
 chip path):
 
-- **Shallow capture double-gate** (`shallow_researcher/agent.py`): a tool in the
+- **Capture double-gate** (`researcher/agent.py`): a tool in the
   loaded set but not declared under `data_sources` has *all* its sources dropped
   at `debug` level. Intended to filter interaction tools (`emit_card`,
   `remember`), but fragile — an evidence tool desynced from `data_sources`

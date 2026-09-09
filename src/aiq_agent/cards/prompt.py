@@ -36,7 +36,7 @@ without it."""
 # this path's own validator silently throws away — the worst kind of dead prompt weight.
 #
 # What that costs, stated rather than glossed: a finished deep-research REPORT currently carries
-# neither follow-up questions nor the rhetorical anatomy (verdict, takeaways, callout) the shallow
+# neither follow-up questions nor the rhetorical anatomy (verdict, takeaways, callout) a chat
 # answer now gets natively. The report's own lead paragraph is its verdict and the outline is its
 # navigation, so the loss is modest — and the honest fix is teaching the deep WRITER the same
 # `answer_meta` trailer and parsing it in the job runner, which is separate work and not in this

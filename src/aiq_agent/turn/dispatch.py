@@ -17,7 +17,7 @@ from aiq_agent.turn.api_seam import async_job_dispatch
 from aiq_agent.turn.api_seam import submit_agent_job
 
 if TYPE_CHECKING:
-    from aiq_agent.agents.shallow_researcher.models import ConversationState
+    from aiq_agent.agents.researcher.models import ConversationState
 
 logger = logging.getLogger(__name__)
 

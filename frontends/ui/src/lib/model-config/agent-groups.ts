@@ -59,10 +59,18 @@ export const AGENT_GROUPS: AgentGroupDefinition[] = [
     requirements: { requiredParameters: ['tools'], minContextLength: 32768 },
   },
   {
+    // The `id` is a PERSISTED KEY and deliberately keeps the old spelling: it
+    // is the value stored in `platform_models.agent_group` for every org that
+    // re-pointed this agent's model, and in the `X-Grid-Model-Overrides`
+    // header. Only the label moved when the agent stopped being "the shallow
+    // one" — which is exactly what the label exists for. Do not "finish" the
+    // rename here: an unknown group id is dropped silently on both sides
+    // (`sanitize_model_overrides` in `common/model_overrides.py`), so every
+    // live override would revert to the platform default with no error.
     id: 'shallow_research',
-    label: 'Shallow research',
+    label: 'Research',
     description: 'The default research agent: iterative tool-calling over knowledge and web sources.',
-    configLlmRefs: ['shallow_llm'],
+    configLlmRefs: ['research_llm'],
     requirements: { requiredParameters: ['tools'], minContextLength: 65536 },
   },
   {

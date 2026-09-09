@@ -160,7 +160,7 @@ functions:
 | `writer_llm` | LLMRef | optional | LLM for final writer subagent; falls back to default if unset |
 | `enable_source_router` | bool | `true` | Enable advisory source routing before planning |
 | `enable_citation_verification` | bool | `true` | Verify final citations against the captured source registry; a run with zero captured sources fails with `EmptySourceRegistryError` |
-| `tools` | list | `[]` | Research tools. Empty = inherit all tools from the data source registry. Keep this list evidence-only: interaction tools such as `emit_card`/`remember` belong to the shallow agent, not here — every loaded tool is treated as a citable source |
+| `tools` | list | `[]` | Research tools. Empty = inherit all tools from the data source registry. Keep this list evidence-only: interaction tools such as `emit_card`/`remember` belong to the researcher, not here — every loaded tool is treated as a citable source |
 | `exclude_tools` | list | `[]` | Tool names to exclude when inheriting from the registry |
 | `skills` | config/ref | unset | Optional `deep_research_skills` assignment of built-in skill collections to `researcher-agent`/`writer-agent` |
 | `sandbox` | config/ref | unset | Optional `deep_research_sandbox` (Modal) backend enabling the `execute` tool |
@@ -284,7 +284,7 @@ usable for general research requests.
   `user_info`, `clarifier_result`, `project_context`, `available_documents`,
   and `data_sources` onto the state so both paths render identical prompts.
   Grid response cards are generated post-hoc from the final report in the job
-  runner (the `emit_card` tool used by the shallow agent requires the chat
+  runner (the `emit_card` tool used by the researcher requires the chat
   request's conversation-scoped card registry, which does not exist inside a
   worker).
 

@@ -39,8 +39,8 @@ Set in `deploy/.env`: `OPENROUTER_API_KEY` (agent), `TAVILY_API_KEY` (web search
 ## Quick Start
 
 ```bash
-# Shallow research only
-dotenv -f deploy/.env run nat eval --config_file frontends/benchmarks/freshqa/configs/config_shallow_research_only.yml
+# Research only (no escalation to deep research)
+dotenv -f deploy/.env run nat eval --config_file frontends/benchmarks/freshqa/configs/config_research_only.yml
 
 # Full workflow (orchestration + research agents)
 dotenv -f deploy/.env run nat eval --config_file frontends/benchmarks/freshqa/configs/config_full_workflow.yml

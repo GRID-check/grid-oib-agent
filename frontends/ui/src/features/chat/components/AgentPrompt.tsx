@@ -25,7 +25,7 @@ export type { PromptType }
 /**
  * The two byte-stable approval envelopes the backend has written, oldest
  * first. The legacy sentence offered approve/reject; the current one
- * (`shallow_researcher/clarify.py` `format_plan_for_user`) adds the explicit
+ * (`researcher/clarify.py` `format_plan_for_user`) adds the explicit
  * middle way — a quick shallow answer instead of the plan. Both must keep
  * matching: prompts are
  * persisted and restored, so a thread from before the third option still

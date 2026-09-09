@@ -39,7 +39,7 @@ Grid AIQ uses a two-tier architecture consisting of a **Next.js Backend-for-Fron
 │  └─────────────────┘    └─────────────────┘    └────────┬─────────┘   │
 │                                                         │              │
 │  NAT Framework (NeMo Agent Toolkit):                                │
-│  • LangGraph multi-agent pipeline (intent → shallow → deep research) │
+│  • LangGraph pipeline (researcher → clarify → deep research)        │
 │  • Knowledge Layer (LlamaIndex + ChromaDB) for RAG                  │
 │  • AIQ API worker for async job processing with SSE streaming       │
 │                                                                       │
@@ -66,7 +66,7 @@ The backend uses the **NVIDIA NeMo Agent Toolkit (NAT)** framework with a custom
 
 - **Entrypoint** (`entrypoint.py`): Starts a Dask scheduler (port 8786) and Dask worker, then launches the web server.
 - **Web server** (`start_web.py`): Loads the NAT YAML configuration, sets up environment variables, and runs uvicorn directly (bypassing `nat serve` to avoid asyncio event-loop conflicts).
-- **NAT runtime**: Provides the LangGraph-based pipeline: one answering agent (shallow research) that decides per turn whether to escalate, a clarification step that confirms a research plan, and the deep research agent with citation verification.
+- **NAT runtime**: Provides the LangGraph-based pipeline: one answering agent (research) that decides per turn whether to escalate, a clarification step that confirms a research plan, and the deep research agent with citation verification.
 
 The NAT framework is extended with:
 

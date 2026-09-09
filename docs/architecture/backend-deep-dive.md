@@ -43,7 +43,7 @@ Browser WebSocket
       • ALSO sets the signed X-Grid-Request-Context envelope (below)
       • proxies the upgrade to the aiq-agent backend
   → NAT workflow  chat_deepresearcher_agent
-      LangGraph:  shallow_research  (entry on EVERY turn, full tool set bound)
+      LangGraph:  shallow_research  (the researcher; entry on EVERY turn, full tool set bound)
                     ├─ envelope.escalate_to_deep → clarifier → deep_research → END
                     └─ otherwise                 → END
 
@@ -55,9 +55,9 @@ Browser WebSocket
     the model's own clause). A commissioned report escalates immediately,
     without a retrieval first.
 
-    Note: the shallow node doubles as the conversational assistant, so the UI
+    Note: the researcher doubles as the conversational assistant, so the UI
     presents it neutrally as "Assistant" (getDisplayName in
-    intermediate-step-parser.ts), not "Shallow Research Agent" — a greeting is
+    intermediate-step-parser.ts), not "Research Agent" — a greeting is
     not a research run.
   → response streamed back through the MONKEYPATCHED WS handler
       frontends/aiq_api/src/aiq_api/websocket_reconnect.py
@@ -67,7 +67,7 @@ Browser WebSocket
 ```
 
 Key files:
-- Graph build: `src/aiq_agent/agents/shallow_researcher/conversation.py` (`_build_graph`,
+- Graph build: `src/aiq_agent/agents/researcher/conversation.py` (`_build_graph`,
   nodes). The escalation edge and the conversation-scoped state belong to the
   researcher; the workflow only wires them up.
 - Workflow registration + response creation: `src/aiq_agent/agents/chat_researcher/register.py`.
@@ -100,7 +100,7 @@ boundary in `ConversationGraph.run()`:
 
 - `routing_decision` (`meta`/`shallow`/`deep`/`error`) — which path the turn
   took, OBSERVED after the answer
-  (`ShallowResearchAgentState.observed_routing`, a derived property of the
+  (`ResearchAgentState.observed_routing`, a derived property of the
   finished research state):
   `meta` when the agent consulted no data source and gave no self-assessment,
   `shallow` otherwise, `deep` set by the clarifier hand-off, `error` on a
@@ -108,18 +108,18 @@ boundary in `ConversationGraph.run()`:
   `routing_reason`.
 - `escalation_reason` — set by the clarifier node only on a shallow→deep
   escalation, and only from the structured `escalation_ask_reason` the
-  answering node wrote from the shallow agent's envelope (`escalate_to_deep` plus the model's
+  answering node wrote from the researcher's envelope (`escalate_to_deep` plus the model's
   own one-clause `escalation_reason`). There is no keyword/prose fallback: a substring match on the answer tail ("nicht
   finden", "weitere Recherche erforderlich") false-positived on successful
   German legal answers and surprise-escalated them to deep research. Likewise
-  an empty/missing shallow answer is a generation failure — the node answers
+  an empty/missing answer is a generation failure — the node answers
   with the standard retry-able error (`escalate_to_deep=False`) instead of
   deep-escalating on a bug.
 - `answer_confidence_reason` (≤300 chars) — the model's own one-clause
-  justification. The shallow researcher may append `| <reason>` to its terminal
+  justification. The researcher may append `| <reason>` to its terminal
   `[CONFIDENCE:<level>]` marker (`researcher.j2`); `markers.py` parses it
   (fail-open: an invalid level discards level AND reason, the reason is trimmed
-  and capped), and `_finalize_shallow_answer` carries it as
+  and capped), and `conversation.py::_finalize_answer` carries it as
   `answer_confidence_reason` alongside the level. Escalated turns drop it.
 - `answer_confidence_capped_reason` (`"ungrounded" | "quote_unverified" |
   "normative_claim_uncited" | "measurement_only" | "citation_fallback"`) — set when
@@ -136,7 +136,7 @@ boundary in `ConversationGraph.run()`:
   - `"normative_claim_uncited"` / `"measurement_only"` — the two reasons about
     the SECOND kind of grounding, below.
   - `"citation_fallback"` — the answer's only citation is the single registry
-    source the shallow agent appended when nothing the model wrote survived
+    source the researcher appended when nothing the model wrote survived
     verification (`_append_minimal_citation`). The registry is cumulative across
     the conversation, so that source may have been retrieved on an earlier turn
     for a different question: it is treated exactly like a measurement (ceiling
@@ -149,10 +149,10 @@ boundary in `ConversationGraph.run()`:
   a readable `method` and the GlobalIds it was derived from
   (`ifc_spatial.envelope.Answer`) — so a correctly measured number was capped to
   `"low"` for lacking evidence it structurally cannot have. Two extra signals
-  travel from the shallow researcher alongside `answer_citation_grounded`:
+  travel from the researcher alongside `answer_citation_grounded`:
   - `answer_measurement_grounded` — this turn produced at least one
-    `declared`/`computed` `ifc_measure` answer. Written by the shallow agent's
-    tools node (a sticky OR across the tool loop; `shallow_researcher/grounding.py`
+    `declared`/`computed` `ifc_measure` answer. Written by the researcher's
+    tools node (a sticky OR across the tool loop; `researcher/grounding.py`
     decides what counts — a refusal, an outage, an `inferred` guess and a
     `decidable: false` finding all do not). Lifts the surfaced confidence off the
     `"low"` floor to at most `"medium"`; `"high"` still requires a verified
@@ -453,7 +453,7 @@ projection) uses the same labels.
 
 The agent keeps the brief current by emitting a `project_profile_patch` card
 (via `emit_card`) whenever the conversation establishes a durable hard fact —
-the shallow-researcher prompt has an explicit "Keeping the Project Brief
+the researcher prompt has an explicit "Keeping the Project Brief
 current" policy, and the card model carries the canonical fact-key vocabulary
 (`PROFILE_FACT_VOCABULARY` in `cards/models.py`, mirroring the intake
 definition). The card only proposes: the user's Accept posts the JSON-Patch to
@@ -624,7 +624,7 @@ alone.
 retrieval to the right file answers "where do I look"; it does not answer "what
 is *this document*". `register.py` lifts the turn ContextVars onto
 `ConversationState.focus_file_name` / `.focus_shelf`, the graph carries them
-into `ShallowResearchAgentState`, and the answering prompt (`researcher.j2`
+into `ResearchAgentState`, and the answering prompt (`researcher.j2`
 §"This turn's subject") names the file — so a bare "fass zusammen" has an
 antecedent. Without that the model asked which document the user meant while
 the composer bar on screen said exactly which one, and retrieval's correct
@@ -663,7 +663,7 @@ sort-then-slice let ~40 OIB filenames eat the window and made "welche Dateien
 hast du im Büroarchiv" answer from Basiswissen. The prompt block is grouped
 by shelf (`aiq_agent.knowledge.inventory.render_inventory_block`) and empty
 in-scope shelves render as empty rather than being omitted. The same list is
-then shared by the shallow, clarifier, and deep-research paths for that turn
+then shared by the researcher, clarifier, and deep-research paths for that turn
 — it is not re-fetched per node.
 
 **Prompt gating asymmetry — fixed 2026-07-16 (`77a4d7a`)**: the deep-research
@@ -672,8 +672,8 @@ prompts (`agents/deep_researcher/prompts/planner.j2`,
 `agents/deep_researcher/prompts/researcher.j2`, and
 `agents/deep_researcher/prompts/source_router.j2`) used to gate document
 *awareness* purely on `available_documents` being non-empty, unlike the
-shallow researcher's unconditional "use `knowledge_search` first" instruction
-(`agents/shallow_researcher/prompts/researcher.j2:31`). The document
+researcher's unconditional "use `knowledge_search` first" instruction
+(`agents/researcher/prompts/researcher.j2:31`). The document
 *listing* block is still wrapped in `{% if available_documents %}` (nothing
 to list when the document_metadata table has no row), but `planner.j2` and
 `researcher.j2` now separately instruct the agent to probe `knowledge_search`
@@ -701,7 +701,7 @@ at indexing and is the wrong place to look.
 
 The prompts therefore label the block "Knowledge-base inventory (index — NOT
 sources)" and state that a filename is not citable until a retrieval result has
-returned a passage from it (`shallow_researcher/prompts/researcher.j2`,
+returned a passage from it (`researcher/prompts/researcher.j2`,
 `deep_researcher/prompts/{researcher,orchestrator}.j2`); the anti-memory rule in
 `<citation_format>` covers document citation keys and not only URLs, and the
 prompt no longer tells the model that verification will sort the references out
@@ -1149,7 +1149,7 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   the curated `binding_note` lines, a static OIB-corpus citation note, and the
   project applicability section (`applicability.render_project_block`). The
   Normenhierarchie doctrine itself is one constant (`NORM_DOCTRINE`) injected
-   into the shallow-researcher, deep-researcher, planner, and writer templates
+   into the researcher, deep-researcher, planner, and writer templates
    as `{{ norm_doctrine }}`.
 - **Jurisdiction** — `resolve_country(project_context)` regexes the structured
    `country=<cc>` fact from the prompt text (`at`/`de`/`ch`/`other`, authored
@@ -1471,7 +1471,7 @@ in `grid_app` (`FOR UPDATE SKIP LOCKED`) and fires through the BFF's internal
 endpoint into `POST /v1/internal/skills/submit` (internal-token-guarded wrapper
 around `submit_agent_job`, so admission control and cost tracking apply
 unchanged). The agent follows the job's `output` (`chat` →
-`shallow_researcher`, `deep-research` → `deep_researcher`), and the submitted
+`researcher`, `deep-research` → `deep_researcher`), and the submitted
 job carries `force_skills` — the attached skill's name, or an empty list when
 the prompt runs alone. A `chat` job additionally carries a `conversation_id`,
 and the worker writes the question and answer into that thread at completion
@@ -1497,7 +1497,7 @@ Registered agents (via NAT `@register_function` + `FunctionBaseConfig`):
 `chat_deepresearcher_agent` (entrypoint), `shallow_research_agent`,
 `deep_research_agent` (+ eval/placeholder wrappers). The clarifier is no longer
 among them: it is a step of the conversation graph
-(`shallow_researcher/clarify.py`) configured by the `clarifier:` block on
+(`researcher/clarify.py`) configured by the `clarifier:` block on
 `chat_deepresearcher_agent`.
 
 No shared base-agent class exists; the remaining agent classes each repeat: tool
@@ -1547,7 +1547,7 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   `{agentGroup: openrouterModelId}`) is parsed by
   `src/aiq_agent/common/model_overrides.py` and applied request-scoped:
   `LLMProvider.with_model_overrides()` (group-tagged roles; identity when
-  nothing applies) in the shallow/deep `_run` closures and in
+  nothing applies) in the researcher/deep `_run` closures and in
   `clarify.Clarifier.deps_for`, plus `apply_model_override()` at the clarifier
   planner and the reflection scheduling site. Async jobs carry
   the map through `submit_agent_job` → `jobs/runner.py` (provider + header

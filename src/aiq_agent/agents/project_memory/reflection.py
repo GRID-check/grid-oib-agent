@@ -333,8 +333,8 @@ def _sanitize_findings(
 #: transport error, all of which fail the same way without the parameter and
 #: whose retry only doubles the cost of the slowest case.
 #:
-#: Duplicated from ``shallow_researcher/envelope_call.is_parameter_rejection``
-#: rather than imported: that module sits inside the shallow-research package,
+#: Duplicated from ``researcher/envelope_call.is_parameter_rejection``
+#: rather than imported: that module sits inside the research package,
 #: whose ``__init__`` pulls the whole agent in, and this one is imported from a
 #: post-answer stage. It belongs in ``common/`` — see the round-1 report.
 _PARAMETER_REJECTION_STATUSES = frozenset({400, 422})
@@ -360,7 +360,7 @@ async def _propose(llm: Any, messages: list[Any]) -> str:
     plugin (forced on OpenRouter LLMs in llm_factory) repairs any fenced/prose
     JSON provider-side. The call is tool-free, so binding ``response_format``
     cannot silently cost it a tool call the way it can on a tool-bound one
-    (``shallow_researcher/envelope_call.py``). A provider that rejects the
+    (``researcher/envelope_call.py``). A provider that rejects the
     parameter gets one plain retry; anything else propagates.
     """
     response_format = strict_json_response_format(ReflectionOutput)

@@ -24,6 +24,7 @@ import {
   CHAT_SKILL_AGENT,
   KNOWN_SKILL_AGENTS,
   METADATA_AGENTS,
+  canonicalSkillAgent,
   isCuratedPlatformSkill,
   type CreateSkillInput,
   type PatchSkillInput,
@@ -336,7 +337,7 @@ export type InvocableSkill = {
  * whose description does not explain when to use it looks equally unhelpful to
  * both, which is the feedback a skill author needs.
  *
- * Filtered to what can actually run in a chat turn (`shallow_researcher`), so
+ * Filtered to what can actually run in a chat turn (`researcher`), so
  * the menu can never offer a deep-research skill the turn cannot execute.
  * Disabled skills are excluded. Any org member may list — invoking a skill is
  * using the product, not administering it; authoring stays `org:skills:manage`.
@@ -756,8 +757,11 @@ function skillTargetsAgent(metadata: Record<string, string>, agent: string): boo
   if (!raw) return true
   const listed = raw
     .split(',')
-    .map((part) => part.trim())
+    .map((part) => canonicalSkillAgent(part.trim()))
     .filter((part) => part.length > 0)
   const known = listed.filter((name) => (KNOWN_SKILL_AGENTS as readonly string[]).includes(name))
-  return known.length === 0 || known.includes(agent)
+  // The caller's name is canonicalised too: a backend still on the pre-rename
+  // build asks for `shallow_researcher`, and normalising only the stored side
+  // would drop every skill from that caller for the length of a rolling deploy.
+  return known.length === 0 || known.includes(canonicalSkillAgent(agent))
 }

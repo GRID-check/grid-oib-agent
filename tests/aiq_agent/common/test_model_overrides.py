@@ -106,12 +106,12 @@ class TestOverrideModel:
 
     def test_apply_with_explicit_overrides(self):
         llm = FakeChatModel()
-        result = apply_model_override(llm, AgentGroup.SHALLOW_RESEARCH, {"shallow_research": "vendor/other"})
+        result = apply_model_override(llm, AgentGroup.RESEARCH, {"shallow_research": "vendor/other"})
         assert result.model_name == "vendor/other"
 
     def test_apply_without_matching_override_is_identity(self):
         llm = FakeChatModel()
-        assert apply_model_override(llm, AgentGroup.SHALLOW_RESEARCH, {"clarifier": "vendor/other"}) is llm
+        assert apply_model_override(llm, AgentGroup.RESEARCH, {"clarifier": "vendor/other"}) is llm
 
     def test_override_rebinds_instance_patched_methods(self):
         """Regression: NAT's patch_with_retry stores public methods in the
@@ -192,22 +192,20 @@ class TestApplyZdrRouting:
     def test_apply_model_override_applies_zdr_without_model_change(self):
         llm = FakeOpenRouterModel()
         # No model override for this group, but ZDR is on -> still a ZDR copy.
-        result = apply_model_override(llm, AgentGroup.SHALLOW_RESEARCH, {}, zdr_only=True)
+        result = apply_model_override(llm, AgentGroup.RESEARCH, {}, zdr_only=True)
         assert result is not llm
         assert result.model_name == "deepseek/deepseek-v4-flash"
         assert result.extra_body["provider"]["zdr"] is True
 
     def test_apply_model_override_applies_both_model_and_zdr(self):
         llm = FakeOpenRouterModel()
-        result = apply_model_override(
-            llm, AgentGroup.SHALLOW_RESEARCH, {"shallow_research": "x-ai/grok-4.5"}, zdr_only=True
-        )
+        result = apply_model_override(llm, AgentGroup.RESEARCH, {"shallow_research": "x-ai/grok-4.5"}, zdr_only=True)
         assert result.model_name == "x-ai/grok-4.5"
         assert result.extra_body["provider"]["zdr"] is True
 
     def test_apply_model_override_zdr_off_is_identity(self):
         llm = FakeOpenRouterModel()
-        assert apply_model_override(llm, AgentGroup.SHALLOW_RESEARCH, {}, zdr_only=False) is llm
+        assert apply_model_override(llm, AgentGroup.RESEARCH, {}, zdr_only=False) is llm
 
 
 class TestProviderWithModelOverrides:

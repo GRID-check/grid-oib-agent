@@ -266,7 +266,7 @@ export function encodeBackendSources(input: unknown): StoredCitations | undefine
  * backend's metadata.
  *
  * The level and its reason travel TOGETHER on purpose. The backend's marker is
- * `[CONFIDENCE:level | reason]` (`shallow_researcher/markers.py`) and the reason
+ * `[CONFIDENCE:level | reason]` (`researcher/markers.py`) and the reason
  * is the half that makes the level actionable: "niedrig" alone tells a reader
  * their answer might be wrong and nothing about what to check. A level whose
  * reason was dropped somewhere in transport is the exact complaint the backlog

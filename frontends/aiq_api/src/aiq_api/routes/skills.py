@@ -16,7 +16,7 @@ Agent selection is DETERMINISTIC and derived from the JOB's chosen output kind.
 A skill no longer declares how it runs — scheduling is a property of the job (a
 prompt on a timer), and the output kind is the user's choice on that job:
 
-* ``output='chat'``          → ``shallow_researcher`` (quick single-turn job)
+* ``output='chat'``          → ``researcher`` (quick single-turn job)
 * ``output='deep-research'`` → ``deep_researcher`` (the deep research agent)
 
 ``agent_type`` is an explicit escape hatch for future output kinds; when
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 # The JOB's chosen output kind maps onto exactly one async-job-capable agent
 # type. Both entries are registered in AGENT_REGISTRY at import time
-# (deep_researcher, shallow_researcher). Deterministic by construction: there is
+# (deep_researcher, researcher). Deterministic by construction: there is
 # no path from an output kind to "some other agent".
 #
 # The mapping itself is unchanged; only where the value comes from moved. It
@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 # skill declare how it ran. It is now a column on the job row, chosen by the
 # user, and a skill is merely attached on top.
 _OUTPUT_AGENT_TYPES: dict[str, str] = {
-    "chat": "shallow_researcher",
+    "chat": "researcher",
     "deep-research": "deep_researcher",
 }
 

@@ -1175,7 +1175,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 )
 
             # Pull the model's guarded self-assessed answer confidence (present
-            # only on grounded shallow answers that emitted the marker) so the
+            # only on grounded chat answers that emitted the marker) so the
             # frontend can render the honest self-assessment chip.
             answer_confidence = getattr(data_model, "answer_confidence", None)
             if answer_confidence is None and isinstance(data_model, BaseModel):

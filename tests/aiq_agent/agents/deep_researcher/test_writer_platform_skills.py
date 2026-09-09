@@ -1,6 +1,6 @@
 """The platform's own skills, on the surface that writes the LONGEST answers.
 
-``grid-agents: shallow_researcher,deep_researcher`` on a ``platform_skills`` row
+``grid-agents: researcher,deep_researcher`` on a ``platform_skills`` row
 used to be honoured on one half and inert on the other: the chat researcher
 built a ``SkillRuntime`` and the deep pipeline resolved builtin skill FILES out
 of its sandbox instead, so ``piloti-voice`` — the row that carries the house
@@ -125,7 +125,7 @@ def _voice_row() -> dict[str, object]:
         "name": "piloti-voice",
         "description": "Vor dem Schreiben der Antwort laden: wie eine Piloti-Antwort gebaut ist.",
         "body": VOICE_BODY,
-        "metadata": {"grid-agents": "shallow_researcher,deep_researcher", "grid-hidden": "true"},
+        "metadata": {"grid-agents": "researcher,deep_researcher", "grid-hidden": "true"},
         "standard": True,
     }
 
@@ -231,7 +231,7 @@ async def test_a_chat_only_platform_skill_is_not_offered_to_the_writer(llm_provi
     """``grid-agents`` is one gate read the same way on both sides of it."""
     agent = DeepResearcherAgent(llm_provider=llm_provider, tools=[web_search_tool])
     state = DeepResearchAgentState(messages=[HumanMessage(content="q")], organization_id="org-1")
-    chat_only = {**_voice_row(), "name": "chat-voice", "metadata": {"grid-agents": "shallow_researcher"}}
+    chat_only = {**_voice_row(), "name": "chat-voice", "metadata": {"grid-agents": "researcher"}}
 
     with mock.patch.object(SkillResolver, "_fetch_org_skills", return_value=[chat_only]):
         writer = await _prepare(agent, graph, state)
