@@ -1,12 +1,12 @@
 """``ask_user`` tool — a blocking, enumerable question the agent asks mid-turn.
 
-The clarifier can only run on a deep turn (``chat_researcher`` routes to it
-when the depth decision is ``deep``), so a shallow turn that needs to
+The clarification step can only run on a deep turn (``conversation.py`` routes
+to it when the answer asks to escalate), so a shallow turn that needs to
 disambiguate had exactly one move: write the question as prose and end the
 turn. That is how "Welches IFC-Modell meinst du: AC20-Institute-Var-2.ifc oder
 Ifc2x3_SampleCastle.ifc?" reaches the user as two filenames to retype.
 
-This tool gives the shallow agent the clarifier's channel instead: it goes
+This tool gives the shallow agent that same channel instead: it goes
 through ``user_interaction_manager.prompt_user_input``, blocks until the answer
 arrives, and hands it back as the tool result, so the agent finishes the SAME
 turn with the answer in hand.
@@ -75,7 +75,7 @@ DECLINE_REPLIES = frozenset(
 """Replies that mean "decide for me" rather than naming a choice.
 
 Kept literal and short: `skip` is the control word the rest of the product
-already teaches (the clarifier's SKIP_COMMANDS), and the German entries are
+already teaches (``clarify.SKIP_COMMANDS``), and the German entries are
 here because this is a German-first product and "egal" is what people type.
 """
 

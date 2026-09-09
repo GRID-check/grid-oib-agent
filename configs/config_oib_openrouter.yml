@@ -577,15 +577,6 @@ functions:
     requirement_batch_size: 9
     verbose: false
 
-  clarifier_agent:
-    _type: clarifier_agent
-    llm: clarifier_llm
-    planner_llm: clarifier_llm
-    max_turns: 3
-    enable_plan_approval: true
-    log_response_max_chars: 2000
-    verbose: true
-
   shallow_research_agent:
     _type: shallow_research_agent
     llm: shallow_llm
@@ -837,6 +828,17 @@ workflow:
   _type: chat_deepresearcher_agent
   verbose: true
   enable_clarifier: true
+  # The clarification step that confirms a research plan before deep research
+  # runs. A block on the workflow rather than its own function: it has one
+  # caller and is never chosen by a model. The `clarifier` agent group is
+  # unchanged, so a per-org model override still re-points it.
+  clarifier:
+    llm: clarifier_llm
+    planner_llm: clarifier_llm
+    max_turns: 3
+    enable_plan_approval: true
+    log_response_max_chars: 2000
+    verbose: true
   use_async_deep_research: true
   checkpoint_db: ${AIQ_CHECKPOINT_DB:-./checkpoints.db}
   # Enables the async post-answer memory-reflection stage (reuses the cheap

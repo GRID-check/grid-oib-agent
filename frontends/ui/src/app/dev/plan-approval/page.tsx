@@ -13,8 +13,9 @@
  *      keeps its two buttons, because sending `shallow` to the backend that
  *      wrote that envelope would be read as plan feedback.
  *
- * Fetch-free: the content strings are byte-for-byte what the clarifier's
- * `_format_plan_for_user` writes, and the respond callback resolves locally so
+ * Fetch-free: the content strings are byte-for-byte what the clarification
+ * step's `format_plan_for_user` writes (`shallow_researcher/clarify.py`), and
+ * the respond callback resolves locally so
  * the first block is clickable in dev. Not linked from anywhere; 404s outside
  * development.
  *

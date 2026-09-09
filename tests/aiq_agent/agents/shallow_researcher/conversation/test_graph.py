@@ -7,8 +7,6 @@ read off the shallow result AFTER the answer exists. The fixtures here
 therefore seed the shallow path directly; nothing routes ahead of it.
 """
 
-from unittest.mock import MagicMock
-
 import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
@@ -18,6 +16,7 @@ from aiq_agent.agents.shallow_researcher.conversation import CONVERSATION_SCOPED
 from aiq_agent.agents.shallow_researcher.conversation import TURN_SCOPED_FIELDS
 from aiq_agent.agents.shallow_researcher.conversation import ConversationGraph
 from aiq_agent.agents.shallow_researcher.markers import ESCALATION_MARKER
+from aiq_agent.agents.shallow_researcher.models import ClarifyResult
 from aiq_agent.agents.shallow_researcher.models import ConversationState
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 
@@ -65,17 +64,10 @@ class TestConversationGraph:
 
     @pytest.fixture
     def mock_clarifier(self):
-        """Create a mock clarifier function."""
+        """A clarification step that asked its questions and got a plan approved."""
 
-        async def clarifier(state_input):
-            messages = state_input.messages if hasattr(state_input, "messages") else state_input
-            result = MagicMock()
-            result.messages = list(messages)
-            result.clarifier_log = "User clarified: technical focus"
-            result.plan_rejected = False
-            result.plan_cancelled = False
-            result.get_approved_plan_context = MagicMock(return_value=None)
-            return result
+        async def clarifier(request):
+            return ClarifyResult(research_context="User clarified: technical focus", outcome="approved")
 
         return clarifier
 
@@ -400,18 +392,9 @@ class TestRoutingBoundary:
                 messages=list(state.messages) + [AIMessage(content="Here's a comprehensive report.")]
             )
 
-        async def clarifier(state_input):
+        async def clarifier(request):
             calls["clarifier"] = True
-            messages = state_input.messages if hasattr(state_input, "messages") else state_input
-            result = MagicMock()
-            result.messages = list(messages)
-            result.clarifier_log = "clarified"
-            # Explicit non-rejection so clarifier_node proceeds to deep_research
-            # (a bare MagicMock's .plan_rejected is truthy and would short to END).
-            result.plan_rejected = False
-            result.plan_cancelled = False
-            result.get_approved_plan_context = MagicMock(return_value=None)
-            return result
+            return ClarifyResult(research_context="clarified", outcome="approved")
 
         return calls, shallow_answering, deep, clarifier
 

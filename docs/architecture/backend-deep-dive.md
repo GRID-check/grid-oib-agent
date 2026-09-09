@@ -1494,10 +1494,13 @@ Soll-Ist-Abgleich through this open-ended deep-research harness — see §8c.
 ## 8. Backend agent architecture & DRY debt
 
 Registered agents (via NAT `@register_function` + `FunctionBaseConfig`):
-`chat_deepresearcher_agent` (entrypoint), `clarifier_agent`,
-`shallow_research_agent`, `deep_research_agent` (+ eval/placeholder wrappers).
+`chat_deepresearcher_agent` (entrypoint), `shallow_research_agent`,
+`deep_research_agent` (+ eval/placeholder wrappers). The clarifier is no longer
+among them: it is a step of the conversation graph
+(`shallow_researcher/clarify.py`) configured by the `clarifier:` block on
+`chat_deepresearcher_agent`.
 
-No shared base-agent class exists; four agent classes each repeat: tool
+No shared base-agent class exists; the remaining agent classes each repeat: tool
 resolution/exclusion, `LLMProvider` construction, verbose/trace callback setup,
 per-request data-source-filtered rebuild, tool-availability validation, and
 prompt-loading fallbacks. Good shared primitives already live in
@@ -1544,9 +1547,9 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   `{agentGroup: openrouterModelId}`) is parsed by
   `src/aiq_agent/common/model_overrides.py` and applied request-scoped:
   `LLMProvider.with_model_overrides()` (group-tagged roles; identity when
-  nothing applies) in the shallow/deep/clarifier `_run` closures, plus
-  `apply_model_override()` at the clarifier planner and the reflection
-  scheduling site. Async jobs carry
+  nothing applies) in the shallow/deep `_run` closures and in
+  `clarify.Clarifier.deps_for`, plus `apply_model_override()` at the clarifier
+  planner and the reflection scheduling site. Async jobs carry
   the map through `submit_agent_job` → `jobs/runner.py` (provider + header
   re-injection). Only the model id changes; params/keys stay from YAML. When
   no header/envelope carries the map (e.g. the generic async-job proxy before

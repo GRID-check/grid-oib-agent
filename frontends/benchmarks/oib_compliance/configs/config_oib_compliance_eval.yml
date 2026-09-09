@@ -180,15 +180,6 @@ functions:
   emit_card:
     _type: emit_card
 
-  clarifier_agent:
-    _type: clarifier_agent
-    llm: clarifier_llm
-    planner_llm: clarifier_llm
-    max_turns: 3
-    enable_plan_approval: true
-    log_response_max_chars: 2000
-    verbose: true
-
   shallow_research_agent:
     _type: shallow_research_agent
     llm: shallow_llm
@@ -224,8 +215,17 @@ workflow:
   _type: chat_deepresearcher_agent
   verbose: true
   # Clarifier off for eval: golden cases are meant to run unattended/batched;
-  # HITL clarification would stall `nat eval` waiting on a human turn.
+  # HITL clarification would stall `nat eval` waiting on a human turn. With the
+  # flag off the `clarifier:` block below is never resolved; it stays so this
+  # config still documents what the product runs with.
   enable_clarifier: false
+  clarifier:
+    llm: clarifier_llm
+    planner_llm: clarifier_llm
+    max_turns: 3
+    enable_plan_approval: true
+    log_response_max_chars: 2000
+    verbose: true
   use_async_deep_research: false
   checkpoint_db: ${AIQ_EVAL_CHECKPOINT_DB:-./checkpoints_oib_compliance_eval.db}
 

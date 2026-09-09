@@ -32,8 +32,6 @@ from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
-from aiq_agent.agents.clarifier.models import ClarifierAgentState
-from aiq_agent.agents.clarifier.models import ClarifierResult
 from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
 from aiq_agent.common import get_latest_user_query
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
@@ -46,9 +44,11 @@ from aiq_agent.knowledge.inventory import set_listing_shelf
 from aiq_agent.knowledge.inventory import shelf_hint_from_query
 from aiq_agent.turn.api_seam import AuthError
 
+from .clarify import ClarifyFn
 from .history import trim_message_history
 from .markers import detect_and_strip_confidence_marker
 from .markers import detect_and_strip_escalation_marker
+from .models import ClarifyRequest
 from .models import ConversationState
 from .models import ShallowResearchAgentState
 
@@ -261,7 +261,7 @@ class ConversationGraph:
         self,
         shallow_research_fn: Callable[[ShallowResearchAgentState], Awaitable[ShallowResearchAgentState]],
         deep_research_fn: Callable[[DeepResearchAgentState], Awaitable[DeepResearchAgentState]],
-        clarifier_fn: Callable[[ClarifierAgentState], Awaitable[ClarifierResult]] | None,
+        clarifier_fn: ClarifyFn | None,
         *,
         max_history_tokens: int = 8000,
         deep_research_job_submitter: Callable[[ConversationState], Awaitable[str]] | None = None,
@@ -301,22 +301,18 @@ class ConversationGraph:
             return _deep_handoff(original_query, escalation_reason)
         available_docs = [doc.model_dump() for doc in (state.available_documents or [])]
         result = await self.clarifier_fn(
-            ClarifierAgentState(
+            ClarifyRequest(
                 messages=self._trimmed(state),
                 data_sources=state.data_sources,
                 available_documents=available_docs or None,
                 project_context=state.project_context,
             )
         )
-        if result.plan_cancelled:
+        if result.outcome == "cancelled":
             return _plan_cancelled(original_query)
-        if result.plan_rejected:
+        if result.outcome == "shallow":
             return _plan_rejected(original_query)
-        clarifier_result = result.clarifier_log
-        approved_plan_context = result.get_approved_plan_context()
-        if approved_plan_context:
-            clarifier_result = f"{clarifier_result}\n\n{approved_plan_context}"
-        return _deep_handoff(original_query, escalation_reason, clarifier_result)
+        return _deep_handoff(original_query, escalation_reason, result.research_context)
 
     def _shallow_input(self, state: ConversationState, trimmed: list[BaseMessage]) -> ShallowResearchAgentState:
         return ShallowResearchAgentState(

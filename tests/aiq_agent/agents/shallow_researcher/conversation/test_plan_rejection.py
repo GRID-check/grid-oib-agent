@@ -30,6 +30,7 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from aiq_agent.agents.shallow_researcher.conversation import ConversationGraph
 from aiq_agent.agents.shallow_researcher.markers import ESCALATION_MARKER
+from aiq_agent.agents.shallow_researcher.models import ClarifyResult
 from aiq_agent.agents.shallow_researcher.models import ConversationState
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 
@@ -75,17 +76,9 @@ def parts():
         result.citations_removed = None
         return result
 
-    async def rejecting_clarifier(state_input):
+    async def rejecting_clarifier(request):
         calls["clarifier"] += 1
-        result = MagicMock()
-        result.messages = list(state_input.messages)
-        result.clarifier_log = "planned"
-        result.plan_rejected = True
-        # Explicit, like plan_rejected: a bare MagicMock auto-vivifies the
-        # attribute truthy, which would take every turn down the cancel branch.
-        result.plan_cancelled = False
-        result.get_approved_plan_context = MagicMock(return_value=None)
-        return result
+        return ClarifyResult(research_context="planned", outcome="shallow")
 
     return calls, shallow, deep, rejecting_clarifier
 
@@ -188,15 +181,9 @@ class TestCancellationEndsTheTurnWithAReceipt:
     def cancelling_parts(self, parts):
         calls, shallow, deep, _rejecting = parts
 
-        async def cancelling_clarifier(state_input):
+        async def cancelling_clarifier(request):
             calls["clarifier"] += 1
-            result = MagicMock()
-            result.messages = list(state_input.messages)
-            result.clarifier_log = "planned"
-            result.plan_rejected = False
-            result.plan_cancelled = True
-            result.get_approved_plan_context = MagicMock(return_value=None)
-            return result
+            return ClarifyResult(research_context="planned", outcome="cancelled")
 
         return calls, shallow, deep, cancelling_clarifier
 
@@ -298,15 +285,9 @@ class TestRejectionIsRemembered:
         """The flag is per-thread. A fresh chat is the deliberate way back."""
         calls, shallow, deep, clarifier = parts
 
-        async def approving_clarifier(state_input):
+        async def approving_clarifier(request):
             calls["clarifier"] += 1
-            result = MagicMock()
-            result.messages = list(state_input.messages)
-            result.clarifier_log = "planned"
-            result.plan_rejected = False
-            result.plan_cancelled = False
-            result.get_approved_plan_context = MagicMock(return_value=None)
-            return result
+            return ClarifyResult(research_context="planned", outcome="approved")
 
         agent = _build(shallow, deep, clarifier)
         await agent.run(

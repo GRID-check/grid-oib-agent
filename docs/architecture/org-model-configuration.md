@@ -284,7 +284,7 @@ server.js  ──  x-grid-model-overrides: base64url(JSON)  ──▶  aiq backe
                                      │
    model_overrides.py: parse + sanitize (unknown group / bad id dropped, fail-open {})
                                      │
- sync turn: each agent register's _run:
+ sync turn: each agent register's _run (and clarify.Clarifier.deps_for):
    provider.with_model_overrides(...)  → derived LLMProvider (model_copy per group)
    directly-held LLMs (clarifier planner, reflection schedule)
    wrapped via apply_model_override(llm, group)
@@ -328,10 +328,12 @@ Key properties:
 - Overrides are strictly request-scoped: build-time providers/agents are
   never mutated; `with_model_overrides` returns `self` (identity check) when
   nothing applies, so the prebuilt agent path stays hot.
-- The clarifier builds its graph once, at registration. An active override
-  (or a narrowed data-source selection) produces a frozen `TurnConfig` that
-  rides on the LangGraph config for that one request; the agent, its prompts
-  and its compiled graph are never rebuilt. The deep agent still rebuilds.
+- The clarification step resolves its models, tools and limits once, at boot,
+  into a frozen `ClarifyDeps`. An active override (or a narrowed data-source
+  selection) produces its own `ClarifyDeps` for that one request
+  (`clarify.Clarifier.deps_for`); every other request is handed the boot object
+  back, so no tool schema is re-bound and no prompt is re-read. The deep agent
+  still rebuilds.
 - Async jobs — both deep research and the post-answer memory-reflection
   stage — re-apply the map inside the Dask worker rather than inheriting it:
   request contextvars don't survive into a background job, so

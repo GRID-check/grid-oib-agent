@@ -16,6 +16,8 @@ from typing import Any
 from langchain_core.messages import HumanMessage
 from pydantic import Field
 
+from aiq_agent.agents.shallow_researcher.clarify import ClarifierSettings
+from aiq_agent.agents.shallow_researcher.clarify import build_clarifier
 from aiq_agent.agents.shallow_researcher.conversation import ConversationGraph
 from aiq_agent.agents.shallow_researcher.models import ConversationState
 from aiq_agent.common import AgentGroup
@@ -83,6 +85,16 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
     )
     verbose: bool = Field(default=False, description="Enable verbose logging")
     enable_clarifier: bool = Field(default=False, description="Enable clarification of research queries")
+    clarifier: ClarifierSettings | None = Field(
+        default=None,
+        description=(
+            "Models, tools and limits for the clarification step that confirms a research plan "
+            "before deep research runs. Required when `enable_clarifier` is true. It is a nested "
+            "block rather than its own function because the step has exactly one caller; the "
+            "`clarifier` agent group it runs under is unchanged, so per-org model overrides still "
+            "address it."
+        ),
+    )
     use_async_deep_research: bool = Field(
         default=False,
         description="Submit deep research as an async job instead of running inline",
@@ -146,6 +158,20 @@ async def _stage_llm(builder: Builder, ref: LLMRef | None, stage: str):
         return None
 
 
+async def _build_clarifier(config: ChatDeepResearcherConfig, builder: Builder):
+    """The clarification step, or None when this deployment runs without one.
+
+    A config that turns the clarifier on without configuring it fails HERE, at
+    boot, rather than on the first escalating turn — the same trade the missing
+    ``clarifier_agent`` function used to get from ``builder.get_function``.
+    """
+    if not config.enable_clarifier:
+        return None
+    if config.clarifier is None:
+        raise ValueError("enable_clarifier is true but no `clarifier:` block is configured on the workflow")
+    return await build_clarifier(config.clarifier, builder)
+
+
 async def _build_agent(config: ChatDeepResearcherConfig, builder: Builder) -> ConversationGraph:
     """Resolve the sibling NAT functions into the researcher's conversation graph.
 
@@ -156,11 +182,10 @@ async def _build_agent(config: ChatDeepResearcherConfig, builder: Builder) -> Co
     """
     shallow_fn = await builder.get_function("shallow_research_agent")
     deep_fn = await builder.get_function("deep_research_agent")
-    clarifier_fn = await builder.get_function("clarifier_agent") if config.enable_clarifier else None
     return ConversationGraph(
         shallow_research_fn=shallow_fn.ainvoke,
         deep_research_fn=deep_fn.ainvoke,
-        clarifier_fn=clarifier_fn.ainvoke if clarifier_fn else None,
+        clarifier_fn=await _build_clarifier(config, builder),
         max_history_tokens=config.max_history_tokens,
         deep_research_job_submitter=build_deep_research_job_submitter(config),
         checkpointer=await get_checkpointer(config.checkpoint_db),

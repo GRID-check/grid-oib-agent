@@ -43,15 +43,16 @@ change. The one exception is adding a brand-new template, which needs a one-line
 - `docs/architecture/llm-providers.md`: what an `llms:` endpoint must support,
   and how to point an entry at another OpenAI-compatible host.
 - `docs/source/customization/configuration-reference.md`: the `llms` section and
-  each agent's config fields (`deep_research_agent`, `clarifier_agent`, …).
+  each agent's config fields (`deep_research_agent`, the `clarifier:` block on
+  `chat_deepresearcher_agent`, …).
 - `src/aiq_agent/common/prompt_utils.py`: `load_prompt` and
   `render_prompt_template`.
 - `src/aiq_agent/common/llm_provider.py`: `LLMRole` and `LLMProvider.configure`,
   which bind a resolved LLM to an agent role (used by the deep research agent).
 - Templates to model on: `src/aiq_agent/agents/deep_researcher/prompts/*.j2`
   (orchestrator, planner, researcher, source_router, writer) and
-  `src/aiq_agent/agents/clarifier/prompts/*.j2`. Other agents have prompts too
-  (e.g. `shallow_researcher`, `chat_researcher`) — check
+  `src/aiq_agent/agents/shallow_researcher/prompts/*.j2` (researcher, plus the
+  clarification step's two). Other agents have prompts too — check
   `src/aiq_agent/agents/*/prompts/`.
 
 Longer procedures live in this bundle:

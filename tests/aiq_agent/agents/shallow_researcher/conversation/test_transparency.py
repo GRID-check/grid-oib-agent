@@ -27,6 +27,7 @@ from aiq_agent.agents.shallow_researcher.ledger import citations_removed_summary
 from aiq_agent.agents.shallow_researcher.markers import ESCALATION_MARKER
 from aiq_agent.agents.shallow_researcher.markers import answer_confidence_capped_reason
 from aiq_agent.agents.shallow_researcher.markers import surface_answer_confidence
+from aiq_agent.agents.shallow_researcher.models import ClarifyResult
 from aiq_agent.agents.shallow_researcher.models import ConversationState
 from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
 from aiq_agent.common.job_admission import JobAdmissionError
@@ -245,14 +246,8 @@ async def _deep(state):
     return result
 
 
-async def _clarifier(state):
-    result = MagicMock()
-    result.messages = list(getattr(state, "messages", []))
-    result.clarifier_log = "log"
-    result.plan_rejected = False
-    result.plan_cancelled = False
-    result.get_approved_plan_context = lambda: ""
-    return result
+async def _clarifier(request):
+    return ClarifyResult(research_context="log", outcome="approved")
 
 
 def _agent(shallow_fn=None, *, deep_fn=None, deep_submitter=None):

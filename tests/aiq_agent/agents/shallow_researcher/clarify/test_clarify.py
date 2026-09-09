@@ -1,7 +1,9 @@
-"""Tests for the ClarifierAgent."""
+"""Tests for the clarification step."""
 
+import asyncio
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -9,21 +11,22 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
-from aiq_agent.agents.clarifier.agent import CLARIFICATION_PROMPT
-from aiq_agent.agents.clarifier.agent import CLARIFIER_GRAPH
-from aiq_agent.agents.clarifier.agent import PLAN_GENERATION_PROMPT
-from aiq_agent.agents.clarifier.agent import SKIP_COMMANDS
-from aiq_agent.agents.clarifier.agent import ClarifierAgent
-from aiq_agent.agents.clarifier.agent import TurnConfig
-from aiq_agent.agents.clarifier.agent import fallback_clarification
-from aiq_agent.agents.clarifier.agent import format_plan_for_user
-from aiq_agent.agents.clarifier.agent import parse_json_response
-from aiq_agent.agents.clarifier.agent import parse_plan_reply
-from aiq_agent.agents.clarifier.agent import route_after_clarifier
-from aiq_agent.agents.clarifier.models import ClarificationResponse
-from aiq_agent.agents.clarifier.models import ClarifierAgentState
-from aiq_agent.agents.clarifier.models import ClarifierResult
-from aiq_agent.agents.clarifier.models import PlanResponse
+from aiq_agent.agents.shallow_researcher.clarify import CLARIFICATION_PROMPT
+from aiq_agent.agents.shallow_researcher.clarify import MAX_TOOL_ROUNDS
+from aiq_agent.agents.shallow_researcher.clarify import PLAN_GENERATION_PROMPT
+from aiq_agent.agents.shallow_researcher.clarify import SKIP_COMMANDS
+from aiq_agent.agents.shallow_researcher.clarify import TRACE_STEP_NAME
+from aiq_agent.agents.shallow_researcher.clarify import ClarifierSettings
+from aiq_agent.agents.shallow_researcher.clarify import ClarifyDeps
+from aiq_agent.agents.shallow_researcher.clarify import build_deps
+from aiq_agent.agents.shallow_researcher.clarify import clarify
+from aiq_agent.agents.shallow_researcher.clarify import fallback_clarification
+from aiq_agent.agents.shallow_researcher.clarify import format_plan_for_user
+from aiq_agent.agents.shallow_researcher.clarify import parse_json_response
+from aiq_agent.agents.shallow_researcher.clarify import parse_plan_reply
+from aiq_agent.agents.shallow_researcher.models import ClarificationResponse
+from aiq_agent.agents.shallow_researcher.models import ClarifyRequest
+from aiq_agent.agents.shallow_researcher.models import PlanResponse
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 
@@ -38,7 +41,7 @@ def make_llm(*replies: str) -> MagicMock:
     """A chat-model double that answers ``replies`` in order.
 
     ``bind_tools`` and ``bind`` return the model itself, the way a real
-    integration returns a runnable that still serves ``ainvoke`` — the clarifier
+    integration returns a runnable that still serves ``ainvoke`` — the step
     binds one or the other on every model it resolves.
     """
     llm = MagicMock()
@@ -60,6 +63,17 @@ def make_provider(llm: MagicMock) -> MagicMock:
     return provider
 
 
+def deps_for(llm: MagicMock, *, ask=None, tools=(), planner=None, **settings) -> ClarifyDeps:
+    """The resolved dependencies one run reads, built the way boot builds them."""
+    return build_deps(
+        make_provider(llm),
+        list(tools),
+        planner,
+        ClarifierSettings(llm="clarifier_llm", **settings),
+        ask or AsyncMock(),
+    )
+
+
 def clarification(question: str | None = None, options: list[str] | None = None) -> str:
     """The JSON envelope the clarifier LLM is expected to return."""
     if question is None:
@@ -71,75 +85,26 @@ def clarification(question: str | None = None, options: list[str] | None = None)
     ).model_dump_json()
 
 
-def state_for(text: str = "Research AI") -> ClarifierAgentState:
-    return ClarifierAgentState(messages=[HumanMessage(content=text)])
+def request_for(text: str = "Research AI") -> ClarifyRequest:
+    return ClarifyRequest(messages=[HumanMessage(content=text)])
 
 
-class TestClarifierAgentInit:
-    """Tests for ClarifierAgent initialization."""
+class TestBuildDeps:
+    """What one run resolves, and which model gets which binding."""
 
-    @pytest.fixture
-    def provider(self):
-        return make_provider(make_llm())
+    def test_the_clarifier_role_is_what_the_provider_is_asked_for(self):
+        """The `clarifier` agent group survives the collapse; this is where it is read."""
+        provider = make_provider(make_llm())
 
-    def test_init_with_defaults(self, provider):
-        """Test initialization with default values."""
-        callback = AsyncMock()
-        agent = ClarifierAgent(llm_provider=provider, user_prompt_callback=callback)
-
-        assert agent.llm_provider == provider
-        assert agent.tools == []
-        assert agent.user_prompt_callback == callback
-        assert agent.max_turns == 3
-        assert agent.enable_plan_approval is False
-        assert agent.max_plan_iterations == 10
-        assert agent.callbacks == []
-
-    def test_init_with_tools(self, provider):
-        """Test initialization with tools."""
-        agent = ClarifierAgent(
-            llm_provider=provider,
-            tools=[web_search_tool],
-            user_prompt_callback=AsyncMock(),
-        )
-
-        assert len(agent.tools) == 1
-
-    def test_init_with_custom_max_turns(self, provider):
-        """Test initialization with custom max_turns."""
-        agent = ClarifierAgent(llm_provider=provider, user_prompt_callback=AsyncMock(), max_turns=5)
-
-        assert agent.max_turns == 5
-
-    def test_init_with_callbacks(self, provider):
-        """Test initialization with callbacks."""
-        callback = MagicMock()
-        agent = ClarifierAgent(llm_provider=provider, user_prompt_callback=AsyncMock(), callbacks=[callback])
-
-        assert agent.callbacks == [callback]
-
-    def test_the_graph_is_shared_not_per_agent(self, provider):
-        """Compiling per agent (or per request) is the cost this removes."""
-        first = ClarifierAgent(llm_provider=provider, user_prompt_callback=AsyncMock())
-        second = ClarifierAgent(llm_provider=provider, user_prompt_callback=AsyncMock())
-
-        assert first.graph is CLARIFIER_GRAPH
-        assert second.graph is CLARIFIER_GRAPH
-
-    def test_boot_binding_resolves_the_clarifier_role(self, provider):
-        """The agent's LLM comes from the provider under the clarifier role."""
-        ClarifierAgent(llm_provider=provider, user_prompt_callback=AsyncMock())
+        build_deps(provider, [], None, ClarifierSettings(llm="l"), AsyncMock())
 
         provider.get.assert_called_with(LLMRole.CLARIFIER)
-
-
-class TestClarifierBinding:
-    """What one request may vary, and what it must not rebuild."""
 
     def test_a_tool_free_clarifier_gets_the_schema_natively(self):
         """No tools: the model is bound to strict json_schema output."""
         llm = make_llm()
-        ClarifierAgent(llm_provider=make_provider(llm), user_prompt_callback=AsyncMock())
+
+        deps_for(llm)
 
         llm.bind_tools.assert_not_called()
         bound = [call.kwargs["response_format"] for call in llm.bind.call_args_list]
@@ -149,7 +114,8 @@ class TestClarifierBinding:
     def test_a_tool_bound_clarifier_is_not_also_schema_bound(self):
         """Binding both is how OpenRouter silently drops the tool calls."""
         llm = make_llm()
-        ClarifierAgent(llm_provider=make_provider(llm), tools=[web_search_tool], user_prompt_callback=AsyncMock())
+
+        deps_for(llm, tools=[web_search_tool])
 
         llm.bind_tools.assert_called_once()
         # The planner still binds its own schema; the clarifier model does not.
@@ -159,42 +125,20 @@ class TestClarifierBinding:
     def test_the_planner_always_gets_the_schema(self):
         """Plan generation is tool-free, so it is always strict."""
         planner = make_llm()
-        ClarifierAgent(
-            llm_provider=make_provider(make_llm()),
-            user_prompt_callback=AsyncMock(),
-            planner_llm=planner,
-        )
+
+        deps_for(make_llm(), planner=planner)
 
         assert planner.bind.call_args.kwargs["response_format"]["json_schema"]["name"] == "PlanResponse"
 
-    def test_a_turn_config_overrides_the_provider_without_touching_the_agent(self):
-        """The per-request seam: a new provider, the same agent and graph."""
-        boot_llm = make_llm()
-        agent = ClarifierAgent(llm_provider=make_provider(boot_llm), user_prompt_callback=AsyncMock())
-        request_llm = make_llm()
+    def test_the_limits_come_from_the_settings(self):
+        deps = deps_for(make_llm(), max_turns=5, enable_plan_approval=True, max_plan_iterations=2)
 
-        binding = agent.binding_for(TurnConfig(llm_provider=make_provider(request_llm)))
+        assert (deps.max_turns, deps.enable_plan_approval, deps.max_plan_iterations) == (5, True, 2)
 
-        assert binding.llm is request_llm
-        assert agent._boot.llm is boot_llm
-
-    def test_a_turn_config_narrows_the_tools(self):
-        """Data-source filtering hands the request a shorter tool list."""
-        agent = ClarifierAgent(
-            llm_provider=make_provider(make_llm()),
-            tools=[web_search_tool],
-            user_prompt_callback=AsyncMock(),
-        )
-
-        binding = agent.binding_for(TurnConfig(tools=[]))
-
-        assert binding.tool_node.tools_by_name == {}
-
-    @pytest.mark.asyncio
-    async def test_the_graph_refuses_to_run_without_a_binding(self):
-        """A graph-direct invocation has no models to call; say so, don't crash later."""
-        with pytest.raises(RuntimeError, match="outside run"):
-            await CLARIFIER_GRAPH.ainvoke(state_for())
+    def test_the_tools_are_addressable_by_name(self):
+        """A tool call names a tool; the step looks it up rather than scanning."""
+        assert set(deps_for(make_llm(), tools=[web_search_tool]).tools) == {"web_search_tool"}
+        assert deps_for(make_llm(), tools=[]).tools == {}
 
 
 class TestPrompts:
@@ -443,146 +387,156 @@ class TestPlanFormatting:
         assert "**Sections:**" in result
 
 
-class TestClarifierAgentRun:
-    """Tests for the run method."""
+class TestTheQuestionLoop:
+    """Asking, skipping, and stopping."""
 
     @pytest.mark.asyncio
-    async def test_run_immediate_completion(self):
-        """Test run when LLM immediately returns complete."""
-        agent = ClarifierAgent(
-            llm_provider=make_provider(make_llm(clarification())),
-            user_prompt_callback=AsyncMock(),
-        )
+    async def test_immediate_completion(self):
+        """A model that says it has enough asks nothing."""
+        ask = AsyncMock()
 
-        result = await agent.run(state_for())
+        result = await clarify(request_for(), deps_for(make_llm(clarification()), ask=ask))
 
-        assert isinstance(result, ClarifierResult)
-        assert result.plan_outcome is None
+        assert result.outcome is None
+        assert result.research_context == ""
+        ask.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_run_with_skip_command(self):
-        """Test run when user skips clarification."""
-        callback = AsyncMock(return_value="skip")
-        agent = ClarifierAgent(
-            llm_provider=make_provider(make_llm(clarification("What scope?"))),
-            user_prompt_callback=callback,
-        )
+    async def test_a_skip_command_ends_the_questioning(self):
+        ask = AsyncMock(return_value="skip")
 
-        result = await agent.run(state_for())
+        result = await clarify(request_for(), deps_for(make_llm(clarification("What scope?")), ask=ask))
 
-        assert "[Skipped clarification]" in result.clarifier_log
-        callback.assert_called_once()
+        assert "[Skipped clarification]" in result.research_context
+        ask.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_run_with_zero_turns_never_asks(self):
-        """max_turns=0 completes without a question."""
-        callback = AsyncMock()
-        agent = ClarifierAgent(
-            llm_provider=make_provider(make_llm(clarification("What scope?"))),
-            user_prompt_callback=callback,
-            max_turns=0,
-        )
+    async def test_zero_turns_never_asks_and_never_calls_the_model(self):
+        ask = AsyncMock()
+        llm = make_llm(clarification("What scope?"))
 
-        await agent.run(state_for())
+        await clarify(request_for(), deps_for(llm, ask=ask, max_turns=0))
 
-        callback.assert_not_called()
+        ask.assert_not_called()
+        llm.ainvoke.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_the_dialog_stops_at_max_turns(self):
-        """The configured limit governs; the state carries no second copy."""
+        """The configured limit governs, and every turn is in the transcript."""
         llm = make_llm()
         llm.ainvoke = AsyncMock(return_value=AIMessage(content=clarification("Which angle?")))
-        callback = AsyncMock(return_value="the technical one")
-        agent = ClarifierAgent(llm_provider=make_provider(llm), user_prompt_callback=callback, max_turns=2)
+        ask = AsyncMock(return_value="the technical one")
 
-        result = await agent.run(state_for())
+        result = await clarify(request_for(), deps_for(llm, ask=ask, max_turns=2))
 
-        assert callback.await_count == 2
-        assert "**Turn 2 - User:**" in result.clarifier_log
+        assert ask.await_count == 2
+        assert "**Turn 2 - User:**" in result.research_context
 
     @pytest.mark.asyncio
     async def test_the_answer_is_recorded_in_the_log(self):
-        agent = ClarifierAgent(
-            llm_provider=make_provider(make_llm(clarification("Which angle?"), clarification())),
-            user_prompt_callback=AsyncMock(return_value="the technical one"),
+        deps = deps_for(
+            make_llm(clarification("Which angle?"), clarification()),
+            ask=AsyncMock(return_value="the technical one"),
         )
 
-        result = await agent.run(state_for())
+        result = await clarify(request_for(), deps)
 
-        assert "**Turn 1 - Assistant:**" in result.clarifier_log
-        assert "the technical one" in result.clarifier_log
+        assert "**Turn 1 - Assistant:**" in result.research_context
+        assert "the technical one" in result.research_context
+
+    @pytest.mark.asyncio
+    async def test_the_running_transcript_reaches_the_next_prompt(self):
+        """Each round re-renders the prompt with what has been asked so far."""
+        llm = make_llm(clarification("Which angle?"), clarification())
+
+        await clarify(request_for(), deps_for(llm, ask=AsyncMock(return_value="the technical one")))
+
+        second_system_prompt = llm.ainvoke.await_args_list[1].args[0][0].content
+        assert "the technical one" in second_system_prompt
 
     @pytest.mark.asyncio
     async def test_an_unparseable_reply_asks_the_fallback_question(self):
         """A model that writes prose still gets the user asked, not researched."""
         seen: list[str] = []
 
-        async def callback(question: str, options) -> str:
+        async def ask(question: str, options) -> str:
             seen.append(question)
             return "skip"
 
-        agent = ClarifierAgent(
-            llm_provider=make_provider(make_llm("I think we should research AI broadly.")),
-            user_prompt_callback=callback,
-        )
-
-        await agent.run(state_for("Research AI"))
+        await clarify(request_for("Research AI"), deps_for(make_llm("I think we should research AI broadly."), ask=ask))
 
         assert len(seen) == 1
         assert "Research AI" in seen[0]
 
     @pytest.mark.asyncio
-    async def test_run_logs_query(self, caplog):
-        """Test that run logs the query."""
-        agent = ClarifierAgent(
-            llm_provider=make_provider(make_llm(clarification())),
-            user_prompt_callback=AsyncMock(),
-        )
-
+    async def test_the_start_is_logged(self, caplog):
         with caplog.at_level("INFO"):
-            await agent.run(state_for("Test query"))
+            await clarify(request_for("Test query"), deps_for(make_llm(clarification()), ask=AsyncMock()))
 
         assert "Clarifier: Starting" in caplog.text
 
     @pytest.mark.asyncio
     async def test_the_llm_reply_is_parsed_once_per_call(self, caplog):
         """The parse used to run five times per turn, warning five times over."""
-        agent = ClarifierAgent(
-            llm_provider=make_provider(make_llm("still not json")),
-            user_prompt_callback=AsyncMock(return_value="skip"),
-        )
+        deps = deps_for(make_llm("still not json"), ask=AsyncMock(return_value="skip"))
 
         with caplog.at_level("WARNING"):
-            await agent.run(state_for())
+            await clarify(request_for(), deps)
 
         assert len([line for line in caplog.text.splitlines() if "No JSON in the" in line]) == 1
 
 
-class TestClarifierAgentPlanApproval:
-    """Tests for plan approval workflow."""
-
-    @staticmethod
-    def agent_for(callback, planner, **kwargs) -> ClarifierAgent:
-        return ClarifierAgent(
-            llm_provider=make_provider(make_llm(clarification())),
-            user_prompt_callback=callback,
-            enable_plan_approval=True,
-            planner_llm=planner,
-            **kwargs,
-        )
+class TestTheTraceRow:
+    """The one thing the reader sees of this step."""
 
     @pytest.mark.asyncio
-    async def test_run_with_plan_approval_approved(self):
-        """Test run with plan approval when user approves."""
+    async def test_the_step_announces_itself_under_the_name_the_ui_maps(self):
+        """`clarifier_agent` is a UI dictionary key (intermediate-step-parser.ts)
+        and it is stamped on turns persisted before the NAT function went away,
+        so the live trace has to keep emitting exactly it."""
+        with patch("aiq_agent.agents.shallow_researcher.clarify.push_custom_step") as push:
+            await clarify(request_for(), deps_for(make_llm(clarification()), ask=AsyncMock()))
+
+        assert push.call_args.args[0] == TRACE_STEP_NAME == "clarifier_agent"
+
+    @pytest.mark.asyncio
+    async def test_it_is_emitted_before_the_first_question_blocks(self):
+        """A row that arrives after the dialog would appear once the reader has
+        already been waiting on a question with no explanation."""
+        order: list[str] = []
+
+        async def ask(question: str, options) -> str:
+            order.append("asked")
+            return "skip"
+
+        with patch(
+            "aiq_agent.agents.shallow_researcher.clarify.push_custom_step",
+            side_effect=lambda *a: order.append("traced"),
+        ):
+            await clarify(request_for(), deps_for(make_llm(clarification("Which angle?")), ask=ask))
+
+        assert order == ["traced", "asked"]
+
+
+class TestPlanApproval:
+    """The plan preview and the user's verdict."""
+
+    @staticmethod
+    def deps(ask, planner, **settings) -> ClarifyDeps:
+        return deps_for(make_llm(clarification()), ask=ask, planner=planner, enable_plan_approval=True, **settings)
+
+    @pytest.mark.asyncio
+    async def test_approved(self):
         planner = make_llm('{"title": "Test Research Plan", "sections": ["Intro", "Analysis", "Conclusion"]}')
 
-        result = await self.agent_for(AsyncMock(return_value="approve"), planner).run(state_for())
+        result = await clarify(request_for(), self.deps(AsyncMock(return_value="approve"), planner))
 
-        assert result.plan_approved is True
-        assert result.plan_rejected is False
-        assert result.plan_cancelled is False
-        assert result.plan_title == "Test Research Plan"
-        assert result.plan_sections == ["Intro", "Analysis", "Conclusion"]
+        assert result.outcome == "approved"
+        # The approved plan is appended to the transcript as the one string
+        # deep research reads (`orchestrator.j2`), not as separate fields.
+        assert "**Approved Research Plan**" in result.research_context
+        assert "Title: Test Research Plan" in result.research_context
+        assert "- Intro" in result.research_context
 
     @pytest.mark.asyncio
     async def test_plan_generation_anchors_on_current_request(self):
@@ -590,152 +544,144 @@ class TestClarifierAgentPlanApproval:
         topic still sitting in history — guards against stale-plan carry-over
         (an aborted research bleeding into a new, unrelated request)."""
         planner = make_llm('{"title": "T", "sections": ["A", "B"]}')
-        agent = self.agent_for(AsyncMock(return_value="approve"), planner)
-
         # History carries an earlier, since-abandoned topic; the latest turn is new.
-        state = ClarifierAgentState(
+        request = ClarifyRequest(
             messages=[
                 HumanMessage(content="Research the 17-basement high-rise fire code"),
                 AIMessage(content="(earlier deep-research discussion)"),
                 HumanMessage(content="actually, summarize the daylight rules for small dwellings"),
             ]
         )
-        await agent.run(state)
 
-        # The final message handed to the planner names the CURRENT request.
+        await clarify(request, self.deps(AsyncMock(return_value="approve"), planner))
+
         anchor = planner.ainvoke.await_args.args[0][-1].content
         assert "CURRENT request" in anchor
         assert "summarize the daylight rules for small dwellings" in anchor
 
     @pytest.mark.asyncio
-    async def test_run_with_plan_approval_rejected(self):
-        """A bare refusal declines the plan and falls through to shallow."""
+    async def test_a_bare_refusal_declines_the_plan(self):
+        """The caller falls through to shallow: the question is still answerable."""
         planner = make_llm('{"title": "Test Plan", "sections": ["Section 1"]}')
 
-        result = await self.agent_for(AsyncMock(return_value="reject"), planner).run(state_for())
+        result = await clarify(request_for(), self.deps(AsyncMock(return_value="reject"), planner))
 
-        assert result.plan_approved is False
-        assert result.plan_rejected is True
-        assert result.plan_cancelled is False
+        assert result.outcome == "shallow"
+        assert "**Approved Research Plan**" not in result.research_context
 
     @pytest.mark.asyncio
-    async def test_run_with_plan_approval_shallow_request(self):
-        """The explicit middle way: „Kurz beantworten" declines the plan the
-        same way a rejection does, so the caller falls through to shallow."""
+    async def test_the_explicit_middle_way_declines_the_plan(self):
+        """„Kurz beantworten" declines the plan the same way a rejection does."""
         planner = make_llm('{"title": "Test Plan", "sections": ["Section 1"]}')
 
-        result = await self.agent_for(AsyncMock(return_value="shallow"), planner).run(state_for())
+        result = await clarify(request_for(), self.deps(AsyncMock(return_value="shallow"), planner))
 
-        assert result.plan_approved is False
-        assert result.plan_rejected is True
-        assert result.plan_cancelled is False
+        assert result.outcome == "shallow"
 
     @pytest.mark.asyncio
-    async def test_run_with_plan_approval_cancelled(self):
+    async def test_cancelled(self):
         """An explicit cancellation is neither an approval nor a decline-to-shallow."""
         planner = make_llm('{"title": "Test Plan", "sections": ["Section 1"]}')
 
-        result = await self.agent_for(AsyncMock(return_value="cancel"), planner).run(state_for())
+        result = await clarify(request_for(), self.deps(AsyncMock(return_value="cancel"), planner))
 
-        assert result.plan_approved is False
-        assert result.plan_rejected is False
-        assert result.plan_cancelled is True
+        assert result.outcome == "cancelled"
 
     @pytest.mark.asyncio
-    async def test_run_with_plan_approval_feedback_then_approve(self):
-        """Test run with plan approval when user provides feedback then approves."""
+    async def test_feedback_then_approve(self):
         planner = make_llm(
             '{"title": "Initial Plan", "sections": ["Intro", "Analysis"]}',
             '{"title": "Revised Plan", "sections": ["Intro", "Security", "Analysis"]}',
         )
-        callback = AsyncMock(side_effect=["add a security section", "approve"])
+        ask = AsyncMock(side_effect=["add a security section", "approve"])
 
-        result = await self.agent_for(callback, planner).run(state_for())
+        result = await clarify(request_for(), self.deps(ask, planner))
 
-        assert result.plan_approved is True
-        assert result.plan_title == "Revised Plan"
-        assert "Security" in result.plan_sections
+        assert result.outcome == "approved"
+        assert "Title: Revised Plan" in result.research_context
+        assert "- Security" in result.research_context
 
     @pytest.mark.asyncio
     async def test_feedback_reaches_the_next_plan(self):
         """The revision is what the user asked for, not a fresh guess."""
         planner = make_llm('{"title": "P", "sections": ["A"]}')
-        callback = AsyncMock(side_effect=["add a security section", "approve"])
+        ask = AsyncMock(side_effect=["add a security section", "approve"])
 
-        await self.agent_for(callback, planner).run(state_for())
+        await clarify(request_for(), self.deps(ask, planner))
 
         second_system_prompt = planner.ainvoke.await_args_list[1].args[0][0].content
         assert "add a security section" in second_system_prompt
 
     @pytest.mark.asyncio
-    async def test_run_with_plan_approval_max_iterations(self):
-        """Test plan approval auto-approves after max iterations."""
+    async def test_max_iterations_auto_approves(self):
         planner = make_llm('{"title": "Test Plan", "sections": ["Section 1"]}')
-        callback = AsyncMock(return_value="make it better")
+        ask = AsyncMock(return_value="make it better")
 
-        result = await self.agent_for(callback, planner, max_plan_iterations=2).run(state_for())
+        result = await clarify(request_for(), self.deps(ask, planner, max_plan_iterations=2))
 
-        assert result.plan_approved is True
-        assert callback.await_count == 2
+        assert result.outcome == "approved"
+        assert ask.await_count == 2
 
     @pytest.mark.asyncio
-    async def test_run_with_plan_approval_fallback_plan(self):
-        """Test plan approval uses fallback when LLM returns invalid plan."""
+    async def test_an_unusable_plan_falls_back_to_the_generic_outline(self):
         planner = make_llm("not valid json")
 
-        result = await self.agent_for(AsyncMock(return_value="approve"), planner).run(state_for())
+        result = await clarify(request_for(), self.deps(AsyncMock(return_value="approve"), planner))
 
-        assert result.plan_approved is True
-        assert result.plan_title == "Research Report"
-        assert "Introduction" in result.plan_sections
+        assert result.outcome == "approved"
+        assert "Title: Research Report" in result.research_context
+        assert "- Introduction" in result.research_context
 
     @pytest.mark.asyncio
-    async def test_run_with_plan_approval_zero_iterations(self):
-        """Test plan approval with zero max_plan_iterations uses fallback values."""
+    async def test_zero_iterations_uses_the_fallback_and_asks_nothing(self):
         planner = make_llm('{"title": "Test Plan", "sections": ["Section 1"]}')
-        callback = AsyncMock()
+        ask = AsyncMock()
 
-        result = await self.agent_for(callback, planner, max_plan_iterations=0).run(state_for())
+        result = await clarify(request_for(), self.deps(ask, planner, max_plan_iterations=0))
 
-        assert result.plan_approved is True
-        assert result.plan_title == "Research Report"
-        assert "Introduction" in result.plan_sections
-        callback.assert_not_called()
+        assert result.outcome == "approved"
+        assert "Title: Research Report" in result.research_context
+        ask.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_plan_approval_off_ends_without_a_plan(self):
         """Without plan approval the dialog ends when clarification does."""
-        callback = AsyncMock()
-        agent = ClarifierAgent(
-            llm_provider=make_provider(make_llm(clarification())),
-            user_prompt_callback=callback,
-        )
+        ask = AsyncMock()
 
-        result = await agent.run(state_for())
+        result = await clarify(request_for(), deps_for(make_llm(clarification()), ask=ask))
 
-        assert result.plan_outcome is None
-        callback.assert_not_called()
+        assert result.outcome is None
+        ask.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_the_planner_llm_is_used_when_configured(self):
         """The planner ref exists so plan generation can run on another model."""
         clarifier_llm = make_llm(clarification())
         planner = make_llm('{"title": "T", "sections": ["A"]}')
-        agent = ClarifierAgent(
-            llm_provider=make_provider(clarifier_llm),
-            user_prompt_callback=AsyncMock(return_value="approve"),
-            enable_plan_approval=True,
-            planner_llm=planner,
+        deps = deps_for(
+            clarifier_llm, ask=AsyncMock(return_value="approve"), planner=planner, enable_plan_approval=True
         )
 
-        await agent.run(state_for())
+        await clarify(request_for(), deps)
 
         assert planner.ainvoke.await_count == 1
         assert clarifier_llm.ainvoke.await_count == 1
 
+    @pytest.mark.asyncio
+    async def test_without_a_planner_the_clarifier_model_plans(self):
+        """`planner_llm` is optional; the same model then does both calls."""
+        llm = make_llm(clarification(), '{"title": "T", "sections": ["A"]}')
 
-class TestClarifierAgentOptions:
-    """Tests for threading structured answer options to the prompt callback."""
+        result = await clarify(
+            request_for(), deps_for(llm, ask=AsyncMock(return_value="approve"), enable_plan_approval=True)
+        )
+
+        assert result.outcome == "approved"
+        assert llm.ainvoke.await_count == 2
+
+
+class TestOptions:
+    """Threading structured answer options to the user channel."""
 
     @pytest.mark.asyncio
     async def test_options_are_passed_to_the_callback(self):
@@ -743,15 +689,11 @@ class TestClarifierAgentOptions:
         question = "**Focus**: which area?\n\n1. Alpha: about alpha\n2. Beta: about beta"
         seen: list[tuple[str, list[str]]] = []
 
-        async def callback(text: str, options) -> str:
+        async def ask(text: str, options) -> str:
             seen.append((text, list(options)))
             return "skip"
 
-        agent = ClarifierAgent(
-            llm_provider=make_provider(make_llm(clarification(question, ["Alpha", "Beta"]))),
-            user_prompt_callback=callback,
-        )
-        await agent.run(state_for())
+        await clarify(request_for(), deps_for(make_llm(clarification(question, ["Alpha", "Beta"])), ask=ask))
 
         assert len(seen) == 1
         asked, options = seen[0]
@@ -765,31 +707,25 @@ class TestClarifierAgentOptions:
         """An open question is asked as free text, exactly as before."""
         seen: list[list[str]] = []
 
-        async def callback(text: str, options) -> str:
+        async def ask(text: str, options) -> str:
             seen.append(list(options))
             return "skip"
 
-        agent = ClarifierAgent(
-            llm_provider=make_provider(make_llm(clarification("Which period?"))),
-            user_prompt_callback=callback,
-        )
-        await agent.run(state_for())
+        await clarify(request_for(), deps_for(make_llm(clarification("Which period?")), ask=ask))
 
         assert seen == [[]]
 
     @pytest.mark.asyncio
     async def test_free_text_answer_is_still_accepted(self):
         """The user may type instead of picking; that reply drives the next turn."""
-        agent = ClarifierAgent(
-            llm_provider=make_provider(
-                make_llm(clarification("**Focus**: which area?", ["Alpha", "Beta"]), clarification())
-            ),
-            user_prompt_callback=AsyncMock(return_value="Something I typed myself"),
+        deps = deps_for(
+            make_llm(clarification("**Focus**: which area?", ["Alpha", "Beta"]), clarification()),
+            ask=AsyncMock(return_value="Something I typed myself"),
         )
 
-        result = await agent.run(state_for())
+        result = await clarify(request_for(), deps)
 
-        assert "Something I typed myself" in result.clarifier_log
+        assert "Something I typed myself" in result.research_context
 
     @pytest.mark.asyncio
     async def test_options_are_never_parsed_out_of_the_question(self):
@@ -797,20 +733,16 @@ class TestClarifierAgentOptions:
         question = "**Focus**: which area?\n\n1. Alpha: about alpha\n2. Beta: about beta"
         seen: list[list[str]] = []
 
-        async def callback(text: str, options) -> str:
+        async def ask(text: str, options) -> str:
             seen.append(list(options))
             return "skip"
 
-        agent = ClarifierAgent(
-            llm_provider=make_provider(make_llm(clarification(question))),
-            user_prompt_callback=callback,
-        )
-        await agent.run(state_for())
+        await clarify(request_for(), deps_for(make_llm(clarification(question)), ask=ask))
 
         assert seen == [[]]
 
 
-class TestClarifierAgentTools:
+class TestTools:
     """The tool loop: the model searches, then decides."""
 
     @staticmethod
@@ -820,20 +752,20 @@ class TestClarifierAgentTools:
             tool_calls=[{"name": "web_search_tool", "args": {"query": "OIB"}, "id": "call-1"}],
         )
 
+    def _searching_llm(self, rounds: int) -> MagicMock:
+        llm = make_llm()
+        llm.ainvoke = AsyncMock(side_effect=[self.tool_call_message() for _ in range(rounds)])
+        return llm
+
     @pytest.mark.asyncio
     async def test_a_tool_call_runs_the_tool_and_comes_back(self):
         """The branch that had no test at all: model -> tools -> model."""
         llm = make_llm()
         llm.ainvoke = AsyncMock(side_effect=[self.tool_call_message(), AIMessage(content=clarification())])
-        agent = ClarifierAgent(
-            llm_provider=make_provider(llm),
-            tools=[web_search_tool],
-            user_prompt_callback=AsyncMock(),
-        )
 
-        result = await agent.run(state_for())
+        result = await clarify(request_for(), deps_for(llm, tools=[web_search_tool], ask=AsyncMock()))
 
-        assert result.plan_outcome is None
+        assert result.outcome is None
         assert llm.ainvoke.await_count == 2
         second_request = llm.ainvoke.await_args_list[1].args[0]
         assert any(isinstance(message, ToolMessage) for message in second_request)
@@ -843,17 +775,100 @@ class TestClarifierAgentTools:
         """After tool output the model reaches for a report; the reminder stops it."""
         llm = make_llm()
         llm.ainvoke = AsyncMock(side_effect=[self.tool_call_message(), AIMessage(content=clarification())])
-        agent = ClarifierAgent(
-            llm_provider=make_provider(llm),
-            tools=[web_search_tool],
-            user_prompt_callback=AsyncMock(),
-        )
 
-        await agent.run(state_for())
+        await clarify(request_for(), deps_for(llm, tools=[web_search_tool], ask=AsyncMock()))
 
         assert "valid JSON object" in llm.ainvoke.await_args_list[1].args[0][-1].content
 
-    def test_the_router_refuses_an_empty_message_list(self):
-        """A state with nothing in it is a bug upstream, not a route to guess at."""
-        with pytest.raises(ValueError, match="no messages"):
-            route_after_clarifier(ClarifierAgentState(messages=[]), {"configurable": {}})
+    @pytest.mark.asyncio
+    async def test_a_failing_tool_is_reported_to_the_model_not_raised(self, caplog):
+        """A dead search tool must not end a turn that can still be clarified —
+        but the exception is still logged in full."""
+
+        @tool
+        def broken_tool(query: str) -> str:
+            """Always fails."""
+            raise RuntimeError("upstream is down")
+
+        llm = make_llm()
+        llm.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(content="", tool_calls=[{"name": "broken_tool", "args": {"query": "x"}, "id": "c1"}]),
+                AIMessage(content=clarification()),
+            ]
+        )
+
+        with caplog.at_level("WARNING"):
+            result = await clarify(request_for(), deps_for(llm, tools=[broken_tool], ask=AsyncMock()))
+
+        assert result.outcome is None
+        tool_reply = llm.ainvoke.await_args_list[1].args[0][-2]
+        assert isinstance(tool_reply, ToolMessage)
+        assert "upstream is down" in tool_reply.content
+        assert "broken_tool failed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_a_tool_the_deployment_does_not_have_is_named_back(self):
+        """The model hallucinated a tool name; it is told so and moves on."""
+        llm = make_llm()
+        llm.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(content="", tool_calls=[{"name": "no_such_tool", "args": {}, "id": "c1"}]),
+                AIMessage(content=clarification()),
+            ]
+        )
+
+        await clarify(request_for(), deps_for(llm, tools=[web_search_tool], ask=AsyncMock()))
+
+        tool_reply = llm.ainvoke.await_args_list[1].args[0][-2]
+        assert "no tool named 'no_such_tool'" in tool_reply.content
+
+    @pytest.mark.asyncio
+    async def test_two_tool_calls_run_concurrently(self):
+        """Independent searches, one gather — the repo rule for two awaits that
+        do not depend on each other."""
+        running = 0
+        overlapped = False
+
+        @tool
+        async def slow_tool(query: str) -> str:
+            """Sleeps."""
+            nonlocal running, overlapped
+            running += 1
+            overlapped = overlapped or running > 1
+            await asyncio.sleep(0.01)
+            running -= 1
+            return "done"
+
+        llm = make_llm()
+        llm.ainvoke = AsyncMock(
+            side_effect=[
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": "slow_tool", "args": {"query": "a"}, "id": "c1"},
+                        {"name": "slow_tool", "args": {"query": "b"}, "id": "c2"},
+                    ],
+                ),
+                AIMessage(content=clarification()),
+            ]
+        )
+
+        await clarify(request_for(), deps_for(llm, tools=[slow_tool], ask=AsyncMock()))
+
+        assert overlapped
+
+    @pytest.mark.asyncio
+    async def test_a_model_that_only_ever_searches_is_cut_off(self, caplog):
+        """The loop states its own bound; the graph borrowed LangGraph's
+        recursion limit, which was nobody's decision about this dialog."""
+        llm = self._searching_llm(MAX_TOOL_ROUNDS + 1)
+        ask = AsyncMock()
+
+        with caplog.at_level("WARNING"):
+            result = await clarify(request_for(), deps_for(llm, tools=[web_search_tool], ask=ask))
+
+        assert llm.ainvoke.await_count == MAX_TOOL_ROUNDS + 1
+        assert result.outcome is None
+        ask.assert_not_called()
+        assert "kept searching" in caplog.text

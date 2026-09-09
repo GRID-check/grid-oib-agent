@@ -66,7 +66,7 @@ The backend uses the **NVIDIA NeMo Agent Toolkit (NAT)** framework with a custom
 
 - **Entrypoint** (`entrypoint.py`): Starts a Dask scheduler (port 8786) and Dask worker, then launches the web server.
 - **Web server** (`start_web.py`): Loads the NAT YAML configuration, sets up environment variables, and runs uvicorn directly (bypassing `nat serve` to avoid asyncio event-loop conflicts).
-- **NAT runtime**: Provides the LangGraph-based multi-agent pipeline with intent classification, clarifier agent, shallow research agent, and deep research agent with citation verification.
+- **NAT runtime**: Provides the LangGraph-based pipeline: one answering agent (shallow research) that decides per turn whether to escalate, a clarification step that confirms a research plan, and the deep research agent with citation verification.
 
 The NAT framework is extended with:
 

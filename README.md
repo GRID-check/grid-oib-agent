@@ -58,7 +58,7 @@ flowchart TB
     subgraph Backend["Tier 2 · Python backend (port 8000)"]
         FAST["FastAPI (aiq_api plugin)"]
         NAT["NeMo Agent Toolkit"]
-        LG["LangGraph<br/>intent → clarifier → shallow / deep researcher"]
+        LG["LangGraph<br/>researcher → (escalate?) clarify → deep researcher"]
         DASK["Dask — async deep-research jobs"]
         CHROMA["ChromaDB — oib_knowledge + proj_* + mem_*"]
     end

@@ -46,7 +46,9 @@ tables equal; it polices the duplication rather than removing it.
   is the same failure the code already guards against one function away, where
   `baurecht_basis` is explicitly stopped from inheriting a RIS badge.
 - The agent cannot tell the shelves apart at all: `available_documents` carries
-  `(file_name, summary)` only (`src/aiq_agent/agents/clarifier/models/state.py:58`).
+  `(file_name, summary)` only
+  (`src/aiq_agent/agents/shallow_researcher/models/clarify.py`,
+  `ClarifyRequest.available_documents`).
 - `SCOPE_QUALIFIERS` strings are pinned as un-renameable because they are
   persisted inside citation keys — display copy has become a wire format.
 

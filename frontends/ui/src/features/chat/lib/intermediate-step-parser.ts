@@ -158,6 +158,9 @@ export const getWorkflowDisplayName = (functionName: string): string => {
 const NODE_LABEL_KEYS: Record<string, string> = {
   '<workflow>': 'nodeName.workflow',
   chat_deepresearcher_agent: 'nodeName.workflow',
+  // The clarification step. No longer a NAT function — it emits this exact
+  // name itself (`clarify.TRACE_STEP_NAME`) precisely so this entry keeps
+  // working, for the live trace and for turns persisted before the collapse.
   clarifier_agent: 'nodeName.clarification',
   ask_user: 'nodeName.askUser',
   // The shallow node doubles as the conversational assistant (greetings,

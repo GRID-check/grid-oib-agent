@@ -1,10 +1,16 @@
-"""Tests for the models the clarifier asks its two LLMs to return."""
+"""Tests for the models the clarification step asks its two LLMs to return,
+and for the request/result at its seam."""
+
+from dataclasses import FrozenInstanceError
 
 import pytest
+from langchain_core.messages import HumanMessage
 from pydantic import ValidationError
 
-from aiq_agent.agents.clarifier.models import ClarificationResponse
-from aiq_agent.agents.clarifier.models import PlanResponse
+from aiq_agent.agents.shallow_researcher.models import ClarificationResponse
+from aiq_agent.agents.shallow_researcher.models import ClarifyRequest
+from aiq_agent.agents.shallow_researcher.models import ClarifyResult
+from aiq_agent.agents.shallow_researcher.models import PlanResponse
 from aiq_agent.common import strict_json_response_format
 
 
@@ -62,7 +68,7 @@ class TestClarificationResponse:
         assert response.needs_clarification is True
         assert response.clarification_question == "What focus area?"
 
-    def test_complete_is_the_sentinel_the_graph_writes(self):
+    def test_complete_is_the_sentinel_the_dialog_writes(self):
         """The "nothing more to ask" reply, built in one place."""
         response = ClarificationResponse.complete()
         assert response.needs_clarification is False
@@ -120,7 +126,7 @@ class TestClarificationResponse:
         assert response.is_valid() is False
 
     def test_model_dump_json_includes_options(self):
-        """The agent replays this JSON through the graph; the field must survive."""
+        """The dialog replays this JSON to the model; the field must survive."""
         response = ClarificationResponse(needs_clarification=True, clarification_question="Which one?", options=["A"])
         assert '"options":["A"]' in response.model_dump_json()
 
@@ -155,3 +161,48 @@ class TestPlanResponse:
         """Nothing sensible to default a plan to; a half plan is a parse failure."""
         with pytest.raises(ValidationError):
             PlanResponse(title="A Plan")
+
+
+class TestClarifyRequest:
+    """What the conversation graph hands the step."""
+
+    def test_only_messages_are_required(self):
+        request = ClarifyRequest(messages=[HumanMessage(content="Research AI")])
+
+        assert request.data_sources is None
+        assert request.project_context is None
+        assert request.available_documents is None
+
+    def test_the_context_the_researcher_answered_on_travels_too(self):
+        request = ClarifyRequest(
+            messages=[],
+            data_sources=["web_search"],
+            project_context="Wohnbau, GK4",
+            available_documents=[{"file_name": "einreichplan.pdf"}],
+        )
+
+        assert request.data_sources == ["web_search"]
+        assert request.project_context == "Wohnbau, GK4"
+        assert request.available_documents == [{"file_name": "einreichplan.pdf"}]
+
+
+class TestClarifyResult:
+    """One outcome, one finished string — no booleans that can disagree."""
+
+    def test_no_plan_was_shown(self):
+        """Plan approval off: the questions were asked, deep research proceeds."""
+        result = ClarifyResult(research_context="Turn 1")
+
+        assert result.outcome is None
+        assert result.research_context == "Turn 1"
+
+    @pytest.mark.parametrize("outcome", ["approved", "shallow", "cancelled"])
+    def test_the_three_endings_are_one_value(self, outcome):
+        assert ClarifyResult(research_context="", outcome=outcome).outcome == outcome
+
+    def test_it_is_frozen(self):
+        """The caller routes on this; nothing downstream may edit it."""
+        result = ClarifyResult(research_context="x")
+
+        with pytest.raises(FrozenInstanceError):
+            result.outcome = "approved"  # type: ignore[misc]
