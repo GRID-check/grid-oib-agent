@@ -207,6 +207,7 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
 
                 emit_skills_offered(skill_runtime)
                 run_tools = list(selected_tools) + list(skill_runtime.build_tools())
+
             # Per-org runtime model overrides (X-Grid-Model-Overrides). Returns
             # the build-time provider unchanged when no override targets this
             # agent, so the identity check below keeps the prebuilt agent.
@@ -217,13 +218,35 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
             # The three lookups are header-first but fall back to a blocking
             # BFF call each (5s timeout, 60s in-process TTL), so a cold miss
             # used to freeze the event loop for every turn on the replica.
-            # One thread hop resolves all three; ContextVars travel with it.
-            model_overrides, org_credential, zdr_only = await asyncio.to_thread(
-                lambda: (
-                    get_model_overrides_from_context(),
-                    get_org_llm_credential_from_context(),
-                    get_zdr_only_from_context(),
-                )
+            # Each runs on its own thread hop and fails open on its own, so
+            # the three overlap and one bad reader costs its own value —
+            # never the turn, and never the other two. ContextVars travel
+            # with each hop.
+            async def _read_model_overrides():
+                try:
+                    return await asyncio.to_thread(get_model_overrides_from_context)
+                except Exception:
+                    logger.debug("Model-overrides lookup failed; continuing without", exc_info=True)
+                    return {}
+
+            async def _read_org_credential():
+                try:
+                    return await asyncio.to_thread(get_org_llm_credential_from_context)
+                except Exception:
+                    logger.debug("Org-credential lookup failed; continuing without", exc_info=True)
+                    return None
+
+            async def _read_zdr_only():
+                try:
+                    return await asyncio.to_thread(get_zdr_only_from_context)
+                except Exception:
+                    logger.debug("ZDR lookup failed; continuing without", exc_info=True)
+                    return False
+
+            model_overrides, org_credential, zdr_only = await asyncio.gather(
+                _read_model_overrides(),
+                _read_org_credential(),
+                _read_zdr_only(),
             )
             active_provider = (
                 provider.with_model_overrides(model_overrides).with_credential(org_credential).with_zdr(zdr_only)

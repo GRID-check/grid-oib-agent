@@ -342,6 +342,10 @@ def profiled_node(name: str, fn: Any) -> Any:
         token = current_span_var.set(span_id)
         try:
             result = await fn(*args, **kwargs)
+        except asyncio.CancelledError:
+            # Abandoned, not failed: a cancelled turn must not read as an error.
+            profiler.end_span(span_id, status="cancelled")
+            raise
         except Exception as exc:
             profiler.end_span(span_id, status="error", error=str(exc))
             raise
@@ -373,7 +377,11 @@ def profiled_span(name: str, kind: SpanKind = "node"):
     token = current_span_var.set(span_id)
     try:
         yield
-    except BaseException as exc:
+    except asyncio.CancelledError:
+        # Abandoned, not failed: a cancelled turn must not read as an error.
+        profiler.end_span(span_id, status="cancelled")
+        raise
+    except Exception as exc:
         profiler.end_span(span_id, status="error", error=str(exc))
         raise
     else:

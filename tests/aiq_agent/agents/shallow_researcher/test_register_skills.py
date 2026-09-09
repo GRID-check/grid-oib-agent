@@ -417,6 +417,74 @@ async def test_a_forced_skill_the_model_never_opened_is_not_reported_as_used(cap
 
 
 @pytest.mark.asyncio
+async def test_the_model_credential_and_zdr_lookups_overlap():
+    """The three tenant lookups are independent blocking reads, so they run
+    concurrently — one cold BFF round-trip stalls the turn once, not 3x."""
+    import threading
+    import time
+
+    builder = _FakeBuilder({"web_search_tool": web_search_tool})
+    config = ShallowResearchAgentConfig(llm="research_llm", tools=["web_search_tool"], skills_enabled=False)
+    in_flight = 0
+    peak = 0
+    lock = threading.Lock()
+
+    def _slow_reader():
+        nonlocal in_flight, peak
+        with lock:
+            in_flight += 1
+            peak = max(peak, in_flight)
+        try:
+            time.sleep(0.2)
+        finally:
+            with lock:
+                in_flight -= 1
+
+    def _slow_overrides():
+        _slow_reader()
+        return {}
+
+    def _slow_zdr():
+        _slow_reader()
+        return False
+
+    with (
+        patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
+        patch.object(register_module, "get_model_overrides_from_context", side_effect=_slow_overrides),
+        patch.object(register_module, "get_org_llm_credential_from_context", side_effect=_slow_reader),
+        patch.object(register_module, "get_zdr_only_from_context", side_effect=_slow_zdr),
+    ):
+        run_fn, gen = await _get_run_fn(config, builder)
+        await run_fn(ShallowResearchAgentState(messages=[HumanMessage(content="hallo")]))
+        await gen.aclose()
+
+    assert peak == 3, "the three tenant lookups ran one after another on a single thread"
+
+
+@pytest.mark.asyncio
+async def test_one_bad_tenant_reader_does_not_poison_the_others():
+    """Each lookup fails open on its own: a raising credential reader costs
+    the credential, never the turn — and never the other two readers."""
+    builder = _FakeBuilder({"web_search_tool": web_search_tool})
+    config = ShallowResearchAgentConfig(llm="research_llm", tools=["web_search_tool"], skills_enabled=False)
+
+    def _boom():
+        raise RuntimeError("BFF down")
+
+    with (
+        patch.object(register_module, "ShallowResearcherAgent", _make_agent_stub()),
+        patch.object(register_module, "get_model_overrides_from_context", return_value={"shallow_research": "x/y"}),
+        patch.object(register_module, "get_org_llm_credential_from_context", side_effect=_boom),
+        patch.object(register_module, "get_zdr_only_from_context", return_value=False),
+    ):
+        run_fn, gen = await _get_run_fn(config, builder)
+        result = await run_fn(ShallowResearchAgentState(messages=[HumanMessage(content="hallo")]))
+        await gen.aclose()
+
+    assert result.messages[-1].content == "hallo"
+
+
+@pytest.mark.asyncio
 async def test_the_skill_resolve_runs_off_the_event_loop():
     """A cold resolve is a blocking BFF round-trip with a 5s timeout. On the
     loop it stalled every conversation on the replica; it runs on a thread."""
