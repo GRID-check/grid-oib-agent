@@ -122,9 +122,9 @@ For each file:
 
 1. **Text extraction** — `SimpleDirectoryReader(input_files=[file_path])` loads the file content into LlamaIndex `Document` objects
 2. **Table extraction** (PDF only, optional) — Uses `pdfplumber` to extract tables as markdown; each table becomes a `Document` with `content_type: "table"` metadata
-3. **Image extraction** (PDF only, optional) — Uses `pypdfium2` to extract images (min 100×100px to filter icons); each image is sent to NVIDIA's VLM API (default: `nvidia/nemotron-nano-12b-v2-vl`) for classification (chart vs image) and captioning; captions become `Document` objects with `content_type: "chart"` or `"image"` metadata
+3. **Image extraction** (PDF only, optional) — Uses `pypdfium2` to extract images (min 100×100px to filter icons); each image is sent to the VLM API (default: `google/gemma-4-31b-it` via OpenRouter — unverified, see the Configuration table) for classification (chart vs image) and captioning; captions become `Document` objects with `content_type: "chart"` or `"image"` metadata
 4. **Summarization** (optional) — If `generate_summary` is enabled, the first and last chunks are combined and sent, as two **concurrent** calls to the same `summary_model` LLM, for a one-sentence summary and a tag classification (document type + OIB discipline; see "Backfilling tags" below). Both calls independently swallow exceptions/timeouts and return nothing on failure. A deterministic, text-derived fallback summary now fires whenever the LLM summary is missing — for any reason, independent of whether tag classification succeeded — so a document that finishes ingestion always gets a `document_metadata` row (see "Silent summary-row loss" below for the fix and the reconciliation backstop).
-5. **Indexing** — All `Document` objects are inserted into a `VectorStoreIndex` backed by ChromaDB with NVIDIA embeddings (`nvidia/llama-nemotron-embed-vl-1b-v2`)
+5. **Indexing** — All `Document` objects are inserted into a `VectorStoreIndex` backed by ChromaDB with OpenRouter embeddings (`openai/text-embedding-3-large` by default; see "Embedding-model changes" below — stored vectors only match query vectors from the same model)
 6. **Job completion** — Status updated to `JobState.COMPLETED` with metadata about chunks, tables, charts, and images created
 
 ### Configuration
@@ -132,15 +132,32 @@ For each file:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `persist_dir` | `AIQ_CHROMA_DIR` or `/tmp/chroma_data` | ChromaDB persistence directory |
-| `embed_model` | `nvidia/llama-nemotron-embed-vl-1b-v2` | NVIDIA embedding model |
+| `embed_model` | `openai/text-embedding-3-large` (via OpenRouter) | Embedding model id; keep it stable, stored vectors only match query vectors from the same model — see "Embedding-model changes" below |
 | `chunk_size` | 1024 | Text chunk size (model supports up to 2048 tokens) |
 | `chunk_overlap` | 128 | Overlap between chunks |
 | `extract_tables` | false | Enable PDF table extraction |
 | `extract_images` | false | Enable PDF image extraction + VLM captioning |
 | `extract_charts` | false | Enable chart extraction with structured data |
-| `vlm_model` | `nvidia/nemotron-nano-12b-v2-vl` | VLM for image captioning |
+| `vlm_model` | `google/gemma-4-31b-it` (via OpenRouter) — UNVERIFIED | VLM for image captioning. TODO: verify caption quality on OIB drawings before relying on it; do not claim verification until then |
 | `generate_summary` | false | Enable document summarization |
 | `summary_model` | null | LLM reference for summarization |
+
+### Embedding-model changes invalidate stored vectors
+
+Stored vectors are only comparable to query vectors from the same model, so
+changing the embedding model invalidates every stored vector. The code default
+moved from the NVIDIA embedder to `openai/text-embedding-3-large` on OpenRouter:
+collections that carry an embedding fingerprint refuse a mismatched model with
+an `embedding mismatch` error, while collections written before the fingerprint
+existed are adopted silently and just retrieve garbage (see the gotchas
+register, `docs/contributing/gotchas.md`).
+
+After any embedding-model change:
+
+1. Delete the Chroma directory (`AIQ_CHROMA_DIR`, `/app/data/chroma_data` in compose).
+2. Re-ingest the base corpus (OIB sync) and every project collection.
+3. Pin `AIQ_EMBED_MODEL` explicitly wherever the deployment must survive the
+   next default change (production does this and is unaffected).
 
 ### TTL Cleanup
 
