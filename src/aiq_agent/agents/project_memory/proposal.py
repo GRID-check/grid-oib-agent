@@ -24,19 +24,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def emit_memory_proposal_card(*, content: str, kind: str, confidence: str) -> bool:
-    """Build and register a ``memory_proposal`` confirmation card.
+def build_memory_proposal_card(*, content: str, kind: str, confidence: str) -> dict | None:
+    """One validated ``memory_proposal`` card, or ``None`` when it will not build.
 
-    Returns ``True`` when the card was added to a bound conversation-scoped card
-    registry, ``False`` when no card channel is available. Mirrors ``emit_card``'s
-    ``None`` handling.
+    The card itself, separated from where it is delivered, because it now has
+    two destinations and only one definition may exist. The in-turn ``remember``
+    tool pushes it into the turn's card registry (below); the post-answer
+    reflection stage cannot — the registry is snapshotted and unbound before the
+    stages run — so it puts the SAME card on its stage frame, where the client
+    already has a renderer for it (``features/chat/lib/turn-memory.ts`` reads a
+    `memory_proposal` card as one of the two things the "Piloti hat sich
+    gemerkt" chip is made of).
     """
     from aiq_agent.cards.models import grid_card_adapter
-    from aiq_agent.cards.registry import get_card_registry
-
-    registry = get_card_registry()
-    if registry is None:
-        return False
 
     card = {
         "type": "memory_proposal",
@@ -46,9 +46,30 @@ def emit_memory_proposal_card(*, content: str, kind: str, confidence: str) -> bo
         "confidence": confidence,
     }
     try:
-        validated = grid_card_adapter.validate_python(card).model_dump(exclude_none=True)
+        return grid_card_adapter.validate_python(card).model_dump(exclude_none=True)
     except Exception:
         logger.exception("Failed to build memory_proposal card")
+        return None
+
+
+def emit_memory_proposal_card(*, content: str, kind: str, confidence: str) -> bool:
+    """Register a ``memory_proposal`` card on the TURN's card registry.
+
+    Returns ``True`` when the card was added to a bound conversation-scoped card
+    registry, ``False`` when no card channel is available. Mirrors ``emit_card``'s
+    ``None`` handling.
+
+    Only an IN-TURN caller can use this. A post-answer stage runs after
+    ``_run``'s ``finally`` has snapshotted and unbound the registry, so it takes
+    :func:`build_memory_proposal_card` and its own frame instead.
+    """
+    from aiq_agent.cards.registry import get_card_registry
+
+    registry = get_card_registry()
+    if registry is None:
+        return False
+    validated = build_memory_proposal_card(content=content, kind=kind, confidence=confidence)
+    if validated is None:
         return False
     registry.add(validated)
     logger.info("Emitted memory_proposal card (kind=%s) for user-authorized memory write", kind)

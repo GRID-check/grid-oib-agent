@@ -34,6 +34,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import Field
 
+from aiq_agent.cards.models import MemoryProposalCard
 from aiq_agent.common.model_overrides import AgentGroup
 from aiq_agent.stages.registry import register_stage
 from aiq_agent.stages.spec import GateDecision
@@ -79,18 +80,62 @@ class MemoryReflectionItem(BaseModel):
 
 
 class MemoryReflectionPayload(BaseModel):
-    """What the stage produced: the memory items it wrote, in write order.
+    """What the stage produced: what it WROTE, and what it can only PROPOSE.
 
     The DB write stays the source of truth — this payload is a notification of
     what happened, never a transfer of authority. ``grid_app`` stays
     single-writer, and a client may not create, edit or delete an item through
     this channel; it only learns that one exists.
 
+    ``items`` are rows that exist. ``proposals`` are ``memory_proposal`` cards
+    for which NOTHING was written: an organisation-scoped finding the BFF
+    refused because the acting user does not hold ``org:memory:write``, which is
+    the human review ADR-0055 makes the office's writer out of. Two fields and
+    not one flagged list, because the distinction is the whole point — a client
+    that rendered a proposal as a write would claim a firm-wide note that does
+    not exist.
+
+    ``proposals`` is absent rather than empty when there are none, the rule this
+    whole envelope follows (§4.1): an absent key and a null are the same fact and
+    only one of them is the contract.
+
     There is no ``empty`` payload: a turn that established nothing durable is a
-    ``StageEmpty``, so an items list on the wire is never empty.
+    ``StageEmpty``, so neither list on the wire is ever empty.
     """
 
     items: list[MemoryReflectionItem] = Field(description="The project_memory rows written, in write order.")
+    proposals: list[MemoryProposalCard] | None = Field(
+        default=None,
+        description="memory_proposal cards awaiting a person's acceptance. NOTHING was written for these.",
+    )
+
+
+# ── KNOWN DEBT: the client half of `proposals` (ADR-0055, contract C6) ────────
+#
+# The producer half is complete and the shape is in the shared wire contract
+# (`shared/stages/frames.json`, `memory_reflection.ready`), which both halves
+# read. The CLIENT half is not, and until it lands a proposal reaches the
+# browser and is dropped there rather than rendered. Recorded here, at the field
+# that produces it, rather than as a log line — the pattern
+# `docs/architecture/adding-a-shareable-resource-type.md` uses for a known leak.
+#
+# Two edits, in files this track does not own:
+#
+# 1. `frontends/ui/src/lib/conversations/message-stages.ts` —
+#    `sanitizeMemoryReflectionStage` returns `null` unless `items` holds at least
+#    one usable row, so a proposals-only payload is discarded whole. It needs to
+#    read `proposals` through the card sanitiser the same way the turn's own
+#    cards are read, store them on `StoredMemoryReflectionStage`, and return a
+#    stage object when EITHER list survives.
+# 2. `frontends/ui/src/features/chat/lib/turn-memory.ts` — it already renders a
+#    `memory_proposal` card as one of the two things the "Piloti hat sich
+#    gemerkt" chip is made of; it reads them off the turn's CARDS. It needs to
+#    merge `message.stages.memoryReflection.proposals` into that same list, so a
+#    proposal made after the answer is the same offer as one made during it.
+#
+# Nothing about the producer changes when they land: the frame is already the
+# shape the fixture pins. Until then an office finding is proposed, delivered,
+# and seen by nobody — which is a gap in the reader's surface, never a write.
 
 
 def _gate(facts: TurnFacts) -> GateDecision:
@@ -106,15 +151,15 @@ def _gate(facts: TurnFacts) -> GateDecision:
         # The chat turn is only a stub; the report path reflects on the worker
         # once the report exists.
         return GateDecision.skip("deep_research_job")
-    if not facts.project_id:
-        # An office turn has no project row to write against, and the only thing
-        # this stage could do there is PROPOSE a firm-wide note (ADR-0055,
-        # contract C6) — which needs a card channel, and the turn's card
-        # registry is snapshotted and unbound before the post-answer stages run.
-        # So the office keeps the in-turn `remember` tool as its writer for now,
-        # and this stage stays a project stage. Widening it is a change to where
-        # a proposal card can be raised, not a change to this predicate.
-        return GateDecision.skip("no_project")
+    if not facts.project_id and not facts.organization_id:
+        # Nothing to write to and nothing to propose for. This used to read
+        # `not facts.project_id` and skip every office turn, because the stage
+        # could only write project-scoped memory (audit S1) — the objection
+        # ADR-0054's gate and ADR-0055's proposal card together answered. An
+        # office turn now produces PROPOSALS: nothing is written, and a person
+        # who may set firm-wide memory decides. A turn with neither id is
+        # anonymous and is still the one shape with no target at all.
+        return GateDecision.skip("no_target")
     text = (facts.answer or "").strip()
     if not facts.query or not text:
         return GateDecision.skip("empty_turn")
@@ -149,11 +194,15 @@ def digest_with_turn_writes(memory_digest: str | None, written: tuple[str, ...])
 async def _handler(ctx: StageContext) -> dict[str, Any] | None:
     """One reflection pass. ``None`` when the turn established nothing durable —
     the common, correct outcome, recorded as ``empty`` rather than invented into
-    a payload."""
+    a payload.
+
+    A pass that only PROPOSED is still ``ready``: nothing was written, and the
+    offer is the thing the reader has to see.
+    """
     from aiq_agent.agents.project_memory.reflection import run_memory_reflection
 
     facts = ctx.facts
-    recorded = await run_memory_reflection(
+    outcome = await run_memory_reflection(
         llm=ctx.llm,
         query=facts.query,
         answer=facts.answer,
@@ -167,12 +216,16 @@ async def _handler(ctx: StageContext) -> dict[str, Any] | None:
         user_id=facts.user_id,
         organization_membership_id=facts.organization_membership_id,
     )
-    if not recorded:
+    if not outcome:
         # `None` is `empty` — the common, correct outcome for a turn that
         # established nothing durable, and a first-class success rather than a
         # failure to invent output.
         return None
-    return {"items": [dict(item) for item in recorded]}
+    payload: dict[str, Any] = {"items": [dict(item) for item in outcome.recorded]}
+    if outcome.proposed:
+        # Absent unless applicable, like every other optional key on this wire.
+        payload["proposals"] = [dict(card) for card in outcome.proposed]
+    return payload
 
 
 MEMORY_REFLECTION = register_stage(

@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+from aiq_agent.agents.project_memory.reflection import ReflectionOutcome
 from aiq_agent.stages import get_stage
 from aiq_agent.stages.flags import legacy_enabled_stages
 from aiq_agent.stages.flags import stages_for_flag_slug
@@ -45,6 +46,23 @@ _WRITTEN = [
     {"id": "9d2f6b41", "kind": "constraint", "content": "Das Projekt liegt in Wien."},
     {"id": "1a7c9e02", "kind": "derived_fact", "content": "Das oberste Fluchtniveau beträgt 9,80 m."},
 ]
+
+#: One organisation finding the BFF refused, offered instead (ADR-0055 C6). It is
+#: the `memory_proposal` CARD the in-turn `remember` tool emits — one definition,
+#: two destinations — and nothing was written for it.
+_PROPOSED = [
+    {
+        "type": "memory_proposal",
+        "title": "Neue Erkenntnis merken",
+        "content": "Das Büro legt Fluchtwegpläne grundsätzlich im Maßstab 1:100 an.",
+        "kind": "preference",
+        "confidence": "medium",
+    }
+]
+
+
+def _outcome(recorded=(), proposed=()):
+    return ReflectionOutcome(recorded=list(recorded), proposed=list(proposed))
 
 
 class TestDeclaration:
@@ -126,24 +144,68 @@ class TestGate:
     def test_deep_research_stub_skipped(self):
         assert _gate(deep_research_job_id="job_1").reason == "deep_research_job"
 
-    def test_a_project_less_conversation_has_nothing_it_may_write(self):
-        assert _gate(project_id=None).reason == "no_project"
+    def test_a_turn_with_neither_a_project_nor_an_office_has_no_target(self):
+        """The gate used to refuse every project-less turn, because the stage
+        could only WRITE project memory. An office turn now PROPOSES firm-wide
+        findings (ADR-0055, contract C6), so the shape with nothing to do is the
+        anonymous one — neither a project to write to nor an office to ask."""
+        assert _gate(project_id=None, organization_id=None).reason == "no_target"
+
+    def test_an_office_turn_is_no_longer_refused(self):
+        assert _gate(project_id=None, organization_id="org_1").run is True
 
 
 class TestHandler:
     @pytest.mark.asyncio
     async def test_nothing_durable_is_an_empty_payload_not_an_invention(self):
-        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=[]) as run:
+        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=_outcome()) as run:
             payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
         assert payload is None
         assert run.await_count == 1
 
     @pytest.mark.asyncio
     async def test_written_items_are_reported_as_the_payload(self):
-        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=_WRITTEN):
+        with patch(
+            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            return_value=_outcome(_WRITTEN),
+        ):
             payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
+        # `proposals` is ABSENT, not empty, when there is nothing to propose —
+        # the rule the whole envelope follows.
         assert payload == {"items": _WRITTEN}
         assert MemoryReflectionPayload.model_validate(payload).items[0].kind == "constraint"
+
+    @pytest.mark.asyncio
+    async def test_a_refused_office_finding_reaches_the_reader_as_a_proposal(self):
+        """The channel this stage already has, carrying the offer it could not
+        write (ADR-0055, contract C6). Before this the refusal was a log line and
+        the reader learned nothing.
+        """
+        with patch(
+            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            return_value=_outcome(proposed=_PROPOSED),
+        ):
+            payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
+        # A pass that only proposed is still `ready`: nothing was written, and
+        # the offer is the thing the reader has to see.
+        assert payload == {"items": [], "proposals": _PROPOSED}
+        validated = MemoryReflectionPayload.model_validate(payload)
+        assert validated.items == []
+        assert validated.proposals is not None
+        assert validated.proposals[0].type == "memory_proposal"
+
+    @pytest.mark.asyncio
+    async def test_a_proposal_is_never_serialised_as_a_written_row(self):
+        """The truthfulness rule, at the one place a reader could be misled: an
+        offer must not be able to arrive in `items`."""
+        with patch(
+            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            return_value=_outcome(_WRITTEN, _PROPOSED),
+        ):
+            payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
+        assert [row["id"] for row in payload["items"]] == [row["id"] for row in _WRITTEN]
+        assert payload["proposals"] == _PROPOSED
+        assert all("type" not in row for row in payload["items"])
 
     @pytest.mark.asyncio
     async def test_the_payload_carries_the_item_text_and_not_only_its_id(self):
@@ -154,7 +216,10 @@ class TestHandler:
         exists to delete — the poll would come back, wearing a frame as a
         trigger. The writer had the words in hand; it sends them.
         """
-        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=_WRITTEN):
+        with patch(
+            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            return_value=_outcome(_WRITTEN),
+        ):
             payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
         items = MemoryReflectionPayload.model_validate(payload).items
         assert [item.content for item in items] == [row["content"] for row in _WRITTEN]
@@ -163,7 +228,7 @@ class TestHandler:
     @pytest.mark.asyncio
     async def test_the_pass_sees_the_digest_the_agent_saw_this_turn(self):
         facts = _facts(memory_digest='- [decision | high | verified] "Flachdach"')
-        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=[]) as run:
+        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=_outcome()) as run:
             await MEMORY_REFLECTION.handler(StageContext(facts=facts, llm="the-llm"))
         kwargs = run.await_args.kwargs
         assert kwargs["memory_digest"] == facts.memory_digest

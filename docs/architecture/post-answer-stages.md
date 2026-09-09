@@ -710,6 +710,26 @@ transfer of authority. `grid_app` stays single-writer.
 > `run_memory_reflection` now returns what it wrote rather than how much (the
 > deep-research caller ignores the return either way).
 >
+> **[ADR-0055] The payload gained a second, differently-shaped half.** Reflection
+> may now PROPOSE organization-scoped findings, and an organization write from
+> the agent is refused by the route unless the acting user holds
+> `org:memory:write` — that refusal is the human review the stage itself said it
+> was missing. A refused finding is not dropped: it becomes the same
+> `memory_proposal` card the in-turn `remember` tool emits, and rides THIS frame,
+> because the turn's card registry is snapshotted and unbound before any
+> post-answer stage runs. So the payload is
+> `items: [{id, kind, content}]` plus an optional `proposals: [<memory_proposal
+> card>]`, and `run_memory_reflection` returns a `ReflectionOutcome` carrying
+> both. Two fields and not one flagged list: the distinction between a row that
+> exists and an offer that does not is the whole point, and a client that
+> rendered a proposal as a write would claim a firm-wide note nobody made.
+> `proposals` is absent rather than empty when there are none, and a pass that
+> only proposed is still `ready`. The shape is pinned in
+> `shared/stages/frames.json` (`memory_reflection.ready`), which both halves read.
+> The gate's `no_project` skip became `no_target` in the same change: an office
+> turn has nothing to write but something to propose, and only a turn with
+> neither a project nor an organization has no target at all.
+>
 > **§8's three arrival conditions do not apply to this stage**, and that is a
 > decision rather than an omission. They protect the page from a block appended
 > BELOW the answer; the chip is inside the answer's own footer meta row, which
