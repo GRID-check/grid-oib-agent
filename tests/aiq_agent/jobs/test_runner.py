@@ -1911,7 +1911,7 @@ class TestDeepResearchReflection:
 
         with (
             patch(
-                "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+                "aiq_agent.memory.reflection.run_memory_reflection",
                 new=AsyncMock(return_value=["mem-1"]),
             ) as mock_reflect,
             patch(
@@ -1951,7 +1951,7 @@ class TestDeepResearchReflection:
         builder.get_llm = AsyncMock()
 
         with patch(
-            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            "aiq_agent.memory.reflection.run_memory_reflection",
             new=AsyncMock(),
         ) as mock_reflect:
             await _run_deep_research_reflection(
@@ -1979,7 +1979,7 @@ class TestDeepResearchReflection:
         builder.get_llm = AsyncMock()
 
         with patch(
-            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            "aiq_agent.memory.reflection.run_memory_reflection",
             new=AsyncMock(),
         ) as mock_reflect:
             await _run_deep_research_reflection(
@@ -2007,7 +2007,7 @@ class TestDeepResearchReflection:
         builder.get_llm = AsyncMock()
 
         with patch(
-            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            "aiq_agent.memory.reflection.run_memory_reflection",
             new=AsyncMock(),
         ) as mock_reflect:
             await _run_deep_research_reflection(
@@ -2038,7 +2038,7 @@ class TestDeepResearchReflection:
 
         with (
             patch(
-                "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+                "aiq_agent.memory.reflection.run_memory_reflection",
                 new=AsyncMock(side_effect=RuntimeError("boom")),
             ),
             patch(
@@ -2080,7 +2080,7 @@ class TestDeepResearchReflection:
 
         with (
             patch(
-                "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+                "aiq_agent.memory.reflection.run_memory_reflection",
                 new=AsyncMock(side_effect=never_finishes),
             ),
             patch(

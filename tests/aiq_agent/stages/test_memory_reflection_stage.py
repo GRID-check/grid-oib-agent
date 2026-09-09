@@ -1,7 +1,7 @@
 """Memory reflection as a post-answer stage.
 
 The gate cases moved here verbatim from
-``tests/aiq_agent/agents/chat_researcher/test_register_helpers.py`` — the
+``tests/aiq_agent/agents/researcher/test_register_helpers.py`` — the
 predicate is the same predicate, it just reads ``TurnFacts`` instead of the graph
 state now. The new cases are the two defects the migration closes: a hard
 timeout, and a gate that finally reads ``research_truncated``.
@@ -134,14 +134,14 @@ class TestGate:
 class TestHandler:
     @pytest.mark.asyncio
     async def test_nothing_durable_is_an_empty_payload_not_an_invention(self):
-        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=[]) as run:
+        with patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=[]) as run:
             payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
         assert payload is None
         assert run.await_count == 1
 
     @pytest.mark.asyncio
     async def test_written_items_are_reported_as_the_payload(self):
-        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=_WRITTEN):
+        with patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=_WRITTEN):
             payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
         assert payload == {"items": _WRITTEN}
         assert MemoryReflectionPayload.model_validate(payload).items[0].kind == "constraint"
@@ -155,7 +155,7 @@ class TestHandler:
         exists to delete — the poll would come back, wearing a frame as a
         trigger. The writer had the words in hand; it sends them.
         """
-        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=_WRITTEN):
+        with patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=_WRITTEN):
             payload = await MEMORY_REFLECTION.handler(StageContext(facts=_facts(), llm=object()))
         items = MemoryReflectionPayload.model_validate(payload).items
         assert [item.content for item in items] == [row["content"] for row in _WRITTEN]
@@ -164,7 +164,7 @@ class TestHandler:
     @pytest.mark.asyncio
     async def test_the_pass_sees_the_digest_the_agent_saw_this_turn(self):
         facts = _facts(memory_digest='- [decision | high | verified] "Flachdach"')
-        with patch("aiq_agent.agents.project_memory.reflection.run_memory_reflection", return_value=[]) as run:
+        with patch("aiq_agent.memory.reflection.run_memory_reflection", return_value=[]) as run:
             await MEMORY_REFLECTION.handler(StageContext(facts=facts, llm="the-llm"))
         kwargs = run.await_args.kwargs
         assert kwargs["memory_digest"] == facts.memory_digest

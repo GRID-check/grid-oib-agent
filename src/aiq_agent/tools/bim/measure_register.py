@@ -1,6 +1,6 @@
 """``ifc_measure`` tool — measure the building, and say how the number was got.
 
-The sibling of :mod:`aiq_agent.agents.bim.register`. ``ifc_query`` reads the
+The sibling of :mod:`aiq_agent.tools.bim.register`. ``ifc_query`` reads the
 extracted index and answers what the export WROTE DOWN; this tool runs the
 spatial engine (IfcOpenShell/OCCT) over the model's own bytes for what it did
 not: a floor area with no published quantity, a sill with no property, the
@@ -33,28 +33,28 @@ from pydantic import ValidationError
 from pydantic import field_validator
 from pydantic import model_validator
 
-from aiq_agent.agents.bim.capability_gaps import record_gap
-from aiq_agent.agents.bim.failures import ENGINE_UNAVAILABLE_TEXT
-from aiq_agent.agents.bim.failures import MEASURE_FAILURES
-from aiq_agent.agents.bim.failures import NO_ORG_TEXT
-from aiq_agent.agents.bim.failures import NO_PROJECT_TEXT
-from aiq_agent.agents.bim.failures import UNAVAILABLE_TEXT
-from aiq_agent.agents.bim.failures import rejected_text
-from aiq_agent.agents.bim.failures import too_large_text
-from aiq_agent.agents.bim.failures import unrunnable_text
-from aiq_agent.agents.bim.measurement_evidence import EVIDENCE_PROVENANCES
-from aiq_agent.agents.bim.measurement_evidence import measurement_evidence_line
-from aiq_agent.agents.bim.measurement_sources import MeasuredElement
-from aiq_agent.agents.bim.measurement_sources import MeasurementSource
-from aiq_agent.agents.bim.measurement_sources import record_measurements
-from aiq_agent.agents.bim.rendering import listed
-from aiq_agent.agents.bim.rendering import render_unresolved
-from aiq_agent.agents.bim.trace import record_ifc_call
 from aiq_agent.knowledge.ifc_spatial_client import call_spatial_tool
 from aiq_agent.knowledge.ifc_spatial_client import open_model
 from aiq_agent.knowledge.ifc_spatial_client import resolve_model_source
 from aiq_agent.project_context import get_organization_id_from_context
 from aiq_agent.project_context import get_project_id_from_context
+from aiq_agent.tools.bim.capability_gaps import record_gap
+from aiq_agent.tools.bim.failures import ENGINE_UNAVAILABLE_TEXT
+from aiq_agent.tools.bim.failures import MEASURE_FAILURES
+from aiq_agent.tools.bim.failures import NO_ORG_TEXT
+from aiq_agent.tools.bim.failures import NO_PROJECT_TEXT
+from aiq_agent.tools.bim.failures import UNAVAILABLE_TEXT
+from aiq_agent.tools.bim.failures import rejected_text
+from aiq_agent.tools.bim.failures import too_large_text
+from aiq_agent.tools.bim.failures import unrunnable_text
+from aiq_agent.tools.bim.measurement_evidence import EVIDENCE_PROVENANCES
+from aiq_agent.tools.bim.measurement_evidence import measurement_evidence_line
+from aiq_agent.tools.bim.measurement_sources import MeasuredElement
+from aiq_agent.tools.bim.measurement_sources import MeasurementSource
+from aiq_agent.tools.bim.measurement_sources import record_measurements
+from aiq_agent.tools.bim.rendering import listed
+from aiq_agent.tools.bim.rendering import render_unresolved
+from aiq_agent.tools.bim.trace import record_ifc_call
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function

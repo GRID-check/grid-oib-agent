@@ -13,13 +13,13 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
-from aiq_agent.agents.bim.measurement_sources import MeasurementSource
-from aiq_agent.agents.bim.measurement_sources import measurement_sources_to_wire
 from aiq_agent.common import citation_events
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.citation_verification import source_label
 from aiq_agent.common.citation_verification import source_origin_token
+from aiq_agent.tools.bim.measurement_sources import MeasurementSource
+from aiq_agent.tools.bim.measurement_sources import measurement_sources_to_wire
 
 from .answer_pipeline import CitedSource
 from .answer_pipeline import FinalAnswer

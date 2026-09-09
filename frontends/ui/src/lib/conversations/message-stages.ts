@@ -82,7 +82,7 @@ const MAX_HINT_CHARS = 200
 
 /**
  * Reflection writes at most `MAX_NEW_ITEMS = 5` items per turn
- * (`agents/project_memory/reflection.py`). Six is that ceiling plus room for it
+ * (`aiq_agent/memory/reflection.py`). Six is that ceiling plus room for it
  * to move by one without this cap silently swallowing a real item.
  */
 export const MAX_MEMORY_ITEMS = 6

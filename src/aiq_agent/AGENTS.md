@@ -30,7 +30,7 @@ everything passes.
 **A measurement is not a source.** The four retrieved kinds (`baurecht`,
 `buero`, `projekt`, `web`) are passages a citation resolves to and can be read
 back. `messung` is reproducible instead, carries GlobalIds and a tolerance, and
-travels its own channel (`agents/bim/measurement_sources.py`). Putting one in
+travels its own channel (`tools/bim/measurement_sources.py`). Putting one in
 the `SourceRegistry` would let a basement measurement ground an uncited legal
 verdict, the exact laundering path `researcher.grounding` exists to
 close. The header of `common/source_kinds.py` is the full argument.

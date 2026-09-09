@@ -35,8 +35,8 @@ from pathlib import Path
 
 import pytest
 
-from aiq_agent.agents.bim.measure_register import _build_call
-from aiq_agent.agents.bim.measure_register import _render
+from aiq_agent.tools.bim.measure_register import _build_call
+from aiq_agent.tools.bim.measure_register import _render
 
 pytest.importorskip("ifc_spatial.tools", reason="the spatial engine is not installed")
 
@@ -528,8 +528,8 @@ class TestTheAgentCanLookAtThePlan:
     def _blocks(self, tools, handles, **kwargs):
         import ifc_spatial.tools as engine
 
-        from aiq_agent.agents.bim.measure_register import _build_call
-        from aiq_agent.agents.bim.measure_register import _image_blocks
+        from aiq_agent.tools.bim.measure_register import _build_call
+        from aiq_agent.tools.bim.measure_register import _image_blocks
 
         built = _build_call(
             operation="view",

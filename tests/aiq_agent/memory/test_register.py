@@ -12,9 +12,9 @@ from pydantic import ValidationError
 
 import aiq_agent.knowledge.project_memory as pm
 import aiq_agent.project_context as pc
-from aiq_agent.agents.project_memory import register
-from aiq_agent.agents.project_memory.register import ProjectMemoryRememberConfig
-from aiq_agent.agents.project_memory.register import project_memory_remember
+from aiq_agent.memory import register
+from aiq_agent.memory.register import ProjectMemoryRememberConfig
+from aiq_agent.memory.register import project_memory_remember
 
 
 class _RefusingAdapter:

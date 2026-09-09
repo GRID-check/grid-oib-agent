@@ -1,4 +1,4 @@
-"""Tests for the transparency extras (WP-A) populated by the chat_researcher.
+"""Tests for the transparency extras (WP-A) populated by the conversation graph.
 
 Covers the pure derivation helpers (observed routing, capped-confidence
 reason, citations-removed normalization, escalation reason) and their

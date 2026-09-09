@@ -10,14 +10,13 @@ from aiq_agent.turn.api_seam import AuthError
 from aiq_agent.turn.api_seam import skip_clarifier_requested
 
 AGENT_SRC = pathlib.Path(api_seam.__file__).resolve().parents[1]
-#: The packages this seam speaks for: the per-turn harness, the workflow entry
-#: point, and the researcher that owns the conversation graph (which reads
-#: ``AuthError`` through the seam). ``aiq_agent/auth`` carries its own, older
+#: The packages this seam speaks for: the per-turn harness, and the researcher
+#: that owns the conversation graph, its workflow registration and the reads of
+#: ``AuthError`` through the seam. ``aiq_agent/auth`` carries its own, older
 #: inversion (``auth/utils.py``, ``auth/workos_validator.py``) that is not this
 #: seam's to undo.
 GUARDED = (
     AGENT_SRC / "turn",
-    AGENT_SRC / "agents" / "chat_researcher",
     AGENT_SRC / "agents" / "researcher",
 )
 
@@ -30,6 +29,12 @@ def _imports_of(path: pathlib.Path) -> set[str]:
         elif isinstance(node, ast.Import):
             names.update(alias.name for alias in node.names)
     return names
+
+
+def test_every_guarded_package_exists():
+    """A guarded path that moved would `rglob` an empty directory and pass."""
+    missing = [str(package) for package in GUARDED if not package.is_dir()]
+    assert missing == [], f"GUARDED names a package that no longer exists: {missing}"
 
 
 def test_no_other_agent_module_imports_the_api_tier():

@@ -33,8 +33,9 @@ to add here has no home yet: give it one under
 
 ## Where the scoped guides are
 
-Each service keeps its own `AGENTS.md` beside the code, for what holds only
-there. **Read the one for the area you are about to touch, before you touch
+Each service keeps its own `AGENTS.md` beside the code, and inside
+`src/aiq_agent/` so do the packages with invariants of their own, for what holds
+only there. **Read the one for the area you are about to touch, before you touch
 it.** They are additive: this file still applies.
 
 Harnesses find them on their own, but late. Claude reaches one only after it has

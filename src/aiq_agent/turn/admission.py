@@ -35,7 +35,12 @@ from nat.data_models.api_server import ChatResponse
 
 logger = logging.getLogger(__name__)
 
-#: The profiler span name the frontend matches by string; never rename.
+#: The name of the profiler ROOT span for a chat turn. A persisted identifier,
+#: not a module path: it is stored per turn as `agent_profiler_spans.name` and
+#: matched by string in `frontends/ui/src/features/chat/lib/trace-lanes.ts`, so
+#: it stayed put when the package that used to be called `chat_researcher` was
+#: folded into the researcher. Renaming it re-labels the reasoning view for
+#: every turn already stored.
 PROFILE_AGENT_NAME = "chat_researcher"
 
 StateT = TypeVar("StateT")

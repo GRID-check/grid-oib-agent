@@ -1,10 +1,11 @@
-"""NAT register function for the chat workflow.
+"""NAT registration for the chat workflow: the conversation graph as a turn.
 
-The workflow's entry point and nothing else: the config, the wiring of the
-sibling NAT functions into the researcher's conversation graph
-(:mod:`aiq_agent.agents.researcher.conversation`), and a ``_run`` that
-composes the per-turn harness from :mod:`aiq_agent.turn`. The answering agent,
-the escalation edge and the conversation state all belong to the researcher.
+Beside the graph it registers (:mod:`aiq_agent.agents.researcher.conversation`)
+and nothing else: the config, the wiring of the sibling NAT functions into that
+graph, and a ``_run`` that composes the per-turn harness from
+:mod:`aiq_agent.turn`. The answering agent, the escalation edge and the
+conversation state are the researcher's, which is why this lives here rather
+than in a package of its own.
 """
 
 import asyncio

@@ -24,8 +24,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from aiq_agent.agents.bim.capability_gaps import ledger_path  # noqa: E402
-from aiq_agent.agents.bim.capability_gaps import render_report  # noqa: E402
+from aiq_agent.tools.bim.capability_gaps import ledger_path  # noqa: E402
+from aiq_agent.tools.bim.capability_gaps import render_report  # noqa: E402
 
 
 def main() -> int:

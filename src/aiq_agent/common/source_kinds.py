@@ -30,7 +30,7 @@ brake in ``researcher.grounding`` is gated on its ABSENCE. A
 measurement that entered the registry would therefore hand an answer's uncited
 legal verdict the evidence of its own basement measurement — the laundering
 path the grounding module exists to close. So measurements travel their own
-channel (:mod:`aiq_agent.agents.bim.measurement_sources`) and meet the
+channel (:mod:`aiq_agent.tools.bim.measurement_sources`) and meet the
 retrieved sources only on the wire, where this taxonomy is all that is left of
 either. See ``tests/aiq_agent/agents/researcher/test_agent.py::
 TestMeasurementSourcesDoNotGroundCitations``.

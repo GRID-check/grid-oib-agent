@@ -399,7 +399,7 @@ class TestDeepResearcherAgent:
     async def test_register_builds_checkpointer_when_checkpoint_db_configured(self):
         """A configured checkpoint_db resolves a durable checkpointer and threads it into the agent.
 
-        Mirrors chat_researcher/register.py's ``get_checkpointer`` precedent: the checkpointer is built
+        Mirrors researcher/conversation_register.py's ``get_checkpointer`` precedent: the checkpointer is built
         once via ``aiq_agent.common.get_checkpointer`` (cached by db path/DSN) and passed to every
         DeepResearcherAgent this registration builds.
         """

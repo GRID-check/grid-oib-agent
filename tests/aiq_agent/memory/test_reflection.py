@@ -6,10 +6,10 @@ import threading
 
 import pytest
 
-from aiq_agent.agents.project_memory import reflection as R
 from aiq_agent.common import AgentGroup
 from aiq_agent.knowledge.project_memory import VALID_CONFIDENCES
 from aiq_agent.knowledge.project_memory import VALID_KINDS
+from aiq_agent.memory import reflection as R
 from aiq_agent.stages import TurnFacts
 from aiq_agent.stages import registry as stage_registry
 from aiq_agent.stages import schedule_post_answer_stages

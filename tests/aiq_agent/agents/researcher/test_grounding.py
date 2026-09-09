@@ -31,7 +31,6 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from aiq_agent.agents.bim.measure_register import _render
 from aiq_agent.agents.researcher.agent import ResearcherAgent
 from aiq_agent.agents.researcher.answer_pipeline import prose_without_references
 from aiq_agent.agents.researcher.grounding import _SENTENCE_SPLIT_RE
@@ -42,6 +41,7 @@ from aiq_agent.agents.researcher.markers import surface_answer_confidence
 from aiq_agent.agents.researcher.models import ResearchAgentState
 from aiq_agent.common import LLMProvider
 from aiq_agent.common.data_source_registry import reset_registry
+from aiq_agent.tools.bim.measure_register import _render
 
 FIXTURES = Path(__file__).resolve().parents[4] / "packages" / "ifc-spatial" / "test" / "fixtures"
 #: Geometry everywhere — the fixture that actually measures.
@@ -194,12 +194,12 @@ class TestMeasurementDetectionRejectsFailures:
 
     @staticmethod
     def _error_texts():
-        from aiq_agent.agents.bim.measure_register import ENGINE_UNAVAILABLE_TEXT
-        from aiq_agent.agents.bim.measure_register import UNAVAILABLE_TEXT
-        from aiq_agent.agents.bim.measure_register import _rejected_text
-        from aiq_agent.agents.bim.measure_register import _too_large_text
-        from aiq_agent.agents.bim.measure_register import _unrunnable_text
-        from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
+        from aiq_agent.tools.bim.measure_register import ENGINE_UNAVAILABLE_TEXT
+        from aiq_agent.tools.bim.measure_register import UNAVAILABLE_TEXT
+        from aiq_agent.tools.bim.measure_register import _rejected_text
+        from aiq_agent.tools.bim.measure_register import _too_large_text
+        from aiq_agent.tools.bim.measure_register import _unrunnable_text
+        from aiq_agent.tools.bim.register import NO_PROJECT_TEXT
 
         return [
             UNAVAILABLE_TEXT,

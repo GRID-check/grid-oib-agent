@@ -10,7 +10,7 @@ Reproduction harness used throughout (paths absolute):
 ```python
 # save as /tmp/d3.py, run with `uv run python` from the repo root
 from ifc_spatial.tools import create_tools, call as tcall
-from aiq_agent.agents.bim.measure_register import _render, _decimals, _num
+from aiq_agent.tools.bim.measure_register import _render, _decimals, _num
 F = '/home/user/grid-oib-agent/packages/ifc-spatial/test/fixtures/'
 TOOLS = create_tools()
 def call(name, **args): return tcall(TOOLS, name, args)

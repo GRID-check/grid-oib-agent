@@ -98,7 +98,7 @@ class TestClarifierSettings:
 
     def test_it_hangs_off_the_workflow_config(self):
         """The one place a deployment addresses this step from now."""
-        from aiq_agent.agents.chat_researcher.register import ChatDeepResearcherConfig
+        from aiq_agent.agents.researcher.conversation_register import ChatDeepResearcherConfig
 
         config = ChatDeepResearcherConfig(enable_clarifier=True, clarifier={"llm": "clarifier_llm", "max_turns": 3})
 
@@ -107,7 +107,7 @@ class TestClarifierSettings:
 
     def test_it_is_absent_by_default(self):
         """A deployment with no clarifier configures nothing."""
-        from aiq_agent.agents.chat_researcher.register import ChatDeepResearcherConfig
+        from aiq_agent.agents.researcher.conversation_register import ChatDeepResearcherConfig
 
         assert ChatDeepResearcherConfig().clarifier is None
 
@@ -117,8 +117,8 @@ class TestBuildClarifierGuard:
 
     @pytest.mark.asyncio
     async def test_enabled_without_a_block_is_a_boot_error(self):
-        from aiq_agent.agents.chat_researcher.register import ChatDeepResearcherConfig
-        from aiq_agent.agents.chat_researcher.register import _build_clarifier
+        from aiq_agent.agents.researcher.conversation_register import ChatDeepResearcherConfig
+        from aiq_agent.agents.researcher.conversation_register import _build_clarifier
 
         with pytest.raises(ValueError, match="enable_clarifier"):
             await _build_clarifier(ChatDeepResearcherConfig(enable_clarifier=True), MagicMock())
@@ -126,8 +126,8 @@ class TestBuildClarifierGuard:
     @pytest.mark.asyncio
     async def test_disabled_resolves_nothing(self):
         """The graph gets None and the escalation goes straight to deep research."""
-        from aiq_agent.agents.chat_researcher.register import ChatDeepResearcherConfig
-        from aiq_agent.agents.chat_researcher.register import _build_clarifier
+        from aiq_agent.agents.researcher.conversation_register import ChatDeepResearcherConfig
+        from aiq_agent.agents.researcher.conversation_register import _build_clarifier
 
         assert await _build_clarifier(ChatDeepResearcherConfig(enable_clarifier=False), MagicMock()) is None
 

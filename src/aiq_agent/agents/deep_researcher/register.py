@@ -119,7 +119,7 @@ class DeepResearchAgentConfig(FunctionBaseConfig, name="deep_research_agent"):
         description="Optional SQLite database path or Postgres DSN for durable per-job checkpointing of "
         "deep-research runs (LangGraph thread_id = job_id), enabling resume of a re-invoked job after a "
         "worker crash. None (default) keeps current behavior: an in-memory-only graph with no execution-"
-        "state durability. Mirrors the workflow-level chat_researcher checkpoint_db pattern, but opt-in "
+        "state durability. Mirrors the workflow-level chat checkpoint_db pattern, but opt-in "
         "here since deep-research jobs run in ephemeral Dask worker processes.",
     )
 

@@ -1,13 +1,13 @@
 # Audit — async memory-reflection stage & the memory write path
 
 > Multi-persona audit of the post-answer memory-reflection stage
-> (`src/aiq_agent/agents/project_memory/reflection.py`) and the surrounding
+> (`src/aiq_agent/memory/reflection.py`) and the surrounding
 > project-memory system. Records the findings, what was hardened in code, and
 > what remains a deliberate follow-up. See also
 > [project-memory-design.md](./project-memory-design.md) §3.5.
 
 ## Scope reviewed
-Reflection stage + its wiring (`agents/chat_researcher/register.py`), the
+Reflection stage + its wiring (`agents/researcher/conversation_register.py`), the
 internal write endpoint (`app/api/internal/memory/route.ts`), the memory service
 (`lib/projects/memory-service.ts`), the backend write client
 (`knowledge/project_memory.py`), the WS scope route, `requireProjectAccess`, and

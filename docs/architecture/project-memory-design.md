@@ -177,7 +177,7 @@ The in-turn `remember` tool depends on the answering agent pausing mid-flow to
 record a finding — which a busy answer often skips. The **reflection stage** is
 the safety net. It runs in the chat entrypoint's *post-processing phase*,
 **scheduled after the answer is already returned** (`schedule_memory_reflection`
-in `agents/project_memory/reflection.py`), so it never adds latency to the reply.
+in `memory/reflection.py`), so it never adds latency to the reply.
 
 Flow (fire-and-forget background task on the event loop):
 1. The entrypoint captures the turn (query + answer), the project/organization

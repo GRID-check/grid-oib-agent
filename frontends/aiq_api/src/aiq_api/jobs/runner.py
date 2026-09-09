@@ -636,7 +636,7 @@ def _resolve_worker_tool_refs(fn_config: Any) -> list[str]:
     while validation elsewhere reported the inherited tools as available. This
     matches the two other resolution sites (the sync agent build in
     deep_researcher/register.py and the chat-route validator in
-    chat_researcher/register.py), which both treat an empty list as "inherit".
+    researcher/conversation_register.py), which both treat an empty list as "inherit".
     """
     tool_refs = getattr(fn_config, "tools", None)
     if not tool_refs:
@@ -1191,7 +1191,7 @@ async def run_agent_job(
 
             # WHAT the project already knows. The chat path fetches a live digest
             # per turn and falls back to the connection-time one only on failure
-            # (chat_researcher/register.py); the same discipline here, with the
+            # (researcher/conversation_register.py); the same discipline here, with the
             # BFF-built `project_memory` as the frozen fallback. A successful
             # fetch is authoritative even when empty — memory may have been
             # cleared since the job fired.
@@ -1876,7 +1876,7 @@ def _get_agent_state_class(agent) -> type | None:
 def _bound_card_registry() -> Iterator[CardRegistry]:
     """Bind a fresh per-job ``CardRegistry`` for the agent run, and unbind it after.
 
-    The chat turn does the same around ``agent.run`` (``chat_researcher/register.py``),
+    The chat turn does the same around ``agent.run`` (``researcher/conversation_register.py``),
     with a conversation-scoped registry it clears per turn. A job has no
     conversation of its own to key on and runs once, so a fresh registry is the
     per-turn state here — the ``ContextVar`` rule in ``src/aiq_agent/AGENTS.md``.
@@ -1959,7 +1959,7 @@ async def _run_deep_research_reflection(
 
     The synchronous chat path runs a post-answer reflection stage for
     chat/meta turns but deliberately skips deep-research jobs (see
-    chat_researcher/register.py, ``not deep_research_job_id``) because the report
+    researcher/conversation_register.py, ``not deep_research_job_id``) because the report
     does not exist until the async job completes. This closes that gap on the
     worker, where the report and the submitting identity are both in hand.
 
@@ -1986,7 +1986,6 @@ async def _run_deep_research_reflection(
         # (audit finding S1); an org-only job has nothing it may safely record.
         return
     try:
-        from aiq_agent.agents.project_memory.reflection import run_memory_reflection
         from aiq_agent.common import AgentGroup
         from aiq_agent.common import apply_model_override
         from aiq_agent.common import apply_org_credential
@@ -1995,6 +1994,7 @@ async def _run_deep_research_reflection(
         from aiq_agent.common.cost_tracking import BudgetSnapshot
         from aiq_agent.common.cost_tracking import track_llm_costs
         from aiq_agent.common.profiler import track_agent_profile
+        from aiq_agent.memory.reflection import run_memory_reflection
         from aiq_agent.stages.memory_reflection import REFLECTION_TIMEOUT_S
 
         reflection_llm = await get_langchain_llm(builder, reflection_llm_ref)

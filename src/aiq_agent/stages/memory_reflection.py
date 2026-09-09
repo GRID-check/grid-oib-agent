@@ -1,7 +1,7 @@
 """Memory reflection, declared as a post-answer stage.
 
 This is the migration of the bespoke block that used to sit inline in
-``chat_researcher/register.py`` (schedule + gate) and in
+``agents/researcher/conversation_register.py`` (schedule + gate) and in
 ``project_memory/reflection.schedule_memory_reflection`` (semaphore, pending cap,
 cost/profile tracking). **What it does is unchanged** — the same predicate, the
 same prompt, the same writes through the same token-guarded endpoint. What
@@ -170,7 +170,7 @@ async def _handler(ctx: StageContext) -> dict[str, Any] | None:
     """One reflection pass. ``None`` when the turn established nothing durable —
     the common, correct outcome, recorded as ``empty`` rather than invented into
     a payload."""
-    from aiq_agent.agents.project_memory.reflection import run_memory_reflection
+    from aiq_agent.memory.reflection import run_memory_reflection
 
     facts = ctx.facts
     recorded = await run_memory_reflection(

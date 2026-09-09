@@ -2798,7 +2798,7 @@ _MEASURED_MODEL = {"model": {"filename": "Institut.ifc", "schemaVersion": "IFC4"
 @tool
 def ifc_measure(operation: str = "measure") -> str:
     """Measure the project's IFC/BIM model and report the provenance."""
-    from aiq_agent.agents.bim.measure_register import _render
+    from aiq_agent.tools.bim.measure_register import _render
 
     return _render(
         "measure",

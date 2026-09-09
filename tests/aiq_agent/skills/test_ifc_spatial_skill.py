@@ -36,17 +36,17 @@ from pathlib import Path
 
 import pytest
 
-from aiq_agent.agents.bim.measure_register import DISTANCE_MODES
-from aiq_agent.agents.bim.measure_register import ENVELOPE_ASPECTS
-from aiq_agent.agents.bim.measure_register import FIRE_ASPECTS
-from aiq_agent.agents.bim.measure_register import KINDS
-from aiq_agent.agents.bim.measure_register import MEASURES
-from aiq_agent.agents.bim.measure_register import PROFILE_KINDS
-from aiq_agent.agents.bim.measure_register import RELATIONS
-from aiq_agent.agents.bim.measure_register import ROOM_KINDS
-from aiq_agent.agents.bim.measure_register import VALID_OPERATIONS
-from aiq_agent.agents.bim.measure_register import VIEW_MODES
-from aiq_agent.agents.bim.register import VALID_OPERATIONS as QUERY_OPERATIONS
+from aiq_agent.tools.bim.measure_register import DISTANCE_MODES
+from aiq_agent.tools.bim.measure_register import ENVELOPE_ASPECTS
+from aiq_agent.tools.bim.measure_register import FIRE_ASPECTS
+from aiq_agent.tools.bim.measure_register import KINDS
+from aiq_agent.tools.bim.measure_register import MEASURES
+from aiq_agent.tools.bim.measure_register import PROFILE_KINDS
+from aiq_agent.tools.bim.measure_register import RELATIONS
+from aiq_agent.tools.bim.measure_register import ROOM_KINDS
+from aiq_agent.tools.bim.measure_register import VALID_OPERATIONS
+from aiq_agent.tools.bim.measure_register import VIEW_MODES
+from aiq_agent.tools.bim.register import VALID_OPERATIONS as QUERY_OPERATIONS
 
 #: The two tool names the skill is allowed to name, and the operations each one
 #: really has. `ifc_measure` is this skill's subject; `ifc_query` is the sibling
@@ -113,7 +113,7 @@ def test_the_parameter_list_is_the_tool_s_own_signature() -> None:
     as an invention when it is a real field of a real call. `IfcMeasureInput`
     is the wire schema, so its fields are exactly what a call can carry.
     """
-    from aiq_agent.agents.bim.measure_register import IfcMeasureInput
+    from aiq_agent.tools.bim.measure_register import IfcMeasureInput
 
     assert PARAMETERS == set(IfcMeasureInput.model_fields)
 
@@ -128,7 +128,7 @@ def test_the_kind_union_still_covers_the_schema() -> None:
     tests later as „the skill invented `kind: <the new value>`" — a message that
     points at the skill for being right.
     """
-    from aiq_agent.agents.bim.measure_register import _ALL_KINDS
+    from aiq_agent.tools.bim.measure_register import _ALL_KINDS
 
     assert EVERY_KIND == set(_ALL_KINDS)
 

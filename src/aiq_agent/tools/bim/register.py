@@ -19,17 +19,17 @@ from urllib.parse import quote
 from pydantic import BaseModel
 from pydantic import Field
 
-from aiq_agent.agents.bim.failures import NO_ORG_TEXT
-from aiq_agent.agents.bim.failures import NO_PROJECT_TEXT
-from aiq_agent.agents.bim.failures import QUERY_FAILURES
-from aiq_agent.agents.bim.rendering import clipped
-from aiq_agent.agents.bim.rendering import listed
-from aiq_agent.agents.bim.rendering import render_unresolved
-from aiq_agent.agents.bim.trace import model_handle
-from aiq_agent.agents.bim.trace import record_ifc_call
 from aiq_agent.knowledge.bim_query import run_bim_query
 from aiq_agent.project_context import get_organization_id_from_context
 from aiq_agent.project_context import get_project_id_from_context
+from aiq_agent.tools.bim.failures import NO_ORG_TEXT
+from aiq_agent.tools.bim.failures import NO_PROJECT_TEXT
+from aiq_agent.tools.bim.failures import QUERY_FAILURES
+from aiq_agent.tools.bim.rendering import clipped
+from aiq_agent.tools.bim.rendering import listed
+from aiq_agent.tools.bim.rendering import render_unresolved
+from aiq_agent.tools.bim.trace import model_handle
+from aiq_agent.tools.bim.trace import record_ifc_call
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function

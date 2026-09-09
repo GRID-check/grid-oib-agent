@@ -35,9 +35,6 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt import tools_condition
 
-from aiq_agent.agents.bim.measurement_sources import begin_measurement_capture
-from aiq_agent.agents.bim.measurement_sources import end_measurement_capture
-from aiq_agent.agents.bim.measurement_sources import get_measurement_captures
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common import get_source_id_for_tool
@@ -54,6 +51,9 @@ from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.turn_status import emit_research_truncated
 from aiq_agent.common.turn_status import emit_retrieval
+from aiq_agent.tools.bim.measurement_sources import begin_measurement_capture
+from aiq_agent.tools.bim.measurement_sources import end_measurement_capture
+from aiq_agent.tools.bim.measurement_sources import get_measurement_captures
 
 from .answer_pipeline import FinalAnswer
 from .answer_pipeline import RepairFn

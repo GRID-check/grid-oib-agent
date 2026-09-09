@@ -70,7 +70,7 @@ Key files:
 - Graph build: `src/aiq_agent/agents/researcher/conversation.py` (`_build_graph`,
   nodes). The escalation edge and the conversation-scoped state belong to the
   researcher; the workflow only wires them up.
-- Workflow registration + response creation: `src/aiq_agent/agents/chat_researcher/register.py`.
+- Workflow registration + response creation: `src/aiq_agent/agents/researcher/conversation_register.py`.
 - WS wire types (NAT, vendored): `.venv/Lib/site-packages/nat/data_models/api_server.py`
   — `ChatResponse` and the WS message models are `extra="allow"`, so extra
   fields (cards, deep_research_job_id) survive serialization.
@@ -189,7 +189,7 @@ boundary in `ConversationGraph.run()`:
   **What counts as a measurement.** `ifc_measure`'s renderer states it: a result
   from an operation that could measure something ends with a line reporting how
   many QUANTITIES in it carry a `declared`/`computed` provenance
-  (`agents/bim/measurement_evidence.py`), and the gate reads that count. It used
+  (`tools/bim/measurement_evidence.py`), and the gate reads that count. It used
   to search the result for „gemessen" / „deklariert" instead, which three
   renderers write into prose explaining why NOTHING could be measured
   („gemessen: raumhoehe an 0 von 3 Bauteilen") — so a refusal granted
@@ -291,7 +291,7 @@ next real turn's `ainvoke` then reads the ingested turns as ordinary history.
 Key pieces:
 - Wire parse, char caps, appender registry: `src/aiq_agent/conversation_context.py`.
 - The appender is *published*, not imported: `aiq_api` owns the socket and
-  `aiq_agent` owns the graph, so `chat_researcher/register.py` calls
+  `aiq_agent` owns the graph, so `researcher/conversation_register.py` calls
   `register_context_appender(agent.append_context_message)` where the compiled graph
   (and its checkpointer) exists.
 - Fail-soft throughout. A missing appender, a dead checkpointer or a raising append is
@@ -409,7 +409,7 @@ Intake wizard answers
   → /api/websocket-scope reads profile_prompt_view → returns projectContext
   → server.js sets header  x-grid-project-context  on the WS upgrade
   → src/aiq_agent/project_context.py reads the header (truncated to 4000 chars)
-  → chat_researcher/register.py sets state.project_context
+  → researcher/conversation_register.py sets state.project_context
   → injected into every prompt: all *.j2 have {% if project_context %}{{ project_context }}
 ```
 
@@ -653,7 +653,7 @@ double LLM failure" below for the fix that closed the practical case of
 this.
 
 `available_documents` is fetched **once per turn**, in
-`chat_researcher/register.py`, aggregated across the collections in the
+`researcher/conversation_register.py`, aggregated across the collections in the
 request's header-based scope (or the base + session collection fallback when
 no scope header is present). Identity is `(collection, file_name)` — the same
 filename on the Büroarchiv and in a project is two documents (ADR-0047). The
@@ -1059,7 +1059,7 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    `deleteDerivedObjects` (`lib/documents/object-cleanup.ts`). One turn may
    call the tool at most `MAX_IMAGE_VIEWS_PER_TURN` times (6,
    `common/image_view_budget.py`, a per-turn ContextVar bound beside the card
-   registry in `chat_researcher/register.py`); past that it answers with a
+   registry in `researcher/conversation_register.py`); past that it answers with a
    text block. Because the SeaweedFS `storage_key` lives only in the frontend's
    `documents` table, the tool resolves `(collection, filename)` through a new
    token-guarded BFF route `GET /api/internal/document-file`
@@ -1225,7 +1225,7 @@ same thing.
 | "How many external walls on the ground floor?" | `lib/bim/query.ts` → SQL over `bim_elements`. A `COUNT(*)` with a `WHERE`; an LLM summing forty thousand elements from retrieved prose is a fact turned into a guess. |
 
 The agent reaches the second through the `ifc_query` tool
-(`src/aiq_agent/agents/bim/register.py`), which posts to
+(`src/aiq_agent/tools/bim/register.py`), which posts to
 `POST /api/internal/bim/query` with the shared service token — the same
 single-writer separation the `remember` tool uses. Models are addressed by
 project and file name; no UUID travels through a conversation.
@@ -1444,7 +1444,7 @@ runner). And the research tab can 403 — see §9.
 
 **Collection-scope re-injection gap — now diagnosable (fixed 2026-07-16,
 `f8093a0`)**: the `X-Grid-Collection-Scope` header is captured once at submit
-time (`chat_researcher/register.py`) and threaded into the async job payload
+time (`researcher/conversation_register.py`) and threaded into the async job payload
 as `collection_scope`. The Dask worker only re-injects it into its own
 request context conditionally — `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
 does `if collection_scope is not None:` before base64url-encoding it back

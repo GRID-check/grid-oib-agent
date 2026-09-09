@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from aiq_agent.agents.bim.register import _build_query
-from aiq_agent.agents.bim.register import _element_link
-from aiq_agent.agents.bim.register import _render
+from aiq_agent.tools.bim.register import _build_query
+from aiq_agent.tools.bim.register import _element_link
+from aiq_agent.tools.bim.register import _render
 
 
 def build(**overrides):
@@ -208,7 +208,7 @@ class TestRender:
         # NUMBERS were computed over a window of the model, and telling the
         # agent to aggregate harder invites it to quote a partial sum as a
         # total, which is the failure the flag exists to prevent.
-        from aiq_agent.agents.bim.register import _truncation_note
+        from aiq_agent.tools.bim.register import _truncation_note
 
         assert "Teil des Modells" in _truncation_note("schedule")
         assert "Teil des Modells" in _truncation_note("compliance")
@@ -635,14 +635,14 @@ class TestComplianceOperation:
         assert "checks/export" not in rendered
 
     def test_the_tool_description_tells_the_model_to_offer_the_file(self):
-        from aiq_agent.agents.bim.register import _TOOL_DESCRIPTION
+        from aiq_agent.tools.bim.register import _TOOL_DESCRIPTION
 
         assert "BCF-Export der offenen Punkte:" in _TOOL_DESCRIPTION
         # Naming the tools is what makes "BCF" mean something to the reader.
         assert "ArchiCAD, Revit, Solibri or BIMcollab" in _TOOL_DESCRIPTION
 
     def test_the_tool_description_forbids_declaring_the_building_compliant(self):
-        from aiq_agent.agents.bim.register import _TOOL_DESCRIPTION
+        from aiq_agent.tools.bim.register import _TOOL_DESCRIPTION
 
         assert "Never turn a compliance result into a statement that the building complies" in (_TOOL_DESCRIPTION)
         # And it must name what the catalogue cannot see, so the agent does not
@@ -664,8 +664,8 @@ class TestTheDescriptionDescribesTheRealTool:
     def _description_and_parameters() -> tuple[str, list[str]]:
         # `IfcQueryInput` IS the wire schema: NAT hands it to LangChain as the
         # tool's `args_schema`, so its fields are the arguments the model can set.
-        from aiq_agent.agents.bim.register import _TOOL_DESCRIPTION
-        from aiq_agent.agents.bim.register import IfcQueryInput
+        from aiq_agent.tools.bim.register import _TOOL_DESCRIPTION
+        from aiq_agent.tools.bim.register import IfcQueryInput
 
         return _TOOL_DESCRIPTION, list(IfcQueryInput.model_fields)
 
@@ -745,7 +745,7 @@ class TestGebaeudeklasseValidation:
 
     @pytest.mark.parametrize("value", [0, 6, 9, -1, None])
     def test_an_impossible_gebaeudeklasse_reaches_neither_the_query_nor_the_link(self, value):
-        from aiq_agent.agents.bim.register import _bcf_link
+        from aiq_agent.tools.bim.register import _bcf_link
 
         query = build(operation="compliance", gebaeudeklasse=value or 0)
         assert "gebaeudeklasse" not in query
@@ -756,7 +756,7 @@ class TestGebaeudeklasseValidation:
 
     @pytest.mark.parametrize("value", [1, 2, 3, 4, 5])
     def test_a_real_gebaeudeklasse_reaches_both(self, value):
-        from aiq_agent.agents.bim.register import _bcf_link
+        from aiq_agent.tools.bim.register import _bcf_link
 
         assert build(operation="compliance", gebaeudeklasse=value)["gebaeudeklasse"] == value
         assert f"gebaeudeklasse={value}" in _bcf_link("p1", "haus.ifc", value, "")
@@ -801,7 +801,7 @@ class TestWhatTheTraceRecords:
         return _CONTRIBUTED.get() or {"metadata": {}, "tags": []}
 
     def test_a_resolved_answer_records_the_shape_of_the_query(self):
-        from aiq_agent.agents.bim.register import _trace
+        from aiq_agent.tools.bim.register import _trace
 
         _trace(
             {"op": "compliance"},
@@ -835,7 +835,7 @@ class TestWhatTheTraceRecords:
         # The renderer substitutes into a template and does nothing else, so
         # "… 1 weitere Geschoße nicht gezeigt." was what every list clipped by
         # exactly one produced — in an answer an architect reads as German.
-        from aiq_agent.agents.bim.register import _clipped
+        from aiq_agent.tools.bim.register import _clipped
 
         assert _clipped(list(range(21)), 20, "Geschoße") == "… ein weiteres Geschoß nicht gezeigt."
         assert _clipped(list(range(22)), 20, "Geschoße") == "… 2 weitere Geschoße nicht gezeigt."
@@ -844,7 +844,7 @@ class TestWhatTheTraceRecords:
     def test_the_model_handle_is_stable_and_not_the_name(self):
         # Stable, because an operator correlating two slow turns needs them to
         # match; not the name, because the name is the client and the address.
-        from aiq_agent.agents.bim.register import _model_handle
+        from aiq_agent.tools.bim.register import _model_handle
 
         assert _model_handle("Haus-Mayr_Landstrasser-Hauptstr-12_V3.ifc") == _model_handle(
             "Haus-Mayr_Landstrasser-Hauptstr-12_V3.ifc"
@@ -861,7 +861,7 @@ class TestWhatTheTraceRecords:
         # The one that matters for correctness rather than speed: a truncated
         # run is a subset presented as a total, and a trace that does not record
         # it cannot be used to audit the answer afterwards.
-        from aiq_agent.agents.bim.register import _trace
+        from aiq_agent.tools.bim.register import _trace
 
         _trace(
             {"op": "elements"},
@@ -879,7 +879,7 @@ class TestWhatTheTraceRecords:
         assert recorded["ifc_total_is_lower_bound"] is True
 
     def test_a_sampled_property_catalogue_is_distinguishable_from_a_complete_one(self):
-        from aiq_agent.agents.bim.register import _trace
+        from aiq_agent.tools.bim.register import _trace
 
         for scan, expected in (
             ({"scanned": 600, "total": 10100, "complete": False}, True),
@@ -898,7 +898,7 @@ class TestWhatTheTraceRecords:
         # "There is no model", "there are several" and "it is still extracting"
         # are different answers, and a trace that flattens them to a duration
         # cannot tell an operator which one the user actually got.
-        from aiq_agent.agents.bim.register import _trace
+        from aiq_agent.tools.bim.register import _trace
 
         _trace({"op": "overview"}, {"resolved": False, "reason": "ambiguous"})
 
@@ -910,7 +910,7 @@ class TestWhatTheTraceRecords:
     def test_a_transport_failure_is_not_recorded_as_an_empty_building(self):
         # The distinction the whole tool is built around, carried into telemetry:
         # "could not look" must never read as "looked and found nothing".
-        from aiq_agent.agents.bim.register import _trace
+        from aiq_agent.tools.bim.register import _trace
 
         _trace({"op": "schedule"}, None, unavailable=True)
 
@@ -924,7 +924,7 @@ class TestWhatTheTraceRecords:
         # `output.value`, under the redaction policy that governs it; copying
         # them into trace metadata would put the same tenant data in a second
         # place with a second policy.
-        from aiq_agent.agents.bim.register import _trace
+        from aiq_agent.tools.bim.register import _trace
 
         _trace(
             {"op": "elements", "filter": {"nameContains": "Fluchttuer"}},
@@ -952,7 +952,7 @@ class TestTheToolBody:
 
     @pytest.fixture(autouse=True)
     def _context(self, monkeypatch):
-        from aiq_agent.agents.bim import register
+        from aiq_agent.tools.bim import register
 
         monkeypatch.setattr(register, "get_organization_id_from_context", lambda: "org-1")
         monkeypatch.setattr(register, "get_project_id_from_context", lambda: "proj-1")
@@ -962,9 +962,9 @@ class TestTheToolBody:
         """The answer and the traced outcome — read inside the task, where the ContextVar was written."""
         import asyncio
 
-        from aiq_agent.agents.bim import register
         from aiq_agent.observability.langfuse_trace_attributes import _CONTRIBUTED
         from aiq_agent.observability.langfuse_trace_attributes import reset_contributions
+        from aiq_agent.tools.bim import register
 
         monkeypatch.setattr(register, "run_bim_query", run)
 
@@ -976,15 +976,15 @@ class TestTheToolBody:
         return asyncio.run(body())
 
     def test_no_organization_is_refused_before_anything_is_built(self, monkeypatch):
-        from aiq_agent.agents.bim import register
-        from aiq_agent.agents.bim.failures import NO_ORG_TEXT
+        from aiq_agent.tools.bim import register
+        from aiq_agent.tools.bim.failures import NO_ORG_TEXT
 
         monkeypatch.setattr(register, "get_organization_id_from_context", lambda: None)
         assert self._query(monkeypatch, lambda **_: pytest.fail("posted"))[0] == NO_ORG_TEXT
 
     def test_no_project_is_the_shared_do_not_retry_sentence(self, monkeypatch):
-        from aiq_agent.agents.bim import register
-        from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
+        from aiq_agent.tools.bim import register
+        from aiq_agent.tools.bim.register import NO_PROJECT_TEXT
 
         monkeypatch.setattr(register, "get_project_id_from_context", lambda: None)
         assert self._query(monkeypatch, lambda **_: pytest.fail("posted"))[0] == NO_PROJECT_TEXT
@@ -1005,8 +1005,8 @@ class TestTheToolBody:
         assert outcome == "rejected"
 
     def test_an_outage_is_not_a_fact_about_the_building(self, monkeypatch):
-        from aiq_agent.agents.bim.failures import QUERY_UNAVAILABLE_TEXT
         from aiq_agent.knowledge.bim_query import BimQueryUnavailableError
+        from aiq_agent.tools.bim.failures import QUERY_UNAVAILABLE_TEXT
 
         def down(**_):
             raise BimQueryUnavailableError("connection refused")

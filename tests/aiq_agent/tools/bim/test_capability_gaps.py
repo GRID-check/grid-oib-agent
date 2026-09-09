@@ -15,8 +15,8 @@ import json
 
 import pytest
 
-from aiq_agent.agents.bim import capability_gaps as cg
-from aiq_agent.agents.bim.measure_register import _build_call
+from aiq_agent.tools.bim import capability_gaps as cg
+from aiq_agent.tools.bim.measure_register import _build_call
 
 
 @pytest.fixture(autouse=True)

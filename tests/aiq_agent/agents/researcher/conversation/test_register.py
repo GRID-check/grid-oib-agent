@@ -15,9 +15,9 @@ import pytest
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from aiq_agent.agents.chat_researcher import register as register_mod
-from aiq_agent.agents.chat_researcher.register import ChatDeepResearcherConfig
-from aiq_agent.agents.chat_researcher.register import chat_deepresearcher_agent
+from aiq_agent.agents.researcher import conversation_register as register_mod
+from aiq_agent.agents.researcher.conversation_register import ChatDeepResearcherConfig
+from aiq_agent.agents.researcher.conversation_register import chat_deepresearcher_agent
 from aiq_agent.agents.researcher.models import ResearchAgentState
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.project_context import GridRequestContext

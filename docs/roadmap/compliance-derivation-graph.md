@@ -120,7 +120,7 @@ fact
   value · unit · tolerance
   asserted_by     intake (confirmed | assumed | unknown)      already three-state: intake-definition.ts:19-24
                   | document extraction (file, page, bbox)   visual-extraction-schema.md
-                  | ifc measurement (GlobalId[], tolerance)   agents/bim/measurement_sources.py
+                  | ifc measurement (GlobalId[], tolerance)   tools/bim/measurement_sources.py
                   | conversation (message id)                 the `derived_fact` that never graduated
                   | user (confirmed in the panel)
   status          active | superseded_by · valid_from
