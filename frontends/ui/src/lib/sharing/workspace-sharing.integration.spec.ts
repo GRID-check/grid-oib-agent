@@ -196,6 +196,14 @@ describe.skipIf(!url)('sharing a Büro conversation against live Postgres', () =
   })
 
   beforeEach(async () => {
+    // The FGA check cache is ON by default since 2026-09
+    // (`DEFAULT_AUTHZ_CACHE_TTL_MS`), and these cases REVOKE a project mid-test
+    // to prove the read check answers to the roster as it is now. With the
+    // cache in the way they would answer to the roster as it was, which is a
+    // statement about caching rather than about access. Off here for the same
+    // reason `lib/projects/service.spec.ts` switches it off: in production the
+    // revocation lands within the TTL, and the TTL is not what is under test.
+    process.env.GRID_AUTHZ_CACHE_TTL_MS = '0'
     readable.clear()
     // The owner may reach both projects; the colleague may reach only Seestadt.
     readable.set(OWNER, new Set([seestadt, nordbahnhof]))
