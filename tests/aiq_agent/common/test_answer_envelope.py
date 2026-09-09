@@ -205,6 +205,41 @@ class TestControlFields:
         assert meta is not None
         assert meta.escalate_to_deep is True
 
+    def test_a_portfolio_escalation_rides_the_envelope_with_its_projects(self):
+        """ADR-0054, spec DR-3: the answering agent asks for a Portfolio-
+        Recherche in the same envelope it escalates in, and names the projects
+        it could identify."""
+        content = _fenced(
+            {
+                "answer": _PROSE,
+                "escalate_to_deep": True,
+                "escalation_reason": "Portfolio-Recherche über 3 Projekte",
+                "portfolio": True,
+                "portfolio_project_ids": ["proj_a", "proj_b", "proj_c"],
+            }
+        )
+        _, meta = extract_answer_envelope(content)
+        assert meta is not None
+        assert meta.escalate_to_deep is True
+        assert meta.portfolio is True
+        assert meta.portfolio_project_ids == ["proj_a", "proj_b", "proj_c"]
+
+    def test_portfolio_defaults_to_off_and_null_reads_as_off(self):
+        """The expensive path is never entered by a shape the validator guessed
+        at: absent, ``null`` and ``false`` are one answer. ``null`` matters
+        because strict structured output requires every key present, and a bare
+        ``bool`` field would reject it — costing the whole anatomy."""
+        assert AnswerMeta().portfolio is False
+        assert AnswerMeta().portfolio_project_ids is None
+        assert AnswerMeta.model_validate({"portfolio": None}).portfolio is False
+        # …and an envelope carrying only that is still "no anatomy at all".
+        assert AnswerMeta.model_validate({"portfolio": None, "portfolio_project_ids": None}).empty is True
+
+    def test_a_portfolio_request_alone_is_not_empty(self):
+        """It is a control signal, so an envelope that carries nothing else must
+        still validate as present rather than be dropped as blank."""
+        assert AnswerMeta.model_validate({"portfolio": True}).empty is False
+
     def test_control_fields_never_reach_the_wire_payload(self):
         # Confidence travels as answer_confidence, escalation as routing —
         # the answer_meta wire payload is anatomy only.
@@ -228,7 +263,16 @@ class TestRenderedSchema:
         prompt in the same commit, or the model is validated against a schema
         it was never taught."""
         schema = render_envelope_schema()
-        for name in ("answer*", "confidence", "escalate_to_deep", "verdict", "takeaways", "callout"):
+        for name in (
+            "answer*",
+            "confidence",
+            "escalate_to_deep",
+            "portfolio",
+            "portfolio_project_ids",
+            "verdict",
+            "takeaways",
+            "callout",
+        ):
             assert name in schema
         # And the enum values the frontend switches on.
         assert '"hinweis" | "achtung" | "frist" | "tipp"' in schema
@@ -297,6 +341,15 @@ class TestStrictResponseFormat:
 
         walk(render_envelope_response_format()["json_schema"]["schema"])
 
+    def test_a_list_of_plain_strings_renders_as_an_array_of_strings(self):
+        """The walker must not assume every list holds a model: a list of ids is
+        as legal an envelope field as a list of takeaways, and ``_strict_object``
+        on ``str`` would raise instead of shipping a schema."""
+        schema = render_envelope_response_format()["json_schema"]["schema"]
+        ids = schema["properties"]["portfolio_project_ids"]
+        assert ids["type"] == ["array", "null"]
+        assert ids["items"] == {"type": "string"}
+
     def test_answer_leads_and_the_enums_survive(self):
         schema = render_envelope_response_format()["json_schema"]["schema"]
         assert next(iter(schema["properties"])) == "answer"
@@ -313,6 +366,8 @@ class TestStrictResponseFormat:
                 "answer": "Die Antwort [1].",
                 "confidence": {"level": "medium", "reason": None},
                 "escalate_to_deep": None,
+                "portfolio": None,
+                "portfolio_project_ids": None,
                 "verdict": {"value": "REI 60", "subject": "Feuerwiderstand", "reference": None},
                 "callout": None,
                 "takeaways": None,
@@ -324,6 +379,7 @@ class TestStrictResponseFormat:
         assert meta.confidence is not None and meta.confidence.level == "medium"
         assert meta.verdict is not None and meta.verdict.value == "REI 60"
         assert meta.callout is None and meta.takeaways is None
+        assert meta.portfolio is False and meta.portfolio_project_ids is None
 
 
 class TestCalloutMarker:

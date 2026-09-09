@@ -268,3 +268,74 @@ class TestIsWorkspaceTurn:
 
     def test_a_blank_organization_is_no_organization(self):
         assert wd.is_workspace_turn(organization_id="", project_id=None) is False
+
+
+class TestClampedLimit:
+    """How many Steckbriefe a caller gets to ask for.
+
+    One number, three callers (this client, the `find_projects` tool, a
+    portfolio run's readable set) and one endpoint ceiling behind all of them.
+    The clamp is honesty rather than defence: what it returns is what the caller
+    will actually be able to read, so a block rendered from it can say how many
+    of how many it names without lying.
+    """
+
+    def test_an_ordinary_request_passes_through(self):
+        assert wd.clamped_limit(3) == 3
+        assert wd.clamped_limit(wd.RECALL_MAX_LIMIT) == wd.RECALL_MAX_LIMIT
+
+    def test_more_than_the_endpoint_serves_is_cut_to_what_it_serves(self):
+        """Asking for forty returns ten anyway. Passing forty on would only let
+        the result block claim a completeness it never had."""
+        assert wd.clamped_limit(40) == wd.RECALL_MAX_LIMIT
+
+    def test_no_request_at_all_is_the_callers_own_default(self):
+        assert wd.clamped_limit(None) == wd.MAX_PROJECT_ENTRIES
+        assert wd.clamped_limit(None, default=2) == 2
+
+    def test_a_size_that_is_not_a_size_is_the_default_and_never_one(self):
+        """Zero, a negative and a non-number are one statement — "no particular
+        number" — and one project is not what that means anywhere here: it would
+        answer „alle Projekte in Wien" with a single Steckbrief and read, to the
+        model, as an office with one project in it."""
+        for garbage in (0, -3, "sieben", object(), [], True, False):
+            assert wd.clamped_limit(garbage, default=4) == 4, garbage
+
+    def test_a_numeric_string_is_a_number(self):
+        """The model writes JSON; a quoted count is the same ask."""
+        assert wd.clamped_limit("8") == 8
+
+    def test_the_default_is_clamped_too(self):
+        """A misconfigured `max_results` must not become a request the endpoint
+        silently truncates — the caller would still print the number it asked
+        for."""
+        assert wd.clamped_limit(None, default=99) == wd.RECALL_MAX_LIMIT
+        assert wd.clamped_limit(None, default=0) == 1
+
+
+class TestBoundedProjectIds:
+    """The model's own list of project ids, on its way into an expensive run.
+
+    It is written by a language model into a JSON envelope, so every shape a
+    model gets wrong arrives here: a string instead of a list, a blank entry,
+    the same project twice, forty of them. What comes out is what a portfolio
+    run can actually read, or ``None`` — and ``None`` is an instruction, not a
+    failure: read every project the caller may read.
+    """
+
+    def test_the_ids_survive_in_the_order_they_were_named(self):
+        assert wd.bounded_project_ids(["proj_b", "proj_a"]) == ["proj_b", "proj_a"]
+
+    def test_blanks_non_strings_and_repeats_are_dropped(self):
+        assert wd.bounded_project_ids(["proj_a", "  ", None, 7, "proj_a", " proj_b "]) == [
+            "proj_a",
+            "proj_b",
+        ]
+
+    def test_more_than_a_run_can_read_is_cut_to_what_it_can(self):
+        many = [f"proj_{i}" for i in range(40)]
+        assert wd.bounded_project_ids(many) == many[: wd.RECALL_MAX_LIMIT]
+
+    def test_nothing_usable_reads_as_named_nothing(self):
+        for value in ([], ["", "   "], "proj_a", None, {"id": "proj_a"}):
+            assert wd.bounded_project_ids(value) is None, value

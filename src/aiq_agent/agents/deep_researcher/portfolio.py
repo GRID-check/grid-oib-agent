@@ -48,18 +48,21 @@ from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
 
+from aiq_agent.knowledge.workspace_digest import RECALL_MAX_LIMIT
+
 logger = logging.getLogger(__name__)
 
 #: How many projects one portfolio run ever reads.
 #:
 #: It is the ceiling of the readable set this worker can LEARN, not a policy
-#: choice made here: the workspace digest endpoint caps its own recall at ten
-#: (``RECALL_MAX_LIMIT`` in the BFF's register service), so ten is the honest
-#: number and asking for more would silently return ten anyway. A run that wants
-#: the whole portfolio of a forty-project office needs the BFF to serve the
-#: readable set in bulk; until it does, the report says how many were read out
-#: of how many were asked for, and never implies it saw the office.
-PORTFOLIO_MAX_PROJECTS = 10
+#: choice made here: the workspace digest endpoint caps its own recall at
+#: ``RECALL_MAX_LIMIT``, so that is the honest number and asking for more would
+#: silently return that many anyway — which is why it is IMPORTED rather than
+#: restated. A run that wants the whole portfolio of a forty-project office
+#: needs the BFF to serve the readable set in bulk; until it does, the report
+#: says how many were read out of how many were asked for, and never implies it
+#: saw the office.
+PORTFOLIO_MAX_PROJECTS = RECALL_MAX_LIMIT
 
 #: Outcome tokens. Stable, because they are what the report renders from and
 #: what a test asserts on — never prose, which would drift with the wording.

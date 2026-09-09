@@ -203,13 +203,20 @@ Bildungsbau, Niederösterreich, Massivbau, Status: Vorentwurf.
 
 
 @tool
-def find_projects(query: str) -> str:
-    """Find projects in this office by what they are. Returns names, ids and profile facts — never document content."""
+def find_projects(query: str, limit: int | None = None) -> str:
+    """Find projects in this office by what they are. Returns names, ids and profile facts — never document content.
+
+    `limit` raises how many are named, up to ten: use it when the question is about a SET of projects
+    ('alle Projekte in Wien') and you have to name them before proposing a Portfolio-Recherche.
+    """
+    # Two hits rather than one, so a portfolio hand-off has a set to name and
+    # the ids it may write are the ids it was shown — nothing else is legal.
     return _record(
         "find_projects",
         query,
-        "1 matching project(s), best first. Steckbriefe only — profile facts, no document content.\n\n"
-        "### Seestadt Baufeld D (id: proj_seestadt)\nWohnbau, Gebäudeklasse 5, Wien, Holzbau-Hybrid.",
+        "2 matching project(s), best first. Steckbriefe only — profile facts, no document content.\n\n"
+        "### Seestadt Baufeld D (id: proj_seestadt)\nWohnbau, Gebäudeklasse 5, Wien, Holzbau-Hybrid.\n\n"
+        "### Volksschule Krems (id: proj_krems)\nBildungsbau, Niederösterreich, Massivbau.",
     )
 
 
@@ -423,3 +430,38 @@ async def test_a_question_about_a_projects_documents_mounts_it_first(office_agen
             f"searched the project's documents before mounting it: {_CALLS}"
         )
     assert _answer_text(result).strip(), "the office turn produced an empty answer"
+
+
+async def test_a_question_about_every_project_is_handed_to_a_portfolio_recherche(office_agent):
+    """ADR-0054, office shape 3 (spec DR-3/DR-5): more projects than fit in view.
+
+    „Alle Projekte vergleichen" cannot be answered from the two Steckbriefe in
+    the context, and answering it from them WITHOUT saying it was a subset is
+    the one failure DR-3 exists to prevent. The office branch of the prompt
+    offers the one path that reads more: hand off as a Portfolio-Recherche, in
+    the envelope, before retrieving anything.
+
+    The assertion is on the ENVELOPE rather than on the prose, because the
+    hand-off is what starts the job — a paragraph that promises a portfolio run
+    while ``portfolio`` stays false promises nothing. The ids are checked for
+    provenance, not for completeness: whichever the model names must be ids it
+    was actually shown, never invented ones, and naming none is legal (it means
+    "every project the user may read").
+    """
+    result = await _run_turn(
+        office_agent,
+        "Vergleiche bitte alle unsere Projekte: Welche Brandschutzkonzepte haben wir jeweils eingesetzt?",
+        workspace_context=_WORKSPACE_CONTEXT,
+    )
+    answer = _answer_text(result)
+
+    assert result.escalation_requested is True, f"no hand-off; answer was: {answer[:400]}"
+    assert result.answer_portfolio is True, (
+        f"escalated as an ordinary deep run rather than a Portfolio-Recherche; "
+        f"reason was: {result.answer_escalation_reason!r}, answer was: {answer[:400]}"
+    )
+    assert result.answer_escalation_reason, "escalated without an escalation_reason"
+    assert _data_source_calls() == [], f"a portfolio hand-off retrieved before handing off: {_CALLS}"
+    known_ids = {"proj_seestadt", "proj_krems"}
+    named = set(result.answer_portfolio_project_ids or [])
+    assert named <= known_ids, f"named a project id it was never shown: {sorted(named - known_ids)}"

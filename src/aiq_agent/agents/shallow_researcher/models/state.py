@@ -140,6 +140,17 @@ class ShallowResearchAgentState(BaseModel):
     # model asked for it. The chat node narrates it; None falls back to a
     # fixed string there.
     answer_escalation_reason: str | None = None
+    # The envelope's Portfolio-Recherche request (ADR-0054, spec DR-3/DR-7):
+    # this escalation is to be run over SEVERAL projects, one sub-run each,
+    # because the question needs more than can be in view at once. Only ever
+    # meaningful together with ``escalation_requested``; the OFFICE rule (an
+    # organization and no project) is applied by the chat node, not here — this
+    # carries what the model asked for, not what it gets.
+    answer_portfolio: bool = False
+    # The project ids the model named for that run, already bounded to the
+    # portfolio ceiling. None means it named none, and the run reads every
+    # project the caller may read.
+    answer_portfolio_project_ids: list[str] | None = None
     # The answer's structured anatomy — verdict / takeaways / callout — parsed
     # from the ```answer_json envelope, validated and GATED in run() (see
     # ``common.answer_envelope.gate_answer_meta``). A native field of the

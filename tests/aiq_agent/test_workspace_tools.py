@@ -22,6 +22,7 @@ from aiq_agent.knowledge.mounts import REFUSAL_UNAVAILABLE
 from aiq_agent.knowledge.mounts import REFUSAL_WOULD_EXCLUDE
 from aiq_agent.knowledge.mounts import MountGranted
 from aiq_agent.knowledge.mounts import MountRefused
+from aiq_agent.knowledge.workspace_digest import RECALL_MAX_LIMIT
 from aiq_agent.knowledge.workspace_digest import WorkspaceDigest
 from aiq_agent.knowledge.workspace_digest import WorkspaceProject
 
@@ -58,9 +59,20 @@ async def _tool(monkeypatch, *, organization="org_1", membership="om_1", digest=
         yield info, captured
 
 
+async def _search(info, query: str, limit: int | None = None) -> str:
+    """One `find_projects` call, through the schema NAT binds the tool by.
+
+    The tool takes two arguments now (`limit` joined `query`), so NAT wraps it
+    in a generated input model instead of passing the query positionally — the
+    same convention `info.single_fn(info.input_schema(...))` follows everywhere
+    a tool has more than one.
+    """
+    return await info.single_fn(info.input_schema(query=query, limit=limit))
+
+
 async def test_it_names_every_hit_with_its_id_and_bounds_the_claim(monkeypatch):
     async with _tool(monkeypatch, digest=WorkspaceDigest(digest="d", projects=_HITS)) as (info, captured):
-        result = await info.single_fn("Wohnbau GK5 Holzbau")
+        result = await _search(info, "Wohnbau GK5 Holzbau")
 
     assert "Seestadt Baufeld D" in result and "proj_1" in result
     assert "Volksschule Krems" in result and "proj_2" in result
@@ -78,18 +90,62 @@ async def test_the_result_is_bounded_by_the_configured_maximum(monkeypatch):
     many = tuple(WorkspaceProject(id=f"p{i}", name=f"Projekt {i}", steckbrief="s") for i in range(5))
     config = WorkspaceFindProjectsConfig(max_results=2)
     async with _tool(monkeypatch, digest=WorkspaceDigest(projects=many), config=config) as (info, captured):
-        result = await info.single_fn("alles")
+        result = await _search(info, "alles")
 
     assert captured["limit"] == 2
     assert "Projekt 0" in result and "Projekt 1" in result
     assert "Projekt 2" not in result
 
 
+async def test_the_model_may_ask_for_more_when_it_has_to_enumerate_a_set(monkeypatch):
+    """Spec DR-3: a portfolio question is handed over with the projects NAMED,
+    so the tool has to be able to name more than the five an ordinary lookup
+    shows. The number reaches the endpoint, and every project it returns is in
+    the block."""
+    many = tuple(WorkspaceProject(id=f"p{i}", name=f"Projekt {i}", steckbrief="s") for i in range(8))
+    async with _tool(monkeypatch, digest=WorkspaceDigest(projects=many)) as (info, captured):
+        result = await _search(info, "alle Projekte in Wien", limit=8)
+
+    assert captured["limit"] == 8
+    assert all(f"Projekt {i}" in result for i in range(8))
+
+
+async def test_a_limit_above_the_endpoints_ceiling_is_clamped_not_promised(monkeypatch):
+    """Asking for more than the register can serve returns the ceiling anyway,
+    so the request is clamped rather than passed on — a block that claimed 40
+    would be claiming a completeness it never had."""
+    async with _tool(monkeypatch, digest=WorkspaceDigest(projects=_HITS)) as (info, captured):
+        result = await _search(info, "alles", limit=40)
+
+    assert captured["limit"] == RECALL_MAX_LIMIT
+    assert f"at most {RECALL_MAX_LIMIT}" in result
+
+
+async def test_no_limit_keeps_the_configured_default(monkeypatch):
+    async with _tool(monkeypatch, digest=WorkspaceDigest(projects=_HITS)) as (info, captured):
+        await _search(info, "alles")
+
+    assert captured["limit"] == WorkspaceFindProjectsConfig().max_results
+
+
+async def test_a_limit_that_is_not_a_size_falls_back_to_the_default(monkeypatch):
+    """Zero and a negative are the model saying nothing in particular, and the
+    ordinary lookup is what nothing in particular means. Reading them as "one"
+    would answer a question about a SET with a single Steckbrief — the one
+    failure DR-3 exists to prevent, arrived at by arithmetic."""
+    for garbage in (0, -3):
+        async with _tool(monkeypatch, digest=WorkspaceDigest(projects=_HITS)) as (info, captured):
+            result = await _search(info, "alle Projekte in Wien", limit=garbage)
+
+        assert captured["limit"] == WorkspaceFindProjectsConfig().max_results, garbage
+        assert "Seestadt Baufeld D" in result
+
+
 async def test_without_an_organisation_it_refuses_instead_of_answering_empty(monkeypatch):
     """PR-17: the register never crosses the organisation boundary, and "no
     projects found" would read as a fact about an office we cannot see."""
     async with _tool(monkeypatch, organization=None, digest=WorkspaceDigest(projects=_HITS)) as (info, captured):
-        result = await info.single_fn("Wohnbau")
+        result = await _search(info, "Wohnbau")
 
     assert result.startswith("Error:")
     assert "organisation" in result
@@ -98,7 +154,7 @@ async def test_without_an_organisation_it_refuses_instead_of_answering_empty(mon
 
 async def test_an_empty_query_is_refused_without_a_round_trip(monkeypatch):
     async with _tool(monkeypatch, digest=WorkspaceDigest(projects=_HITS)) as (info, captured):
-        result = await info.single_fn("   ")
+        result = await _search(info, "   ")
 
     assert result.startswith("Error:")
     assert captured == {}
@@ -106,7 +162,7 @@ async def test_an_empty_query_is_refused_without_a_round_trip(monkeypatch):
 
 async def test_no_match_says_nothing_was_found_and_forbids_naming_one(monkeypatch):
     async with _tool(monkeypatch, digest=WorkspaceDigest(digest="d", projects=())) as (info, _captured):
-        result = await info.single_fn("Krankenhaus in Tirol")
+        result = await _search(info, "Krankenhaus in Tirol")
 
     assert "No project" in result
     assert "do not name a project anyway" in result
@@ -116,7 +172,7 @@ async def test_an_unreachable_register_returns_a_string_not_an_exception(monkeyp
     """The digest client already fails open to None; this is what the model is
     told when it does."""
     async with _tool(monkeypatch, digest=None) as (info, _captured):
-        result = await info.single_fn("Wohnbau")
+        result = await _search(info, "Wohnbau")
 
     assert result.startswith("Error:")
     assert "temporarily unavailable" in result
@@ -127,7 +183,7 @@ async def test_a_raising_endpoint_never_reaches_the_turn(monkeypatch):
     client is not the tool's only line: an unexpected exception comes back as
     the same honest string."""
     async with _tool(monkeypatch, raises=RuntimeError("boom")) as (info, _captured):
-        result = await info.single_fn("Wohnbau")
+        result = await _search(info, "Wohnbau")
 
     assert result.startswith("Error:")
     assert "temporarily unavailable" in result

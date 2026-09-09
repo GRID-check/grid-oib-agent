@@ -134,6 +134,16 @@ class ChatResearcherState(BaseModel):
     # clarifier node from ``ShallowResult.escalation_reason`` or, on the
     # keyword-fallback path, the fixed German notice.
     escalation_reason: str | None = None
+    # True when that escalation is a Portfolio-Recherche (ADR-0054, spec DR-3):
+    # one deep sub-run per project instead of one run. Set by the clarifier node
+    # from the shallow result, for the SAME reason ``escalation_reason`` is —
+    # the clarifier sits on both routes into deep research, and the intent has
+    # to survive a clarifying question asked in between. The deep node reads it
+    # off the state, never off the shallow result, so there is one carrier.
+    escalation_portfolio: bool | None = None
+    # The projects that run should read, as the model named them. None means it
+    # named none, and the run reads every project the caller may read.
+    escalation_portfolio_project_ids: list[str] | None = None
     # Present only when the self-reported confidence was downgraded. Five causes:
     #   "ungrounded"              nothing verified and nothing measured.
     #   "quote_unverified"        a quoted span matched no retrieved passage.

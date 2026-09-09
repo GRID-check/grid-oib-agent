@@ -176,6 +176,14 @@ KEY_CITATIONS = "status.citations"
 #: with its markers. Value-less; the counts travel as detail.
 KEY_REPAIR = "status.repair"
 KEY_ESCALATION = "status.escalation"
+#: ``status.escalation.portfolio`` — the escalation is a Portfolio-Recherche
+#: over ``count`` projects (ADR-0054, spec DR-7). Its own key rather than a
+#: value on the line above, because "eine Tiefenrecherche" and "eine
+#: Portfolio-Recherche über 4 Projekte" are two different sentences and the
+#: frontend owns both. ``count`` is the one value in this module that is a
+#: NUMBER: it is the same figure in every language, and the reader has to be
+#: told it before the run starts — that is what makes the cost acknowledged.
+KEY_ESCALATION_PORTFOLIO = "status.escalation.portfolio"
 
 #: EVERY key this module can emit, exhaustively. Two tests hang off it: the
 #: Python one asserts nothing is emitted that is not in here, and the UI one
@@ -196,6 +204,7 @@ ALL_STATUS_KEYS: tuple[str, ...] = (
     "status.citations",
     "status.repair",
     "status.escalation",
+    "status.escalation.portfolio",
 )
 
 
@@ -516,7 +525,7 @@ def emit_answer_repair(*, removed_citations: int, unverified_quotes: int) -> Non
     )
 
 
-def emit_escalation(reason: str | None = None) -> None:
+def emit_escalation(reason: str | None = None, *, portfolio_project_count: int | None = None) -> None:
     """Shallow → deep, announced at the moment the router decides it.
 
     Deep research is minutes, not seconds. A reader who is told the short
@@ -527,9 +536,21 @@ def emit_escalation(reason: str | None = None) -> None:
     ``escalation_reason`` ("Shallow agent emitted insufficiency marker"), which
     names a marker in a message and tells an architect nothing. The internal
     string still travels as the ``reason`` field for the details panel.
+
+    ``portfolio_project_count`` switches the line to the Portfolio-Recherche one
+    and fills its ``{count}`` slot. It takes the count and not a flag on
+    purpose: a portfolio line that cannot say how many projects it is about to
+    read does not meet DR-7, so a run whose projects are not yet enumerable is
+    announced as the ordinary escalation it is indistinguishable from until the
+    worker asks the register.
     """
     reason_text = " ".join(str(reason).split()) if reason else ""
-    emit_status("escalation", KEY_ESCALATION, reason=clip(reason_text, MAX_REASON_CHARS) or None)
+    key = KEY_ESCALATION
+    values: dict[str, Any] | None = None
+    if portfolio_project_count is not None and portfolio_project_count > 0:
+        key = KEY_ESCALATION_PORTFOLIO
+        values = {"count": portfolio_project_count}
+    emit_status("escalation", key, values=values, reason=clip(reason_text, MAX_REASON_CHARS) or None)
 
 
 #: Slot for the budget-exhaustion record. Its own slot, so it never overwrites

@@ -49,26 +49,38 @@ _TOOL_DESCRIPTION = (
     "state what a project's drawings, reports or concepts say on the strength of a register hit. To read a "
     "project's files, call `open_project` with the id printed next to its name — that brings the project into "
     "view for this conversation, and only then may you search and cite its documents. The list is the best "
-    "matches, never every project the office has — say so if the user asks for a complete list."
+    "matches, never every project the office has — say so if the user asks for a complete list. "
+    "`limit` raises how many are named, up to ten: use it when the question is about a SET of projects "
+    "('alle Projekte in Wien') and you have to name them before proposing a Portfolio-Recherche; leave it "
+    "unset for an ordinary lookup."
 )
 
 
 class WorkspaceFindProjectsConfig(FunctionBaseConfig, name="workspace_find_projects"):
     """Configuration for the Projektregister search tool."""
 
-    max_results: int = Field(default=5, description="Maximum projects named in one result block.")
+    max_results: int = Field(
+        default=5,
+        description="Projects named in one result block when the caller does not ask for a different number.",
+    )
 
 
 @register_function(config_type=WorkspaceFindProjectsConfig)
 async def workspace_find_projects(tool_config: WorkspaceFindProjectsConfig, builder: Builder):
+    from aiq_agent.knowledge.workspace_digest import RECALL_MAX_LIMIT
     from aiq_agent.knowledge.workspace_digest import STECKBRIEF_MAX_CHARS
     from aiq_agent.knowledge.workspace_digest import bound_text
+    from aiq_agent.knowledge.workspace_digest import clamped_limit
     from aiq_agent.knowledge.workspace_digest import fetch_workspace_digest
     from aiq_agent.project_context import get_organization_id_from_context
     from aiq_agent.project_context import get_organization_membership_id_from_context
 
-    async def _find_projects(query: str) -> str:
+    async def _find_projects(query: str, limit: int | None = None) -> str:
         """Find projects in this office by what they are.
+
+        Args:
+            query: What you are looking for, in the user's own words.
+            limit: How many projects to name, 1 to 10. Omit for the default.
 
         Returns names, ids and profile facts — never document content.
         """
@@ -89,13 +101,22 @@ async def workspace_find_projects(tool_config: WorkspaceFindProjectsConfig, buil
                 "to search. Tell the user that project search is only available inside their office. Do not retry."
             )
 
+        # The model may ask for more than the default when it has to enumerate a
+        # SET before proposing a Portfolio-Recherche (spec DR-3). The ceiling is
+        # the register endpoint's own (RECALL_MAX_LIMIT), not a second opinion
+        # about it: asking for more returns that many anyway, so a larger number
+        # would only make the block claim a completeness it never had. A limit
+        # the tool cannot read as a size — absent, zero, negative — is the
+        # CONFIGURED default and never one: "no particular number" is what the
+        # ordinary lookup already answers.
+        wanted = clamped_limit(limit, default=tool_config.max_results)
         try:
             digest = await asyncio.to_thread(
                 fetch_workspace_digest,
                 organization_id=organization_id,
                 membership_id=get_organization_membership_id_from_context(),
                 query=query,
-                limit=tool_config.max_results,
+                limit=wanted,
             )
         except Exception:
             # The client is documented not to raise, and a tool that raises
@@ -110,7 +131,7 @@ async def workspace_find_projects(tool_config: WorkspaceFindProjectsConfig, buil
                 "office has. Do not retry more than once."
             )
 
-        projects = list(digest.projects[: max(1, tool_config.max_results)])
+        projects = list(digest.projects[:wanted])
         if not projects:
             return (
                 f"No project in this office matched '{query}' (searched: name and Steckbrief of every project "
@@ -120,7 +141,8 @@ async def workspace_find_projects(tool_config: WorkspaceFindProjectsConfig, buil
         lines = [
             f"{len(projects)} matching project(s), best first. Steckbriefe only — profile facts, no document "
             "content. Naming a project is fine; describing what its files say is not, unless the project is in "
-            "view. This is a bounded best-match list, not the office's full project list."
+            f"view. This is a bounded best-match list (at most {wanted} of at most {RECALL_MAX_LIMIT}), not the "
+            "office's full project list."
         ]
         for project in projects:
             lines.append("")

@@ -97,16 +97,19 @@ agent on the real prompt against the shallow model through OpenRouter, with
 stub tools that record every call, so the assertion is on the trace rather
 than on the prose.
 
-Two more shapes belong to the Büro (ADR-0054), for the same reason: what an
+Three more shapes belong to the Büro (ADR-0054), for the same reason: what an
 office turn may say from a Projektregister hit is prompt, not code. An office
 question whose answer is in the Steckbriefe must answer from them and mount
 nothing; a question about a project's *documents* must bring that project into
 view (`open_project`) **before** it searches, because a search that ran first
-read a scope nobody authorised. Both run on a stub office — a fixed
-`WORKSPACE_CONTEXT v1` block and stubbed `find_projects` / `open_project` tools
-— so the trace is again what is asserted. `open_project` does not exist as a NAT
-function until mounting lands; the stub is what lets the shape be measured while
-the prompt already names the tool.
+read a scope nobody authorised; and „vergleiche alle unsere Projekte" — more
+projects than can ever be in view — must hand off as a Portfolio-Recherche
+(`portfolio: true` in the envelope, spec DR-3/DR-5) instead of being answered
+from the subset that happens to be there. All three run on a stub office — a
+fixed `WORKSPACE_CONTEXT v1` block and stubbed `find_projects` / `open_project`
+tools — so the trace is again what is asserted. `open_project` does not exist as
+a NAT function until mounting lands; the stub is what lets the shape be measured
+while the prompt already names the tool.
 
 It needs a model, so it is not in `task verify` and skips itself without
 `OPENROUTER_API_KEY` (the `live` marker in `pyproject.toml` names the class).
@@ -134,7 +137,7 @@ config's boot floor. In CI,
 it weekly and on `workflow_dispatch`, never on a pull request, and fails
 rather than skips when the secret is missing. The assertions are strict: a
 transport failure gets one rerun, a behaviour miss does not. A red run means
-the prompt no longer holds the model on one of the two shapes; the ADR's
+the prompt no longer holds the model on one of the shapes; the ADR's
 "More Information" section says what to do about that.
 
 ## Security and static analysis

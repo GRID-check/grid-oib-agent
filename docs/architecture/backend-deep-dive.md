@@ -1538,8 +1538,69 @@ portfolio run (one thread id across sub-runs would make project two resume
 project one). Progress rides the existing `job.phase` channel as
 `portfolio_started` (with the project count) / `portfolio_project_started` /
 `portfolio_synthesis_started`. The run reads at most `PORTFOLIO_MAX_PROJECTS`
-(10) projects, which is the digest endpoint's own recall ceiling — the report
-says how many of how many were read and never implies it saw the whole office.
+projects — IMPORTED from `knowledge.workspace_digest.RECALL_MAX_LIMIT` (10)
+rather than restated, because it is the digest endpoint's own recall ceiling and
+a second copy of it is how a caller ends up asking for more than it can ever
+get. The report says how many of how many were read and never implies it saw the
+whole office.
+
+**How a Büro turn REACHES that path (ADR-0052, spec DR-3/DR-5/DR-7)**: the
+worker has accepted `portfolio: true` since the run above landed, and nothing
+offered it — the office could recognise a question about more projects than fit
+in view and had no way to say so. The offer is the answering agent's, in its
+envelope, because ADR-0052 leaves every "what is this turn" decision with the
+model that has the tools in hand. Five hops, one direction:
+
+1. **The office prompt branch** (`shallow_researcher/prompts/researcher.j2`,
+   the `in_buero` section) names the shape — „vergleiche alle unsere Projekte",
+   a set the user names — and what to do with it: call `find_projects` with a
+   `limit` up to ten to NAME the set first, then hand off in the envelope with
+   `escalate_to_deep: true`, `portfolio: true`, the ids exactly as printed, and
+   an `escalation_reason` that says how many projects. Answering such a question
+   from the subset that happens to be in view, without saying it was a subset,
+   is the failure DR-3 exists to prevent.
+2. **The envelope carries it** — `AnswerMeta.portfolio` (bool) and
+   `AnswerMeta.portfolio_project_ids` (`list[str] | None`) in
+   `common/answer_envelope.py`, rendered into both the prompt's schema block and
+   the strict `response_format`. `null` reads as `false` there: provider-enforced
+   structured output requires every key present, so `null` is the common way a
+   model says "not a portfolio run", and a bare `bool` field would reject the
+   envelope and cost the whole answer anatomy with it. The ids are cleaned and
+   bounded (`workspace_digest.bounded_project_ids`) where the list first enters
+   the system.
+3. **The chat node applies the OFFICE RULE, once**
+   (`chat_researcher/agent._effective_portfolio`). Only a Büro turn — an
+   organisation and no project, which is exactly what `workspace_context` on the
+   state means and exactly the switch the prompt branched on — may be answered
+   this way. A request arriving in a project turn is DROPPED and logged: that
+   turn already has exactly one project, so iterating it is the same run with
+   extra steps, and a disagreement between the prompt branch and the turn is
+   worth seeing. Every unreadable shape fails closed.
+4. **The decision travels on the STATE**, not in the shallow result:
+   `ChatResearcherState.escalation_portfolio` / `…_project_ids`, set by the
+   clarifier node from `ShallowResult`, for the same reason `escalation_reason`
+   is. The clarifier sits on both routes into deep research and may ask a
+   question first; the intent has to survive that hand-off, and the deep node
+   reads one carrier rather than reaching back into a result it has no business
+   re-reading.
+5. **The submitter threads both fields** into `submit_agent_job`
+   (`_build_deep_research_job_submitter`), where `portfolio=False` /
+   `project_ids=None` is exactly the job every other caller has always
+   submitted.
+
+DR-7 — the reader is told what the run costs BEFORE it starts — is met twice,
+and by no wire field of its own. Live, at the instant the decision becomes true,
+`turn_status.emit_escalation(..., portfolio_project_count=n)` switches the
+escalation line to its own key `status.escalation.portfolio` with `count` as its
+one value (the only NUMBER any status payload carries: it reads the same in
+every locale, and a portfolio line that cannot say how many is announced as the
+ordinary escalation it is indistinguishable from). Durably, on the answer, the
+model's own `escalation_reason` clause names the count, and that field is
+already lifted and already declared by the client. A dedicated
+`escalation_portfolio` pair was tried and removed: `NATSystemResponseMessageSchema`
+strips every key it does not declare, so lifting a field before the frontend
+learns it means the field is set, serialised, sent and silently parsed away —
+see `frontends/aiq_api/tests/test_frame_extras_the_client_declares.py`.
 
 **Durable checkpointing (backlog T3-8, 2026-07-16, `5bea711`)**: optional
 LangGraph checkpointing for the deep-research graph, configured via

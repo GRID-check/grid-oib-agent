@@ -70,6 +70,7 @@ from typing import get_origin
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import ValidationError
+from pydantic import field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -233,6 +234,35 @@ class AnswerMeta(_EnvelopeModel):
         default=None,
         description="with escalate_to_deep: one short clause saying why, in the answer's language",
     )
+    portfolio: bool = Field(
+        default=False,
+        description=(
+            "with escalate_to_deep, in the office only: run it as a Portfolio-Recherche over SEVERAL "
+            "projects, because the question needs more projects than can be in view at once, or asks "
+            "for all of them or a named set"
+        ),
+    )
+    portfolio_project_ids: list[str] | None = Field(
+        default=None,
+        description=(
+            "with portfolio: the ids of the projects to read, exactly as printed beside their names. "
+            "Omit when you cannot name them and every readable project should be read"
+        ),
+    )
+
+    @field_validator("portfolio", mode="before")
+    @classmethod
+    def _null_is_not_a_portfolio(cls, value: object) -> object:
+        """``null`` reads as ``false``, so the strict schema cannot cost the anatomy.
+
+        Provider-enforced structured output requires EVERY key present, so the
+        common way a model says "not a portfolio run" is an explicit ``null`` —
+        which a bare ``bool`` field rejects, and a rejected envelope drops the
+        whole anatomy (:func:`_validated_meta` fails open). Absent, ``null`` and
+        ``false`` are one answer, and it is the default one: the expensive path
+        is never reached by a shape the validator had to guess at.
+        """
+        return False if value is None else value
 
     @property
     def empty(self) -> bool:
@@ -244,6 +274,8 @@ class AnswerMeta(_EnvelopeModel):
             and self.confidence is None
             and self.escalate_to_deep is None
             and self.escalation_reason is None
+            and not self.portfolio
+            and not self.portfolio_project_ids
         )
 
 
@@ -590,7 +622,10 @@ def _strict_property(annotation: object, *, required: bool) -> dict:
         schema = _strict_object(core)
     elif get_origin(core) is list:
         (item,) = get_args(core)
-        schema = {"type": "array", "items": _strict_object(item)}
+        # Recurse rather than assume a model: a list of strings is as legal an
+        # envelope field as a list of takeaways, and ``_strict_object`` on
+        # ``str`` would raise on a type that has no fields.
+        schema = {"type": "array", "items": _strict_property(item, required=True)}
     else:
         raise TypeError(f"envelope field type {annotation!r} has no strict-schema rendering")
 
@@ -659,6 +694,10 @@ def render_envelope_schema() -> str:
         "document, many sources to read against each other, or retrieved sources that cannot support an "
         "adequate answer)",
         "escalation_reason: string (with escalate_to_deep: one short clause saying why, in the answer's language)",
+        "portfolio: boolean (with escalate_to_deep, in the office only: research SEVERAL projects, one after "
+        "another — see the Büro section for when)",
+        "portfolio_project_ids: [string] (with portfolio: the ids of the projects to read, as printed beside "
+        "their names; omit to read every project you may read)",
     ]
     field_models: dict[str, type[BaseModel] | None] = {
         "verdict": AnswerMetaVerdict,

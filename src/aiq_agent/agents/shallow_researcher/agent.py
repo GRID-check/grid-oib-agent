@@ -1323,6 +1323,12 @@ class ShallowResearcherAgent:
         answer_confidence_marker: str | None = None
         answer_confidence_marker_reason: str | None = None
         answer_escalation_reason: str | None = None
+        # The Portfolio-Recherche request that can ride an escalation (ADR-0054,
+        # spec DR-3): several projects, one sub-run each. Carried structurally
+        # like the two above; whether it is HONOURED is the chat node's call,
+        # because only the office may ask for it.
+        answer_portfolio = False
+        answer_portfolio_project_ids: list[str] | None = None
         # Whether any data-source tool ran this turn. With the self-assessment
         # it is what the chat node reads the observed routing from.
         source_lookup_attempted = False
@@ -1386,6 +1392,13 @@ class ShallowResearcherAgent:
                     if answer_meta.escalate_to_deep:
                         escalation_requested = True
                         answer_escalation_reason = (answer_meta.escalation_reason or "").strip()[:300] or None
+                        answer_portfolio = bool(answer_meta.portfolio)
+                        # Bounded where the model's list first enters the
+                        # system, by the number of projects anything downstream
+                        # can actually read (the register endpoint's ceiling).
+                        from aiq_agent.knowledge.workspace_digest import bounded_project_ids
+
+                        answer_portfolio_project_ids = bounded_project_ids(answer_meta.portfolio_project_ids)
                     if answer_meta.confidence is not None:
                         answer_confidence_marker = answer_meta.confidence.level
                         reason = (answer_meta.confidence.reason or "").strip()
@@ -1670,6 +1683,8 @@ class ShallowResearcherAgent:
         validated_result["answer_confidence_marker"] = answer_confidence_marker
         validated_result["answer_confidence_marker_reason"] = answer_confidence_marker_reason
         validated_result["answer_escalation_reason"] = answer_escalation_reason
+        validated_result["answer_portfolio"] = answer_portfolio
+        validated_result["answer_portfolio_project_ids"] = answer_portfolio_project_ids
         validated_result["source_lookup_attempted"] = source_lookup_attempted
         # The answer's structured anatomy (verdict / takeaways / callout), gated
         # above. None when absent, so the wire field stays off rather than

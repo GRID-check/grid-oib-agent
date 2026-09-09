@@ -174,7 +174,7 @@ BFF), so anything a tool needs from it arrives this way.
 | `project_memory_remember` | `remember` | `POST /api/internal/memory` | `x-grid-organization-id` — the only thing BOTH shapes of this tool have. In a project turn `x-grid-project-id` selects the project row; in the Büro there is none, the write goes to ORGANISATION scope (`project_id` null) and additionally sends `x-grid-user-id` + `x-grid-organization-membership-id`, because the route authorizes an org write as the acting user's `org:memory:write` rather than as the service token (ADR-0054, spec AG-8) | Returns an honest error string, or a `memory_proposal` card when the org write is denied by policy — `403 ORG_MEMORY_DISABLED`, which is the one code both the deployment off-switch and an ungranted permission answer with, so the tool has one branch to degrade through (AG-9). Never raises |
 | `ifc_query` | `ifc_query` | `POST /api/internal/bim/query` | `x-grid-organization-id`. The PROJECT is an ARGUMENT, not a header: in a project chat `project_id` may be left empty and the turn's own project is used, and in the Büro it is required and must name a project the conversation has brought into view (`agents/bim/register.resolve_tool_project`, spec AG-10) | Returns a refusal string naming the projects that ARE in view — never raises, and never a bare "no", which the model answers with the same id again |
 | `ifc_measure` | `ifc_measure` | `POST /api/internal/bim/source` (then measures locally) | The same two, resolved by the same function, so the two model-addressing tools cannot drift into two rules about which project they read | The same refusals, plus a trace line recording that the call was refused for want of a project (`outcome="no_project"`) |
-| `workspace_find_projects` | `find_projects` | `GET /api/internal/workspace/digest` | `x-grid-organization-id`; `x-grid-organization-membership-id` decides which projects are readable | Returns an error string. Never raises. Without an organization it refuses rather than returning an empty list — the Projektregister never crosses the organization boundary (ADR-0054) |
+| `workspace_find_projects` | `find_projects(query, limit=None)` | `GET /api/internal/workspace/digest` | `x-grid-organization-id`; `x-grid-organization-membership-id` decides which projects are readable | Returns an error string. Never raises. Without an organization it refuses rather than returning an empty list — the Projektregister never crosses the organization boundary (ADR-0054) |
 | `workspace_open_project` | `open_project` | `POST /api/internal/conversations/{id}/mounts` | `x-grid-organization-id`, `x-grid-user-id` (the endpoint authorizes the USER's `project:chat`, never the service), plus the conversation id and `x-grid-organization-membership-id`, which is what WorkOS FGA keys on | Returns a refusal string. Never raises. `403` → no access, `404` → indistinguishable from no access by design (MT-4), `409` → one of two conflicts, told apart by the body's `code`: the mount cap (`WORKSPACE_MOUNT_CAP`, whose `cap` and `mounted` the string names while offering deep research, MT-9) or a mount that would shut a participant of a shared conversation out (`WORKSPACE_MOUNT_WOULD_EXCLUDE`, whose `excluded` names the people, AC-8) |
 
 `open_project`'s result is read by two consumers at once: its FIRST LINE is one
@@ -195,6 +195,46 @@ fail-open (`knowledge/project_memory.py`, `knowledge/workspace_digest.py`):
 `GET /api/internal/memory/digest` re-serves the live memory digest every turn,
 and `GET /api/internal/workspace/digest` serves the office turn its organization
 memory plus the Projektregister recall for the question in one round trip.
+
+`find_projects`' second argument is `limit` (1…`RECALL_MAX_LIMIT` = 10, default
+`max_results` = 5). The model raises it when it has to NAME a set before
+proposing a Portfolio-Recherche — „alle Projekte in Wien" is not answerable from
+the five an ordinary lookup shows (ADR-0054, spec DR-3). One number governs the
+whole chain, and it is `knowledge.workspace_digest.RECALL_MAX_LIMIT`: the
+endpoint's own recall ceiling, the tool's ceiling, and
+`deep_researcher.portfolio.PORTFOLIO_MAX_PROJECTS`, imported rather than
+restated. `clamped_limit(limit, default=…)` holds the request between 1 and that
+ceiling; anything the tool cannot read as a size — absent, zero, negative,
+non-numeric — is the CONFIGURED default and never 1, because "no particular
+number" is what an ordinary lookup already answers, and a single Steckbrief
+returned for „alle Projekte" reads to the model as an office with one project in
+it. The result block states its own bound ("at most N of at most 10"), so a
+best-match list is never mistaken for the office's full project list.
+
+## The answer envelope's control fields
+
+Not an endpoint, but the contract every chat answer is parsed against and the
+thing that decides what `POST /v1/jobs/async/submit` above is called with.
+`common/answer_envelope.py::AnswerMeta` carries the answer's anatomy (`verdict`,
+`takeaways`, `callout`) plus five CONTROL fields that never reach the wire
+payload:
+
+| Field | Type | What it decides |
+|---|---|---|
+| `confidence` | `{level, reason}` | The answer's self-assessment, downgraded by the citation pipeline before it is shown |
+| `escalate_to_deep` | `bool \| null` | Hand this turn to deep research instead of answering it |
+| `escalation_reason` | `string \| null` | The model's own clause saying why — the one narration the frontend renders, and where a portfolio hand-off names its project count |
+| `portfolio` | `bool` (default `false`) | With `escalate_to_deep`, **in the office only**: run it as a Portfolio-Recherche, one deep sub-run per project. Becomes the submit body's `portfolio` |
+| `portfolio_project_ids` | `list[string] \| null` | With `portfolio`: the projects to read, as printed by `find_projects`. `null` means "every project the caller may read". Becomes the submit body's `project_ids` |
+
+`portfolio` reads `null` as `false` on purpose: provider-enforced structured
+output requires every key present, so an explicit `null` is the common way a
+model says "not a portfolio run", and a bare `bool` field would reject the whole
+envelope — taking the answer's anatomy down with it. Whether the request is
+HONOURED is not decided here: `chat_researcher/agent._effective_portfolio`
+applies the office rule (an organisation and no project) once, and a request
+made in a project turn is dropped with a log line. See
+`docs/architecture/backend-deep-dive.md` §7.
 
 ## Health
 

@@ -53,9 +53,19 @@ from aiq_agent.knowledge.project_memory import _opener
 
 logger = logging.getLogger(__name__)
 
-#: How many Steckbriefe the recall block ever names. The endpoint caps too (its
-#: `limit` is ≤10); this is the prompt's own ceiling, so a future endpoint that
-#: returns more cannot silently widen every turn's context.
+#: The endpoint's own recall ceiling: `GET /workspace/digest?limit` accepts at
+#: most this many (``RECALL_MAX_LIMIT`` in the BFF's register service). Named
+#: here because three callers need the same number — this client's clamp, the
+#: `find_projects` tool's `limit`, and a Portfolio-Recherche's project count
+#: (``deep_researcher.portfolio.PORTFOLIO_MAX_PROJECTS``) — and a second copy of
+#: it is how one of them ends up asking for more than it can ever get.
+RECALL_MAX_LIMIT = 10
+
+#: How many Steckbriefe the recall BLOCK ever names — the prompt's own ceiling,
+#: applied where the block is rendered, so a future endpoint that returns more
+#: cannot silently widen every turn's context. It is NOT the ceiling on what a
+#: caller may fetch: a tool enumerating a set before a portfolio escalation asks
+#: for up to :data:`RECALL_MAX_LIMIT` and gets them.
 MAX_PROJECT_ENTRIES = 5
 
 #: Per-Steckbrief character ceiling in the rendered block. A stored Steckbrief
@@ -87,6 +97,54 @@ class WorkspaceDigest:
 
     digest: str | None = None
     projects: tuple[WorkspaceProject, ...] = field(default_factory=tuple)
+
+
+def clamped_limit(limit: object, *, default: int = MAX_PROJECT_ENTRIES) -> int:
+    """A caller's requested recall size, held between 1 and the endpoint's ceiling.
+
+    Asking for more than :data:`RECALL_MAX_LIMIT` returns that many anyway, so
+    the clamp is honesty rather than defence: the number this returns is what
+    the caller will actually be able to read.
+
+    ``default`` is what "did not ask" resolves to, and it is the CALLER's own
+    default rather than one: absent, ``None``, a non-number, zero and a negative
+    are all the same statement — no particular size was requested — and the
+    caller that has a default is the one that knows what that means. Falling
+    back to one instead would answer "alle Projekte in Wien" with a single
+    Steckbrief and read, to the model, as an office with one project in it.
+    """
+    fallback = max(1, min(default, RECALL_MAX_LIMIT))
+    # ``bool`` is an ``int``: ``limit=True`` is a shape nobody meant as "one".
+    if limit is None or isinstance(limit, bool):
+        return fallback
+    try:
+        value = int(limit)  # type: ignore[call-overload]  — guarded by the except
+    except (TypeError, ValueError):
+        return fallback
+    return fallback if value < 1 else min(value, RECALL_MAX_LIMIT)
+
+
+def bounded_project_ids(values: object, *, limit: int = RECALL_MAX_LIMIT) -> list[str] | None:
+    """A model-written list of project ids, cleaned and bounded, or ``None``.
+
+    Whitespace stripped, blanks and non-strings dropped, duplicates removed
+    (first mention wins) and the result cut to ``limit`` — the number of
+    projects anything downstream can actually read. ``None`` for an empty
+    result, because "named no projects" and "named nothing usable" are the same
+    instruction: read every project the caller may read.
+    """
+    if not isinstance(values, (list, tuple)):
+        return None
+    seen: list[str] = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        text = value.strip()
+        if text and text not in seen:
+            seen.append(text)
+        if len(seen) >= max(1, limit):
+            break
+    return seen or None
 
 
 def is_workspace_turn(*, organization_id: str | None, project_id: str | None) -> bool:
@@ -155,7 +213,8 @@ def fetch_workspace_digest(
         logger.debug("Workspace digest skipped: GRID_INTERNAL_API_TOKEN is not configured")
         return None
 
-    params = {"organizationId": organization_id, "limit": str(max(1, min(int(limit or 1), 10)))}
+    requested = clamped_limit(limit)
+    params = {"organizationId": organization_id, "limit": str(requested)}
     if membership_id:
         params["membershipId"] = membership_id
     if query and query.strip():
@@ -193,7 +252,11 @@ def fetch_workspace_digest(
     )
     return WorkspaceDigest(
         digest=digest if isinstance(digest, str) and digest.strip() else None,
-        projects=projects[:MAX_PROJECT_ENTRIES],
+        # Bounded by what THIS caller asked for, not by the prompt block's five:
+        # the block truncates itself (``render_workspace_context``), while a
+        # caller that asked for ten — the `find_projects` enumeration, a
+        # portfolio run's readable set — must be given the ten it may read.
+        projects=projects[:requested],
     )
 
 

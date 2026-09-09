@@ -266,6 +266,13 @@ _STREAM_EXTRA_FIELDS = (
     "sources",
     # Transparency extras (WP-A): each surfaced only when applicable.
     "routing_decision",
+    # A Portfolio-Recherche rides this one too, and carries no field of its own:
+    # the model writes the count into the clause itself ("Portfolio-Recherche
+    # über 6 Projekte: …", the office prompt branch), and the live line says it
+    # at the moment of the decision under its own key. A flag here would be a
+    # third telling of the same fact, and the frontend strips any name its
+    # ``NATSystemResponseMessageSchema`` does not declare — so it would be a
+    # third telling that nobody hears. ADR-0054, spec DR-7.
     "escalation_reason",
     "answer_confidence_capped_reason",
     "answer_confidence_reason",
@@ -689,6 +696,13 @@ def _build_deep_research_job_submitter(
             available_documents=available_docs,
             data_sources=state.data_sources,
             collection_scope=_escalation_collection_scope(state),
+            # Portfolio-Recherche (ADR-0054, spec DR-3/DR-4). The decision was
+            # made when the answer came back — the office rule included — and
+            # rides the state through the clarifier, so this only threads it:
+            # ``portfolio`` off, the worker runs the single deep run it always
+            # ran, which is what every other caller of this function gets.
+            portfolio=bool(state.escalation_portfolio),
+            project_ids=state.escalation_portfolio_project_ids or None,
             project_context=state.project_context,
             platform_lessons=render_lessons_block(state.platform_lessons),
             model_overrides=get_model_overrides_from_context() or None,

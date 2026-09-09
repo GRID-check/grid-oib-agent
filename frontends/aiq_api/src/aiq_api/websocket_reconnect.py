@@ -572,8 +572,17 @@ _TRANSPARENCY_EXTRA_FIELDS = (
     "research_truncated",
     "job_admission_rejected",
     "retry_after_seconds",
-    # The answer's structured anatomy (verdict / takeaways / callout) — a
-    # native answer field, gated backend-side, rendered as answer typography.
+    # The answer's structured anatomy — verdict, takeaways, callout — a native
+    # answer field, gated backend-side, rendered as answer typography.
+    #
+    # Every comment in this tuple stays free of brackets, and this one was not:
+    # the UI contract spec reads the block by cutting the source at the first
+    # closing bracket, so the aside here hid the one field below it from the
+    # guard that checks the frontend declares what the backend lifts. A field
+    # this list carries and `NATSystemResponseMessageSchema` does not is
+    # silently stripped at the client, which is the failure that guard exists
+    # for — so a new name goes into the schema first, and into this tuple in
+    # the same change.
     "answer_meta",
 )
 
