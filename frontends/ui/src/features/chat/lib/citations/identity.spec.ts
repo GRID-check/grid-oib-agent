@@ -12,6 +12,7 @@ import { describe, test, expect } from 'vitest'
 import {
   buildCitationModel,
   citationSnippet,
+  normalizeFileName,
   oibDocumentKey,
   parseKbLocator,
   resolveCitationTarget,
@@ -70,6 +71,30 @@ describe('oibDocumentKey', () => {
     expect(oibDocumentKey('BO Wien §111')).toBeNull()
     expect(oibDocumentKey('')).toBeNull()
     expect(oibDocumentKey(undefined)).toBeNull()
+  })
+})
+
+describe('normalizeFileName', () => {
+  test('unifies separators, case and a trailing extension for comparison only', () => {
+    expect(normalizeFileName('oib-rl_2_ausgabe_mai_2023.pdf')).toBe('oib-rl-2-ausgabe-mai-2023')
+    expect(normalizeFileName('oib-rl-2 ausgabe mai 2023')).toBe('oib-rl-2-ausgabe-mai-2023')
+    expect(normalizeFileName('OIB-RL-2_AUSGABE_MAI_2023.PDF')).toBe('oib-rl-2-ausgabe-mai-2023')
+  })
+
+  test('keeps genuinely different names apart', () => {
+    // A revision suffix is identity, not noise: stripping it would re-merge
+    // the two corpus lists `documentIdentity` was fixed to keep apart.
+    expect(normalizeFileName('oib-rl_zitierte_normen_ausgabe_mai_2023_rev.1.pdf')).not.toBe(
+      normalizeFileName('oib-rl_zitierte_normen_ausgabe_mai_2023.pdf')
+    )
+    expect(normalizeFileName('OIB-Richtlinie 6 Kommentar.pdf')).not.toBe(
+      normalizeFileName('oib-rl_6_ausgabe_mai_2023.pdf')
+    )
+  })
+
+  test('is empty-safe', () => {
+    expect(normalizeFileName(undefined)).toBe('')
+    expect(normalizeFileName('   ')).toBe('')
   })
 })
 

@@ -279,6 +279,29 @@ const isBaseOrUnknownShelf = (shelf: Shelf | undefined): boolean =>
 /** URL reduced to a comparison form (scheme/host lowercased, trailing slash dropped). */
 export const normalizeUrl = (url: string): string => url.trim().toLowerCase().replace(/\/+$/, '')
 
+/**
+ * Filename reduced to a comparison form: trimmed, lowercased, separators
+ * (`_`, whitespace, `-`) unified to a single `-`, and ONE trailing
+ * `.pdf`-ish extension stripped.
+ *
+ * The model writes the `## Quellen` list from memory, so its spelling of a
+ * filename never matches the wire byte-for-byte (`oib-rl_2_ausgabe_mai_2023.pdf`
+ * on the wire, `oib-rl-2 ausgabe mai 2023` in prose — no extension at all).
+ * Comparing raw strings made the pair TWO documents claiming the same `[N]`:
+ * one full chip and one dead info popover. Comparing normalized forms merges
+ * them; the ORIGINALS stay on the document for display and preview resolution.
+ *
+ * Only the extension goes, and only for comparison: stripping more (edition,
+ * `rev.1`) would reintroduce the identity collapse that keeps two revisions of
+ * one corpus list apart.
+ */
+export const normalizeFileName = (value: string | undefined | null): string =>
+  (value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s-]+/g, '-')
+    .replace(/\.[a-z0-9]{2,5}$/, '')
+
 /** Minimal facts needed to identify a document, from any producer. */
 export interface DocumentIdentityInput {
   /**
@@ -333,7 +356,10 @@ export interface DocumentIdentityInput {
 export const documentIdentity = (input: DocumentIdentityInput): string => {
   const supplied = input.documentId?.trim()
   if (supplied) return supplied
-  const fileName = input.fileName?.trim().toLowerCase()
+  // Compared NORMALIZED: the wire and the answer's written list spell one
+  // filename two ways (separators, case, a missing extension), and raw keys
+  // made them two documents. The original spelling stays on the document.
+  const fileName = normalizeFileName(input.fileName)
   if (fileName) {
     const collection = input.collection?.trim().toLowerCase()
     return collection ? `doc:${collection}:${fileName}` : `doc:${fileName}`
@@ -365,11 +391,23 @@ export const documentIdentity = (input: DocumentIdentityInput): string => {
  */
 export const identityMatches = (a: string, b: string): boolean => {
   if (a === b) return true
-  const bare = (key: string): string | null => {
-    const parts = key.split(':')
-    return parts[0] === 'doc' && parts.length === 3 ? `doc:${parts[2]}` : null
+  const fileOf = (key: string): { collection: string | null; file: string } | null => {
+    if (!key.startsWith('doc:')) return null
+    const rest = key.slice('doc:'.length)
+    const sep = rest.indexOf(':')
+    // Normalized on BOTH sides: a collection-less written entry
+    // (`oib-rl-2 ausgabe mai 2023`) meets its wire document
+    // (`oib-rl_2_ausgabe_mai_2023.pdf`) here rather than as a duplicate chip.
+    if (sep === -1) return { collection: null, file: normalizeFileName(rest) }
+    return { collection: rest.slice(0, sep), file: normalizeFileName(rest.slice(sep + 1)) }
   }
-  return bare(a) === b || bare(b) === a
+  const fa = fileOf(a)
+  const fb = fileOf(b)
+  if (!fa || !fb || fa.file !== fb.file || !fa.file) return false
+  // One side collection-less, the other collection-bearing: the permissive
+  // half of the primary key. Two collection-bearing keys with different
+  // collections are two documents (`Plan.pdf` per shelf), never merged.
+  return fa.collection === null || fb.collection === null
 }
 
 // ---------------------------------------------------------------------------
@@ -858,11 +896,15 @@ export class CitationAccumulator {
     }
     // Label matching, both directions: the label-only observation may arrive
     // before or after the one that knows the document's real identity.
+    // Compared NORMALIZED, for the same model-written spelling drift that
+    // `documentIdentity` absorbs: separators, case, a missing extension.
     const incomingLabel = labelOf(id)
-    const name = title.trim().toLowerCase()
+    const normIncomingLabel = incomingLabel ? normalizeFileName(incomingLabel) : ''
+    const normName = normalizeFileName(title)
     for (const doc of this.docs.values()) {
-      if (incomingLabel && doc.title.trim().toLowerCase() === incomingLabel) return doc
-      if (name && labelOf(doc.id) === name) return doc
+      if (normIncomingLabel && normalizeFileName(doc.title) === normIncomingLabel) return doc
+      const heldLabel = labelOf(doc.id)
+      if (normName && heldLabel && normalizeFileName(heldLabel) === normName) return doc
     }
     return this.findOibCounterpart(id, title, shelf, fileName)
   }
@@ -914,6 +956,42 @@ export class CitationAccumulator {
       if (heldKey && heldKey === incomingKey) return doc
     }
     return undefined
+  }
+
+  /**
+   * The document a model-written source line belongs to, by filename AND
+   * citation number.
+   *
+   * The written `## Quellen` list spells filenames from memory — different
+   * separators, different case, sometimes no extension at all — so its entry
+   * cannot go through `add` (its identity would never meet the wire's, and the
+   * pair would render as two chips for one document). The number overlap is
+   * the second half of the match: it proves THIS line means the already-known
+   * `[N]`, rather than merely naming a similar file.
+   */
+  findByFileAndNumber(normFile: string, number: number | undefined): CitedDocument | undefined {
+    if (!normFile || typeof number !== 'number') return undefined
+    for (const doc of this.docs.values()) {
+      if (!doc.fileName || normalizeFileName(doc.fileName) !== normFile) continue
+      if (doc.loci.some((locus) => locus.number === number)) return doc
+    }
+    return undefined
+  }
+
+  /** Fold a written-list locus into an already-matched document (see above). */
+  attachLocus(
+    doc: CitedDocument,
+    locus: {
+      page?: number
+      punkt?: string
+      score?: number
+      number?: number
+      isCited?: boolean
+      snippet?: string
+      citationKey?: string
+    }
+  ): void {
+    this.mergeLocus(doc, locus)
   }
 
   /** The accumulated documents, in stable presentation order. */
