@@ -11,6 +11,7 @@ import { isOrgAdmin } from './organizations'
 import { isPlatformStaff } from './platform'
 import { inboxIsReachable } from '@/lib/inbox/registry'
 import { FEATURE_FLAGS, isCollaborationEnabled, isFeatureEnabled } from './feature-flags'
+import { hasPermission, ORG_PERMISSIONS } from './permissions'
 
 export interface NavFlags {
   canManageOrganization: boolean
@@ -49,10 +50,22 @@ export interface NavFlags {
   canAccessInbox: boolean
   /**
    * Whether the Büro — the organization-level chat at `/app/chat` — is
-   * reachable (ADR-0054). True for any org member whose org has the
-   * `workspace-chat` flag; using it still needs `org:chat`, which the route and
-   * the service check. Gates the org header's "Piloti fragen", the rail's
-   * "Büro" entry, its `g b` jump and the palette command.
+   * reachable (ADR-0054). Needs BOTH the `workspace-chat` flag and `org:chat`,
+   * the same pair `/app/chat` itself checks before it renders.
+   *
+   * The permission belongs here and not only on the page for the reason the
+   * inbox row below already records: an entry that cannot work is a broken
+   * affordance, and this one has two ordinary ways to be withheld. Until
+   * `provision:authz --apply` has run, WorkOS holds no `org:chat` for anyone
+   * while the flag fails open, so EVERY user would see a rail entry, a palette
+   * command and a `g b` jump that bounce to `/app/projects`. And withholding
+   * `org:chat` from a role is a supported configuration the catalog names
+   * ("Withhold it to keep chat inside projects"), which would leave that door
+   * permanently broken for those members.
+   *
+   * Gates the org header's "Piloti fragen", the rail's "Büro" entry, its `g b`
+   * jump and the palette command. The route and the service still check, since
+   * a nav flag is an affordance and never an authorization.
    */
   canAccessWorkspaceChat: boolean
 }
@@ -75,7 +88,9 @@ export async function getNavFlags(session: GridSession | null): Promise<NavFlags
     canViewOrganization: true,
     canManagePlatform: await isPlatformStaff(session),
     canAccessArchiv: isFeatureEnabled(session, FEATURE_FLAGS.orgArchiv),
-    canAccessWorkspaceChat: isFeatureEnabled(session, FEATURE_FLAGS.workspaceChat),
+    canAccessWorkspaceChat:
+      isFeatureEnabled(session, FEATURE_FLAGS.workspaceChat) &&
+      hasPermission(session, ORG_PERMISSIONS.chat),
     canCollaborate: collaboration,
     // Also gated on there BEING an organization. A break-glass session carries a
     // user and no `organizationId`, and the inbox is organization-scoped
