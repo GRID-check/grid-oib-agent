@@ -490,12 +490,13 @@ functions:
     # `cohere/rerank-v3.5`, multilingual, which a German corpus needs.
     # `AIQ_RERANKER_MODEL` / `AIQ_RERANKER_BASE_URL` override per deployment.
     #
-    # Fail-open, in both directions the reader can notice: a key that does not
-    # resolve or any provider error falls back to the judge with one warning per
-    # search; a provider that HANGS costs `AIQ_RERANKER_TIMEOUT_SECONDS` (10s)
-    # before that fallback, so a bad day at the provider is slower than the
-    # judge, not faster. Set `reranker_provider: none` to hand reranking back to
-    # the judge. No offline eval covers reranking (`frontends/benchmarks/
+    # Fail-open: a key that does not resolve or any provider error falls back to
+    # the judge (first failure per 5 min warns, the rest debug; 5 consecutive
+    # failures disable the cross-encoder for 5 min). A provider that HANGS costs
+    # `AIQ_RERANKER_TIMEOUT_SECONDS` (3s) before that fallback, so worst case a
+    # turn pays 3s + the judge's own 30s bound — never the other way round. Set
+    # `reranker_provider: none` to hand reranking back to the judge. No offline
+    # eval covers reranking (`frontends/benchmarks/
     # oib_retrieval` stops upstream of it); the golden compliance eval and the
     # profiler's `tool` spans for `knowledge_search` are the before/after.
     reranker_provider: openrouter

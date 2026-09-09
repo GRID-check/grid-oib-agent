@@ -460,3 +460,107 @@ describe('a legal_basis card in a mixed answer', () => {
     expect(unusedDocuments(docs)).toEqual([])
   })
 })
+
+describe('a model-written filename spelling never doubles a chip', () => {
+  // The user-visible defect: the "Belegt durch" row showed TWO identical chips
+  // for one document — one opening the full preview, the other a dead info
+  // popover. The wire carries `oib-rl_2_ausgabe_mai_2023.pdf`; the answer's
+  // written list spells it `oib-rl-2 ausgabe mai 2023` (other separators, no
+  // extension at all), and the exact filename match made them two documents
+  // claiming the same [N].
+  const WIRE_FILE = 'oib-rl_2_ausgabe_mai_2023.pdf'
+  const wire = (number: number, page: number): CitationSource => ({
+    id: `dbl-${number}`,
+    content: `[KB] ${WIRE_FILE}, p.${page}`,
+    timestamp: new Date(0),
+    origin: 'kb',
+    kind: 'baurecht',
+    lane: 'baurecht_oib',
+    title: 'OIB-Richtlinie 2, Ausgabe Mai 2023',
+    citationKey: `${WIRE_FILE}, p.${page}`,
+    collection: 'oib_knowledge',
+    fileName: WIRE_FILE,
+    page,
+    number,
+    isCited: true,
+  })
+  const written = (number: number, markdown: string): ReportSourceEntry => ({
+    number,
+    markdown,
+    sourceKind: 'kb',
+  })
+
+  it('folds an extension-less written spelling into its wire document', () => {
+    const docs = buildCitationModel({
+      citations: [wire(1, 1), wire(3, 26)],
+      entries: [
+        written(1, '[KB] oib-rl-2 ausgabe mai 2023, p.1'),
+        written(3, '[KB] oib-rl-2 ausgabe mai 2023, p.26'),
+      ],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(citationNumbers(docs[0]!)).toEqual([1, 3])
+    // Lossless: the pages survive on their own loci. Without the fix the pair
+    // either doubled the chip (separator variants) or merged through the
+    // label-only OIB path, which drops the page onto a `whole` locus.
+    expect(docs[0]!.loci).toHaveLength(2)
+    expect(citedPages(docs[0]!)).toEqual([1, 26])
+  })
+
+  it('merges underscore/dash/case variants, with or without extension', () => {
+    for (const spelling of [
+      '[KB] oib-rl-2_ausgabe_mai_2023.pdf, p.1',
+      '[KB] OIB-RL-2-AUSGABE-MAI-2023.PDF, p.1',
+      '[KB] oib_rl_2_ausgabe_mai_2023, p.1',
+    ]) {
+      const docs = buildCitationModel({
+        citations: [wire(1, 1)],
+        entries: [written(1, spelling)],
+      })
+      expect(docs).toHaveLength(1)
+      expect(citationNumbers(docs[0]!)).toEqual([1])
+    }
+  })
+
+  it('keeps different pages of one document as one document with two loci', () => {
+    const docs = buildCitationModel({
+      citations: [wire(1, 1), wire(3, 26)],
+      entries: [
+        written(1, '[KB] oib-rl-2 ausgabe mai 2023, p.1'),
+        written(3, '[KB] oib-rl-2 ausgabe mai 2023, p.26'),
+      ],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(docs[0]!.loci).toHaveLength(2)
+    expect(citedPages(docs[0]!)).toEqual([1, 26])
+  })
+
+  it('never attaches a written line to a file it merely resembles', () => {
+    // The filename half of the match is load-bearing: a commentary ABOUT the
+    // Richtlinie carries the same `[N]` as the Richtlinie itself, and attaching
+    // by number alone would hand its page to the wrong document.
+    const corpus: CitationSource = {
+      id: 'dbl-c',
+      content: '[KB] oib-rl_6_ausgabe_mai_2023.pdf, p.2',
+      timestamp: new Date(0),
+      origin: 'kb',
+      kind: 'baurecht',
+      lane: 'baurecht_oib',
+      title: 'OIB-Richtlinie 6, Ausgabe Mai 2023',
+      citationKey: 'oib-rl_6_ausgabe_mai_2023.pdf, p.2',
+      collection: 'oib_knowledge',
+      fileName: 'oib-rl_6_ausgabe_mai_2023.pdf',
+      page: 2,
+      number: 1,
+      isCited: true,
+    }
+    const docs = buildCitationModel({
+      citations: [corpus],
+      entries: [written(1, '[KB] OIB-Richtlinie 6 Kommentar.pdf, p.9')],
+    })
+
+    expect(docs).toHaveLength(2)
+  })
+})

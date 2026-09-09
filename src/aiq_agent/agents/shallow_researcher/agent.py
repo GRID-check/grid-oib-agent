@@ -1158,19 +1158,31 @@ class ShallowResearcherAgent:
                 args["file_name"] = file_name
             return str(await tool.ainvoke(args) or "")
 
-        try:
-            # The lookups are independent (one per failure) and each is a full
-            # retrieval, reranker included, so they run together; the results
-            # keep lookup order so the rewrite prompt reads the same as before.
-            outputs = await asyncio.gather(*(_lookup(query, file_name) for query, file_name in lookups))
-            for text in outputs:
-                if not text:
-                    continue
-                grounding.append(text)
-                captured_sources.extend(extract_sources_from_tool_result(tool.name, text, source_id=source_id))
-        except Exception:  # noqa: BLE001 - the answer already exists; a failed repair keeps it
-            logger.warning("Shallow researcher: repair retrieval failed", exc_info=True)
-            return None
+        # The lookups are independent (one per failure) and each is a full
+        # retrieval, reranker included, so they run together; the results
+        # keep lookup order so the rewrite prompt reads the same as before.
+        # Fail-open per lookup: one bad retrieval (timeout, reranker error)
+        # is dropped, not allowed to poison the other — only an all-fail
+        # repair gives up. Bounded to two concurrent retrievals: two is a
+        # repair, more is a second research turn.
+        _repair_semaphore = asyncio.Semaphore(2)
+
+        async def _bounded_lookup(query: str, file_name: str | None) -> str:
+            async with _repair_semaphore:
+                return await _lookup(query, file_name)
+
+        outputs = await asyncio.gather(
+            *(_bounded_lookup(query, file_name) for query, file_name in lookups),
+            return_exceptions=True,
+        )
+        for output in outputs:
+            if isinstance(output, BaseException):
+                logger.warning("Shallow researcher: repair lookup failed: %s", output)
+                continue
+            if not output:
+                continue
+            grounding.append(output)
+            captured_sources.extend(extract_sources_from_tool_result(tool.name, output, source_id=source_id))
         if not grounding:
             return None
 

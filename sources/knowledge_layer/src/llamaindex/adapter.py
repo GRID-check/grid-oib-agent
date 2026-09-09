@@ -19,7 +19,7 @@ Multimodal options:
     extract_tables: Enable table extraction via pdfplumber (default: False)
     extract_charts: Enable chart extraction with VLM data extraction (default: False)
     extract_images: Enable image extraction with VLM captioning (default: False)
-    vlm_model: VLM model for captioning (default: google/gemma-4-31b-it)
+    vlm_model: VLM model for captioning (default: openai/gpt-5.6-luna)
     vlm_base_url: VLM model base URL (default: https://openrouter.ai/api/v1)
 
 Chart extraction uses the VLM to:
@@ -62,10 +62,60 @@ from aiq_agent.knowledge.schema import RetrievalResult
 
 logger = logging.getLogger(__name__)
 
-# Default VLM model for image captioning: the model and host the production
-# compose file runs, so a deployment that sets nothing calls OpenRouter with
-# OPENROUTER_API_KEY. Nothing in this repo calls a NVIDIA endpoint any more.
-DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "google/gemma-4-31b-it")
+
+#: Sentinel for "strictly positive", which is not expressible as a `minimum`
+#: float: 0 must be rejectable for a timeout and accepted for a count.
+_POSITIVE = float("-inf")
+
+
+def _env_float(name: str, fallback: float, *, minimum: float = _POSITIVE) -> float:
+    """Read a finite float from the environment, failing open to ``fallback``.
+
+    A module-scope ``float(os.environ[...])`` makes a typo'd env var raise at IMPORT
+    time, taking down the whole knowledge layer. A misconfiguration must degrade to
+    the default, not to an unimportable module.
+
+    ``minimum`` defaults to "strictly positive", which is right for a timeout or a
+    batch size but WRONG for a count whose zero means "off": rejecting
+    ``AIQ_MAX_RENDERED_PAGES=0`` silently restored the default of 20 and the
+    deployment paid VLM cost it had explicitly opted out of. Pass ``minimum=0``
+    for those.
+    """
+    raw = os.environ.get(name, "")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        if raw:
+            logger.warning("%s=%r is not a number; using %s", name, raw, fallback)
+        return fallback
+    if not math.isfinite(value):
+        logger.warning("%s=%r must be finite; using %s", name, raw, fallback)
+        return fallback
+    if minimum is _POSITIVE:
+        if value <= 0:
+            logger.warning("%s=%r must be positive and finite; using %s", name, raw, fallback)
+            return fallback
+    elif value < minimum:
+        logger.warning("%s=%r must be >= %s; using %s", name, raw, minimum, fallback)
+        return fallback
+    return value
+
+
+def _env_int(name: str, fallback: int, *, minimum: float = _POSITIVE) -> int:
+    """Integer half of :func:`_env_float`: garbage degrades to ``fallback``.
+
+    Truncates (never rounds up) so a fractional value cannot exceed the stated
+    budget. Clamping stays at the call site, where the existing ``max(1, ...)``
+    guards already live.
+    """
+    return int(_env_float(name, float(fallback), minimum=minimum))
+
+
+# Default VLM model for image captioning: the house model every deployment
+# already holds a key for, so captioning needs no second credential. It takes
+# image input (verified on OpenRouter); caption quality on OIB tables and
+# drawings is still unevaluated, like its predecessor's was.
+DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "openai/gpt-5.6-luna")
 # Default VLM model base URL
 DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://openrouter.ai/api/v1")
 
@@ -267,17 +317,17 @@ RENDER_VISUAL_PAGES = os.environ.get("AIQ_RENDER_VISUAL_PAGES", "true").lower() 
 # or below the vision-encoder caps of current VLMs (above this the provider
 # just downsamples). Scale is computed per page from its point size so an A0
 # sheet and an A4 sheet both land near this target.
-PAGE_RENDER_MAX_DIM = int(os.environ.get("AIQ_PAGE_RENDER_MAX_DIM", "2048"))
+PAGE_RENDER_MAX_DIM = _env_int("AIQ_PAGE_RENDER_MAX_DIM", 2048)
 
 # A page is treated as "visual" (→ rendered + VLM-captioned) when its
 # watermark-stripped extractable text is shorter than this many characters...
-VISUAL_PAGE_MIN_TEXT_CHARS = int(os.environ.get("AIQ_VISUAL_PAGE_MIN_TEXT_CHARS", "200"))
+VISUAL_PAGE_MIN_TEXT_CHARS = _env_int("AIQ_VISUAL_PAGE_MIN_TEXT_CHARS", 200, minimum=0)
 # ...OR it carries at least this many vector path objects (a plan/section/
 # elevation is typically hundreds-to-tens-of-thousands of paths).
-VISUAL_PAGE_MIN_PATHS = int(os.environ.get("AIQ_VISUAL_PAGE_MIN_PATHS", "300"))
+VISUAL_PAGE_MIN_PATHS = _env_int("AIQ_VISUAL_PAGE_MIN_PATHS", 300, minimum=0)
 # Hard cap on rendered pages per document, to bound VLM cost/latency on large
 # plan sets. Excess visual pages are skipped (logged), text still indexed.
-MAX_RENDERED_PAGES = int(os.environ.get("AIQ_MAX_RENDERED_PAGES", "20"))
+MAX_RENDERED_PAGES = _env_int("AIQ_MAX_RENDERED_PAGES", 20, minimum=0)
 
 # @environment_variable AIQ_VLM_TIMEOUT_SECONDS
 # @category Knowledge Layer
@@ -295,7 +345,7 @@ MAX_RENDERED_PAGES = int(os.environ.get("AIQ_MAX_RENDERED_PAGES", "20"))
 # placeholders are skipped, not embedded. Clamped like the sibling knobs: a
 # misconfigured 0 or negative value would fail every VLM request immediately and
 # silently disable captioning altogether.
-VLM_REQUEST_TIMEOUT_SECONDS = max(1, int(os.environ.get("AIQ_VLM_TIMEOUT_SECONDS", "180")))
+VLM_REQUEST_TIMEOUT_SECONDS = max(1, _env_int("AIQ_VLM_TIMEOUT_SECONDS", 180))
 
 # @environment_variable AIQ_EMBED_BATCH_SIZE
 # @category Knowledge Layer
@@ -306,7 +356,7 @@ VLM_REQUEST_TIMEOUT_SECONDS = max(1, int(os.environ.get("AIQ_VLM_TIMEOUT_SECONDS
 # too many round-trips on large documents — a 500-chunk PDF costs ~50
 # sequential HTTP calls. Every OpenAI-compatible embeddings endpoint accepts
 # far more per call (OpenAI 2048, NVIDIA NIM 259); 64 is conservative.
-EMBED_BATCH_SIZE = max(1, int(os.environ.get("AIQ_EMBED_BATCH_SIZE", "64")))
+EMBED_BATCH_SIZE = max(1, _env_int("AIQ_EMBED_BATCH_SIZE", 64))
 
 # @environment_variable AIQ_EMBED_TIMEOUT_SECONDS
 # @category Knowledge Layer
@@ -319,7 +369,7 @@ EMBED_BATCH_SIZE = max(1, int(os.environ.get("AIQ_EMBED_BATCH_SIZE", "64")))
 # open everywhere else, and this is what lets it fail open here. Two retries
 # stay for the transient 5xx a batch of EMBED_BATCH_SIZE texts occasionally
 # meets; 60s covers such a batch with room.
-EMBED_TIMEOUT_SECONDS = max(1.0, float(os.environ.get("AIQ_EMBED_TIMEOUT_SECONDS", "60") or "60"))
+EMBED_TIMEOUT_SECONDS = max(1.0, _env_float("AIQ_EMBED_TIMEOUT_SECONDS", 60.0))
 EMBED_MAX_RETRIES = 2
 
 # pypdfium2 page-object type constants (the C API values are not always exposed
@@ -361,7 +411,7 @@ WATERMARK_LINE_PATTERNS = [
 # @default 24
 # @required false
 # Hours before stale collections are deleted by the TTL cleanup thread.
-COLLECTION_TTL_HOURS = float(os.environ.get("AIQ_COLLECTION_TTL_HOURS", "24"))
+COLLECTION_TTL_HOURS = _env_float("AIQ_COLLECTION_TTL_HOURS", 24.0)
 
 # @environment_variable AIQ_TTL_CLEANUP_INTERVAL_SECONDS
 # @category Knowledge Layer
@@ -369,7 +419,7 @@ COLLECTION_TTL_HOURS = float(os.environ.get("AIQ_COLLECTION_TTL_HOURS", "24"))
 # @default 3600
 # @required false
 # Seconds between TTL cleanup runs.
-TTL_CLEANUP_INTERVAL_SECONDS = int(os.environ.get("AIQ_TTL_CLEANUP_INTERVAL_SECONDS", "3600"))
+TTL_CLEANUP_INTERVAL_SECONDS = _env_int("AIQ_TTL_CLEANUP_INTERVAL_SECONDS", 3600)
 
 # Terminal jobs are retained this long for status polling/file listings, then
 # pruned so in-memory job tracking doesn't grow for the life of the process.
@@ -380,7 +430,7 @@ JOB_RETENTION_SECONDS = 3600  # 1 hour
 # from Chroma chunks — with a fresh id, exactly as for any never-tracked file);
 # FAILED rows drop off the listing once this window passes. Bounds self._files,
 # which otherwise grew for the life of the process (scaling review phase-2, #13).
-FILE_TRACKING_RETENTION_SECONDS = int(os.environ.get("AIQ_FILE_TRACKING_RETENTION_SECONDS", "86400"))  # 24h
+FILE_TRACKING_RETENTION_SECONDS = _env_int("AIQ_FILE_TRACKING_RETENTION_SECONDS", 86400)  # 24h
 
 # Document summarization + tag-classification input limits live in the shared
 # aiq_agent.knowledge.document_classification module (CLASSIFY_MAX_INPUT_CHARS).
@@ -1856,7 +1906,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         extract_tables: Enable table extraction from PDFs (default: False)
         extract_charts: Enable chart extraction with structured data (default: False)
         extract_images: Enable image extraction with VLM captioning (default: False)
-        vlm_model: VLM for captioning (default: google/gemma-4-31b-it)
+        vlm_model: VLM for captioning (default: openai/gpt-5.6-luna)
 
     Environment variables:
         AIQ_CHROMA_DIR: Default ChromaDB persistence directory
@@ -1912,7 +1962,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     # @required false
     # Maximum concurrent ingestion jobs per process. Excess uploads queue
     # (job status stays PENDING) instead of each spawning a thread.
-    INGEST_MAX_WORKERS = max(1, int(os.environ.get("AIQ_INGEST_MAX_WORKERS", "2")))
+    INGEST_MAX_WORKERS = max(1, _env_int("AIQ_INGEST_MAX_WORKERS", 2))
 
     # @environment_variable AIQ_EXTRACT_IMAGES
     # @category Knowledge Layer
@@ -3925,7 +3975,7 @@ class LlamaIndexRetriever(BaseRetriever):
     # @default 10
     # @required false
     # Default number of results returned by the LlamaIndex retriever.
-    DEFAULT_TOP_K = int(os.environ.get("AIQ_RETRIEVER_TOP_K", "10"))
+    DEFAULT_TOP_K = _env_int("AIQ_RETRIEVER_TOP_K", 10)
     # @environment_variable AIQ_HYBRID_RETRIEVAL
     # @category Knowledge Layer
     # @type bool
@@ -3994,7 +4044,7 @@ class LlamaIndexRetriever(BaseRetriever):
     # @default 512
     # @required false
     # Maximum cached query embeddings per retriever (LRU).
-    EMBED_CACHE_MAX = int(os.environ.get("AIQ_QUERY_EMBED_CACHE_SIZE", "512"))
+    EMBED_CACHE_MAX = _env_int("AIQ_QUERY_EMBED_CACHE_SIZE", 512, minimum=0)
     # @environment_variable AIQ_STATIC_RESULT_CACHE_COLLECTIONS
     # @category Knowledge Layer
     # @type str

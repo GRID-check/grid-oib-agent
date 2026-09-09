@@ -228,7 +228,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | **LLM / models** | | |
 | 🔒 **`openrouterApiKey`** / 🔒 **`tavilyApiKey`** | — | Provider keys |
 | `embedModel` / `embedBaseUrl` | text-embedding-3-large / OpenRouter | Embeddings |
-| `vlmModel` / `vlmBaseUrl` | gemma-4-31b-it / OpenRouter | Vision model |
+| `vlmModel` / `vlmBaseUrl` | gpt-5.6-luna / OpenRouter | Vision model |
 | **Auth / platform** | | |
 | `requireAuth` | `true` | WorkOS AuthKit enforcement |
 | **`workosClientId`** / 🔒 `workosApiKey` / 🔒 `workosCookiePassword` | — | WorkOS |
@@ -261,7 +261,7 @@ All keys live under the `grid-oib:` namespace. **Bold** = required (no default).
 | 🔒 `otelOidcClientSecret` | — | Its client secret. The Gateway SecurityPolicy exchanges the code with `client_secret_basic`, so a public/PKCE-only client cannot be used |
 | 🔒 `otelPrimaryApiKey` | — | OTLP ingestion key (`x-otlp-api-key`). Held by the **dashboard and collector only** — backend/worker/frontend send unauthenticated OTLP to the collector, so this key must never be copied into app secrets |
 | `dashboardImage` | digest-pinned `mcr.microsoft.com/dotnet/aspire-dashboard@sha256:…` (13.4.2) | Dashboard image; override only for a deliberate upgrade. The trivy `image-scan` job blocks on fixable HIGH/CRITICAL in the pin, so it fails when the pin goes stale |
-| `collectorImage` | digest-pinned `otel/opentelemetry-collector-contrib@sha256:…` (0.157.0) | OTel Collector image (single OTLP ingestion point); override only for a deliberate upgrade |
+| `collectorImage` | digest-pinned `otel/opentelemetry-collector-contrib@sha256:…` (0.160.0) | OTel Collector image (single OTLP ingestion point); override only for a deliberate upgrade |
 | `dashboardMaxLogCount` / `dashboardMaxTraceCount` | `50000` / `50000` | In-memory ring-buffer limits |
 | **Langfuse** (ADR-0044) — durable LLM observability, self-hosted **free/OSS** build. No licence key is set anywhere; the visible cost is that data-retention policies are an Enterprise feature, so nothing expires and `clickhouseStorageSize` is a number to watch. Full operator guide: [`docs/deployment/kubernetes.md` §9b](../../docs/deployment/kubernetes.md) | | |
 | `langfuseEnabled` | `true` | Feature flag. Deployed only when the flag is on **AND** every 🔒 key below is set **AND** `observabilityEnabled` resolves true — Langfuse has no receiver of its own, the collector feeds it. Otherwise `preview` warns naming what is missing and nothing is provisioned (no workloads, no `https-langfuse` listener, no collector exporter, no identity attributes). Default-**on**, so setting the 🔒 keys is all a stack needs; set the flag to `false` to opt out of four workloads and a PVC that grows |

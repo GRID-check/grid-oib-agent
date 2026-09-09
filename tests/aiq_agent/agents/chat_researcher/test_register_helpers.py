@@ -1,22 +1,32 @@
 """Tests for chat_researcher register.py helper functions."""
 
 import asyncio
+import contextlib
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
+from unittest.mock import patch
 
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
+import aiq_agent.agents.chat_researcher.register as register_module
+from aiq_agent.agents.chat_researcher.register import ChatDeepResearcherConfig
 from aiq_agent.agents.chat_researcher.register import _aggregate_documents_across_collections
 from aiq_agent.agents.chat_researcher.register import _await_ingest_settling
 from aiq_agent.agents.chat_researcher.register import _fold_chunks_to_response
 from aiq_agent.agents.chat_researcher.register import _iter_answer_deltas
+from aiq_agent.agents.chat_researcher.register import _load_session_registry
 from aiq_agent.agents.chat_researcher.register import _post_answer_turn_facts
 from aiq_agent.agents.chat_researcher.register import _response_to_chunks
 from aiq_agent.agents.chat_researcher.register import _session_collection_name
+from aiq_agent.agents.chat_researcher.register import chat_deepresearcher_agent
 from aiq_agent.agents.chat_researcher.utils import _extract_query_and_sources
 from aiq_agent.agents.chat_researcher.utils import _extract_query_from_text
 from aiq_agent.agents.chat_researcher.utils import _extract_text_from_message
 from aiq_agent.common import _create_chat_response
+from aiq_agent.common.citation_verification import SourceRegistry
+from aiq_agent.common.turn_admission import TurnAdmissionError
 from aiq_agent.stages import TurnFacts
 
 
@@ -909,3 +919,291 @@ class TestAwaitIngestSettling:
 def test_session_collection_name_is_idempotent():
     assert _session_collection_name("abc") == "s_abc"
     assert _session_collection_name("s_abc") == "s_abc"
+
+
+class TestLoadSessionRegistry:
+    """The registry hydration is a blocking cache round-trip: it rides a
+    thread, and any failure yields a fresh registry — never a failed turn."""
+
+    async def test_passthrough_on_success(self):
+        registry = SourceRegistry()
+        with patch.object(register_module, "get_or_create_session_registry", return_value=registry):
+            assert await _load_session_registry("conv-1") is registry
+
+    async def test_fresh_registry_on_failure(self):
+        import threading
+
+        calling_thread = threading.current_thread().name
+        seen_threads: list[str] = []
+
+        def _hydrate(_conversation_id):
+            seen_threads.append(threading.current_thread().name)
+            raise RuntimeError("cache down")
+
+        with patch.object(register_module, "get_or_create_session_registry", side_effect=_hydrate):
+            fallback = await _load_session_registry("conv-1")
+        assert isinstance(fallback, SourceRegistry)
+        # Off the event loop even on the failing path.
+        assert seen_threads and seen_threads[0] != calling_thread
+
+
+def _refuse_turn_admission(_organization_id):
+    raise TurnAdmissionError("busy, try again", retry_after_seconds=7)
+
+
+@contextlib.asynccontextmanager
+async def _allow_turn_admission(_organization_id):
+    yield None
+
+
+def _turn_builder():
+    """A NAT builder double: two inert research functions, no tools."""
+    shallow_fn = MagicMock()
+    shallow_fn.ainvoke = AsyncMock()
+    deep_fn = MagicMock()
+    deep_fn.ainvoke = AsyncMock()
+    builder = MagicMock()
+    builder.get_function = AsyncMock(
+        side_effect=lambda name: {"shallow_research_agent": shallow_fn, "deep_research_agent": deep_fn}[name]
+    )
+    builder.get_function_config = MagicMock(return_value=SimpleNamespace(tools=[], exclude_tools=[]))
+    builder.get_tools = AsyncMock(return_value=[])
+    return builder
+
+
+def _fake_request_context():
+    """A live request context double: profiling, cost tracking and the setup
+    loads read THROUGH from_context, so making it raise deactivates the very
+    ledgers these tests assert on. IDs stay None so the live-digest branch
+    takes its header fallback: any real ID would send the turn to the real
+    BFF inside to_thread."""
+    return SimpleNamespace(
+        project_context=None,
+        project_memory=None,
+        project_id=None,
+        organization_id=None,
+        memory_reflection_enabled=False,
+        user_id="user-test",
+        bundesland=None,
+    )
+
+
+def _turn_patches(**overrides):
+    """The seams a turn needs off a live stack: request context, principals,
+    document stores and ledger endpoints are all doubled."""
+    from aiq_agent.common.citation_verification import SourceRegistry as _Registry
+
+    patches = {
+        "checkpointer": patch.object(register_module, "get_checkpointer", new=AsyncMock(return_value=None)),
+        "appender": patch.object(register_module, "register_context_appender"),
+        "nat_context": patch(
+            "nat.builder.context.Context.get",
+            return_value=SimpleNamespace(conversation_id="conv-test"),
+        ),
+        "principal": patch("aiq_agent.auth.get_current_principal", return_value=None),
+        "scope": patch("aiq_agent.knowledge.scoping.get_scoped_collections_from_context", return_value=None),
+        "scope_names": patch("aiq_agent.knowledge.scoping.get_collection_scope_from_context", return_value=None),
+        "documents": patch.object(
+            register_module, "_aggregate_documents_across_collections", new=AsyncMock(return_value=[])
+        ),
+        "request_context": patch(
+            "aiq_agent.project_context.GridRequestContext.from_context",
+            return_value=_fake_request_context(),
+        ),
+        "user_message_id": patch.object(register_module, "get_user_message_id_from_context", return_value="msg-1"),
+        "stage_flags": patch.object(register_module, "resolve_enabled_stages", new=AsyncMock(return_value=frozenset())),
+        "persist": patch.object(register_module, "_schedule_registry_persist"),
+        "ingest_status": patch("aiq_agent.knowledge.ingest_status_store.in_flight_files", return_value={}),
+        "registry": patch.object(register_module, "get_or_create_session_registry", return_value=_Registry()),
+        "status": patch("aiq_agent.common.turn_status.emit_documents_loading"),
+        # Off the loop and off the network: the lessons digest is a real BFF
+        # round-trip on a cold cache, which a hermetic turn test must not pay.
+        "lessons": patch(
+            "aiq_agent.common.platform_lessons.get_platform_lessons_digest",
+            return_value=None,
+        ),
+        "profiler_post": patch("aiq_agent.common.profiler._post_profiler_spans"),
+        "usage_post": patch("aiq_agent.common.cost_tracking._post_usage_events"),
+    }
+    patches.update(overrides)
+    return patches
+
+
+async def _drive_turn(query_text="Wie hoch darf die Brüstung sein?", **patch_overrides):
+    """Build the real turn function with doubled seams and consume one turn.
+
+    Every patch is entered BEFORE registration: the register body itself
+    builds a checkpointer, LLM handles and the context appender, and letting
+    those run for real costs a SQLite database in the repo root plus threads
+    that outlive the test process."""
+    builder = _turn_builder()
+    patches = _turn_patches(**patch_overrides)
+    entered = [patches[key].__enter__() for key in patches]
+    gen = chat_deepresearcher_agent.__wrapped__(ChatDeepResearcherConfig(), builder)
+    function_info = await gen.__anext__()
+    # Chunks come from the streaming entry point: single_fn folds them into
+    # one response (a coroutine), it never yields.
+    assert function_info.stream_fn is not None
+    run_fn = function_info.stream_fn
+    try:
+        chunks = [chunk async for chunk in run_fn(HumanMessage(content=query_text))]
+    finally:
+        for patcher in reversed(list(patches.values())):
+            patcher.__exit__(None, None, None)
+        await gen.aclose()
+    by_name = dict(zip(patches, entered, strict=True))
+    return chunks, by_name
+
+
+def _posted_spans(profiler_post):
+    assert profiler_post.call_count == 1
+    return profiler_post.call_args.args[0]["spans"]
+
+
+class TestTurnRefusalFlush:
+    """A refused turn still owes the reader its answer AND its ledgers: the
+    root span — carrying the refusal outcome — must be posted, which only
+    happens when the flush runs after the profiled block has exited."""
+
+    async def test_admission_refusal_posts_the_root_span_with_outcome(self):
+        chunks, by_name = await _drive_turn(
+            admission=patch("aiq_agent.common.turn_admission.admit_turn_async", new=_refuse_turn_admission),
+        )
+
+        assert len(chunks) == 1
+        assert chunks[0].choices[0].delta.content == "busy, try again"
+        assert chunks[0].choices[0].finish_reason == "stop"
+        assert getattr(chunks[0], "retry_after_seconds", None) == 7
+
+        spans = _posted_spans(by_name["profiler_post"])
+        root = next(s for s in spans if s["kind"] == "turn")
+        assert root["name"] == "chat_researcher"
+        assert root["status"] == "ok"
+        assert (root["metadata"] or {}).get("outcome") == "admission_refused"
+        wait = next(s for s in spans if s["name"] == "admission.wait")
+        assert wait["status"] == "ok"
+        assert (wait["metadata"] or {}).get("refused") is True
+
+    async def test_a_failing_setup_branch_does_not_lose_the_turn(self):
+        """The registry hydration dies; the other branches still land and the
+        refusal is still answered and posted."""
+        chunks, by_name = await _drive_turn(
+            admission=patch("aiq_agent.common.turn_admission.admit_turn_async", new=_refuse_turn_admission),
+            registry=patch.object(
+                register_module, "get_or_create_session_registry", side_effect=RuntimeError("cache down")
+            ),
+        )
+
+        assert len(chunks) == 1
+        assert chunks[0].choices[0].delta.content == "busy, try again"
+        spans = _posted_spans(by_name["profiler_post"])
+        assert any(s["kind"] == "turn" for s in spans)
+
+    async def test_an_exception_out_of_the_turn_body_still_flushes(self):
+        """No swallowed exception: it propagates, but the ledgers post first."""
+        import pytest
+
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("agent down")
+
+        # Drive manually: the agent itself raises, after admission passed.
+        builder = _turn_builder()
+        patches = _turn_patches(
+            admission=patch("aiq_agent.common.turn_admission.admit_turn_async", new=_allow_turn_admission),
+        )
+        entered = {key: patches[key].__enter__() for key in patches}
+        gen = chat_deepresearcher_agent.__wrapped__(ChatDeepResearcherConfig(), builder)
+        function_info = await gen.__anext__()
+        assert function_info.stream_fn is not None
+        run_fn = function_info.stream_fn
+        try:
+            with patch(
+                "aiq_agent.agents.chat_researcher.agent.ChatResearcherAgent.run",
+                new=_boom,
+            ):
+                with pytest.raises(RuntimeError, match="agent down"):
+                    [chunk async for chunk in run_fn(HumanMessage(content="hallo"))]
+        finally:
+            for patcher in reversed(list(patches.values())):
+                patcher.__exit__(None, None, None)
+            await gen.aclose()
+        spans = _posted_spans(entered["profiler_post"])
+        root = next(s for s in spans if s["kind"] == "turn")
+        assert root["status"] == "error"
+
+
+class TestTurnCliFlush:
+    """The CLI hard-exits after the answer: the ledgers post inline and
+    blocking, because the background worker would not survive the exit."""
+
+    async def test_cli_posts_both_ledgers_inline_with_wait(self):
+        import sys
+
+        from aiq_agent.common.cost_tracking import GridCostTracker
+        from aiq_agent.common.profiler import AgentProfiler
+
+        profiler_calls: list[bool] = []
+        tracker_calls: list[bool] = []
+        real_profiler_flush = AgentProfiler.flush
+        real_tracker_flush = GridCostTracker.flush
+
+        def _spy_profiler(self, *, wait):
+            profiler_calls.append(wait)
+            return real_profiler_flush(self, wait=wait)
+
+        def _spy_tracker(self, *, wait):
+            tracker_calls.append(wait)
+            return real_tracker_flush(self, wait=wait)
+
+        class _StubAgent:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def run(self, state, thread_id=None):
+                return SimpleNamespace(messages=[AIMessage(content="Die Antwort.")])
+
+            def append_context_message(self, *args, **kwargs):
+                return None
+
+        builder = _turn_builder()
+        patches = _turn_patches(
+            agent=patch("aiq_agent.agents.chat_researcher.agent.ChatResearcherAgent", _StubAgent),
+            stages=patch.object(register_module, "schedule_post_answer_stages"),
+            argv=patch.object(sys, "argv", ["nat", "run", "--input", "hallo"]),
+            no_exit=patch("os._exit"),
+        )
+        # NOTE: threading.Thread is deliberately NOT patched: the loop's
+        # default executor spawns its workers through it, so neutering it
+        # hangs every asyncio.to_thread in the turn forever. The real
+        # exit_after_response thread sleeps 0.2s and then calls the mocked
+        # os._exit, which is harmless.
+        entered = {key: patches[key].__enter__() for key in patches}
+        gen = chat_deepresearcher_agent.__wrapped__(ChatDeepResearcherConfig(), builder)
+        function_info = await gen.__anext__()
+        assert function_info.stream_fn is not None
+        run_fn = function_info.stream_fn
+        try:
+            with (
+                patch.object(AgentProfiler, "flush", _spy_profiler),
+                patch.object(GridCostTracker, "flush", _spy_tracker),
+            ):
+                chunks = [chunk async for chunk in run_fn(HumanMessage(content="hallo"))]
+
+            assert chunks, "the CLI turn still answers"
+            assert profiler_calls and all(wait is True for wait in profiler_calls)
+            assert tracker_calls and all(wait is True for wait in tracker_calls)
+            # Drain the hard-exit thread BEFORE the finally below exits the
+            # patches: the thread fires 0.2s after the turn's own finally
+            # spawns it, and anything asserting or waiting out here runs with
+            # the REAL os._exit — a thread that outlives the mocks would fire
+            # it mid-suite and silently kill the whole pytest process with
+            # code 0. Polling (not sleeping) also proves the exit path ran.
+            for _ in range(200):
+                if entered["no_exit"].call_count:
+                    break
+                await asyncio.sleep(0.01)
+            entered["no_exit"].assert_called_once_with(0)
+        finally:
+            for patcher in reversed(list(patches.values())):
+                patcher.__exit__(None, None, None)
+            await gen.aclose()

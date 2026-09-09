@@ -32,6 +32,8 @@ export {
   isHttpUrl,
   locusKey,
   locusOf,
+  normalizeFileKey,
+  normalizeFileName,
   normalizeUrl,
   refHost,
   refKey,

@@ -26,6 +26,7 @@ import type { TraceLaneCard } from '../trace-lanes'
 import {
   CitationAccumulator,
   isHttpUrl,
+  normalizeFileName,
   oibDocumentKey,
   stripOriginToken,
   type CitedDocument,
@@ -161,6 +162,28 @@ const addWireCitations = (
  * complete document rather than a degraded chip, because the title, kind and
  * tint come from the same resolution every other producer uses.
  */
+/** Trailing page token of a written source line, when the strict locator rejects it. */
+const LOOSE_PAGE_RE = /[,\s]\s*(?:p\.?|page)\s*(\d+)\s*$/i
+
+/**
+ * Filename + page of a written source line the strict locator could not read.
+ *
+ * `parseKbLocator` demands a dotted extension, which the model routinely
+ * drops (`oib-rl-2 ausgabe mai 2023, p.1`). What remains is still a reference:
+ * a name and a trailing page token. Splitting them here is what lets the line
+ * meet its wire document by filename + number instead of becoming a second,
+ * dead chip for the same `[N]`.
+ */
+const splitWrittenRef = (text: string): { name: string; page?: number } => {
+  const match = LOOSE_PAGE_RE.exec(text)
+  if (!match) return { name: text }
+  const page = Number(match[1])
+  return {
+    name: text.slice(0, match.index).trim(),
+    page: Number.isFinite(page) ? page : undefined,
+  }
+}
+
 const addWrittenEntries = (
   accumulator: CitationAccumulator,
   entries: ReportSourceEntry[] | undefined
@@ -185,6 +208,17 @@ const addWrittenEntries = (
     }
 
     const locator = parseKbLocator(title || text)
+    const ref = locator
+      ? { name: locator.filename, page: locator.page }
+      : splitWrittenRef(stripOriginToken(title || text))
+    // A written line that means an already-known `[N]` of an already-known
+    // file joins that document instead of creating a second observation with
+    // a never-meeting identity.
+    const existing = accumulator.findByFileAndNumber(normalizeFileName(ref.name), entry.number)
+    if (existing) {
+      accumulator.attachLocus(existing, { page: ref.page, number: entry.number, isCited: true })
+      continue
+    }
     const origin = entry.sourceKind ? ENTRY_KIND_TO_ORIGIN[entry.sourceKind] : undefined
 
     accumulator.add({

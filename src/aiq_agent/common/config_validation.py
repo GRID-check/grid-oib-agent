@@ -4,6 +4,14 @@ import os
 import re
 from typing import Any
 
+# Host of the removed NVIDIA NIM endpoint. Any llm entry still pointing here,
+# or still typed `nim`, is a stale config — not a working provider.
+NIM_API_HOST = "integrate.api.nvidia.com"
+
+# Surfaced whenever NIM remnants are found: names the supported config so the
+# failure is actionable at startup instead of a deep client error later.
+NIM_UNSUPPORTED_MESSAGE = "nim configs no longer supported; migrate to config_oib_openrouter.yml"
+
 # Mapping of LLM _type to required API key environment variable names
 # This can be extended as new providers are added
 LLM_API_KEY_MAP = {
@@ -50,6 +58,40 @@ def _get_llm_api_key_requirements(llm_config: dict[str, Any]) -> list[str]:
     return required_keys
 
 
+def find_nim_llms(config: dict[str, Any]) -> list[str]:
+    """
+    Names of ``llms`` entries still pointing at the removed NVIDIA NIM provider.
+
+    An entry qualifies by its ``_type`` (``nim``) or by its ``base_url`` host
+    (``integrate.api.nvidia.com``) — either is a stale config, and since the
+    ``nim`` key mapping was dropped such an entry would otherwise validate
+    silently and fail later inside a client call.
+    """
+    offenders = []
+    llms_config = config.get("llms", {}) or {}
+    for llm_name, llm_config in llms_config.items():
+        if not isinstance(llm_config, dict):
+            continue
+        llm_type = str(llm_config.get("_type", "")).lower()
+        base_url = str(llm_config.get("base_url", "")).lower()
+        if llm_type == "nim" or (base_url and NIM_API_HOST in base_url):
+            offenders.append(llm_name)
+    return offenders
+
+
+def assert_no_nim_llms(config: dict[str, Any]) -> None:
+    """
+    Fail fast on NIM remnants — raise, never let them reach a client.
+
+    Raises:
+        ValueError: With a message naming the supported config, when any
+            ``llms`` entry still uses ``_type: nim`` or the NVIDIA endpoint.
+    """
+    offenders = find_nim_llms(config)
+    if offenders:
+        raise ValueError(f"{NIM_UNSUPPORTED_MESSAGE} (offending llm entries: {', '.join(offenders)})")
+
+
 def validate_llm_configs(config: dict[str, Any]) -> tuple[bool, list[str]]:
     """
     Validate that all required API keys are set for LLMs in the configuration.
@@ -61,7 +103,13 @@ def validate_llm_configs(config: dict[str, Any]) -> tuple[bool, list[str]]:
         Tuple of (is_valid, missing_keys) where:
         - is_valid: True if all required keys are present
         - missing_keys: List of missing API key names
+
+    Raises:
+        ValueError: When any ``llms`` entry still uses the removed NIM
+            provider (see :func:`assert_no_nim_llms`) — a stale config must
+            fail here, not later inside a client call.
     """
+    assert_no_nim_llms(config)
     llms_config = config.get("llms", {})
     if not llms_config:
         return True, []

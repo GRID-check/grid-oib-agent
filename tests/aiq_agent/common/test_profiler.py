@@ -242,6 +242,68 @@ class TestProfiledSpan:
         assert {s["parentSpanId"] for s in spans if s["name"].startswith("setup.")} == {root["spanId"]}
 
 
+class TestCancellationStatus:
+    """A cancelled turn is abandoned work, not failed work."""
+
+    async def test_profiled_span_marks_cancelled_not_error(self):
+        import asyncio
+
+        from aiq_agent.common.profiler import profiled_span
+
+        with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
+            with pytest.raises(asyncio.CancelledError):
+                with track_agent_profile(agent_name="chat_researcher", identity={"organization_id": "org_1"}):
+                    with profiled_span("setup.project_context"):
+                        raise asyncio.CancelledError()
+        setup = next(s for s in post.call_args.args[0]["spans"] if s["name"] == "setup.project_context")
+        assert setup["status"] == "cancelled"
+        assert setup["errorMessage"] is None
+
+    async def test_profiled_node_marks_cancelled_not_error(self):
+        import asyncio
+
+        async def fn():
+            raise asyncio.CancelledError()
+
+        wrapped = profiled_node("cancelled_node", fn)
+        with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
+            with pytest.raises(asyncio.CancelledError):
+                with track_agent_profile(agent_name="chat_researcher", identity={"organization_id": "org_1"}):
+                    await wrapped()
+        node = next(s for s in post.call_args.args[0]["spans"] if s["name"] == "cancelled_node")
+        assert node["status"] == "cancelled"
+        assert node["errorMessage"] is None
+
+    def test_generator_exit_is_not_marked_error(self):
+        from aiq_agent.common.profiler import profiled_span
+
+        with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
+            with pytest.raises(GeneratorExit):
+                with track_agent_profile(agent_name="chat_researcher", identity={"organization_id": "org_1"}):
+                    with profiled_span("setup.ingest_wait"):
+                        raise GeneratorExit()
+        spans = post.call_args.args[0]["spans"]
+        assert all(s["status"] != "error" for s in spans)
+        # "not marked error" was also satisfied by not recording the span AT
+        # ALL, which is what narrowing to `except Exception` actually did: the
+        # span stayed open and the waterfall lost the row that says where the
+        # turn stopped. Assert it is present and cancelled, not merely not-error.
+        span = next(s for s in spans if s["name"] == "setup.ingest_wait")
+        assert span["status"] == "cancelled"
+
+    @pytest.mark.parametrize("exc", [KeyboardInterrupt, SystemExit], ids=["keyboard-interrupt", "system-exit"])
+    def test_a_non_exception_unwind_still_closes_the_span(self, exc):
+        from aiq_agent.common.profiler import profiled_span
+
+        with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
+            with pytest.raises(exc):
+                with track_agent_profile(agent_name="chat_researcher", identity={"organization_id": "org_1"}):
+                    with profiled_span("setup.ingest_wait"):
+                        raise exc()
+        span = next(s for s in post.call_args.args[0]["spans"] if s["name"] == "setup.ingest_wait")
+        assert span["status"] == "error"
+
+
 class TestDeferredFlush:
     """The chat turn posts its ledgers AFTER the answer is on the wire, not
     between the finished answer and its first delta."""
