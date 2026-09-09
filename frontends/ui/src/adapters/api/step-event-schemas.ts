@@ -243,9 +243,25 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
   'status.citations': 'thinking.turnStatus.',
   'status.repair': 'thinking.turnStatus.',
   'status.escalation': 'thinking.turnStatus.',
+  // A FULL path, not a prefix: `status.escalation` is a string leaf in the
+  // dictionary, so a key nested under it has nowhere to live by prefix. A value
+  // that does not end in `.` is taken as the whole path (ADR-0054, the
+  // Portfolio-Recherche hand-off; the key carries `{count}`).
+  'status.escalation.portfolio': 'thinking.turnStatus.status.escalationPortfolio',
   // Skill keys drop the `skill.` segment: it is already the dictionary group.
   'skill.activated': 'thinking.',
   'skill.forced': 'thinking.',
+}
+
+/**
+ * The dictionary path (below the `chat` namespace) a turn-event key renders
+ * from: a value ending in `.` is a prefix the key is appended to, anything else
+ * is the whole path. `null` for a key this UI cannot phrase.
+ */
+export const turnEventDictionaryPath = (key: string): string | null => {
+  const target = TURN_EVENT_KEYS[key]
+  if (target === undefined) return null
+  return target.endsWith('.') ? `${target}${key}` : target
 }
 
 /** Keys whose template has a `{corpus}` slot filled from a list of corpus ids. */
@@ -289,8 +305,8 @@ export const renderTurnEventKey = (
   values: Record<string, string> | undefined,
   t: StepEventTranslator
 ): string | null => {
-  const prefix = TURN_EVENT_KEYS[key]
-  if (prefix === undefined) return null
+  const path = turnEventDictionaryPath(key)
+  if (path === null) return null
 
   const vars: Record<string, string> = { ...(values ?? {}) }
   if (CORPUS_KEYS.has(key)) {
@@ -299,10 +315,10 @@ export const renderTurnEventKey = (
     vars.corpus = phrase
   }
 
-  const rendered = t(`${prefix}${key}`, vars).trim()
+  const rendered = t(path, vars).trim()
   // Belt and braces against the translator's key-as-fallback: a key listed
   // above but missing from the dictionary must still not reach the screen.
-  return rendered && rendered !== `${prefix}${key}` ? rendered : null
+  return rendered && rendered !== path ? rendered : null
 }
 
 /**
