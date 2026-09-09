@@ -94,6 +94,104 @@ describe('mount', () => {
   })
 })
 
+describe('the two 409s', () => {
+  it('reads the exclusion refusal as its own code, with the people it names', async () => {
+    fetchMock.mockResolvedValue(
+      json(409, {
+        code: 'WORKSPACE_MOUNT_WOULD_EXCLUDE',
+        excluded: ['Anna Meier', 'Bernd Huber'],
+      })
+    )
+
+    await expect(mountsClient.mount('c', 'p')).rejects.toMatchObject({
+      code: 'would_exclude',
+      excluded: ['Anna Meier', 'Bernd Huber'],
+    })
+  })
+
+  it('still reads a bodyless 409 as the cap, which is the older and commoner one', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => {
+        throw new Error('no body')
+      },
+    } as unknown as Response)
+
+    await expect(mountsClient.mount('c', 'p')).rejects.toMatchObject({ code: 'cap' })
+  })
+})
+
+describe('mountSet', () => {
+  const answer = {
+    set: { id: 's1', name: 'Bezirk 3' },
+    mounts: [
+      {
+        mount: {
+          projectId: 'p1',
+          projectName: 'Seestadt Nord',
+          mountedBy: 'user',
+          mountedAt: '2026-09-08T10:00:00.000Z',
+        },
+        grant: { grant: 'b64', sig: 'hex' },
+        created: true,
+      },
+    ],
+    skipped: [{ projectId: 'p2', projectName: 'Nordbahnhof', reason: 'forbidden' }],
+  }
+
+  it('posts the SET id, never a project id', async () => {
+    fetchMock.mockResolvedValue(json(201, answer))
+
+    const result = await mountsClient.mountSet('conv-1', 's1')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/conversations/conv-1/mounts',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ projectSetId: 's1' }) })
+    )
+    expect(result.set).toEqual({ id: 's1', name: 'Bezirk 3' })
+    expect(result.mounts.map((m) => m.projectId)).toEqual(['p1'])
+  })
+
+  it('reports the skipped members rather than throwing away the half that worked', async () => {
+    fetchMock.mockResolvedValue(json(201, answer))
+
+    const result = await mountsClient.mountSet('c', 's1')
+
+    expect(result.skipped).toEqual([
+      { projectId: 'p2', projectName: 'Nordbahnhof', reason: 'forbidden' },
+    ])
+  })
+
+  it('carries the Sammlung’s name on the cap refusal, so the sentence can name it', async () => {
+    fetchMock.mockResolvedValue(
+      json(409, {
+        code: 'WORKSPACE_MOUNT_CAP',
+        cap: 5,
+        mounted: ['A'],
+        set: { id: 's1', name: 'Bezirk 3' },
+      })
+    )
+
+    await expect(mountsClient.mountSet('c', 's1')).rejects.toMatchObject({
+      code: 'cap',
+      cap: 5,
+      set: { id: 's1', name: 'Bezirk 3' },
+    })
+  })
+
+  it.each([
+    [403, 'no_access'],
+    [404, 'not_found'],
+    [500, 'unavailable'],
+  ])('maps %i to the %s refusal, exactly as one project does', async (status, code) => {
+    fetchMock.mockResolvedValue(json(status, {}))
+    const error = await mountsClient.mountSet('c', 's1').catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(MountRefusedError)
+    expect((error as MountRefusedError).code).toBe(code)
+  })
+})
+
 describe('unmount', () => {
   it('deletes by project id', async () => {
     fetchMock.mockResolvedValue(json(204, {}))

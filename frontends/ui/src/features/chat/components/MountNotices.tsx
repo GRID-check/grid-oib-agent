@@ -22,7 +22,13 @@ import { type FC } from 'react'
 
 import { useLayoutStore } from '@/features/layout/store'
 import { useChatStore } from '../store'
-import { MountCapNotice, MountNotice, MountRefusedNotice } from './MountNotice'
+import {
+  MountCapNotice,
+  MountExcludedNotice,
+  MountNotice,
+  MountRefusedNotice,
+  MountSkippedNotice,
+} from './MountNotice'
 
 /**
  * A stable empty list, for a store shape that does not carry the mounts slice.
@@ -38,6 +44,7 @@ const NO_NOTICES: never[] = []
 export const MountNotices: FC = () => {
   const notices = useChatStore((s) => s.mountNotices ?? NO_NOTICES)
   const refusal = useChatStore((s) => s.mountRefusal)
+  const skipped = useChatStore((s) => s.mountSkipped ?? NO_NOTICES)
   const conversationId = useChatStore((s) => s.currentConversation?.id ?? null)
   const unmountProject = useChatStore((s) => s.unmountProject)
   const mountCap = useChatStore((s) => s.mountCap)
@@ -46,7 +53,7 @@ export const MountNotices: FC = () => {
   // they had not finished writing would be a different promise.
   const setDeepResearchIntent = useLayoutStore((s) => s.setDeepResearchIntent)
 
-  if (notices.length === 0 && !refusal) return null
+  if (notices.length === 0 && !refusal && skipped.length === 0) return null
 
   return (
     <div className="flex flex-col gap-2" data-testid="mount-notices">
@@ -76,11 +83,21 @@ export const MountNotices: FC = () => {
         (refusal.code === 'cap' ? (
           <MountCapNotice
             max={refusal.cap ?? mountCap}
+            setName={refusal.setName ?? null}
             onDeepResearch={() => setDeepResearchIntent(true)}
           />
+        ) : refusal.code === 'would_exclude' ? (
+          // The one refusal that is about OTHER PEOPLE rather than the project
+          // or the reader, so it names them and offers the two real remedies
+          // instead of the deep-research offer, which would lead nowhere here.
+          <MountExcludedNotice excluded={refusal.excluded ?? NO_NOTICES} />
         ) : (
           <MountRefusedNotice projectName={refusal.projectName ?? null} code={refusal.code} />
         ))}
+
+      {/* What a Sammlung left behind. Not a refusal — the rest of the set is in
+          view, each member with its own undoable notice above this one. */}
+      <MountSkippedNotice names={skipped} />
     </div>
   )
 }

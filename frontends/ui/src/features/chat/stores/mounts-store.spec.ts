@@ -24,6 +24,7 @@ vi.mock('@/adapters/api', async (importOriginal) => {
     mountsClient: {
       list: vi.fn(),
       mount: vi.fn(),
+      mountSet: vi.fn(),
       unmount: vi.fn(),
     },
   }
@@ -33,6 +34,7 @@ const { mountsClient } = await import('@/adapters/api')
 const client = mountsClient as unknown as {
   list: ReturnType<typeof vi.fn>
   mount: ReturnType<typeof vi.fn>
+  mountSet: ReturnType<typeof vi.fn>
   unmount: ReturnType<typeof vi.fn>
 }
 
@@ -237,5 +239,95 @@ describe('the cap', () => {
     expect(canMountMore({ mounts: [], mountCap: 0 })).toBe(false)
     expect(canMountMore({ mounts: [], mountCap: 5 })).toBe(true)
     expect(canMountMore({ mounts: [mount('a', 'A')], mountCap: 1 })).toBe(false)
+  })
+})
+
+
+describe('a Sammlung', () => {
+  it('produces one chip AND one notice per member, in one write', async () => {
+    const { get } = makeSlice()
+    client.mountSet.mockResolvedValue({
+      set: { id: 's1', name: 'Bezirk 3' },
+      mounts: [mount('a', 'Seestadt Nord'), mount('b', 'Rosenhügel')],
+      skipped: [],
+    })
+
+    await get().mountProjectSet('c1', 's1', 'Bezirk 3')
+
+    expect(get().mounts.map((m) => m.projectId)).toEqual(['a', 'b'])
+    expect(get().mountNotices.map((n) => n.projectName)).toEqual(['Seestadt Nord', 'Rosenhügel'])
+    // Each member is undoable on its own: a set is a gesture, not a unit of
+    // scope, and the conversation now simply reads two projects.
+    expect(get().mountNotices.every((n) => n.by === 'user')).toBe(true)
+  })
+
+  it('gives a member already in view no second notice', async () => {
+    const { get } = makeSlice()
+    client.mount.mockResolvedValue(mount('a', 'Seestadt Nord'))
+    await get().mountProject('c1', 'a', 'Seestadt Nord')
+
+    client.mountSet.mockResolvedValue({
+      set: { id: 's1', name: 'Bezirk 3' },
+      mounts: [mount('a', 'Seestadt Nord'), mount('b', 'Rosenhügel')],
+      skipped: [],
+    })
+    await get().mountProjectSet('c1', 's1', 'Bezirk 3')
+
+    expect(get().mounts).toHaveLength(2)
+    expect(get().mountNotices).toHaveLength(2)
+  })
+
+  it('keeps the skipped members as a fact about the set, named', async () => {
+    const { get } = makeSlice()
+    client.mountSet.mockResolvedValue({
+      set: { id: 's1', name: 'Bezirk 3' },
+      mounts: [mount('a', 'Seestadt Nord')],
+      skipped: [{ projectId: 'b', projectName: 'Nordbahnhof', reason: 'forbidden' }],
+    })
+
+    expect(await get().mountProjectSet('c1', 's1', 'Bezirk 3')).toBe(true)
+    expect(get().mountSkipped).toEqual(['Nordbahnhof'])
+    // Skipping is not refusing: the rest of the Sammlung IS in view.
+    expect(get().mountRefusal).toBeNull()
+    expect(get().mounts).toHaveLength(1)
+  })
+
+  it('stores the exclusion refusal as a code with the people it names', async () => {
+    const { get } = makeSlice()
+    client.mountSet.mockRejectedValue(
+      new MountRefusedError('excluded', 409, 'would_exclude', {
+        excluded: ['Anna Meier'],
+        set: { id: 's1', name: 'Bezirk 3' },
+      })
+    )
+
+    expect(await get().mountProjectSet('c1', 's1', 'Bezirk 3')).toBe(false)
+    expect(get().mountRefusal).toEqual({
+      code: 'would_exclude',
+      projectName: undefined,
+      setName: 'Bezirk 3',
+      excluded: ['Anna Meier'],
+    })
+    expect(get().mounts).toEqual([])
+  })
+
+  it('keeps the skipped list past the panel, and drops it on the next attempt', async () => {
+    const { get } = makeSlice()
+    client.mountSet.mockResolvedValue({
+      set: { id: 's1', name: 'Bezirk 3' },
+      mounts: [],
+      skipped: [{ projectId: 'b', projectName: 'Nordbahnhof', reason: 'forbidden' }],
+    })
+    await get().mountProjectSet('c1', 's1', 'Bezirk 3')
+
+    // Closing the tree dismisses the refusal, which was ALSO drawn at the row
+    // that was pressed. The skipped list is only ever in the transcript, so the
+    // same gesture must not take it: nobody has read it yet.
+    get().clearMountRefusal()
+    expect(get().mountSkipped).toEqual(['Nordbahnhof'])
+
+    client.mount.mockResolvedValue(mount('a', 'Seestadt Nord'))
+    await get().mountProject('c1', 'a', 'Seestadt Nord')
+    expect(get().mountSkipped).toEqual([])
   })
 })

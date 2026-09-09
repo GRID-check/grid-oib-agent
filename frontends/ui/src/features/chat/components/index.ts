@@ -27,8 +27,19 @@ export type { DeepResearchBannerProps } from './DeepResearchBanner'
 export { NoSourcesBanner } from './NoSourcesBanner'
 
 // Mounted projects, said out loud in the transcript (ADR-0054).
-export { MountNotice, MountCapNotice, MountRefusedNotice } from './MountNotice'
-export type { MountNoticeProps, MountNoticeReason } from './MountNotice'
+export {
+  MountNotice,
+  MountCapNotice,
+  MountExcludedNotice,
+  MountRefusedNotice,
+  MountSkippedNotice,
+} from './MountNotice'
+export type {
+  MountNoticeProps,
+  MountNoticeReason,
+  MountExcludedNoticeProps,
+  MountSkippedNoticeProps,
+} from './MountNotice'
 export { MountNotices } from './MountNotices'
 
 // Thinking/status components

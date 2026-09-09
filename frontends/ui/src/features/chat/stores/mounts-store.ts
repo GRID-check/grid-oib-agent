@@ -31,7 +31,12 @@
  */
 
 import type { StateCreator } from 'zustand'
-import { mountsClient, MountRefusedError, type Mount } from '@/adapters/api'
+import {
+  mountsClient,
+  MountRefusedError,
+  type Mount,
+  type MountRefusalCode,
+} from '@/adapters/api'
 import type { MountEvent } from '../lib/mount-events'
 import type { ChatStore } from '../types'
 
@@ -50,13 +55,21 @@ export interface MountNoticeEntry {
   undoFailed?: boolean
 }
 
-/** A mount the office refused, in the two facts a sentence needs. */
+/** A mount the office refused, in the facts its sentence needs. */
 export interface MountRefusal {
-  code: 'cap' | 'no_access' | 'not_found' | 'unavailable'
+  code: MountRefusalCode
   /** Absent when the refusal never named a project. */
   projectName?: string
   /** Only on `cap`, and only when the server stated it. */
   cap?: number
+  /**
+   * Only on `would_exclude`: the participants who would lose this conversation.
+   * Empty is possible — the server names who it can — and the sentence has a
+   * form for that, so the list is not a precondition for the notice.
+   */
+  excluded?: string[]
+  /** Set when a SAMMLUNG is what was refused, so the sentence can name it. */
+  setName?: string
 }
 
 export type MountsSlice = {
@@ -76,6 +89,18 @@ export type MountsSlice = {
   mountsPending: string[]
   /** The last refusal, until something clears it. */
   mountRefusal: MountRefusal | null
+  /**
+   * Names of the projects the last mounted Sammlung left out, empty when none.
+   *
+   * It outlives the panel that raised it, unlike {@link mountRefusal}: the
+   * refusal is also drawn inline in the tree, at the row that was pressed, so
+   * dismissing the tree dismisses a sentence the reader has already read. This
+   * one is drawn ONLY in the transcript, and clearing it on close would mean
+   * the reader who mounted a Sammlung and shut the tree never learns that two
+   * of its projects stayed out. It is replaced by the next mount attempt, and
+   * dropped with the conversation.
+   */
+  mountSkipped: string[]
   /** Every mount this conversation has seen, in the order it happened. */
   mountNotices: MountNoticeEntry[]
 
@@ -92,6 +117,21 @@ export type MountsSlice = {
     /** For the REFUSAL's sentence only — a success is named by the server. */
     projectName?: string,
     by?: MountReason
+  ) => Promise<boolean>
+  /**
+   * Show this conversation a whole **Sammlung** (spec GR-2).
+   *
+   * One call, one cap check, one refusal — decided over the whole set before
+   * anything is written — and then the SAME notices a person's five clicks
+   * would have produced, one per project, each undoable on its own. A set is a
+   * gesture, not a unit of scope: once mounted, the conversation reads five
+   * projects and knows nothing about how they arrived.
+   */
+  mountProjectSet: (
+    conversationId: string,
+    projectSetId: string,
+    /** For the REFUSAL's sentence only — a success is named by the server. */
+    setName?: string
   ) => Promise<boolean>
   /** Take a project back out of view. `noticeId` marks its notice undone. */
   unmountProject: (
@@ -114,6 +154,7 @@ export const initialMountsState = {
   mountsLoading: false,
   mountsPending: [] as string[],
   mountRefusal: null as MountRefusal | null,
+  mountSkipped: [] as string[],
   mountNotices: [] as MountNoticeEntry[],
 }
 
@@ -133,15 +174,19 @@ const noticeId = (projectId: string): string =>
  * failure and a 500 are the same fact to the reader — it did not happen, and it
  * was not their doing.
  */
-const refusalOf = (error: unknown, projectName?: string): MountRefusal => {
+const refusalOf = (error: unknown, projectName?: string, setName?: string): MountRefusal => {
   if (error instanceof MountRefusedError) {
     return {
       code: error.code,
       projectName,
+      // The server's own word for the set beats the caller's, which is only
+      // what the row said before the call.
+      ...(error.set?.name ?? setName ? { setName: error.set?.name ?? setName } : {}),
       ...(error.cap !== undefined ? { cap: error.cap } : {}),
+      ...(error.excluded ? { excluded: error.excluded } : {}),
     }
   }
-  return { code: 'unavailable', projectName }
+  return { code: 'unavailable', projectName, ...(setName ? { setName } : {}) }
 }
 
 export const createMountsSlice: StateCreator<
@@ -200,6 +245,7 @@ export const createMountsSlice: StateCreator<
         mountsConversationId: conversationId,
         mountsPending: [...get().mountsPending, projectId],
         mountRefusal: null,
+        mountSkipped: [],
       },
       false,
       'mountProject/start'
@@ -239,6 +285,68 @@ export const createMountsSlice: StateCreator<
         },
         false,
         'mountProject/refused'
+      )
+      return false
+    }
+  },
+
+  mountProjectSet: async (conversationId, projectSetId, setName) => {
+    if (!conversationId || !projectSetId) return false
+    // `mountsPending` is keyed by project id everywhere else; a Sammlung has no
+    // project id of its own, so its OWN id stands in. Every consumer asks the
+    // same question of that list — "is this row busy" — and a set's row is
+    // keyed by the set, so the two never collide.
+    set(
+      {
+        mountsConversationId: conversationId,
+        mountsPending: [...get().mountsPending, projectSetId],
+        mountRefusal: null,
+        mountSkipped: [],
+      },
+      false,
+      'mountProjectSet/start'
+    )
+
+    try {
+      const outcome = await mountsClient.mountSet(conversationId, projectSetId)
+      const state = get()
+      let mounts = state.mounts
+      const notices = [...state.mountNotices]
+      for (const mount of outcome.mounts) {
+        // A member already in view is not a second mount and gets no second
+        // notice — the same idempotence rule one project already follows.
+        if (!mounts.some((entry) => entry.projectId === mount.projectId)) {
+          notices.push({
+            id: noticeId(mount.projectId),
+            projectId: mount.projectId,
+            projectName: mount.projectName,
+            by: 'user',
+          })
+        }
+        mounts = withMount(mounts, mount)
+      }
+
+      set(
+        {
+          mounts,
+          mountNotices: notices,
+          mountsPending: state.mountsPending.filter((id) => id !== projectSetId),
+          // Skipped members are not a failure: the rest of the set IS in view,
+          // and a throw here would have discarded the half that worked.
+          mountSkipped: outcome.skipped.map((entry) => entry.projectName),
+        },
+        false,
+        'mountProjectSet/done'
+      )
+      return true
+    } catch (error) {
+      set(
+        {
+          mountsPending: get().mountsPending.filter((id) => id !== projectSetId),
+          mountRefusal: refusalOf(error, undefined, setName),
+        },
+        false,
+        'mountProjectSet/refused'
       )
       return false
     }
@@ -299,6 +407,7 @@ export const createMountsSlice: StateCreator<
           mountRefusal: {
             code: event.code,
             ...(event.cap !== undefined ? { cap: event.cap } : {}),
+            ...(event.excluded ? { excluded: event.excluded } : {}),
           },
         },
         false,
@@ -331,6 +440,9 @@ export const createMountsSlice: StateCreator<
     )
   },
 
+  // The refusal only. `mountSkipped` is not dismissed here — see its own note:
+  // it is drawn in the transcript and nowhere else, so the gesture that closes
+  // the tree is not a gesture that has read it.
   clearMountRefusal: () => set({ mountRefusal: null }, false, 'clearMountRefusal'),
 
   resetMounts: () => set({ ...initialMountsState }, false, 'resetMounts'),

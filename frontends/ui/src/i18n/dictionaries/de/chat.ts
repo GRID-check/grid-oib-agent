@@ -181,7 +181,56 @@ export const chat: typeof en.chat = {
     },
     cap: {
       notice: 'Mehr als {max} Projekte kann eine Unterhaltung nicht gleichzeitig lesen.',
+      // Dieselbe Grenze, aber die Leserin hat eine Sammlung angeklickt und
+      // keine fünf Projekte — der Satz nennt, was sie gedrückt hat.
+      noticeForSet:
+        '„{set}“ passt nicht mehr dazu: Mehr als {max} Projekte kann eine Unterhaltung nicht gleichzeitig lesen.',
       deepResearch: 'Als Deep Research starten',
+    },
+    // Sammlungen — ein benannter Satz Projekte (ein Bezirk, ein Auftraggeber,
+    // ein Jahr), der in einem Zug eingeblendet wird (Spezifikation GR-2).
+    sets: {
+      label: 'Sammlungen',
+      count: '{count, plural, =0 {Kein lesbares Projekt} one {# Projekt} other {# Projekte}}',
+      // Eine Sammlung, aus der diese Leserin nichts lesen darf, ist kein Fehler
+      // — sie ist leer, und das steht dort, wo sie gedrückt worden wäre.
+      emptyReason: 'Kein lesbares Projekt',
+      manage: 'Sammlungen verwalten',
+      none: 'Noch keine Sammlung.',
+      noneHint:
+        'Eine Sammlung bündelt Projekte — ein Bezirk, ein Auftraggeber, ein Jahr — und blendet sie in einem Zug ein.',
+      title: 'Sammlungen verwalten',
+      description:
+        'Eine Sammlung ist ein Name über Projekten. Sie gibt niemandem Zugriff: jede Einblendung fragt weiterhin pro Projekt nach.',
+      create: 'Neue Sammlung',
+      createSubmit: 'Anlegen',
+      nameLabel: 'Name',
+      namePlaceholder: 'z. B. Bezirk 3',
+      descriptionLabel: 'Beschreibung (optional)',
+      descriptionPlaceholder: 'Wofür steht diese Sammlung?',
+      rename: 'Umbenennen',
+      save: 'Speichern',
+      edit: '„{name}“ bearbeiten',
+      back: 'Zurück zur Übersicht',
+      delete: 'Löschen',
+      deleteConfirm: '„{name}“ löschen?',
+      deleteHint:
+        'Die Sammlung verschwindet, die Projekte bleiben. Unterhaltungen, die sie eingeblendet haben, lesen unverändert weiter.',
+      readOnly: 'Nur wer sie angelegt hat — oder eine Projektadministratorin — kann sie ändern.',
+      projectsLabel: 'Projekte in dieser Sammlung',
+      addLabel: 'Projekt hinzufügen',
+      addPlaceholder: 'Projekt suchen …',
+      addSubmit: 'Hinzufügen',
+      addEmpty: 'Alle lesbaren Projekte sind schon in dieser Sammlung.',
+      remove: '{project} aus dieser Sammlung entfernen',
+      noProjects: 'Noch kein Projekt in dieser Sammlung.',
+      errors: {
+        load: 'Die Sammlungen konnten nicht geladen werden.',
+        duplicateName: 'Eine Sammlung mit diesem Namen gibt es schon.',
+        notEditable: 'Diese Sammlung können Sie nicht ändern.',
+        notFound: 'Diese Sammlung gibt es nicht mehr.',
+        unavailable: 'Das hat gerade nicht geklappt.',
+      },
     },
     // Jede Einblendung — durch Piloti oder durch die Leserin — erzeugt drei
     // Signale zugleich: diesen Hinweis, einen Chip in „Im Blick“, eine Zeile im
@@ -196,6 +245,19 @@ export const chat: typeof en.chat = {
       noAccess: 'Sie können dieses Projekt nicht lesen.',
       notFound: 'Dieses Projekt wurde nicht gefunden.',
       unavailable: 'Dieses Projekt konnte gerade nicht eingeblendet werden.',
+      // Kein Kapazitätsproblem und nichts, was Ausblenden lösen würde: die
+      // Unterhaltung ist geteilt, und Einblenden würde an Beteiligten
+      // vorbeiantworten (Spezifikation AC-8). Deshalb ein eigener Satz, der
+      // die Personen nennt — ohne sie gibt es nichts, woran man handeln kann.
+      wouldExclude:
+        'Nicht eingeblendet: {people} dürfen dieses Projekt nicht sehen, und diese Unterhaltung ist geteilt.',
+      wouldExcludeAnyone:
+        'Nicht eingeblendet: Andere Beteiligte dieser Unterhaltung dürfen dieses Projekt nicht sehen.',
+      wouldExcludeHint:
+        'Ändern Sie die Freigabe dieser Unterhaltung, oder stellen Sie die Frage ohne dieses Projekt.',
+      // Eine Sammlung blendet ein, was sie darf, und nennt den Rest. Ein
+      // Projekt, das die Leserin gar nicht sehen darf, steht hier nie.
+      skipped: 'Nicht eingeblendet (kein Chat-Zugriff): {names}',
     },
     attribution: {
       project: 'Projekt {project}',
@@ -901,6 +963,9 @@ export const chat: typeof en.chat = {
         // nachrecherchiert und neu formuliert, bevor die Antwort markiert erscheint.
         repair: 'Ein Beleg hielt der Prüfung nicht stand — wird nachrecherchiert …',
         escalation: 'Kurzrecherche reicht nicht — Tiefenrecherche startet',
+        // Die Büro-Eskalation über mehrere Projekte (ADR-0054); `count` kommt als Zahl im Text.
+        escalationPortfolio:
+          'Kurzrecherche reicht nicht — Portfolio-Recherche über {count, plural, one {ein Projekt} other {# Projekte}} startet',
       },
     },
     // Das eine Skill-Ereignis, das Lesende sehen, danach unterschieden, WER

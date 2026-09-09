@@ -33,9 +33,28 @@ import { unescapeStepPayload } from '@/adapters/api/step-event-schemas'
 export const OPEN_PROJECT_STEP_NAME = 'workspace_open_project'
 
 /** Why a mount did not happen — `aiq_agent/knowledge/mounts.py`'s REFUSAL_*. */
-export type MountRefusalCode = 'cap' | 'no_access' | 'not_found' | 'unavailable'
+export type MountRefusalCode =
+  | 'cap'
+  | 'no_access'
+  | 'not_found'
+  /**
+   * The conversation is SHARED with people who may not view this project, so
+   * mounting it would answer past them (spec AC-8). It arrived here as
+   * `unavailable` until phase 5, which said "could not be added right now" about
+   * a refusal that is neither temporary nor about the project: the remedy is to
+   * change the sharing or to ask without the project, and neither is reachable
+   * from a sentence that does not name the people.
+   */
+  | 'would_exclude'
+  | 'unavailable'
 
-const REFUSAL_CODES: readonly string[] = ['cap', 'no_access', 'not_found', 'unavailable']
+const REFUSAL_CODES: readonly string[] = [
+  'cap',
+  'no_access',
+  'not_found',
+  'would_exclude',
+  'unavailable',
+]
 
 /** A project the agent brought into view mid-turn. */
 export interface AgentMountEvent {
@@ -55,6 +74,12 @@ export interface AgentMountRefusal {
   projectId: string | null
   /** Only ever set on `cap`: the ceiling, as the SERVER stated it. */
   cap?: number
+  /**
+   * Only ever set on `would_exclude`: the participants who would lose this
+   * conversation. The names ARE the refusal — without them the sentence has
+   * nothing to act on.
+   */
+  excluded?: string[]
 }
 
 export type MountEvent = AgentMountEvent | AgentMountRefusal
@@ -121,6 +146,15 @@ export const parseMountEvent = (payload: string | undefined | null): MountEvent 
       projectId: text(record.projectId) ?? null,
       ...(typeof record.cap === 'number' && Number.isFinite(record.cap)
         ? { cap: record.cap }
+        : {}),
+      // `_refused` sends `null` rather than omitting the field, so an empty
+      // list and an absent one are the same fact: nobody was named.
+      ...(Array.isArray(record.excluded)
+        ? {
+            excluded: record.excluded.filter(
+              (name): name is string => typeof name === 'string' && name.trim() !== ''
+            ),
+          }
         : {}),
     }
   }

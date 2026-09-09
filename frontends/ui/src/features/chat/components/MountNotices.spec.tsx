@@ -20,6 +20,7 @@ const setDeepResearchIntent = vi.fn()
 interface Fake {
   mountNotices: MountNoticeEntry[]
   mountRefusal: MountRefusal | null
+  mountSkipped: string[]
   mountCap: number
   currentConversation: { id: string } | null
   unmountProject: typeof unmountProject
@@ -42,6 +43,7 @@ beforeEach(() => {
   state = {
     mountNotices: [],
     mountRefusal: null,
+    mountSkipped: [],
     mountCap: 5,
     currentConversation: { id: 'conv-1' },
     unmountProject,
@@ -95,5 +97,48 @@ describe('a refusal', () => {
     state.mountRefusal = { code: 'cap' }
     render(<MountNotices />)
     expect(screen.getByText(/cannot read more than 5 projects/)).toBeInTheDocument()
+  })
+})
+
+
+describe('a Sammlung that did not come in whole', () => {
+  it('names what stayed out, without calling it a refusal', () => {
+    state.mountNotices = [
+      { id: 'n1', projectId: 'p1', projectName: 'Seestadt Nord', by: 'user' },
+    ]
+    state.mountSkipped = ['Nordbahnhof']
+
+    render(<MountNotices />)
+
+    // The member that DID arrive keeps its own undoable notice above.
+    expect(screen.getByText('Seestadt Nord is in view.')).toBeInTheDocument()
+    expect(screen.getByTestId('mount-skipped-notice')).toHaveTextContent(
+      'Not added (no chat access): Nordbahnhof'
+    )
+    expect(screen.queryByTestId('mount-refused-notice')).not.toBeInTheDocument()
+  })
+
+  it('shows the skipped list even when no mount notice stands with it', () => {
+    state.mountSkipped = ['Nordbahnhof']
+    render(<MountNotices />)
+    expect(screen.getByTestId('mount-skipped-notice')).toBeInTheDocument()
+  })
+})
+
+describe('the refusal that is about other people', () => {
+  it('gets its own notice and never the cap’s offer', () => {
+    state.mountRefusal = { code: 'would_exclude', excluded: ['Anna Meier'] }
+
+    render(<MountNotices />)
+
+    expect(screen.getByTestId('mount-excluded-notice')).toHaveTextContent('Anna Meier')
+    expect(screen.queryByTestId('mount-cap-notice')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('mount-refused-notice')).not.toBeInTheDocument()
+  })
+
+  it('names the Sammlung when the CAP is what refused it', () => {
+    state.mountRefusal = { code: 'cap', cap: 5, setName: 'Bezirk 3' }
+    render(<MountNotices />)
+    expect(screen.getByTestId('mount-cap-notice')).toHaveTextContent('„Bezirk 3" no longer fits')
   })
 })

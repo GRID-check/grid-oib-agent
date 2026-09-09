@@ -343,6 +343,22 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="scope-tree-cap-reason"]',
   },
   {
+    id: 'project-sets',
+    mobile: true,
+    path: '/dev/project-sets',
+    description:
+      'Sammlungen verwalten (spec GR-2): the named sets of projects that mount as one unit, with the sentence that says a Sammlung grants nobody anything. Both kinds of row are in shot on purpose — two the reader owns, with rename and delete, and one the office keeps, with neither — because `editable` comes off the WIRE (creator, or org:projects:administer) and "the controls are missing" must be distinguishable from "there are no controls here". Each row carries the readable project count, which is the number the mount cap is measured against.',
+    waitFor: '[data-testid="project-set-manager"]',
+  },
+  {
+    id: 'project-sets-detail',
+    mobile: true,
+    path: '/dev/project-sets?variant=detail',
+    description:
+      'One Sammlung open: its members with a remove each, and the add list built from the SAME readable project list the mount picker uses — so a Sammlung can never name a project the projects grid hides. Removing edits the LABEL and not the project, which is why the remove control asks no project permission and the add list does.',
+    waitFor: '[data-testid="project-set-add-row"]',
+  },
+  {
     id: 'workspace-chat',
     mobile: true,
     path: '/dev/workspace-chat',

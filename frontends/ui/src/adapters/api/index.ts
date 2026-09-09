@@ -131,4 +131,19 @@ export type {
 
 // Mounted projects (the Büro's scope writes, ADR-0054)
 export { mountsClient, MountRefusedError } from './mounts-client'
-export type { Mount, MountList, MountRefusalCode } from './mounts-client'
+export type {
+  Mount,
+  MountList,
+  MountRefusalCode,
+  MountSetOutcome,
+  SkippedMount,
+} from './mounts-client'
+
+// Sammlungen — named sets of projects that mount as one unit (spec GR-2)
+export { projectSetsClient, ProjectSetRefusedError } from './project-sets-client'
+export type {
+  ProjectSetDetail,
+  ProjectSetMember,
+  ProjectSetRefusalCode,
+  ProjectSetSummary,
+} from './project-sets-client'

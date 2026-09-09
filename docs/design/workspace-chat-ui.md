@@ -177,7 +177,7 @@ introduces a `<div className="…">` in an organism.
 | `ScopeTree` | organism | `features/layout/components/scope/ScopeTree.tsx` | `SectionLabel`, `Item`+`ItemMedia`+`ItemContent`, `SourceSignalChip`, `Button`, `Command` (nested picker), `Sheet` (`<md`) | `{ levels: ScopeLevel[]; mounted: MountedProject[]; canMount: boolean; capReached: boolean; onMount(id); onUnmount(id); onOpenDataBasis(); onAskInWorkspace?() }` | loading (skeleton rows) · ready · mount pending (row spinner) · mount error (inline `Alert` + retry) · cap reached · empty project level |
 | `scope-tree-model.ts` | pure model | `features/layout/components/scope/scope-tree-model.ts` | — | `buildScopeLevels({ scope, projectName, mounted, archivAvailable, sessionAttachmentCount, presetShelves })` | returns `ScopeLevel[]` with `state: 'on' \| 'off' \| 'unavailable' \| 'always'` |
 | `MountedProjectsRow` | molecule | `features/layout/components/scope/MountedProjectsRow.tsx` | `SectionLabel` ("Im Blick"), `SourceSignalChip signal="project"`, `Button` (ghost, `×`) | `{ mounted: MountedProject[]; onUnmount(id); onOpenTree() }` | hidden at 0 mounts · 1–5 chips · horizontal overflow (`scroll-fade-right`) · removing (chip at `opacity-60`, no layout shift) |
-| `ProjectMountPicker` | organism | `features/layout/components/scope/ProjectMountPicker.tsx` | `Command`, `CommandInput`, `CommandItem`, `CommandEmpty`, `Skeleton`, `Badge` | `{ mountedIds: string[]; capReached: boolean; onMount(id); onDeepResearch() }` | loading · ready · no readable projects (`EmptyState` bare) · all already mounted · cap reached (rows `aria-disabled` + visible reason) · fetch error |
+| `ProjectMountPicker` | organism | `features/layout/components/scope/ProjectMountPicker.tsx` | `Command`, `CommandInput`, `CommandGroup` ×2, `CommandItem`, `CommandEmpty`, `Skeleton`, `Badge`, `Button` (footer) | `{ mountedIds: string[]; capReached: boolean; cap: number; onMount(id, name); onMountSet?(setId, setName); onManageSets?(); onDeepResearch() }` | loading · ready · **Sammlungen group above the projects** · a set with no readable member (`aria-disabled` + "Kein lesbares Projekt") · no readable projects (`EmptyState` bare) · all already mounted · cap reached (every row `aria-disabled` + visible reason, sets included) · fetch error · Sammlungen outage (the group is simply absent) |
 | `WorkspaceEmptyState` | organism | `features/chat/components/WorkspaceEmptyState.tsx` | `EmptyState` (bare), hero greeting type step, `Chip interactive` ×3 | `{ firstName?: string; onPrompt(text, opts?) }` | greeting variants (morning/afternoon/evening) · with/without name |
 | `ProjectAttribution` | molecule | `features/chat/components/ProjectAttribution.tsx` | `SourceSignalChip signal="project"` (`FolderKanban` for register rows), `Link` | `{ projectId: string; projectName: string; shelf: Shelf; onContinueInProject(): void }` | rendered only when `shelf ∈ {project, register}` **and** the conversation is `workspace` · link present/absent |
 | `CitationPeek` (changed) | molecule | `features/chat/components/CitationPeek.tsx` | + `ProjectAttribution` | + `projectId`, `projectName` on `CitedDocument` | `DocumentHomeLink` now resolves the project from the citation, not from the store |
@@ -187,7 +187,12 @@ introduces a `<div className="…">` in an organism.
 | `WorkspaceChatClient` | route client | `app/app/(shell)/chat/workspace-chat-client.tsx` | `MainLayout` | `{ canCollaborate, showSourceBadges, showConfidenceChip, showAnswerFeedback, showResearchInHistory, mountParam: string \| null }` | authenticated · signed out (`MainLayout`'s existing branch) |
 | `SessionsPanel` (changed) | organism | `features/layout/components/SessionsPanel.tsx` | — | + `scope: 'project' \| 'workspace'` | Büro heading "Büro-Chats · N" · empty state · Deep-Research section hidden (no `projectCollection`) |
 | `MountNotice` | molecule | `features/chat/components/MountNotice.tsx` | `Alert` (default variant), `Button` (link), lucide `FolderKanban` | `{ projectName: string; by: 'agent' \| 'user'; onUndo?(): void; undone?: boolean }` | fresh (undo offered) · undone (states so, no control) · undo failed (inline retry) |
-| `MountCapNotice` | molecule | same file | `Alert`, `Button` | `{ max: number; onDeepResearch(): void }` | in the picker footer and, when the agent hits it, in the transcript |
+| `MountCapNotice` | molecule | same file | `Alert`, `Button` | `{ max: number; onDeepResearch(): void; setName?: string \| null }` | in the picker footer and, when the agent hits it, in the transcript · names the **Sammlung** when a set is what did not fit |
+| `MountExcludedNotice` | molecule | same file | `Alert`, lucide `Users` | `{ excluded: readonly string[] }` | names the participants who would lose the thread (AC-8) · the office named nobody |
+| `MountSkippedNotice` | molecule | same file | `Alert`, lucide `Info` | `{ names: readonly string[] }` | what a Sammlung left behind, "Nicht eingeblendet (kein Chat-Zugriff): A, B" · renders nothing at zero |
+| `ProjectSetManager` | organism | `features/layout/components/scope/ProjectSetManager.tsx` | `Item`/`ItemList`/`ItemMedia`/`ItemContent`/`ItemActions`, `Field`/`FieldLabel`, `Input`, `Button`, `Command` (the add list), `EmptyState`, `ConfirmDialog`, `SectionLabel`, `Skeleton` | `{ sets?; projects?; initialSetId? }` — all three are seams for the preview and the specs; the panel loads its own | loading (skeleton rows) · list · list empty (`EmptyState`) · creating (name + description) · one set open (members + add list) · read-only set (`editable: false`, no controls, reason stated) · delete confirm · refusal (duplicate name, not editable, not found, unavailable) |
+| `readable-projects.ts` | fetch module | `features/layout/components/scope/readable-projects.ts` | — | `fetchReadableProjects(): Promise<ReadableProject[]>` | the one `GET /api/projects` both the picker and the manager read, so the two cannot disagree about which projects may be named |
+| `project-sets-client.ts` | adapter | `adapters/api/project-sets-client.ts` | — | `list` · `create` · `get` · `update` · `remove` · `addProjects` · `removeProjects` | refusals as CODES: `duplicate_name` · `not_editable` · `not_found` · `unavailable` |
 
 #### `ScopeChip`
 
@@ -315,6 +320,52 @@ cannot leak a name).
   `MountCapNotice` offering deep research.
 - No other readable project → `EmptyState variant="bare"` naming that fact.
 - Fetch error → inline `Alert` with retry inside the command list.
+
+#### Sammlungen in the picker, and the panel behind them
+
+A **Sammlung** is a named set of projects — a Bezirk, a client, a year — that
+mounts as one unit (spec GR-2). In the picker it is a `CommandGroup` **above**
+the projects, because it is the coarser gesture and the reader who has one wants
+it before they start naming projects one at a time. A reader with no Sammlung
+never sees the group, and the picker is exactly what it was.
+
+- Each row states the name and the number of projects **this reader** would
+  actually mount — the server's per-caller `projectCount` — so the number beside
+  the name and the number the cap is measured against are the same number.
+- At the cap a set row is `aria-disabled` with the cap sentence on it, the same
+  rule the project rows follow, for the same reason: a row nobody can press says
+  why where it would have been pressed.
+- A set this reader may read nothing of is `aria-disabled` with "Kein lesbares
+  Projekt" — present rather than hidden, because it is their own vocabulary and
+  a name that vanishes reads as a bug.
+- The Sammlungen list loads **beside** the projects, never in front of them: a
+  Sammlungen outage costs the picker its group and nothing else.
+
+Mounting a set produces one `MountNotice` per member, each undoable on its own —
+a set is a gesture, not a unit of scope. Two refusals and one partial outcome are
+new sentences:
+
+| Outcome | Where it is said | Copy |
+|---|---|---|
+| Members the reader may view but not chat in | `MountSkippedNotice`, transcript only | "Nicht eingeblendet (kein Chat-Zugriff): A, B" |
+| The set does not fit the cap | tree, inline, and `MountCapNotice` | "„Bezirk 3" passt nicht mehr dazu: Mehr als 5 …" |
+| A mount that would shut a participant out (AC-8) | tree, inline, and `MountExcludedNotice` | "Nicht eingeblendet: Anna Meier dürfen dieses Projekt nicht sehen, und diese Unterhaltung ist geteilt." + the two remedies |
+
+A member the reader may not `project:view` **at all** appears in none of these
+and is counted nowhere: a Sammlung must not be the door through which somebody
+learns a project they may not read exists (AC-3, AC-4, MT-4).
+
+**Sammlungen verwalten** (`ProjectSetManager`) opens from the picker's footer.
+It is a **sibling** of the tree, not a layer over it: the tree already lives in a
+popover (a sheet below `md`) with a `Command` inside it, so opening the manager
+closes the tree rather than becoming a third overlay (§8). `editable` comes off
+the wire and is never inferred — "I created it" and "I am an org project
+administrator" are both true of sets a reader may change, and only the server
+knows the second — so a set they may not change is shown, with its reason, and
+carries no control that could only 403. Deleting is a `ConfirmDialog` and not the
+`TypeToConfirmDialog` ladder: the label and its memberships go and nothing else
+(MT-14 keeps a thread's mount rows), so the loss is five clicks rather than
+something that cannot be reconstructed.
 
 #### `WorkspaceEmptyState`
 
@@ -722,6 +773,8 @@ state guards with a **module-scope** flag and polls `aria-expanded`.
 | `scope-tree-capped` | `/dev/scope-tree?variant=capped` | Five mounts: no add row, its reason in its place, chip at "Büro · 5" | yes |
 | `mounted-projects` | `/dev/mounted-projects` | `MountedProjectsRow` at 1 / 3 / 5 mounts; the 5-chip row exercises the horizontal fade at 390px | yes |
 | `project-mount-picker` | `/dev/project-mount-picker` | `ProjectMountPicker`: ready, one row already mounted, cap-reached, and the no-readable-projects empty state | yes |
+| `project-sets` | `/dev/project-sets` | `ProjectSetManager`: three Sammlungen, one of them the office's (`editable: false`, no controls, reason stated), the create control, the readable count per row | yes |
+| `project-sets-detail` | `/dev/project-sets?variant=detail` | One Sammlung open: members with a remove each, and the add list built from the same readable project list the picker uses | yes |
 | `citation-project-attribution` | `/dev/citation-project-attribution` | `CitationPeek` with `ProjectAttribution` and "Im Projekt weiterfragen", under a real `hover:` rest | no (hover-only) |
 | `herleitung` (extend) | `/dev/herleitung` | The level band under the fan — the six levels with their counts, empty ones gray with "nichts eingeblendet". No separate variant: the band renders on every finished turn, so the existing `herleitung*` shots are the evidence | yes |
 | `app-shell-scopes` (extend) | `/dev/app-shell-scopes` | The org header's new "Piloti fragen" entry beside the icon-only doorways | yes |
@@ -734,7 +787,10 @@ Spec files, named beside the component they hold:
 | `features/layout/components/scope/scope-tree-model.spec.ts` | Level order, the five states, `off`-by-preset attribution, register absent outside the Büro. Pure model, like `source-basis-model.spec.ts` |
 | `features/layout/components/scope/ScopeChip.spec.tsx` | Glyph per variant, count rendering, the accessible name at 0/1/N mounts, disabled in a read-only chat |
 | `features/layout/components/scope/MountedProjectsRow.spec.tsx` | Remove control is present (not hover-gated), `×` is a sibling and not a nested control, hidden at zero |
-| `features/layout/components/scope/ProjectMountPicker.spec.tsx` | Cap disables rows with a visible reason, mounted rows stay in place, error retry |
+| `features/layout/components/scope/ProjectMountPicker.spec.tsx` | Cap disables rows with a visible reason, mounted rows stay in place, error retry; the Sammlungen group leads the list, states the readable count, mounts on Enter, disables at the cap and at zero readable members, and is absent when the Sammlungen call fails |
+| `features/layout/components/scope/ProjectSetManager.spec.tsx` | `editable` off the wire gates every control, a read-only set is still shown, add offers only what the set does not hold, delete asks first |
+| `adapters/api/project-sets-client.spec.ts` | Which status is which refusal; a missing `editable` is NOT editable; a readable count of zero survives |
+| `adapters/api/mounts-client.spec.ts` (extend) | The two 409s told apart by the body's `code`; `mountSet` posts the set id and reports `skipped` rather than throwing away the half that worked |
 | `features/chat/lib/herleitung-levels.spec.ts` | Fixed order; empty levels survive grouping; one subgroup per project |
 | `features/chat/components/ProjectAttribution.spec.tsx` | Rendered only in a workspace conversation; `DocumentHomeLink` resolves from the citation, not the store |
 | `features/chat/lib/project-scope.spec.ts` (extend) | The workspace branch of `conversationMatchesProject` does **not** fail open |
@@ -795,6 +851,54 @@ phase 1), the `/dev/mounted-projects`, `/dev/project-mount-picker` and
 `/dev/citation-project-attribution` preview routes, the `composer` and
 `app-shell-scopes` target extensions, and everything in §7 flow (g), which is
 phase 2's sharing boundary.
+
+### Phase 5: Sammlungen, and the two sentences phase 4 owed (2026-09-09)
+
+**Where the design was followed.** The `CommandGroup` of Sammlungen above the
+projects, the readable count per row, the cap disabling set rows exactly as it
+disables project rows, `ProjectSetManager` composed from `Item`/`Field`/
+`Input`/`Button`/`EmptyState`/`ConfirmDialog`, and the `/dev/project-sets`
+preview with both kinds of row in shot.
+
+**Five places the build decided something the design did not say.**
+
+1. **The manager is a sibling of the tree, not a layer over it.** It opens from
+   the picker's footer and CLOSES the tree as it opens. A dialog raised from
+   inside a popover that already contains a `Command` is three overlays deep —
+   the trap §8 names — so the reader lands back at the chip when they are done,
+   one press from the tree again.
+
+2. **`mountSkipped` outlives the panel; `mountRefusal` does not.** The refusal
+   is drawn twice — inline in the tree at the row that was pressed, and in the
+   transcript — so dismissing the tree dismisses a sentence already read. The
+   skipped list is drawn ONLY in the transcript, so clearing it on close would
+   mean the reader who mounted a Sammlung and shut the tree never learns which
+   of its projects stayed out. It is replaced by the next mount attempt instead.
+
+3. **A set produces one notice per member, not one notice per set.** Each is
+   undoable on its own. A Sammlung is a gesture; once it has been made, the
+   conversation reads five projects and knows nothing about how they arrived,
+   which is also why deleting a Sammlung changes no thread (MT-14).
+
+4. **`would_exclude` got its own notice rather than a fourth `MountRefusedNotice`
+   code.** It is the one refusal that is about neither the project nor the
+   reader, it carries no offer (deep research would lead nowhere — nothing is in
+   the way), and it carries NAMES. `mount-events.ts` had been degrading it to
+   `unavailable`, which said "could not be added right now" about a refusal that
+   is neither temporary nor about the project.
+
+5. **`chat.workspace.sharing.blocked` is wired at the invite, and the dialog
+   records who was invited.** The server answers "may this subject join" by
+   naming the PROJECTS (`details.projects`), because it already knows the
+   subject; the share dialog is the only place that still holds the name, so the
+   one gesture that can raise this refusal records its subject. Without a named
+   project or a known invitee it falls back to the container sentence, which is
+   still true. `use-sharing`'s `SharingFailure` gained `projects` to carry it.
+
+**Not built in this slice**, and not attempted: a `/dev/project-mount-picker`
+target for the new Sammlungen group (the group is exercised in
+`ProjectMountPicker.spec.tsx` but has no PNG), and the `composer` /
+`app-shell-scopes` target extensions phase 3 also left.
 
 ---
 

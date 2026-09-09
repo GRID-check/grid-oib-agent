@@ -271,7 +271,7 @@ describe('ShareDialog — per-person controls', () => {
     // the person had been removed, and the explanation appeared behind it.
     const user = userEvent.setup()
     revoke.mockResolvedValueOnce(false)
-    renderDialog({ failure: { reason: 'last-owner', message: null } })
+    renderDialog({ failure: { reason: 'last-owner', message: null, projects: null } })
 
     await user.click(screen.getByRole('button', { name: 'Manage access: Anna Weber' }))
     await user.click(await screen.findByRole('menuitem', { name: /Remove access/ }))
@@ -545,7 +545,7 @@ describe('ShareDialog — leaving and escalation', () => {
 
 describe('ShareDialog — refusals', () => {
   test('the last-owner invariant is explained in the user’s language', () => {
-    renderDialog({ failure: { reason: 'last-owner', message: 'CONFLICT' } })
+    renderDialog({ failure: { reason: 'last-owner', message: 'CONFLICT', projects: null } })
 
     expect(screen.getByTestId('share-failure')).toHaveTextContent(
       'This conversation must keep at least one owner. Make someone else an owner first.',
@@ -553,7 +553,7 @@ describe('ShareDialog — refusals', () => {
   })
 
   test('a missing project membership is explained as such', () => {
-    renderDialog({ failure: { reason: 'container-access-required', message: null } })
+    renderDialog({ failure: { reason: 'container-access-required', message: null, projects: null } })
 
     expect(screen.getByTestId('share-failure')).toHaveTextContent(
       'That person is not a member of this project yet. Add them to the project first.',
@@ -561,15 +561,71 @@ describe('ShareDialog — refusals', () => {
   })
 
   test('an unrecognised refusal still surfaces — a failed change never looks like it worked', () => {
-    renderDialog({ failure: { reason: null, message: null } })
+    renderDialog({ failure: { reason: null, message: null, projects: null } })
 
     expect(screen.getByTestId('share-failure')).toHaveTextContent(
       'That change could not be saved.',
     )
   })
 
+  /**
+   * A Büro conversation refuses for the same `reason` and with a DIFFERENT
+   * remedy: the blocked project is one of several the thread happens to read,
+   * so "add them to the project first" is unactionable until it says which one
+   * — and which person (spec AC-7). The server marks that case by naming the
+   * projects; the dialog is the only place that still holds the name.
+   */
+  test('a workspace conversation names the person AND the project they cannot read', async () => {
+    const user = userEvent.setup()
+    useShareCandidatesMock.mockReturnValue(
+      candidatesResult({ candidates: [candidate('u-bea', 'Bea Gruber')] }),
+    )
+    const onOpenChange = vi.fn()
+    const { rerender } = render(
+      <ShareDialog
+        open
+        onOpenChange={onOpenChange}
+        resourceId="c1"
+        currentUserId={ME}
+        sharing={sharing()}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Invite: Bea Gruber' }))
+
+    rerender(
+      <ShareDialog
+        open
+        onOpenChange={onOpenChange}
+        resourceId="c1"
+        currentUserId={ME}
+        sharing={sharing({
+          failure: {
+            reason: 'container-access-required',
+            message: null,
+            projects: ['Seestadt Nord'],
+          },
+        })}
+      />,
+    )
+
+    expect(screen.getByTestId('share-failure')).toHaveTextContent(
+      'Bea Gruber cannot read Seestadt Nord, so this chat cannot be shared with them.',
+    )
+  })
+
+  test('without a named project it stays the container sentence, which is still true', () => {
+    renderDialog({
+      failure: { reason: 'container-access-required', message: null, projects: [] },
+    })
+
+    expect(screen.getByTestId('share-failure')).toHaveTextContent(
+      'That person is not a member of this project yet.',
+    )
+  })
+
   test('the roster is unchanged by a refusal (the hook is non-optimistic)', () => {
-    renderDialog({ failure: { reason: 'last-owner', message: null } })
+    renderDialog({ failure: { reason: 'last-owner', message: null, projects: null } })
 
     expect(screen.getAllByTestId('access-row')).toHaveLength(2)
   })

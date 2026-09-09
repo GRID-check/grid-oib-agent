@@ -209,7 +209,59 @@ export const chat = {
     },
     cap: {
       notice: 'A conversation cannot read more than {max} projects at once.',
+      // The same limit, but the reader pressed a collection rather than five
+      // projects — so the sentence names what they actually pressed.
+      noticeForSet:
+        '„{set}" no longer fits: a conversation cannot read more than {max} projects at once.',
       deepResearch: 'Start as Deep Research',
+    },
+    /**
+     * Collections — a named set of projects (a district, a client, a year) that
+     * comes into view as one gesture (spec GR-2). "Sammlung" is the product
+     * word in German; the English dictionary is the developer-facing one.
+     */
+    sets: {
+      label: 'Collections',
+      count: '{count, plural, =0 {No readable project} one {# project} other {# projects}}',
+      // A collection this reader may read nothing of is not an error — it is
+      // empty, and it says so where it would have been pressed.
+      emptyReason: 'No readable project',
+      manage: 'Manage collections',
+      none: 'No collection yet.',
+      noneHint:
+        'A collection bundles projects — a district, a client, a year — and adds them in one gesture.',
+      title: 'Manage collections',
+      description:
+        'A collection is a name over projects. It grants nobody access: every addition still asks per project.',
+      create: 'New collection',
+      createSubmit: 'Create',
+      nameLabel: 'Name',
+      namePlaceholder: 'e.g. District 3',
+      descriptionLabel: 'Description (optional)',
+      descriptionPlaceholder: 'What does this collection stand for?',
+      rename: 'Rename',
+      save: 'Save',
+      edit: 'Edit „{name}"',
+      back: 'Back to the list',
+      delete: 'Delete',
+      deleteConfirm: 'Delete „{name}"?',
+      deleteHint:
+        'The collection goes, the projects stay. Conversations that added it keep reading exactly as before.',
+      readOnly: 'Only whoever created it — or a project administrator — can change it.',
+      projectsLabel: 'Projects in this collection',
+      addLabel: 'Add a project',
+      addPlaceholder: 'Search projects …',
+      addSubmit: 'Add',
+      addEmpty: 'Every project you can read is already in this collection.',
+      remove: 'Remove {project} from this collection',
+      noProjects: 'No project in this collection yet.',
+      errors: {
+        load: 'The collections could not be loaded.',
+        duplicateName: 'A collection with that name already exists.',
+        notEditable: 'You cannot change this collection.',
+        notFound: 'That collection no longer exists.',
+        unavailable: 'That did not work just now.',
+      },
     },
     /**
      * Every mount, by the agent or by the reader, produces three simultaneous
@@ -226,6 +278,20 @@ export const chat = {
       noAccess: 'You cannot read that project.',
       notFound: 'That project could not be found.',
       unavailable: 'That project could not be added right now.',
+      /**
+       * Not the cap, and not something removing a project would fix: the
+       * conversation is SHARED with people who may not view this project, so
+       * adding it would answer past them (spec AC-8). Its own sentence, naming
+       * the people — without them there is nothing to act on.
+       */
+      wouldExclude:
+        'Not added: {people} cannot see that project, and this conversation is shared.',
+      wouldExcludeAnyone:
+        'Not added: other people in this conversation cannot see that project.',
+      wouldExcludeHint: 'Change who this conversation is shared with, or ask without that project.',
+      // A Sammlung adds what it may and names the rest. A project the reader
+      // may not see at all never appears here.
+      skipped: 'Not added (no chat access): {names}',
     },
     attribution: {
       project: 'Project {project}',
@@ -951,6 +1017,8 @@ export const chat = {
         // rewrite are tried before the answer ships with its markers.
         repair: 'A citation did not hold up — searching again …',
         escalation: 'A quick lookup is not enough — starting deep research',
+        escalationPortfolio:
+          'A quick lookup is not enough — starting a portfolio search across {count, plural, one {one project} other {# projects}}',
       },
     },
     // The one skill event a reader sees, keyed on WHO decided. Two sentences

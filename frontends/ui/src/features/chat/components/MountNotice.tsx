@@ -18,7 +18,7 @@
  */
 
 import { type FC } from 'react'
-import { FolderKanban, Info } from 'lucide-react'
+import { FolderKanban, Info, Users } from 'lucide-react'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -125,11 +125,94 @@ export const MountRefusedNotice: FC<MountRefusedNoticeProps> = ({ projectName, c
   )
 }
 
+export interface MountExcludedNoticeProps {
+  /**
+   * The participants who would lose this conversation, as the SERVER named
+   * them. May be empty — the office names who it can — and the sentence has a
+   * form for that.
+   */
+  excluded: readonly string[]
+}
+
+/**
+ * The mount that was refused to protect somebody else (spec AC-8).
+ *
+ * Its own notice, not a `MountRefusedNotice` with a fourth code, because it is
+ * the one refusal that is not about the project or the reader: the conversation
+ * is SHARED, the mounted set is a property of the conversation (MT-14), and
+ * mounting would answer past people who may not read it. Nothing is in the way
+ * and unmounting something would not help, so it carries no offer — it carries
+ * NAMES and the two things the reader can actually do.
+ *
+ * Until phase 5 this arrived as "could not be added right now", which was wrong
+ * twice over: it is neither temporary nor about the project.
+ */
+export const MountExcludedNotice: FC<MountExcludedNoticeProps> = ({ excluded }) => {
+  const t = useTranslations('chat')
+  const people = excluded.filter((name) => name.trim() !== '')
+
+  return (
+    <Alert role="status" aria-live="polite" data-testid="mount-excluded-notice">
+      <Users aria-hidden="true" />
+      <AlertDescription className="flex w-full flex-col gap-0.5">
+        <span className="text-foreground">
+          {people.length > 0
+            ? t('workspace.mount.wouldExclude', { people: people.join(', ') })
+            : t('workspace.mount.wouldExcludeAnyone')}
+        </span>
+        <span className="text-muted-foreground text-xs">
+          {t('workspace.mount.wouldExcludeHint')}
+        </span>
+      </AlertDescription>
+    </Alert>
+  )
+}
+
+export interface MountSkippedNoticeProps {
+  /** Project names the Sammlung could not bring in, as the server named them. */
+  names: readonly string[]
+}
+
+/**
+ * What a Sammlung left behind (spec GR-2, AC-3/AC-4).
+ *
+ * A set mounts what it may and NAMES the rest, because a partial answer the
+ * reader cannot see the edge of is the failure mode the whole scope design
+ * exists against. The names here are only projects the reader may already
+ * `project:view` — one they may not view at all never reaches this list, and is
+ * not counted anywhere, so a Sammlung never becomes the door through which
+ * somebody learns a project exists.
+ *
+ * Not a refusal: the rest of the set IS in view, and each member that arrived
+ * has its own undoable {@link MountNotice} above this one.
+ */
+export const MountSkippedNotice: FC<MountSkippedNoticeProps> = ({ names }) => {
+  const t = useTranslations('chat')
+  if (names.length === 0) return null
+
+  return (
+    <Alert role="status" aria-live="polite" data-testid="mount-skipped-notice">
+      <Info aria-hidden="true" />
+      <AlertDescription>
+        <span className="text-foreground">
+          {t('workspace.mount.skipped', { names: names.join(', ') })}
+        </span>
+      </AlertDescription>
+    </Alert>
+  )
+}
+
 export interface MountCapNoticeProps {
   /** The cap, as the SERVER stated it — never a client constant. */
   max: number
   /** Takes the reader to the one path that reads more than the cap allows. */
   onDeepResearch: () => void
+  /**
+   * The Sammlung that did not fit, when one is what the reader pressed. The
+   * limit is the same; the sentence names the gesture rather than making them
+   * work out which of five projects was the one too many.
+   */
+  setName?: string | null
 }
 
 /**
@@ -139,12 +222,16 @@ export interface MountCapNoticeProps {
  * transcript. One component for both, because a cap that reads differently
  * depending on who ran into it is two rules.
  */
-export const MountCapNotice: FC<MountCapNoticeProps> = ({ max, onDeepResearch }) => {
+export const MountCapNotice: FC<MountCapNoticeProps> = ({ max, onDeepResearch, setName }) => {
   const t = useTranslations('chat')
   return (
     <Alert data-testid="mount-cap-notice" className="text-xs">
       <AlertDescription className="flex w-full flex-wrap items-center gap-x-2 gap-y-1">
-        <span>{t('workspace.cap.notice', { max })}</span>
+        <span>
+          {setName
+            ? t('workspace.cap.noticeForSet', { set: setName, max })
+            : t('workspace.cap.notice', { max })}
+        </span>
         <Button
           type="button"
           variant="link"

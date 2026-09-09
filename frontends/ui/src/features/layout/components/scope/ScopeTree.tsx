@@ -62,7 +62,11 @@ export interface ScopeTreeProps {
   /** The last mount failure, as a sentence the tree can show inline. */
   error?: string | null
   onMount: (projectId: string, projectName: string) => void
+  /** Show a whole Sammlung (spec GR-2). Absent where the picker offers none. */
+  onMountSet?: (projectSetId: string, setName: string) => void
   onUnmount: (projectId: string) => void
+  /** Opens the Sammlungen manager, from the picker's footer. */
+  onManageSets?: () => void
   onRetry?: () => void
   /** Clears the shortcut preset that excluded a level (§10.1). */
   onResetPreset?: () => void
@@ -124,7 +128,9 @@ export const ScopeTree: FC<ScopeTreeProps> = ({
   pending = [],
   error = null,
   onMount,
+  onMountSet,
   onUnmount,
+  onManageSets,
   onRetry,
   onResetPreset,
   onDeepResearch,
@@ -265,6 +271,8 @@ export const ScopeTree: FC<ScopeTreeProps> = ({
                           capReached={!level.canMount}
                           cap={cap}
                           onMount={onMount}
+                          onMountSet={onMountSet}
+                          onManageSets={onManageSets}
                           onDeepResearch={onDeepResearch}
                         />
                       </div>

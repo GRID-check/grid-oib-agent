@@ -9,7 +9,13 @@
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { MountCapNotice, MountNotice, MountRefusedNotice } from './MountNotice'
+import {
+  MountCapNotice,
+  MountExcludedNotice,
+  MountNotice,
+  MountRefusedNotice,
+  MountSkippedNotice,
+} from './MountNotice'
 
 describe('who put the project in view', () => {
   it('names Piloti when the agent did it mid-turn', () => {
@@ -82,5 +88,50 @@ describe('the cap', () => {
     expect(screen.getByText(/cannot read more than 5 projects/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Start as Deep Research' }))
     expect(onDeepResearch).toHaveBeenCalled()
+  })
+})
+
+
+describe('the refusal that is about other people', () => {
+  it('names them, because the remedy is unreachable without the names', () => {
+    render(<MountExcludedNotice excluded={['Anna Meier', 'Bernd Huber']} />)
+
+    expect(
+      screen.getByText(
+        'Not added: Anna Meier, Bernd Huber cannot see that project, and this conversation is shared.'
+      )
+    ).toBeInTheDocument()
+    // Two real remedies, and neither is deep research — the cap's offer would
+    // lead nowhere here, because nothing is in the way.
+    expect(screen.getByText(/Change who this conversation is shared with/)).toBeInTheDocument()
+    expect(screen.queryByText('Start as Deep Research')).not.toBeInTheDocument()
+  })
+
+  it('still refuses out loud when the office named nobody', () => {
+    render(<MountExcludedNotice excluded={[]} />)
+    expect(
+      screen.getByText('Not added: other people in this conversation cannot see that project.')
+    ).toBeInTheDocument()
+  })
+})
+
+describe('what a Sammlung left behind', () => {
+  it('names the members that stayed out, and the reason on the same line', () => {
+    render(<MountSkippedNotice names={['Nordbahnhof', 'Althanquartier']} />)
+    expect(
+      screen.getByText('Not added (no chat access): Nordbahnhof, Althanquartier')
+    ).toBeInTheDocument()
+  })
+
+  it('renders nothing when a Sammlung came in whole', () => {
+    const { container } = render(<MountSkippedNotice names={[]} />)
+    expect(container).toBeEmptyDOMElement()
+  })
+})
+
+describe('the cap, when a Sammlung is what did not fit', () => {
+  it('names the thing the reader actually pressed', () => {
+    render(<MountCapNotice max={5} setName="Bezirk 3" onDeepResearch={vi.fn()} />)
+    expect(screen.getByText(/„Bezirk 3" no longer fits/)).toBeInTheDocument()
   })
 })

@@ -30,6 +30,13 @@
 import { useCallback, useEffect, useMemo, useState, type FC } from 'react'
 import { useRouter } from 'next/navigation'
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Sheet,
@@ -46,6 +53,7 @@ import { canMountMore } from '@/features/chat/stores'
 import type { ConversationScope } from '@/features/chat/lib/project-scope'
 import { useLayoutStore } from '../../store'
 import type { SourcePresetId } from '../../types'
+import { ProjectSetManager } from './ProjectSetManager'
 import { ScopeChip } from './ScopeChip'
 import { ScopeTree } from './ScopeTree'
 import { buildScopeLevels, type ScopeLevelId } from './scope-tree-model'
@@ -102,6 +110,13 @@ export const ScopeControl: FC<ScopeControlProps> = ({
   const isMobile = useIsMobile()
   const router = useRouter()
   const [open, setOpen] = useState(false)
+  // The Sammlungen manager is a SIBLING of the tree, never a layer over it.
+  // The tree already lives in a popover (a sheet below `md`) with a `Command`
+  // inside it; a dialog opened from in there would be three overlays deep and
+  // one outside-click away from losing all of them (§8). Opening the manager
+  // therefore closes the tree, and closing the manager leaves the reader where
+  // the chip is — one press from the tree again.
+  const [managerOpen, setManagerOpen] = useState(false)
 
   const conversationId = useChatStore((s) => s.currentConversation?.id ?? null)
   // The id, from the same place every other consumer on this path reads it.
@@ -114,6 +129,7 @@ export const ScopeControl: FC<ScopeControlProps> = ({
   const mountRefusal = useChatStore((s) => s.mountRefusal)
   const loadMounts = useChatStore((s) => s.loadMounts)
   const mountProject = useChatStore((s) => s.mountProject)
+  const mountProjectSet = useChatStore((s) => s.mountProjectSet)
   const unmountProject = useChatStore((s) => s.unmountProject)
   const clearMountRefusal = useChatStore((s) => s.clearMountRefusal)
   const resetMounts = useChatStore((s) => s.resetMounts)
@@ -179,6 +195,19 @@ export const ScopeControl: FC<ScopeControlProps> = ({
     [conversationId, mountProject]
   )
 
+  const handleMountSet = useCallback(
+    (setId: string, setName: string) => {
+      if (!conversationId) return
+      void mountProjectSet(conversationId, setId, setName)
+    },
+    [conversationId, mountProjectSet]
+  )
+
+  const handleManageSets = useCallback(() => {
+    setOpen(false)
+    setManagerOpen(true)
+  }, [])
+
   const handleUnmount = useCallback(
     (id: string) => {
       if (!conversationId) return
@@ -218,15 +247,43 @@ export const ScopeControl: FC<ScopeControlProps> = ({
     [clearMountRefusal]
   )
 
-  const refusalText = mountRefusal
-    ? mountRefusal.code === 'cap'
-      ? t('workspace.cap.notice', { max: mountRefusal.cap ?? mountCap })
-      : mountRefusal.code === 'no_access'
-        ? t('workspace.mount.noAccess')
-        : mountRefusal.code === 'not_found'
-          ? t('workspace.mount.notFound')
-          : t('workspace.mount.unavailable')
-    : null
+  /**
+   * The last refusal, as the one sentence the tree draws at the row that was
+   * pressed. The `would_exclude` case names the people, because the two
+   * remedies it has — change the sharing, ask without the project — are
+   * unreachable from a sentence that does not say who (spec AC-8).
+   */
+  const refusalText = ((): string | null => {
+    if (!mountRefusal) return null
+    switch (mountRefusal.code) {
+      case 'cap':
+        return mountRefusal.setName
+          ? t('workspace.cap.noticeForSet', {
+              set: mountRefusal.setName,
+              max: mountRefusal.cap ?? mountCap,
+            })
+          : t('workspace.cap.notice', { max: mountRefusal.cap ?? mountCap })
+      case 'no_access':
+        return t('workspace.mount.noAccess')
+      case 'not_found':
+        return t('workspace.mount.notFound')
+      case 'would_exclude': {
+        const people = (mountRefusal.excluded ?? []).filter((name) => name.trim() !== '')
+        return people.length > 0
+          ? t('workspace.mount.wouldExclude', { people: people.join(', ') })
+          : t('workspace.mount.wouldExcludeAnyone')
+      }
+      case 'unavailable':
+        return t('workspace.mount.unavailable')
+      default: {
+        // A code this build cannot phrase must widen nothing and say nothing
+        // specific — the same rule `turnEventLiveText` applies to an unknown key.
+        const exhaustive: never = mountRefusal.code
+        void exhaustive
+        return t('workspace.mount.unavailable')
+      }
+    }
+  })()
 
   const tree = (
     <ScopeTree
@@ -236,6 +293,8 @@ export const ScopeControl: FC<ScopeControlProps> = ({
       pending={mountsPending}
       error={refusalText}
       onMount={handleMount}
+      onMountSet={isWorkspace ? handleMountSet : undefined}
+      onManageSets={isWorkspace ? handleManageSets : undefined}
       onUnmount={handleUnmount}
       onRetry={conversationId ? () => void loadMounts(conversationId) : undefined}
       onResetPreset={activePreset ? handleResetPreset : undefined}
@@ -253,27 +312,51 @@ export const ScopeControl: FC<ScopeControlProps> = ({
     />
   )
 
+  // One manager, rendered beside whichever shell the tree took. It is not
+  // inside either of them, which is the whole point.
+  const manager = (
+    <Dialog open={managerOpen} onOpenChange={setManagerOpen}>
+      <DialogContent className="grid-cols-[minmax(0,1fr)] sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t('workspace.sets.title')}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {t('workspace.sets.description')}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[min(70vh,36rem)] overflow-y-auto pr-1">
+          {managerOpen && <ProjectSetManager />}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+
   if (isMobile) {
     return (
-      <Sheet open={open} onOpenChange={handleOpenChange}>
-        <SheetTrigger asChild>{chip}</SheetTrigger>
-        <SheetContent side="bottom" className="max-h-[80dvh] overflow-y-auto">
-          <SheetHeader className="sr-only">
-            <SheetTitle>{t('workspace.tree.title')}</SheetTitle>
-            <SheetDescription>{t('workspace.tree.hints.base')}</SheetDescription>
-          </SheetHeader>
-          <div className="px-4 pb-4">{tree}</div>
-        </SheetContent>
-      </Sheet>
+      <>
+        <Sheet open={open} onOpenChange={handleOpenChange}>
+          <SheetTrigger asChild>{chip}</SheetTrigger>
+          <SheetContent side="bottom" className="max-h-[80dvh] overflow-y-auto">
+            <SheetHeader className="sr-only">
+              <SheetTitle>{t('workspace.tree.title')}</SheetTitle>
+              <SheetDescription>{t('workspace.tree.hints.base')}</SheetDescription>
+            </SheetHeader>
+            <div className="px-4 pb-4">{tree}</div>
+          </SheetContent>
+        </Sheet>
+        {manager}
+      </>
     )
   }
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger asChild>{chip}</PopoverTrigger>
-      <PopoverContent side="top" align="start" className="w-80 p-2">
-        {tree}
-      </PopoverContent>
-    </Popover>
+    <>
+      <Popover open={open} onOpenChange={handleOpenChange}>
+        <PopoverTrigger asChild>{chip}</PopoverTrigger>
+        <PopoverContent side="top" align="start" className="w-80 p-2">
+          {tree}
+        </PopoverContent>
+      </Popover>
+      {manager}
+    </>
   )
 }

@@ -1,0 +1,10 @@
+---
+improvements:
+  - >
+    When a project cannot be shown to a shared chat because someone in that
+    chat may not see it, Piloti now names those people instead of saying the
+    project is unavailable, and offers the two things that actually help:
+    change who the chat is shared with, or ask without that project.
+  - >
+    Inviting a colleague to a chat that reads projects they cannot open is now
+    refused by name, saying which project to give them access to first.

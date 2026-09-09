@@ -92,3 +92,40 @@ describe('silence', () => {
     expect(parseMountEvent(payload as string | undefined)).toBeNull()
   })
 })
+
+
+describe('the exclusion refusal', () => {
+  it('keeps its own code and the people it names', () => {
+    const event = parseMountEvent(
+      JSON.stringify({
+        event: 'mount',
+        status: 'refused',
+        code: 'would_exclude',
+        cap: null,
+        excluded: ['Anna Meier', 'Bernd Huber'],
+        projectId: 'p1',
+      }) + '\n\nDieses Projekt kann hier nicht eingeblendet werden …'
+    )
+
+    expect(event).toMatchObject({
+      status: 'refused',
+      code: 'would_exclude',
+      excluded: ['Anna Meier', 'Bernd Huber'],
+    })
+  })
+
+  it('survives a refusal that named nobody', () => {
+    const event = parseMountEvent(
+      JSON.stringify({
+        event: 'mount',
+        status: 'refused',
+        code: 'would_exclude',
+        excluded: null,
+        projectId: 'p1',
+      })
+    )
+
+    expect(event).toMatchObject({ code: 'would_exclude' })
+    expect((event as { excluded?: string[] }).excluded).toBeUndefined()
+  })
+})

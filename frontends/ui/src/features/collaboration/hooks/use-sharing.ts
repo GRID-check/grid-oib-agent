@@ -28,17 +28,37 @@ export interface SharingFailure {
   reason: string | null
   /** Server-supplied message, as a fallback when the reason is unrecognised. */
   message: string | null
+  /**
+   * The mounted projects the subject may not view, when a WORKSPACE
+   * conversation is what refused (`lib/workspace/conversation-sharing.ts`,
+   * spec AC-7).
+   *
+   * It rides in `details.projects` beside the reason the container refusal
+   * already uses, and it is what tells the two apart on screen: a project
+   * conversation's refusal is about THE project the thread lives in, which the
+   * reader is already looking at, while a Büro thread's is about one of several
+   * projects it happens to read — and "add them to the project first" is
+   * unactionable until it says which project.
+   */
+  projects: string[] | null
 }
 
 async function readFailure(response: Response): Promise<SharingFailure> {
   try {
     const body = (await response.json()) as {
       error?: string
-      details?: { reason?: string } | null
+      details?: { reason?: string; projects?: unknown } | null
     }
-    return { reason: body.details?.reason ?? null, message: body.error ?? null }
+    const projects = body.details?.projects
+    return {
+      reason: body.details?.reason ?? null,
+      message: body.error ?? null,
+      projects: Array.isArray(projects)
+        ? projects.filter((name): name is string => typeof name === 'string')
+        : null,
+    }
   } catch {
-    return { reason: null, message: null }
+    return { reason: null, message: null, projects: null }
   }
 }
 
@@ -227,7 +247,7 @@ export function useSharing(
         setLoading(false)
         return true
       } catch {
-        setFailure({ reason: null, message: null })
+        setFailure({ reason: null, message: null, projects: null })
         return false
       } finally {
         setSaving(false)

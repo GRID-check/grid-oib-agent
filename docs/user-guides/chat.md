@@ -80,6 +80,33 @@ Whichever way it happened, three things say so at once: a chip in the **Im Blick
 
 A conversation can hold only so many projects at once. At the limit the add row states the number and offers **Als Deep Research starten**, which is the one path that reads more than the limit allows. A project you cannot open is never offered, and never named.
 
+**Sammlungen.** A set of projects you have named — a Bezirk, a client, a year —
+shows above the project list in **+ Projekt einblenden** and comes into view in
+one press: "Bezirk 3 · 3 Projekte". The number is what *you* can read of it, so
+it is also the number the limit is measured against. Where a Sammlung holds a
+project you may open but not chat in, the rest still comes in and the transcript
+names what did not: *Nicht eingeblendet (kein Chat-Zugriff): Nordbahnhof.* A
+project you cannot open at all is never named and never counted — a Sammlung is
+not a way to learn that a project exists. Each project it brought in gets its own
+**Rückgängig**, because a Sammlung is a gesture and not a lock.
+
+**Sammlungen verwalten**, at the foot of the same picker, is where you name one,
+describe it, add and remove projects, rename it and delete it. A Sammlung grants
+nobody anything: adding a project to it still asks whether you may open that
+project, and showing one to a chat still asks per project. You can change the
+ones you created; an administrator can change any; the rest are shown with their
+projects and no controls, because they are the office's shared vocabulary.
+Deleting one removes the name and its list — the projects stay, and a chat that
+already showed them keeps reading exactly as before.
+
+If the chat is shared, a project that one of the people in it cannot see is
+refused with their names rather than shown past them: *Nicht eingeblendet: Anna
+Meier dürfen dieses Projekt nicht sehen, und diese Unterhaltung ist geteilt.*
+Change who the chat is shared with, or ask without that project. The same rule
+runs the other way when you invite someone: if they cannot read a project this
+chat shows, the invitation is refused and says which project — sharing a chat
+never grants project access.
+
 Answers that only cite Steckbriefe carry a footer under them — *In diese Unterhaltung holen: [Seestadt Nord] einblenden* — so the follow-up question does not mean going back to the tree.
 
 ### Where an answer came from
