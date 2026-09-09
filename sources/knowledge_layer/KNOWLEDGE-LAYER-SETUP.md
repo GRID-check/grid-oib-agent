@@ -152,7 +152,7 @@ By default, LlamaIndex ingests text only and calls the embedding and VLM models 
 | `AIQ_EXTRACT_IMAGES` | `false` | Extract embedded images from PDFs and caption them with a VLM. For a BFF-dispatched document the raster is also stored beside the file (`_img/<index>.jpg`, via the BFF presign route) so `view_knowledge_image` can show it at its own resolution |
 | `AIQ_EXTRACT_CHARTS` | `false` | Classify images as charts and extract structured data (chart type, axis labels, data points) |
 | **Vision Model** | | |
-| `AIQ_VLM_MODEL` | `google/gemma-4-31b-it` | VLM for image captioning — UNVERIFIED (TODO: verify caption quality before relying on it) |
+| `AIQ_VLM_MODEL` | `google/gemma-4-31b-it` | VLM for image captioning — exists on OpenRouter (multimodal, image input, verified 2026-09-09); caption quality on OIB tables/drawings still unevaluated (TODO) |
 | `AIQ_VLM_BASE_URL` | `https://openrouter.ai/api/v1` | VLM API base URL (any OpenAI-compatible chat endpoint that takes images) |
 
 You can also set these in `deploy/.env`:
