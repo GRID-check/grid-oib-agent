@@ -10,6 +10,7 @@
 import { useCallback, useMemo } from 'react'
 import { useAuth as useAuthKit, useAccessToken } from '@workos-inc/authkit-nextjs/components'
 import { useAppConfig } from '@/shared/context'
+import { resetPosthog } from '@/lib/analytics/posthog'
 import type { AuthContext } from './types'
 
 /**
@@ -56,6 +57,7 @@ export const useAuth = (): AuthContext => {
 
   const handleSignOut = useCallback(async (): Promise<void> => {
     if (!authRequired) return
+    resetPosthog()
     await authKitSignOut({ returnTo: '/' })
   }, [authRequired, authKitSignOut])
 

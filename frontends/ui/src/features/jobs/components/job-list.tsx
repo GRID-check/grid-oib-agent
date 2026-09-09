@@ -49,6 +49,7 @@ import {
 } from '@/adapters/api/jobs-client'
 import { presetForCron } from '../lib/schedule'
 import { JobRunHistory } from './job-run-history'
+import { capturePosthog } from '@/lib/analytics/posthog'
 
 interface JobListProps {
   projectId: string
@@ -126,6 +127,7 @@ function JobCard({
     onChanged({ ...job, enabled })
     try {
       const updated = await updateJob(projectId, job.id, { enabled })
+      capturePosthog('job_enabled_changed', { enabled })
       onChanged(updated)
     } catch {
       onChanged({ ...job, enabled: !enabled })
@@ -140,6 +142,7 @@ function JobCard({
     try {
       const result = await runJob(projectId, job.id)
       if (result.status === 'submitted') {
+        capturePosthog('job_run_submitted', { output: job.output })
         // The run is now a live job. Open the history (so the new row and its
         // status are visible right away) and offer a one-click jump into the
         // research panel that follows it.
@@ -179,6 +182,7 @@ function JobCard({
     setDeleting(true)
     try {
       await deleteJob(projectId, job.id)
+      capturePosthog('job_deleted', { output: job.output })
       setConfirmOpen(false)
       onDeleted(job.id)
     } catch {

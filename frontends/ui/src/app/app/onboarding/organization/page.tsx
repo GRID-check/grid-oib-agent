@@ -22,6 +22,7 @@ import { Logo } from '@/components/brand/logo'
 import { StarfieldAnimation } from '@/shared/components/StarfieldAnimation'
 import { useAuth } from '@/adapters/auth/use-auth'
 import { useTranslations } from '@/i18n'
+import { capturePosthog } from '@/lib/analytics/posthog'
 
 const OrganizationOnboardingPage = (): ReactNode => {
   const t = useTranslations('onboarding')
@@ -70,6 +71,8 @@ const OrganizationOnboardingPage = (): ReactNode => {
           if (data.error === 'self-serve-disabled') throw new Error(t('errors.selfServeDisabled'))
           throw new Error(t('errors.createFailed'))
         }
+
+        capturePosthog('organization_created')
 
         // A deliberate "workspace ready" beat before entering the workspace,
         // then straight to /projects (no bounce through the home redirect).

@@ -95,6 +95,7 @@
     "next": "^16.2.11",
     "pdfjs-dist": "^6.2.108",
     "postgres": "^3.4.0",
+    "posthog-js": "^1.428.8",
     "rate-limiter-flexible": "^11.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

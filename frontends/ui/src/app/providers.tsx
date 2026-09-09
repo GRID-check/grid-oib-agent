@@ -21,12 +21,20 @@ import { AuthKitProvider } from '@workos-inc/authkit-nextjs/components'
 import { MotionConfig } from 'motion/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
-import { AppConfigProvider, type AppConfig } from '@/shared/context'
+import { AppConfigProvider, type AppConfig, useAppConfig } from '@/shared/context'
 import { useLayoutStore } from '@/features/layout'
 import { useChatStore } from '@/features/chat/store'
 import type { ThemeMode } from '@/features/layout'
 import { I18nProvider, type Locale } from '@/i18n'
 import { fetchUserPreferences, patchUserPreferences } from '@/lib/user-preferences/client'
+import { useAuth } from '@/adapters/auth'
+import {
+  DISABLED_POSTHOG_CONFIG,
+  identifyPosthog,
+  initPosthogClient,
+  isPosthogEnabled,
+  resetPosthog,
+} from '@/lib/analytics/posthog'
 
 interface ProvidersProps {
   children: ReactNode
@@ -39,6 +47,41 @@ interface ProvidersProps {
 const THEME_MODES: ReadonlySet<string> = new Set(['system', 'light', 'dark'])
 const isThemeMode = (value: unknown): value is ThemeMode =>
   typeof value === 'string' && THEME_MODES.has(value)
+
+/**
+ * Initializes browser analytics from runtime config and associates the
+ * PostHog session with the authenticated WorkOS user. Runs after AuthKit has
+ * restored its session on each page load; sign-out resets PostHog in the auth
+ * action before AuthKit redirects. Everything no-ops while analytics is
+ * unconfigured (fail-open).
+ */
+const PostHogIdentitySync = (): null => {
+  const { authRequired, isAuthenticated, user } = useAuth()
+  const { posthog: posthogConfig = DISABLED_POSTHOG_CONFIG } = useAppConfig()
+  const previousDistinctId = useRef<string | null>(null)
+  const distinctId = authRequired && isAuthenticated && user?.id ? user.id : null
+
+  useEffect(() => {
+    initPosthogClient(posthogConfig.host, posthogConfig.projectToken)
+  }, [posthogConfig.host, posthogConfig.projectToken])
+
+  useEffect(() => {
+    if (!distinctId) {
+      previousDistinctId.current = null
+      return
+    }
+    if (!isPosthogEnabled() || previousDistinctId.current === distinctId) return
+
+    if (previousDistinctId.current) resetPosthog()
+    identifyPosthog(distinctId, {
+      email: user?.email ?? undefined,
+      name: user?.name ?? undefined,
+    })
+    previousDistinctId.current = distinctId
+  }, [distinctId, user?.email, user?.name])
+
+  return null
+}
 
 /**
  * Applies theme classes directly to the document element.
@@ -242,6 +285,7 @@ export const Providers = ({ children, config, locale }: ProvidersProps): ReactNo
               with prefers-reduced-motion, app-wide. */}
           <MotionConfig reducedMotion="user">
             <TooltipProvider delayDuration={200}>
+              <PostHogIdentitySync />
               {content}
             </TooltipProvider>
             <Toaster />
