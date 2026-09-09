@@ -29,6 +29,12 @@ def _get_token_encoder():
 
         return tiktoken.get_encoding("cl100k_base")
     except (ImportError, OSError) as exc:
+        # "tiktoken" and "per-token" are the BPE tokenizer, not a credential;
+        # `exc` is an ImportError or an OSError from the BPE-table download.
+        # The rule is a keyword match on "token" in a logged string, so it
+        # cannot tell the two apart -- suppressed here rather than repo-wide,
+        # because it does catch real credential logging elsewhere.
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         logger.warning("tiktoken unavailable (%s); history is budgeted by the 4-chars-per-token heuristic", exc)
         return None
 
