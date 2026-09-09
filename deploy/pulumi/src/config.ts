@@ -843,6 +843,33 @@ export interface GridConfig {
     schedule: string;
   };
 
+  registerReconcile: {
+    /**
+     * The Projektregister backfill and repair
+     * (`POST /api/internal/workspace/register/reconcile`): projects whose
+     * Steckbrief is missing or stale get one rebuilt, oldest first, bounded to
+     * 50 per tick.
+     *
+     * Enabled by default, and this one is not a cleanup — it is how the Büro
+     * learns that a project exists at all (ADR-0054). Write-through covers a
+     * project someone edits; nothing else does. Without this clock every
+     * organization that existed before the register — which is every
+     * organization on the day this ships — stays invisible to the office, and
+     * the Büro answers "no matching projects" about a full portfolio. The
+     * reconcile route is written for exactly this: bounded, idempotent, and
+     * meant to be called on a tick.
+     */
+    enabled: boolean;
+    /**
+     * 5-field cron. Hourly by default. The batch is 50, so the ship-day
+     * backfill of a large deployment wants ticks in hours rather than days,
+     * and an hour is also the longest a missed write-through should leave a
+     * Steckbrief describing a project as it used to be. A tick with nothing to
+     * do is one indexed query that claims nothing.
+     */
+    schedule: string;
+  };
+
   agentAuthoredDocuments: {
     /**
      * Operator kill switch for agent-authored documents: a finished
@@ -2316,6 +2343,11 @@ export function loadConfig(): GridConfig {
       enabled: bool(cfg, "vectorReconcileEnabled", true),
       // Sundays 03:00 UTC.
       schedule: cfg.get("vectorReconcileSchedule") ?? "0 3 * * 0",
+    },
+    registerReconcile: {
+      enabled: bool(cfg, "registerReconcileEnabled", true),
+      // Hourly, on the half hour: off the top of the hour the other sweeps use.
+      schedule: cfg.get("registerReconcileSchedule") ?? "30 * * * *",
     },
 
     collaboration: {
