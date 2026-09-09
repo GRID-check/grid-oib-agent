@@ -20,12 +20,11 @@ import {
 } from '@/lib/projects/memory-service'
 import { PROJECT_MEMORY_CONFIDENCES, PROJECT_MEMORY_KINDS } from '@/lib/db/schema'
 
-// The DEPLOYMENT half of the org-memory gate, kept as an off-switch above the
+// The DEPLOYMENT half of the org-memory gate, kept as an off-switch BELOW the
 // permission (audit finding S1): an org item lands in every project's digest
 // across the tenant, so an operator who wants no agent-authored org memory at
 // all in this deployment has a lever that does not depend on how WorkOS roles
-// are provisioned. Set GRID_ALLOW_AGENT_ORG_MEMORY=true to hand the decision to
-// the permission below.
+// are provisioned.
 //
 // The AUTHORIZATION half is `assertAgentMayWriteOrgMemory`, which resolves the
 // ACTING user from the envelope and asks whether they hold `org:memory:write`
@@ -105,22 +104,42 @@ export const POST = internalApiRoute(
       'project-scoped agent memory addressed by project id; the project row names the tenant',
       async () => {
         if (scope === 'organization') {
-          // Deployment gate first: it is the cheapest of the two and needs no
-          // WorkOS round trip to say no (audit finding S1).
+          // THE PERMISSION IS ASKED FIRST, and it is asked ALWAYS (ADR-0055).
+          //
+          // It used to be asked second, behind the deployment off-switch, which
+          // defaults to off — so in every ordinary deployment the refusal that
+          // actually reached a person said the feature was switched off, when
+          // the truth about them was that their role does not hold
+          // `org:memory:write`. A permission denial reported as a service state
+          // is the wrong sentence in both directions: it tells someone who
+          // could be granted the right that there is nothing to grant, and it
+          // tells an administrator who did switch the feature on nothing about
+          // why it still refuses. The message below is a statement about the
+          // acting user, and it is the one a holder of the permission never
+          // sees.
+          //
+          // The code stays ORG_MEMORY_DISABLED for both refusals: the Python
+          // side's proposal-card branch keys on it, and the agent's one honest
+          // answer to either is the same card (spec AG-8, AG-9).
+          await assertAgentMayWriteOrgMemory({
+            organizationId: organizationId as string,
+            organizationMembershipId,
+          })
+          // Then the deployment off-switch, which is an operator's statement
+          // about this deployment and says so. Second because it can only be
+          // reached by someone the permission already allowed, which is exactly
+          // when "the administrator turned this off here" is the true and
+          // complete answer.
           if (!agentOrgMemoryAllowed()) {
             console.warn(
               '[Internal Memory API] Rejected agent org-scoped write (GRID_ALLOW_AGENT_ORG_MEMORY not set)'
             )
             // Distinct ORG_MEMORY_DISABLED code (not a bare FORBIDDEN) so the backend
             // reports the accurate cause instead of mislabeling it a token mismatch.
-            throw new OrgMemoryDisabledError('Agent organization-scoped memory is disabled')
+            throw new OrgMemoryDisabledError(
+              'Agent organization-scoped memory is switched off in this deployment'
+            )
           }
-          // Then the acting user's permission. Same code, because the agent's
-          // one honest answer to either is the proposal card (spec AG-8, AG-9).
-          await assertAgentMayWriteOrgMemory({
-            organizationId: organizationId as string,
-            organizationMembershipId,
-          })
           // Validate the org id against known tenants. There is no organizations
           // table, so "known" means: at least one project belongs to it. This
           // blocks arbitrary-org writes from a compromised backend, though an

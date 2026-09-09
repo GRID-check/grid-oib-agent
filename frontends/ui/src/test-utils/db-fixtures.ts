@@ -63,14 +63,12 @@ export const makeMemoryItem = (
   conflictsWithId: null,
   salience: 0.5,
   pinned: false,
-  createdBy: null,
   lastReferencedAt: null,
   // Recall bookkeeping and the semantic vector (migration 0069). Unembedded by
   // default so a fixture exercises the lexical fallback unless a test opts in.
   recallCount: 0,
   embedding: null,
   embeddingModel: null,
-  embeddedAt: null,
   createdAt: new Date('2026-07-01T00:00:00Z'),
   updatedAt: new Date('2026-07-01T00:00:00Z'),
   ...overrides,

@@ -5,3 +5,11 @@ features:
     every project reads it. Recording firm-wide knowledge is an administrator's
     right by default: for everyone else Piloti offers the finding as a card, and
     it is saved once someone accepts it.
+  - >
+    When Piloti corrects something it noted earlier, the replaced note stays
+    visible beside the new one instead of quietly disappearing — and it can be
+    put back, in case the correction was the mistake.
+  - >
+    A refused firm-wide note now says why. Where Piloti may not record office
+    knowledge on your behalf, it names the missing permission instead of
+    reporting that the service is unavailable.

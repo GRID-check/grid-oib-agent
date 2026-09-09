@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
-import { OrgMemoryDisabledError } from '@/lib/api/errors'
+import { ConflictError, OrgMemoryDisabledError } from '@/lib/api/errors'
 import { resolveMembershipRole } from '@/lib/authz/membership-role'
 import { orgRoleHoldsPermission } from '@/lib/authz/org-role-permissions'
 import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
@@ -10,6 +10,9 @@ import type {
   NewProjectMemoryItem,
   ProjectMemoryConfidence,
   ProjectMemoryItem,
+  ProjectMemoryKind,
+  ProjectMemoryScope,
+  ProjectMemoryVerification,
 } from '@/lib/db/schema'
 import {
   NEAR_DUP_JACCARD_THRESHOLD,
@@ -19,10 +22,9 @@ import {
   normalizeContent,
   polaritySignature,
 } from '@/lib/knowledge/consolidation'
-import { formatBoundedDigest } from '@/lib/knowledge/digest-format'
+import { renderBoundedDigest } from '@/lib/knowledge/digest-format'
 import { markProjectRegisterStale } from '@/lib/workspace/register-service'
 import {
-  cosineSimilaritySql,
   embedNote,
   embedNotes,
   enrichForEmbedding,
@@ -30,6 +32,14 @@ import {
   type EmbeddedNote,
 } from '@/lib/knowledge/embeddings'
 import { daysSince, fuseHybridRelevance, rankByRecallScore } from '@/lib/knowledge/recall-scoring'
+import {
+  findRestorePair,
+  restoreSupersededItem,
+  selectRecallCandidates,
+  selectSupersessionLinks,
+  type RecallCandidateRow,
+  type SupersessionRef,
+} from './memory-repository'
 
 /**
  * Memory service — system-of-record CRUD plus the bounded "core digest"
@@ -314,6 +324,56 @@ function isAgentSupersedable(item: ProjectMemoryItem): boolean {
   return !item.pinned && item.verification !== 'user_confirmed' && item.provenanceType !== 'user'
 }
 
+/**
+ * The statuses a reader sees by default.
+ *
+ * `superseded` is in the list because ADR-0055 makes a correction a STATED
+ * event: the write path has always recorded `supersedes_id`, nothing ever read
+ * it, and a retired note simply vanished from the panel — so the correction
+ * could be neither seen nor undone (memory-reflection-audit.md). Retired rows
+ * now come back carrying the `status` they already had; `dismissed` and
+ * `proposed` still need `includeArchived`, because those were never part of
+ * what the agent held.
+ */
+export const READER_VISIBLE_STATUSES = ['active', 'superseded'] as const
+
+/** A memory item with both ends of its supersession resolved for the reader. */
+export interface ProjectMemoryItemWithSupersession extends ProjectMemoryItem {
+  /** The ACTIVE note that retired this one. Absent unless this note is retired. */
+  supersededBy?: SupersessionRef
+  /** The note this one retired, through the `supersedes_id` the write recorded. */
+  supersedes?: SupersessionRef
+}
+
+/**
+ * Attach both ends of the supersession chain to a page of rows.
+ *
+ * Direction is read off the STATUSES, not off which row holds the pointer:
+ * `supersedes_id` records what happened once, and a restore is a second event
+ * rather than a rewriting of the first, so "superseded by" is reported only
+ * while the replacement is still live. That is what makes a restore reversible
+ * and idempotent (see `restoreSupersededItem`).
+ */
+async function withSupersessionLinks(
+  rows: ProjectMemoryItem[]
+): Promise<ProjectMemoryItemWithSupersession[]> {
+  if (rows.length === 0) return []
+  const held = new Map(rows.map((row) => [row.id, row] as const))
+  const { targets, replacements } = await selectSupersessionLinks(rows)
+  return rows.map((row) => {
+    const local = row.supersedesId ? held.get(row.supersedesId) : undefined
+    const supersedes = row.supersedesId
+      ? (local ? { id: local.id, content: local.content } : targets.get(row.supersedesId))
+      : undefined
+    const supersededBy = replacements.get(row.id)
+    return {
+      ...row,
+      ...(supersedes ? { supersedes } : {}),
+      ...(supersededBy ? { supersededBy } : {}),
+    }
+  })
+}
+
 export async function listProjectMemory(
   projectId: string,
   options: {
@@ -321,7 +381,7 @@ export async function listProjectMemory(
     organizationId?: string
     sourceConversationId?: string
   } = {}
-): Promise<ProjectMemoryItem[]> {
+): Promise<ProjectMemoryItemWithSupersession[]> {
   const db = getDb()
 
   // Project items, plus the org-wide items that apply to every project.
@@ -347,36 +407,71 @@ export async function listProjectMemory(
 
   const conditions = [scopeCondition]
   if (!options.includeArchived) {
-    conditions.push(eq(projectMemory.status, 'active'))
+    conditions.push(inArray(projectMemory.status, [...READER_VISIBLE_STATUSES]))
   }
   if (options.sourceConversationId) {
     // Used by the chat "Piloti noted N" chip to show only what this turn recorded.
     conditions.push(eq(projectMemory.sourceConversationId, options.sourceConversationId))
   }
-  return db
+  const rows = await db
     .select()
     .from(projectMemory)
     .where(and(...conditions))
     .orderBy(desc(projectMemory.pinned), desc(projectMemory.updatedAt))
+  return withSupersessionLinks(rows)
 }
 
 export async function listOrganizationMemory(
   organizationId: string,
   options: { includeArchived?: boolean } = {}
-): Promise<ProjectMemoryItem[]> {
+): Promise<ProjectMemoryItemWithSupersession[]> {
   const db = getDb()
   const conditions = [
     eq(projectMemory.scope, 'organization'),
     eq(projectMemory.organizationId, organizationId),
   ]
   if (!options.includeArchived) {
-    conditions.push(eq(projectMemory.status, 'active'))
+    // The same reader view as `listProjectMemory`, and for the same reason: the
+    // project panel already lists org-wide notes through that call, so an org
+    // note whose correction is visible in one surface and invisible in the
+    // other would be one store telling two stories.
+    conditions.push(inArray(projectMemory.status, [...READER_VISIBLE_STATUSES]))
   }
-  return db
+  const rows = await db
     .select()
     .from(projectMemory)
     .where(and(...conditions))
     .orderBy(desc(projectMemory.pinned), desc(projectMemory.updatedAt))
+  return withSupersessionLinks(rows)
+}
+
+/**
+ * Undo a supersession: the retired note becomes active again and the note that
+ * replaced it is retired (ADR-0055).
+ *
+ * Owner-scoped exactly like every other single-item mutation here. Returns
+ * `null` when there is no such item in this owner's scope, and throws
+ * {@link ConflictError} when there is nothing to undo — the item is not
+ * retired, or no live note claims to have replaced it — because those two are
+ * different answers and a bare 404 would report the first as the second.
+ */
+export async function restoreSupersededMemoryItem(
+  owner: { projectId: string } | { organizationId: string },
+  itemId: string
+): Promise<{ restoredId: string; retiredId: string } | null> {
+  const pair = await findRestorePair(owner, itemId)
+  if (!pair) return null
+  if (pair.retired.status !== 'superseded') {
+    throw new ConflictError('This note is not retired, so there is nothing to restore')
+  }
+  if (!pair.replacement) {
+    throw new ConflictError('No live note claims to have replaced this one')
+  }
+  const swapped = await restoreSupersededItem(itemId, pair.replacement.id)
+  if (!swapped) {
+    throw new ConflictError('This supersession was changed by someone else; reload and try again')
+  }
+  return { restoredId: itemId, retiredId: pair.replacement.id }
 }
 
 export interface CreateMemoryOptions {
@@ -491,7 +586,6 @@ export async function createProjectMemoryItem(
         ...values,
         embedding: embedded.vector,
         embeddingModel: embedded.fingerprint,
-        embeddedAt: new Date(),
       }
     : values
   const insertValues: NewProjectMemoryItem = supersedeTarget
@@ -649,9 +743,17 @@ export type DigestItem = Pick<
  * order until DIGEST_MAX_CHARS would be exceeded.
  */
 export function formatDigestLines(items: DigestItem[], omitted = 0): string | null {
-  // The escaping/bounding mechanics live in the shared formatter; this wrapper
-  // decides the header, the per-item tag set, and the truncation notice.
-  const digest = formatBoundedDigest(
+  const rendered = renderDigest(items)
+  return rendered ? withOmissionNotice(rendered.text, omitted) : null
+}
+
+/**
+ * The escaping/bounding mechanics live in the shared formatter; this decides
+ * the header and the per-item tag set, and reports which items reached the
+ * text so a caller can name exactly those (ADR-0055).
+ */
+function renderDigest(items: DigestItem[]) {
+  return renderBoundedDigest(
     'PROJECT_MEMORY v1',
     items.map((item) => ({
       tags: [
@@ -664,20 +766,20 @@ export function formatDigestLines(items: DigestItem[], omitted = 0): string | nu
     })),
     DIGEST_MAX_CHARS
   )
-  if (!digest) return null
-  // A cap says so in the text the MODEL reads, not only in the operator's log
-  // — otherwise the agent presents a truncated shelf as the whole shelf and
-  // answers "what do you remember" confidently and wrongly (gotchas.md).
-  return omitted > 0
-    ? `${digest}\n(+${omitted} weitere Notizen zu diesem Projekt, hier nicht gezeigt — frag nach, wenn eine davon zählen könnte.)`
-    : digest
 }
 
 /**
- * Candidates considered before ranking. Bounded like every list here; past
- * this the tail is by definition the least recently touched.
+ * A cap says so in the text the MODEL reads, not only in the operator's log —
+ * otherwise the agent presents a truncated shelf as the whole shelf and answers
+ * "what do you remember" confidently and wrongly (gotchas.md). ADR-0055 adds
+ * the other half: the same number now reaches the READER, through the digest
+ * route's `omitted`, so the two are told the same thing.
  */
-const RECALL_CANDIDATE_LIMIT = 200
+function withOmissionNotice(text: string, omitted: number): string {
+  return omitted > 0
+    ? `${text}\n(+${omitted} weitere Notizen zu diesem Projekt, hier nicht gezeigt — frag nach, wenn eine davon zählen könnte.)`
+    : text
+}
 
 /**
  * How many of the digest's slots pinned items may take.
@@ -690,16 +792,6 @@ const RECALL_CANDIDATE_LIMIT = 200
  */
 const DIGEST_MAX_PINNED = 12
 
-/** What the digest builder needs per candidate row. */
-interface RecallCandidate extends DigestItem {
-  id: string
-  pinned: boolean
-  salience: number
-  lastReferencedAt: Date | null
-  recallCount: number
-  relevance: number | null
-}
-
 export interface MemoryDigestOptions {
   /**
    * The turn's question. When present (and the embedder is reachable) recall
@@ -709,61 +801,78 @@ export interface MemoryDigestOptions {
   query?: string | null
 }
 
+/** One note the digest carried, as the reader is finally shown it. */
+export interface CarriedMemoryNote {
+  id: string
+  kind: ProjectMemoryKind
+  /** Truncated to {@link CARRIED_CONTENT_MAX_CHARS}: this is a label, not the note. */
+  content: string
+}
+
+/**
+ * What a digest build produced — the text for the model, and the same
+ * selection as data for the reader.
+ *
+ * ADR-0055's inversion in one type: the digest used to tell the MODEL how many
+ * notes were dropped and the reader nothing at all. `carried` names exactly the
+ * notes that reached the text (not the ones selected for it — the character
+ * budget can still drop a tail), and `omitted` is the very number the text
+ * discloses, so the two audiences cannot be told different things.
+ */
+export interface MemoryDigestReport {
+  text: string
+  carried: CarriedMemoryNote[]
+  /** Active notes in scope that the text does not carry. */
+  omitted: number
+  /** Active notes in scope, full stop. `carried.length + omitted`. */
+  total: number
+}
+
+/** A carried note is a label in a list, not the note itself. */
+const CARRIED_CONTENT_MAX_CHARS = 120
+
+/** Collapse whitespace and cut to the label budget, with an ellipsis when cut. */
+function toCarriedNote(item: { id: string; kind: ProjectMemoryKind; content: string }) {
+  const content = item.content.replace(/\s+/g, ' ').trim()
+  return {
+    id: item.id,
+    kind: item.kind,
+    content:
+      content.length > CARRIED_CONTENT_MAX_CHARS
+        ? `${content.slice(0, CARRIED_CONTENT_MAX_CHARS - 1).trimEnd()}…`
+        : content,
+  }
+}
+
 /**
  * Build the bounded "core memory" digest injected as the
- * `x-grid-project-memory` header and re-fetched live per turn.
+ * `x-grid-project-memory` header and re-fetched live per turn, AND the report
+ * of what it carried.
  *
  * Two tiers, which is the shape every shipping agent-memory system converged
  * on (see docs/architecture/semantic-notes.md): a small ALWAYS-carried core —
  * the user's pins — plus a RECALLED remainder chosen for this question.
  * Selection is `lib/knowledge/recall-scoring.ts` (relevance + importance +
- * recency, reinforced by past use).
+ * recency, reinforced by past use); the candidate statement and the scope rule
+ * are `lib/projects/memory-repository.ts`, shared with `searchProjectMemory` so
+ * the tool and the digest cannot disagree about either.
  *
  * This replaces `ORDER BY pinned, updated_at LIMIT 20`, which the memory audit
  * called "an effectively random-by-recency subset" past twenty items (F3), and
  * under which `salience` and `last_referenced_at` were both written and never
  * read. It also stops silently truncating: when candidates do not fit, the
- * digest says so in the text the model reads, per the repo's own rule that a
- * cap must be visible to the model and not only to the operator.
+ * digest says so in the text the model reads AND in `omitted`, which is the
+ * same number, per the repo's rule that a cap must be visible — now to the
+ * reader too, which is the half ADR-0055 adds.
  *
  * Returns null when there is no active memory (header is then omitted).
  */
-export async function buildProjectMemoryDigest(
+export async function buildProjectMemoryDigestReport(
   projectId: string | undefined,
   organizationId: string | undefined,
   options: MemoryDigestOptions = {}
-): Promise<string | null> {
+): Promise<MemoryDigestReport | null> {
   if (!projectId && !organizationId) return null
-  const db = getDb()
-
-  const scopeConditions = []
-  if (projectId) {
-    // Defense-in-depth: when the caller's organization is known, the project
-    // branch is additionally pinned to that org so a foreign projectId can
-    // never surface another tenant's memory.
-    scopeConditions.push(
-      organizationId
-        ? and(
-            eq(projectMemory.projectId, projectId),
-            eq(projectMemory.organizationId, organizationId)
-          )
-        : eq(projectMemory.projectId, projectId)
-    )
-  }
-  if (organizationId) {
-    scopeConditions.push(
-      and(
-        eq(projectMemory.scope, 'organization'),
-        eq(projectMemory.organizationId, organizationId),
-        isNull(projectMemory.projectId)
-      )
-    )
-  }
-
-  const scope = and(
-    scopeConditions.length > 1 ? or(...scopeConditions) : scopeConditions[0],
-    eq(projectMemory.status, 'active')
-  )
 
   // The query vector, when there is a question and an embedder. Fail-open:
   // null simply means the dense channel contributes nothing. The timeout is
@@ -773,61 +882,11 @@ export async function buildProjectMemoryDigest(
   const queryText = options.query?.trim()
   const embedded = queryText ? await embedNote(queryText, { timeoutMs: 1000 }) : null
 
-  // Cosine is computed in SQL so the vectors never cross the wire — a
-  // 3072-dimension vector per row would dominate this query's cost.
-  const relevanceColumn = embedded
-    ? cosineSimilaritySql(projectMemory.embedding, embedded.vector)
-    : sql<number | null>`null::double precision`
-
-  const rows = await db
-    .select({
-      id: projectMemory.id,
-      scope: projectMemory.scope,
-      kind: projectMemory.kind,
-      content: projectMemory.content,
-      confidence: projectMemory.confidence,
-      verification: projectMemory.verification,
-      pinned: projectMemory.pinned,
-      salience: projectMemory.salience,
-      lastReferencedAt: projectMemory.lastReferencedAt,
-      recallCount: projectMemory.recallCount,
-      relevance: relevanceColumn,
-      // Only compare vectors from the model that produced them: a same-size
-      // vector from another embedder is noise wearing the right shape.
-      embeddingModel: projectMemory.embeddingModel,
-    })
-    .from(projectMemory)
-    .where(scope)
-    // The window is the whole quality mechanism's ceiling: everything below
-    // (dedup, decay, hybrid fusion) runs over these rows only. Recency was the
-    // only order it had, so past two hundred notes a relevant old one could
-    // not be recalled at all. With a query, the database ranks by similarity
-    // first and recency breaks ties; without one, recency is still the order.
-    .orderBy(
-      ...(embedded ? [sql`${relevanceColumn} desc nulls last`] : []),
-      desc(projectMemory.updatedAt)
-    )
-    .limit(RECALL_CANDIDATE_LIMIT)
-
-  if (rows.length === 0) return null
-
-  const candidates: RecallCandidate[] = rows.map((row) => ({
-    id: row.id,
-    scope: row.scope,
-    kind: row.kind,
-    content: row.content,
-    confidence: row.confidence,
-    verification: row.verification,
-    pinned: row.pinned,
-    // Raw sql<T> results are not runtime-validated — coerce at the boundary.
-    salience: Number(row.salience),
-    lastReferencedAt: row.lastReferencedAt ? new Date(row.lastReferencedAt) : null,
-    recallCount: Number(row.recallCount),
-    relevance:
-      embedded && row.embeddingModel === embedded.fingerprint && row.relevance !== null
-        ? Number(row.relevance)
-        : null,
-  }))
+  const { rows: candidates, total } = await selectRecallCandidates(
+    { projectId, organizationId },
+    { queryVector: embedded?.vector ?? null, fingerprint: embedded?.fingerprint ?? null }
+  )
+  if (candidates.length === 0) return null
 
   const pinned = candidates.filter((candidate) => candidate.pinned)
   const unpinned = candidates.filter((candidate) => !candidate.pinned)
@@ -835,28 +894,7 @@ export async function buildProjectMemoryDigest(
   const keptPinned = pinned.slice(0, DIGEST_MAX_PINNED)
   const recallSlots = Math.max(0, DIGEST_MAX_ITEMS - keptPinned.length)
 
-  // Relevance is HYBRID: the dense (cosine) channel fused by reciprocal rank
-  // with a lexical token-overlap channel. Dense alone misses exactly the
-  // queries this product lives on — "OIB-RL 6", "§ 4 Abs. 2" — and lexical
-  // alone misses paraphrase; fused, each covers the other's blind side. The
-  // lexical channel also means recall keeps working with no embedder at all.
-  const queryTokens = queryText ? contentTokens(queryText) : null
-  const lexical = unpinned.map((candidate) =>
-    queryTokens ? jaccardSimilarity(queryTokens, contentTokens(candidate.content)) : 0
-  )
-  const relevance = fuseHybridRelevance(
-    unpinned.map((candidate) => candidate.relevance),
-    lexical
-  )
-
-  const ranked = rankByRecallScore(
-    unpinned.map((candidate, index) => ({
-      relevance: relevance[index],
-      importance: candidate.salience,
-      daysSinceUse: daysSince(candidate.lastReferencedAt),
-      timesUsed: candidate.recallCount,
-    }))
-  )
+  const ranked = rankMemoryByRelevance(unpinned, queryText ?? null)
   const keptRecalled = ranked.slice(0, recallSlots).map((entry) => unpinned[entry.index])
 
   // Self-healing backfill: rows written while the embedder was down (or before
@@ -865,14 +903,12 @@ export async function buildProjectMemoryDigest(
   // ACTIVE project heals itself and a dormant one costs nothing.
   if (embedded) {
     const unembedded = candidates
-      .filter((candidate) => candidate.relevance === null)
-      .filter((candidate) => !embeddedFingerprintMatches(rows, candidate.id, embedded.fingerprint))
+      .filter((candidate) => !candidate.embeddedByCurrentModel)
       .slice(0, MEMORY_BACKFILL_BATCH)
     if (unembedded.length > 0) void backfillMemoryEmbeddings(unembedded)
   }
 
   const kept = [...keptPinned, ...keptRecalled]
-  const omitted = candidates.length - kept.length
 
   // Recall FOR A QUESTION is the reinforcement event: what was surfaced against
   // a query decays more slowly next time. The query-less handshake build
@@ -883,16 +919,153 @@ export async function buildProjectMemoryDigest(
   // colder score, not a wrong answer.
   if (queryText) void markMemoryRecalled(kept.map((item) => item.id))
 
-  return formatDigestLines(kept, omitted)
+  // Rendered FIRST, then counted: the character budget decides what the model
+  // actually sees, so anything counted before it is a claim about a different
+  // digest than the one being sent.
+  const rendered = renderDigest(kept)
+  if (!rendered) return null
+  const carried = rendered.included.map((index) => toCarriedNote(kept[index]))
+  const omitted = Math.max(0, total - carried.length)
+
+  return { text: withOmissionNotice(rendered.text, omitted), carried, omitted, total }
 }
 
-/** Rows already carrying a vector from the CURRENT model need no backfill. */
-function embeddedFingerprintMatches(
-  rows: { id: string; embeddingModel: string | null }[],
-  id: string,
-  fingerprint: string
-): boolean {
-  return rows.some((row) => row.id === id && row.embeddingModel === fingerprint)
+/**
+ * The digest text alone, for the callers that inject it and report nothing
+ * (the WebSocket handshake, the Büro digest, a scheduled job's prompt).
+ */
+export async function buildProjectMemoryDigest(
+  projectId: string | undefined,
+  organizationId: string | undefined,
+  options: MemoryDigestOptions = {}
+): Promise<string | null> {
+  const report = await buildProjectMemoryDigestReport(projectId, organizationId, options)
+  return report?.text ?? null
+}
+
+/**
+ * The hybrid ranking both readers share.
+ *
+ * Relevance is HYBRID: the dense (cosine) channel fused by reciprocal rank
+ * with a lexical token-overlap channel. Dense alone misses exactly the
+ * queries this product lives on — "OIB-RL 6", "§ 4 Abs. 2" — and lexical
+ * alone misses paraphrase; fused, each covers the other's blind side. The
+ * lexical channel also means recall keeps working with no embedder at all.
+ *
+ * Exported shape is the scorer's own: indices into `candidates`, best first,
+ * with the score, so a caller keeps its own rows and can report the score
+ * (`search_memory` does; the digest does not).
+ */
+function rankMemoryByRelevance(
+  candidates: RecallCandidateRow[],
+  queryText: string | null
+): { index: number; score: number }[] {
+  const queryTokens = queryText ? contentTokens(queryText) : null
+  const lexical = candidates.map((candidate) =>
+    queryTokens ? jaccardSimilarity(queryTokens, contentTokens(candidate.content)) : 0
+  )
+  const relevance = fuseHybridRelevance(
+    candidates.map((candidate) => candidate.relevance),
+    lexical
+  )
+  return rankByRecallScore(
+    candidates.map((candidate, index) => ({
+      relevance: relevance[index],
+      importance: candidate.salience,
+      daysSinceUse: daysSince(candidate.lastReferencedAt),
+      timesUsed: candidate.recallCount,
+    }))
+  )
+}
+
+/** Default and ceiling for a `search_memory` page (ADR-0055, contract C1). */
+export const MEMORY_SEARCH_DEFAULT_LIMIT = 8
+export const MEMORY_SEARCH_MAX_LIMIT = 20
+
+/** One note the recall tool found, ranked against the caller's question. */
+export interface MemorySearchHit {
+  id: string
+  kind: ProjectMemoryKind
+  /**
+   * The note, in full. NOT truncated the way the digest's `carried` is: that
+   * one is a label in a list the reader scans, this one is the content the
+   * agent asked for and has to reason about, and a finding cut at 120
+   * characters is a finding that answers nothing. The column bounds it at 2000.
+   */
+  content: string
+  confidence: ProjectMemoryConfidence
+  verification: ProjectMemoryVerification
+  pinned: boolean
+  scope: ProjectMemoryScope
+  updatedAt: string
+  score: number
+}
+
+export interface MemorySearchResult {
+  items: MemorySearchHit[]
+  /** Active notes in scope, before ranking. */
+  total: number
+  returned: number
+}
+
+/**
+ * The READ path the store never had (ADR-0055): recall against a question,
+ * bounded, over the same candidates and the same hybrid ranking the digest
+ * uses.
+ *
+ * Why it shares `selectRecallCandidates` and `rankMemoryByRelevance` rather
+ * than growing its own: the digest is the working set, this is the way past it,
+ * and a second opinion about relevance would make "the digest said N were
+ * omitted, ask for them" a lie. It is also what keeps the SCOPE rule single —
+ * a project turn reaches its project plus the organization, a project-less turn
+ * reaches organization notes only, and neither can reach another project's,
+ * because there is one condition and both callers use it.
+ *
+ * Pins do NOT jump the queue here. In the digest they are the always-carried
+ * core because nobody asked a question; here somebody did, and a pin that
+ * answers it wins on relevance like any other note.
+ */
+export async function searchProjectMemory(input: {
+  projectId?: string
+  organizationId: string
+  query: string
+  limit?: number
+}): Promise<MemorySearchResult> {
+  const query = input.query.trim()
+  const limit = Math.min(
+    Math.max(input.limit ?? MEMORY_SEARCH_DEFAULT_LIMIT, 1),
+    MEMORY_SEARCH_MAX_LIMIT
+  )
+
+  const embedded = query ? await embedNote(query, { timeoutMs: 1000 }) : null
+  const { rows: candidates, total } = await selectRecallCandidates(
+    { projectId: input.projectId, organizationId: input.organizationId },
+    { queryVector: embedded?.vector ?? null, fingerprint: embedded?.fingerprint ?? null }
+  )
+  if (candidates.length === 0) return { items: [], total, returned: 0 }
+
+  const ranked = rankMemoryByRelevance(candidates, query).slice(0, limit)
+  const items = ranked.map((entry) => {
+    const candidate = candidates[entry.index]
+    return {
+      id: candidate.id,
+      kind: candidate.kind,
+      content: candidate.content,
+      confidence: candidate.confidence,
+      verification: candidate.verification,
+      pinned: candidate.pinned,
+      scope: candidate.scope,
+      updatedAt: candidate.updatedAt.toISOString(),
+      score: entry.score,
+    }
+  })
+
+  // Reading for a question reinforces, exactly as the digest's query-driven
+  // build does — otherwise a note reachable only through the tool would decay
+  // as though nothing ever used it.
+  void markMemoryRecalled(items.map((item) => item.id))
+
+  return { items, total, returned: items.length }
 }
 
 /** Backfill batch per digest build — small on purpose; the next build continues. */
@@ -904,7 +1077,7 @@ const MEMORY_BACKFILL_BATCH = 8
  * continuation inherits it, so RLS still applies to the update.
  */
 async function backfillMemoryEmbeddings(
-  items: Pick<RecallCandidate, 'id' | 'kind' | 'content'>[]
+  items: { id: string; kind: ProjectMemoryKind; content: string }[]
 ): Promise<void> {
   try {
     const embedded = await embedNotes(
@@ -918,7 +1091,6 @@ async function backfillMemoryEmbeddings(
         .set({
           embedding: embedded[index].vector,
           embeddingModel: embedded[index].fingerprint,
-          embeddedAt: new Date(),
         })
         .where(eq(projectMemory.id, items[index].id))
     }
@@ -998,7 +1170,13 @@ export interface AgentMemoryActor {
  * (`OrgMemoryDisabledError`), and it is deliberately the SAME code the
  * `GRID_ALLOW_AGENT_ORG_MEMORY` deployment gate emits: to the agent both are
  * "policy says no", and a second code would need a second branch on a path
- * whose whole point is to degrade identically.
+ * whose whole point is to degrade identically. The MESSAGES differ, and that
+ * is the point of them: this one names the missing permission, the deployment
+ * gate names the deployment. This check runs FIRST (ADR-0055) so the sentence a
+ * person is finally shown is the one that is true about them — the ordering
+ * used to be the other way round, and with the off-switch defaulting to off
+ * every permission denial in every ordinary deployment reached the user as
+ * "this feature is switched off".
  */
 export async function assertAgentMayWriteOrgMemory(actor: AgentMemoryActor): Promise<void> {
   const role = await resolveMembershipRole(actor.organizationId, actor.organizationMembershipId)
@@ -1009,7 +1187,8 @@ export async function assertAgentMayWriteOrgMemory(actor: AgentMemoryActor): Pro
       `does not hold ${ORG_PERMISSIONS.memoryWrite}`
   )
   throw new OrgMemoryDisabledError(
-    `The acting user may not record organization memory (missing ${ORG_PERMISSIONS.memoryWrite})`
+    `The acting user may not record organization-wide memory: their role does not hold ` +
+      `${ORG_PERMISSIONS.memoryWrite}`
   )
 }
 

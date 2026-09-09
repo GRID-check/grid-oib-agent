@@ -248,6 +248,99 @@ describe('POST /api/internal/memory', () => {
     expect(createProjectMemoryItem).not.toHaveBeenCalled()
   })
 
+  /**
+   * ADR-0055 C6. The permission is the gate, and it is asked FIRST.
+   *
+   * It used to be asked behind the deployment off-switch, which defaults to
+   * off — so in every ordinary deployment the sentence that reached a person
+   * said the feature was switched off, when the truth about them was that
+   * their role does not hold `org:memory:write`. A permission denial reported
+   * as a service state tells someone who could be granted the right that there
+   * is nothing to grant.
+   */
+  describe('the refusal tells the truth', () => {
+    it('asks the acting user’s permission even with the deployment switch OFF', async () => {
+      vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+      // GRID_ALLOW_AGENT_ORG_MEMORY unset — the old order never reached the
+      // permission here, so an unheld permission and a switched-off deployment
+      // were indistinguishable to everybody downstream.
+
+      await POST(
+        makeRequest(
+          {
+            scope: 'organization',
+            organizationId: 'org-1',
+            userId: 'user_1',
+            organizationMembershipId: 'om_1',
+            kind: 'preference',
+            content: 'Prefer metric units.',
+          },
+          REAL_TOKEN
+        )
+      )
+
+      expect(assertAgentMayWriteOrgMemory).toHaveBeenCalledWith({
+        organizationId: 'org-1',
+        organizationMembershipId: 'om_1',
+      })
+    })
+
+    it('states the missing permission rather than an outage, keeping the code', async () => {
+      vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+      vi.mocked(assertAgentMayWriteOrgMemory).mockRejectedValue(
+        new OrgMemoryDisabledError(
+          'The acting user may not record organization-wide memory: their role does not hold org:memory:write'
+        )
+      )
+
+      const response = await POST(
+        makeRequest(
+          {
+            scope: 'organization',
+            organizationId: 'org-1',
+            userId: 'user_1',
+            organizationMembershipId: 'om_member',
+            kind: 'preference',
+            content: 'Prefer metric units.',
+          },
+          REAL_TOKEN
+        )
+      )
+
+      expect(response.status).toBe(403)
+      const body = await response.json()
+      // The code is untouched: the Python proposal-card branch keys on it.
+      expect(body.code).toBe('ORG_MEMORY_DISABLED')
+      // The MESSAGE is a permission statement, and names what is missing.
+      expect(body.error).toContain('org:memory:write')
+      expect(body.error).not.toMatch(/unavailable|disabled in this deployment/i)
+    })
+
+    it('says "switched off in this deployment" only to someone who holds the permission', async () => {
+      vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+      // The permission resolves (the default mock), the operator’s switch does
+      // not — which is exactly when the deployment IS the whole answer.
+      const response = await POST(
+        makeRequest(
+          {
+            scope: 'organization',
+            organizationId: 'org-1',
+            userId: 'user_1',
+            organizationMembershipId: 'om_admin',
+            kind: 'preference',
+            content: 'Prefer metric units.',
+          },
+          REAL_TOKEN
+        )
+      )
+
+      expect(response.status).toBe(403)
+      const body = await response.json()
+      expect(body.code).toBe('ORG_MEMORY_DISABLED')
+      expect(body.error).toContain('deployment')
+    })
+  })
+
   it('authorizes as the membership the envelope names, never as the service', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
     vi.stubEnv('GRID_ALLOW_AGENT_ORG_MEMORY', 'true')

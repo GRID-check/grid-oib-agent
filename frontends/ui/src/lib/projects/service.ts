@@ -32,7 +32,9 @@ import {
   createProjectMemoryItem,
   deleteProjectMemoryItem,
   listProjectMemory,
+  restoreSupersededMemoryItem,
   updateProjectMemoryItem,
+  type ProjectMemoryItemWithSupersession,
 } from './memory-service'
 import {
   deleteProjectRow,
@@ -299,12 +301,17 @@ export type ProjectMemoryItemPatch = Partial<
 /**
  * List a project's memory items, including the org-wide items that apply to
  * every project in the org.
+ *
+ * Since ADR-0055 this includes RETIRED items, flagged by the `status` they
+ * already carry and carrying both ends of their supersession — a correction is
+ * an event the reader is entitled to see and undo, and the panel could show
+ * neither while the retired row was filtered out here.
  */
 export async function getProjectMemory(
   session: AuthorizedSession,
   projectId: string,
   options: { includeArchived?: boolean; sourceConversationId?: string } = {}
-): Promise<ProjectMemoryItem[]> {
+): Promise<ProjectMemoryItemWithSupersession[]> {
   await requireProjectAccess(session, projectId, 'project:view')
   return listProjectMemory(projectId, { ...options, organizationId: session.organizationId })
 }
@@ -331,7 +338,6 @@ export async function addProjectMemoryItem(
     pinned: input.pinned ?? false,
     provenanceType: 'user',
     verification: 'user_confirmed',
-    createdBy: session.userId,
   })
 }
 
@@ -345,6 +351,39 @@ export async function editProjectMemoryItem(
   const item = await updateProjectMemoryItem({ projectId }, itemId, patch)
   if (!item) throw new NotFoundError()
   return item
+}
+
+/**
+ * Undo a supersession: reinstate the retired note and retire the one that
+ * replaced it (ADR-0055).
+ *
+ * Same permission as editing memory, because it IS an edit of memory: it
+ * changes which of two contradictory findings the agent carries. Audited for
+ * the same reason — a correction that can be reversed silently is a correction
+ * nobody can account for. Organization-scoped items go through the
+ * organization route, as every other org-scoped mutation does.
+ */
+export async function restoreProjectMemoryItem(
+  session: AuthorizedSession,
+  projectId: string,
+  itemId: string,
+  request: Request
+): Promise<{ restoredId: string; retiredId: string }> {
+  await requireProjectAccess(session, projectId, ['project:memory:write', 'project:edit'])
+  const outcome = await restoreSupersededMemoryItem({ projectId }, itemId)
+  if (!outcome) throw new NotFoundError()
+
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'project.memory.restored',
+    targetType: 'project',
+    targetId: projectId,
+    metadata: { itemId: outcome.restoredId, retiredItemId: outcome.retiredId },
+    request,
+  })
+
+  return outcome
 }
 
 export async function removeProjectMemoryItem(

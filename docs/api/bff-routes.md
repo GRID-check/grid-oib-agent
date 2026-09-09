@@ -5,15 +5,20 @@ All BFF (Backend-for-Frontend) routes are under `frontends/ui/src/app/api/`. The
 > **Not exhaustive, and the gap is old.** A walk of `app/api/**/route.ts` on
 > 2026-08-20 found 157 route directories, of which **51 have no entry in this
 > file or in [`collaboration-routes.md`](collaboration-routes.md)** — chiefly the
-> project surfaces (`folders`, `memory`, `overview`, `profile`,
-> `profile/patches`, `intake-definition`, `generate-summary`, `reindex`,
-> `restore`), `documents/{id}/{thumbnail,image}`, the session-attached document
+> project surfaces (`folders`, `overview`, `profile`, `profile/patches`,
+> `intake-definition`, `generate-summary`, `reindex`, `restore`),
+> `documents/{id}/{thumbnail,image}`, the session-attached document
 > shelf (`/api/session/documents/*`), legal holds and `/api/deletions`, the org
-> BYOK/memory/storage routes, several platform-tier routes (norms, storage,
+> BYOK/storage routes, several platform-tier routes (norms, storage,
 > profiler, reasoning efforts, vector reconcile), `citations/format`,
 > `skills/review`, `healthz`, and nine `/api/internal/*` service endpoints. The
 > route file is the source of truth; absence here means undocumented, never
 > non-existent.
+>
+> **Closed since (2026-09-09, ADR-0055):** the project and organization
+> `memory` routes and the two internal memory endpoints (`digest`, `search`)
+> now have entries — see [Memory](#memory-adr-0008-adr-0054-adr-0055) and the
+> internal-endpoints table.
 
 ## Architecture & error contract (ADR-0017)
 
@@ -216,6 +221,35 @@ tables: [`project_sets`, `project_set_members`](../database/schema.md))
 
 Source: `frontends/ui/src/app/api/projects/route.ts`, `frontends/ui/src/app/api/projects/[id]/route.ts`, `frontends/ui/src/app/api/projects/[id]/diagrams/route.ts` (services: `frontends/ui/src/lib/diagrams/`), `frontends/ui/src/app/api/projects/[id]/members/route.ts`, `frontends/ui/src/app/api/projects/[id]/members/[assignmentId]/route.ts`, `frontends/ui/src/app/api/projects/[id]/consistency-check/route.ts` (service: `frontends/ui/src/lib/project-profile/profile-service.ts`)
 Source: `frontends/ui/src/app/api/projects/route.ts`, `frontends/ui/src/app/api/projects/[id]/route.ts`, `frontends/ui/src/app/api/projects/[id]/members/route.ts`, `frontends/ui/src/app/api/projects/[id]/members/[assignmentId]/route.ts`, `frontends/ui/src/app/api/projects/[id]/consistency-check/route.ts`, `frontends/ui/src/app/api/projects/[id]/folders/route.ts`, `frontends/ui/src/app/api/projects/[id]/folders/[folderId]/route.ts` (services: `frontends/ui/src/lib/project-profile/profile-service.ts`, `frontends/ui/src/lib/projects/folder-service.ts`)
+
+## Memory (ADR-0008, ADR-0054, ADR-0055)
+
+The store the agent reads on every turn. Two scopes: `project` items belong to
+one project, `organization` items are shared by every project in the tenant
+(`project_id` NULL, never cross-organization). Project items are addressed under
+the project; organization items go through `/api/organization/memory`, which is
+the one place an org-wide note is written or changed from a session.
+
+Since ADR-0055 a list carries **retired** notes as well as live ones, flagged by
+the `status` they already had, with both ends of a supersession resolved
+(`supersedes`, `supersededBy`). A correction was previously invisible: the write
+path recorded `supersedes_id`, nothing read it, and the replaced note simply
+vanished from the panel — so it could be neither seen nor undone. `dismissed`
+and `proposed` still need `includeArchived=true`.
+
+| Method | Path | Auth | Description | Request Body | Response |
+|--------|------|------|-------------|-------------|----------|
+| `GET` | `/api/projects/{id}/memory?includeArchived=&conversationId=` | Required | The project's notes plus the org-wide notes that apply to every project, pinned first then most recently updated. Checks `project:view`. `conversationId` narrows to what one turn recorded (the "Piloti hat sich gemerkt" chip). Each item carries `supersedes?: { id, content }` and, while its replacement is still live, `supersededBy?: { id, content }`. | — | `{ items: [{ id, scope, kind, content, status, confidence, verification, pinned, supersedesId, supersedes?, supersededBy?, ... }] }` |
+| `POST` | `/api/projects/{id}/memory` | Required | Add a note by hand. `provenance_type='user'`, `verification='user_confirmed'` by definition. Checks `project:memory:write` (or the `project:edit` umbrella). | `{ kind, content, confidence?, pinned? }` | `{ item }` (201) |
+| `PATCH` | `/api/projects/{id}/memory/{itemId}` | Required | Edit one note (content, kind, status, confidence, verification, pinned). Same permission as the create. | `{ … }` (non-empty) | `{ item }` |
+| `DELETE` | `/api/projects/{id}/memory/{itemId}` | Required | Remove one note. Same permission. | — | `204 No Content` |
+| `POST` | `/api/projects/{id}/memory/{itemId}/restore` | Required | **New (ADR-0055).** Undo a supersession: reinstate the retired note and retire the one that replaced it, in ONE transaction so the store never holds both or neither. Same permission as editing memory, because it is one — it changes which of two contradictory findings the agent carries — and audited as `project.memory.restored`. `404` when there is no such item in this project; `409` when there is nothing to undo (the note is not retired, or nothing live claims to have replaced it, or another writer moved the pair first) — a bare 404 would report those as "no such note". The `supersedes_id` link is deliberately NOT rewritten: it records what happened, and the reader takes the direction from the statuses, which is what makes a restore reversible and idempotent. | — | `{ restoredId, retiredId }` |
+| `GET` | `/api/organization/memory?includeArchived=` | Required | The organization's own notes, keyed by `session.organizationId`. Deliberately not admin-gated: any member may read. Same reader view and the same supersession fields as the project list. | — | `{ items: [...] }` |
+| `POST` | `/api/organization/memory` | Required | Add an org-wide note from a session. Any member; this is also where the `memory_proposal` card lands what the agent was refused. | `{ kind, content, confidence?, pinned? }` | `{ item }` (201) |
+| `PATCH` / `DELETE` | `/api/organization/memory/{itemId}` | Required | Edit or remove one org-wide note, scoped in SQL by `session.organizationId`. | `{ … }` / — | `{ item }` / `204` |
+| `POST` | `/api/organization/memory/{itemId}/restore` | Required | **New (ADR-0055).** The org twin of the project restore, on the same terms. It exists because the project memory panel lists org-wide notes alongside the project's own, and a correction visible there with no way to reverse it would be the same dead end one surface along. | — | `{ restoredId, retiredId }` |
+
+Source: `frontends/ui/src/app/api/projects/[id]/memory/`, `frontends/ui/src/app/api/organization/memory/` (services: `frontends/ui/src/lib/projects/memory-service.ts`, `frontends/ui/src/lib/projects/memory-repository.ts`)
 
 ## Documents
 
@@ -507,7 +541,9 @@ Sources: `frontends/ui/src/app/api/organization/{model-config,budgets,usage,audi
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/api/internal/memory` | `x-grid-internal-token` | Backend `remember`/reflection memory writes (single-writer bridge). An **organization-scoped** write (`scope: 'organization'`, the Büro's `remember`) needs two further gates and refuses both with **403 `ORG_MEMORY_DISABLED`**: the deployment off-switch `GRID_ALLOW_AGENT_ORG_MEMORY`, and the **acting user's** `org:memory:write` — resolved from the `organizationMembershipId` the turn's envelope carries, never from the service token, which says nothing about whose turn it is (spec AG-8; Admin holds the permission, Member does not). Both refusals share the one code on purpose: the tool degrades either into a proposal card the user can accept in their own session (spec AG-9). `userId`/`organizationMembershipId` are optional in the body — a missing one refuses the org write rather than failing to parse — and a project-scoped write asks neither. Optional `supersedesContent` — the verbatim text of an entry the finding makes obsolete, quoted from the digest the agent was shown: it is resolved to an active item in the same scope, which is then marked `superseded` and linked via `supersedes_id`. Unresolvable quotes are ignored and human-curated entries (pinned / `user_confirmed` / user-authored) are never retired this way, so the write always lands; the response's `supersededId` reports which entry (if any) was actually retired. |
+| `POST` | `/api/internal/memory` | `x-grid-internal-token` | Backend `remember`/reflection memory writes (single-writer bridge). An **organization-scoped** write (`scope: 'organization'`, the Büro's `remember`) needs two further gates and refuses both with **403 `ORG_MEMORY_DISABLED`**. The **acting user's** `org:memory:write` is asked FIRST and asked always — resolved from the `organizationMembershipId` the turn's envelope carries, never from the service token, which says nothing about whose turn it is (spec AG-8; Admin holds the permission, Member does not) — and only then the deployment off-switch `GRID_ALLOW_AGENT_ORG_MEMORY`. That order is the fix ADR-0055 required: the off-switch defaults to off, so behind it every permission denial in every ordinary deployment reached the user as "this feature is switched off", which tells someone who could be granted the right that there is nothing to grant. The two refusals now carry different **messages** — one names the missing permission, the other names the deployment — and the same **code**, on purpose: the tool degrades either into a proposal card the user can accept in their own session (spec AG-9). `userId`/`organizationMembershipId` are optional in the body — a missing one refuses the org write rather than failing to parse — and a project-scoped write asks neither. Optional `supersedesContent` — the verbatim text of an entry the finding makes obsolete, quoted from the digest the agent was shown: it is resolved to an active item in the same scope, which is then marked `superseded` and linked via `supersedes_id`. Unresolvable quotes are ignored and human-curated entries (pinned / `user_confirmed` / user-authored) are never retired this way, so the write always lands; the response's `supersededId` reports which entry (if any) was actually retired. |
+| `GET` | `/api/internal/memory/digest?projectId=&organizationId=&query=` | `x-grid-internal-token` | The per-turn READ path for the core memory digest. The `x-grid-project-memory` header is frozen for the life of a WebSocket connection, so memory written mid-session would not reach the agent until a reconnect; the backend calls this at the start of each turn for the CURRENT digest. `query` is this turn's question and makes recall relevance-ranked rather than recency-ordered; without it the digest is pinned-then-recent. Tenancy: `?organizationId`, else RESOLVED from the project row under a narrow platform scope, and the read then happens inside that tenant — an internal token is not a licence to read every tenant. An unknown project answers with the empty shape, not a 404. **Since ADR-0055 it also reports what it carried**: `carried` names exactly the notes that reached the digest TEXT (built from the render, not from the selection — the 1800-character budget can still drop a tail, and a list built from the selection would name notes the model never saw), `omitted` is the very number the digest text discloses to the model, and `total` is the active notes in scope. The digest string itself is unchanged. | — | `{ digest: string \| null, carried: [{ id, kind, content }] (≤20, content ≤120 chars), omitted: number, total: number }` |
+| `GET` | `/api/internal/memory/search?organizationId=&projectId=&q=&limit=` | `x-grid-internal-token` | **New (ADR-0055).** The `search_memory` tool's half of the seam — the read path the store never had. The digest is a working set of at most twenty notes, so a project with two hundred findings had a hundred and eighty no question could reach; this is the way past it. It runs the SAME candidate statement, the SAME scope rule and the SAME hybrid ranking (`lib/projects/memory-repository.ts`, `lib/knowledge/recall-scoring.ts`) the digest uses, so "ask for one of the omitted notes" resolves against the store the digest was describing rather than a second opinion about relevance. **Scope rule, non-negotiable:** with `projectId` the result is that project's notes plus the organization's; without one it is organization-scoped notes ONLY; never another project's, and the project branch is pinned to the organization so a foreign project id matches nothing. `q` is required and non-empty (`400` otherwise — an unbounded read wearing a search's clothes is how a cap gets bypassed by accident); `limit` defaults to 8 and clamps to 20. Pins do not jump the queue here: somebody asked a question, so a pin wins on relevance like any other note. An organization this deployment has never heard of gets the empty result rather than a 404. Reading for a question reinforces (`last_referenced_at`, `recall_count`), exactly as the digest's query-driven build does. | — | `{ items: [{ id, kind, content, confidence, verification, pinned, scope, updatedAt, score }], total, returned }` |
 | `POST` | `/api/internal/usage` | `x-grid-internal-token` | Backend cost tracker's LLM usage-event batches into the `llm_usage_events` ledger. Org-less (anonymous) events are skipped. |
 | `POST` | `/api/internal/citation-events` | `x-grid-internal-token` | Backend citation-health emitter's per-turn batches into the `citation_events` ledger (`src/aiq_agent/common/citation_events.py`). One row per `(turnId, kind)`; conflicts are ignored so a retried flush cannot double-count. |
 | `POST` | `/api/internal/skills/fire` | `x-grid-internal-token` | Scheduler-fired job run (`{ scheduleId }` — the pre-jobs spelling of a `jobs.id`, kept because the scheduler container and the BFF deploy separately). Re-checks `enabled` + the org's skills gate, then submits through the shared fire path (ADR-0046). |

@@ -24,6 +24,7 @@ vi.mock('drizzle-orm', () => ({
   and: (...conditions: unknown[]) => ({ op: 'and', conditions }),
   or: (...conditions: unknown[]) => ({ op: 'or', conditions }),
   isNull: (col: unknown) => ({ op: 'isNull', col }),
+  inArray: (col: unknown, values: unknown) => ({ op: 'inArray', col, values }),
   desc: (col: unknown) => ({ op: 'desc', col }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
     op: 'sql',
@@ -71,12 +72,14 @@ import { orgRoleHoldsPermission } from '@/lib/authz/org-role-permissions'
 import {
   assertAgentMayWriteOrgMemory,
   buildProjectMemoryDigest,
+  buildProjectMemoryDigestReport,
   createProjectMemoryItem,
   deleteProjectMemoryItem,
   formatDigestLines,
   implicateMemoryFromFeedback,
   listProjectMemory,
   organizationExists,
+  restoreSupersededMemoryItem,
   updateProjectMemoryItem,
   type DigestItem,
 } from './memory-service'
@@ -85,6 +88,7 @@ const eq = (col: unknown, val: unknown) => ({ op: 'eq', col, val })
 const and = (...conditions: unknown[]) => ({ op: 'and', conditions })
 const or = (...conditions: unknown[]) => ({ op: 'or', conditions })
 const isNull = (col: unknown) => ({ op: 'isNull', col })
+const inArray = (col: unknown, values: unknown) => ({ op: 'inArray', col, values })
 
 const digestItem = (overrides: Partial<DigestItem> = {}): DigestItem => ({
   scope: 'project',
@@ -197,7 +201,7 @@ describe('listProjectMemory', () => {
             isNull('pm.projectId')
           )
         ),
-        eq('pm.status', 'active')
+        inArray('pm.status', ['active', 'superseded'])
       )
     )
   })
@@ -207,7 +211,29 @@ describe('listProjectMemory', () => {
 
     await listProjectMemory('proj-1')
 
-    expect(where).toHaveBeenCalledWith(and(eq('pm.projectId', 'proj-1'), eq('pm.status', 'active')))
+    expect(where).toHaveBeenCalledWith(
+      and(eq('pm.projectId', 'proj-1'), inArray('pm.status', ['active', 'superseded']))
+    )
+  })
+
+  /**
+   * ADR-0055: a correction used to be the quietest event in the system. The
+   * write path recorded `supersedes_id`, nothing read it, and the retired note
+   * simply disappeared from the panel — so a wrong correction could be neither
+   * seen nor undone. The reader view now carries retired rows, flagged by the
+   * status they already had.
+   */
+  it('keeps RETIRED notes in the reader view rather than filtering them out', async () => {
+    const { where } = mockSelectChain([])
+
+    await listProjectMemory('proj-1', { organizationId: 'org-1' })
+
+    const condition = JSON.stringify(vi.mocked(where).mock.calls[0][0])
+    expect(condition).toContain('superseded')
+    // Not the old "active only" filter, which is what made the correction
+    // invisible; `dismissed` and `proposed` still need includeArchived.
+    expect(condition).not.toContain('{"op":"eq","col":"pm.status","val":"active"}')
+    expect(condition).not.toContain('dismissed')
   })
 })
 
@@ -249,6 +275,120 @@ describe('buildProjectMemoryDigest', () => {
     await buildProjectMemoryDigest('proj-1', undefined)
 
     expect(where).toHaveBeenCalledWith(and(eq('pm.projectId', 'proj-1'), eq('pm.status', 'active')))
+  })
+})
+
+/**
+ * ADR-0055 C2: the digest reports what it carried.
+ *
+ * The failure this guards is specific. `carried` is built from the RENDER, not
+ * from the selection, because the character budget drops a tail after the
+ * selection is made — a list built from the selection names notes the model
+ * never saw. And `omitted` is the very number the digest text discloses, so
+ * the model and the reader cannot be told different things, which is the
+ * inversion the ADR exists to close.
+ */
+describe('buildProjectMemoryDigestReport — what the digest carried', () => {
+  const candidateRow = (overrides: Record<string, unknown> = {}) => ({
+    id: 'note-1',
+    scope: 'project',
+    kind: 'derived_fact',
+    content: 'the roof load is 2 kN/m2',
+    confidence: 'medium',
+    verification: 'unverified',
+    pinned: false,
+    salience: 0.5,
+    lastReferencedAt: null,
+    recallCount: 0,
+    updatedAt: new Date('2026-09-01T00:00:00Z'),
+    relevance: null,
+    embeddingModel: null,
+    ...overrides,
+  })
+
+  /** Every id the digest text actually quotes, read back out of the text. */
+  const idsInText = (text: string, rows: { id: string; content: string }[]) =>
+    rows.filter((row) => text.includes(row.content)).map((row) => row.id)
+
+  it('names exactly the notes the text quotes, and no others', async () => {
+    const rows = [
+      candidateRow({ id: 'a', content: 'Flachdach ist zulässig', total: 3 }),
+      candidateRow({ id: 'b', content: 'Bauklasse V', total: 3 }),
+      candidateRow({ id: 'c', content: 'Aufzug ab GK4', total: 3 }),
+    ]
+    mockSelectChain(rows)
+
+    const report = await buildProjectMemoryDigestReport('proj-1', 'org-1')
+
+    expect(report).not.toBeNull()
+    expect(report?.carried.map((note) => note.id).sort()).toEqual(
+      idsInText(report?.text ?? '', rows).sort()
+    )
+    expect(report?.carried).toHaveLength(3)
+    expect(report?.total).toBe(3)
+    expect(report?.omitted).toBe(0)
+  })
+
+  it('counts a note the CHARACTER budget dropped as omitted, not as carried', async () => {
+    // Two 1000-character notes: the header plus the first fits the 1800-char
+    // budget, the second does not. Selection kept both; the render kept one.
+    const long = (marker: string) => `${marker} ${'x'.repeat(1000)}`
+    const rows = [
+      candidateRow({ id: 'a', content: long('ERSTE'), total: 2 }),
+      candidateRow({ id: 'b', content: long('ZWEITE'), total: 2 }),
+    ]
+    mockSelectChain(rows)
+
+    const report = await buildProjectMemoryDigestReport('proj-1', 'org-1')
+
+    expect(report?.carried.map((note) => note.id)).toEqual(['a'])
+    expect(report?.text).toContain('ERSTE')
+    expect(report?.text).not.toContain('ZWEITE')
+    expect(report?.omitted).toBe(1)
+  })
+
+  it('discloses the SAME omission count to the model that it reports to the reader', async () => {
+    const rows = [candidateRow({ id: 'a', content: 'Flachdach ist zulässig', total: 137 })]
+    mockSelectChain(rows)
+
+    const report = await buildProjectMemoryDigestReport('proj-1', 'org-1')
+
+    expect(report?.total).toBe(137)
+    expect(report?.omitted).toBe(136)
+    // The number in the German notice the MODEL reads is the number in
+    // `omitted`. One store of truth, two audiences.
+    expect(report?.text).toContain(`(+${report?.omitted} weitere Notizen`)
+  })
+
+  it('truncates a carried note to a label, leaving the digest text untouched', async () => {
+    const content = `A${'b'.repeat(400)}`
+    mockSelectChain([candidateRow({ id: 'a', content, total: 1 })])
+
+    const report = await buildProjectMemoryDigestReport('proj-1', 'org-1')
+
+    expect(report?.carried[0].content.length).toBeLessThanOrEqual(120)
+    expect(report?.carried[0].content.endsWith('…')).toBe(true)
+    // The text the model reads is not truncated by the label budget.
+    expect(report?.text).toContain(content)
+  })
+
+  it('carries at most twenty notes, however many are in scope', async () => {
+    const rows = Array.from({ length: 30 }, (_, index) =>
+      candidateRow({ id: `note-${index}`, content: `Notiz ${index}`, total: 30 })
+    )
+    mockSelectChain(rows)
+
+    const report = await buildProjectMemoryDigestReport('proj-1', 'org-1')
+
+    expect(report?.carried.length).toBeLessThanOrEqual(20)
+    expect(report?.carried.length).toBe(20)
+    expect(report?.omitted).toBe(10)
+  })
+
+  it('is null when there is no active memory at all', async () => {
+    mockSelectChain([])
+
+    expect(await buildProjectMemoryDigestReport('proj-1', 'org-1')).toBeNull()
   })
 })
 
@@ -986,5 +1126,95 @@ describe('assertAgentMayWriteOrgMemory', () => {
       assertAgentMayWriteOrgMemory({ organizationId: 'org-1' })
     ).rejects.toBeInstanceOf(OrgMemoryDisabledError)
     expect(orgRoleHoldsPermission).toHaveBeenCalledWith(null, 'org:memory:write')
+  })
+})
+
+/**
+ * ADR-0055 C5: a supersession must be reversible.
+ *
+ * The interesting cases are the ones that are NOT a restore — a note that was
+ * never retired, and a retired note nothing live claims to have replaced. Both
+ * used to be indistinguishable from "no such item", and a reader told "not
+ * found" about a note they are looking at learns nothing.
+ */
+describe('restoreSupersededMemoryItem', () => {
+  const mockPair = (
+    retired: { id: string; content: string; status: string } | null,
+    replacement: { id: string; content: string } | null
+  ) => {
+    const calls: unknown[][] = []
+    const limit = vi.fn().mockImplementation(() => {
+      const call = calls.length
+      calls.push([])
+      return Promise.resolve(call === 0 ? (retired ? [retired] : []) : replacement ? [replacement] : [])
+    })
+    const orderBy = vi.fn().mockReturnValue({ limit })
+    const where = vi.fn().mockReturnValue({ orderBy, limit })
+    const from = vi.fn().mockReturnValue({ where })
+    const transaction = vi.fn()
+    vi.mocked(getDb).mockReturnValue(
+      asDb({ select: vi.fn().mockReturnValue({ from }), transaction })
+    )
+    return { where, transaction }
+  }
+
+  it('is a NOT FOUND, not a conflict, for an item outside the owner’s scope', async () => {
+    mockPair(null, null)
+
+    expect(await restoreSupersededMemoryItem({ projectId: 'proj-1' }, 'item-1')).toBeNull()
+  })
+
+  it('refuses to "restore" a note that was never retired', async () => {
+    mockPair({ id: 'item-1', content: 'x', status: 'active' }, null)
+
+    await expect(
+      restoreSupersededMemoryItem({ projectId: 'proj-1' }, 'item-1')
+    ).rejects.toThrow(/not retired/i)
+  })
+
+  it('refuses when nothing live claims to have replaced the retired note', async () => {
+    mockPair({ id: 'item-1', content: 'x', status: 'superseded' }, null)
+
+    await expect(
+      restoreSupersededMemoryItem({ projectId: 'proj-1' }, 'item-1')
+    ).rejects.toThrow(/replaced/i)
+  })
+
+  it('swaps the pair and reports both ids', async () => {
+    const { transaction } = mockPair(
+      { id: 'item-1', content: 'Flachdach ist zulässig', status: 'superseded' },
+      { id: 'item-2', content: 'Flachdach ist nicht zulässig' }
+    )
+    // The swap itself is one transaction in the repository; here it succeeds.
+    vi.mocked(transaction).mockImplementation(async (run: (tx: unknown) => Promise<unknown>) => {
+      const rows = [{ id: 'x' }]
+      const returning = vi.fn().mockResolvedValue(rows)
+      const where = vi.fn().mockReturnValue({ returning })
+      const set = vi.fn().mockReturnValue({ where })
+      return run({ update: vi.fn().mockReturnValue({ set }) })
+    })
+
+    expect(await restoreSupersededMemoryItem({ projectId: 'proj-1' }, 'item-1')).toEqual({
+      restoredId: 'item-1',
+      retiredId: 'item-2',
+    })
+  })
+
+  it('reports a lost race as a conflict, never as a silent success', async () => {
+    const { transaction } = mockPair(
+      { id: 'item-1', content: 'x', status: 'superseded' },
+      { id: 'item-2', content: 'y' }
+    )
+    vi.mocked(transaction).mockImplementation(async (run: (tx: unknown) => Promise<unknown>) => {
+      // Nothing matched the expected status: somebody else moved the pair.
+      const returning = vi.fn().mockResolvedValue([])
+      const where = vi.fn().mockReturnValue({ returning })
+      const set = vi.fn().mockReturnValue({ where })
+      return run({ update: vi.fn().mockReturnValue({ set }) })
+    })
+
+    await expect(
+      restoreSupersededMemoryItem({ projectId: 'proj-1' }, 'item-1')
+    ).rejects.toThrow(/changed by someone else/i)
   })
 })

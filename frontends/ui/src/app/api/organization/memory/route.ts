@@ -45,7 +45,6 @@ export const POST = apiRoute(
       pinned: input.pinned ?? false,
       provenanceType: 'user',
       verification: 'user_confirmed',
-      createdBy: session.userId,
     })
     return { item }
   },

@@ -61,15 +61,15 @@ project_memory
   status            enum  proposed | active | superseded | dismissed
   confidence        enum  low | medium | high
   verification      enum  unverified | source_grounded | user_confirmed
-  provenance_type   enum  agent | user | distillation | profile_graduation
+  provenance_type   enum  agent | user | distillation      -- profile_graduation dropped in 0085: designed, never written
   source_conversation_id  uuid  null
   source_message_id       uuid  null
   source_document_id      uuid  null              -- when grounded in an uploaded doc
   supersedes_id     uuid  null  fk → project_memory(id)   -- updates, not appends
   salience          real  default 0.5             -- retrieval/budget ranking
   pinned            bool  default false           -- always-inject core memory
-  embedding_synced  bool  default false           -- has it been pushed to the vector store
-  created_by        text  null                    -- user id when provenance=user
+  embedding         real[] null                   -- row-resident vector (0069); NULL = not embedded
+  embedding_model   text  null                    -- the fingerprint it is comparable within
   last_referenced_at timestamptz null             -- for decay
   created_at        timestamptz
   updated_at        timestamptz
@@ -109,24 +109,42 @@ outage must never cost a note its write — so nothing about memory's own
 guarantees changes here.
 
 **An ORGANIZATION-scoped write goes through two gates, and both refuse the same
-way.** In the Büro there is no project, so `remember` escalates its finding to
-organization scope (ADR-0054) — one sentence that then rides every project's
-digest across the tenant. `POST /api/internal/memory` is authenticated by the
-service token, which proves the caller is the backend and says nothing about the
-person whose turn is running, so an org write additionally needs:
+way.** Two callers reach org scope. In the Büro there is no project, so
+`remember` escalates its finding to organization scope (ADR-0054); and since
+ADR-0055 the async reflection stage may PROPOSE org-scoped findings as well
+(§3.5). Either way the result is one sentence that would ride every project's
+digest across the tenant, so both go through the same gates and degrade the same
+way — an agent org write is never autonomous, and the refusal below is what
+raises the proposal card a person accepts in their own session.
+`POST /api/internal/memory` is authenticated by the service token, which proves
+the caller is the backend and says nothing about the person whose turn is
+running, so an org write additionally needs:
 
-1. `GRID_ALLOW_AGENT_ORG_MEMORY=true`, the deployment off-switch (audit finding
-   S1) — an operator who wants no agent-authored org memory at all does not have
-   to reason about roles; and
-2. **`org:memory:write` held by the ACTING USER**, resolved from the
-   `organizationMembershipId` the turn's envelope carries
+1. **`org:memory:write` held by the ACTING USER**, asked FIRST and asked
+   always, resolved from the `organizationMembershipId` the turn's envelope
+   carries
    (`lib/authz/membership-role` → `orgRoleHoldsPermission`), exactly the way the
    internal mounts twin authorizes as the user rather than as the service. The
    permission is held by **Admin and not by Member** (ADR-0008's open follow-up,
    spec AG-8, OQ-4): a project item is a note about one project, an organization
-   item is a firm-wide statement.
+   item is a firm-wide statement; and
+2. `GRID_ALLOW_AGENT_ORG_MEMORY=true`, the deployment off-switch (audit finding
+   S1) — an operator who wants no agent-authored org memory at all does not have
+   to reason about roles.
 
-Both refuse with **`403 ORG_MEMORY_DISABLED`** — the same code, on purpose. The
+**The order is the point (ADR-0055).** It used to be the other way round, and
+the off-switch defaults to off, so in every ordinary deployment the refusal a
+person actually met said the feature was switched off when the truth about them
+was that their role does not hold the permission. A permission denial reported
+as a service state is the wrong sentence in both directions: it tells someone
+who could be granted the right that there is nothing to grant, and it tells an
+administrator who did switch the feature on nothing about why it still refuses.
+The permission is therefore asked first, its refusal names the permission, and
+"switched off in this deployment" is only ever said to somebody the permission
+already allowed — which is exactly when it is the whole answer.
+
+Both refuse with **`403 ORG_MEMORY_DISABLED`** — the same code, on purpose;
+different messages, for the same reason. The
 Python `remember` tool has one honest answer to "policy says no": it turns that
 code into a **proposal card**, so the finding reaches the user as an offer they
 can accept through their own authenticated session (spec AG-9). A second code
@@ -138,8 +156,8 @@ membership with the wrong role does: a role of `null` holds nothing.
 Before persisting a new item:
 - Embed it, find the top-k most similar existing active items.
 - If a near-duplicate exists → **update in place** (bump confidence/last_referenced), don't add.
-- If it **contradicts** an existing item → LLM adjudication: mark the older one
-  `superseded` (linked via `supersedes_id`) or flag for user review if both are
+- If it **contradicts** an existing item → mark the older one `superseded`
+  (linked via `supersedes_id`) or flag for user review if both are
   user-confirmed. **Never silently overwrite a `user_confirmed` item.**
 - This is the single most important component. Skip it and memory rots.
 
@@ -162,17 +180,68 @@ transaction, so memory is never left with two live contradictory entries nor wit
 a fact silently deleted. The `user_confirmed` rule is honoured and widened: an
 agent may not retire a pinned, `user_confirmed`, or user-authored entry at all —
 the correction is still recorded, both stay active, and the user resolves it in
-the panel. Still outstanding from this section: embedding-based similarity (so
-semantically-distant contradictions are caught without a quote) and LLM
-adjudication of genuine two-sided conflicts.
+the panel.
+
+**There is no LLM adjudicator, and this is now a decision rather than a gap.**
+The paragraph above described one and earlier drafts of this section promised
+one; the mechanism that shipped, and the mechanism that stays, is
+**deterministic polarity matching**: two same-kind findings that are token-wise
+near-identical are compared on negation parity plus boolean literals — same
+polarity is a restatement (merge), opposed polarity is a correction
+(supersede) — with a caller-quoted `supersedesContent` as the explicit second
+path for corrections phrased too differently for the first. Three reasons it is
+the right mechanism here, and not a placeholder for one:
+
+1. **It runs on every write, on the turn's critical path.** Consolidation is
+   not a background job; a `remember` call blocks on it. An LLM round trip per
+   write costs a turn a second or more and can fail, and the failure mode of a
+   consolidation gate that times out is a duplicate row — so the gate would be
+   least reliable exactly when the store is busiest.
+2. **Its errors are the survivable ones.** Polarity matching is calibrated
+   toward SEPARATION (the semantic threshold sits at 0.90 cosine, "restatement"
+   rather than "related"). A missed merge costs one redundant row a curator can
+   prune in the panel. A wrong merge destroys a finding silently, and a wrong
+   *supersede* retires a fact that was still true. A judge that is right most of
+   the time trades a cheap, visible error for an expensive, invisible one.
+3. **It is auditable.** "These two contradict" is a claim about a compliance
+   project's record, and the reader can check negation parity themselves. A
+   model's verdict is not reproducible, cannot be shown in the panel as a
+   reason, and would have to be re-run to be re-examined.
+
+Where a judgement genuinely is two-sided — an agent finding against a human's
+pinned or confirmed note — the answer is not a better judge but a person:
+`conflicts_with_id` (migration 0076) records the pair, both stay active, and the
+panel asks. Since ADR-0055 the same is true of a correction that WAS applied:
+the retired note comes back in the list beside its replacement and
+`POST /api/projects/{id}/memory/{itemId}/restore` reverses it, so a wrong
+supersession is visible and undoable rather than final. Revisit adjudication if
+the panel starts filling with conflict pairs that a person resolves the same way
+every time — that would be evidence of a rule worth automating, which is not the
+same as evidence that a model should decide.
 
 ### 3.3 Serve — how it reaches the agent (two channels)
 - **Always-on "core memory" digest**: pinned + top-salience items, compacted to a
   small budget, delivered as a header `x-grid-project-memory` (sibling to
   `x-grid-project-context`). This is the "Grid always knows the essentials" layer.
-- **Per-query recall (RAG)**: findings are embedded into a dedicated vector
-  namespace and retrieved per query via the **existing** `X-Grid-Collection-Scope`
-  mechanism (add a `mem_<project>` scope). This scales past the header budget.
+- **Per-query recall, as a TOOL** (ADR-0055): `search_memory` sits beside
+  `remember` and reads the store on demand, through
+  `GET /api/internal/memory/search`. This is what scales past the header budget,
+  and it is deliberately not the `X-Grid-Collection-Scope` / `mem_<project>`
+  namespace this section originally sketched: the vector already lives in the
+  row (§5, migration 0069), so a second store would buy a sync job, a drift
+  mode and a deletion problem for a candidate set in the hundreds per scope.
+  The tool runs the SAME candidate statement, scope rule and hybrid ranking the
+  digest runs (`lib/projects/memory-repository.ts`), so "the digest says N were
+  omitted, ask for them" resolves against the store the digest was describing.
+  Scope rule: with a project, that project plus the organisation; without one,
+  organisation-scoped notes ONLY; never another project's.
+
+- **The digest reports what it carried** (ADR-0055). The per-turn route answers
+  `carried` (the notes that reached the digest TEXT — built from the render, not
+  the selection, because the character budget can drop a tail), `omitted` (the
+  very number the text discloses to the model) and `total`. The digest string is
+  unchanged. The point is the symmetry: the omission count used to reach the
+  model and not the reader, which is the whole inversion ADR-0055 is about.
 
 Injection format tags each item so the model treats it correctly, e.g.:
 `[decision · user-confirmed] Client chose the Fluchttunnel option (conv #3).`
@@ -217,7 +286,13 @@ means not raised again without new evidence.
 - `last_referenced_at` + salience decay → low-value items sink out of the digest.
 - Reinforcement (`recall_count`, `last_referenced_at`) fires only on a build ranked against a question; the query-less handshake build reinforces nothing, so recency cannot reinforce recency.
 - A finding that contradicts a pinned, user-confirmed or user-written note is inserted beside it with `conflicts_with_id` naming that note (migration 0076); a person resolves the pair in the panel.
-- Superseded/dismissed items are archived (kept for provenance, excluded from serve).
+- Superseded/dismissed items are excluded from SERVE — the digest and
+  `search_memory` read active rows only. They are no longer excluded from the
+  READER: since ADR-0055 a retired note comes back in the panel list flagged by
+  its `status`, carrying `supersededBy` while its replacement is live and
+  `supersedes` for what it retired, and `POST /api/projects/{id}/memory/{itemId}/restore`
+  swaps the pair back. A correction was previously the quietest event in the
+  system; it is now a stated one.
 - Periodic re-summarization collapses many small related items into one.
 
 ### 3.5 Async post-answer reflection (the post-processing phase)
@@ -261,10 +336,19 @@ Enablement (two gates):
   like every non-dark feature in environments without the flag product.
 
 Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
-- **Project scope only** — the autonomous stage never writes `organization`-scoped
-  memory (org-wide writes poison every project in the tenant and have no
-  write-time authorization gate, so they stay a deliberate human action). It
-  requires a `project_id`; an org-only conversation is skipped.
+- **Project scope is written; organization scope is PROPOSED** (ADR-0055). The
+  stage writes `project`-scoped findings directly, as it always has, and it may
+  now also propose `organization`-scoped ones. Nothing about the blast radius
+  changed — one org-wide sentence rides every project's digest across the tenant
+  — so nothing about it lands autonomously either: the route ALWAYS refuses an
+  agent org write unless the acting user holds `org:memory:write` (§3.1), and
+  that refusal is what raises the proposal card the person accepts in their own
+  session. This closes the objection the reflection code itself recorded when it
+  refused org scope by construction: it refused because there was "no write-time
+  authorization gate or human review". ADR-0054 added the gate; the card is the
+  review. Both halves are required — a gate with no review would make org memory
+  an admin-only chore, and a review with no gate would make it an
+  everyone-writes-everywhere store.
 - **Substantive answers only** — meta/error/insufficiency and deep-research
   job-stub turns are skipped (nothing durable to record).
 - **Digest de-duplication** — a finding already present in the shown digest is
@@ -422,18 +506,29 @@ approval loop, while never letting silent memory harden into unchallenged fact.
 
 ## 10. Interfaces (sketch)
 
-- **DB**: `project_memory` table (§2) + a Drizzle migration; embed index namespace `mem_<project>`.
-- **Tool schema**: `remember(kind: enum, content: string, confidence: enum) -> {id}`.
-- **BFF**: `GET/POST/PATCH/DELETE /api/projects/[id]/memory` (auth + `requireProjectAccess`).
-- **BFF (internal)**: `POST /api/internal/memory` — service token, plus
-  `GRID_ALLOW_AGENT_ORG_MEMORY` and the acting user's `org:memory:write` for an
-  organization-scoped write (§3.1). The body carries `userId` and
+- **DB**: `project_memory` table (§2) + a Drizzle migration. The vector lives in
+  the row (0069), so there is no `mem_<project>` index namespace and no second
+  store — see §3.3.
+- **Tool schema**: `remember(kind: enum, content: string, confidence: enum, scope?, supersedes?) -> {id}`,
+  and since ADR-0055 `search_memory(query, limit?) -> {items, total, returned}`
+  beside it.
+- **BFF**: `GET/POST/PATCH/DELETE /api/projects/[id]/memory`, plus
+  `POST /api/projects/[id]/memory/[itemId]/restore` (auth +
+  `requireProjectAccess`); the organization twins under
+  `/api/organization/memory`.
+- **BFF (internal)**: `POST /api/internal/memory` — service token, plus the
+  acting user's `org:memory:write` and then `GRID_ALLOW_AGENT_ORG_MEMORY` for an
+  organization-scoped write (§3.1, in that order). The body carries `userId` and
   `organizationMembershipId` from the turn's envelope; both are optional,
   because a missing one must REFUSE the org write rather than fail to parse.
-- **Backend**: `POST /v1/projects/{id}/memory` (consolidate + persist + enqueue embed);
-  `project_context.py` reads `x-grid-project-memory` and merges into the injected context.
-- **Serve**: extend `/api/websocket-scope` + `server.js` to emit the digest header and
-  add `mem_<project>` to the collection scope.
+  `GET /api/internal/memory/digest` serves the per-turn digest and reports what
+  it carried; `GET /api/internal/memory/search` serves `search_memory`. Both
+  read through one candidate statement and one scope rule
+  (`lib/projects/memory-repository.ts`).
+- **Backend**: `project_context.py` reads `x-grid-project-memory` and merges into
+  the injected context.
+- **Serve**: `/api/websocket-scope` + `server.js` emit the digest header; the
+  collection scope carries no memory namespace.
 
 ## 11. Decisions (all LOCKED)
 

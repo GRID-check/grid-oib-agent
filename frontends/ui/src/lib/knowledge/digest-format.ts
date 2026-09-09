@@ -19,29 +19,57 @@ export interface DigestLineItem {
   content: string
 }
 
+export interface RenderedDigest {
+  text: string
+  /**
+   * Indices into `items` of the entries that actually reached the text, in the
+   * order they appear in it.
+   *
+   * It is here because a caller that has to REPORT what it carried cannot
+   * infer this: the character budget drops a tail, and a blank content is
+   * skipped in the middle, so neither the input length nor a prefix of it is
+   * the answer. ADR-0055 makes the digest name the notes it carried, and a
+   * name list built from the selection rather than from the render is a list
+   * that claims notes the model never saw.
+   */
+  included: number[]
+}
+
 /**
  * Render `header` plus one line per item, appending in order until `maxChars`
- * would be exceeded. Returns null when no item survives — callers omit the
- * block entirely rather than injecting a bare header.
+ * would be exceeded, and report which items made it. Returns null when no item
+ * survives — callers omit the block entirely rather than injecting a bare
+ * header.
  */
-export function formatBoundedDigest(
+export function renderBoundedDigest(
   header: string,
   items: DigestLineItem[],
   maxChars: number
-): string | null {
+): RenderedDigest | null {
   if (items.length === 0) return null
 
   const lines: string[] = [header]
+  const included: number[] = []
   let used = header.length
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
     const content = item.content.replace(/\s+/g, ' ').trim()
     if (!content) continue
     const escaped = content.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
     const line = `- [${item.tags.join(' | ')}] "${escaped}"`
     if (used + line.length + 1 > maxChars) break
     lines.push(line)
+    included.push(index)
     used += line.length + 1
   }
 
-  return lines.length > 1 ? lines.join('\n') : null
+  return included.length > 0 ? { text: lines.join('\n'), included } : null
+}
+
+/** {@link renderBoundedDigest} for callers that need only the text. */
+export function formatBoundedDigest(
+  header: string,
+  items: DigestLineItem[],
+  maxChars: number
+): string | null {
+  return renderBoundedDigest(header, items, maxChars)?.text ?? null
 }

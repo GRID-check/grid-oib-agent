@@ -1,7 +1,11 @@
 import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
-import { buildProjectMemoryDigest, resolveProjectOrganization } from '@/lib/projects/memory-service'
+import {
+  buildProjectMemoryDigestReport,
+  resolveProjectOrganization,
+  type CarriedMemoryNote,
+} from '@/lib/projects/memory-service'
 import { buildProposalDecisionsBlock, composeMemoryContext } from '@/lib/projects/proposal-decisions'
 
 /**
@@ -14,9 +18,20 @@ import { buildProposalDecisionsBlock, composeMemoryContext } from '@/lib/project
  *
  * Server-authoritative (the client never supplies memory text) and token-guarded
  * exactly like `POST /api/internal/memory`. Tenancy is derived the same way as
- * the WS-scope route: `buildProjectMemoryDigest` pins the project branch to the
+ * the WS-scope route: the shared scope condition pins the project branch to the
  * organization when both are known, so a foreign projectId cannot surface
  * another tenant's memory.
+ *
+ * ## It reports what it carried (ADR-0055)
+ *
+ * The digest text is unchanged, and beside it the response now names the notes
+ * that went into it (`carried`), how many active notes in scope it did not
+ * carry (`omitted`) and how many there are (`total`). `omitted` is the SAME
+ * number the digest text discloses to the model, and `carried` is built from
+ * the render rather than from the selection, because the character budget can
+ * still drop a tail — a list built from the selection would name notes the
+ * model never saw. That is the inversion this ADR is about: what the model is
+ * told and what the reader is told must not diverge.
  */
 
 const digestQuerySchema = z
@@ -39,9 +54,19 @@ const digestQuerySchema = z
     message: 'projectId or organizationId is required',
   })
 
+interface DigestResponse {
+  digest: string | null
+  /** Exactly the notes the digest text carries, ≤20, content ≤120 chars. */
+  carried: CarriedMemoryNote[]
+  /** Active notes in scope the text does not carry — the number it discloses. */
+  omitted: number
+  /** Active notes in scope. */
+  total: number
+}
+
 export const GET = internalApiRoute(
   'Internal Memory Digest',
-  async ({ request }) => {
+  async ({ request }): Promise<DigestResponse> => {
     const { projectId, organizationId, query } = parseQuery(request, digestQuerySchema)
 
     // The schema accepts a projectId on its own, so the organization is not
@@ -58,7 +83,7 @@ export const GET = internalApiRoute(
 
     // No such project, so no tenant to enter and nothing that could be read.
     // Same shape as an empty digest, which is what the backend already handles.
-    if (!tenant) return { digest: null }
+    if (!tenant) return { digest: null, carried: [], omitted: 0, total: 0 }
 
     return withTenant({ organizationId: tenant }, async () => {
       // `digest` is null when there is no active memory — a valid empty result,
@@ -67,14 +92,19 @@ export const GET = internalApiRoute(
       // rather than recency-ordered; without it the digest is what it always
       // was. Optional on purpose — a caller that has no question (the WS
       // handshake) must still get a digest.
-      const digest = await buildProjectMemoryDigest(projectId, tenant, { query })
+      const report = await buildProjectMemoryDigestReport(projectId, tenant, { query })
       // The decisions the project made about the agent's own proposals ride
       // the same channel, so a declined patch is not proposed again. Best
       // effort: a failure here must not cost the turn its memory.
       const decisions = projectId
         ? await buildProposalDecisionsBlock(projectId, tenant).catch(() => null)
         : null
-      return { digest: composeMemoryContext(digest, decisions) }
+      return {
+        digest: composeMemoryContext(report?.text ?? null, decisions),
+        carried: report?.carried ?? [],
+        omitted: report?.omitted ?? 0,
+        total: report?.total ?? 0,
+      }
     })
   },
   { tenancy: { fromPayload: '?organizationId, else resolved from the project row' } }

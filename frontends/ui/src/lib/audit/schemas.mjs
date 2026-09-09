@@ -223,6 +223,15 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   'project.restored': {
     targets: [{ type: 'project' }],
   },
+  // Undoing a supersession (ADR-0055): one note comes back and the note that
+  // replaced it is retired. Its own action rather than a generic memory edit,
+  // because the question it answers is "who decided the correction was wrong",
+  // and both ids are needed to answer it — the target is the project, which is
+  // what an org admin filters their trail by.
+  'project.memory.restored': {
+    targets: [{ type: 'project' }],
+    metadata: { itemId: 'string', retiredItemId: 'string' },
+  },
   'project.role.assigned': {
     targets: [{ type: 'project' }],
     metadata: { organizationMembershipId: 'string', roleSlug: 'string' },

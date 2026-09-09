@@ -969,6 +969,42 @@ reaches every tenant) and the anonymization boundary.
 
 ---
 
+## project_memory (migrations 0008, 0010, 0069, 0076, 0085 — ADR-0008, ADR-0055)
+
+The store the agent reads on every turn: durable, evolving, agent-authored and
+user-curated findings. Itemised rows rather than an append-only blob, so an item
+carries its own provenance, status and confidence and can be superseded, pinned
+or corrected on its own. Design:
+[`../architecture/project-memory-design.md`](../architecture/project-memory-design.md).
+Schema: `frontends/ui/src/lib/db/schema/project-memory.ts`.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `scope` | `text` | `CHECK project_memory_scope_project` | `project` (with `project_id`) or `organization` (`project_id` NULL — shared by every project in the tenant, never across tenants). The CHECK is what makes the pair inseparable. |
+| `project_id` / `organization_id` | `uuid` / `text` | FK cascade / NOT NULL | The tenancy. Every read pins the project branch to the organization as well, so a project id from another tenant matches nothing (`memoryScopeCondition`). |
+| `kind` | `text` | NOT NULL | `decision \| constraint \| open_question \| derived_fact \| preference`. |
+| `status` | `text` | NOT NULL, default `active` | `proposed \| active \| superseded \| dismissed`. `superseded` is a reader-visible state since ADR-0055, not a tombstone. |
+| `confidence` / `verification` / `provenance_type` | `text` | NOT NULL | How sure, how checked, and by whom. `provenance_type` is `agent \| user \| distillation` — 0085 removed `profile_graduation`, an enum value for a path that was designed and never built, so no writer could produce it and every reader carried a branch for a value that does not occur. |
+| `supersedes_id` | `uuid` | nullable, no FK | The note this one retired. **Written since 0008, read since ADR-0055**: the panel shows the retired note beside its replacement and `POST …/memory/{itemId}/restore` reverses the pair. The direction is taken from the two statuses, not from which row holds the pointer — a restore does not rewrite the link, which is what makes it reversible and idempotent. |
+| `conflicts_with_id` | `uuid` | nullable, no FK (0076) | The live, human-curated note this one contradicts and was NOT allowed to retire. Neither FK is enforced on purpose: the other note may be deleted later, and the record that a correction or a conflict happened should survive that. |
+| `salience` / `pinned` / `last_referenced_at` / `recall_count` | `real` / `boolean` / `timestamptz` / `integer` | NOT NULL where defaulted | The recall scorer's inputs (`lib/knowledge/recall-scoring.ts`): importance, the always-carried core, and MemoryBank's reinforcement pair. |
+| `embedding` / `embedding_model` | `real[]` / `text` (0069) | nullable | Row-resident vector plus the fingerprint of the model that produced it. A vector is comparable only within one model, so a fingerprint that no longer matches the deployment's embedder means "not embedded yet", exactly as NULL does. **0085 dropped `embedded_at`**: "has a vector" is `embedding IS NOT NULL` and "is it comparable" is the fingerprint, which is the only question recall ever asks — a timestamp answered neither, and nothing read it. |
+| `created_by` | — | **dropped in 0085** | Set from the session on the two user-authored paths, NULL on every agent write, then never selected. Attribution for a note is `provenance_type`, which is what the panel renders; a nullable user id with no reader is a personal identifier the deletion pipeline (ADR-0011) would have had to account for the day somebody noticed it, for nobody's benefit. |
+
+- Two PARTIAL UNIQUE indexes on a normalised-content expression
+  (`uniq_project_memory_{project,org}_content_active`, migration 0010) enforce
+  "at most one active item per scope-owner + normalised content". They are
+  expression + partial indexes drizzle cannot express, so they live in the
+  migration; `createProjectMemoryItem` treats a `23505` from them as a duplicate
+  and returns the winner.
+- `idx_project_memory_org_scope (organization_id, scope, status)` is the index
+  the digest and `search_memory` both read through.
+- RLS: `SELECT grid_secure_table('project_memory', …)` in migration 0031. No
+  ADR-0055 change touches the table's shape in a way RLS can see — 0085 only
+  removes two columns no policy names.
+
+---
+
 ## project_register (migration 0082, ADR-0054)
 
 One *Steckbrief* per project — the **Projektregister** the Büro-Chat reads to
