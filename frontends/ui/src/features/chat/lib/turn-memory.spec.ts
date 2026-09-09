@@ -234,4 +234,3 @@ describe('a correction, carried to the turn that made it', () => {
     expect(turnMemoryItems({ stages: corrected }).map((item) => item.id)).toEqual(['row-1'])
   })
 })
-

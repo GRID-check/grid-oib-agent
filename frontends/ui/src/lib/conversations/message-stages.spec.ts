@@ -290,4 +290,3 @@ describe('sanitizeMemoryReflectionStage — the note a correction retired', () =
     expect(stage?.items.map((item) => item.id)).toEqual(['new-1'])
   })
 })
-
