@@ -478,6 +478,126 @@ vulnerabilities:
 
       Drop as soon as a Langfuse image ships undici >= 7.29.0.
 
+  # ── Langfuse app dependencies, second wave (ADR-0044) ─────────────────────
+  #
+  # Five advisories published after the seven boxed above, in the same two
+  # digest-pinned images. They were red on develop before the branch that boxes
+  # them existed — security.yml only runs on push to develop and weekly, so
+  # develop is green on a scan that predates these.
+  #
+  # No digest bump clears them. Checked the way the block above demands, by
+  # reading the newest release's node_modules rather than its release notes:
+  # langfuse 3.225.7 (newest 3.x tag) still ships next@16.2.11,
+  # js-yaml@3.15.0 + @4.3.0 and nodemailer@9.0.3 — the same versions the pin
+  # carries.
+  #
+  # Two are CRITICAL, and both are structurally inapplicable to THIS image for
+  # reasons read out of the image itself — app/web/.next/required-server-files.json
+  # in ghcr.io/langfuse/langfuse@sha256:c782c55… (linux/amd64):
+  #
+  #   images.formats        = ["image/webp"]   -- AVIF is not enabled
+  #   images.domains        = []               -- no remote image source
+  #   images.remotePatterns = []               -- no remote image source
+  #
+  # Standing bound on all five: Langfuse is the LLM-observability plane, not
+  # the product. Losing it costs tracing, not chat — ADR-0044's whole point is
+  # that the agent degrades rather than fails when Langfuse is gone.
+
+  - id: CVE-2026-75604
+    expired_at: 2026-10-09
+    statement: |
+      next 16.2.11 — CRITICAL, unauthenticated RCE via unescaped backslashes in
+      incremental-cache paths. Fixed in 15.5.24 / 16.3.3.
+
+      Not exploitable here, structurally: the defect is Windows-only. It is
+      backslash handling in `escape-path-delimiters.ts` and
+      `file-system-cache.ts`, reached by encoded WINDOWS path separators
+      traversing outside the cache root, and the advisory scopes itself to
+      "Windows-hosted servers". These are linux/amd64 Node images on a Linux
+      Kubernetes cluster, where a backslash is an ordinary filename character
+      and no traversal occurs.
+
+      Drop when a Langfuse image ships next >= 16.3.3.
+
+  - id: GHSA-2xp9-vwfh-vxw4
+    expired_at: 2026-10-09
+    statement: |
+      next 16.2.11 — CRITICAL, unauthenticated RCE in the Image Optimization
+      API: libheif (via sharp) can be driven to code execution when an AVIF
+      file is optimized. Fixed in 15.5.24 / 16.3.3.
+
+      Two independent reasons it cannot fire on this image, both read out of
+      its own build manifest rather than assumed:
+
+      1. AVIF is not enabled. `images.formats` is ["image/webp"]; AVIF
+         optimization is opt-in and this build did not opt in. Upstream Next
+         additionally disabled AVIF optimization outright in response to this
+         advisory ("until a fix has propagated").
+      2. The optimizer has no remote input. `images.domains` and
+         `images.remotePatterns` are both empty, so `/_next/image` optimizes
+         only assets shipped inside the image. An attacker cannot hand it a
+         file at all, hostile AVIF or otherwise.
+
+      Re-verify BOTH when bumping the pin — an upstream build that enables AVIF
+      or adds a remotePattern removes the argument, and neither shows up as a
+      version change:
+        tar -xzOf <layer> app/web/.next/required-server-files.json \
+          | jq .config.images
+
+      Drop when a Langfuse image ships next >= 16.3.3.
+
+  - id: GHSA-rgj7-g3m4-5g8c
+    expired_at: 2026-10-09
+    statement: |
+      sharp 0.34.5 — HIGH, the libheif defects behind the Next advisory above.
+      Fixed in 0.35.4 (libheif 1.23.2). "Those processing untrusted input are
+      affected."
+
+      Not exploitable here for the same verified reason: in this image sharp is
+      reached through Next's image optimizer, which accepts no remote source
+      (`images.domains` and `images.remotePatterns` are both empty) and does
+      not emit AVIF (`images.formats` is ["image/webp"]). Langfuse exposes no
+      other image-processing surface — it ingests JSON traces, not media.
+
+      Drop when a Langfuse image ships sharp >= 0.35.4.
+
+  - id: GHSA-2x7j-588g-ccc2
+    expired_at: 2026-10-09
+    statement: |
+      nodemailer 9.0.3 — HIGH, quadratic time in `addressparser`: a multi-MB
+      address list blocks the event loop for minutes. Availability only
+      (C:N/I:N/A:H). Fixed in 9.1.0.
+
+      Bounded here rather than absent, and worth saying plainly: the parser is
+      reached through Langfuse's own mail paths (project invitations, alert
+      delivery), whose addresses come from a signed-in member of a project. The
+      surface is authenticated, so this is a tenant member able to stall their
+      own Langfuse instance, not an anonymous internet DoS — and the blast
+      radius is the observability plane, which the agent survives without.
+
+      Drop when a Langfuse image ships nodemailer >= 9.1.0.
+
+  - id: CVE-2026-84375
+    expired_at: 2026-10-09
+    statement: |
+      js-yaml 3.15.0 and 4.3.0 — HIGH, `maxTotalMergeKeys` does not count empty
+      merge sources, so a small document can burn CPU. Availability only
+      (C:N/I:N/A:H). Fixed in 3.15.2 / 4.3.2.
+
+      Requires parsing UNTRUSTED YAML. Langfuse's ingestion surface is JSON —
+      the OTLP receiver and the public API take no YAML — and js-yaml arrives
+      here as a transitive dependency of build and config tooling rather than
+      of a request path.
+
+      Stated as the WEAKEST argument in this block: it rests on no request
+      handler reaching a YAML parse, which is a reading of the upstream tree
+      rather than a property of our own configuration, the way the two
+      `images.*` facts above are. If one of these five is to be re-argued
+      rather than renewed, it is this one.
+
+      Drop when a Langfuse image ships js-yaml >= 4.3.2 (and >= 3.15.2 for the
+      3.x copy).
+
   # ── Langfuse web/worker images — the Alpine BASE, not the app (ADR-0044) ──
   #
   # The seven entries above are npm packages Langfuse bundles. This one is a
