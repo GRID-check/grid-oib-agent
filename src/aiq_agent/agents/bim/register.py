@@ -1,34 +1,41 @@
-"""``ifc_query`` tool — talk to the project's BIM model, deterministically.
+"""``ifc_query`` tool — the project's BIM model, queried deterministically.
 
-This is the model counterpart of ``knowledge_search``. Where that tool retrieves
-text and the agent reads it, this one runs a **structured query** and the agent
-reports the number it gets back. The distinction is not stylistic: "how many
-external walls are on the ground floor" has one right answer, it is a
-``COUNT(*)`` with a ``WHERE``, and an LLM summing forty thousand elements from
-retrieved prose is a fact turned into a guess.
-
-The tool never touches the application database. It posts to the BFF's internal
-endpoint (:mod:`aiq_agent.knowledge.bim_query`), which owns the SQL, the tenant
-scope and the model selection. The agent addresses models the way a person does
-— by project, and by name when a project has more than one — so no UUID has to
-survive a conversation.
-
-Every answer carries a rendered ``summary`` line the agent can quote verbatim.
+The model counterpart of ``knowledge_search``: a structured query against the
+extracted index, run by the BFF's internal endpoint
+(:mod:`aiq_agent.knowledge.bim_query`), rendered as the German lines the agent
+quotes. Models are addressed by project and file name, never by UUID. The
+defects each rule here answers are catalogued in
+``docs/roadmap/ifc-review-findings.md``.
 """
 
 import asyncio
-import hashlib
 import json
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
 
+from pydantic import BaseModel
 from pydantic import Field
 
+from aiq_agent.agents.bim.failures import NO_ORG_TEXT
+from aiq_agent.agents.bim.failures import NO_PROJECT_TEXT
+from aiq_agent.agents.bim.failures import QUERY_FAILURES
+from aiq_agent.agents.bim.rendering import clipped
+from aiq_agent.agents.bim.rendering import listed
+from aiq_agent.agents.bim.rendering import render_unresolved
+from aiq_agent.agents.bim.trace import model_handle
+from aiq_agent.agents.bim.trace import record_ifc_call
+from aiq_agent.knowledge.bim_query import run_bim_query
+from aiq_agent.project_context import get_organization_id_from_context
+from aiq_agent.project_context import get_project_id_from_context
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
+
+__all__ = ["NO_PROJECT_TEXT", "VALID_OPERATIONS", "IfcQueryConfig", "IfcQueryInput", "ifc_query"]
 
 logger = logging.getLogger(__name__)
 
@@ -283,18 +290,164 @@ def _bcf_link(
     return f"/api/projects/{quote(project_id, safe='')}/bim/checks/export?{query}"
 
 
-#: No project on this conversation, so there is no model to address.
-#:
-#: „Do not retry" is the operative half. Every other refusal in this tool is
-#: something the agent can fix in the same turn by calling again differently;
-#: this one it cannot fix at all, and without being told so it will keep trying
-#: until its tool budget runs out — spending the turn instead of answering.
-NO_PROJECT_TEXT = (
-    "Error: this conversation is not attached to a project, so no BIM model can be selected. "
-    "Do not retry — no argument to this tool can fix it. Tell the user (in German) that the "
-    "question refers to a building model and that they need to open the conversation inside the "
-    "project the model belongs to. Do not state anything about the building."
-)
+class IfcQueryInput(BaseModel):
+    """The arguments of one ``ifc_query`` call. Every default is written here and nowhere else."""
+
+    operation: str = "overview"
+    filters: str = ""
+    metric: str = "count"
+    quantity: str = ""
+    group_by: str = ""
+    global_id: str = ""
+    ifc_type: str = ""
+    model_name: str = ""
+    compare_with: str = ""
+    gebaeudeklasse: int = 0
+    hauptnutzung: str = ""
+    limit: int = 0
+
+
+# ── building the query ───────────────────────────────────────────────────────
+
+#: Operations that need nothing beyond their name.
+_BARE_OPS = frozenset({"overview", "types", "health", "schedule", "profile"})
+
+#: Operations that read the WHOLE model and take no element filter — with what
+#: each returns, for the refusal. A filter on these used to be dropped, so
+#: ``schedule`` with a storey filter returned the whole building's Raumbuch and
+#: the agent presented it as one floor's. Saying no is the only answer that does
+#: not put a wrong number in front of someone.
+_WHOLE_MODEL_OPS = {
+    "overview": "eine Zusammenfassung des ganzen Modells",
+    "types": "die Typenverteilung des ganzen Modells",
+    "health": "die Modellprüfung des ganzen Modells",
+    "schedule": "das Raumbuch des ganzen Modells",
+    "profile": "die aus dem ganzen Modell ableitbaren Projektangaben",
+    "compare": "einen Vergleich zweier vollständiger Stände",
+    "element": "ein einzelnes Bauteil",
+    "compliance": "eine Prüfung des ganzen Modells gegen den Regelkatalog",
+    "compliance-diff": "eine Prüfung beider Stände gegen den Regelkatalog",
+    "properties": "den Merkmalskatalog des Modells (mit 'ifc_type' auf einen Typ einschränkbar)",
+}
+
+_METRICS = frozenset({"count", "sum", "avg", "min", "max"})
+
+
+@dataclass(frozen=True)
+class _QueryArgs:
+    """The tool's arguments, stripped and clamped, for one query builder."""
+
+    filters: dict[str, Any]
+    metric: str
+    quantity: str
+    group_by: str
+    global_id: str
+    ifc_type: str
+    limit: int
+    gebaeudeklasse: int | None
+    hauptnutzung: str
+
+
+def _parse_filters(filters: str) -> dict[str, Any] | str:
+    """The ``filters`` JSON as a dict, or the error that says why it is not one.
+
+    Silently dropping an unparseable filter would turn "external walls on the
+    ground floor" into every element in the building, confidently counted.
+    """
+    if not filters.strip():
+        return {}
+    try:
+        candidate = json.loads(filters)
+    except json.JSONDecodeError:
+        return 'Error: \'filters\' must be a JSON object, e.g. {"ifcTypes": ["IfcWall"]}.'
+    if not isinstance(candidate, dict):
+        return "Error: 'filters' must be a JSON object, not a list or scalar."
+    return candidate
+
+
+def _compliance_query(op: str, args: _QueryArgs) -> dict[str, Any]:
+    """The rule catalogue takes project facts, not element filters.
+
+    A fact that was not supplied is OMITTED rather than defaulted: the rules
+    that need it stand down with their reason, which is the honest outcome.
+    """
+    query: dict[str, Any] = {"op": op}
+    klasse = _valid_gebaeudeklasse(args.gebaeudeklasse)
+    if klasse:
+        query["gebaeudeklasse"] = klasse
+    nutzung = _valid_hauptnutzung(args.hauptnutzung)
+    if nutzung:
+        query["hauptnutzung"] = nutzung
+    return query
+
+
+def _takeoff_query(args: _QueryArgs) -> dict[str, Any] | str:
+    """Material is the only split a Massenermittlung has; any other grouping is refused, not ignored."""
+    grouping = args.group_by.lower()
+    if grouping and grouping != "material":
+        return (
+            f"Error: operation 'takeoff' can only group by 'material', not '{args.group_by}'. "
+            "Use 'aggregate' with metric='sum' to group a quantity by storey or type."
+        )
+    return {
+        "op": "takeoff",
+        "quantity": args.quantity or "NetSideArea",
+        "byMaterial": grouping == "material",
+        "filter": args.filters,
+    }
+
+
+def _properties_query(args: _QueryArgs) -> dict[str, Any]:
+    query: dict[str, Any] = {"op": "properties"}
+    if args.ifc_type:
+        query["ifcType"] = args.ifc_type
+    return query
+
+
+def _element_query(args: _QueryArgs) -> dict[str, Any] | str:
+    if not args.global_id:
+        return "Error: operation 'element' needs a global_id (the element's IFC GlobalId)."
+    return {"op": "element", "globalId": args.global_id}
+
+
+def _elements_query(args: _QueryArgs) -> dict[str, Any]:
+    return {"op": "elements", "filter": args.filters, "limit": args.limit, "offset": 0}
+
+
+def _aggregate_query(args: _QueryArgs) -> dict[str, Any] | str:
+    metric = (args.metric or "count").lower()
+    if metric not in _METRICS:
+        return "Error: metric must be one of count, sum, avg, min, max."
+    query: dict[str, Any] = {"op": "aggregate", "filter": args.filters, "metric": metric, "limit": args.limit}
+    if metric != "count" and not args.quantity:
+        return f"Error: metric '{metric}' needs a 'quantity' (e.g. NetFloorArea)."
+    if metric != "count":
+        query["quantity"] = args.quantity
+    if args.group_by.lower() == "property":
+        # `property` needs a companion `groupProperty` this tool has no
+        # parameter for, so the endpoint would reject it every time.
+        return (
+            "Error: group_by='property' is not available through this tool. "
+            "Use operation='properties' to see which values a property takes and how many "
+            "elements carry each, or filter on the property and count."
+        )
+    if args.group_by:
+        query["groupBy"] = args.group_by
+    return query
+
+
+_QUERY_BUILDERS: dict[str, Callable[[_QueryArgs], dict[str, Any] | str]] = {
+    "compliance": lambda args: _compliance_query("compliance", args),
+    "compliance-diff": lambda args: _compliance_query("compliance-diff", args),
+    "takeoff": _takeoff_query,
+    # `baseModelId` is deliberately absent: the endpoint resolves the other
+    # revision from `compare_with`, so no UUID has to survive the turn.
+    "compare": lambda args: {"op": "compare", "limit": 20000},
+    "properties": _properties_query,
+    "element": _element_query,
+    "elements": _elements_query,
+    "aggregate": _aggregate_query,
+}
 
 
 def _build_query(
@@ -311,133 +464,54 @@ def _build_query(
 ) -> dict[str, Any] | str:
     """Assemble the endpoint's query object, or return an error string.
 
-    Kept separate from the tool body so the (error-prone) argument handling is
-    unit-testable without a running frontend. The endpoint validates the result
-    again with the same zod schema the UI uses — this is convenience, not a
-    security boundary.
+    The endpoint validates the result again with the same zod schema the UI
+    uses — this is convenience, not a security boundary.
     """
     if operation not in VALID_OPERATIONS:
         return f"Error: unknown operation '{operation}'. Use one of: {', '.join(sorted(VALID_OPERATIONS))}."
-
-    parsed_filters: dict[str, Any] = {}
-    if filters.strip():
-        try:
-            candidate = json.loads(filters)
-        except json.JSONDecodeError:
-            return 'Error: \'filters\' must be a JSON object, e.g. {"ifcTypes": ["IfcWall"]}.'
-        if not isinstance(candidate, dict):
-            return "Error: 'filters' must be a JSON object, not a list or scalar."
-        parsed_filters = candidate
-
-    # Operations that read the WHOLE model and take no element filter.
-    #
-    # The tool description promises "every filter key is validated; an unknown
-    # key is REJECTED, not ignored", and for these the filter was not validated
-    # at all — it was dropped. `operation='schedule', filters={"storeys":
-    # ["Erdgeschoss"]}` returned the entire building's Raumbuch, and the agent
-    # presented it as the ground floor's. Saying no is the only answer that
-    # does not put a wrong number in front of someone.
-    _WHOLE_MODEL_OPS = {
-        "overview": "eine Zusammenfassung des ganzen Modells",
-        "types": "die Typenverteilung des ganzen Modells",
-        "health": "die Modellprüfung des ganzen Modells",
-        "schedule": "das Raumbuch des ganzen Modells",
-        "profile": "die aus dem ganzen Modell ableitbaren Projektangaben",
-        "compare": "einen Vergleich zweier vollständiger Stände",
-        "element": "ein einzelnes Bauteil",
-        "compliance": "eine Prüfung des ganzen Modells gegen den Regelkatalog",
-        "compliance-diff": "eine Prüfung beider Stände gegen den Regelkatalog",
-        "properties": "den Merkmalskatalog des Modells (mit 'ifc_type' auf einen Typ einschränkbar)",
-    }
-    if parsed_filters and operation in _WHOLE_MODEL_OPS:
+    parsed = _parse_filters(filters)
+    if isinstance(parsed, str):
+        return parsed
+    if parsed and operation in _WHOLE_MODEL_OPS:
         return (
-            f"Error: operation '{operation}' takes no filters — it returns "
-            f"{_WHOLE_MODEL_OPS[operation]}. "
+            f"Error: operation '{operation}' takes no filters — it returns {_WHOLE_MODEL_OPS[operation]}. "
             "Use 'elements' or 'aggregate' to ask a filtered question, or drop 'filters'."
         )
+    if operation in _BARE_OPS:
+        return {"op": operation}
+    args = _QueryArgs(
+        filters=parsed,
+        metric=metric.strip(),
+        quantity=quantity.strip(),
+        group_by=group_by.strip(),
+        global_id=global_id.strip(),
+        ifc_type=ifc_type.strip(),
+        limit=max(1, min(limit, 200)),
+        gebaeudeklasse=gebaeudeklasse,
+        hauptnutzung=hauptnutzung,
+    )
+    return _QUERY_BUILDERS[operation](args)
 
-    if operation in {"compliance", "compliance-diff"}:
-        # The rule catalogue takes project facts, not element filters. A fact
-        # that was not supplied is OMITTED rather than defaulted: the rules that
-        # need it stand down with their reason, which is the honest outcome.
-        compliance_query: dict[str, Any] = {"op": operation}
-        if _valid_gebaeudeklasse(gebaeudeklasse):
-            compliance_query["gebaeudeklasse"] = _valid_gebaeudeklasse(gebaeudeklasse)
-        nutzung = _valid_hauptnutzung(hauptnutzung)
-        if nutzung:
-            compliance_query["hauptnutzung"] = nutzung
-        return compliance_query
 
-    if operation == "overview":
-        return {"op": "overview"}
-    if operation == "types":
-        return {"op": "types"}
-    if operation == "health":
-        return {"op": "health"}
-    if operation == "schedule":
-        return {"op": "schedule"}
-    if operation == "profile":
-        return {"op": "profile"}
-    if operation == "takeoff":
-        # The only split a Massenermittlung has. `byMaterial = group_by ==
-        # "material"` turned every other value into `false` with no error, so
-        # `group_by="storey"` returned a building-wide take-off that the agent
-        # then reported as a per-storey breakdown — the unfiltered-number-as-
-        # filtered failure the endpoint's `.strict()` exists to prevent,
-        # reintroduced one layer up.
-        grouping = group_by.strip().lower()
-        if grouping and grouping != "material":
-            return (
-                f"Error: operation 'takeoff' can only group by 'material', not '{group_by.strip()}'. "
-                "Use 'aggregate' with metric='sum' to group a quantity by storey or type."
-            )
-        return {
-            "op": "takeoff",
-            "quantity": quantity.strip() or "NetSideArea",
-            "byMaterial": grouping == "material",
-            "filter": parsed_filters,
-        }
-    if operation == "compare":
-        # `baseModelId` is deliberately absent: the endpoint resolves the other
-        # revision from `compare_with`, so no UUID has to survive the turn.
-        return {"op": "compare", "limit": 20000}
-    if operation == "properties":
-        query: dict[str, Any] = {"op": "properties"}
-        if ifc_type.strip():
-            query["ifcType"] = ifc_type.strip()
-        return query
-    if operation == "element":
-        if not global_id.strip():
-            return "Error: operation 'element' needs a global_id (the element's IFC GlobalId)."
-        return {"op": "element", "globalId": global_id.strip()}
-    if operation == "elements":
-        return {"op": "elements", "filter": parsed_filters, "limit": max(1, min(limit, 200)), "offset": 0}
+# ── rendering ────────────────────────────────────────────────────────────────
 
-    aggregate: dict[str, Any] = {
-        "op": "aggregate",
-        "filter": parsed_filters,
-        "metric": (metric or "count").strip().lower(),
-        "limit": max(1, min(limit, 200)),
-    }
-    if aggregate["metric"] not in {"count", "sum", "avg", "min", "max"}:
-        return "Error: metric must be one of count, sum, avg, min, max."
-    if aggregate["metric"] != "count":
-        if not quantity.strip():
-            return f"Error: metric '{aggregate['metric']}' needs a 'quantity' (e.g. NetFloorArea)."
-        aggregate["quantity"] = quantity.strip()
-    if group_by.strip():
-        # `property` needs a companion `groupProperty {set, name}` that this
-        # tool has no parameter for, so the endpoint rejects it every time and
-        # the agent has no argument it can correct. Refused here, where the
-        # message can say what to do instead, rather than as a 400.
-        if group_by.strip().lower() == "property":
-            return (
-                "Error: group_by='property' is not available through this tool. "
-                "Use operation='properties' to see which values a property takes and how many "
-                "elements carry each, or filter on the property and count."
-            )
-        aggregate["groupBy"] = group_by.strip()
-    return aggregate
+_clipped = clipped
+
+_Lines = list[str | None]
+
+
+@dataclass(frozen=True)
+class _RenderContext:
+    """What a rendered row needs beyond the payload: where its links point."""
+
+    project_id: str | None
+    filename: str | None
+    gebaeudeklasse: int
+    hauptnutzung: str
+
+    def link(self, global_id: Any, status: str = "info") -> str:
+        link = _element_link(self.project_id, self.filename, global_id, status)
+        return f" · Link: {link}" if link else ""
 
 
 def _entry_label(entry: dict[str, Any], storey: bool = True) -> str:
@@ -446,286 +520,171 @@ def _entry_label(entry: dict[str, Any], storey: bool = True) -> str:
     return f"{label} · {entry.get('storeyName') or '—'}" if storey else label
 
 
-# Plural nouns `_clipped` is called with, and the singular each one needs when
-# exactly one row was left out. A lookup rather than a rule, because German
-# plurals are not derivable and a wrong guess is worse than a wrong number.
-_SINGULAR_DE = {
-    "Geschoße": "Geschoß",
-    "Bauteile": "Bauteil",
-    "Bauteiltypen": "Bauteiltyp",
-    "betroffene Bauteile": "betroffenes Bauteil",
-    "Räume": "Raum",
-    "Regeln": "Regel",
-    "Gruppen": "Gruppe",
-    "Merkmale": "Merkmal",
-    "fehlende Merkmale": "fehlendes Merkmal",
-    "neue Bauteile": "neues Bauteil",
-    "entfallene Bauteile": "entfallenes Bauteil",
-    "geänderte Bauteile": "geändertes Bauteil",
-}
+def _render_overview(result: dict[str, Any], ctx: _RenderContext) -> _Lines:
+    overview = result.get("overview")
+    if not isinstance(overview, dict):
+        return []
+    lines: _Lines = []
+    storeys = overview.get("storeys") or []
+    if storeys:
+        lines.append(
+            "Geschoße: "
+            + ", ".join(f"{s.get('name') or '—'} ({s.get('elementCount', 0)} Bauteile)" for s in storeys[:20])
+        )
+        lines.append(clipped(storeys, 20, "Geschoße"))
+    types = list((overview.get("typeCounts") or {}).items())
+    if types:
+        lines.append("Bauteiltypen: " + ", ".join(f"{name} ({count})" for name, count in types[:15]))
+        lines.append(clipped(types, 15, "Bauteiltypen"))
+    return lines
 
 
-def _singular(noun: str) -> str:
-    """The singular of a `_clipped` noun, or the plural unchanged."""
-    return _SINGULAR_DE.get(noun, noun)
+def _render_elements(result: dict[str, Any], ctx: _RenderContext) -> _Lines:
+    def row(element: dict[str, Any]) -> str:
+        label = element.get("name") or element.get("tag") or element.get("globalId")
+        storey = element.get("storeyName") or "—"
+        global_id = element.get("globalId")
+        return f"- {element.get('ifcType')} „{label}“ · {storey} · GlobalId {global_id}{ctx.link(global_id)}"
+
+    return listed(result.get("elements") or [], 50, "Bauteile", row)
 
 
-def _clipped(items: list, shown: int, noun: str) -> str | None:
-    """A line saying what a clipped list left out, or None when nothing was.
-
-    Every list in `_render` is cut to keep the tool result readable, and none
-    of them said so. The trailing "Weitere Treffer vorhanden" line reflects the
-    SERVER's truncation flag only, so a query that returned 200 elements and
-    rendered 50 told the agent "200 Bauteile erfüllen die Abfrage" and then
-    listed fifty as though they were all of them.
-    """
-    missing = len(items) - shown
-    if missing <= 0:
-        return None
-    # Singular when there is one. The renderer substitutes into a template and
-    # does nothing else, so "… 1 weitere Geschoße nicht gezeigt." is what every
-    # list clipped by exactly one produced.
-    if missing == 1:
-        return f"… ein weiteres {_singular(noun)} nicht gezeigt."
-    return f"… {missing} weitere {noun} nicht gezeigt."
+def _render_element(result: dict[str, Any], ctx: _RenderContext) -> _Lines:
+    element = result.get("element")
+    if not isinstance(element, dict):
+        return []
+    link = _element_link(ctx.project_id, ctx.filename, element.get("globalId"))
+    lines: _Lines = [f"GlobalId: {element.get('globalId')}", f"Link: {link}" if link else None]
+    if element.get("storeyName"):
+        lines.append(f"Geschoß: {element['storeyName']}")
+    if element.get("materials"):
+        lines.append("Materialien: " + ", ".join(element["materials"]))
+    for group in ("properties", "quantities"):
+        for set_name, values in (element.get(group) or {}).items():
+            lines.append(f"{set_name}: " + ", ".join(f"{key}={value}" for key, value in values.items()))
+    return lines
 
 
-def _render(
-    result: dict[str, Any],
-    project_id: str | None = None,
-    gebaeudeklasse: int = 0,
-    hauptnutzung: str = "",
-) -> str:
-    """Turn the endpoint's body into the string the model reads.
+def _render_schedule(result: dict[str, Any], ctx: _RenderContext) -> _Lines:
+    schedule = result.get("schedule")
+    if not isinstance(schedule, dict):
+        return []
+    area_unit = (schedule.get("units") or {}).get("area", "m²")
 
-    Deliberately compact. The `summary` line is the answer; the structured
-    payload follows only where it adds something the summary cannot carry (a
-    property vocabulary, an element list), and it is trimmed so a broad query
-    cannot flood the context window with forty thousand element names.
-    """
-    if not result.get("resolved"):
-        message = result.get("message") or "Das Modell konnte nicht abgefragt werden."
-        models = result.get("models") or []
-        if models:
-            listed = ", ".join(
-                f"{m.get('filename')} ({m.get('status')}, {m.get('elements', 0)} Bauteile)" for m in models[:10]
-            )
-            # "Verfügbare" only when the model list really is a set of
-            # alternatives. On `not_ready`/`extraction_failed` the route
-            # returns the model that could not be read, so this heading told
-            # the agent a file it had just been refused was available — and
-            # `(processing, 0 Bauteile)` beside it reads as a building with no
-            # elements.
-            heading = (
-                "Verfügbare Modelle"
-                if result.get("reason") in {"no_match", "ambiguous"}
-                else "Modelle in diesem Projekt (noch nicht abfragbar)"
-            )
-            return f"{message} {heading}: {listed}."
-        return str(message)
+    def room(entry: dict[str, Any]) -> str:
+        area = entry.get("netFloorArea")
+        return f"  · {entry.get('name')} — {area if area is not None else 'ohne Fläche'}"
+
+    def storey(entry: dict[str, Any]) -> list[str]:
+        rooms = entry.get("rooms") or []
+        head = f"{entry.get('storeyName')}: {entry.get('netFloorArea')} {area_unit} ({len(rooms)} Räume)"
+        return [head, *listed(rooms, 30, "Räume", room, indent="  ")]
+
+    return listed(schedule.get("storeys") or [], 12, "Geschoße", storey)
+
+
+def _render_takeoff(result: dict[str, Any], ctx: _RenderContext) -> _Lines:
+    def row(entry: dict[str, Any]) -> str:
+        missing = f", {entry.get('missing')} ohne Wert" if entry.get("missing") else ""
+        return f"- {entry.get('group')}: {entry.get('value')} ({entry.get('elements')} Bauteile{missing})"
+
+    return listed(result.get("takeoff") or [], 40, "Gruppen", row)
+
+
+def _shopping_row(entry: dict[str, Any]) -> str:
+    count = entry.get("elements")
+    where = "an einem Bauteil" if count == 1 else f"an {count} Bauteilen"
+    return f"- fehlt: {entry.get('path')} {where} (entscheidet: {', '.join(entry.get('rules') or [])})"
+
+
+def _rule_rows(rule: dict[str, Any], ctx: _RenderContext) -> list[str]:
+    """The rule id for every rule that left work behind, then its breaches, each opening RED."""
+
+    def verdict(entry: dict[str, Any]) -> str:
+        name = entry.get("name") or entry.get("globalId")
+        return f"  ✗ {rule.get('richtlinie')} {name}: {entry.get('reading')}{ctx.link(entry.get('globalId'), 'fail')}"
 
     lines: list[str] = []
-    model = result.get("model") or {}
-    filename = model.get("filename")
-    if filename:
-        lines.append(f"Modell: {filename}")
-    lines.append(str(result.get("summary") or ""))
-
-    # The caveat is appended for every op whose numbers the model's structural
-    # defects distort. It is NOT optional colour: a storey breakdown over a
-    # model with unplaced elements is a subset presented as a total, and this
-    # line is the only thing that stops the agent reporting it as one.
-    caveat = result.get("caveat")
-    if caveat:
-        lines.append(str(caveat))
-
-    op = result.get("op")
-    if op == "overview" and isinstance(result.get("overview"), dict):
-        overview = result["overview"]
-        storeys = overview.get("storeys") or []
-        if storeys:
-            rendered = ", ".join(f"{s.get('name') or '—'} ({s.get('elementCount', 0)} Bauteile)" for s in storeys[:20])
-            lines.append(f"Geschoße: {rendered}")
-            clipped = _clipped(storeys, 20, "Geschoße")
-            if clipped:
-                lines.append(clipped)
-        type_counts = overview.get("typeCounts") or {}
-        if type_counts:
-            entries = list(type_counts.items())
-            top = entries[:15]
-            lines.append("Bauteiltypen: " + ", ".join(f"{name} ({count})" for name, count in top))
-            clipped = _clipped(entries, 15, "Bauteiltypen")
-            if clipped:
-                lines.append(clipped)
-    elif op == "elements":
-        elements = result.get("elements") or []
-        for element in elements[:50]:
-            label = element.get("name") or element.get("tag") or element.get("globalId")
-            storey = element.get("storeyName") or "—"
-            link = _element_link(project_id, filename, element.get("globalId"))
-            suffix = f" · Link: {link}" if link else ""
-            lines.append(
-                f"- {element.get('ifcType')} „{label}“ · {storey} · GlobalId {element.get('globalId')}{suffix}"
-            )
-        clipped = _clipped(elements, 50, "Bauteile")
-        if clipped:
-            lines.append(clipped)
-    elif op == "element" and isinstance(result.get("element"), dict):
-        element = result["element"]
-        lines.append(f"GlobalId: {element.get('globalId')}")
-        link = _element_link(project_id, filename, element.get("globalId"))
-        if link:
-            lines.append(f"Link: {link}")
-        if element.get("storeyName"):
-            # `Geschoß`, not `Geschoss`. Austrian usage keeps the ß, the
-            # whole UI writes it, and this file writes it correctly two
-            # renderers away.
-            lines.append(f"Geschoß: {element['storeyName']}")
-        if element.get("materials"):
-            lines.append("Materialien: " + ", ".join(element["materials"]))
-        for set_name, properties in (element.get("properties") or {}).items():
-            rendered = ", ".join(f"{key}={value}" for key, value in properties.items())
-            lines.append(f"{set_name}: {rendered}")
-        for set_name, quantities in (element.get("quantities") or {}).items():
-            rendered = ", ".join(f"{key}={value}" for key, value in quantities.items())
-            lines.append(f"{set_name}: {rendered}")
-    elif op == "schedule" and isinstance(result.get("schedule"), dict):
-        schedule = result["schedule"]
-        area_unit = (schedule.get("units") or {}).get("area", "m²")
-        storeys = schedule.get("storeys") or []
-        for storey in storeys[:12]:
-            lines.append(
-                f"{storey.get('storeyName')}: {storey.get('netFloorArea')} {area_unit} "
-                f"({len(storey.get('rooms') or [])} Räume)"
-            )
-            rooms = storey.get("rooms") or []
-            for room in rooms[:30]:
-                area = room.get("netFloorArea")
-                lines.append(f"  · {room.get('name')} — {area if area is not None else 'ohne Fläche'}")
-            clipped = _clipped(rooms, 30, "Räume")
-            if clipped:
-                lines.append(f"  {clipped}")
-        clipped = _clipped(storeys, 12, "Geschoße")
-        if clipped:
-            lines.append(clipped)
-    elif op == "takeoff":
-        takeoff = result.get("takeoff") or []
-        for row in takeoff[:40]:
-            missing = f", {row.get('missing')} ohne Wert" if row.get("missing") else ""
-            lines.append(f"- {row.get('group')}: {row.get('value')} ({row.get('elements')} Bauteile{missing})")
-        clipped = _clipped(takeoff, 40, "Gruppen")
-        if clipped:
-            lines.append(clipped)
-    elif op in {"compliance", "compliance-diff"}:
-        # The endpoint already renders the German verdict lines into `summary`;
-        # what the model needs on top is the shopping list, because that is the
-        # part it must hand back to the architect as actions.
-        shopping = result.get("complianceShoppingList") or []
-        for entry in shopping[:15]:
-            rules = ", ".join(entry.get("rules") or [])
-            count = entry.get("elements")
-            where = "an einem Bauteil" if count == 1 else f"an {count} Bauteilen"
-            lines.append(f"- fehlt: {entry.get('path')} {where} (entscheidet: {rules})")
-        # Every cut list says what it left out — `_clipped`'s own invariant,
-        # applied to six lists in this renderer and skipped for these three.
-        clipped = _clipped(shopping, 15, "fehlende Merkmale")
-        if clipped:
-            lines.append(clipped)
-
-        rules_all = result.get("compliance") or []
-        for rule in rules_all[:40]:
-            # The rule id, printed for every rule that left work behind.
-            #
-            # `ifc_compliance` asks for "rule ids from ifc_query
-            # operation='compliance'" and this renderer never printed one
-            # except inside the shopping list's `entscheidet:` clause — which
-            # only covers rules with a MISSING property. For a rule that
-            # cleanly fails, the agent had no valid id to put in the card, so
-            # it either invented one (rendered as unresolved) or sent none.
-            rule_id = rule.get("ruleId")
-            failed = int(rule.get("failed") or 0)
-            undecidable = int(rule.get("undecidable") or 0)
-            if rule_id and (failed or undecidable):
-                lines.append(
-                    f"- Regel {rule_id}: {rule.get('titleDe')} — {failed} nicht erfüllt, "
-                    f"{undecidable} nicht entscheidbar"
-                )
-            failures = rule.get("failures") or []
-            for verdict in failures[:10]:
-                # A breach opens RED. This is the one place the tool knows the
-                # verdict at link time, and it used to throw it away.
-                link = _element_link(project_id, filename, verdict.get("globalId"), "fail")
-                suffix = f" · Link: {link}" if link else ""
-                lines.append(
-                    f"  ✗ {rule.get('richtlinie')} {verdict.get('name') or verdict.get('globalId')}: "
-                    f"{verdict.get('reading')}{suffix}"
-                )
-            # The server list is itself capped at 25 verdicts per rule, so ten
-            # of them presented as the complete set of breaches is a cap on a
-            # cap. `failed` above is the real count; this says the LIST is not.
-            clipped = _clipped(failures, 10, "betroffene Bauteile")
-            if clipped:
-                lines.append(f"  {clipped}")
-        clipped = _clipped(rules_all, 40, "Regeln")
-        if clipped:
-            lines.append(clipped)
-        # The list of open items is the answer; this is what the architect DOES
-        # with it. Emitted as a path rather than described as a template, for
-        # the same reason the element links are.
-        bcf = _bcf_link(project_id, filename, gebaeudeklasse, hauptnutzung)
-        if bcf:
-            lines.append(f"BCF-Export der offenen Punkte: {bcf}")
-
-    elif op == "profile":
-        for suggestion in result.get("profileSuggestions") or []:
-            lines.append(
-                f"- {suggestion.get('key')} = {suggestion.get('value')} "
-                f"[{suggestion.get('confidence')}] — {suggestion.get('evidence')}"
-            )
-    elif op == "compare" and isinstance(result.get("comparison"), dict):
-        comparison = result["comparison"]
-        added = comparison.get("added") or []
-        for entry in added[:25]:
-            lines.append(f"+ {_entry_label(entry)}")
-        removed = comparison.get("removed") or []
-        for entry in removed[:25]:
-            lines.append(f"- {_entry_label(entry)}")
-        changed = comparison.get("changed") or []
-        for entry in changed[:25]:
-            deltas = "; ".join(
-                f"{change.get('field')}: {change.get('before')} → {change.get('after')}"
-                for change in (entry.get("changes") or [])[:6]
-            )
-            lines.append(f"~ {_entry_label(entry, storey=False)} — {deltas}")
-        for bucket, noun in ((added, "neue"), (removed, "entfallene"), (changed, "geänderte")):
-            clipped = _clipped(bucket, 25, f"{noun} Bauteile")
-            if clipped:
-                lines.append(clipped)
-    elif op == "properties":
-        properties = result.get("properties") or []
-        for entry in properties[:60]:
-            values = ", ".join(f"{v.get('value')} ({v.get('elements')}×)" for v in (entry.get("values") or [])[:6])
-            kind = "Menge" if entry.get("source") == "quantity" else "Merkmal"
-            lines.append(f"- [{kind}] {entry.get('set')}.{entry.get('name')}: {values}")
-        clipped = _clipped(properties, 60, "Merkmale")
-        if clipped:
-            lines.append(clipped)
-
-    if result.get("truncated"):
-        lines.append(_truncation_note(op))
-    return "\n".join(line for line in lines if line)
+    failed = int(rule.get("failed") or 0)
+    undecidable = int(rule.get("undecidable") or 0)
+    if rule.get("ruleId") and (failed or undecidable):
+        lines.append(
+            f"- Regel {rule.get('ruleId')}: {rule.get('titleDe')} — "
+            f"{failed} nicht erfüllt, {undecidable} nicht entscheidbar"
+        )
+    # The server list is itself capped at 25 verdicts per rule; `failed` above
+    # is the real count and the clip note says the LIST is not.
+    return lines + listed(rule.get("failures") or [], 10, "betroffene Bauteile", verdict, indent="  ")
 
 
-# Ops whose `truncated` means "these figures cover part of the building",
-# not "there are more rows to page through".
-#
-# The distinction is the whole value of the flag. For `elements` and
-# `aggregate` a truncated result IS a long list, and "narrow the query" is
-# exactly right. For a Raumbuch, a Massenermittlung, a rule run or a revision
-# diff there is no list to narrow: the numbers themselves were computed over a
-# window of the model. Telling the agent to aggregate harder invites it to
-# quote a partial sum as a total — which is the failure the flag exists to
-# prevent, arrived at through the flag itself.
+def _render_compliance(result: dict[str, Any], ctx: _RenderContext) -> _Lines:
+    """The verdict lines are already in `summary`; this adds the shopping list, the rule ids and the BCF export."""
+    lines: _Lines = listed(result.get("complianceShoppingList") or [], 15, "fehlende Merkmale", _shopping_row)
+    lines += listed(result.get("compliance") or [], 40, "Regeln", lambda rule: _rule_rows(rule, ctx))
+    bcf = _bcf_link(ctx.project_id, ctx.filename, ctx.gebaeudeklasse, ctx.hauptnutzung)
+    if bcf:
+        lines.append(f"BCF-Export der offenen Punkte: {bcf}")
+    return lines
+
+
+def _render_profile(result: dict[str, Any], ctx: _RenderContext) -> _Lines:
+    return [
+        f"- {s.get('key')} = {s.get('value')} [{s.get('confidence')}] — {s.get('evidence')}"
+        for s in result.get("profileSuggestions") or []
+    ]
+
+
+def _render_compare(result: dict[str, Any], ctx: _RenderContext) -> _Lines:
+    comparison = result.get("comparison")
+    if not isinstance(comparison, dict):
+        return []
+
+    def changed_row(entry: dict[str, Any]) -> str:
+        deltas = "; ".join(
+            f"{c.get('field')}: {c.get('before')} → {c.get('after')}" for c in (entry.get("changes") or [])[:6]
+        )
+        return f"~ {_entry_label(entry, storey=False)} — {deltas}"
+
+    added = comparison.get("added") or []
+    removed = comparison.get("removed") or []
+    changed = comparison.get("changed") or []
+    lines: _Lines = [f"+ {_entry_label(entry)}" for entry in added[:25]]
+    lines += [f"- {_entry_label(entry)}" for entry in removed[:25]]
+    lines += [changed_row(entry) for entry in changed[:25]]
+    lines += [
+        clipped(bucket, 25, f"{noun} Bauteile")
+        for bucket, noun in ((added, "neue"), (removed, "entfallene"), (changed, "geänderte"))
+    ]
+    return lines
+
+
+def _render_properties(result: dict[str, Any], ctx: _RenderContext) -> _Lines:
+    def row(entry: dict[str, Any]) -> str:
+        values = ", ".join(f"{v.get('value')} ({v.get('elements')}×)" for v in (entry.get("values") or [])[:6])
+        kind = "Menge" if entry.get("source") == "quantity" else "Merkmal"
+        return f"- [{kind}] {entry.get('set')}.{entry.get('name')}: {values}"
+
+    return listed(result.get("properties") or [], 60, "Merkmale", row)
+
+
+#: Per-op detail under the summary line. `health` and `aggregate` have none:
+#: their summary is the whole answer.
+_QUERY_RENDERERS: dict[str, Callable[[dict[str, Any], _RenderContext], _Lines]] = {
+    "overview": _render_overview,
+    "elements": _render_elements,
+    "element": _render_element,
+    "schedule": _render_schedule,
+    "takeoff": _render_takeoff,
+    "compliance": _render_compliance,
+    "compliance-diff": _render_compliance,
+    "profile": _render_profile,
+    "compare": _render_compare,
+    "properties": _render_properties,
+}
+
+#: Ops whose `truncated` means "these figures cover part of the building", not
+#: "there are more rows to page through". Telling the agent to narrow a Raumbuch
+#: invites it to quote a partial sum as a total.
 _PARTIAL_MODEL_OPS = frozenset({"schedule", "takeoff", "compliance", "compliance-diff", "compare", "profile", "health"})
 
 
@@ -739,25 +698,40 @@ def _truncation_note(op: str) -> str:
     return "(Weitere Treffer vorhanden — Abfrage eingrenzen oder aggregieren.)"
 
 
-def _model_handle(filename: Any) -> str | None:
-    """A stable, non-reversible name for one model, for the trace.
+def _render(
+    result: dict[str, Any],
+    project_id: str | None = None,
+    gebaeudeklasse: int = 0,
+    hauptnutzung: str = "",
+) -> str:
+    """Turn the endpoint's body into the string the model reads.
 
-    Langfuse is an external observability service, and an Austrian project file
-    is routinely named for the client and the site —
-    `Haus-Mayr_Landstrasser-Hauptstr-12_V3.ifc`. That is tenant content by the
-    same standard the rest of this feature applies: `bim_query.py` refuses to
-    log a response body because it can carry model data, and `_issue_summary`
-    reads only a Zod `path` and `message` and never the value that failed. The
-    file name was leaving on every model turn, out of the same function whose
-    docstring promises the shape of the query and not its contents.
-
-    A digest keeps what the trace is actually for — "the same model as that
-    other slow turn", "this operator ran nine queries against one building" —
-    and drops what it is not for, which is who the client is.
+    The `summary` line is the answer; the `caveat` is not optional colour (a
+    storey breakdown over unplaced elements is a subset presented as a total);
+    the per-op detail follows, clipped so a broad query cannot flood the
+    context with forty thousand element names.
     """
-    if not isinstance(filename, str) or not filename:
-        return None
-    return hashlib.sha256(filename.encode("utf-8")).hexdigest()[:12]
+    if not result.get("resolved"):
+        return render_unresolved(result, "Das Modell konnte nicht abgefragt werden.")
+    model = result.get("model") or {}
+    ctx = _RenderContext(project_id, model.get("filename"), gebaeudeklasse, hauptnutzung)
+    op = str(result.get("op") or "")
+    lines: _Lines = [
+        f"Modell: {ctx.filename}" if ctx.filename else None,
+        str(result.get("summary") or ""),
+        str(result.get("caveat") or ""),
+    ]
+    renderer = _QUERY_RENDERERS.get(op)
+    if renderer is not None:
+        lines += renderer(result, ctx)
+    if result.get("truncated"):
+        lines.append(_truncation_note(op))
+    return "\n".join(line for line in lines if line)
+
+
+# ── tracing and the tool ─────────────────────────────────────────────────────
+
+_model_handle = model_handle
 
 
 def _trace(
@@ -767,62 +741,72 @@ def _trace(
     unavailable: bool = False,
     outcome: str | None = None,
 ) -> None:
-    """Tell Langfuse what this call did, since the BFF cannot (ADR-0045).
+    """Which operation, which model, whether it resolved, whether the answer covered the WHOLE building.
 
-    Everything expensive in a research turn is traced span by span in the agent
-    process. This tool is the exception: the parse, the SQL and the rule
-    catalogue all run in the BFF, which exports OTel logs and no traces, so the
-    span Langfuse receives is opaque — a duration and a rendered German string.
-    An operator asked why an answer was slow, or why it said a building has no
-    fire-rated walls, can recover none of the four things that would explain it.
-
-    So the four things go on the trace: which operation, which model, whether
-    the model could be resolved at all, and whether the answer covered the
-    WHOLE building. The last is the one that matters for correctness rather
-    than for speed — a truncated or sampled result is a subset presented as a
-    total, and a trace that does not record it cannot be used to audit an
-    answer after the fact.
-
-    No element names, no property values: this is the shape of the query, not
-    its contents, which are already in `output.value` under the redaction
-    policy that governs it. The model is identified by a HANDLE rather than by
-    its file name, for the same reason — see `_model_handle`.
+    The BFF exports no traces, so this is the only shape Langfuse gets. The
+    honesty flags matter for correctness, not speed: a truncated or sampled
+    result is a subset presented as a total.
     """
-    from aiq_agent.observability.langfuse_trace_attributes import add_trace_tag
-    from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
-
-    # One tag for "this turn read a building model", which is the filter an
-    # operator reaches for first; the per-call detail goes in metadata.
-    add_trace_tag("feature:ifc")
-
     operation = str(query.get("op", "unknown"))
+    found = result or {}
+    if outcome is None and unavailable:
+        outcome = "service_unavailable"
+    if outcome is None and not found.get("resolved"):
+        outcome = f"unresolved:{found.get('reason', 'unknown')}"
     if outcome is not None:
-        record_trace_metadata(ifc_op=operation, ifc_outcome=outcome)
+        record_ifc_call(operation, outcome)
         return
-    if unavailable:
-        record_trace_metadata(ifc_op=operation, ifc_outcome="service_unavailable")
-        return
-    if not (result or {}).get("resolved"):
-        record_trace_metadata(
-            ifc_op=operation,
-            ifc_outcome=f"unresolved:{(result or {}).get('reason', 'unknown')}",
-        )
-        return
-
-    model = (result or {}).get("model") or {}
-    scan = (result or {}).get("propertyScan") or {}
-    record_trace_metadata(
-        ifc_op=operation,
-        ifc_outcome="resolved",
-        ifc_model=_model_handle(model.get("filename")),
+    model = found.get("model") or {}
+    scan = found.get("propertyScan") or {}
+    record_ifc_call(
+        operation,
+        "resolved",
+        ifc_model=model_handle(model.get("filename")),
         ifc_elements=model.get("elementCount"),
-        # The honesty flags, verbatim from the payload. `truncated` means the
-        # answer covers part of the building; `propertyScan.complete=false`
-        # means the property catalogue was built from a sample.
-        ifc_truncated=bool((result or {}).get("truncated")) or None,
-        ifc_total_is_lower_bound=bool((result or {}).get("totalIsLowerBound")) or None,
-        ifc_catalog_sampled=(False if scan.get("complete") else True) if scan else None,
+        ifc_truncated=bool(found.get("truncated")) or None,
+        ifc_total_is_lower_bound=bool(found.get("totalIsLowerBound")) or None,
+        ifc_catalog_sampled=(not scan.get("complete")) if scan else None,
     )
+
+
+async def _query(arguments: IfcQueryInput, default_limit: int) -> str:
+    """The tool body: guard, build, post, render — every failure as text the agent can act on."""
+    organization_id = get_organization_id_from_context()
+    if not organization_id:
+        return NO_ORG_TEXT
+    project_id = get_project_id_from_context()
+    if not project_id:
+        return NO_PROJECT_TEXT
+    query = _build_query(
+        operation=arguments.operation.strip().lower() or "overview",
+        filters=arguments.filters,
+        metric=arguments.metric,
+        quantity=arguments.quantity,
+        group_by=arguments.group_by,
+        global_id=arguments.global_id,
+        ifc_type=arguments.ifc_type,
+        limit=arguments.limit if arguments.limit > 0 else default_limit,
+        gebaeudeklasse=arguments.gebaeudeklasse,
+        hauptnutzung=arguments.hauptnutzung,
+    )
+    if isinstance(query, str):
+        return query
+    try:
+        result = await asyncio.to_thread(
+            run_bim_query,
+            organization_id=organization_id,
+            project_id=project_id,
+            query=query,
+            model_name=arguments.model_name.strip() or None,
+            compare_with_name=arguments.compare_with.strip() or None,
+        )
+    except QUERY_FAILURES.exceptions as exc:
+        failure = QUERY_FAILURES.describe(exc)
+        logger.log(failure.level, "ifc_query %s: %s", failure.outcome, exc)
+        _trace(query, None, outcome=failure.outcome)
+        return failure.text(exc)
+    _trace(query, result)
+    return _render(result, project_id, arguments.gebaeudeklasse, arguments.hauptnutzung.strip().lower())
 
 
 class IfcQueryConfig(FunctionBaseConfig, name="ifc_query"):
@@ -833,97 +817,8 @@ class IfcQueryConfig(FunctionBaseConfig, name="ifc_query"):
 
 @register_function(config_type=IfcQueryConfig)
 async def ifc_query(tool_config: IfcQueryConfig, builder: Builder):
-    from aiq_agent.knowledge.bim_query import BimQueryRejectedError
-    from aiq_agent.knowledge.bim_query import BimQueryUnavailableError
-    from aiq_agent.knowledge.bim_query import run_bim_query
-    from aiq_agent.project_context import get_organization_id_from_context
-    from aiq_agent.project_context import get_project_id_from_context
-
-    async def _ifc_query(
-        operation: str = "overview",
-        filters: str = "",
-        metric: str = "count",
-        quantity: str = "",
-        group_by: str = "",
-        global_id: str = "",
-        ifc_type: str = "",
-        model_name: str = "",
-        compare_with: str = "",
-        gebaeudeklasse: int = 0,
-        hauptnutzung: str = "",
-        limit: int = 0,
-    ) -> str:
+    async def _ifc_query(arguments: IfcQueryInput) -> str:
         """Query the project's IFC/BIM model for exact building facts."""
-        organization_id = get_organization_id_from_context()
-        if not organization_id:
-            return "Error: organization unknown for this session — the BIM model cannot be queried. Do not retry."
-        project_id = get_project_id_from_context()
-        if not project_id:
-            # The route requires `projectId` OR `modelId`, and this tool has
-            # never sent a `modelId` — it addresses a model by project and file
-            # name. So a project-less conversation produced a request that could
-            # only 400, which arrives as a REJECTION: „there was a problem with
-            # the arguments, call the tool again". The agent then retries a call
-            # that cannot succeed, for as many turns as it is allowed.
-            #
-            # Refused here instead, where it is actually decidable, and phrased
-            # as the fact it is: the conversation is not attached to a project,
-            # which is something only the user can change.
-            return NO_PROJECT_TEXT
+        return await _query(arguments, tool_config.default_limit)
 
-        query = _build_query(
-            operation=(operation or "overview").strip().lower(),
-            filters=filters or "",
-            metric=metric or "count",
-            quantity=quantity or "",
-            group_by=group_by or "",
-            global_id=global_id or "",
-            ifc_type=ifc_type or "",
-            limit=limit if limit and limit > 0 else tool_config.default_limit,
-            gebaeudeklasse=gebaeudeklasse or 0,
-            hauptnutzung=hauptnutzung or "",
-        )
-        if isinstance(query, str):
-            return query
-
-        try:
-            result = await asyncio.to_thread(
-                run_bim_query,
-                organization_id=organization_id,
-                project_id=project_id,
-                query=query,
-                model_name=(model_name or "").strip() or None,
-                compare_with_name=(compare_with or "").strip() or None,
-            )
-        except BimQueryRejectedError as exc:
-            # The endpoint understood the request and refused it: an invented
-            # filter key, a `group_by` that is not in the vocabulary, a
-            # comparison operator given a non-numeric value. All correctable,
-            # and all of them used to arrive as "the model service is
-            # unavailable" — which ends the turn on a typo, with the model
-            # instructed to say nothing about the building.
-            logger.info("ifc_query was rejected: %s", exc)
-            # NOT `service_unavailable` — the distinction this whole branch
-            # exists to draw. An operator auditing why an answer was wrong saw
-            # an infrastructure outage for what was a filter typo.
-            _trace(query, None, outcome="rejected")
-            return (
-                f"Error: the query was rejected — {exc}. This is a problem with the arguments, "
-                "not with the model. Correct them and call the tool again. Do NOT state anything "
-                "about the building's contents on the strength of this."
-            )
-        except BimQueryUnavailableError:
-            # "Could not look" is not "looked and found nothing" — say so, or the
-            # user reads a transport failure as a fact about their building.
-            logger.warning("ifc_query could not reach the BIM endpoint")
-            _trace(query, None, unavailable=True)
-            return (
-                "Error: the BIM model could not be queried right now (the model service is "
-                "unavailable). Do NOT state anything about the building's contents; tell the user "
-                "the model could not be read."
-            )
-
-        _trace(query, result)
-        return _render(result, project_id, gebaeudeklasse or 0, (hauptnutzung or "").strip().lower())
-
-    yield FunctionInfo.from_fn(_ifc_query, description=_TOOL_DESCRIPTION)
+    yield FunctionInfo.from_fn(_ifc_query, input_schema=IfcQueryInput, description=_TOOL_DESCRIPTION)

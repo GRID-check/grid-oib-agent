@@ -1,80 +1,81 @@
 """``ifc_measure`` tool — measure the building, and say how the number was got.
 
-The sibling of :mod:`aiq_agent.agents.bim.register`, and deliberately not a
-replacement for it. ``ifc_query`` reads the extracted index: it is fast, it
-covers the whole model, and it answers what the EXPORT WROTE DOWN — counts,
-storeys, property values, the quantities the exporter chose to publish. That is
-the right tool for most questions and it stays the first one to reach for.
+The sibling of :mod:`aiq_agent.agents.bim.register`. ``ifc_query`` reads the
+extracted index and answers what the export WROTE DOWN; this tool runs the
+spatial engine (IfcOpenShell/OCCT) over the model's own bytes for what it did
+not: a floor area with no published quantity, a sill with no property, the
+lichte Höhe under a suspended ceiling.
 
-This tool answers the questions the index cannot, because the export never wrote
-them down. A room whose ``Qto_SpaceBaseQuantities`` is absent still has a floor
-area; a window with no ``Pset_WindowCommon.SillHeight`` still has a sill; a room
-with a suspended ceiling has a clear height that is 30 cm less than its space
-solid, and no property in the file says so. Those numbers are in the GEOMETRY,
-and this tool runs the spatial engine (IfcOpenShell/OCCT — roadmap §13b) over
-the model's own bytes to obtain them.
+Every answer carries its provenance, and the renderer puts a different German
+verb in front of each — *deklariert* (the file states it) / *gemessen (±tol)*
+(we measured it) / *vermutlich* (a heuristic, with its confidence). Collapsing
+those into one number is how a guess gets stamped. ``decidable: false`` is not
+an error: the question was well-formed and THIS EXPORT cannot answer it, and
+``missing.remedy`` says what the architect changes in their CAD.
 
-## The one thing this tool is really for
-
-Every answer carries its **provenance**, and the three are three different
-claims a human being will end up signing:
-
-  ``declared``  the file states it — wrong only if the export is wrong;
-  ``computed``  we measured it, and the tolerance travels with the number;
-  ``inferred``  a heuristic, with its confidence and its reasons.
-
-Collapsing those into one number is how a guess gets stamped. So the renderer
-puts a different German verb in front of each — *deklariert* / *gemessen (±tol)*
-/ *vermutlich* — and the tool description forbids the agent from mixing them up.
-
-The fourth state is ``decidable: false``, which is not an error: the question
-was well-formed and THIS EXPORT cannot answer it. It carries ``missing.remedy``,
-which is what the architect changes in their CAD. Reporting that as a failure of
-the tool — or worse, as a fact about the building — is the failure this whole
-library exists to prevent.
-
-## What it costs
-
-Geometry is not free. The first measurement on a cold model tessellates it
-(~2 s for a house); the first ``relations opensTo`` / ``bounds`` /
-``enclosedBy`` / ``adjacentSpaces`` builds a space-contact map (~6 s), and
-``draw`` is ~5 s. Everything after that is milliseconds, because the parsed
-model is cached by content hash for the life of the process
-(:mod:`aiq_agent.knowledge.ifc_spatial_client`). An agent that is told what a
-call costs can decide it is worth it; one that finds out afterwards cannot.
+Design, costs and the defects each rule answers:
+``docs/roadmap/agent-spatial-reasoning.md`` and
+``docs/roadmap/spatial-review-findings.md``.
 """
 
 import asyncio
 import logging
 import math
 import re
+from collections.abc import Callable
 from collections.abc import Sequence
 from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import ValidationError
 from pydantic import field_validator
 from pydantic import model_validator
 
-# Shared with `ifc_query` so the two halves of the BIM surface fail identically:
-# an agent that learns this sentence from one tool reads it correctly from the
-# other. The dependency runs measure -> register and never back, so `register`
-# stays loadable on a deployment without the spatial engine — which is the
-# independence the two entry points in pyproject.toml exist to preserve.
 from aiq_agent.agents.bim.capability_gaps import record_gap
+from aiq_agent.agents.bim.failures import ENGINE_UNAVAILABLE_TEXT
+from aiq_agent.agents.bim.failures import MEASURE_FAILURES
+from aiq_agent.agents.bim.failures import NO_ORG_TEXT
+from aiq_agent.agents.bim.failures import NO_PROJECT_TEXT
+from aiq_agent.agents.bim.failures import UNAVAILABLE_TEXT
+from aiq_agent.agents.bim.failures import rejected_text
+from aiq_agent.agents.bim.failures import too_large_text
+from aiq_agent.agents.bim.failures import unrunnable_text
 from aiq_agent.agents.bim.measurement_evidence import EVIDENCE_PROVENANCES
 from aiq_agent.agents.bim.measurement_evidence import measurement_evidence_line
 from aiq_agent.agents.bim.measurement_sources import MeasuredElement
 from aiq_agent.agents.bim.measurement_sources import MeasurementSource
 from aiq_agent.agents.bim.measurement_sources import record_measurements
-from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
+from aiq_agent.agents.bim.rendering import listed
+from aiq_agent.agents.bim.rendering import render_unresolved
+from aiq_agent.agents.bim.trace import record_ifc_call
+from aiq_agent.knowledge.ifc_spatial_client import call_spatial_tool
+from aiq_agent.knowledge.ifc_spatial_client import open_model
+from aiq_agent.knowledge.ifc_spatial_client import resolve_model_source
+from aiq_agent.project_context import get_organization_id_from_context
+from aiq_agent.project_context import get_project_id_from_context
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
 from nat.data_models.function import FunctionBaseConfig
 
+__all__ = [
+    "ENGINE_UNAVAILABLE_TEXT",
+    "NO_PROJECT_TEXT",
+    "UNAVAILABLE_TEXT",
+    "IfcMeasureConfig",
+    "IfcMeasureInput",
+    "ifc_measure",
+]
+
 logger = logging.getLogger(__name__)
+
+# The failure texts, under the names the shallow researcher's tests fix.
+_rejected_text = rejected_text
+_unrunnable_text = unrunnable_text
+_too_large_text = too_large_text
+
 
 #: The operations, in the order the description teaches them.
 #:
@@ -340,46 +341,13 @@ def _enum_lines(entries: dict[str, str], indent: str = "    ") -> str:
 
 # ── the input schema ─────────────────────────────────────────────────────────
 #
-# This tool used to be declared to the model as sixteen bare strings: no enums,
-# no per-parameter text, nothing required. Every fact needed to call it
-# correctly lived in the description and none of it lived where a schema would
-# put it, so „measure" and „measure_room" were equally well-formed calls as far
-# as anything between the model and this function could tell.
-#
-# That is a TURN problem before it is a token problem. The agent runs with
-# `max_tool_iterations: 5` and force-synthesises at the limit, so an invented
-# operation or a misspelled measure name cost one call in five: the request was
-# accepted, reached `_build_call`, and came back as a sentence the model had to
-# read and retry.
-#
-# What the schema buys, precisely — and it is NOT the turn back. The budget is
-# charged when the model EMITS the call (`shallow_researcher.agent` adds one per
-# tool call in the response) and nothing refunds it, so a call refused by the
-# validator spends the same iteration a call refused by `_build_call` does; the
-# ToolNode returns the ValidationError as the tool result and the loop carries
-# on. What the schema changes is how often a bad call is EMITTED at all — an
-# enum in the args schema is the one place a model reliably reads a vocabulary
-# from, and most models will not emit a value it forbids. The refusal that does
-# happen is cheaper (the tool body never runs, so nothing resolves a project or
-# opens a model) and it is better: the permitted set travels with it, out of the
-# schema, rather than being retyped in a sentence that can drift from it.
-#
-# FLAT, with each overloaded field naming the operations it belongs to — NOT a
-# discriminated union, although `operation` is a perfect discriminator and the
-# union is the cleaner model. The reason is what the union becomes on the wire.
-# NAT hands `input_schema` to LangChain as `args_schema`, and a
-# `RootModel[Annotated[Union[...], Field(discriminator=...)]]` comes out of
-# `convert_to_openai_tool` as a single property called `root` holding an
-# `anyOf` — so the model would have to nest every call inside `{"root": {…}}`,
-# a wrapper it has no way to learn about except by guessing. Measured, not
-# assumed; `tests/aiq_agent/agents/test_ifc_measure_tool.py` keeps the
-# measurement so a later NAT can be re-checked rather than re-argued. A flat
-# model with operation-scoped descriptions carries the same facts in a shape the
-# wire can actually express.
-#
-# The enums are BUILT from the vocabularies above rather than retyped beside
-# them. A hand-copied literal list is a second copy of a copy, and the one thing
-# this file already knows about copies is that they drift.
+# The schema is what the model reads a vocabulary from, so the enums are BUILT
+# from the vocabularies above rather than retyped beside them, and the model is
+# FLAT rather than a discriminated union: a `RootModel[Union[...]]` reaches the
+# wire as one property called `root`, a wrapper the model cannot learn about.
+# Measured, not assumed — `tests/aiq_agent/agents/test_ifc_measure_tool.py`
+# keeps the measurement. Why the schema was tightened at all, and what it buys
+# (fewer bad calls EMITTED, not turns refunded): ``docs/roadmap/spatial-review-findings.md``.
 
 
 def _literal(*groups) -> Any:
@@ -389,17 +357,13 @@ def _literal(*groups) -> Any:
     schema the model is handed, and an enum that reshuffles between restarts
     invalidates every prefix cache in front of it.
     """
-    names: list[str] = []
-    for group in groups:
-        for name in group:
-            if name not in names:
-                names.append(name)
+    names = dict.fromkeys(name for group in groups for name in group)
     return Literal[tuple(names)]  # type: ignore[valid-type]
 
 
 #: Which vocabulary a bad `kind` is recorded AGAINST — the ledger entry, not the
 #: check. `kind` is one field over four vocabularies, and the `Literal` accepts
-#: the union of all of them because `_build_call` has always been the one that
+#: the union of all of them because the call builders are the layer that
 #: knows which applies: `element_profile` ignores a `kind` that is not
 #: 'expensive', and narrowing the type here would turn that shrug into a
 #: refusal. What IS scoped is the backlog line: „fire kind='brandabschnitt'" and
@@ -414,22 +378,41 @@ _KIND_FIELD: dict[str, str] = {
 #: Every spelling `kind` accepts, across all four of its vocabularies.
 _ALL_KINDS: tuple[str, ...] = (*KINDS, *FIRE_ASPECTS, *ENVELOPE_ASPECTS, *PROFILE_KINDS)
 
-#: The fields `_build_call` has always matched case-insensitively, and their
-#: canonical spellings.
-#:
-#: Preserved deliberately. `_build_call` lower-cases `operation`, `room_kind`,
-#: `kind` and `mode`, and case-folds the fire and envelope aspects, so
-#: kind='Compactness' has always been a working call. A `Literal` is
-#: case-SENSITIVE, so without this the schema would start refusing calls the
-#: tool used to answer — a refactor breaking the thing it was meant to make
-#: cheaper. `measure` and `relation` are absent on purpose: `_build_call`
-#: requires those exact, and the schema says exactly what the tool does.
+#: The fields this tool has always matched case-insensitively, and their
+#: canonical spellings. A `Literal` is case-SENSITIVE, and kind='Compactness'
+#: has always been a working call. `measure` and `relation` are absent on
+#: purpose: those have always been required exact.
 _CASE_FOLDED: dict[str, tuple[str, ...]] = {
     "operation": OPERATIONS,
     "room_kind": ROOM_KINDS,
     "kind": _ALL_KINDS,
     "mode": (*DISTANCE_MODES, *VIEW_MODES),
 }
+
+
+def _canonical(asked: str, vocabulary: Sequence[str]) -> str:
+    """The vocabulary's own spelling of ``asked``, or ``asked`` unchanged when it is in no vocabulary."""
+    wanted = asked.strip().lower()
+    return next((known for known in vocabulary if known.lower() == wanted), asked)
+
+
+def _record_misses(data: dict[str, Any]) -> None:
+    """Write every value that is in no vocabulary to the capability ledger."""
+    operation = str(data.get("operation") or "").strip().lower()
+    checks = (
+        ("operation", VALID_OPERATIONS),
+        ("measure", MEASURES),
+        ("relation", RELATIONS),
+        ("room_kind", ROOM_KINDS),
+        # Against the WHOLE of `kind`, because that is what the field accepts:
+        # `element_profile kind='space'` is a shrug, not a missing capability.
+        (_KIND_FIELD.get(operation, "kind"), _ALL_KINDS),
+    )
+    for name, known in checks:
+        asked = data.get(name.split(".")[-1])
+        wanted = asked.strip() if isinstance(asked, str) else ""
+        if wanted and wanted not in known:
+            record_gap(surface="ifc_measure", field=name, asked_for=wanted, known=known)
 
 
 class IfcMeasureInput(BaseModel):
@@ -551,12 +534,9 @@ class IfcMeasureInput(BaseModel):
             "geometric measurement and not an index lookup. 0 leaves the server's default."
         ),
     )
-    # `None`, not `0.0`, and the bounds are the ones `_build_call` enforces.
-    # Two defects came out of the old `default=0.0, ge=0.0, le=90.0`: it made
-    # „not given" indistinguishable from „zero degrees" — the same
-    # default-in-two-places defect the `mode` field was fixed for — and it
-    # declared a range the tool does not accept, so `angle_deg=90` passed
-    # validation and then spent one of five turns on `_build_call`'s refusal.
+    # `None`, not `0.0`: „not given" must stay distinguishable from „zero
+    # degrees". The bounds are the tool's own, so the schema refuses what the
+    # engine would.
     angle_deg: float | None = Field(
         default=None,
         gt=0.0,
@@ -589,56 +569,30 @@ class IfcMeasureInput(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _fold_case_and_keep_the_ledger(cls, data: Any) -> Any:
-        """Two jobs the ``Literal`` cannot do for itself, both before it runs.
+    def _fold_case(cls, data: Any) -> Any:
+        """Case-fold what the tool has always case-folded, and keep the ledger.
 
-        FIRST, the case-folding `_build_call` has always done. It lower-cases
-        `operation`, `room_kind`, `kind` and `mode` and matches the fire and
-        envelope aspects case-insensitively, so kind='Compactness' is a call
-        this tool has always answered. A `Literal` is case-sensitive; without
-        this, tightening the schema would start refusing calls that used to
-        work, which is the opposite of the point.
-
-        SECOND, the capability ledger. `capability_gaps` exists because
-        ``measure="wandstaerke"`` is not really a mistake — it is somebody
-        asking for a wall thickness this surface has no operator for, said in
-        one word, and it is the most useful signal the BIM surface produces.
-        `_build_call` wrote those entries. Once the enum is on the wire the
-        value never reaches `_build_call`: pydantic refuses it first, and the
-        backlog would go quiet exactly as the refusals got cheaper — which
-        reads as „nobody asks for anything we lack".
-
-        Nothing here raises. Whatever is still unknown after the folding is left
-        for the ``Literal`` to refuse, so there is one error message and it is
-        the one that lists the permitted values.
+        A ``Literal`` is case-sensitive; ``kind='Compactness'`` has always been
+        answered, so the canonical spelling is substituted before the enum
+        runs. Whatever is still unknown afterwards is left for the ``Literal``
+        to refuse — after :func:`record_gap` has written down what was wanted,
+        because the refusal never reaches the tool body and the backlog would
+        otherwise go quiet exactly as refusals got cheaper.
         """
         if not isinstance(data, dict):
             return data
         data = dict(data)
         for name, vocabulary in _CASE_FOLDED.items():
             asked = data.get(name)
-            if not isinstance(asked, str) or not asked.strip():
-                continue
-            canonical = next((known for known in vocabulary if known.lower() == asked.strip().lower()), None)
-            if canonical is not None:
-                data[name] = canonical
-
-        operation = str(data.get("operation") or "").strip().lower()
-        for name, asked, known in (
-            ("operation", data.get("operation"), VALID_OPERATIONS),
-            ("measure", data.get("measure"), MEASURES),
-            ("relation", data.get("relation"), RELATIONS),
-            ("room_kind", data.get("room_kind"), ROOM_KINDS),
-            # Against the WHOLE of `kind`, because that is what the field
-            # accepts. Checking against the operation's own vocabulary would
-            # file `element_profile kind='space'` as a missing capability, and
-            # `_build_call` answers that call by ignoring the field.
-            (_KIND_FIELD.get(operation, "kind"), data.get("kind"), _ALL_KINDS),
-        ):
-            wanted = asked.strip() if isinstance(asked, str) else ""
-            if wanted and wanted not in known:
-                record_gap(surface="ifc_measure", field=name, asked_for=wanted, known=known)
+            if isinstance(asked, str) and asked.strip():
+                data[name] = _canonical(asked, vocabulary)
+        _record_misses(data)
         return data
+
+    @field_validator("ifc_type", "name_contains", "storey", "model_name", "when", mode="after")
+    @classmethod
+    def _stripped(cls, value: str) -> str:
+        return value.strip()
 
     @field_validator("global_id", "other_global_id", mode="after")
     @classmethod
@@ -651,7 +605,7 @@ class IfcMeasureInput(BaseModel):
         is an ordinary `type: array` and needs no `anyOf` gymnastics — so it is
         offered, and the comma-separated string every existing caller and the
         whole description already use is normalised onto it rather than
-        deprecated. Both arrive at `_build_call` as the one shape it parses.
+        deprecated. Both reach the call builders as the one shape they parse.
         """
         parts = value if isinstance(value, list) else str(value).split(",")
         return ",".join(str(part).strip() for part in parts if str(part).strip())
@@ -818,276 +772,280 @@ _TOOL_DESCRIPTION = (
 )
 
 
-def _clean(value: Any) -> str:
-    return value.strip() if isinstance(value, str) else ""
+# ── the engine call ──────────────────────────────────────────────────────────
+#
+# The vocabularies are the schema's business: by the time a call is built here
+# every enum has been case-folded and refused by `IfcMeasureInput`. What is left
+# to decide is what the schema cannot say — which fields an operation needs,
+# which of `kind`'s four vocabularies applies to it, and the engine's own
+# argument names.
+
+_EngineCall = tuple[str, dict[str, Any]]
+
+#: The operations that are about ONE element, and refuse without it.
+_SUBJECT_OPERATIONS = frozenset({"element", "relations", "measure", "element_profile", "clearance", "distance"})
+
+#: Which vocabulary a refused field is listed against, for the sentence.
+_VOCABULARIES: dict[str, Sequence[str]] = {
+    "relation": tuple(RELATIONS),
+    "measure": tuple(MEASURES),
+    "mode": (*DISTANCE_MODES, *VIEW_MODES),
+    "kind": _ALL_KINDS,
+    "room_kind": ROOM_KINDS,
+}
 
 
-def _build_call(
-    operation: str,
-    global_id: str = "",
-    other_global_id: str = "",
-    relation: str = "",
-    measure: str = "",
-    mode: str = "",
-    ifc_type: str = "",
-    name_contains: str = "",
-    storey: str = "",
-    kind: str = "",
-    room_kind: str = "",
-    limit: int = 50,
-    angle_deg: float | None = None,
-    swivel_deg: float | None = None,
-    when: str = "",
-) -> tuple[str, dict[str, Any]] | str:
+_KIND_ADVICE = "'kind' is the spatial ROLE (a room is 'space'); an IFC type goes in 'ifc_type'."
+_MODE_ADVICE = (
+    "All four are AXIS distances between centroids or boxes — none is a clear dimension. "
+    "For a lichte Breite use operation='measure' with measure='clearWidth' on the opening, and "
+    "for a lichte Höhe measure='clearHeight' on the room."
+)
+
+#: What a refused field's sentence goes on to say, where the vocabulary alone misleads.
+_ADVICE = {"kind": _KIND_ADVICE, "mode": _MODE_ADVICE}
+
+
+def _does_not_exist(field: str, asked: Any, vocabulary: Sequence[str]) -> str:
+    advice = _ADVICE.get(field)
+    return f"Error: {field} '{asked}' does not exist. Use one of: {', '.join(vocabulary)}." + (
+        f" {advice}" if advice else ""
+    )
+
+
+def _needs(operation: str, field: str, vocabulary: Sequence[str]) -> str:
+    return f"Error: operation '{operation}' needs '{field}'. Use one of: {', '.join(vocabulary)}."
+
+
+def _ids(text: str) -> list[str]:
+    return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def _selection_args(a: IfcMeasureInput, ceiling: int) -> dict[str, Any] | str:
+    """The filter half `find_elements` and `survey` share. `kind` is the spatial ROLE here, never an aspect."""
+    args: dict[str, Any] = {"limit": max(1, min(a.limit, ceiling))}
+    for key, value in (("ifcType", a.ifc_type), ("nameContains", a.name_contains), ("storey", a.storey)):
+        if value:
+            args[key] = value
+    if a.kind is None:
+        return args
+    if a.kind not in KINDS:
+        return _does_not_exist("kind", a.kind, KINDS)
+    args["kind"] = a.kind
+    return args
+
+
+def _find_elements_call(a: IfcMeasureInput) -> _EngineCall | str:
+    args = _selection_args(a, 500)
+    return args if isinstance(args, str) else ("find_elements", args)
+
+
+def _survey_call(a: IfcMeasureInput) -> _EngineCall | str:
+    """Selection and measurement in one call, capped at 50: every row is a real geometric measurement."""
+    if a.measure is None:
+        return _needs("survey", "measure", tuple(MEASURES))
+    args = _selection_args(a, 50)
+    return args if isinstance(args, str) else ("survey", {"measure": a.measure, **args})
+
+
+def _sun_position_call(a: IfcMeasureInput) -> _EngineCall | str:
+    """No latitude field, deliberately: an assumed Vienna on a Vorarlberg project is 1.4° out and looks measured."""
+    if not a.when:
+        return (
+            "Error: sun_position needs 'when' — an ISO 8601 instant WITH a time zone, e.g. "
+            "'2026-06-21T12:00:00+02:00' (Austrian summer time) or '2026-06-21T10:00:00Z'. A "
+            "timestamp without a zone is refused rather than read as UTC: Austria runs UTC+1 and "
+            "UTC+2, so reading 12:00 as UTC moves the sun 30° east of where it stood."
+        )
+    return "sun_position", {"when": a.when}
+
+
+def _overhang_call(a: IfcMeasureInput) -> _EngineCall | str:
+    if not a.global_id or not a.other_global_id:
+        return (
+            "Error: overhang needs TWO elements — global_id is the projecting one (the roof, the "
+            "balcony) and other_global_id the one whose facade plane is the reference (the wall "
+            "under it). Get the wall from relations/hostedIn on the window."
+        )
+    return "overhang", {"projecting": a.global_id, "facade": a.other_global_id}
+
+
+def _light_incidence_call(a: IfcMeasureInput) -> _EngineCall | str:
+    """The angle is refused rather than defaulted to 45: it is a fact about the CLAUSE, not the model."""
+    if not a.global_id:
+        return "Error: light_incidence needs global_id — the opening, or the window that fills it."
+    if a.angle_deg is None:
+        return (
+            "Error: light_incidence needs angle_deg, and it must be between 0 and 90. The angle "
+            "comes from the Bestimmung, not from the model — for OIB 3 that is 45, with "
+            "swivel_deg 30. This tool does not supply it, because supplying it would be applying "
+            "the clause."
+        )
+    args: dict[str, Any] = {"globalId": a.global_id, "angle": float(a.angle_deg)}
+    if a.swivel_deg is not None:
+        args["swivel"] = float(a.swivel_deg)
+    # A list: a window deep in a thick wall is shaded by its own reveal AND by
+    # the roof, and re-running "without the host wall" must keep the roof.
+    if a.other_global_id:
+        args["exclude"] = _ids(a.other_global_id)
+    return "light_incidence", args
+
+
+def _room_inventory_call(a: IfcMeasureInput) -> _EngineCall | str:
+    if a.room_kind is None:
+        return _needs("room_inventory", "room_kind", ROOM_KINDS)
+    return "room_inventory", {"kind": a.room_kind}
+
+
+def _fire_call(a: IfcMeasureInput) -> _EngineCall | str:
+    aspect = a.kind or "fluchtniveau"
+    if aspect not in FIRE_ASPECTS:
+        return f"Error: for operation 'fire', kind must be one of: {', '.join(FIRE_ASPECTS)}. Got '{a.kind}'."
+    args: dict[str, Any] = {"what": aspect}
+    if a.global_id:
+        args["globalId"] = a.global_id
+    return "fire", args
+
+
+def _envelope_call(a: IfcMeasureInput) -> _EngineCall | str:
+    """Whole-model only: no `globalId` is forwarded, because the engine's schema does not accept one."""
+    aspect = a.kind or "thermalEnvelope"
+    if aspect not in ENVELOPE_ASPECTS:
+        return f"Error: for operation 'envelope', kind must be one of: {', '.join(ENVELOPE_ASPECTS)}. Got '{a.kind}'."
+    return "envelope", {"what": aspect}
+
+
+def _view_call(a: IfcMeasureInput) -> _EngineCall | str:
+    """`global_id` is a list here: "where is this" is usually about a pair — the window AND its wall."""
+    mode = a.mode or "highlight"
+    if mode not in VIEW_MODES:
+        return (
+            "Error: for operation 'view', mode must be 'highlight' (mark these elements, keep the "
+            "rest of the plan) or 'only' (draw nothing else). Default is 'highlight'."
+        )
+    ids = _ids(a.global_id)
+    if mode == "only" and not ids:
+        return "Error: mode='only' needs at least one global_id — otherwise there is nothing to draw."
+    args: dict[str, Any] = {}
+    if a.storey:
+        args["storey"] = a.storey
+    if ids:
+        args[mode] = ids
+    return "view", args
+
+
+def _draw_call(a: IfcMeasureInput) -> _EngineCall:
+    args: dict[str, Any] = {}
+    if a.storey:
+        args["storey"] = a.storey
+    if a.ifc_type:
+        args["include"] = [a.ifc_type]
+    return "draw", args
+
+
+def _relations_call(a: IfcMeasureInput) -> _EngineCall | str:
+    if a.relation is None:
+        return _needs("relations", "relation", tuple(RELATIONS))
+    return "relations", {"globalId": a.global_id, "relation": a.relation}
+
+
+def _measure_call(a: IfcMeasureInput) -> _EngineCall | str:
+    if a.measure is None:
+        return _needs("measure", "measure", tuple(MEASURES))
+    return "measure", {"globalId": a.global_id, "measure": a.measure}
+
+
+def _element_profile_call(a: IfcMeasureInput) -> _EngineCall:
+    """`kind='expensive'` opts into escape route, reachability, turning circle and door approach."""
+    args: dict[str, Any] = {"globalId": a.global_id}
+    if a.kind == "expensive":
+        args["include"] = "expensive"
+    return "element_profile", args
+
+
+def _clearance_call(a: IfcMeasureInput) -> _EngineCall | str:
+    if not a.other_global_id:
+        return (
+            "Error: clearance needs TWO elements — set 'global_id' and 'other_global_id'. For the "
+            "clear width of ONE opening use operation='measure' with measure='clearWidth': an "
+            "opening has two reveals but is only one element."
+        )
+    return "clearance", {"a": a.global_id, "b": a.other_global_id}
+
+
+def _distance_call(a: IfcMeasureInput) -> _EngineCall | str:
+    if not a.other_global_id:
+        return "Error: operation 'distance' needs two elements — set 'global_id' and 'other_global_id'."
+    mode = a.mode or "min"
+    if mode not in DISTANCE_MODES:
+        return _does_not_exist("mode", a.mode, tuple(DISTANCE_MODES))
+    return "distance", {"a": a.global_id, "b": a.other_global_id, "mode": mode}
+
+
+_CALL_BUILDERS: dict[str, Callable[[IfcMeasureInput], _EngineCall | str]] = {
+    # Always the rendered TEXT: the briefing's job is to be read into context and copied out of.
+    "briefing": lambda a: ("briefing", {"format": "text"}),
+    "find_elements": _find_elements_call,
+    "element": lambda a: ("element", {"globalId": a.global_id}),
+    "relations": _relations_call,
+    "measure": _measure_call,
+    "survey": _survey_call,
+    "element_profile": _element_profile_call,
+    "distance": _distance_call,
+    "clearance": _clearance_call,
+    "sun_position": _sun_position_call,
+    "storey_heights": lambda a: ("storey_heights", {}),
+    "room_inventory": _room_inventory_call,
+    "draw": _draw_call,
+    "view": _view_call,
+    "shopping_list": lambda a: ("shopping_list", {}),
+    "fire": _fire_call,
+    "envelope": _envelope_call,
+    "overhang": _overhang_call,
+    "light_incidence": _light_incidence_call,
+}
+
+
+def _engine_call(arguments: IfcMeasureInput, default_limit: int = 50) -> _EngineCall | str:
     """The engine tool name and its arguments, or a correctable error string.
 
-    Every enum is checked HERE, before the model is resolved and long before it
-    is parsed. The reason is the same one `_build_query` gives on the query
-    side: an argument the engine would reject arrives as an exception several
-    seconds and one 150 MB download later, by which time the agent has been told
-    only that something failed. Refusing by name — with the permitted values
-    spelled out — is a mistake the model can correct in the same turn.
+    Refusing here — before the model is resolved and long before it is parsed
+    — is what makes the mistake correctable in the same turn.
     """
-    op = (operation or "").strip().lower()
-    if op not in VALID_OPERATIONS:
-        record_gap(surface="ifc_measure", field="operation", asked_for=operation, known=VALID_OPERATIONS)
-        return f"Error: unknown operation '{operation}'. Use one of: {', '.join(sorted(VALID_OPERATIONS))}."
-
-    subject = _clean(global_id)
-
-    if op == "briefing":
-        # Always the rendered TEXT block, never the JSON. The briefing's whole
-        # job is to be read into the agent's context and copied out of; handing
-        # back the same facts as a nested object would make the agent
-        # reassemble sentences the renderer already got right.
-        return "briefing", {"format": "text"}
-
-    if op == "storey_heights":
-        return "storey_heights", {}
-
-    if op == "sun_position":
-        moment = _clean(when)
-        if not moment:
-            return (
-                "Error: sun_position needs 'when' — an ISO 8601 instant WITH a time zone, e.g. "
-                "'2026-06-21T12:00:00+02:00' (Austrian summer time) or '2026-06-21T10:00:00Z'. A "
-                "timestamp without a zone is refused rather than read as UTC: Austria runs UTC+1 and "
-                "UTC+2, so reading 12:00 as UTC moves the sun 30° east of where it stood."
-            )
-        # No latitude/longitude field, deliberately, and the engine's schema has
-        # none either. The operator accepts an override — a surveyor's coordinate
-        # is better than an exporter's default — but a model that CAN fill a
-        # latitude fills one, and an assumed 48.2°N Vienna on a Vorarlberg
-        # project is 1.4° out in solar altitude and comes back as a `computed`
-        # number with a tolerance, indistinguishable from a measured one. Without
-        # a georeference in the file the answer is undecidable, which is correct.
-        return "sun_position", {"when": moment}
-
-    if op == "overhang":
-        if not subject or not _clean(other_global_id):
-            return (
-                "Error: overhang needs TWO elements — global_id is the projecting one (the roof, the "
-                "balcony) and other_global_id the one whose facade plane is the reference (the wall "
-                "under it). Get the wall from relations/hostedIn on the window."
-            )
-        return "overhang", {"projecting": subject, "facade": _clean(other_global_id)}
-
-    if op == "light_incidence":
-        if not subject:
-            return "Error: light_incidence needs global_id — the opening, or the window that fills it."
-        if angle_deg is None or not 0 < float(angle_deg) < 90:
-            # Refused rather than defaulted to 45. The angle is a fact about the
-            # CLAUSE, and a tool that supplies one is answering a question of law
-            # it was never asked — the whole reason this layer returns geometry
-            # and no verdict.
-            return (
-                "Error: light_incidence needs angle_deg, and it must be between 0 and 90. The angle "
-                "comes from the Bestimmung, not from the model — for OIB 3 that is 45, with "
-                "swivel_deg 30. This tool does not supply it, because supplying it would be applying "
-                "the clause."
-            )
-        args: dict[str, Any] = {"globalId": subject, "angle": float(angle_deg)}
-        if swivel_deg is not None:
-            if not 0 <= float(swivel_deg) < 90:
-                return "Error: swivel_deg must be between 0 and 90."
-            args["swivel"] = float(swivel_deg)
-        # Comma-separated, because the recessed-window workflow needs TWO
-        # exclusions and one field only carried one. A window deep in a thick
-        # wall is shaded by its own reveal AND by the roof above it, so an agent
-        # asked to re-run "without the host wall" had to drop the roof exclusion
-        # to do it — and silently changed the question. The engine's `exclude`
-        # has always been a list; only this field was narrower than it.
-        excluded = [part.strip() for part in _clean(other_global_id).split(",") if part.strip()]
-        if excluded:
-            args["exclude"] = excluded
-        return "light_incidence", args
-
-    if op == "find_elements":
-        args: dict[str, Any] = {"limit": max(1, min(int(limit or 50), 500))}
-        if _clean(ifc_type):
-            args["ifcType"] = _clean(ifc_type)
-        if _clean(name_contains):
-            args["nameContains"] = _clean(name_contains)
-        if _clean(storey):
-            args["storey"] = _clean(storey)
-        if _clean(kind):
-            if _clean(kind).lower() not in KINDS:
-                return (
-                    f"Error: kind '{kind}' does not exist. Use one of: {', '.join(KINDS)}. "
-                    "'kind' is the spatial ROLE (a room is 'space'); an IFC type goes in 'ifc_type'."
-                )
-            args["kind"] = _clean(kind).lower()
-        return "find_elements", args
-
-    if op == "room_inventory":
-        wanted = _clean(room_kind).lower()
-        if wanted not in ROOM_KINDS:
-            record_gap(surface="ifc_measure", field="room_kind", asked_for=room_kind, known=ROOM_KINDS)
-            return f"Error: room_kind '{room_kind}' does not exist. Use one of: {', '.join(ROOM_KINDS)}."
-        return "room_inventory", {"kind": wanted}
-
-    if op == "fire":
-        wanted = _clean(kind) or "fluchtniveau"
-        aspect = next((k for k in FIRE_ASPECTS if k.lower() == wanted.lower()), None)
-        if aspect is None:
-            record_gap(surface="ifc_measure", field="fire.kind", asked_for=kind, known=FIRE_ASPECTS)
-            return f"Error: for operation 'fire', kind must be one of: {', '.join(FIRE_ASPECTS)}. Got '{kind}'."
-        args = {"what": aspect}
-        if _clean(global_id):
-            args["globalId"] = _clean(global_id)
-        return "fire", args
-
-    if op == "envelope":
-        # No `globalId` forwarded even when the model supplies one: all three
-        # aspects take the WHOLE model, and the engine's schema does not accept
-        # the field. Passing it through would turn a harmless surplus argument
-        # into a schema rejection the model cannot read its way out of.
-        wanted = _clean(kind) or "thermalEnvelope"
-        aspect = next((k for k in ENVELOPE_ASPECTS if k.lower() == wanted.lower()), None)
-        if aspect is None:
-            record_gap(surface="ifc_measure", field="envelope.kind", asked_for=kind, known=ENVELOPE_ASPECTS)
-            return f"Error: for operation 'envelope', kind must be one of: {', '.join(ENVELOPE_ASPECTS)}. Got '{kind}'."
-        return "envelope", {"what": aspect}
-
-    if op == "shopping_list":
-        return "shopping_list", {}
-
-    if op == "view":
-        # `global_id` carries a comma-separated list here rather than one id,
-        # because the question "where is this" is usually about a pair — the
-        # window AND the wall it is supposed to sit in — and a single-value
-        # field forces two renders to ask one question.
-        wanted = [part.strip() for part in _clean(global_id).split(",") if part.strip()]
-        picked = (_clean(mode) or "highlight").lower()
-        if picked not in VIEW_MODES:
-            return (
-                "Error: for operation 'view', mode must be 'highlight' (mark these elements, keep the "
-                "rest of the plan) or 'only' (draw nothing else). Default is 'highlight'."
-            )
-        if picked == "only" and not wanted:
-            return "Error: mode='only' needs at least one global_id — otherwise there is nothing to draw."
-        args = {}
-        if _clean(storey):
-            args["storey"] = _clean(storey)
-        if wanted:
-            args["only" if picked == "only" else "highlight"] = wanted
-        return "view", args
-
-    if op == "draw":
-        args = {}
-        if _clean(storey):
-            args["storey"] = _clean(storey)
-        if _clean(ifc_type):
-            args["include"] = [_clean(ifc_type)]
-        return "draw", args
-
-    if op == "survey":
-        # Sits with `find_elements` and `draw`, ABOVE the subject guard, because
-        # it takes no element: its subject IS the selection. The selection half
-        # is `find_elements` and the measuring half is `measure`, and the reason
-        # the two are fused into one operation is the turn budget — composed
-        # from primitives, „wie hoch ist der Keller" costs find_elements +
-        # measure + a GlobalId→Name join the agent has to carry in its head,
-        # three of five turns for a question that has one call in it.
-        wanted = _clean(measure)
-        if wanted not in MEASURES:
-            record_gap(surface="ifc_measure", field="measure", asked_for=measure, known=MEASURES)
-            return f"Error: measure '{measure}' does not exist. Use one of: {', '.join(MEASURES)}."
-        # Capped at 50 rather than find_elements' 500: every row here is a real
-        # geometric measurement, not an index lookup.
-        args = {"measure": wanted, "limit": max(1, min(int(limit or 50), 50))}
-        if _clean(ifc_type):
-            args["ifcType"] = _clean(ifc_type)
-        if _clean(name_contains):
-            args["nameContains"] = _clean(name_contains)
-        if _clean(storey):
-            args["storey"] = _clean(storey)
-        if _clean(kind):
-            if _clean(kind).lower() not in KINDS:
-                return (
-                    f"Error: kind '{kind}' does not exist. Use one of: {', '.join(KINDS)}. "
-                    "'kind' is the spatial ROLE (a room is 'space'); an IFC type goes in 'ifc_type'."
-                )
-            args["kind"] = _clean(kind).lower()
-        return "survey", args
-
-    # Everything below needs a subject element.
-    if not subject:
+    if arguments.operation in _SUBJECT_OPERATIONS and not arguments.global_id:
         return (
-            f"Error: operation '{op}' needs a global_id (the element's IFC GlobalId). "
+            f"Error: operation '{arguments.operation}' needs a global_id (the element's IFC GlobalId). "
             "Get one from operation='find_elements' — never invent one."
         )
+    with_limit = arguments.model_copy(update={"limit": arguments.limit or default_limit})
+    return _CALL_BUILDERS[arguments.operation](with_limit)
 
-    if op == "element":
-        return "element", {"globalId": subject}
 
-    if op == "relations":
-        wanted = _clean(relation)
-        if wanted not in RELATIONS:
-            record_gap(surface="ifc_measure", field="relation", asked_for=relation, known=RELATIONS)
-            return f"Error: relation '{relation}' does not exist. Use one of: {', '.join(RELATIONS)}."
-        return "relations", {"globalId": subject, "relation": wanted}
+def _refusal(exc: ValidationError) -> str:
+    """The schema's refusal as the sentence the ToolNode hands the agent: one message, the permitted values in it."""
+    error = exc.errors()[0]
+    field = str(error["loc"][0]) if error["loc"] else "arguments"
+    asked = error.get("input")
+    if field == "operation":
+        return f"Error: unknown operation '{asked}'. Use one of: {', '.join(sorted(VALID_OPERATIONS))}."
+    if error["type"] == "literal_error" and field in _VOCABULARIES:
+        return _does_not_exist(field, asked, _VOCABULARIES[field])
+    return f"Error: {field}: {error['msg']}"
 
-    if op == "measure":
-        wanted = _clean(measure)
-        if wanted not in MEASURES:
-            record_gap(surface="ifc_measure", field="measure", asked_for=measure, known=MEASURES)
-            return f"Error: measure '{measure}' does not exist. Use one of: {', '.join(MEASURES)}."
-        return "measure", {"globalId": subject, "measure": wanted}
 
-    if op == "element_profile":
-        # Below the subject guard, correctly: this one IS about a single
-        # element. `kind` carries the expensive opt-in rather than a new
-        # parameter, because the field is already the tool's catch-all
-        # vocabulary slot and one more boolean on a sixteen-parameter signature
-        # buys less than it costs.
-        args = {"globalId": subject}
-        if _clean(kind).lower() == "expensive":
-            args["include"] = "expensive"
-        return "element_profile", args
+def _build_call(**arguments: Any) -> _EngineCall | str:
+    """The tool minus the I/O: validate the way the wire does, then build.
 
-    if op == "clearance":
-        if not _clean(other_global_id):
-            return (
-                "Error: clearance needs TWO elements — set 'global_id' and 'other_global_id'. For the "
-                "clear width of ONE opening use operation='measure' with measure='clearWidth': an "
-                "opening has two reveals but is only one element."
-            )
-        return "clearance", {"a": subject, "b": _clean(other_global_id)}
-
-    # distance
-    other = _clean(other_global_id)
-    if not other:
-        return "Error: operation 'distance' needs two elements — set 'global_id' and 'other_global_id'."
-    wanted_mode = (_clean(mode) or "min").lower()
-    if wanted_mode not in DISTANCE_MODES:
-        return (
-            f"Error: mode '{mode}' does not exist. Use one of: {', '.join(DISTANCE_MODES)}. "
-            "All four are AXIS distances between centroids or boxes — none is a clear dimension. "
-            "For a lichte Breite use operation='measure' with measure='clearWidth' on the opening, and "
-            "for a lichte Höhe measure='clearHeight' on the room."
-        )
-    return "distance", {"a": subject, "b": other, "mode": wanted_mode}
+    The tool body holds a validated model and calls :func:`_engine_call`; this
+    is the seam the tests and the question battery drive with loose keyword
+    arguments. An empty string means "not given", as it always has.
+    """
+    given = {name: value for name, value in arguments.items() if value != ""}
+    try:
+        parsed = IfcMeasureInput.model_validate(given)
+    except ValidationError as exc:
+        return _refusal(exc)
+    return _engine_call(parsed)
 
 
 # ── rendering ────────────────────────────────────────────────────────────────
@@ -1308,277 +1266,412 @@ def _value_with_unit(answer: dict[str, Any]) -> str:
     return f"{text}{suffix}"
 
 
-def _render_answer(answer: dict[str, Any], *, list_limit: int = 40) -> list[str]:
-    """An :class:`ifc_spatial.envelope.Answer` as lines."""
-    lines = [_provenance_line(answer)]
+def _computed_decimals(answer: dict[str, Any]) -> int | None:
+    """Decimals for a `computed` value; a declared figure is the file's own statement and is not rounded."""
+    return _decimals(answer.get("tolerance")) if answer.get("provenance") == "computed" else None
 
-    value = answer.get("value")
-    decimals = _decimals(answer.get("tolerance")) if answer.get("provenance") == "computed" else None
-    numbers = (
-        isinstance(value, list)
-        and bool(value)
-        and all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in value)
+
+def _missing_what(answer: dict[str, Any]) -> str:
+    return (answer.get("missing") or {}).get("what") or "nicht entscheidbar"
+
+
+def _all_numbers(value: list) -> bool:
+    return bool(value) and all(isinstance(item, (int, float)) and not isinstance(item, bool) for item in value)
+
+
+def _trailer(answer: dict[str, Any]) -> list[str]:
+    """The caveat and the method, which close every special-shape answer."""
+    lines: list[str] = []
+    if answer.get("caveat"):
+        lines.append(f"Hinweis: {answer['caveat']}")
+    if answer.get("method"):
+        lines.append(f"Methode: {answer['method']}")
+    return lines
+
+
+# ── the special answer shapes ────────────────────────────────────────────────
+#
+# Three operators answer with a structured value that `_value_text` would
+# flatten into „results=17 Einträge": the light-entry area, the egress path and
+# the door graph. Each gets its own headline in place of the provenance line.
+
+
+def _render_light_entry(answer: dict[str, Any], list_limit: int) -> list[str]:
+    value = answer["value"]
+    decimals = _computed_decimals(answer)
+    band = f" (±{_tolerance_text(answer.get('tolerance'))} m²)" if answer.get("tolerance") is not None else ""
+    lines = [
+        f"gemessen{band}: Lichteintrittsfläche {_num(value.get('lightEntryArea'), decimals)} m² auf "
+        f"{_num(value.get('floorArea'), decimals)} m² Bodenfläche = **{_num(value.get('percent'), 2)} %** "
+        "— aus der Geometrie berechnet, nicht deklariert."
+    ]
+    lines += [
+        f"- außenliegend: {e.get('ifcType')} „{e.get('name')}“ · {_num(e.get('area'), 3)} m² "
+        f"· GlobalId {e.get('globalId')}"
+        for e in value.get("openings") or []
+    ]
+    excluded = (
+        ("innenliegend", "NICHT gezählt (innenliegend)"),
+        ("unbestimmt", "NICHT gezählt (außen/innen unbestimmt)"),
+    )
+    for key, label in excluded:
+        lines += [
+            f"- {label}: {e.get('ifcType')} „{e.get('name')}“ · {_num(e.get('area'), 3)} m² · {e.get('because')}"
+            for e in value.get(key) or []
+        ]
+    return lines + _trailer(answer)
+
+
+def _leg_row(leg: dict[str, Any]) -> str:
+    door = leg.get("tuer") or {}
+    to = leg.get("nach") or {}
+    target = "INS FREIE" if to.get("kind") == "outside" else to.get("name")
+    start = (leg.get("von") or {}).get("name")
+    return (
+        f"- {start} → {target} durch „{door.get('name')}“ ({_num(leg.get('length'), 2)} m) "
+        f"· GlobalId {door.get('globalId')}"
     )
 
-    # `lightEntryArea` returns the ratio AND both of its inputs AND the openings
-    # split three ways. Flattened by `_value_text` it reads
-    # „lightEntryArea=2.190, floorArea=15.417, ratio=0.142, percent=14.21,
-    # openings=1 Eintrag, innenliegend=1 Eintrag" — every number present and the
-    # sentence unreadable. The percentage is what the question was, so it leads,
-    # and the two inputs follow so the arithmetic is checkable.
-    if isinstance(value, dict) and "lightEntryArea" in value:
-        entry_area = value.get("lightEntryArea")
-        floor = value.get("floorArea")
-        # The band travels with the number here as it does everywhere else. This
-        # line replaced the provenance line wholesale and dropped the ± with it,
-        # so the one measurement most likely to be quoted into a daylight
-        # verdict was the only one arriving without its tolerance.
-        band = f" (±{_tolerance_text(answer.get('tolerance'))} m²)" if answer.get("tolerance") is not None else ""
-        lines[0] = (
-            f"gemessen{band}: Lichteintrittsfläche {_num(entry_area, decimals)} m² auf "
-            f"{_num(floor, decimals)} m² Bodenfläche = **{_num(value.get('percent'), 2)} %** "
-            "— aus der Geometrie berechnet, nicht deklariert."
+
+def _render_egress(answer: dict[str, Any], list_limit: int) -> list[str]:
+    value = answer["value"]
+    room = (value.get("space") or {}).get("name") or "der Raum"
+    head = f"gemessen: von „{room}“ führt KEINE Türverbindung ins Freie."
+    if value.get("reachesOutside"):
+        head = (
+            f"gemessen: „{room}“ erreicht das Freie über {value.get('doorCount')} Tür(en), "
+            f"Weglänge {_num(value.get('length'), 2)} m — aus der Geometrie berechnet, nicht deklariert."
         )
-        for entry in value.get("openings") or []:
-            lines.append(
-                f"- außenliegend: {entry.get('ifcType')} „{entry.get('name')}“ "
-                f"· {_num(entry.get('area'), 3)} m² · GlobalId {entry.get('globalId')}"
-            )
-        for key, label in (
-            ("innenliegend", "NICHT gezählt (innenliegend)"),
-            ("unbestimmt", "NICHT gezählt (außen/innen unbestimmt)"),
-        ):
-            for entry in value.get(key) or []:
-                lines.append(
-                    f"- {label}: {entry.get('ifcType')} „{entry.get('name')}“ "
-                    f"· {_num(entry.get('area'), 3)} m² · {entry.get('because')}"
-                )
-        if answer.get("caveat"):
-            lines.append(f"Hinweis: {answer['caveat']}")
-        if answer.get("method"):
-            lines.append(f"Methode: {answer['method']}")
-        return lines
+    return [head, *(_leg_row(leg) for leg in value.get("legs") or []), *_trailer(answer)]
 
-    # `egressPath` returns a route, and a route flattened by `_value_text` reads
-    # „space=…, reachesOutside=True, doorCount=3, length=15.492, legs=3 Einträge"
-    # — the number present and the way out invisible. The legs ARE the answer:
-    # which door, into which room, how far, in order.
-    if isinstance(value, dict) and "legs" in value and "reachesOutside" in value:
-        room = (value.get("space") or {}).get("name") or "der Raum"
-        if not value.get("reachesOutside"):
-            lines[0] = f"gemessen: von „{room}“ führt KEINE Türverbindung ins Freie."
-        else:
-            lines[0] = (
-                f"gemessen: „{room}“ erreicht das Freie über {value.get('doorCount')} Tür(en), "
-                f"Weglänge {_num(value.get('length'), 2)} m — aus der Geometrie berechnet, nicht deklariert."
-            )
-        for leg in value.get("legs") or []:
-            door = leg.get("tuer") or {}
-            outside = (leg.get("nach") or {}).get("kind") == "outside"
-            lines.append(
-                f"- {(leg.get('von') or {}).get('name')} → "
-                f"{'INS FREIE' if outside else (leg.get('nach') or {}).get('name')} "
-                f"durch „{door.get('name')}“ ({_num(leg.get('length'), 2)} m) · GlobalId {door.get('globalId')}"
-            )
-        if answer.get("caveat"):
-            lines.append(f"Hinweis: {answer['caveat']}")
-        if answer.get("method"):
-            lines.append(f"Methode: {answer['method']}")
-        return lines
 
-    # `doorGraph` is the whole building, and `_value_text` flattens it to
-    # „nodes=83 Einträge, edges=77 Einträge, unbestimmt=0 Einträge,
-    # ausgeschlossen=0 Einträge" — four counts and not one door. Measured on the
-    # institute building in the corpus, and it is the same defect `egressPath`
-    # has a branch for: the counts are not the answer. The answer is WHICH rooms
-    # have no way out and WHICH doors the derivation could not read, because
-    # those two lists are what makes every route in the building sound or
-    # unfounded, and this tool was wired precisely to surface them.
-    if isinstance(value, dict) and "nodes" in value and "edges" in value and "unbestimmt" in value:
-        edges = value.get("edges") or []
-        nodes = value.get("nodes") or []
-        rooms = [node for node in nodes if isinstance(node, dict) and node.get("globalId") != "AUSSEN"]
-        outside = sum(1 for edge in edges if isinstance(edge, dict) and edge.get("external"))
-        # German agrees in number, and this file already treats that as a
-        # correctness rule rather than polish — `light_incidence` does it below,
-        # and `_value_text` writes „1 Eintrag" against „2 Einträge". „1 Räume"
-        # in a headline reads as a rendering bug and invites the reader to
-        # distrust the number beside it.
-        room_text = "1 Raum" if len(rooms) == 1 else f"{len(rooms)} Räume"
-        door_text = "1 Türverbindung" if len(edges) == 1 else f"{len(edges)} Türverbindungen"
-        lines[0] = (
-            f"gemessen: {room_text}, {door_text}, davon {outside} ins Freie "
-            "— aus der Geometrie abgeleitet, nicht deklariert."
-        )
-        reached = {node for edge in edges if isinstance(edge, dict) for node in (edge.get("verbindet") or [])}
-        stranded = [node for node in rooms if node.get("globalId") not in reached]
-        for node in stranded[:list_limit]:
-            lines.append(
-                f"- KEINE Türkante: {node.get('ifcType')} „{node.get('name')}“ · "
-                f"GlobalId {node.get('globalId')} — dieser Raum hat in dieser Datei keinen Ausgang"
-            )
-        # Each of these three lists is cut to `list_limit`, and a cut nobody
-        # names reads as a complete list. That is the same defect `fire`'s
-        # caveat carried — „die vollständige Liste" beside ten of twelve — and
-        # it lands hardest here: a building with more than forty rooms without
-        # an exit is precisely the building this branch exists to surface.
-        if len(stranded) > list_limit:
-            lines.append(f"… {len(stranded) - list_limit} weitere Räume ohne Türkante nicht gezeigt.")
-        # These two are the reason the graph is worth a call of its own. A door
-        # whose rooms could not be resolved is a hole in EVERY route through the
-        # building, and a reader who sees only the edge count cannot tell a
-        # building with three doors from one with five of which two were
-        # unreadable.
-        undetermined = value.get("unbestimmt") or []
-        for entry in undetermined[:list_limit]:
-            lines.append(
-                f"- UNBESTIMMT: {entry.get('ifcType')} „{entry.get('name')}“ · "
-                f"GlobalId {entry.get('globalId')} — {entry.get('warum')}"
-            )
-        if len(undetermined) > list_limit:
-            lines.append(f"… {len(undetermined) - list_limit} weitere unbestimmte Türen nicht gezeigt.")
-        excluded = value.get("ausgeschlossen") or []
-        for entry in excluded[:list_limit]:
-            lines.append(
-                f"- NICHT als Kante gewertet: {entry.get('ifcType')} „{entry.get('name')}“ · "
-                f"GlobalId {entry.get('globalId')} — {entry.get('warum')}"
-            )
-        if len(excluded) > list_limit:
-            lines.append(f"… {len(excluded) - list_limit} weitere ausgeschlossene Türen nicht gezeigt.")
-        if answer.get("caveat"):
-            lines.append(f"Hinweis: {answer['caveat']}")
-        if answer.get("method"):
-            lines.append(f"Methode: {answer['method']}")
-        return lines
+def _render_door_graph(answer: dict[str, Any], list_limit: int) -> list[str]:
+    value = answer["value"]
+    edges = value.get("edges") or []
+    rooms = [n for n in value.get("nodes") or [] if isinstance(n, dict) and n.get("globalId") != "AUSSEN"]
+    outside = sum(1 for e in edges if isinstance(e, dict) and e.get("external"))
+    room_text = "1 Raum" if len(rooms) == 1 else f"{len(rooms)} Räume"
+    door_text = "1 Türverbindung" if len(edges) == 1 else f"{len(edges)} Türverbindungen"
+    reached = {node for e in edges if isinstance(e, dict) for node in (e.get("verbindet") or [])}
+    stranded = [n for n in rooms if n.get("globalId") not in reached]
 
-    # `light_incidence` answers a yes/no question with a list, and the list can
-    # be empty — which is the ANSWER (nothing intrudes) and renders as nothing
-    # at all without this line. It goes above the entries because it is the
-    # sentence the reader came for.
-    if "free" in answer:
+    def named(prefix: str, entry: dict[str, Any], tail: str) -> str:
+        return f"- {prefix}: {entry.get('ifcType')} „{entry.get('name')}“ · GlobalId {entry.get('globalId')} — {tail}"
+
+    lines = [
+        f"gemessen: {room_text}, {door_text}, davon {outside} ins Freie "
+        "— aus der Geometrie abgeleitet, nicht deklariert."
+    ]
+    lines += listed(
+        stranded,
+        list_limit,
+        "Räume ohne Türkante",
+        lambda n: named("KEINE Türkante", n, "dieser Raum hat in dieser Datei keinen Ausgang"),
+    )
+    lines += listed(
+        value.get("unbestimmt") or [], list_limit, "unbestimmte Türen", lambda e: named("UNBESTIMMT", e, e.get("warum"))
+    )
+    lines += listed(
+        value.get("ausgeschlossen") or [],
+        list_limit,
+        "ausgeschlossene Türen",
+        lambda e: named("NICHT als Kante gewertet", e, e.get("warum")),
+    )
+    return lines + _trailer(answer)
+
+
+#: (does the value have this shape, how to render it) — first match wins.
+_ANSWER_SHAPES: tuple[tuple[Callable[[Any], bool], Callable[[dict[str, Any], int], list[str]]], ...] = (
+    (lambda v: isinstance(v, dict) and "lightEntryArea" in v, _render_light_entry),
+    (lambda v: isinstance(v, dict) and "legs" in v and "reachesOutside" in v, _render_egress),
+    (lambda v: isinstance(v, dict) and "nodes" in v and "edges" in v and "unbestimmt" in v, _render_door_graph),
+)
+
+
+def _prism_line(answer: dict[str, Any], decimals: int | None) -> str:
+    """FREI or NICHT FREI, with the prism's angles as the caller wrote them."""
+    unit = answer.get("unit") or "m"
+    prism = answer.get("prism") or {}
+    angles = ""
+    if prism:
+        swivel = f", seitlich {_angle(prism.get('swivelDeg'))}°" if prism.get("swivelDeg") is not None else ""
+        angles = f" (Prisma {_angle(prism.get('angleDeg'))}°{swivel})"
+    if answer.get("free"):
+        return f"FREI{angles}: kein Bauteil ragt in das Prisma."
+    value = answer.get("value")
+    count = len(value) if isinstance(value, list) else 0
+    intruders = [e for e in value if isinstance(e, dict)] if isinstance(value, list) else []
+    deepest = max((e.get("intrusionDepth", 0) for e in intruders), default=None)
+    depth = f", tiefster Eingriff {_num(deepest, decimals)} {unit}" if deepest is not None else ""
+    subject = "1 Bauteil ragt" if count == 1 else f"{count} Bauteile ragen"
+    return f"NICHT FREI{angles}: {subject} in das Prisma{depth}."
+
+
+def _list_entry(entry: Any, answer: dict[str, Any], decimals: int | None) -> str:
+    """One row of a list-valued answer, by what the row carries."""
+    if not isinstance(entry, dict):
+        return f"- {entry}"
+    name = entry.get("name") or entry.get("globalId")
+    if "intrusionDepth" in entry:
         unit = answer.get("unit") or "m"
-        prism = answer.get("prism") or {}
-        angles = (
-            f" (Prisma {_angle(prism.get('angleDeg'))}°"
-            # `is not None`, not truthiness: a swivel of 0° is a STATED
-            # parameter from the Bestimmung („senkrecht, kein seitlicher
-            # Schwenk"), and dropping the phrase leaves a reader unable to tell
-            # it from a prism that was never given one.
-            + (f", seitlich {_angle(prism.get('swivelDeg'))}°" if prism.get("swivelDeg") is not None else "")
-            + ")"
-            if prism
-            else ""
+        depth = _num(entry.get("intrusionDepth"), decimals)
+        return f"- {name} · GlobalId {entry.get('globalId')} · ragt {depth} {unit} in das Prisma"
+    if "ifcType" in entry:
+        return _element_line(entry)
+    if "storey" in entry:
+        height = entry.get("height")
+        tail = f", Geschoßhöhe {_num(height, decimals)}" if height is not None else ", Geschoßhöhe nicht bestimmbar"
+        return f"- {entry.get('storey')}: Höhenlage {_num(entry.get('elevation'), decimals)}{tail}"
+    if "confidence" in entry:
+        because = ", ".join(entry.get("because") or [])
+        return f"- {name} · GlobalId {entry.get('globalId')} · Konfidenz {_num(entry.get('confidence'))}" + (
+            f" ({because})" if because else ""
         )
-        if answer.get("free"):
-            lines.append(f"FREI{angles}: kein Bauteil ragt in das Prisma.")
-        else:
-            count = len(value) if isinstance(value, list) else 0
-            deepest = (
-                max((e.get("intrusionDepth", 0) for e in value if isinstance(e, dict)), default=None)
-                if isinstance(value, list)
-                else None
-            )
-            depth = f", tiefster Eingriff {_num(deepest, decimals)} {unit}" if deepest is not None else ""
-            # Noun AND verb agree. „1 Bauteil ragen" is the kind of sentence that
-            # tells an Austrian architect the text was generated by something
-            # that does not speak German, and everything after it is read as
-            # machine output rather than as a finding.
-            subject = "1 Bauteil ragt" if count == 1 else f"{count} Bauteile ragen"
-            lines.append(f"NICHT FREI{angles}: {subject} in das Prisma{depth}.")
+    return f"- {entry}"
 
-    if isinstance(value, list) and value and not numbers:
-        # A coordinate triple is already in the line above; listing it again as
-        # three bullets would read as three findings.
-        shown = value[:list_limit]
-        for entry in shown:
-            if isinstance(entry, dict) and "intrusionDepth" in entry:
-                # Was falling through to `- {dict repr}`, handing the model a
-                # Python literal for the flagship operator's own result.
-                unit = answer.get("unit") or "m"
-                lines.append(
-                    f"- {entry.get('name') or entry.get('globalId')} · GlobalId {entry.get('globalId')}"
-                    f" · ragt {_num(entry.get('intrusionDepth'), decimals)} {unit} in das Prisma"
-                )
-            elif isinstance(entry, dict) and "ifcType" in entry:
-                lines.append(_element_line(entry))
-            elif isinstance(entry, dict) and "storey" in entry:
-                height = entry.get("height")
-                lines.append(
-                    f"- {entry.get('storey')}: Höhenlage {_num(entry.get('elevation'), decimals)}"
-                    + (
-                        f", Geschoßhöhe {_num(height, decimals)}"
-                        if height is not None
-                        else ", Geschoßhöhe nicht bestimmbar"
-                    )
-                )
-            elif isinstance(entry, dict) and "confidence" in entry:
-                because = ", ".join(entry.get("because") or [])
-                lines.append(
-                    f"- {entry.get('name') or entry.get('globalId')} · GlobalId {entry.get('globalId')} "
-                    f"· Konfidenz {_num(entry.get('confidence'))}" + (f" ({because})" if because else "")
-                )
-            else:
-                lines.append(f"- {entry}")
-        if len(value) > len(shown):
-            lines.append(f"… {len(value) - len(shown)} weitere Einträge nicht gezeigt.")
 
+def _render_answer(answer: dict[str, Any], *, list_limit: int = 40) -> list[str]:
+    """An :class:`ifc_spatial.envelope.Answer` as lines."""
+    value = answer.get("value")
+    for matches, render in _ANSWER_SHAPES:
+        if matches(value):
+            return render(answer, list_limit)
+    decimals = _computed_decimals(answer)
+    lines = [_provenance_line(answer)]
+    if "free" in answer:
+        lines.append(_prism_line(answer, decimals))
+    if isinstance(value, list) and value and not _all_numbers(value):
+        lines += listed(value, list_limit, "Einträge", lambda entry: _list_entry(entry, answer, decimals))
     if answer.get("agreement") == "disagree":
         lines.append("WIDERSPRUCH zwischen zwei Wegen zu dieser Zahl — siehe Hinweis.")
     if answer.get("caveat"):
-        # Never optional. The storey-pitch caveat is the difference between a
-        # Rohbauhöhe and a Raumhöhennachweis; dropping it publishes a different
-        # claim than the one the operator made.
         lines.append(f"Hinweis: {answer['caveat']}")
     if answer.get("because") and not isinstance(value, list):
         lines.append("Begründung: " + "; ".join(str(reason) for reason in answer["because"]))
     if answer.get("method"):
         lines.append(f"Methode: {answer['method']}")
-    from_ = answer.get("from") or []
-    if from_:
-        lines.append("Bezug: " + ", ".join(str(ref) for ref in from_[:8]))
+    if answer.get("from"):
+        lines.append("Bezug: " + ", ".join(str(ref) for ref in answer["from"][:8]))
     return lines
 
 
-def _model_line(result: dict[str, Any], handle: str = "") -> str:
-    model = result.get("model") or {}
+# ── the payload shapes ───────────────────────────────────────────────────────
+
+
+def _is_profile(payload: Any) -> bool:
+    """`element_profile`: many measures over ONE element."""
+    return isinstance(payload, dict) and "measures" in payload and "element" in payload
+
+
+def _is_batch(payload: Any) -> bool:
+    """`survey`, or `measure` over a list: ONE measure over many elements."""
+    return isinstance(payload, dict) and "results" in payload and "summary" in payload
+
+
+def _model_identity(source: dict[str, Any] | None) -> str | None:
+    """Which file, its schema and its size — without the „Modell: " label the prose header adds."""
+    model = (source or {}).get("model") or {}
     filename = model.get("filename")
     if not filename:
-        return ""
-    facts = []
-    if model.get("schemaVersion"):
-        facts.append(str(model["schemaVersion"]))
+        return None
+    facts = [str(model["schemaVersion"])] if model.get("schemaVersion") else []
     if model.get("elements"):
         facts.append(f"{model['elements']} Bauteile")
-    detail = f" ({', '.join(facts)})" if facts else ""
-    return f"Modell: {filename}{detail}" + (f" · Kennung {handle[:12]}" if handle else "")
+    return f"{filename} ({', '.join(facts)})" if facts else str(filename)
+
+
+def _model_line(result: dict[str, Any], handle: str = "") -> str:
+    identity = _model_identity(result)
+    if not identity:
+        return ""
+    return f"Modell: {identity}" + (f" · Kennung {handle[:12]}" if handle else "")
+
+
+def _briefing_lines(payload: Any) -> list[str]:
+    text = (
+        payload["briefing"] if isinstance(payload, dict) and isinstance(payload.get("briefing"), str) else str(payload)
+    )
+    return [
+        text,
+        "Geschoß- und Merkmalsnamen aus diesem Briefing wörtlich übernehmen — sie stammen aus "
+        "DIESER Datei. Der Abschnitt BLIND sagt, was diese Datei nicht beantworten kann.",
+    ]
+
+
+def _find_elements_lines(payload: dict[str, Any]) -> list[str]:
+    elements = payload.get("elements") or []
+    lines = [f"{payload.get('total', len(elements))} Treffer, {len(elements)} aufgelistet."]
+    lines += [_element_line(entry) for entry in elements]
+    if payload.get("truncated"):
+        lines.append("(Weitere Treffer vorhanden — Suche eingrenzen.)")
+    if payload.get("hint"):
+        lines.append(str(payload["hint"]))
+    return lines
+
+
+def _element_lines(payload: dict[str, Any]) -> list[str]:
+    element = payload.get("element") or {}
+    label = element.get("name") or element.get("globalId")
+    lines = [f"{element.get('ifcType')} „{label}“ · GlobalId {element.get('globalId')}"]
+    if payload.get("storey"):
+        lines.append(f"Geschoß: {payload['storey']}")
+    if payload.get("predefinedType"):
+        lines.append(f"PredefinedType: {payload['predefinedType']}")
+    container = payload.get("container")
+    if isinstance(container, dict):
+        lines.append(f"Liegt in: {container.get('ifcType')} „{container.get('name')}“")
+    if payload.get("available"):
+        lines.append("Vorhandene Relationen: " + ", ".join(str(name) for name in payload["available"]))
+    if payload.get("hinweis"):
+        lines.append(f"Hinweis: {payload['hinweis']}")
+    return lines
+
+
+def _shopping_list_lines(payload: dict[str, Any]) -> list[str]:
+    lines = [str(payload.get("summary") or "")]
+    if payload.get("path"):
+        lines.append(
+            f"IDS-Datei geschrieben: {payload['path']} "
+            f"({payload.get('specifications')} Spezifikationen, {payload.get('bytes')} Bytes)."
+        )
+    lines += [f"- enthalten: {entry}" for entry in payload.get("exported") or []]
+    lines += [
+        f"- NICHT als IDS ausdrückbar: {e.get('what')} — {e.get('why')}" for e in payload.get("notExportable") or []
+    ]
+    lines.append(
+        "Die Datei verlangt nur, DASS ein Merkmal vorhanden ist, nie welchen Wert es haben muss. "
+        "Grenzwerte kommen aus der Bestimmung."
+    )
+    return lines
+
+
+def _draw_lines(payload: dict[str, Any]) -> list[str]:
+    return [
+        f"Zeichnung erzeugt: {payload.get('path')} ({payload.get('bytes')} Bytes, {payload.get('seconds')} s).",
+        "Die Zeichnung liegt als Datei auf dem Server. Maße NICHT aus dem Bild ablesen — dafür "
+        "operation='measure' oder 'distance' verwenden.",
+    ]
+
+
+def _profile_row(name: str, answer: dict[str, Any]) -> str:
+    if answer.get("error"):
+        return f"- {name}: FEHLER — {answer['error']}"
+    if answer.get("decidable"):
+        return f"- {name}: {_value_text(answer.get('value'))} {answer.get('unit') or ''}".rstrip()
+    return f"- {name}: NICHT ENTSCHEIDBAR — {_missing_what(answer)}"
+
+
+def _profile_lines(payload: dict[str, Any]) -> list[str]:
+    """Every measure that applies to one element, one line each — never the raw dict."""
+    element = payload.get("element") or {}
+    storey = f", {payload['storey']}" if payload.get("storey") else ""
+    lines = [f"gemessen an {element.get('name') or element.get('globalId')} ({element.get('ifcType')}{storey}):"]
+    lines += [_profile_row(name, answer or {}) for name, answer in (payload.get("measures") or {}).items()]
+    skipped = payload.get("notMeasured") or {}
+    if skipped.get("kinds"):
+        lines.append(f"Nicht gemessen: {', '.join(skipped['kinds'])}. {skipped.get('why') or ''}".strip())
+    lines.append(
+        "Verkürzte Übersicht: Toleranz, Herkunft und Methode je Kennwert liefert operation='measure' "
+        "für den einen, auf den es ankommt. Lange Listen sind gekürzt."
+    )
+    return lines
+
+
+def _batch_headline(payload: dict[str, Any]) -> str:
+    """The SPREAD first, because that is the finding: „alle 17 bei 2.70 m" and „16 bei 2.70 m, einer bei 0.25 m" differ.
+
+    Flattening this through `_value_text` would print „results=17 Einträge" — seventeen measurements and not one number.
+    """
+    summary = payload.get("summary") or {}
+    results = payload.get("results") or []
+    spread = summary.get("spread")
+    measured, of = summary.get("measured", 0), summary.get("of", len(results))
+    head = f"gemessen: {payload.get('measure')} an {measured} von {of} Bauteilen"
+    if spread is not None and spread > 0:
+        head += f" — von {_num(summary.get('min'), 3)} bis {_num(summary.get('max'), 3)}, Spanne {_num(spread, 3)}"
+    elif spread == 0:
+        head += f" — durchgehend {_num(summary.get('min'), 3)}"
+    if payload.get("truncated"):
+        head += f" (von {summary.get('selected')} passenden — NUR diese Auswahl)"
+    return head + "."
+
+
+def _batch_row(entry: dict[str, Any]) -> str:
+    """The name where the payload has one: a 22-character GlobalId is nothing a reviewer carries to a CAD window."""
+    answer = entry.get("answer") or {}
+    label = entry.get("name") or entry.get("globalId")
+    if entry.get("name") and entry.get("storey"):
+        label = f"{entry['name']} ({entry['storey']})"
+    if answer.get("decidable"):
+        value = _num(answer.get("value"), _decimals(answer.get("tolerance")))
+        return f"- {label}: {value} {answer.get('unit') or ''}".rstrip()
+    return f"- {label}: NICHT ENTSCHEIDBAR — {_missing_what(answer)}"
+
+
+def _batch_lines(payload: dict[str, Any]) -> list[str]:
+    summary = payload.get("summary") or {}
+    lines = [_batch_headline(payload)]
+    lines += listed(payload.get("results") or [], 40, "Bauteile", _batch_row)
+    if summary.get("undecidable"):
+        count = len(summary["undecidable"])
+        noun = "Bauteil konnte" if count == 1 else "Bauteile konnten"
+        lines.append(
+            f"{count} {noun} nicht gemessen werden — sie sind oben einzeln genannt und dürfen "
+            "nicht als „wie die anderen“ berichtet werden."
+        )
+    if summary.get("disagree"):
+        named = ", ".join(entry.get("name") or entry.get("globalId") for entry in summary["disagree"])
+        lines.append(
+            f"WIDERSPRUCH zwischen deklariertem und gemessenem Wert bei: {named}. "
+            "Das ist ein Befund über den Export, nicht über das Gebäude."
+        )
+    if payload.get("hint"):
+        lines.append(str(payload["hint"]))
+    if summary.get("spread"):
+        lines.append("Die Spanne ist die Aussage: ein einzeln gemessener Raum belegt nichts über die übrigen.")
+    return lines
+
+
+_BODY_RENDERERS: dict[str, Callable[[dict[str, Any]], list[str]]] = {
+    "find_elements": _find_elements_lines,
+    "element": _element_lines,
+    "shopping_list": _shopping_list_lines,
+    "draw": _draw_lines,
+}
+
+
+def _body_lines(operation: str, payload: Any) -> list[str]:
+    """The result itself: by operation where the shape is the operation's own, by payload shape otherwise."""
+    if operation == "briefing":
+        return _briefing_lines(payload)
+    renderer = _BODY_RENDERERS.get(operation)
+    if renderer is not None and isinstance(payload, dict):
+        return renderer(payload)
+    if _is_profile(payload):
+        return _profile_lines(payload)
+    if _is_batch(payload):
+        return _batch_lines(payload)
+    if isinstance(payload, dict) and "decidable" in payload:
+        return _render_answer(payload)
+    # Never `str(payload)`: a raw dict dump strips the provenance verbs, which
+    # is the defect this renderer exists to prevent. A shape nobody renders is
+    # a bug to fix, and a test should be what finds it.
+    raise TypeError(f"ifc_measure: no renderer for the {operation!r} payload ({type(payload).__name__})")
 
 
 def _image_blocks(payload: dict[str, Any], *, source: dict[str, Any] | None, handle: str) -> list[dict]:
-    """The plan as something the model can actually LOOK at.
+    """The plan as something the model can actually LOOK at: a caption block and an image block.
 
-    Every other operation returns prose because every other operation returns
-    facts. This one returns a picture, and a picture described in prose is not a
-    picture — `draw` already proves that: it writes an SVG and hands back a path
-    and a byte count, which tells the agent nothing it did not already know.
-
-    Two blocks rather than one. The caption carries what the pixels cannot state
-    exactly — which storey, the cut height, the rooms by name, which GlobalIds
-    are marked — and, crucially, the prohibition: a dimension read off a raster
-    is guessed even when it happens to be right, and every dimension here is
-    available from an operator that states its own tolerance.
+    The caption carries what the pixels cannot state exactly — storey, rooms,
+    marked GlobalIds — and the prohibition: a dimension read off a raster is
+    guessed even when it happens to be right.
     """
-    lines = [line for line in (_model_line(source or {}, handle),) if line]
-    lines.append(str(payload.get("note") or ""))
-    rooms = payload.get("rooms") or []
-    if rooms:
-        lines.append("Räume im Bild: " + ", ".join(str(room) for room in rooms) + ".")
-    marked = payload.get("highlighted") or []
-    if marked:
-        lines.append("Rot markiert: " + ", ".join(str(item) for item in marked) + ".")
+    lines = [_model_line(source or {}, handle), str(payload.get("note") or "")]
+    if payload.get("rooms"):
+        lines.append("Räume im Bild: " + ", ".join(str(room) for room in payload["rooms"]) + ".")
+    if payload.get("highlighted"):
+        lines.append("Rot markiert: " + ", ".join(str(item) for item in payload["highlighted"]) + ".")
     if not payload.get("northDeclared"):
-        # No arrow was drawn, and the absence has to be stated — otherwise the
-        # reader supplies a north themselves, which is exactly the invention
-        # („Südfassade") this package exists to stop.
         lines.append(
             "Kein Nordpfeil: diese Datei deklariert keine Nordrichtung. Aus dem Bild lässt sich "
             "keine Himmelsrichtung ableiten."
@@ -1598,26 +1691,20 @@ def _image_blocks(payload: dict[str, Any], *, source: dict[str, Any] | None, han
 
 def _render_unresolved(result: dict[str, Any]) -> str:
     """A model that could not be selected — the same shape ``ifc_query`` uses."""
-    message = result.get("message") or "Das Modell konnte nicht gelesen werden."
-    models = result.get("models") or []
-    if not models:
-        return str(message)
-    listed = ", ".join(f"{m.get('filename')} ({m.get('status')}, {m.get('elements', 0)} Bauteile)" for m in models[:10])
-    heading = (
-        "Verfügbare Modelle"
-        if result.get("reason") in {"no_match", "ambiguous"}
-        else "Modelle in diesem Projekt (noch nicht abfragbar)"
-    )
-    return f"{message} {heading}: {listed}."
+    return render_unresolved(result, "Das Modell konnte nicht gelesen werden.")
+
+
+# ── evidence: what the result says about itself ──────────────────────────────
 
 
 def _is_evidence(answer: Any) -> bool:
-    """Whether one envelope answer is EVIDENCE — see :func:`_measured_count`.
+    """Whether one envelope answer is EVIDENCE: decidable, declared or computed, and a QUANTITY.
 
-    The predicate, extracted so the count the result states about itself and the
-    Herleitung cards it produces are the same decision made once. „N Messwerte
-    in diesem Ergebnis" and N cards under the answer disagreeing would be a
-    derivation trail contradicting the number the confidence gate stands on.
+    A provenance alone is not enough — `relations` answers with a decidable
+    list of GlobalIds `provenance: declared`, and nothing in it was measured.
+    A unit or a tolerance is what makes a value a quantity; not both, since
+    `envelope` reports m² without a tolerance and `storey_heights` a list
+    with a unit.
     """
     if not isinstance(answer, dict) or answer.get("error"):
         return False
@@ -1631,78 +1718,20 @@ def _is_evidence(answer: Any) -> bool:
 def _measured_count(payload: Any) -> int:
     """How many QUANTITIES in one payload carry a ``declared``/``computed`` provenance.
 
-    Read off the envelope's own fields — ``decidable``, ``provenance``, ``unit``
-    and ``tolerance`` — and never off the German the renderer wraps them in.
-    This is the number the result states about itself
-    (:mod:`.measurement_evidence`), and it is what the confidence gate stands
-    on, so it counts EVIDENCE and nothing else: an undecidable finding, a
-    heuristic ``inferred`` guess and a measure that raised are all zero.
-
-    A provenance alone is NOT enough, and that distinction is the whole point.
-    ``relations`` answers a topology question — „welche Bauteile begrenzen
-    diesen Raum" — and returns a decidable ``Answer`` whose ``value`` is a LIST
-    of GlobalIds with ``provenance: declared``. Nothing in it was measured, yet
-    it used to report one Messwert, and an answer that ran a `relations` lookup
-    and then invented „rund 2,7 m" surfaced at "medium" as a measurement.
-    ``find_elements`` was already excluded for exactly this reason; a hit list
-    does not stop being a hit list by arriving in an ``Answer`` wrapper.
-
-    So the test is whether the value is a QUANTITY: a ``unit`` or a
-    ``tolerance``. Not scalar-ness — ``storey_heights`` measures every storey
-    and legitimately answers with a list carrying ``unit: "m"`` — and not both
-    fields either, since ``envelope`` reports areas in m² without a tolerance.
-    Verified against all 19 operations over the repository's IFC fixtures: the
-    only count this changes is ``relations``.
+    The number the result states about itself (:mod:`.measurement_evidence`),
+    read off the envelope's own fields and never off the German around them.
     """
-
-    def _one(answer: Any) -> int:
-        return 1 if _is_evidence(answer) else 0
-
-    if not isinstance(payload, dict):
-        return 0
-    # `element_profile`: many measures over one element.
-    if "measures" in payload and "element" in payload:
-        return sum(_one(answer) for answer in (payload.get("measures") or {}).values())
-    # `survey` / a batch `measure`: one measure over many elements.
-    if "results" in payload and "summary" in payload:
-        return sum(_one((entry or {}).get("answer")) for entry in (payload.get("results") or []))
-    # A single `Answer`.
-    if "decidable" in payload:
-        return _one(payload)
-    # Everything else — a briefing, a find_elements hit list, an element's
-    # index metadata, a written IDS file, a drawing's path. Those are real
-    # results and none of them is a measurement of the building.
+    if _is_profile(payload):
+        return sum(_is_evidence(answer) for answer in (payload.get("measures") or {}).values())
+    if _is_batch(payload):
+        return sum(_is_evidence((entry or {}).get("answer")) for entry in (payload.get("results") or []))
+    if isinstance(payload, dict) and "decidable" in payload:
+        return int(_is_evidence(payload))
     return 0
 
 
-def _model_identity(source: dict[str, Any] | None) -> str | None:
-    """Which file this was measured in, without the „Modell: " label.
-
-    The card puts its own label in front, and the prose header
-    (:func:`_model_line`) is the one place the filename, schema and element
-    count are assembled — so this reuses it rather than reassembling them.
-
-    Without the ``Kennung``: the handle identifies an OPEN MODEL inside one
-    process and is meaningless to the reviewer the card is written for, who
-    needs to know which FILE was measured. It stays in the prose header, where
-    the agent may need it to make a second call against the same model.
-    """
-    header = _model_line(source or {})
-    if not header:
-        return None
-    prefix = "Modell: "
-    return header[len(prefix) :] if header.startswith(prefix) else header
-
-
 def _measured_elements(answer: dict[str, Any], names: dict[str, MeasuredElement]) -> tuple[MeasuredElement, ...]:
-    """The elements a value was derived from, in the order the operator used them.
-
-    ``from`` is the envelope's own list of GlobalIds and is authoritative about
-    the ORDER; ``names`` is whatever the surrounding payload happened to know
-    about those ids. An id the payload cannot name still travels — a GlobalId
-    the reviewer can paste into a CAD window is worth more than a card that
-    omits it for want of a label.
-    """
+    """The elements a value was derived from, in the operator's order; an id the payload cannot name still travels."""
     ids = answer.get("from")
     if not isinstance(ids, list):
         return ()
@@ -1752,6 +1781,31 @@ def _element_index(entries: Sequence[dict[str, Any]]) -> dict[str, MeasuredEleme
     return index
 
 
+def _profile_sources(payload: dict[str, Any], model: str | None) -> list[MeasurementSource]:
+    element = payload.get("element") or {}
+    names = _element_index([element])
+    label = element.get("name") or element.get("globalId") or ""
+    return [
+        _measurement_source(
+            answer, headline=f"{measure} · {label}" if label else str(measure), names=names, model=model
+        )
+        for measure, answer in (payload.get("measures") or {}).items()
+        if _is_evidence(answer)
+    ]
+
+
+def _batch_sources(payload: dict[str, Any], measure: str, model: str | None) -> list[MeasurementSource]:
+    out: list[MeasurementSource] = []
+    for entry in payload.get("results") or []:
+        answer = (entry or {}).get("answer")
+        if not _is_evidence(answer):
+            continue
+        label = entry.get("name") or entry.get("globalId") or ""
+        headline = f"{measure} · {label}" if label else measure
+        out.append(_measurement_source(answer, headline=headline, names=_element_index([entry]), model=model))
+    return out
+
+
 def _measurement_sources(
     operation: str,
     payload: Any,
@@ -1763,60 +1817,21 @@ def _measurement_sources(
 
     Walks exactly the shapes :func:`_measured_count` walks and admits exactly
     what :func:`_is_evidence` admits, so the cards under an answer and the
-    „Messwerte in diesem Ergebnis" trailer are the same statement twice. An
-    undecidable finding and an ``inferred`` guess therefore produce no card —
-    the first is a fact about the export and the second is „ein Vorschlag zur
-    Bestätigung, keine Feststellung", and neither belongs under a heading that
-    reads „Belegt durch".
-
-    Headlines are the register's own vocabulary — the measure key, qualified by
-    the element the payload names — because the agent's prose quotes those same
-    keys and a card that renamed them into prettier German would stop matching
-    the sentence it sits beside.
+    „Messwerte in diesem Ergebnis" trailer are the same statement twice.
+    Headlines are the register's own vocabulary, qualified by the element the
+    payload names; a single `Answer` names none, so its headline is what the
+    CALL asked for.
     """
     if operation in NON_MEASURING_OPERATIONS or not isinstance(payload, dict):
         return []
     model = _model_identity(source)
-    out: list[MeasurementSource] = []
-
-    # `element_profile`: many measures over ONE element.
-    if "measures" in payload and "element" in payload:
-        element = payload.get("element") or {}
-        names = _element_index([element])
-        label = element.get("name") or element.get("globalId") or ""
-        for measure, answer in (payload.get("measures") or {}).items():
-            if not _is_evidence(answer):
-                continue
-            headline = f"{measure} · {label}" if label else str(measure)
-            out.append(_measurement_source(answer, headline=headline, names=names, model=model))
-        return out
-
-    # `survey` / a batch `measure`: ONE measure over many elements.
-    if "results" in payload and "summary" in payload:
-        measure = str(payload.get("measure") or detail or operation)
-        for entry in payload.get("results") or []:
-            answer = (entry or {}).get("answer")
-            if not _is_evidence(answer):
-                continue
-            names = _element_index([entry])
-            label = entry.get("name") or entry.get("globalId") or ""
-            headline = f"{measure} · {label}" if label else measure
-            out.append(_measurement_source(answer, headline=headline, names=names, model=model))
-        return out
-
-    # A single `Answer`. The payload names no element, so the headline falls
-    # back to what the CALL asked for — the measure/relation/mode the agent
-    # chose — and the GlobalIds come from the envelope's own `from`.
+    if _is_profile(payload):
+        return _profile_sources(payload, model)
+    if _is_batch(payload):
+        return _batch_sources(payload, str(payload.get("measure") or detail or operation), model)
     if "decidable" in payload and _is_evidence(payload):
-        out.append(
-            _measurement_source(
-                payload,
-                headline=str(detail or operation),
-                names={},
-                model=model,
-            )
-        )
-    return out
+        return [_measurement_source(payload, headline=str(detail or operation), names={}, model=model)]
+    return []
 
 
 def _render(
@@ -1830,323 +1845,76 @@ def _render(
     """The engine's result as the string the model reads.
 
     Ends with the evidence trailer (:func:`.measurement_evidence_line`) on every
-    path that could carry a measurement, because "how many values did this
-    actually measure" is a question the result has to answer about itself — the
-    confidence gate reads that line, and a reader who sees „gemessen: raumhoehe
-    an 0 von 3 Bauteilen" needs the same fact stated rather than implied.
-
-    :data:`NON_MEASURING_OPERATIONS` get no trailer at all. „Messwerte in diesem
-    Ergebnis: 0" is true of a `draw` and useless to the model: it reads as a
-    measurement that failed and invites a retry, and with
-    ``max_tool_iterations`` at 5 a wasted turn is expensive. Suppressing the
-    line cannot open the gate, because the gate needs a trailer stating a
-    NON-ZERO count and an absent trailer is False either way
-    (:func:`measurement_evidence.result_carries_measurement`) — so an operation
-    nobody thought to list here still yields no grounding.
-
-    It is also where a measurement becomes a SOURCE. The rendered string is what
-    the agent reads; the envelope behind it is what a reviewer has to be able to
-    audit, and it is thrown away one line below. Recording it here — the last
-    point at which the structured ``Answer`` still exists — is what gives a
-    measured answer a Herleitung (:mod:`.measurement_sources`). Recording is a
-    no-op unless a turn is capturing, so the CLI, the tests and every other
-    caller of this formatting function are unaffected.
+    operation that could carry a measurement; :data:`NON_MEASURING_OPERATIONS`
+    get none, and an absent trailer never opens the confidence gate. This is
+    also the last point at which the structured ``Answer`` exists, so it is
+    where a measurement becomes a Herleitung source — a no-op unless a turn is
+    capturing.
     """
-    body = _render_body(operation, payload, source=source, handle=handle)
+    lines = [_model_line(source or {}, handle), *_body_lines(operation, payload)]
     record_measurements(_measurement_sources(operation, payload, source=source, detail=detail))
-    if operation in NON_MEASURING_OPERATIONS:
-        return body
-    return body + "\n" + measurement_evidence_line(_measured_count(payload))
-
-
-def _render_body(
-    operation: str,
-    payload: Any,
-    *,
-    source: dict[str, Any] | None = None,
-    handle: str = "",
-) -> str:
-    """The result itself, one branch per operation shape."""
-    lines: list[str] = []
-    header = _model_line(source or {}, handle)
-    if header:
-        lines.append(header)
-
-    if operation == "briefing":
-        if isinstance(payload, dict) and isinstance(payload.get("briefing"), str):
-            lines.append(payload["briefing"])
-        else:
-            lines.append(str(payload))
-        lines.append(
-            "Geschoß- und Merkmalsnamen aus diesem Briefing wörtlich übernehmen — sie stammen aus "
-            "DIESER Datei. Der Abschnitt BLIND sagt, was diese Datei nicht beantworten kann."
-        )
-        return "\n".join(line for line in lines if line)
-
-    if operation == "find_elements" and isinstance(payload, dict):
-        elements = payload.get("elements") or []
-        total = payload.get("total", len(elements))
-        lines.append(f"{total} Treffer, {len(elements)} aufgelistet.")
-        lines.extend(_element_line(entry) for entry in elements)
-        if payload.get("truncated"):
-            lines.append("(Weitere Treffer vorhanden — Suche eingrenzen.)")
-        if payload.get("hint"):
-            lines.append(str(payload["hint"]))
-        return "\n".join(line for line in lines if line)
-
-    if operation == "element" and isinstance(payload, dict):
-        element = payload.get("element") or {}
-        lines.append(
-            f"{element.get('ifcType')} „{element.get('name') or element.get('globalId')}“ · "
-            f"GlobalId {element.get('globalId')}"
-        )
-        if payload.get("storey"):
-            lines.append(f"Geschoß: {payload['storey']}")
-        if payload.get("predefinedType"):
-            lines.append(f"PredefinedType: {payload['predefinedType']}")
-        container = payload.get("container")
-        if isinstance(container, dict):
-            lines.append(f"Liegt in: {container.get('ifcType')} „{container.get('name')}“")
-        available = payload.get("available") or []
-        if available:
-            lines.append("Vorhandene Relationen: " + ", ".join(str(name) for name in available))
-        if payload.get("hinweis"):
-            lines.append(f"Hinweis: {payload['hinweis']}")
-        return "\n".join(line for line in lines if line)
-
-    if operation == "shopping_list" and isinstance(payload, dict):
-        lines.append(str(payload.get("summary") or ""))
-        if payload.get("path"):
-            lines.append(
-                f"IDS-Datei geschrieben: {payload['path']} "
-                f"({payload.get('specifications')} Spezifikationen, {payload.get('bytes')} Bytes)."
-            )
-        for entry in payload.get("exported") or []:
-            lines.append(f"- enthalten: {entry}")
-        for entry in payload.get("notExportable") or []:
-            lines.append(f"- NICHT als IDS ausdrückbar: {entry.get('what')} — {entry.get('why')}")
-        lines.append(
-            "Die Datei verlangt nur, DASS ein Merkmal vorhanden ist, nie welchen Wert es haben muss. "
-            "Grenzwerte kommen aus der Bestimmung."
-        )
-        return "\n".join(line for line in lines if line)
-
-    if operation == "draw" and isinstance(payload, dict):
-        lines.append(
-            f"Zeichnung erzeugt: {payload.get('path')} ({payload.get('bytes')} Bytes, {payload.get('seconds')} s)."
-        )
-        lines.append(
-            "Die Zeichnung liegt als Datei auf dem Server. Maße NICHT aus dem Bild ablesen — dafür "
-            "operation='measure' oder 'distance' verwenden."
-        )
-        return "\n".join(line for line in lines if line)
-
-    # Every measure that applies to one element. Without this branch the payload
-    # falls through to `str(payload)` at the bottom of this function and dumps a
-    # raw Python dict — thousands of tokens of `{'value': {...}, 'tolerance':
-    # 0.005, ...}` with the German provenance verbs stripped out, which is the
-    # rendering defect this whole module exists to prevent, at the largest
-    # payload on the surface.
-    if isinstance(payload, dict) and "measures" in payload and "element" in payload:
-        element = payload.get("element") or {}
-        head = f"gemessen an {element.get('name') or element.get('globalId')} ({element.get('ifcType')}"
-        if payload.get("storey"):
-            head += f", {payload['storey']}"
-        lines.append(head + "):")
-        for name, answer in (payload.get("measures") or {}).items():
-            answer = answer or {}
-            if answer.get("error"):
-                lines.append(f"- {name}: FEHLER — {answer['error']}")
-            elif answer.get("decidable"):
-                value = _value_text(answer.get("value"))
-                unit = answer.get("unit") or ""
-                lines.append(f"- {name}: {value} {unit}".rstrip())
-            else:
-                missing = (answer.get("missing") or {}).get("what") or "nicht entscheidbar"
-                lines.append(f"- {name}: NICHT ENTSCHEIDBAR — {missing}")
-        skipped = payload.get("notMeasured") or {}
-        if skipped.get("kinds"):
-            lines.append(f"Nicht gemessen: {', '.join(skipped['kinds'])}. {skipped.get('why') or ''}".strip())
-        lines.append(
-            "Verkürzte Übersicht: Toleranz, Herkunft und Methode je Kennwert liefert operation='measure' "
-            "für den einen, auf den es ankommt. Lange Listen sind gekürzt."
-        )
-        return "\n".join(line for line in lines if line)
-
-    # A batch measurement — one `measure` call over several elements. Rendered
-    # as a table with the SPREAD first, because that is the finding: „alle 17
-    # Kellerräume 2.70 m" and „16 davon 2.70 m, einer 0.25 m" are different
-    # answers to the same question, and only the second is true of the
-    # Institute's basement. Flattening this through `_value_text` would print
-    # „results=17 Einträge, summary=(…)" — seventeen measurements and not one
-    # number, the same defect the door graph had.
-    if isinstance(payload, dict) and "results" in payload and "summary" in payload:
-        summary = payload.get("summary") or {}
-        results = payload.get("results") or []
-        measured, of = summary.get("measured", 0), summary.get("of", len(results))
-        spread = summary.get("spread")
-        head = f"gemessen: {payload.get('measure')} an {measured} von {of} Bauteilen"
-        if spread is not None and spread > 0:
-            head += f" — von {_num(summary.get('min'), 3)} bis {_num(summary.get('max'), 3)}, Spanne {_num(spread, 3)}"
-        elif spread == 0:
-            head += f" — durchgehend {_num(summary.get('min'), 3)}"
-        if payload.get("truncated"):
-            head += f" (von {summary.get('selected')} passenden — NUR diese Auswahl)"
-        lines.append(head + ".")
-        for entry in results[:40]:
-            answer = entry.get("answer") or {}
-            # `survey` carries the name; a bare `measure` over a list of ids does
-            # not. Preferring the name matters more than it looks: a reviewer who
-            # has to act on „einer dieser Räume ist 0,25 m hoch" needs to know
-            # WHICH, and a 22-character GlobalId is not something a person can
-            # carry to a CAD window.
-            label = entry.get("name") or entry.get("globalId")
-            if entry.get("name") and entry.get("storey"):
-                label = f"{entry['name']} ({entry['storey']})"
-            if answer.get("decidable"):
-                value = _num(answer.get("value"), _decimals(answer.get("tolerance")))
-                lines.append(f"- {label}: {value} {answer.get('unit') or ''}".rstrip())
-            else:
-                missing = (answer.get("missing") or {}).get("what") or "nicht entscheidbar"
-                lines.append(f"- {label}: NICHT ENTSCHEIDBAR — {missing}")
-        if len(results) > 40:
-            lines.append(f"… {len(results) - 40} weitere nicht gezeigt.")
-        if summary.get("undecidable"):
-            count = len(summary["undecidable"])
-            noun = "Bauteil konnte" if count == 1 else "Bauteile konnten"
-            lines.append(
-                f"{count} {noun} nicht gemessen werden — sie sind oben einzeln genannt und dürfen "
-                "nicht als „wie die anderen“ berichtet werden."
-            )
-        if summary.get("disagree"):
-            named = ", ".join(entry.get("name") or entry.get("globalId") for entry in summary["disagree"])
-            lines.append(
-                f"WIDERSPRUCH zwischen deklariertem und gemessenem Wert bei: {named}. "
-                "Das ist ein Befund über den Export, nicht über das Gebäude."
-            )
-        if payload.get("hint"):
-            lines.append(str(payload["hint"]))
-        if spread:
-            # Only when there IS a spread. Printing „die Spanne ist die Aussage"
-            # under a survey that measured nothing was advice about a number the
-            # caller does not have, and the sentence has to keep meaning
-            # something for the cases where it fires.
-            lines.append("Die Spanne ist die Aussage: ein einzeln gemessener Raum belegt nichts über die übrigen.")
-        return "\n".join(line for line in lines if line)
-
-    if isinstance(payload, dict) and "decidable" in payload:
-        lines.extend(_render_answer(payload))
-        return "\n".join(line for line in lines if line)
-
-    lines.append(str(payload))
+    if operation not in NON_MEASURING_OPERATIONS:
+        lines.append(measurement_evidence_line(_measured_count(payload)))
     return "\n".join(line for line in lines if line)
 
 
-# ── the three ways this tool can fail, said differently ──────────────────────
-#
-# Kept as module-level text rather than inline strings so the distinction is
-# testable without a running frontend — and so it stays a distinction. The whole
-# reason `BimQueryRejectedError` exists is that every 4xx used to be reported as
-# "the model service is unavailable", which ends a turn on a typo with the agent
-# instructed to say nothing about the building.
-
-
-def _rejected_text(reason: str) -> str:
-    """The arguments were wrong, and that is fixable in this same turn."""
-    return (
-        f"Error: the request was rejected — {reason}. This is a problem with the arguments, not "
-        "with the model. Correct them and call the tool again. Do NOT state anything about the "
-        "building on the strength of this."
-    )
-
-
-def _unrunnable_text(reason: str) -> str:
-    """The call could not be MADE. Two kinds, and they need opposite advice.
-
-    Distinct from `decidable: false`, which is a successful answer about the
-    export and renders as a finding, not as an error.
-
-    An unknown GlobalId means look it up again. A WRONG KIND — asking a wall for
-    its clear opening width — means the id is CORRECT and the operator is not,
-    and telling the agent to re-check the id sends it to `find_elements` for
-    something it already has, then back with the same wrong call. The engine's
-    own message already names the operator that would answer, so the advice here
-    is to take it.
-    """
-    wrong_kind = "Fehler im Aufruf" in reason
-    if wrong_kind:
-        return (
-            f"Error: {reason}. The GlobalId is fine — the OPERATOR is wrong for this kind of "
-            "element. Do not look the id up again; use the operator named above."
-        )
-    return (
-        f"Error: {reason}. This is a problem with the arguments, not with the building — "
-        "check the GlobalId with operation='find_elements' and call again."
-    )
-
-
-#: Nothing was looked at. "Could not look" is not "looked and found nothing".
-UNAVAILABLE_TEXT = (
-    "Error: das Modell konnte gerade nicht gelesen werden (der Modelldienst ist nicht erreichbar). "
-    "Do NOT state anything about the building's geometry; tell the user the model could not be read."
-)
-
-
-def _too_large_text(model_bytes: int | None, limit_bytes: int) -> str:
-    """A model this worker cannot hold — a fact about the FILE, not an outage.
-
-    Named separately from :data:`UNAVAILABLE_TEXT` because the two need opposite
-    actions from the reader. An outage means wait. This never resolves on its
-    own: the export has to get smaller or the worker bigger, and the message
-    says which, with the numbers in it so nobody is arguing with an invisible
-    limit.
-
-    `ifc_query` is offered by name because it still works — the metadata half
-    reads the extracted index and never touches these bytes, so "too large to
-    MEASURE" is a much narrower failure than it sounds.
-    """
-    size = f"{model_bytes / (1024 * 1024):.0f} MB" if model_bytes else "Dieses Modell"
-    limit = f"{limit_bytes // (1024 * 1024)} MB"
-    return (
-        f"Error: das Modell ({size}) ist zu groß für die geometrische Auswertung auf diesem Server "
-        f"(Grenze {limit}). Das ist eine Aussage über die DATEI, kein Ausfall — Warten hilft nicht. "
-        "Dem Nutzer sagen: entweder das Modell nach Bauteil oder Bauabschnitt getrennt exportieren, "
-        "oder einen größeren Auswerte-Server anfordern. Metadaten-Fragen (Bauteillisten, "
-        "Property-Werte, Zählungen) sind mit ifc_query weiterhin beantwortbar — die laufen über den "
-        "extrahierten Index und nicht über die Datei. Keine Maße schätzen."
-    )
-
-
-#: This deployment has no geometry engine. Not a fact about the building either.
-ENGINE_UNAVAILABLE_TEXT = (
-    "Error: geometric measurement is not available in this deployment (the spatial engine is not "
-    "installed). Metadata questions can still be answered with ifc_query. Do NOT estimate the number."
-)
+# ── tracing and the tool ─────────────────────────────────────────────────────
 
 
 def _trace(operation: str, detail: str, *, outcome: str) -> None:
-    """What this call did, for Langfuse (ADR-0045 §Observability).
-
-    The same seam ``ifc_query`` uses and the same rule about its contents: the
-    SHAPE of the call, never the building. ``ifc_measure_detail`` is a relation
-    or measure NAME from a closed vocabulary in this file — never a GlobalId, an
-    element name or a measured value.
-    """
-    from aiq_agent.observability.langfuse_trace_attributes import add_trace_tag
-    from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
-
-    add_trace_tag("feature:ifc")
-    # Both fields are drawn from the closed vocabularies at the top of this
-    # file. An operation the model invented is recorded as `unknown` rather than
-    # echoed: free text out of a language model is not a fact about this call,
-    # and an external observability service is not the place to find that out.
+    """The SHAPE of the call for Langfuse: names from the closed vocabularies here, never model-authored text."""
     known = operation if operation in VALID_OPERATIONS else "unknown"
     known_detail = detail if detail in RELATIONS or detail in MEASURES or detail in DISTANCE_MODES else None
-    record_trace_metadata(
-        ifc_op=f"measure:{known}",
-        ifc_outcome=outcome,
-        ifc_measure_detail=known_detail,
-    )
+    record_ifc_call(f"measure:{known}", outcome, ifc_measure_detail=known_detail)
+
+
+def _run(organization_id: str, project_id: str | None, model_name: str, name: str, args: dict[str, Any]):
+    """Resolve, load and call — one blocking unit for ``to_thread``."""
+    source = resolve_model_source(organization_id=organization_id, project_id=project_id, model_name=model_name or None)
+    if not source.get("resolved"):
+        return source, None, ""
+    handle = open_model(source)
+    return source, call_spatial_tool(handle, name, args), handle
+
+
+def _reply(name: str, detail: str, source: dict[str, Any], payload: Any, handle: str) -> list[dict] | str:
+    """What the agent reads once the engine has answered — or once the model could not be selected."""
+    if not source.get("resolved"):
+        _trace(name, detail, outcome=f"unresolved:{source.get('reason', 'unknown')}")
+        return _render_unresolved(source)
+    decidable = payload.get("decidable") if isinstance(payload, dict) else None
+    _trace(name, detail, outcome="undecidable" if decidable is False else "resolved")
+    if name == "view" and isinstance(payload, dict) and payload.get("pngBase64"):
+        return _image_blocks(payload, source=source, handle=handle)
+    return _render(name, payload, source=source, handle=handle, detail=detail)
+
+
+async def _measure(arguments: IfcMeasureInput, default_limit: int) -> list[dict] | str:
+    """The tool body: guard, build, run, render — every failure as text the agent can act on."""
+    organization_id = get_organization_id_from_context()
+    if not organization_id:
+        return NO_ORG_TEXT
+    project_id = get_project_id_from_context()
+    if not project_id:
+        _trace(arguments.operation, "", outcome="no_project")
+        return NO_PROJECT_TEXT
+    built = _engine_call(arguments, default_limit)
+    if isinstance(built, str):
+        _trace(arguments.operation, "", outcome="rejected")
+        return built
+    name, args = built
+    # The measure/relation/mode the CALL asked for: the only headline a single-`Answer` payload has.
+    detail = str(args.get("relation") or args.get("measure") or args.get("mode") or "")
+    try:
+        source, payload, handle = await asyncio.to_thread(
+            _run, organization_id, project_id, arguments.model_name, name, args
+        )
+    except MEASURE_FAILURES.exceptions as exc:
+        failure = MEASURE_FAILURES.describe(exc)
+        logger.log(failure.level, "ifc_measure %s: %s", failure.outcome, exc)
+        _trace(name, detail, outcome=failure.outcome)
+        return failure.text(exc)
+    return _reply(name, detail, source, payload, handle)
 
 
 class IfcMeasureConfig(FunctionBaseConfig, name="ifc_measure"):
@@ -2157,140 +1925,10 @@ class IfcMeasureConfig(FunctionBaseConfig, name="ifc_measure"):
 
 @register_function(config_type=IfcMeasureConfig)
 async def ifc_measure(tool_config: IfcMeasureConfig, builder: Builder):
-    from aiq_agent.knowledge.bim_query import BimQueryRejectedError
-    from aiq_agent.knowledge.bim_query import BimQueryUnavailableError
-    from aiq_agent.knowledge.ifc_spatial_client import ModelTooLargeError
-    from aiq_agent.knowledge.ifc_spatial_client import SpatialEngineUnavailableError
-    from aiq_agent.knowledge.ifc_spatial_client import SpatialToolError
-    from aiq_agent.knowledge.ifc_spatial_client import call_spatial_tool
-    from aiq_agent.knowledge.ifc_spatial_client import open_model
-    from aiq_agent.knowledge.ifc_spatial_client import resolve_model_source
-    from aiq_agent.project_context import get_organization_id_from_context
-    from aiq_agent.project_context import get_project_id_from_context
-
-    def _run(organization_id: str, project_id: str | None, model_name: str, name: str, args: dict[str, Any]):
-        """Resolve, load and call — one blocking unit for ``to_thread``."""
-        source = resolve_model_source(
-            organization_id=organization_id,
-            project_id=project_id,
-            model_name=model_name or None,
-        )
-        if not source.get("resolved"):
-            return source, None, ""
-        handle = open_model(source)
-        return source, call_spatial_tool(handle, name, args), handle
-
     async def _ifc_measure(arguments: IfcMeasureInput) -> list[dict] | str:
-        """Measure the project's IFC/BIM model and report the provenance.
+        """Measure the project's IFC/BIM model and report the provenance."""
+        return await _measure(arguments, tool_config.default_limit)
 
-        One validated argument rather than sixteen loose ones. The defaults used
-        to be written twice — once in this signature and once in the prose that
-        told the model what they were — and the two disagreed: `mode` defaulted
-        to 'min' here, so every `view` call that took the description at its
-        word and omitted the field arrived as mode='min', which `view` does not
-        have, and was refused. The description said the default was 'highlight'
-        and it was telling the truth about `_build_call`; nothing between them
-        was. :class:`IfcMeasureInput` is now the only place a default is
-        written, and 'not given' reaches `_build_call` as 'not given', where the
-        per-operation default has always lived.
-        """
-        organization_id = get_organization_id_from_context()
-        if not organization_id:
-            return "Error: organization unknown for this session — the BIM model cannot be read. Do not retry."
-        project_id = get_project_id_from_context()
-        if not project_id:
-            # Same hole as `ifc_query`, same reason: `/api/internal/bim/source`
-            # needs a project to scope the model list to, this tool never sends
-            # a modelId, and the 400 that results reads as a correctable
-            # argument error. Refused here, where the reason is knowable.
-            _trace(arguments.operation, "", outcome="no_project")
-            return NO_PROJECT_TEXT
-
-        limit = arguments.limit
-        built = _build_call(
-            operation=arguments.operation,
-            global_id=str(arguments.global_id),
-            other_global_id=str(arguments.other_global_id),
-            relation=arguments.relation or "",
-            measure=arguments.measure or "",
-            mode=arguments.mode or "",
-            ifc_type=arguments.ifc_type,
-            name_contains=arguments.name_contains,
-            storey=arguments.storey,
-            kind=arguments.kind or "",
-            room_kind=arguments.room_kind or "",
-            limit=limit if limit and limit > 0 else tool_config.default_limit,
-            # Passed through as they arrived. "Not given" is `None` in the
-            # schema itself, so nothing here has to re-decide what a missing
-            # angle looks like — and `swivel_deg=0` (a real, legal value: no
-            # lateral Verschwenkung) reaches `_build_call` as 0 instead of being
-            # laundered into "absent" by a falsiness test.
-            angle_deg=arguments.angle_deg,
-            swivel_deg=arguments.swivel_deg,
-            when=arguments.when,
-        )
-        if isinstance(built, str):
-            # Rejected before anything was resolved, downloaded or parsed.
-            _trace(arguments.operation, "", outcome="rejected")
-            return built
-        name, args = built
-        detail = str(args.get("relation") or args.get("measure") or args.get("mode") or "")
-
-        try:
-            source, payload, handle = await asyncio.to_thread(
-                _run, organization_id, project_id, arguments.model_name, name, args
-            )
-        except BimQueryRejectedError as exc:
-            logger.info("ifc_measure was rejected: %s", exc)
-            _trace(name, detail, outcome="rejected")
-            return _rejected_text(str(exc))
-        except ModelTooLargeError as exc:
-            # Caught BEFORE its base class, and reported as a fact about the
-            # FILE. As a generic outage this sent an architect off to wait for a
-            # service to recover that was never down.
-            logger.info("ifc_measure refused an oversized model: %s", exc)
-            _trace(name, detail, outcome="model_too_large")
-            return _too_large_text(exc.model_bytes, exc.limit_bytes)
-        except BimQueryUnavailableError as exc:
-            # "Could not look" is not "looked and found nothing" — say so, or a
-            # transport failure gets reported as a fact about the building.
-            logger.warning("ifc_measure could not obtain the model: %s", exc)
-            _trace(name, detail, outcome="service_unavailable")
-            return UNAVAILABLE_TEXT
-        except SpatialEngineUnavailableError:
-            logger.warning("ifc_measure was called but the spatial engine is not installed")
-            _trace(name, detail, outcome="engine_unavailable")
-            return ENGINE_UNAVAILABLE_TEXT
-        except SpatialToolError as exc:
-            # A call that could NOT BE MADE — an unknown GlobalId, a relation
-            # the engine does not have. Distinct from every `decidable: false`,
-            # which is a successful answer about the EXPORT and is rendered as
-            # one further down.
-            logger.info("ifc_measure could not run the operator: %s", exc)
-            _trace(name, detail, outcome="rejected")
-            return _unrunnable_text(str(exc))
-
-        if not source.get("resolved"):
-            _trace(name, detail, outcome=f"unresolved:{source.get('reason', 'unknown')}")
-            return _render_unresolved(source)
-
-        decidable = payload.get("decidable") if isinstance(payload, dict) else None
-        _trace(
-            name,
-            detail,
-            outcome="undecidable" if decidable is False else "resolved",
-        )
-        if name == "view" and isinstance(payload, dict) and payload.get("pngBase64"):
-            return _image_blocks(payload, source=source, handle=handle)
-        # `detail` — the measure/relation/mode the CALL asked for — is the only
-        # name a single-`Answer` payload has: the envelope carries the method
-        # but not the vocabulary word the agent chose, and „measure" alone is
-        # not a headline anybody can act on.
-        return _render(name, payload, source=source, handle=handle, detail=detail)
-
-    # `input_schema` is passed rather than inferred, which is the whole point:
-    # NAT hands it to the framework wrapper as the tool's `args_schema`, and
-    # that is what becomes the JSON schema the model is shown. Inferred from the
-    # signature it was sixteen bare strings; declared, it carries the enums, the
-    # per-parameter text and the one required field.
+    # `input_schema` is what NAT hands LangChain as `args_schema`: the enums,
+    # the per-parameter text and the one required field reach the model.
     yield FunctionInfo.from_fn(_ifc_measure, input_schema=IfcMeasureInput, description=_TOOL_DESCRIPTION)

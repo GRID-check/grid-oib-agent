@@ -662,26 +662,12 @@ class TestTheDescriptionDescribesTheRealTool:
 
     @staticmethod
     def _description_and_parameters() -> tuple[str, list[str]]:
-        # Read through the AST rather than importing: `_ifc_query` is nested
-        # inside a registration generator, so its signature is not reachable
-        # without standing up the whole NAT builder.
-        import ast
-        import inspect
+        # `IfcQueryInput` IS the wire schema: NAT hands it to LangChain as the
+        # tool's `args_schema`, so its fields are the arguments the model can set.
+        from aiq_agent.agents.bim.register import _TOOL_DESCRIPTION
+        from aiq_agent.agents.bim.register import IfcQueryInput
 
-        from aiq_agent.agents.bim import register
-
-        tree = ast.parse(inspect.getsource(register))
-        description = next(
-            ast.literal_eval(node.value)
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "_TOOL_DESCRIPTION"
-        )
-        parameters = next(
-            [argument.arg for argument in node.args.args + node.args.kwonlyargs]
-            for node in ast.walk(tree)
-            if isinstance(node, ast.AsyncFunctionDef) and node.name == "_ifc_query"
-        )
-        return description, parameters
+        return _TOOL_DESCRIPTION, list(IfcQueryInput.model_fields)
 
     def test_every_argument_the_description_shows_being_set_exists(self):
         import re
@@ -954,3 +940,89 @@ class TestWhatTheTraceRecords:
         assert "Aussenwand" not in rendered
         assert "Fluchttuer" not in rendered
         assert "0GridFixture00Wall0001" not in rendered
+
+
+class TestTheToolBody:
+    """`_query` is the tool minus NAT: the context guards, the post, and the failure table.
+
+    Nothing here reaches a frontend. `run_bim_query` is replaced per test, so
+    what is asserted is which sentence the agent reads for which outcome, and
+    what the trace says about it.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _context(self, monkeypatch):
+        from aiq_agent.agents.bim import register
+
+        monkeypatch.setattr(register, "get_organization_id_from_context", lambda: "org-1")
+        monkeypatch.setattr(register, "get_project_id_from_context", lambda: "proj-1")
+
+    @staticmethod
+    def _query(monkeypatch, run, **arguments) -> tuple[str, str]:
+        """The answer and the traced outcome — read inside the task, where the ContextVar was written."""
+        import asyncio
+
+        from aiq_agent.agents.bim import register
+        from aiq_agent.observability.langfuse_trace_attributes import _CONTRIBUTED
+        from aiq_agent.observability.langfuse_trace_attributes import reset_contributions
+
+        monkeypatch.setattr(register, "run_bim_query", run)
+
+        async def body() -> tuple[str, str]:
+            reset_contributions()
+            answer = await register._query(register.IfcQueryInput(**arguments), 25)
+            return answer, (_CONTRIBUTED.get() or {"metadata": {}})["metadata"].get("ifc_outcome", "")
+
+        return asyncio.run(body())
+
+    def test_no_organization_is_refused_before_anything_is_built(self, monkeypatch):
+        from aiq_agent.agents.bim import register
+        from aiq_agent.agents.bim.failures import NO_ORG_TEXT
+
+        monkeypatch.setattr(register, "get_organization_id_from_context", lambda: None)
+        assert self._query(monkeypatch, lambda **_: pytest.fail("posted"))[0] == NO_ORG_TEXT
+
+    def test_no_project_is_the_shared_do_not_retry_sentence(self, monkeypatch):
+        from aiq_agent.agents.bim import register
+        from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
+
+        monkeypatch.setattr(register, "get_project_id_from_context", lambda: None)
+        assert self._query(monkeypatch, lambda **_: pytest.fail("posted"))[0] == NO_PROJECT_TEXT
+
+    def test_a_query_the_builder_refuses_never_reaches_the_endpoint(self, monkeypatch):
+        answer, _ = self._query(monkeypatch, lambda **_: pytest.fail("posted"), operation="count_walls")
+        assert answer.startswith("Error: unknown operation")
+
+    def test_a_rejection_is_a_correctable_argument_error_on_the_trace_too(self, monkeypatch):
+        from aiq_agent.knowledge.bim_query import BimQueryRejectedError
+
+        def rejected(**_):
+            raise BimQueryRejectedError("Unrecognized key(s): 'storeys'")
+
+        answer, outcome = self._query(monkeypatch, rejected, operation="elements")
+        assert "Unrecognized key(s): 'storeys'" in answer
+        assert "problem with the arguments" in answer
+        assert outcome == "rejected"
+
+    def test_an_outage_is_not_a_fact_about_the_building(self, monkeypatch):
+        from aiq_agent.agents.bim.failures import QUERY_UNAVAILABLE_TEXT
+        from aiq_agent.knowledge.bim_query import BimQueryUnavailableError
+
+        def down(**_):
+            raise BimQueryUnavailableError("connection refused")
+
+        assert self._query(monkeypatch, down, operation="overview") == (QUERY_UNAVAILABLE_TEXT, "service_unavailable")
+
+    def test_a_resolved_answer_is_rendered_with_the_defaults_applied_once(self, monkeypatch):
+        seen: dict = {}
+
+        def run(**kwargs):
+            seen.update(kwargs)
+            return {"resolved": True, "op": "elements", "model": {"filename": "haus.ifc"}, "summary": "3 Bauteile"}
+
+        answer, outcome = self._query(monkeypatch, run, operation="Elements", model_name=" haus ")
+        assert seen["query"] == {"op": "elements", "filter": {}, "limit": 25, "offset": 0}
+        assert seen["model_name"] == "haus"
+        assert seen["compare_with_name"] is None
+        assert answer == "Modell: haus.ifc\n3 Bauteile"
+        assert outcome == "resolved"

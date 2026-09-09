@@ -277,15 +277,5 @@ def get_measurement_captures() -> list[MeasurementSource]:
 
 
 def measurement_sources_to_wire(entries: Sequence[MeasurementSource]) -> list[dict[str, Any]]:
-    """Serialize measurements for the citation wire, skipping any that fail.
-
-    Per-entry, mirroring the retrieved-source path: one malformed measurement
-    must not zero out a turn's whole derivation trail.
-    """
-    out: list[dict[str, Any]] = []
-    for entry in entries:
-        try:
-            out.append(entry.to_wire())
-        except Exception:  # pragma: no cover — a frozen dataclass of strings
-            continue
-    return out
+    """Serialize measurements for the citation wire."""
+    return [entry.to_wire() for entry in entries]

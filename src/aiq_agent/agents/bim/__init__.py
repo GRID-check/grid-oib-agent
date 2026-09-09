@@ -1,1 +1,1 @@
-"""IFC/BIM agent tooling: the deterministic ``ifc_query`` model-query tool."""
+"""The BIM surface: the ``ifc_query`` and ``ifc_measure`` tools and their output contracts."""

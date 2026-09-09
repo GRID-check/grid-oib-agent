@@ -41,6 +41,11 @@ from aiq_agent.agents.bim.measure_register import _render_unresolved
 from aiq_agent.agents.bim.measure_register import _unrunnable_text
 from aiq_agent.agents.bim.measurement_evidence import MEASUREMENT_EVIDENCE_PREFIX
 from aiq_agent.agents.bim.measurement_evidence import result_carries_measurement
+from aiq_agent.knowledge.bim_query import BimQueryRejectedError
+from aiq_agent.knowledge.bim_query import BimQueryUnavailableError
+from aiq_agent.knowledge.ifc_spatial_client import ModelTooLargeError
+from aiq_agent.knowledge.ifc_spatial_client import SpatialEngineUnavailableError
+from aiq_agent.knowledge.ifc_spatial_client import SpatialToolError
 
 
 def build(**overrides):
@@ -1502,26 +1507,26 @@ class TestTheDescriptionDescribesTheRealTool:
         assert shown, "the invariant is vacuous if no field description shows an argument at all"
         assert sorted(shown - fields) == []
 
-    def test_the_schema_and_the_dispatch_take_the_same_arguments(self):
-        """The model is the spec, and `_build_call` is what the spec dispatches to.
+    def test_every_schema_field_is_read_by_the_dispatch(self):
+        """The model is the spec, and the call builders are what the spec dispatches to.
 
-        A field on the input model that `_build_call` has no parameter for is a
-        value the model can set and this tool silently drops. The reverse — a
-        `_build_call` parameter with no field — is a capability nothing can
-        reach, which is the failure `test_no_engine_tool_is_unreachable` guards
-        one layer further down.
+        A field on the input model that no builder reads is a value the model
+        can set and this tool silently drops. The builders take the validated
+        model itself, so the check is that each field is read off it somewhere
+        between `_engine_call` and the engine.
         """
         import inspect
+        import re
 
+        from aiq_agent.agents.bim import measure_register
         from aiq_agent.agents.bim.measure_register import IfcMeasureInput
-        from aiq_agent.agents.bim.measure_register import _build_call
 
-        dispatched = set(inspect.signature(_build_call).parameters)
-        fields = set(IfcMeasureInput.model_fields)
+        source = inspect.getsource(measure_register)
+        builders = source[source.index("def _selection_args") : source.index("def _refusal")]
+        read = set(re.findall(r"\b(?:a|arguments)\.([a-z_]+)", builders))
         # `model_name` chooses WHICH file to open and never reaches the engine
         # call, so it is the one field with no counterpart.
-        assert fields - dispatched == {"model_name"}
-        assert dispatched - fields == set()
+        assert set(IfcMeasureInput.model_fields) - read == {"model_name"}
 
     def test_every_operation_it_names_is_one_the_tool_accepts(self):
         import re
@@ -2593,3 +2598,118 @@ class TestEveryWellFormedCallStillDispatchesIdentically:
 
         arguments = {"operation": "envelope"} | {field: written}
         assert getattr(IfcMeasureInput(**arguments), field) == canonical
+
+
+class TestTheLooseSeamMeansWhatTheWireMeans:
+    """`_build_call` takes loose keyword arguments and validates them the way the wire does."""
+
+    def test_an_empty_string_is_not_given(self):
+        """The question battery passes `relation=""` for every call; the schema's `Literal` must not see it."""
+        assert _build_call(operation="briefing", relation="", measure="", mode="", kind="", room_kind="") == (
+            "briefing",
+            {"format": "text"},
+        )
+
+    def test_a_missing_enum_names_the_operation_that_needs_it(self):
+        answer = _build_call(operation="measure", global_id="1kTv")
+        assert answer.startswith("Error: operation 'measure' needs 'measure'")
+        assert "clearHeight" in answer
+
+    def test_a_negative_limit_is_clamped_to_one_row_not_to_the_default(self):
+        _, args = _build_call(operation="find_elements", limit=-3)
+        assert args["limit"] == 1
+
+
+class TestAPayloadNobodyRendersIsABug:
+    def test_an_unknown_payload_shape_raises_rather_than_dumping_the_dict(self):
+        """`str(payload)` used to be the fallthrough: thousands of tokens of raw
+        dict with the provenance verbs stripped out. A shape nobody renders is
+        a bug to fix, and this is what finds it."""
+        with pytest.raises(TypeError, match="no renderer"):
+            _render("relations", {"unexpected": "shape"})
+
+
+class TestTheToolBody:
+    """`_measure` is the tool minus NAT: the guards, the engine call, the failure table."""
+
+    @pytest.fixture(autouse=True)
+    def _context(self, monkeypatch):
+        from aiq_agent.agents.bim import measure_register
+
+        monkeypatch.setattr(measure_register, "get_organization_id_from_context", lambda: "org-1")
+        monkeypatch.setattr(measure_register, "get_project_id_from_context", lambda: "proj-1")
+
+    @staticmethod
+    def _measure(monkeypatch, run, **arguments) -> tuple[str, str]:
+        """The answer and the traced outcome — read inside the task, where the ContextVar was written."""
+        import asyncio
+
+        from aiq_agent.agents.bim import measure_register
+        from aiq_agent.observability.langfuse_trace_attributes import _CONTRIBUTED
+        from aiq_agent.observability.langfuse_trace_attributes import reset_contributions
+
+        monkeypatch.setattr(measure_register, "_run", run)
+
+        async def body() -> tuple[str, str]:
+            reset_contributions()
+            answer = await measure_register._measure(measure_register.IfcMeasureInput(**arguments), 50)
+            return answer, (_CONTRIBUTED.get() or {"metadata": {}})["metadata"].get("ifc_outcome", "")
+
+        return asyncio.run(body())
+
+    def test_no_project_is_refused_and_traced_before_the_model_is_touched(self, monkeypatch):
+        from aiq_agent.agents.bim import measure_register
+        from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
+
+        monkeypatch.setattr(measure_register, "get_project_id_from_context", lambda: None)
+        assert self._measure(monkeypatch, lambda *_: pytest.fail("ran"), operation="briefing") == (
+            NO_PROJECT_TEXT,
+            "no_project",
+        )
+
+    def test_a_call_the_builder_refuses_is_traced_as_rejected(self, monkeypatch):
+        answer, outcome = self._measure(monkeypatch, lambda *_: pytest.fail("ran"), operation="measure")
+        assert answer.startswith("Error:")
+        assert outcome == "rejected"
+
+    @pytest.mark.parametrize(
+        "raised,outcome,expected",
+        [
+            (BimQueryRejectedError("nope"), "rejected", "problem with the arguments"),
+            (ModelTooLargeError(900 * 1024**2, 512 * 1024**2), "model_too_large", "zu groß"),
+            (BimQueryUnavailableError("down"), "service_unavailable", UNAVAILABLE_TEXT),
+            (SpatialEngineUnavailableError(), "engine_unavailable", ENGINE_UNAVAILABLE_TEXT),
+            (SpatialToolError("Bauteil 0xyz nicht enthalten"), "rejected", "find_elements"),
+        ],
+        ids=["rejected", "too_large", "unavailable", "no_engine", "unrunnable"],
+    )
+    def test_every_engine_failure_maps_to_its_own_sentence_and_outcome(self, monkeypatch, raised, outcome, expected):
+        """The failure table, one row at a time — the subclass before its base."""
+
+        def run(*_):
+            raise raised
+
+        answer, traced = self._measure(monkeypatch, run, operation="briefing")
+        assert expected in answer
+        assert traced == outcome
+
+    def test_an_unresolved_model_is_rendered_and_traced_with_its_reason(self, monkeypatch):
+        source = {"resolved": False, "reason": "ambiguous", "message": "Mehrere Modelle.", "models": []}
+        assert self._measure(monkeypatch, lambda *_: (source, None, ""), operation="briefing") == (
+            "Mehrere Modelle.",
+            "unresolved:ambiguous",
+        )
+
+    def test_a_resolved_answer_is_rendered_with_the_trailer(self, monkeypatch):
+        source = {"resolved": True, "model": {"filename": "haus.ifc"}}
+        payload = {"decidable": True, "provenance": "computed", "value": 2.7, "unit": "m", "tolerance": 0.005}
+        answer, outcome = self._measure(
+            monkeypatch,
+            lambda *_: (source, payload, "abc"),
+            operation="measure",
+            global_id="1kTv",
+            measure="clearHeight",
+        )
+        assert answer.startswith("Modell: haus.ifc · Kennung abc\ngemessen (±0.005 m): 2.700 m")
+        assert result_carries_measurement(answer)
+        assert outcome == "resolved"

@@ -110,15 +110,12 @@ def test_the_parameter_list_is_the_tool_s_own_signature() -> None:
     It is the reference every „is this an invention" assertion below resolves
     against, so a parameter added to the tool and forgotten here makes the skill
     UNABLE to teach it: the first `when: "…"` written into the prose would fail
-    as an invention when it is a real field of a real call. `model_name` is the
-    one addition — `_ifc_measure` resolves the model before `_build_call` ever
-    sees the arguments, so it is not in that signature.
+    as an invention when it is a real field of a real call. `IfcMeasureInput`
+    is the wire schema, so its fields are exactly what a call can carry.
     """
-    import inspect
+    from aiq_agent.agents.bim.measure_register import IfcMeasureInput
 
-    from aiq_agent.agents.bim.measure_register import _build_call
-
-    assert PARAMETERS == set(inspect.signature(_build_call).parameters) | {"model_name"}
+    assert PARAMETERS == set(IfcMeasureInput.model_fields)
 
 
 def test_the_kind_union_still_covers_the_schema() -> None:
