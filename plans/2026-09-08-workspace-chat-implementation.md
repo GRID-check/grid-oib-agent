@@ -1,8 +1,11 @@
 # Büro-Chat implementation plan (2026-09-08)
 
-> **Status:** proposed, not started. Nothing below has landed.
+> **Status:** phases 1-5 landed on `claude/global-workspace-architecture-3w0lee`,
+> behind the flag. Phase 6 is in flight.
 > **Implements:** [ADR-0054](../docs/adr/0054-workspace-chat-mounts-projects-on-demand.md)
-> — the Büro-Chat reads the office and mounts projects on demand.
+> — the Büro-Chat reads the office and mounts projects on demand — and
+> [ADR-0055](../docs/adr/0055-memory-is-read-not-only-injected.md), which phase 6
+> executes.
 > **Executes:** the requirements in
 > [`workspace-chat-spec.md`](../docs/design/workspace-chat-spec.md) (its §16 phases
 > and requirement ids are this plan's phases) and the surface in
@@ -19,8 +22,11 @@
 
 ## How to read this
 
-Five phases, matching ADR-0054 and the decision brief §5. Each slice names the
-files, the change, the tests, the docs and the one command that proves it.
+Five phases, matching ADR-0054 and the decision brief §5, plus a sixth added
+after the first five shipped: ADR-0055, which pays a debt the Büro created by
+reading organization memory on every turn while leaving it without a writer.
+Each slice names the files, the change, the tests, the docs and the one command
+that proves it.
 **Slices are ordered so every one is green and shippable behind the flag** — none
 leaves the tree with `task verify:fast` red or half a feature reachable.
 Conventions no slice restates:
@@ -846,6 +852,73 @@ Bezirk-3-Projekte" becomes a deep-research run instead of a refusal. **Spec:**
 
 ---
 
+## Phase 6 — Memory becomes readable, and visible where it is read
+
+**Goal:** the store behind the digest is reachable, and the layer read on every
+turn appears in the surfaces every other layer already appears in.
+**Value:** a reader can answer "what does it think it knows" from inside the
+answer, and a correction stops being the quietest event in the system.
+**Decision:** [ADR-0055](../docs/adr/0055-memory-is-read-not-only-injected.md).
+
+This phase was not in the original five. It was added after the Büro shipped,
+because ADR-0054 made organization memory a *read* on every office turn while
+leaving it without a writer, and because building the Wissensbasis tree made
+the omission obvious: five levels, and the one layer present in every single
+turn is not among them. The contracts below are fixed; three tracks build
+against them in parallel.
+
+- **P6.1 `search_memory`, and the digest that reports what it carried.**
+  `frontends/ui/src/app/api/internal/memory/search/route.ts` **(NEW)**,
+  `frontends/ui/src/lib/projects/memory-{service,repository}.ts`,
+  `src/aiq_agent/agents/project_memory/`, root `pyproject.toml`: a bounded tool
+  beside `remember`, running the same hybrid recall (`recall-scoring.ts`) the
+  digest already uses so the two agree on relevance. The scope rule is the
+  contract's one non-negotiable — a project turn reads that project plus the
+  organization, a Büro turn reads the organization only, never another project.
+  The digest response gains `carried`, `omitted` and `total`, built from the
+  same selection that produced its text. *Tests:*
+  `tests/aiq_agent/test_tool_context_contract.py` covers the tool; a spec pins
+  the scope rule; a spec pins `carried` against the digest text. *Docs:*
+  `docs/api/bff-routes.md`, `docs/api/python-endpoints.md`. *Verify:*
+  `task fe:test` + `task py:test`.
+- **P6.2 The memory level, the marker, the Herleitung.**
+  `scope-tree-model.ts`, `herleitung-levels.ts`, `trace-lanes.ts`,
+  `adapters/api/schemas.ts`: `ScopeLevelId` gains `'memory'` after `project`,
+  labelled **Gedächtnis**, stating `{carried} von {total}` and disclosing the
+  omission count to the reader — the same number the digest text already
+  discloses to the model. One collapsed marker under the answer renders the
+  `memory_context` frame extra. It is not a citation and must not use the
+  citation tokens: it states what was *read*, never what was *used*, because
+  the second is a claim we cannot verify. *Tests:* the frame-extra parity test,
+  a scope-tree spec on the counts. *Evidence:* `/dev/` routes and committed
+  PNGs. *Release note:* `task release:note -- gedaechtnis-sichtbar`.
+- **P6.3 Correction is a stated event.** `supersededBy` / `supersedes` on the
+  listed items, retired notes returned flagged rather than filtered away, and
+  `POST /api/projects/:id/memory/:itemId/restore`. The transcript shows the
+  supersession with an undo, reusing the notice-with-undo molecule the mounts
+  work introduced. This is what makes `supersedes_id` a column something reads.
+  *Tests:* the restore route spec, audited.
+- **P6.4 Organization findings by proposal.** Reflection may now *propose*
+  `scope: 'organization'`; the route still always refuses without
+  `org:memory:write`, keeping the `403 { code: 'ORG_MEMORY_DISABLED' }` body the
+  proposal-card branch keys on. The card says who may accept and why it is asked
+  at all — the blast radius is every project in the tenant. This answers, in
+  full, the objection the reflection code itself recorded. The misreported
+  denial is fixed in the same change: a permission refusal must not reach the
+  reader as "service unavailable".
+- **P6.5 The subtraction.** Migration `0085_memory_subtraction.sql` **(NEW)**
+  drops `embedded_at` and `created_by`, both written and never read, and removes
+  the `profile_graduation` kind, which has no writer. `supersedes_id` stays,
+  because P6.3 makes it read. `project-memory-design.md` §3.2 is corrected: it
+  describes an LLM adjudicator for supersession that does not exist, where the
+  mechanism is deterministic polarity matching. *Verify:* `task db:test:rls`.
+
+**Size: 5-6 engineer-days.** Medium-high confidence: four of the five slices
+compose machinery that exists twice over already — bounded tools with refusals,
+the status vocabulary, the notice-with-undo pattern, the proposal card.
+
+---
+
 ## Correlated substrate debt this plan pays
 
 Defects already on this path. YAGNI forbids unused features, not known defects
@@ -901,8 +974,9 @@ set, p95 TTFT at K=5 ≤ 1.5× K=1 (`task be:eval:retrieval`); **contract** —
 | 3 — Einblenden | 12-15 | Medium-low. Grant, contextvar registry and `ScopeTree` are a day or two each; attribution touches ten citation files, and the measurement may send the cap back for retuning. |
 | 4 — Sharing + memory | 5-6 | Medium. The sharing rule is small; re-validating participants on every mount is where the edge cases live. |
 | 5 — Portfolio + Sammlungen | 8-10 | Low. Sequential sub-runs under a budget is unexplored territory in this codebase. |
+| 6 — Memory readable and visible | 5-6 | Medium-high. Added after the Büro shipped ([ADR-0055](../docs/adr/0055-memory-is-read-not-only-injected.md)); four of five slices compose machinery that already exists. |
 
-**Total: 37-46 engineer-days**, phases 1-3 being the 24-30 that make the feature
+**Total: 42-52 engineer-days**, phases 1-3 being the 24-30 that make the feature
 real. Every number assumes one engineer who has read
 [`frontends/ui/AGENTS.md`](../frontends/ui/AGENTS.md) and
 [`src/aiq_agent/AGENTS.md`](../src/aiq_agent/AGENTS.md), and excludes the two
