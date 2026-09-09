@@ -18,10 +18,12 @@
 
 **Time to first token is the whole turn.** The chat turn is generated,
 citation-verified and sanitised fully buffered, then the finished text is
-re-cut into deltas (`src/aiq_agent/agents/chat_researcher/register.py:250-257`,
-`:286-310`, `:1360`; `docs/design/streaming-chat-answer.md:27-38` says so in
-as many words). So every item in §3 sits in front of the first character the
-reader sees, including the model's own generation. There is no "model
+re-cut into deltas (`src/aiq_agent/turn/streaming.py::iter_answer_deltas` and
+its callers — where `agents/chat_researcher/register.py:250-257`, `:286-310`
+and `:1360` went when the researcher was split out of that module;
+`docs/design/streaming-chat-answer.md:27-38` says so in as many words). So
+every item in §3 sits in front of the first character the reader sees,
+including the model's own generation. There is no "model
 streaming" slice to subtract; nothing streams.
 
 Ranked by expected seconds saved per turn without touching answer quality:

@@ -176,10 +176,17 @@ async def _build_clarifier(config: ChatDeepResearcherConfig, builder: Builder):
 async def _build_agent(config: ChatDeepResearcherConfig, builder: Builder) -> ConversationGraph:
     """Resolve the sibling NAT functions into the researcher's conversation graph.
 
-    ``enable_clarifier`` is spent HERE, on whether a clarifier is resolved at
-    all: a deployment that runs without one hands the graph ``None`` and the
-    escalation goes straight to deep research. The graph never sees the flag —
-    one switch, read once, instead of the same decision in three places.
+    ``enable_clarifier`` decides HERE whether a clarifier is resolved at all: a
+    deployment that runs without one hands the graph ``None`` and the escalation
+    goes straight to deep research. The graph itself never reads the flag.
+
+    It is read once more, per turn, folded into ``skip_clarifier`` beside the
+    request's own headless marker (the ``_response`` body below). That read is
+    redundant — with the flag off there is no ``clarifier_fn`` to run and both
+    paths already land on ``_deep_handoff`` — and it is kept because the two
+    reads answer different questions: this one is about the deployment, that one
+    about the turn, and collapsing them would make a per-request signal depend on
+    a build-time one.
     """
     # The NAT function NAME, not its `_type` (which is `research_agent`). The
     # name is what NAT emits as `Function Start: …` and what every stored turn

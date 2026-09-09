@@ -60,7 +60,15 @@ def answer_text(state: ConversationState) -> str:
 
 
 def apply_state_extras(response: ChatResponse, state: ConversationState) -> None:
-    """Lift every present extra in :data:`RESPONSE_LIFTS` off ``state`` onto ``response``."""
+    """Lift every present extra in :data:`RESPONSE_LIFTS` off ``state`` onto ``response``.
+
+    Presence is TRUTHINESS, one rule for the whole table, which is what lets the table be
+    data. It costs one case: a numeric extra of ``0`` does not reach the wire. Only
+    ``retry_after_seconds`` is numeric, and both of its producers default to a non-zero
+    value (``JobAdmissionError`` 30, ``TurnAdmissionError`` 15), so 0 is unreachable —
+    pinned by ``test_a_retry_hint_is_never_zero_seconds`` so that a default someone
+    lowers to 0 fails here rather than dropping the hint silently.
+    """
     for field, attribute, requires in RESPONSE_LIFTS:
         value = getattr(state, field)
         if not value or (requires and not getattr(state, requires)):

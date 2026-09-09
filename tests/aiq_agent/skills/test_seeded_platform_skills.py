@@ -44,6 +44,7 @@ from aiq_agent.skills.resolver import canonical_agent
 from tests.aiq_agent.skills.seeded_skill_rows import DRIZZLE_DIR
 from tests.aiq_agent.skills.seeded_skill_rows import EFFECTIVE_SEEDS
 from tests.aiq_agent.skills.seeded_skill_rows import REPO_ROOT
+from tests.aiq_agent.skills.seeded_skill_rows import RETIRED_NAMES
 from tests.aiq_agent.skills.seeded_skill_rows import SEEDS
 from tests.aiq_agent.skills.seeded_skill_rows import effective_row as _effective_row
 
@@ -54,8 +55,21 @@ EFFECTIVE_IDS = [tag for tag, _ in EFFECTIVE_SEEDS]
 
 
 def test_the_seeds_are_found_at_all():
-    """A parser that silently matches nothing would make every test below vacuous."""
-    assert {row["name"] for _, row in SEEDS} >= {"piloti-voice", "piloti-cards"}
+    """A parser that silently matches nothing would make every test below vacuous.
+
+    Two ways to be vacuous, and the second one hides: an empty ``EFFECTIVE_SEEDS``
+    makes the tests parametrized on it report "got empty parameter set", which pytest
+    prints as a SKIP and therefore reads like a guarded test rather than a test with
+    no subject. ``EFFECTIVE_SEEDS`` IS empty today, and legitimately so —
+    ``0071_retire_piloti_house_skills.sql`` deletes both seeded names — so what is
+    worth pinning is not that it has entries but that every name missing from it is
+    missing BECAUSE a migration retired it, rather than because the parser or the
+    last-write-wins dedupe lost the row.
+    """
+    seeded = {row["name"] for _, row in SEEDS}
+    assert seeded >= {"piloti-voice", "piloti-cards"}
+    vanished = seeded - {row["name"] for _, row in EFFECTIVE_SEEDS} - RETIRED_NAMES
+    assert vanished == set(), f"seed rows dropped out of EFFECTIVE_SEEDS with no retiring migration: {vanished}"
 
 
 @pytest.mark.parametrize(("tag", "row"), EFFECTIVE_SEEDS, ids=EFFECTIVE_IDS)

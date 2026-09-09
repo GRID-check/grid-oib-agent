@@ -137,7 +137,7 @@ NON_MEASURING_OPERATIONS: frozenset[str] = frozenset(
 # ── the enums, mirrored ──────────────────────────────────────────────────────
 #
 # These four sets mirror `ifc_spatial.tools.RELATIONS`, `.MEASURES`, `.KINDS`
-# and the room-use lexicon, and `tests/aiq_agent/agents/test_ifc_measure_tool.py`
+# and the room-use lexicon, and `tests/aiq_agent/tools/bim/test_ifc_measure_tool.py`
 # pins them against the package so a renamed operator fails there rather than at
 # the user.
 #
@@ -345,7 +345,7 @@ def _enum_lines(entries: dict[str, str], indent: str = "    ") -> str:
 # from the vocabularies above rather than retyped beside them, and the model is
 # FLAT rather than a discriminated union: a `RootModel[Union[...]]` reaches the
 # wire as one property called `root`, a wrapper the model cannot learn about.
-# Measured, not assumed — `tests/aiq_agent/agents/test_ifc_measure_tool.py`
+# Measured, not assumed — `tests/aiq_agent/tools/bim/test_ifc_measure_tool.py`
 # keeps the measurement. Why the schema was tightened at all, and what it buys
 # (fewer bad calls EMITTED, not turns refunded): ``docs/roadmap/spatial-review-findings.md``.
 

@@ -32,6 +32,7 @@ from aiq_agent.agents.compliance_checker.models import EvidenceFinding
 from aiq_agent.agents.compliance_checker.models import RequirementItem
 from aiq_agent.agents.compliance_checker.models import RequirementProfile
 from aiq_agent.agents.compliance_checker.report import render_compliance_report
+from aiq_agent.common.focus_file import SHELVES
 from aiq_agent.common.focus_file import get_turn_shelves
 
 # Stage 1 canned profile shape: richtlinie -> applicability tags of its requirements.
@@ -182,6 +183,25 @@ async def test_stage1_reads_the_law_and_stage2_reads_the_project_documents():
     assert set(stage2) == {EVIDENCE_SHELVES}
     assert REGULATION_SHELVES.isdisjoint(EVIDENCE_SHELVES)
     assert get_turn_shelves() is None  # the restriction never leaks out of the retrieval task
+
+
+def test_evidence_shelves_are_pinned():
+    """WHICH shelves count as evidence, not merely that the two stages differ.
+
+    The disjointness assertion above holds for any Stage 2 set that omits ``base``,
+    including one that omits ``archiv`` too — and that narrowing shipped once. It is
+    not a scoping detail: ``register.project_documents_in_scope()`` returns False when
+    the signed scope names only shelves outside this set, and ``_run_richtlinie`` then
+    short-circuits EVERY applicable requirement to ``nicht_geprueft``. An office that
+    keeps its submitted project documents on the Archiv shelf (ADR-0024) therefore goes
+    from a matrix with findings to a full "keine Projektunterlagen" table. So the set is
+    pinned by membership, and adding or removing a shelf has to be a decision made here.
+    """
+    assert EVIDENCE_SHELVES == frozenset({"archiv", "project", "session"})
+    assert REGULATION_SHELVES == frozenset({"base"})
+    # Every shelf the product has is accounted for by exactly one stage: nothing new can
+    # appear in `focus_file.SHELVES` and be silently invisible to the compliance check.
+    assert EVIDENCE_SHELVES | REGULATION_SHELVES == SHELVES
 
 
 @pytest.mark.asyncio

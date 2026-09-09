@@ -57,6 +57,27 @@ class TestResponseLifts:
         assert response.job_admission_rejected is True
         assert response.retry_after_seconds == 42
 
+    def test_a_retry_hint_is_never_zero_seconds(self):
+        """The one place the table's truthiness rule could drop a real value.
+
+        ``apply_state_extras`` lifts on truthiness — one rule for every row, which is
+        what lets the table be data — so a ``retry_after_seconds`` of 0 would be
+        indistinguishable from absent and the client would get a rejection with no
+        retry hint. Both producers default well clear of it, so the case is
+        unreachable; this pins that, because it is a property of two unrelated
+        constructors rather than of this module, and lowering either to 0 is the
+        edit that would make the divergence real.
+        """
+        from aiq_agent.common.job_admission import JobAdmissionError
+        from aiq_agent.common.turn_admission import TurnAdmissionError
+
+        assert JobAdmissionError("refused").retry_after_seconds > 0
+        assert TurnAdmissionError("refused").retry_after_seconds > 0
+
+        response = _response()
+        apply_state_extras(response, _state(job_admission_rejected=True, retry_after_seconds=0))
+        assert getattr(response, "retry_after_seconds", None) is None  # documents the cost
+
     def test_a_mute_list_only_rides_with_the_list_it_mutes(self):
         response = _response()
         apply_state_extras(response, _state(skills_hidden=["voice"]))

@@ -1,10 +1,24 @@
 # Domain catalog for deep research source routing.
 #
 # This file is intentionally data-only. Add, remove, or revise domains here
-# without changing Python source code. Source IDs must match entries in the
-# data_source_registry for the active workflow config —
-# `test_shipped_domain_catalog_source_ids_match_domain_routing_config` asserts
-# exactly that against `configs/config_domain_routing_and_skills.yml`.
+# without changing Python source code.
+#
+# NOTHING SHIPPED READS IT. `domain_catalog_path` is a field on the deep
+# researcher's config (`agents/deep_researcher/register.py`), and no config in
+# `configs/` or under `frontends/benchmarks/` sets it — so every running agent
+# gets the built-in single-domain fallback
+# (`source_routing._default_general_research_config`) instead of this catalog.
+# `tests/aiq_agent/agents/deep_researcher/test_source_routing.py` writes its own
+# catalog into `tmp_path`; the only place this path appears in a test is as a
+# string literal handed to a stub. So no test loads this file either, and
+# nothing checks that the `preferred_source_ids` below still name real
+# data_source_registry entries: get one wrong and you find out at runtime, in
+# the deployment that first sets `domain_catalog_path`.
+#
+# Kept rather than deleted because whether this product wants domain routing at
+# all is an open decision, not a cleanup. If the answer is yes, the wiring is
+# one `domain_catalog_path:` line plus a parity test against the active
+# workflow config's data_source_registry; if it is no, delete the directory.
 #
 # The catalog used to route between news, prediction markets and academic
 # papers, which is what the upstream blueprint shipped. Those sources are gone;

@@ -114,6 +114,11 @@ one package, and we will gate tuning on measurement.
    `MIN_SURFACE_SCORE` — the standing example of what setting a retrieval number
    without measurement costs — is set conservatively and labelled as such.
 
+   *(Amended 2026-09-09: the CI job that enforced this — `retrieval-eval`, the
+   structural arm at a 95% floor — is retired. The harness is unchanged and
+   still runs locally; nothing checks it automatically any more. See the Update
+   at the end of this record.)*
+
 ## Consequences
 
 ### Positive
@@ -164,3 +169,67 @@ one package, and we will gate tuning on measurement.
   store with credentials.
 - A same-name, same-dimension model swap on a collection with no fingerprint is
   still undetectable. Adoption is the price of not bricking deployed corpora.
+
+## Update (2026-09-09): the CI gate is retired; the harness is not
+
+The `retrieval-eval` job is removed from `.github/workflows/ci.yml`, from
+`ci-ok`'s `needs:`, and the `retrieval:` filter it read is removed from
+`.github/filters.yml`. This section is the record of that, because a ratchet
+that disappears without a note is a ratchet nobody knows they lost.
+
+**What the gate proved.** On every PR touching the chunker, the German
+analyzer, `sources/knowledge_layer` or the harness, it cut the real OIB
+Richtlinien two ways — a 1024-token sliding window and the Punkt chunker — and
+counted the share of leaf Punkte that survive as a *citable unit*: contained
+whole in some chunk that contains no other leaf Punkt whole. It failed under
+95% (measured 98.3%). Model-free, key-free, offline. It was the only automatic
+check that a chunking or analyzer change had not quietly made citations
+imprecise — the defect rule 4 exists to prevent, and the standing example of
+rule 7's "measure, do not judge".
+
+**Why it is gone.** The corpus left the repository: `data/oib/*.pdf` is
+licensed material belonging to whoever operates the platform, and is now
+operator-provided and gitignored (`data/oib/README.md`). A CI checkout can
+therefore never contain a document to measure. The job's options were all bad:
+fail on every run, pass vacuously on an empty corpus (the worst — a green check
+proving nothing), or commit a 71 MB extracted-page cache and re-derive the
+measurement from a fixture rather than from the documents. Removing it is the
+honest one.
+
+**What else went with it.** Two tests now skip in every checkout without a
+corpus, which in practice means always, in CI:
+
+- `tests/benchmarks/test_oib_retrieval_structure.py::test_the_production_exclusion_list_still_covers_every_change_log_pdf`
+  — nothing now checks that a newly published `aenderungen_*` change log has
+  been added to the production exclusion list in
+  `configs/config_oib_openrouter.yml`. A change log that is not excluded is
+  answerable-from, which is a correctness bug in the answer, not in retrieval.
+- `tests/aiq_agent/common/test_norm_registry.py::TestGuessDisplayTitle::test_covers_every_real_corpus_file`
+  — nothing now checks that every shipped corpus filename yields a confident
+  display title. A file whose name the registry cannot parse renders with a
+  degraded label.
+
+Both skip with a message naming `data/oib/README.md`, so a developer with a
+corpus gets the coverage back by running the suite locally.
+
+**What is left instead.** `task be:eval:retrieval` is unchanged as a local
+tool. It now exits 1 with an instruction when `data/oib` has no PDFs
+(`oib_retrieval_eval.corpus.CorpusMissingError`) rather than raising
+`FileNotFoundError` from a `stat()` several frames deep. The obligation moves
+from CI to the author: **run it and quote the number in the PR when you change
+the chunker, the German analyzer, or `sources/knowledge_layer`.** That is a
+person remembering, which is precisely the weaker thing this ADR argued
+against, and naming it here is the point of writing this down.
+
+**What would restore it.** Any one of:
+
+- a licence permitting a small, redistributable excerpt corpus — three or four
+  Richtlinien is enough for a share to be meaningful — committed under
+  `frontends/benchmarks/oib_retrieval/fixtures/` with its own floor;
+- a CI secret or artifact store the job can fetch the operator corpus from,
+  gated on the job actually receiving files (never skipping silently);
+- deriving the measurement from committed extracted *text* rather than PDFs, if
+  the extraction itself can be pinned separately — this changes what is
+  measured (it stops covering the extractor) and would need saying so.
+
+Until one exists, rule 7 stands as a decision with no enforcement.

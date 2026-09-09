@@ -85,8 +85,20 @@ DEFAULT_MAX_CONCURRENCY = 3
 REGULATION_SHELVES: frozenset[str] = frozenset({"base"})
 """Stage 1 reads the law: the base OIB corpus and nothing the user uploaded."""
 
-EVIDENCE_SHELVES: frozenset[str] = frozenset({"project", "session"})
-"""Stage 2 reads the user's documents: the project collection and this conversation's uploads."""
+EVIDENCE_SHELVES: frozenset[str] = frozenset({"archiv", "project", "session"})
+"""Stage 2 reads the user's documents: the office archive, the project collection, this turn's uploads.
+
+Every shelf in ``focus_file.SHELVES`` except ``base``, and the exclusion is the whole point:
+``base`` is the OIB corpus, the law Stage 1 already read. Leaving it in is what let Stage 2
+"find evidence" for a requirement in the Richtlinie that states the requirement, so a project
+with no documents at all scored as compliant against itself.
+
+``archiv`` is IN. An office keeps submitted project documents on the Archiv shelf (ADR-0024),
+and those are evidence in exactly the sense this stage means. Dropping it narrowed the scope
+past the defect: every requirement came back ``nicht_geprueft`` for such an office, because
+``register.project_documents_in_scope()`` sees no in-scope shelf and ``_run_richtlinie``
+short-circuits. ``test_evidence_shelves_are_pinned`` pins this set.
+"""
 
 _APPLICABLE_TAGS = frozenset({"anwendbar", "zu_pruefen"})
 """RequirementItem.applicability values that proceed into Stage 2."""

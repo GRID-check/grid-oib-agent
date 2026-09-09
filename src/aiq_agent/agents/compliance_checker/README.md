@@ -20,7 +20,7 @@ the `max_concurrency` semaphore; retrievals run unbounded.
 | Stage | Retrieval (`knowledge_search`, tool-free) | LLM | Output |
 |---|---|---|---|
 | 1 Requirement profile | 2 queries, base OIB corpus only (`REGULATION_SHELVES`) | 1 strict-JSON call | `RequirementProfile` |
-| 2 Evidence check | 1 query per Richtlinie + 1 per batch, project and session documents only (`EVIDENCE_SHELVES`) | 1 strict-JSON call per batch of `requirement_batch_size` | `EvidenceBatchResult` |
+| 2 Evidence check | 1 query per Richtlinie + 1 per batch, the user's own documents only — archive, project and session shelves, never the OIB corpus (`EVIDENCE_SHELVES`) | 1 strict-JSON call per batch of `requirement_batch_size` | `EvidenceBatchResult` |
 | 3 Matrix + report | none | none | `ComplianceMatrix`, German Markdown |
 
 The shelf restriction rides on the knowledge tool's turn-shelf context variable

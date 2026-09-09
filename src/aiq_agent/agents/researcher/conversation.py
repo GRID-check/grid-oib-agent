@@ -432,7 +432,16 @@ class ConversationGraph:
         # Deep research is minutes, not seconds, and this is the instant that
         # becomes true. Told now, the reader is waiting; told on the terminal
         # frame, they spent those minutes wondering whether the turn broke.
-        emit_escalation(state.escalation_ask_reason)
+        # Transparency must never take a turn down, and the stakes went UP when this
+        # moved into a conditional edge: a raise inside a routing function does not
+        # degrade the turn, it ends it with no answer at all. Nothing in
+        # ``emit_escalation`` can raise today (``push_custom_step`` swallows, and
+        # ``clip``/``str.split`` are total on ``str | None``), which is exactly why the
+        # guard has to be here rather than trusted to stay true one refactor from now.
+        try:
+            emit_escalation(state.escalation_ask_reason)
+        except Exception:  # noqa: BLE001 - a status line is never worth the answer
+            logger.warning("Escalation notice failed to emit; routing to deep research anyway", exc_info=True)
         return "deep_research"
 
     def _build_graph(self) -> CompiledStateGraph:

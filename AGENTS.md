@@ -132,6 +132,7 @@ ones that will fail your PR.
 | Write a commit, or open **or rename** a PR | Conventional Commits — `feat` `fix` `docs` `refactor` `perf` `test` `ci` `build` `chore` `revert`. The **PR title** most of all: the repo squash-merges it, so the title is the commit that lands on `develop`. [`CONTRIBUTING.md`](CONTRIBUTING.md#commits-and-pr-titles) | The **Conventional PR title** job blocks the PR. A prose title is the one that keeps slipping through, because nothing local checks it |
 | Add an environment variable | Add its row to [`docs/deployment/environment-variables.md`](docs/deployment/environment-variables.md) in the same change | Review |
 | Change what a customer can notice | `task release:note -- <slug>` | The **Release note** CI job |
+| Edit anything under `skills/` | Commit the re-locked `apm.lock.yaml` with it — `task agents:audit` rewrites it for you. The deployment is gitignored, so nothing else in your diff shows the lockfile went stale | `task lint:repo` and CI's **repo-lint** job |
 | Change behaviour a doc describes | Update the doc in the same commit | Review. Stale docs are a bug, because an agent acts on them |
 | Learn something the repo could have told you | Write it down where the next agent will already be looking, before you carry on | Nothing, once. Then everyone re-earns it. [The ratchet](docs/contributing/correction-ratchet.md#human-intervention-is-a-failure-signal) |
 
