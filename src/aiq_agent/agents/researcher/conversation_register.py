@@ -28,7 +28,6 @@ from aiq_agent.common import get_all_tool_refs
 from aiq_agent.common import get_checkpointer
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import validate_tool_availability
-from aiq_agent.common.citation_verification import get_or_create_session_registry
 from aiq_agent.common.nat_converters import ensure_registered as ensure_nat_converters_registered
 from aiq_agent.common.profiler import flush_after_answer
 from aiq_agent.common.profiler import track_agent_profile
@@ -38,6 +37,7 @@ from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
 from aiq_agent.project_context import GridRequestContext
 from aiq_agent.stages import schedule_post_answer_stages
 from aiq_agent.turn.admission import PROFILE_AGENT_NAME
+from aiq_agent.turn.admission import TurnLedgers
 from aiq_agent.turn.admission import TurnOutcome
 from aiq_agent.turn.admission import answer_turn
 from aiq_agent.turn.admission import refusal_response
@@ -56,6 +56,7 @@ from aiq_agent.turn.inventory import shelves_in_scope
 from aiq_agent.turn.payload import TurnInputs
 from aiq_agent.turn.payload import extract_turn_inputs
 from aiq_agent.turn.registries import TurnRegistries
+from aiq_agent.turn.registries import load_session_registry
 from aiq_agent.turn.registries import turn_registries
 from aiq_agent.turn.response import build_response
 from aiq_agent.turn.response import post_answer_turn_facts
@@ -256,6 +257,62 @@ def _answer_chunks(
     return response_to_chunks(response, stream=True)
 
 
+async def _load_setup(
+    request: GridRequestContext,
+    inputs: TurnInputs,
+    header_scope,
+    *,
+    conversation_id: str | None,
+    thread_id: str,
+    resolve_stages: bool,
+):
+    """The three independent setup I/O paths, overlapped.
+
+    Each fails open on its own (:mod:`aiq_agent.turn.context`,
+    :mod:`aiq_agent.turn.inventory`, :mod:`aiq_agent.turn.registries`), so the
+    gather cannot let one dead branch lose the others' results — or the turn.
+    """
+    return await asyncio.gather(
+        spanned(
+            "setup.project_context",
+            load_turn_context(
+                request, conversation_id=thread_id, query_text=inputs.query_text, resolve_stages=resolve_stages
+            ),
+        ),
+        load_inventory(resolve_scope(header_scope, conversation_id)),
+        spanned("setup.session_registry", load_session_registry(thread_id)),
+    )
+
+
+async def _answer_in_registries(
+    agent: ConversationGraph,
+    state: ConversationState,
+    session_registry,
+    *,
+    thread_id: str,
+    organization_id: str | None,
+    identity: dict[str, str | None],
+    metadata: dict[str, Any],
+    ledgers: TurnLedgers,
+) -> tuple[TurnOutcome[ConversationState], TurnRegistries]:
+    """Answer with the four per-turn registries bound, and hand both back.
+
+    The registries are unbound and the turn's citations persisted as this
+    returns, so ``registries.memory_writes`` is what the turn actually wrote.
+    """
+    async with turn_registries(thread_id, session_registry) as registries:
+        outcome = await answer_turn(
+            agent,
+            state,
+            thread_id=thread_id,
+            organization_id=organization_id,
+            identity=identity,
+            metadata=metadata,
+            ledgers=ledgers,
+        )
+    return outcome, registries
+
+
 def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, stage_llms: dict, workflow_id: str):
     """The per-turn entry point NAT calls, composed from ``aiq_agent.turn``."""
     any_stage_llm = any(llm is not None for llm in stage_llms.values())
@@ -277,34 +334,41 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
         emit_documents_loading(shelves_in_scope(header_scope or ()))
         turn_metadata: dict[str, Any] = {}
         identity = turn_identity(request, conversation_id)
-        # The profiler root opens BEFORE the setup I/O so every setup step has a
-        # row; `inline_flush=False` posts its final batch after the answer is out.
-        with track_agent_profile(
-            agent_name=PROFILE_AGENT_NAME, identity=identity, metadata=turn_metadata, inline_flush=False
-        ) as profiler:
-            # The independent setup I/O paths, overlapped; each fails open on its own.
-            context, inventory, session_registry = await asyncio.gather(
-                spanned(
-                    "setup.project_context",
-                    load_turn_context(
-                        request, conversation_id=thread_id, query_text=inputs.query_text, resolve_stages=any_stage_llm
-                    ),
-                ),
-                load_inventory(resolve_scope(header_scope, conversation_id)),
-                spanned("setup.session_registry", asyncio.to_thread(get_or_create_session_registry, thread_id)),
-            )
-            skip_clarifier = not config.enable_clarifier or skip_clarifier_requested()
-            state = _turn_state(inputs, context, inventory, header_scope, skip_clarifier=skip_clarifier)
-            async with turn_registries(thread_id, session_registry) as registries:
-                outcome = await answer_turn(
+        profiler = None
+        # ONE `finally` posts the ledgers for every exit of the turn — happy,
+        # refused, or raising — from OUTSIDE the profiled block, so the root
+        # span has closed by the time its batch goes; a flush from inside would
+        # post first and strand it. The cost tracker is held here rather than
+        # read off the outcome, because a turn that RAISES has no outcome.
+        ledgers = TurnLedgers()
+        try:
+            # The profiler root opens BEFORE the setup I/O so every setup step has a
+            # row; `inline_flush=False` posts its final batch after the answer is out.
+            with track_agent_profile(
+                agent_name=PROFILE_AGENT_NAME, identity=identity, metadata=turn_metadata, inline_flush=False
+            ) as profiler:
+                context, inventory, session_registry = await _load_setup(
+                    request,
+                    inputs,
+                    header_scope,
+                    conversation_id=conversation_id,
+                    thread_id=thread_id,
+                    resolve_stages=any_stage_llm,
+                )
+                skip_clarifier = not config.enable_clarifier or skip_clarifier_requested()
+                state = _turn_state(inputs, context, inventory, header_scope, skip_clarifier=skip_clarifier)
+                outcome, registries = await _answer_in_registries(
                     agent,
                     state,
+                    session_registry,
                     thread_id=thread_id,
                     organization_id=request.organization_id,
                     identity=identity,
                     metadata=turn_metadata,
+                    ledgers=ledgers,
                 )
-        try:
+            # A refused turn still owes the reader its answer, delivered as one
+            # terminal chunk; it is yielded here, outside the profiled block.
             for chunk in _answer_chunks(
                 outcome, registries, context, inputs, workflow_id=workflow_id, stage_llms=stage_llms
             ):
@@ -312,7 +376,7 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
         finally:
             # Two BFF round-trips, posted AFTER the reader has the answer; in the
             # `finally` so a consumer that closes the stream early still posts.
-            await flush_after_answer(profiler, outcome.cost_tracker)
+            await flush_after_answer(profiler, ledgers.cost_tracker)
 
     return _run
 

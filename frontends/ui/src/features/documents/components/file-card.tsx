@@ -260,7 +260,7 @@ export function FileCard({
     >
       {actions && (
         <div
-          className="absolute left-1.5 top-1.5 z-[1] opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none"
+          className="absolute right-1.5 top-1.5 z-[1] md:opacity-0 md:group-hover/card:opacity-100 group-focus-within/card:opacity-100 has-[[data-state=open]]:opacity-100 transition-opacity duration-quick ease-out motion-reduce:transition-none"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
         >
@@ -293,7 +293,7 @@ export function FileCard({
                 // The 80% alpha is load-bearing: this badge floats over a document
                 // thumbnail, and with `backdrop-blur-sm` it frosts the image
                 // underneath instead of hiding it.
-                className="absolute right-2 top-2 border-transparent bg-background/80 px-1.5 py-0 text-xs font-medium leading-4 shadow-2xs backdrop-blur-sm"
+                className="absolute left-2 top-2 border-transparent bg-background/80 px-1.5 py-0 text-xs font-medium leading-4 shadow-2xs backdrop-blur-sm"
               />
             )}
           </GridTileMedia>

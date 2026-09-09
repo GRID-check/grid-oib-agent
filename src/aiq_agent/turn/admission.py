@@ -28,6 +28,7 @@ from typing import TypeVar
 from aiq_agent.common import _create_chat_response
 from aiq_agent.common.cost_tracking import BudgetExceededError
 from aiq_agent.common.cost_tracking import track_llm_costs
+from aiq_agent.common.profiler import annotate_current_span
 from aiq_agent.common.profiler import profiled_span
 from aiq_agent.common.turn_admission import TurnAdmissionError
 from aiq_agent.common.turn_admission import admit_turn_async
@@ -80,6 +81,39 @@ class TurnOutcome(Generic[StateT]):
     cost_tracker: Any = None
 
 
+@dataclass
+class TurnLedgers:
+    """The turn's cost ledger, published the moment it exists.
+
+    A turn that RAISES has no ``TurnOutcome`` to read the tracker off, and the
+    usage it already spent is exactly what the operator needs to see. The
+    caller therefore holds this, hands it in, and posts whatever is in it from
+    its own ``finally`` — happy turn, refused turn, or raising turn.
+    """
+
+    cost_tracker: Any = None
+
+
+async def _enter_admission_slot(
+    admission: contextlib.AsyncExitStack, organization_id: str | None
+) -> TurnAdmissionError | None:
+    """Take the turn's concurrency slot inside its own span; the refusal, if refused.
+
+    The refusal is RETURNED rather than raised through the span: a refusal is
+    not a failure, and letting it unwind ``profiled_span`` would close the wait
+    as an error. It closes ok and SAYS it refused instead, which is the
+    difference between "this replica is busy" and "this replica is broken" in
+    the waterfall an operator opens.
+    """
+    with profiled_span("admission.wait"):
+        try:
+            await admission.enter_async_context(admit_turn_async(organization_id))
+        except TurnAdmissionError as refused:
+            annotate_current_span(refused=True)
+            return refused
+    return None
+
+
 async def run_admitted(
     agent: AnsweringAgent[StateT],
     state: StateT,
@@ -87,6 +121,7 @@ async def run_admitted(
     thread_id: str,
     organization_id: str | None,
     identity: dict[str, str | None] | None = None,
+    ledgers: TurnLedgers | None = None,
 ) -> tuple[StateT, Any]:
     """Run the agent inside the admission slot and the cost tracker; return both results.
 
@@ -95,10 +130,13 @@ async def run_admitted(
     is off: the final usage batch is posted by the caller after the answer is
     on the wire, never between the finished answer and its first delta.
     """
+    published = ledgers if ledgers is not None else TurnLedgers()
     async with contextlib.AsyncExitStack() as admission:
-        with profiled_span("admission.wait"):
-            await admission.enter_async_context(admit_turn_async(organization_id))
+        refusal = await _enter_admission_slot(admission, organization_id)
+        if refusal is not None:
+            raise refusal
         with track_llm_costs(identity=identity, inline_flush=False) as cost_tracker:
+            published.cost_tracker = cost_tracker
             return await agent.run(state, thread_id=thread_id), cost_tracker
 
 
@@ -110,16 +148,19 @@ async def answer_turn(
     organization_id: str | None,
     identity: dict[str, str | None] | None = None,
     metadata: dict[str, Any] | None = None,
+    ledgers: TurnLedgers | None = None,
 ) -> TurnOutcome[StateT]:
     """The finished graph state, or the refusal that stopped the turn.
 
     ``identity`` is who the ledgers bill and attribute the turn to (the parsed
     request, so they need not parse it again); ``metadata`` is the profiler's
-    turn metadata, where a refusal records its outcome while the root is open.
+    turn metadata, where a refusal records its outcome while the root is open;
+    ``ledgers`` is the caller's holder for the cost tracker, filled as soon as
+    it exists so a turn that raises still has its usage posted.
     """
     try:
         result, cost_tracker = await run_admitted(
-            agent, state, thread_id=thread_id, organization_id=organization_id, identity=identity
+            agent, state, thread_id=thread_id, organization_id=organization_id, identity=identity, ledgers=ledgers
         )
     except TurnAdmissionError as error:
         logger.warning("Turn refused by admission control: %s", error)

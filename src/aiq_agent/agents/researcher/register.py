@@ -208,6 +208,37 @@ async def _resolve_skill_runtime(
     return runtime
 
 
+async def _read_model_overrides() -> dict:
+    try:
+        return await asyncio.to_thread(get_model_overrides_from_context)
+    except Exception:  # noqa: BLE001 - a lost override costs the model choice, never the turn
+        logger.debug("Model-overrides lookup failed; continuing without", exc_info=True)
+        return {}
+
+
+async def _read_org_credential():
+    try:
+        return await asyncio.to_thread(get_org_llm_credential_from_context)
+    except Exception:  # noqa: BLE001 - see above; the env chain still has a credential
+        logger.debug("Org-credential lookup failed; continuing without", exc_info=True)
+        return None
+
+
+async def _read_zdr_only() -> bool:
+    try:
+        return await asyncio.to_thread(get_zdr_only_from_context)
+    except Exception:  # noqa: BLE001 - fails CLOSED, unlike its two siblings
+        # A missing override costs the org its model choice; a missing ZDR bit
+        # sends the org's prompts to endpoints that may retain them, which is
+        # the ADR-0014 control itself. This is NOT the "BFF is down" path --
+        # `resolve_org_zdr_only` already answers False for that, deliberately.
+        # Reaching here means the lookup itself broke unexpectedly, so it logs
+        # at error rather than debug: a privacy control that switches itself
+        # off must never do it quietly.
+        logger.error("ZDR lookup failed; pinning ZDR routing for this turn", exc_info=True)
+        return True
+
+
 async def _active_provider(provider: LLMProvider) -> LLMProvider:
     """Per-org model overrides + BYOK credential + ZDR (ADR-0022).
 
@@ -216,15 +247,15 @@ async def _active_provider(provider: LLMProvider) -> LLMProvider:
 
     The three lookups are header-first but each falls back to a blocking BFF
     call (5s timeout, 60s in-process TTL), so a cold miss used to freeze the
-    event loop for every turn on the replica. One thread hop resolves all
-    three; ContextVars travel with it.
+    event loop for every turn on the replica. Each runs on its own thread hop
+    and fails open (the ZDR bit closed) on its own, so the three overlap and
+    one bad reader costs its own value -- never the turn, and never the other
+    two. ContextVars travel with each hop.
     """
-    model_overrides, org_credential, zdr_only = await asyncio.to_thread(
-        lambda: (
-            get_model_overrides_from_context(),
-            get_org_llm_credential_from_context(),
-            get_zdr_only_from_context(),
-        )
+    model_overrides, org_credential, zdr_only = await asyncio.gather(
+        _read_model_overrides(),
+        _read_org_credential(),
+        _read_zdr_only(),
     )
     return provider.with_model_overrides(model_overrides).with_credential(org_credential).with_zdr(zdr_only)
 

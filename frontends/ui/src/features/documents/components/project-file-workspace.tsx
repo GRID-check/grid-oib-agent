@@ -31,7 +31,8 @@ import {
   type FileFilters,
 } from '../lib/file-filters'
 import { DEFAULT_FILE_SORT, type FileSort } from '../lib/file-sort'
-import { DocumentActionsMenu } from './document-actions'
+import { DocumentActionsTrigger, DocumentObjectMenu } from './document-actions'
+import { askAboutFile } from '../lib/ask-about-file'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { FileDropOverlay, useWindowDragGuard } from './file-drop-overlay'
 import { ProjectUppyUpload } from './project-uppy-upload'
@@ -442,6 +443,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    */
   const seededFolders = useRef(initialFolders !== undefined)
   const seededFiles = useRef(initialFiles !== undefined)
+  const pickFilesRef = useRef<(() => void) | null>(null)
+  const pickFolderRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     if (seededFolders.current) {
@@ -1162,6 +1165,8 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
             isUploading={isUploading}
             // The durable corpus is where a büro brings a whole project in.
             allowFolders
+            pickFilesRef={pickFilesRef}
+            pickFolderRef={pickFolderRef}
           />
         </div>
       </ProjectSectionActions>
@@ -1219,22 +1224,51 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
               isLoading={isLoadingFiles || isLoadingFolders}
               search={search}
               view={view}
+              onViewChange={selectView}
               sort={sort}
               onSortChange={setSort}
               showAssignment={canCollaborate}
               filterEmptyNotice={filterEmptyNotice}
               onDropDocumentInFolder={handleDropInFolder}
               onDropFolderInFolder={handleDropFolderInFolder}
-              renderActions={(file) => (
-                <DocumentActionsMenu
+              onPickFiles={() => pickFilesRef.current?.()}
+              onPickFolder={() => pickFolderRef.current?.()}
+              wrapFile={(file, card) => (
+                <DocumentObjectMenu
                   document={file}
                   scope="files"
                   folders={folders}
+                  onOpen={() => handleSelectFile(file.id)}
+                  onAsk={() =>
+                    askAboutFile({ projectId, file, navigate: (href) => router.push(href) })
+                  }
                   onRenamed={handleRenamed}
                   onDeleted={handleDeleted}
                   onMoved={handleMoved}
-                />
+                  onReingested={handleReingested}
+                >
+                  {card}
+                </DocumentObjectMenu>
               )}
+              wrapFileRow={(file, row) => (
+                <DocumentObjectMenu
+                  asChild
+                  document={file}
+                  scope="files"
+                  folders={folders}
+                  onOpen={() => handleSelectFile(file.id)}
+                  onAsk={() =>
+                    askAboutFile({ projectId, file, navigate: (href) => router.push(href) })
+                  }
+                  onRenamed={handleRenamed}
+                  onDeleted={handleDeleted}
+                  onMoved={handleMoved}
+                  onReingested={handleReingested}
+                >
+                  {row}
+                </DocumentObjectMenu>
+              )}
+              renderActions={() => <DocumentActionsTrigger />}
               {...(foldersError
                 ? {}
                 : {

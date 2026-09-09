@@ -50,6 +50,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { FileBrowserPane, type FolderNavigation } from '@/features/documents/components/file-browser-pane'
+import { DocumentActionsTrigger, DocumentObjectMenu } from '@/features/documents/components/document-actions'
 import { FileSearchBar, FileSearchField } from '@/features/documents/components/file-search-bar'
 import { useFileSearch } from '@/features/documents/hooks/use-file-search'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -238,6 +239,7 @@ export default function FileBrowserDevPage(): JSX.Element {
   if (variant === 'folder-menu') return <FolderCrudFixture mode="menu" />
   if (variant === 'folders-list') return <FoldersInListViewFixture />
   if (variant === 'folder-drop') return <FolderDropTargetFixture />
+  if (variant === 'file-context') return <FileContextMenuFixture />
   return <FileBrowserFixtures />
 }
 
@@ -424,6 +426,55 @@ function SearchInListViewFixture(): JSX.Element {
             view="list"
           />
         </div>
+      </div>
+    </main>
+  )
+}
+
+/**
+ * Right-click on a file card — Finder-shaped, same items as the ⋯.
+ */
+function FileContextMenuFixture(): JSX.Element {
+  const folderNav = useFixtureFolderNav()
+  const search = useFileSearch({ projectId: 'proj-demo' })
+  const [selected, setSelected] = useState<string | null>(null)
+  const driven = useRef(false)
+  useEffect(() => {
+    if (driven.current) return
+    driven.current = true
+    const card = document.querySelector('[data-testid="file-card"]')
+    card?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 120, clientY: 160 }))
+  }, [])
+  const levelFiles = FILES.filter((file) => (file.folderId ?? null) === folderNav.currentFolderId)
+  return (
+    <main className="mx-auto flex max-w-5xl flex-col gap-8 p-6">
+      <div>
+        <h1 className="text-lg font-semibold">Files browser — right-click a file</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Open, Ask about this, Download, Rename, Move, Delete. Same list as the ⋯.
+        </p>
+      </div>
+      <div className="h-[520px] overflow-hidden rounded-xl border" data-testid="file-browser-file-context">
+        <FileBrowserPane
+          files={levelFiles}
+          searchFiles={FILES}
+          selectedFileId={selected}
+          onSelectFile={setSelected}
+          isLoading={false}
+          search={search}
+          folderNav={folderNav}
+          wrapFile={(file, card) => (
+            <DocumentObjectMenu
+              document={file}
+              scope="files"
+              folders={FOLDERS}
+              onOpen={() => setSelected(file.id)}
+            >
+              {card}
+            </DocumentObjectMenu>
+          )}
+          renderActions={() => <DocumentActionsTrigger />}
+        />
       </div>
     </main>
   )
@@ -640,7 +691,19 @@ function FileBrowserFixtures(): JSX.Element {
             isLoading={false}
             search={search}
             view={view}
+            onViewChange={setView}
             folderNav={folderNav}
+            wrapFile={(file, card) => (
+              <DocumentObjectMenu
+                document={file}
+                scope="files"
+                folders={FOLDERS}
+                onOpen={() => setSelected(file.id)}
+              >
+                {card}
+              </DocumentObjectMenu>
+            )}
+            renderActions={() => <DocumentActionsTrigger />}
           />
         </div>
       </div>

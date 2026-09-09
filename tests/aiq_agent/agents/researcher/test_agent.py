@@ -3382,6 +3382,79 @@ class TestInteractionCallCounting:
         assert _count_interaction_calls(None) == 0
 
 
+class TestRepairRetrievalFailOpen:
+    """One bad retrieval must not poison the other: failures are dropped in
+    lookup order, and only an all-fail repair gives up."""
+
+    @pytest.fixture(autouse=True)
+    def _register_kb_source(self):
+        reset_registry()
+        populate_from_config(
+            [
+                {
+                    "id": "oib_knowledge",
+                    "name": "OIB Knowledge",
+                    "description": "Search the internal OIB knowledge base.",
+                    "tools": ["knowledge_search"],
+                }
+            ]
+        )
+        yield
+        reset_registry()
+
+    _BODY = "Erste Aussage [1]. Zweite Aussage [2].\n\n## Sources\n[1] a.pdf, p.1\n[2] b.pdf, p.2"
+    _FAILURES = VerificationFailures(
+        removed_citations=(
+            {"number": 1, "line": "[1] a.pdf, p.1", "reason": "not_in_registry"},
+            {"number": 2, "line": "[2] b.pdf, p.2", "reason": "not_in_registry"},
+        ),
+        unverified_quotes=(),
+    )
+
+    def _llm(self):
+        llm = MagicMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
+        llm.ainvoke = AsyncMock(return_value=AIMessage(content="rewritten"))
+        return llm
+
+    async def _repair(self, search_tool, llm):
+        return await repair_answer(
+            self._BODY,
+            failures=self._FAILURES,
+            tools=[search_tool],
+            llm=llm,
+            system_prompt=None,
+            history=[],
+        )
+
+    @pytest.mark.asyncio
+    async def test_one_failing_lookup_keeps_the_other_in_order(self):
+        @tool
+        async def knowledge_search(query: str) -> str:
+            """Search the internal knowledge base."""
+            if "Erste" in query:
+                raise RuntimeError("reranker down")
+            return f"passage for {query}"
+
+        llm = self._llm()
+        repaired = await self._repair(knowledge_search, llm)
+
+        assert repaired is not None and repaired.prose == "rewritten"
+        anchor = llm.ainvoke.await_args.args[0][-1].content
+        assert "passage for Zweite Aussage" in anchor
+        assert "Erste Aussage" not in anchor.split("Additional retrieval results")[1]
+
+    @pytest.mark.asyncio
+    async def test_all_lookups_failing_returns_none(self):
+        @tool
+        async def knowledge_search(query: str) -> str:
+            """Search the internal knowledge base."""
+            raise RuntimeError("retrieval down")
+
+        assert await self._repair(knowledge_search, self._llm()) is None
+
+
 class TestRepairRetrievalsRunTogether:
     """The repair's lookups are one full retrieval each, reranker included, and
     they are independent, so they run concurrently; the rewrite prompt still

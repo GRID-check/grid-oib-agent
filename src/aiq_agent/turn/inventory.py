@@ -225,7 +225,29 @@ async def load_inventory(
 ) -> Inventory:
     """The inventory for ``scope``, holding (bounded) for an upload still indexing.
 
-    The in-flight read runs INSIDE the gather with the summaries read — it is
+    Fail-open: this is one member of the turn's setup gather, so an inventory
+    that cannot be built costs the INVENTORY (the model answers without the
+    file list, exactly as it does for a scope with no documents) and never the
+    turn or its sibling branches. The per-collection reads already degrade on
+    their own; this catches what is left — the in-flight read, and the wait.
+    """
+    try:
+        return await _load_inventory(
+            scope, fetch_one=fetch_one, read_in_flight=read_in_flight, timeout_seconds=timeout_seconds
+        )
+    except Exception:  # noqa: BLE001 - see above; an answer without the inventory beats no answer
+        logger.warning("Document inventory load failed; continuing without one", exc_info=True)
+        return Inventory(None, None)
+
+
+async def _load_inventory(
+    scope: list[ScopedCollection],
+    *,
+    fetch_one: FetchOne | None = None,
+    read_in_flight: ReadInFlight | None = None,
+    timeout_seconds: float | None = None,
+) -> Inventory:
+    """The in-flight read runs INSIDE the gather with the summaries read — it is
     independent of it and small, and gather already waits for the slowest
     member. Only the wait loop runs after. A file that settled while we waited
     was absent from the summaries table when the inventory was built, so the

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, type ReactNode } from 'react'
+import { Fragment, useCallback, useMemo, useState, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from './project-file-workspace'
 import { Search, SearchX, FilterX, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -12,9 +12,13 @@ import { documentDisplayName } from '@/lib/documents/display-name'
 import type { FileSearch } from '../hooks/use-file-search'
 import { useLevelDirection } from '../hooks/use-level-direction'
 import { motion, motionEntrance } from '@/components/motion'
+import { ActionMenu } from '@/components/ui/action-menu'
 import { FileCard } from './file-card'
 import { FileGrid, FileCardSkeleton } from './file-grid'
 import { FileListSkeleton, FileListView } from './file-list-view'
+import { FolderActionsTrigger, FolderObjectMenu } from './folder-object-menu'
+import { listingActionEntries } from './listing-action-entries'
+import { NewFolderDialog } from './new-folder-dialog'
 import { DEFAULT_FILE_SORT, sortFiles, type FileSort } from '../lib/file-sort'
 import {
   FolderBreadcrumbRow,
@@ -111,6 +115,12 @@ interface FileBrowserPaneProps {
   showAssignment?: boolean
   /** Per-file rename / delete / download — shown on the card and the list row. */
   renderActions?: (file: FileItem) => ReactNode
+  /** Wrap a file card (right-click host). */
+  wrapFile?: (file: FileItem, node: ReactNode) => ReactNode
+  wrapFileRow?: (file: FileItem, row: ReactNode) => ReactNode
+  onViewChange?: (view: 'cards' | 'list') => void
+  onPickFiles?: () => void
+  onPickFolder?: () => void
 }
 
 export function FileBrowserPane({
@@ -129,6 +139,11 @@ export function FileBrowserPane({
   onDropDocumentInFolder,
   onDropFolderInFolder,
   renderActions,
+  wrapFile,
+  wrapFileRow,
+  onViewChange,
+  onPickFiles,
+  onPickFolder,
   sort = DEFAULT_FILE_SORT,
   onSortChange,
 }: FileBrowserPaneProps) {
@@ -163,6 +178,101 @@ export function FileBrowserPane({
   }, [orderedFiles, files, searchFiles, query, sort, locale])
 
   const currentFolderId = folderNav?.currentFolderId ?? null
+  const [createFolderIn, setCreateFolderIn] = useState<string | null | undefined>(undefined)
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
+
+  const listingEntries = useMemo(
+    () =>
+      listingActionEntries({
+        labels: {
+          newFolder: t('folders.newFolder'),
+          uploadFiles: t('upload.uploadFiles'),
+          uploadFolder: t('upload.uploadFolder'),
+          viewCards: t('workspace.view.cards'),
+          viewList: t('workspace.view.list'),
+          sortName: t('list.columns.name'),
+          sortStatus: t('list.columns.status'),
+          sortSize: t('list.columns.size'),
+          sortAdded: t('list.columns.added'),
+        },
+        view,
+        sort,
+        onNewFolder:
+          folderNav && !semantic.active && query.trim() === ''
+            ? () => setCreateFolderIn(currentFolderId)
+            : undefined,
+        onUploadFiles: onPickFiles,
+        onUploadFolder: onPickFolder,
+        onViewChange,
+        onSortChange,
+      }),
+    [
+      t,
+      view,
+      sort,
+      folderNav,
+      semantic.active,
+      query,
+      currentFolderId,
+      onPickFiles,
+      onPickFolder,
+      onViewChange,
+      onSortChange,
+    ],
+  )
+
+  const fileCard = (file: FileItem, extra: { match?: Parameters<typeof FileCard>[0]['match'] } = {}) => {
+    const card = (
+      <FileCard
+        file={file}
+        isSelected={selectedFileId === file.id}
+        onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
+        locale={locale}
+        match={extra.match}
+        footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
+        actions={renderActions?.(file)}
+        draggable={Boolean(onDropDocumentInFolder)}
+      />
+    )
+    return wrapFile ? wrapFile(file, card) : card
+  }
+
+  const folderTile = (folder: FolderItem, asRow: boolean) => {
+    const props = {
+      folder,
+      itemCount: folderItemCount(folder.id),
+      lastModified: folderLastModified(folder.id),
+      onOpen: folderNav!.onNavigate,
+      onRenameFolder: folderNav!.onRenameFolder,
+      onDeleteFolder: folderNav!.onDeleteFolder,
+      onDropDocument: onDropDocumentInFolder,
+      onDropFolder: onDropFolderInFolder,
+      canAcceptFolder,
+      actions: folderNav ? <FolderActionsTrigger /> : undefined,
+      editing: editingFolderId === folder.id,
+      onEditingChange: (next: boolean) => setEditingFolderId(next ? folder.id : null),
+    }
+    const tile = asRow ? <FolderRow {...props} /> : <FolderCard {...props} />
+    if (!folderNav) return tile
+    return (
+      <FolderObjectMenu
+        folder={folder}
+        folders={folderNav.folders}
+        canAcceptMove={(target) => canAcceptFolder(folder.id, target)}
+        onOpen={() => folderNav.onNavigate(folder.id)}
+        onNewInside={() => setCreateFolderIn(folder.id)}
+        onRename={() => setEditingFolderId(folder.id)}
+        onMove={
+          onDropFolderInFolder
+            ? (parentId) => void onDropFolderInFolder(folder.id, parentId)
+            : undefined
+        }
+        onDelete={() => void folderNav.onDeleteFolder(folder.id)}
+      >
+        {tile}
+      </FolderObjectMenu>
+    )
+  }
 
   /**
    * Which way the level moved: deeper slides in from the right, shallower from
@@ -397,6 +507,7 @@ export function FileBrowserPane({
         />
       )}
 
+      <ActionMenu mode="context" entries={listingEntries}>
       {semantic.active ? (
         // Semantic results — one card per matched file, each showing the match
         // evidence (snippet + page + relevance). A backend error/timeout fails
@@ -479,22 +590,16 @@ export function FileBrowserPane({
               selectedFileId={selectedFileId}
               onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
               renderActions={renderActions}
+              wrapRow={wrapFileRow}
             />
           </div>
         ) : (
           <div className={`${CONTENT_MAX} p-4`}>
             <FileGrid>
               {semantic.hits.map((hit) => (
-                <FileCard
-                  key={hit.id}
-                  file={hit}
-                  isSelected={selectedFileId === hit.id}
-                  onSelect={() => onSelectFile(selectedFileId === hit.id ? null : hit.id)}
-                  locale={locale}
-                  match={{ snippet: hit.snippet, page: hit.page, score: hit.score }}
-                  footerLead={showAssignment ? <AssignmentFaces assignees={hit.assignees} /> : undefined}
-                  actions={renderActions?.(hit)}
-                />
+                <Fragment key={hit.id}>
+                  {fileCard(hit, { match: { snippet: hit.snippet, page: hit.page, score: hit.score } })}
+                </Fragment>
               ))}
             </FileGrid>
           </div>
@@ -523,6 +628,7 @@ export function FileBrowserPane({
               selectedFileId={selectedFileId}
               onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
               renderActions={renderActions}
+              wrapRow={wrapFileRow}
               sort={sort}
               onSortChange={onSortChange}
             />
@@ -531,15 +637,7 @@ export function FileBrowserPane({
           <div className={`${CONTENT_MAX} p-4`}>
             <FileGrid>
               {filteredFiles.map((file) => (
-                <FileCard
-                  key={file.id}
-                  file={file}
-                  isSelected={selectedFileId === file.id}
-                  onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
-                  locale={locale}
-                  footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
-                  actions={renderActions?.(file)}
-                />
+                <Fragment key={file.id}>{fileCard(file)}</Fragment>
               ))}
             </FileGrid>
           </div>
@@ -568,18 +666,7 @@ export function FileBrowserPane({
             {folderNav && childFolders.length > 0 && (
               <div className="border-b px-2 py-2" role="group" aria-label={t('folders.heading')}>
                 {childFolders.map((folder) => (
-                  <FolderRow
-                    key={folder.id}
-                    folder={folder}
-                    itemCount={folderItemCount(folder.id)}
-                    lastModified={folderLastModified(folder.id)}
-                    onOpen={folderNav.onNavigate}
-                    onRenameFolder={folderNav.onRenameFolder}
-                    onDeleteFolder={folderNav.onDeleteFolder}
-                    onDropDocument={onDropDocumentInFolder}
-                    onDropFolder={onDropFolderInFolder}
-                    canAcceptFolder={canAcceptFolder}
-                  />
+                  <Fragment key={folder.id}>{folderTile(folder, true)}</Fragment>
                 ))}
               </div>
             )}
@@ -589,6 +676,7 @@ export function FileBrowserPane({
                 selectedFileId={selectedFileId}
                 onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
                 renderActions={renderActions}
+                wrapRow={wrapFileRow}
                 sort={sort}
                 onSortChange={onSortChange}
                 draggable={Boolean(onDropDocumentInFolder)}
@@ -636,34 +724,24 @@ export function FileBrowserPane({
             <FileGrid>
               {folderNav &&
                 childFolders.map((folder) => (
-                  <FolderCard
-                    key={folder.id}
-                    folder={folder}
-                    itemCount={folderItemCount(folder.id)}
-                    lastModified={folderLastModified(folder.id)}
-                    onOpen={folderNav.onNavigate}
-                    onRenameFolder={folderNav.onRenameFolder}
-                    onDeleteFolder={folderNav.onDeleteFolder}
-                    onDropDocument={onDropDocumentInFolder}
-                    onDropFolder={onDropFolderInFolder}
-                    canAcceptFolder={canAcceptFolder}
-                  />
+                  <Fragment key={folder.id}>{folderTile(folder, false)}</Fragment>
                 ))}
               {orderedFiles.map((file) => (
-                <FileCard
-                  key={file.id}
-                  file={file}
-                  isSelected={selectedFileId === file.id}
-                  onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
-                  locale={locale}
-                  footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
-                  actions={renderActions?.(file)}
-                  draggable={Boolean(onDropDocumentInFolder)}
-                />
+                <Fragment key={file.id}>{fileCard(file)}</Fragment>
               ))}
               {uploadCard}
             </FileGrid>
         </motion.div>
+      )}
+      </ActionMenu>
+      {folderNav && (
+        <NewFolderDialog
+          open={createFolderIn !== undefined}
+          onOpenChange={(open) => {
+            if (!open) setCreateFolderIn(undefined)
+          }}
+          onCreate={(name) => folderNav.onCreateFolder(name, createFolderIn ?? undefined)}
+        />
       )}
     </div>
   )

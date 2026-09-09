@@ -19,10 +19,14 @@ from aiq_agent.agents.researcher import conversation_register as register_mod
 from aiq_agent.agents.researcher.conversation_register import ChatDeepResearcherConfig
 from aiq_agent.agents.researcher.conversation_register import chat_deepresearcher_agent
 from aiq_agent.agents.researcher.models import ResearchAgentState
+from aiq_agent.common import profiler as profiler_mod
+from aiq_agent.common.turn_admission import TurnAdmissionError
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.project_context import GridRequestContext
+from aiq_agent.turn import admission as admission_mod
 from aiq_agent.turn import context as context_mod
 from aiq_agent.turn import inventory as inventory_mod
+from aiq_agent.turn import registries as registries_mod
 from aiq_agent.turn.admission import TurnOutcome
 from aiq_agent.turn.admission import TurnRefusal
 
@@ -85,7 +89,12 @@ class TestStageModelWiring:
 @pytest.fixture
 def harness(monkeypatch):
     """The workflow with its database reads and the stage scheduler replaced."""
-    seen: dict = {"scheduled": [], "from_context": 0}
+    seen: dict = {"scheduled": [], "from_context": 0, "spans": []}
+
+    # The turn's profiler batch, captured where it is POSTED. A span reaching
+    # here proves the flush ran after the root closed: `track_agent_profile`
+    # only adds the root to the batch as it exits.
+    monkeypatch.setattr(profiler_mod, "_post_profiler_spans", lambda payload: seen["spans"].extend(payload["spans"]))
 
     async def no_documents(_collection):
         return []
@@ -179,3 +188,63 @@ class TestRun:
         await harness["turn"]('{"query": "welche OIB-Richtlinien gelten in Wien?"}', shallow)
 
         assert seen == [("Plan.pdf", "session"), (None, None)]
+
+
+class TestTurnLedgers:
+    """Every exit of the turn posts its ledgers, from the ONE finally outside
+    the profiled block: a flush from inside would post before the root span
+    closed and strand it."""
+
+    def _root(self, spans):
+        return next(span for span in spans if span["kind"] == "turn")
+
+    async def test_a_refusal_posts_the_root_span_carrying_its_outcome(self, harness, monkeypatch):
+        def refuse(_organization_id):
+            raise TurnAdmissionError("Gerade zu viele Anfragen.", retry_after_seconds=7)
+
+        monkeypatch.setattr(admission_mod, "admit_turn_async", refuse)
+
+        chunks = await harness["turn"]('{"query": "Was gilt?"}')
+
+        (terminal,) = chunks
+        assert terminal.choices[0].delta.content == "Gerade zu viele Anfragen."
+        assert terminal.retry_after_seconds == 7
+
+        spans = harness["spans"]
+        root = self._root(spans)
+        assert root["name"] == "chat_researcher"
+        assert root["status"] == "ok"
+        assert (root["metadata"] or {}).get("outcome") == "admission_refused"
+        # A refusal is not a failure: the wait closes ok and SAYS it refused,
+        # so the waterfall reads "refused" instead of "error".
+        wait = next(span for span in spans if span["name"] == "admission.wait")
+        assert wait["status"] == "ok"
+        assert (wait["metadata"] or {}).get("refused") is True
+
+    async def test_a_failing_setup_branch_does_not_lose_the_turn(self, harness, monkeypatch):
+        """The registry hydration dies; the other two branches still land, the
+        answer is still written, and the ledgers still post."""
+
+        def hydration_down(_conversation_id):
+            raise RuntimeError("cache down")
+
+        monkeypatch.setattr(registries_mod, "get_or_create_session_registry", hydration_down)
+
+        chunks = await harness["turn"]('{"query": "Wie hoch muss die Brüstung sein?"}')
+
+        assert chunks[-1].choices[0].delta.content == ANSWER
+        assert self._root(harness["spans"])["status"] == "ok"
+
+    async def test_an_exception_out_of_the_turn_body_still_posts_the_ledgers(self, harness, monkeypatch):
+        """No swallowed exception: it propagates, but the ledgers post first —
+        the turn that stopped is exactly the one an operator opens."""
+
+        async def boom(*_args, **_kwargs):
+            raise RuntimeError("agent down")
+
+        monkeypatch.setattr(register_mod, "answer_turn", boom)
+
+        with pytest.raises(RuntimeError, match="agent down"):
+            await harness["turn"]('{"query": "Was gilt?"}')
+
+        assert self._root(harness["spans"])["status"] == "error"

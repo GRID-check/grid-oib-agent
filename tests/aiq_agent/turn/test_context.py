@@ -9,6 +9,7 @@ import time
 import pytest
 
 from aiq_agent.project_context import GridRequestContext
+from aiq_agent.stages import TurnFacts
 from aiq_agent.turn import context as context_mod
 from aiq_agent.turn.context import load_turn_context
 from aiq_agent.turn.context import thread_id_for_turn
@@ -79,12 +80,30 @@ class TestLoadTurnContext:
         assert context.stage_facts.bundesland == "wien"
         assert context.stage_facts.enabled_stages == frozenset({"follow_ups"})
 
-    async def test_a_bug_in_the_digest_fetch_is_not_swallowed(self, stubs):
+    async def test_a_bug_in_the_digest_fetch_drops_the_context_instead_of_faking_it(self, stubs, caplog):
+        """Two rules meet here and both hold.
+
+        ``_live_memory_digest`` catches only the transport failures it names,
+        so a BUG is never quietly degraded to the frozen header digest — an
+        answer written against a digest that silently was not fetched is wrong
+        in the way nobody can see. And the turn is one member of the setup
+        gather, so the bug costs the LIVE CONTEXT, not the reader's answer: it
+        surfaces as an empty context plus the traceback in the log.
+        """
         stubs["digest"] = TypeError("a bug, not a transport failure")
-        with pytest.raises(TypeError):
-            await load_turn_context(
-                _request(project_id="p1"), conversation_id="c1", query_text="q", resolve_stages=False
-            )
+
+        context = await load_turn_context(
+            _request(project_id="p1", project_memory="FROZEN"),
+            conversation_id="c1",
+            query_text="q",
+            resolve_stages=False,
+        )
+
+        assert context.project_context is None
+        assert context.platform_lessons is None
+        assert context.stage_facts == TurnFacts()
+        assert "Project-context load failed" in caplog.text
+        assert "a bug, not a transport failure" in caplog.text
 
     async def test_no_project_and_no_org_means_no_fetch_and_the_header_value(self, stubs):
         context = await load_turn_context(

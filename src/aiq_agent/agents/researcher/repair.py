@@ -52,6 +52,11 @@ logger = logging.getLogger(__name__)
 #: citation, capped. Two is a repair; more is a second research turn.
 REPAIR_MAX_RETRIEVALS = 2
 
+#: How many of those retrievals may be in flight at once. Equal to the cap
+#: today, so both lookups of a repair overlap; kept separate because the
+#: bound is about load on the retrieval stack, not about what a repair costs.
+REPAIR_MAX_CONCURRENCY = 2
+
 #: A citation marker in prose, and the file part of a written citation line
 #: ("- [3] OIB-RL 2 – oib-rl_2.pdf, p.12" → "oib-rl_2.pdf").
 _CITATION_MARKER_RE = re.compile(r"\[(\d+)\]")
@@ -182,24 +187,41 @@ def repair_search_tool(tools: Sequence[BaseTool]) -> BaseTool | None:
 
 
 async def _retrieve(tool: BaseTool, lookups: Sequence[tuple[str, str | None]]) -> tuple[list[str], list[SourceEntry]]:
-    """Run every lookup at once; the passages and the sources they carry.
+    """Run the lookups together; the passages and the sources they carry.
 
     Captured for the caller rather than into the registry: the graph's tool
     node is not running, and what the repair retrieved must not change the
     answer's grounding unless the repair is adopted.
+
+    Fail-open per lookup: one bad retrieval (timeout, reranker error) is
+    dropped in lookup order, not allowed to poison the other -- only an
+    all-fail repair gives up, which the caller reads as empty grounding.
+    Bounded to two concurrent retrievals: two is a repair, more is a second
+    research turn.
     """
     scoped_search = "file_name" in _single_query_fields(tool)
     source_id = get_source_id_for_tool(tool.name)
+    semaphore = asyncio.Semaphore(REPAIR_MAX_CONCURRENCY)
 
     def _args(query: str, file_name: str | None) -> dict[str, Any]:
         if file_name and scoped_search:
             return {"query": query, "file_name": file_name}
         return {"query": query}
 
-    outputs = await asyncio.gather(*(tool.ainvoke(_args(query, file_name)) for query, file_name in lookups))
+    async def _lookup(query: str, file_name: str | None) -> Any:
+        async with semaphore:
+            return await tool.ainvoke(_args(query, file_name))
+
+    outputs = await asyncio.gather(
+        *(_lookup(query, file_name) for query, file_name in lookups),
+        return_exceptions=True,
+    )
     grounding: list[str] = []
     sources: list[SourceEntry] = []
     for output in outputs:
+        if isinstance(output, BaseException):
+            logger.warning("Researcher: repair lookup failed: %s", output)
+            continue
         text = str(output or "")
         if not text:
             continue

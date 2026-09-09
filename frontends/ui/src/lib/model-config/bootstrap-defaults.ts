@@ -47,7 +47,7 @@
  *   is exactly the pre-existing behaviour (fall through to the YAML).
  * - Skips `ingest_vlm` unless the ingestion VLM is itself on the platform
  *   provider. That group has its own credential plane (`AIQ_VLM_BASE_URL`) whose
- *   shipped default routes to NVIDIA; seeding it would make an operator's
+ *   shipped default routes to OpenRouter; seeding it would make an operator's
  *   `AIQ_VLM_MODEL` dead config and break captioning against that endpoint.
  */
 

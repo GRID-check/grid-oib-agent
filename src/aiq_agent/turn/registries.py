@@ -20,6 +20,7 @@ from aiq_agent.cards.registry import get_or_create_card_registry
 from aiq_agent.cards.registry import reset_card_registry
 from aiq_agent.cards.registry import set_card_registry
 from aiq_agent.common.citation_verification import SourceRegistry
+from aiq_agent.common.citation_verification import get_or_create_session_registry
 from aiq_agent.common.citation_verification import persist_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
@@ -42,6 +43,22 @@ class TurnRegistries:
     #: What the ``remember`` tool wrote DURING the turn. Filled when the
     #: context exits — the log is unbound at that moment.
     memory_writes: tuple[str, ...] = field(default_factory=tuple)
+
+
+async def load_session_registry(conversation_id: str | None) -> SourceRegistry:
+    """Hydrate the conversation's citation registry off the event loop, fail-open.
+
+    The hydrating read is a blocking cache round-trip (a cold-cache socket
+    timeout on Dragonfly), so it rides a thread. On ANY failure a fresh
+    registry is returned: the turn keeps its citations isolated rather than
+    dying without an answer, and the failure cannot lose the other setup
+    branches it is gathered with.
+    """
+    try:
+        return await asyncio.to_thread(get_or_create_session_registry, conversation_id)
+    except Exception:  # noqa: BLE001 - a cold cache must not cost the turn its answer
+        logger.warning("Session registry hydration failed; using a fresh registry", exc_info=True)
+        return SourceRegistry()
 
 
 @asynccontextmanager

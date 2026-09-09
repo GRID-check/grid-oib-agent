@@ -14,6 +14,7 @@ from aiq_agent.common.image_view_budget import get_image_view_budget
 from aiq_agent.knowledge.project_memory import record_turn_memory_write
 from aiq_agent.knowledge.project_memory import turn_memory_writes
 from aiq_agent.turn import registries as registries_mod
+from aiq_agent.turn.registries import load_session_registry
 from aiq_agent.turn.registries import pending_persist_tasks
 from aiq_agent.turn.registries import turn_registries
 
@@ -72,3 +73,30 @@ class TestTurnRegistries:
         await _settle()
         await asyncio.sleep(0)
         assert "Citation registry persistence failed" in caplog.text
+
+
+class TestLoadSessionRegistry:
+    """The registry hydration is a blocking cache round-trip: it rides a
+    thread, and any failure yields a fresh registry — never a failed turn."""
+
+    async def test_passthrough_on_success(self, monkeypatch):
+        registry = SourceRegistry()
+        monkeypatch.setattr(registries_mod, "get_or_create_session_registry", lambda _cid: registry)
+        assert await load_session_registry("conv-1") is registry
+
+    async def test_fresh_registry_on_failure(self, monkeypatch):
+        import threading
+
+        calling_thread = threading.current_thread().name
+        seen_threads: list[str] = []
+
+        def _hydrate(_conversation_id):
+            seen_threads.append(threading.current_thread().name)
+            raise RuntimeError("cache down")
+
+        monkeypatch.setattr(registries_mod, "get_or_create_session_registry", _hydrate)
+        fallback = await load_session_registry("conv-1")
+
+        assert isinstance(fallback, SourceRegistry)
+        # Off the event loop even on the failing path.
+        assert seen_threads and seen_threads[0] != calling_thread

@@ -19,8 +19,10 @@
 # on a runtime that already exists, which is a matter of days.
 #
 # The OpenTelemetry Collector block is boxed SHORT because contrib ships every
-# ~two weeks. 0.157.0 (the pin) and even 0.158.0 (2026-08-04) were built on
-# Go 1.26.5; 1.26.6 landed 2026-08-13. The next collector tag is the real fix.
+# ~two weeks, and that is exactly how it emptied: the pin moved 0.157.0 ->
+# 0.160.0 and twelve of its thirteen entries went with it. The one that
+# survives (amqp091-go) is boxed on the same bet — the next tag that carries
+# 1.13.0, not a suppression that renews itself.
 #
 # The LAST entry is boxed shortest of all, and it is the only one here that is
 # not a dependency of anything we or upstream chose: CVE-2026-14456 is OpenSSL
@@ -81,252 +83,165 @@ vulnerabilities:
 
   # ── OpenTelemetry Collector contrib (ADR-0029) ────────────────────────────
   #
-  # All eight are the Go 1.26.5 STANDARD LIBRARY compiled into
-  # `otelcol-contrib` inside
-  # otel/opentelemetry-collector-contrib@sha256:f2f0… (0.157.0). They are not
-  # packages this repo references. Every one is marked `fixed` upstream
-  # (Go 1.26.6 / 1.25.13, released 2026-08-13), so `--ignore-unfixed` does
-  # not skip them, and no digest bump can currently clear them: 0.158.0
-  # (newest tag, built 2026-08-04) is still 1.26.5. Verified against the
-  # registry, not assumed.
+  # Thirteen entries used to sit here: the Go 1.26.5 standard library (eight),
+  # the golang.org/x/mod sumdb pair, golang.org/x/crypto/ssh, and grpc. Every
+  # one of them named the release that would clear it, and the pin moving from
+  # 0.157.0 to 0.160.0 cleared all thirteen at once. Verified the way each of
+  # those entries demanded — by reading the build info out of the candidate
+  # binary rather than trusting the tag:
   #
-  # Shared reachability: the collector is the cluster's single OTLP
-  # ingestion point. It is not on the public internet. Producers are our
-  # own pods; the only other peer is the Aspire dashboard, itself
-  # cluster-internal and OIDC-gated. A NetworkPolicy admits that path.
-  # So an attacker has to already be inside the cluster or be an
-  # authenticated platform operator. The prize is a denial of service
-  # (or, for the idna/template entries, a defect whose attack surface
-  # this binary does not expose — stated per entry).
+  #   otel/opentelemetry-collector-contrib@sha256:799dc6cf… (0.160.0, amd64)
+  #     go1.26.8                    (>= 1.26.6: the stdlib block)
+  #     golang.org/x/mod   v0.40.0  (>= 0.40.0: CVE-2026-56864/56865)
+  #     golang.org/x/crypto v0.55.0 (>= 0.55.0: CVE-2026-56854)
+  #     google.golang.org/grpc v1.83.2 (>= 1.83.1: CVE-2026-84303/84304, and
+  #                                  CVE-2026-84445, which was never boxed —
+  #                                  it landed after the last develop scan and
+  #                                  turned this job red)
   #
-  # Drop the whole block the moment a collector-contrib image ships a
-  # binary built with Go >= 1.26.6. That is expected on the next minor
-  # (~0.159), which is why the box is one month.
+  # The bump introduced NO new advisory: every module the scanner still has
+  # something to say about carries the identical version in 0.157.0 and
+  # 0.160.0. Checked by diffing the two binaries' build info against OSV, not
+  # by reading the release notes.
+  #
+  # One entry survives, below, because amqp091-go is still 1.12.0.
+
+  # ── Go stdlib inside `usr/bin/migrate` in the Langfuse images (ADR-0044) ──
+  #
+  # These eight WERE boxed as a property of otelcol-contrib. That was only
+  # ever half true, and deleting them with the collector bump proved it: a
+  # trivy ignore matches on the CVE id across every scanned image, and the
+  # same Go 1.26.5 standard library is compiled into `usr/bin/migrate` — the
+  # golang-migrate binary in the Langfuse web and worker images. The
+  # collector no longer needs them; that binary still does. Restored under
+  # the name of what actually carries them, so the next person who clears
+  # one image does not silently unbox another.
+  #
+  # Shared reachability: `migrate` is a one-shot schema migration, run at
+  # container start against the ClickHouse and Postgres URLs the deployment
+  # configures. It opens no listener, parses no attacker-supplied document,
+  # and is not running while the service serves traffic. Every entry below
+  # is a parser or transport defect reachable only by feeding the process
+  # hostile input, which nothing in this deployment does.
+  #
+  # Drop the whole block when the Langfuse images ship a `migrate` built
+  # with Go >= 1.26.6 — verify with `go version -m usr/bin/migrate` on the
+  # candidate image rather than trusting the tag.
 
   - id: CVE-2026-33818
-    expired_at: 2026-09-17
+    expired_at: 2026-10-09
     statement: |
       encoding/asn1 — denial of service via excessive recursion in Unmarshal.
-      Compiled into otelcol-contrib (Go 1.26.5). ASN.1 shows up on the TLS
-      certificate path, not as a caller-supplied document parser.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
 
-      Not exploitable here: the collector's TLS peers are the Aspire
-      dashboard and our own pods, all operator-configured. There is no
-      path from an unauthenticated internet client to Unmarshal of
-      attacker-chosen ASN.1.
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
 
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
 
   - id: CVE-2026-39821
-    expired_at: 2026-09-17
+    expired_at: 2026-10-09
     statement: |
-      golang.org/x/net/idna / net/http — privilege escalation via incorrect
-      Punycode label processing. Compiled into otelcol-contrib (Go 1.26.5).
+      golang.org/x/net/idna — privilege escalation via incorrect Punycode
+      label processing.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
 
-      Not exploitable here: the collector does not make security decisions
-      (allowlists, origin checks) from a caller-supplied hostname. It
-      forwards OTLP to destinations named in its own config. A Punycode
-      confusion cannot change where this binary sends telemetry.
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
 
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
 
   - id: CVE-2026-46600
-    expired_at: 2026-09-17
+    expired_at: 2026-10-09
     statement: |
-      golang.org/x/net/dns/dnsmessage — denial of service via invalid DNS
-      record parsing. Compiled into otelcol-contrib (Go 1.26.5).
+      golang.org/x/net/dns/dnsmessage — denial of service parsing an invalid
+      SVCB or HTTPS record.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
 
-      Not exploitable here: DNS answers come from the cluster's resolver
-      for destinations we named (the Aspire dashboard). An attacker who
-      can poison that resolver is already past a more serious boundary
-      than this DoS.
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
 
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
 
   - id: CVE-2026-56853
-    expired_at: 2026-09-17
+    expired_at: 2026-10-09
     statement: |
-      net/http — unencrypted HTTP/2 connections vulnerable to denial of
-      service. Compiled into otelcol-contrib (Go 1.26.5).
+      net/http — ReadHeaderTimeout not applied on the unencrypted HTTP/2
+      check.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
 
-      Not exploitable here: OTLP peers are cluster-internal pods under a
-      NetworkPolicy. An unencrypted HTTP/2 DoS from the public internet
-      has no route to this process.
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
 
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
 
   - id: CVE-2026-56858
-    expired_at: 2026-09-17
+    expired_at: 2026-10-09
     statement: |
-      html/template — cross-site scripting via pathological input.
-      Compiled into otelcol-contrib (Go 1.26.5).
+      html/template — incorrect JavaScript regexp context tracking.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
 
-      Not exploitable here, and this one is structural: the collector is
-      not an HTML server. It does not render templates for a browser.
-      There is no document to inject into.
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
 
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
 
   - id: CVE-2026-56859
-    expired_at: 2026-09-17
+    expired_at: 2026-10-09
     statement: |
-      encoding/xml — denial of service via XML decoding recursion depth.
-      Compiled into otelcol-contrib (Go 1.26.5).
+      encoding/xml — denial of service via unbounded recursion during decode.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
 
-      Not exploitable here: the collector's request path is OTLP
-      (protobuf / JSON), not XML. Nothing on the ingestion path decodes
-      caller-supplied XML.
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
 
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
 
   - id: CVE-2026-56860
-    expired_at: 2026-09-17
+    expired_at: 2026-10-09
     statement: |
-      net/url — denial of service from quadratic complexity in path
-      parsing. Compiled into otelcol-contrib (Go 1.26.5).
+      net/url — quadratic complexity in resolvePath.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
 
-      Not exploitable here: URLs the collector parses are exporter
-      endpoints from its own config, not caller-supplied request paths
-      from the public internet.
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
 
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
 
   - id: CVE-2026-56862
-    expired_at: 2026-09-17
+    expired_at: 2026-10-09
     statement: |
-      crypto/tls — denial of service via indefinite KeyUpdate messages.
-      Compiled into otelcol-contrib (Go 1.26.5).
+      crypto/tls — denial of service via indefinite post-handshake messages.
+      Compiled into `usr/bin/migrate` (Go 1.26.5) in the digest-pinned
+      Langfuse web and worker images; not a package this repo references.
 
-      Not exploitable here: TLS peers are the Aspire dashboard and our
-      own pods. An attacker who can hold open a TLS session to the
-      collector is already inside the cluster. The prize is a DoS of
-      the telemetry pipeline, not the product.
+      Not exploitable here: the binary runs schema migrations at startup
+      against our own databases and exits. It accepts no network input and
+      is not alive while the service is.
 
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
-
-  # ── golang.org/x/mod inside otelcol-contrib (ADR-0029) ────────────────────
-  #
-  # These two are NOT part of the Go stdlib block above and do NOT clear the
-  # same way. Read them separately: the block above waits on a Go toolchain
-  # rebuild, which 0.159.0 (2026-08-18) already ships — it is built with
-  # Go 1.26.6. These two survive that bump. Verified by reading the build info
-  # compiled into `otelcol-contrib` in
-  # otel/opentelemetry-collector-contrib:0.159.0 (linux/amd64):
-  # `dep golang.org/x/mod v0.38.0`. So bumping the digest to 0.159.0 does not
-  # clear them, and no currently published tag does.
-  #
-  # Shared reasoning, STRUCTURAL rather than circumstantial, and the reason
-  # these are boxed at all: trivy reports x/mod from the module graph recorded
-  # in the binary's build info, not from what was actually linked. The only
-  # x/mod package compiled into `otelcol-contrib` is
-  # `golang.org/x/mod/semver` — pure semantic-version string comparison. Both
-  # defects below live in the module download and checksum-verification path
-  # (`golang.org/x/mod/sumdb` and friends), and none of those packages appear
-  # in the binary's symbol table. Confirmed by enumerating every
-  # `golang.org/x/mod/*` symbol in the shipped binary, not inferred from the
-  # module version.
-  #
-  # On top of that, both defects require the process to be FETCHING Go modules
-  # — acting as the `go` command against a hostile GOPROXY/GOSUMDB. A running
-  # collector never fetches Go modules; it is a compiled binary serving OTLP.
-  #
-  # Boxed to the same date as the block above so the whole collector section is
-  # re-argued in one pass. The real fix is upstream contrib bumping its own
-  # x/mod dependency to >= 0.40.0 (released 2026-08-13).
-
-  - id: CVE-2026-56864
-    expired_at: 2026-09-17
-    statement: |
-      golang.org/x/mod 0.38.0 — a malicious GOSUMDB was capable of serving
-      arbitrary module content without detection. Fixed in 0.40.0.
-
-      Not exploitable here, structurally: the vulnerable code
-      (`golang.org/x/mod/sumdb`, the checksum-database client) is NOT
-      compiled into `otelcol-contrib`. The only x/mod package linked into
-      the binary is `golang.org/x/mod/semver`. trivy flags this from the
-      module graph in the build info, not from a linked call path.
-
-      Independently, the defect requires the process to fetch Go modules
-      through an attacker-controlled GOSUMDB. The collector is a built
-      binary serving OTLP; it never runs a module download.
-
-      Drop as soon as a collector-contrib image ships x/mod >= 0.40.0.
-      Re-verify with `go version -m otelcol-contrib` on the new image
-      rather than assuming a tag bump carries it — 0.159.0 did not.
-
-  - id: CVE-2026-56865
-    expired_at: 2026-09-17
-    statement: |
-      golang.org/x/mod 0.38.0 — a malicious GOPROXY was previously capable
-      of forging up to two sumdb tree entries. Fixed in 0.40.0. Same
-      module-verification surface as CVE-2026-56864.
-
-      Not exploitable here, for the same structural reason: the sumdb client
-      is absent from the binary, only `golang.org/x/mod/semver` is linked,
-      and the collector never fetches Go modules at runtime.
-
-      Drop as soon as a collector-contrib image ships x/mod >= 0.40.0.
-
-  # ── golang.org/x/crypto/ssh inside otelcol-contrib (ADR-0029) ─────────────
-  #
-  # Separate from the Go stdlib block (a toolchain rebuild does not clear it)
-  # and from the x/mod pair (different package, different call path). Same
-  # image, same reachability posture.
-
-  - id: CVE-2026-56854
-    expired_at: 2026-10-01
-    statement: |
-      golang.org/x/crypto/ssh 0.54.0 — an SSH SERVER using certificate
-      authentication could fail to enforce source-address critical options,
-      an authentication bypass for connections that should have been
-      refused by origin. Fixed in 0.55.0, which no published
-      collector-contrib tag ships yet (the pin is 0.157.0; trivy reads
-      v0.54.0 out of its build info), so no digest bump can currently
-      clear it.
-
-      Not exploitable here, structurally: the collector runs NO SSH
-      server. Its listeners are the OTLP receivers in
-      deploy/pulumi/src/platform/otel-collector.ts and nothing else —
-      x/crypto/ssh rides in via contrib components (the sshcheck
-      receiver, an SSH CLIENT) that our collector.yaml never enables. A
-      server-side certificate-auth bypass needs a server accepting SSH
-      connections, and this deployment has no such surface; the pod is
-      cluster-internal behind a NetworkPolicy besides.
-
-      Drop as soon as a collector-contrib image ships
-      golang.org/x/crypto >= 0.55.0 — re-verify with
-      `go version -m otelcol-contrib` on the candidate image rather than
-      assuming a tag bump carries it, exactly as the x/mod entries above
-      had to.
-
-  # ── google.golang.org/grpc inside otelcol-contrib (ADR-0029) ──────────────
-  #
-  # Separate from the Go stdlib block (a toolchain rebuild does not clear
-  # it) and from the x/mod / x/crypto pairs (different module). Same image,
-  # same reachability posture. grpc 1.83.1 is the library fix; no published
-  # collector-contrib tag ships it yet (latest is 0.159.0, 2026-08-17).
-
-  - id: CVE-2026-84304
-    expired_at: 2026-10-01
-    statement: |
-      google.golang.org/grpc 1.82.1 — HIGH, marked fixed in 1.83.1. Compiled
-      into otelcol-contrib inside the digest-pinned 0.157.0 image. trivy
-      reads that version from the binary. Latest published collector-contrib
-      tag is 0.159.0 (2026-08-17); grpc 1.83.1 is the library fix, and no
-      digest bump of a currently published tag is known to carry it.
-
-      Not exploitable here: the collector's gRPC listeners are the OTLP
-      receivers in deploy/pulumi/src/platform/otel-collector.ts. Peers are
-      our own pods and the Aspire dashboard, cluster-internal, under a
-      NetworkPolicy. An attacker who can speak gRPC to this process is
-      already inside the cluster. The prize is a denial of service against
-      the telemetry pipeline, not the product.
-
-      Drop as soon as a collector-contrib image ships
-      google.golang.org/grpc >= 1.83.1 — re-verify with
-      `go version -m otelcol-contrib` on the candidate image rather than
-      assuming a tag bump carries it.
-
+      Drop as soon as a Langfuse image ships `migrate` built with
+      Go >= 1.26.6.
   # ── github.com/rabbitmq/amqp091-go inside otelcol-contrib (ADR-0029) ──────
   #
   # Separate from every block above: a toolchain rebuild does not clear it, and
@@ -339,7 +254,7 @@ vulnerabilities:
     statement: |
       github.com/rabbitmq/amqp091-go 1.12.0 — HIGH, a denial of service via
       oversized AMQP payloads, marked fixed in 1.13.0. Compiled into
-      otelcol-contrib inside the digest-pinned 0.157.0 image; not a package
+      otelcol-contrib inside the digest-pinned 0.160.0 image; not a package
       this repo references, and it appears in no lockfile we own.
 
       No published tag clears it. Checked rather than assumed, because the
@@ -562,6 +477,126 @@ vulnerabilities:
       behind the permission gate.
 
       Drop as soon as a Langfuse image ships undici >= 7.29.0.
+
+  # ── Langfuse app dependencies, second wave (ADR-0044) ─────────────────────
+  #
+  # Five advisories published after the seven boxed above, in the same two
+  # digest-pinned images. They were red on develop before the branch that boxes
+  # them existed — security.yml only runs on push to develop and weekly, so
+  # develop is green on a scan that predates these.
+  #
+  # No digest bump clears them. Checked the way the block above demands, by
+  # reading the newest release's node_modules rather than its release notes:
+  # langfuse 3.225.7 (newest 3.x tag) still ships next@16.2.11,
+  # js-yaml@3.15.0 + @4.3.0 and nodemailer@9.0.3 — the same versions the pin
+  # carries.
+  #
+  # Two are CRITICAL, and both are structurally inapplicable to THIS image for
+  # reasons read out of the image itself — app/web/.next/required-server-files.json
+  # in ghcr.io/langfuse/langfuse@sha256:c782c55… (linux/amd64):
+  #
+  #   images.formats        = ["image/webp"]   -- AVIF is not enabled
+  #   images.domains        = []               -- no remote image source
+  #   images.remotePatterns = []               -- no remote image source
+  #
+  # Standing bound on all five: Langfuse is the LLM-observability plane, not
+  # the product. Losing it costs tracing, not chat — ADR-0044's whole point is
+  # that the agent degrades rather than fails when Langfuse is gone.
+
+  - id: CVE-2026-75604
+    expired_at: 2026-10-09
+    statement: |
+      next 16.2.11 — CRITICAL, unauthenticated RCE via unescaped backslashes in
+      incremental-cache paths. Fixed in 15.5.24 / 16.3.3.
+
+      Not exploitable here, structurally: the defect is Windows-only. It is
+      backslash handling in `escape-path-delimiters.ts` and
+      `file-system-cache.ts`, reached by encoded WINDOWS path separators
+      traversing outside the cache root, and the advisory scopes itself to
+      "Windows-hosted servers". These are linux/amd64 Node images on a Linux
+      Kubernetes cluster, where a backslash is an ordinary filename character
+      and no traversal occurs.
+
+      Drop when a Langfuse image ships next >= 16.3.3.
+
+  - id: GHSA-2xp9-vwfh-vxw4
+    expired_at: 2026-10-09
+    statement: |
+      next 16.2.11 — CRITICAL, unauthenticated RCE in the Image Optimization
+      API: libheif (via sharp) can be driven to code execution when an AVIF
+      file is optimized. Fixed in 15.5.24 / 16.3.3.
+
+      Two independent reasons it cannot fire on this image, both read out of
+      its own build manifest rather than assumed:
+
+      1. AVIF is not enabled. `images.formats` is ["image/webp"]; AVIF
+         optimization is opt-in and this build did not opt in. Upstream Next
+         additionally disabled AVIF optimization outright in response to this
+         advisory ("until a fix has propagated").
+      2. The optimizer has no remote input. `images.domains` and
+         `images.remotePatterns` are both empty, so `/_next/image` optimizes
+         only assets shipped inside the image. An attacker cannot hand it a
+         file at all, hostile AVIF or otherwise.
+
+      Re-verify BOTH when bumping the pin — an upstream build that enables AVIF
+      or adds a remotePattern removes the argument, and neither shows up as a
+      version change:
+        tar -xzOf <layer> app/web/.next/required-server-files.json \
+          | jq .config.images
+
+      Drop when a Langfuse image ships next >= 16.3.3.
+
+  - id: GHSA-rgj7-g3m4-5g8c
+    expired_at: 2026-10-09
+    statement: |
+      sharp 0.34.5 — HIGH, the libheif defects behind the Next advisory above.
+      Fixed in 0.35.4 (libheif 1.23.2). "Those processing untrusted input are
+      affected."
+
+      Not exploitable here for the same verified reason: in this image sharp is
+      reached through Next's image optimizer, which accepts no remote source
+      (`images.domains` and `images.remotePatterns` are both empty) and does
+      not emit AVIF (`images.formats` is ["image/webp"]). Langfuse exposes no
+      other image-processing surface — it ingests JSON traces, not media.
+
+      Drop when a Langfuse image ships sharp >= 0.35.4.
+
+  - id: GHSA-2x7j-588g-ccc2
+    expired_at: 2026-10-09
+    statement: |
+      nodemailer 9.0.3 — HIGH, quadratic time in `addressparser`: a multi-MB
+      address list blocks the event loop for minutes. Availability only
+      (C:N/I:N/A:H). Fixed in 9.1.0.
+
+      Bounded here rather than absent, and worth saying plainly: the parser is
+      reached through Langfuse's own mail paths (project invitations, alert
+      delivery), whose addresses come from a signed-in member of a project. The
+      surface is authenticated, so this is a tenant member able to stall their
+      own Langfuse instance, not an anonymous internet DoS — and the blast
+      radius is the observability plane, which the agent survives without.
+
+      Drop when a Langfuse image ships nodemailer >= 9.1.0.
+
+  - id: CVE-2026-84375
+    expired_at: 2026-10-09
+    statement: |
+      js-yaml 3.15.0 and 4.3.0 — HIGH, `maxTotalMergeKeys` does not count empty
+      merge sources, so a small document can burn CPU. Availability only
+      (C:N/I:N/A:H). Fixed in 3.15.2 / 4.3.2.
+
+      Requires parsing UNTRUSTED YAML. Langfuse's ingestion surface is JSON —
+      the OTLP receiver and the public API take no YAML — and js-yaml arrives
+      here as a transitive dependency of build and config tooling rather than
+      of a request path.
+
+      Stated as the WEAKEST argument in this block: it rests on no request
+      handler reaching a YAML parse, which is a reading of the upstream tree
+      rather than a property of our own configuration, the way the two
+      `images.*` facts above are. If one of these five is to be re-argued
+      rather than renewed, it is this one.
+
+      Drop when a Langfuse image ships js-yaml >= 4.3.2 (and >= 3.15.2 for the
+      3.x copy).
 
   # ── Langfuse web/worker images — the Alpine BASE, not the app (ADR-0044) ──
   #

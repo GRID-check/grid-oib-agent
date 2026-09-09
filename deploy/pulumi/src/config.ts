@@ -2276,7 +2276,7 @@ export function loadConfig(): GridConfig {
       tavilyApiKey: cfg.requireSecret("tavilyApiKey"),
       embedModel: cfg.get("embedModel") ?? "openai/text-embedding-3-large",
       embedBaseUrl: cfg.get("embedBaseUrl") ?? "https://openrouter.ai/api/v1",
-      vlmModel: cfg.get("vlmModel") ?? "google/gemma-4-31b-it",
+      vlmModel: cfg.get("vlmModel") ?? "openai/gpt-5.6-luna",
       vlmBaseUrl: cfg.get("vlmBaseUrl") ?? "https://openrouter.ai/api/v1",
     },
 
@@ -2337,7 +2337,7 @@ export function loadConfig(): GridConfig {
     observability: {
       enabled: observabilityEnabled,
       otelDomain,
-      // Digest-pinned (supply chain): 13.4.2 and 0.157.0 respectively. Bump
+      // Digest-pinned (supply chain): 13.4.2 and 0.160.0 respectively. Bump
       // deliberately via config when upgrading — the pins are scanned by the
       // trivy job in .github/workflows/security.yml, which blocks on fixable
       // HIGH/CRITICAL, so a stale pin surfaces as a failing check.
@@ -2346,7 +2346,7 @@ export function loadConfig(): GridConfig {
         "mcr.microsoft.com/dotnet/aspire-dashboard@sha256:d71f709233fdd53092a9a562ca6fb74264aec7c16c9aff03da94091f18ea2394",
       collectorImage:
         cfg.get("collectorImage") ??
-        "otel/opentelemetry-collector-contrib@sha256:f2f01157055a9b2aab9df7118e1f1c9abf345e99b23bc7a2bc791db374a7d0f6",
+        "otel/opentelemetry-collector-contrib@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6",
       telemetryLimits: {
         maxLogCount: num(cfg, "dashboardMaxLogCount", 50000),
         maxTraceCount: num(cfg, "dashboardMaxTraceCount", 50000),

@@ -114,16 +114,30 @@ async def _enabled_stages(request: GridRequestContext, resolve: bool) -> frozens
     )
 
 
-async def load_turn_context(
+async def _platform_lessons(conversation_id: str | None) -> str | None:
+    """The bounded fleet-wide lessons digest, or None.
+
+    Platform-scoped, so fetched regardless of project/org context; the module
+    TTL-caches, so the per-turn cost is ~zero between refreshes and the thread
+    hop only exists for the cold fetch. Fails open: a digest that could not be
+    read is one the prompts do without.
+    """
+    try:
+        return await asyncio.to_thread(get_platform_lessons_digest, conversation_id)
+    except Exception:  # noqa: BLE001 - an advisory digest must never cost the turn
+        logger.warning("Platform-lessons digest fetch failed; continuing without", exc_info=True)
+        return None
+
+
+async def _load_turn_context(
     request: GridRequestContext,
     *,
     conversation_id: str | None,
     query_text: str,
     resolve_stages: bool,
 ) -> TurnContext:
-    """Gather everything the turn injects that lives behind a round-trip."""
     platform_lessons, memory_digest, enabled_stages = await asyncio.gather(
-        asyncio.to_thread(get_platform_lessons_digest, conversation_id),
+        _platform_lessons(conversation_id),
         _live_memory_digest(request, query_text),
         _enabled_stages(request, resolve_stages),
     )
@@ -142,3 +156,28 @@ async def load_turn_context(
             enabled_stages=enabled_stages,
         ),
     )
+
+
+async def load_turn_context(
+    request: GridRequestContext,
+    *,
+    conversation_id: str | None,
+    query_text: str,
+    resolve_stages: bool,
+) -> TurnContext:
+    """Gather everything the turn injects that lives behind a round-trip.
+
+    Fail-open as a whole. Each branch above already degrades on its own, but
+    the composition can still raise (an unexpected error out of a reader, or
+    out of ``compose_project_context``), and this call is one member of the
+    setup gather: a dead branch must cost the LIVE CONTEXT, never the turn and
+    never its siblings. The empty context is what a turn with no project and no
+    memory already runs on.
+    """
+    try:
+        return await _load_turn_context(
+            request, conversation_id=conversation_id, query_text=query_text, resolve_stages=resolve_stages
+        )
+    except Exception:  # noqa: BLE001 - see above; an answer without context beats no answer
+        logger.warning("Project-context load failed; continuing without live context", exc_info=True)
+        return TurnContext(project_context=None, platform_lessons=None, stage_facts=TurnFacts())

@@ -35,7 +35,38 @@ import os
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+from aiq_agent.common.config_validation import NIM_API_HOST
+from aiq_agent.common.config_validation import NIM_UNSUPPORTED_MESSAGE
+
 logger = logging.getLogger(__name__)
+
+#: Env var of the removed NVIDIA NIM provider. Deployments still carrying it
+#: get a deprecation warning pointing at the supported key (see
+#: :func:`warn_on_legacy_nvidia_key`); nothing reads it as a credential.
+LEGACY_NVIDIA_KEY_ENV = "NVIDIA_API_KEY"
+
+_nvidia_deprecation_warned = False
+
+
+def warn_on_legacy_nvidia_key() -> bool:
+    """Log a one-time deprecation warning when the env still carries only the legacy key.
+
+    An env with ``NVIDIA_API_KEY`` set but no ``OPENROUTER_API_KEY`` is a
+    deployment left behind by the OpenRouter migration: warn once per process
+    and point at the supported key. Returns True when the warning was emitted.
+    """
+    global _nvidia_deprecation_warned
+    if _nvidia_deprecation_warned:
+        return False
+    if read_api_key_env(LEGACY_NVIDIA_KEY_ENV) and not read_api_key_env("OPENROUTER_API_KEY"):
+        _nvidia_deprecation_warned = True
+        logger.warning(
+            "%s is set but OPENROUTER_API_KEY is not — NVIDIA NIM is no longer supported. "
+            "Set OPENROUTER_API_KEY instead (see configs/config_oib_openrouter.yml).",
+            LEGACY_NVIDIA_KEY_ENV,
+        )
+        return True
+    return False
 
 
 def read_api_key_env(name: str) -> str:
@@ -121,6 +152,14 @@ def resolve_llm_credential(
     base_url = (read_api_key_env(base_url_env) if base_url_env else "") or default_base_url
     base_url = base_url.rstrip("/")
     model = (read_api_key_env(model_env) if model_env else "") or default_model
+
+    warn_on_legacy_nvidia_key()
+
+    # Fail fast on the removed NVIDIA endpoint: a base URL still pointing at
+    # NIM is a stale config and must say so here, not fail deep inside a
+    # client call.
+    if NIM_API_HOST in (urlsplit(base_url).hostname or ""):
+        raise ValueError(f"{NIM_UNSUPPORTED_MESSAGE} (base_url {base_url} points at the removed endpoint)")
 
     # 1. BYOK — the org's bring-your-own credential wins when we know the org.
     #    Fail-open lives in resolve_org_llm_credential (a BYOK hiccup returns
