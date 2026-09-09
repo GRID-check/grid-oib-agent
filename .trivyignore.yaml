@@ -19,8 +19,10 @@
 # on a runtime that already exists, which is a matter of days.
 #
 # The OpenTelemetry Collector block is boxed SHORT because contrib ships every
-# ~two weeks. 0.157.0 (the pin) and even 0.158.0 (2026-08-04) were built on
-# Go 1.26.5; 1.26.6 landed 2026-08-13. The next collector tag is the real fix.
+# ~two weeks, and that is exactly how it emptied: the pin moved 0.157.0 ->
+# 0.160.0 and twelve of its thirteen entries went with it. The one that
+# survives (amqp091-go) is boxed on the same bet — the next tag that carries
+# 1.13.0, not a suppression that renews itself.
 #
 # The LAST entry is boxed shortest of all, and it is the only one here that is
 # not a dependency of anything we or upstream chose: CVE-2026-14456 is OpenSSL
@@ -81,251 +83,28 @@ vulnerabilities:
 
   # ── OpenTelemetry Collector contrib (ADR-0029) ────────────────────────────
   #
-  # All eight are the Go 1.26.5 STANDARD LIBRARY compiled into
-  # `otelcol-contrib` inside
-  # otel/opentelemetry-collector-contrib@sha256:f2f0… (0.157.0). They are not
-  # packages this repo references. Every one is marked `fixed` upstream
-  # (Go 1.26.6 / 1.25.13, released 2026-08-13), so `--ignore-unfixed` does
-  # not skip them, and no digest bump can currently clear them: 0.158.0
-  # (newest tag, built 2026-08-04) is still 1.26.5. Verified against the
-  # registry, not assumed.
+  # Thirteen entries used to sit here: the Go 1.26.5 standard library (eight),
+  # the golang.org/x/mod sumdb pair, golang.org/x/crypto/ssh, and grpc. Every
+  # one of them named the release that would clear it, and the pin moving from
+  # 0.157.0 to 0.160.0 cleared all thirteen at once. Verified the way each of
+  # those entries demanded — by reading the build info out of the candidate
+  # binary rather than trusting the tag:
   #
-  # Shared reachability: the collector is the cluster's single OTLP
-  # ingestion point. It is not on the public internet. Producers are our
-  # own pods; the only other peer is the Aspire dashboard, itself
-  # cluster-internal and OIDC-gated. A NetworkPolicy admits that path.
-  # So an attacker has to already be inside the cluster or be an
-  # authenticated platform operator. The prize is a denial of service
-  # (or, for the idna/template entries, a defect whose attack surface
-  # this binary does not expose — stated per entry).
+  #   otel/opentelemetry-collector-contrib@sha256:799dc6cf… (0.160.0, amd64)
+  #     go1.26.8                    (>= 1.26.6: the stdlib block)
+  #     golang.org/x/mod   v0.40.0  (>= 0.40.0: CVE-2026-56864/56865)
+  #     golang.org/x/crypto v0.55.0 (>= 0.55.0: CVE-2026-56854)
+  #     google.golang.org/grpc v1.83.2 (>= 1.83.1: CVE-2026-84303/84304, and
+  #                                  CVE-2026-84445, which was never boxed —
+  #                                  it landed after the last develop scan and
+  #                                  turned this job red)
   #
-  # Drop the whole block the moment a collector-contrib image ships a
-  # binary built with Go >= 1.26.6. That is expected on the next minor
-  # (~0.159), which is why the box is one month.
-
-  - id: CVE-2026-33818
-    expired_at: 2026-09-17
-    statement: |
-      encoding/asn1 — denial of service via excessive recursion in Unmarshal.
-      Compiled into otelcol-contrib (Go 1.26.5). ASN.1 shows up on the TLS
-      certificate path, not as a caller-supplied document parser.
-
-      Not exploitable here: the collector's TLS peers are the Aspire
-      dashboard and our own pods, all operator-configured. There is no
-      path from an unauthenticated internet client to Unmarshal of
-      attacker-chosen ASN.1.
-
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
-
-  - id: CVE-2026-39821
-    expired_at: 2026-09-17
-    statement: |
-      golang.org/x/net/idna / net/http — privilege escalation via incorrect
-      Punycode label processing. Compiled into otelcol-contrib (Go 1.26.5).
-
-      Not exploitable here: the collector does not make security decisions
-      (allowlists, origin checks) from a caller-supplied hostname. It
-      forwards OTLP to destinations named in its own config. A Punycode
-      confusion cannot change where this binary sends telemetry.
-
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
-
-  - id: CVE-2026-46600
-    expired_at: 2026-09-17
-    statement: |
-      golang.org/x/net/dns/dnsmessage — denial of service via invalid DNS
-      record parsing. Compiled into otelcol-contrib (Go 1.26.5).
-
-      Not exploitable here: DNS answers come from the cluster's resolver
-      for destinations we named (the Aspire dashboard). An attacker who
-      can poison that resolver is already past a more serious boundary
-      than this DoS.
-
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
-
-  - id: CVE-2026-56853
-    expired_at: 2026-09-17
-    statement: |
-      net/http — unencrypted HTTP/2 connections vulnerable to denial of
-      service. Compiled into otelcol-contrib (Go 1.26.5).
-
-      Not exploitable here: OTLP peers are cluster-internal pods under a
-      NetworkPolicy. An unencrypted HTTP/2 DoS from the public internet
-      has no route to this process.
-
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
-
-  - id: CVE-2026-56858
-    expired_at: 2026-09-17
-    statement: |
-      html/template — cross-site scripting via pathological input.
-      Compiled into otelcol-contrib (Go 1.26.5).
-
-      Not exploitable here, and this one is structural: the collector is
-      not an HTML server. It does not render templates for a browser.
-      There is no document to inject into.
-
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
-
-  - id: CVE-2026-56859
-    expired_at: 2026-09-17
-    statement: |
-      encoding/xml — denial of service via XML decoding recursion depth.
-      Compiled into otelcol-contrib (Go 1.26.5).
-
-      Not exploitable here: the collector's request path is OTLP
-      (protobuf / JSON), not XML. Nothing on the ingestion path decodes
-      caller-supplied XML.
-
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
-
-  - id: CVE-2026-56860
-    expired_at: 2026-09-17
-    statement: |
-      net/url — denial of service from quadratic complexity in path
-      parsing. Compiled into otelcol-contrib (Go 1.26.5).
-
-      Not exploitable here: URLs the collector parses are exporter
-      endpoints from its own config, not caller-supplied request paths
-      from the public internet.
-
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
-
-  - id: CVE-2026-56862
-    expired_at: 2026-09-17
-    statement: |
-      crypto/tls — denial of service via indefinite KeyUpdate messages.
-      Compiled into otelcol-contrib (Go 1.26.5).
-
-      Not exploitable here: TLS peers are the Aspire dashboard and our
-      own pods. An attacker who can hold open a TLS session to the
-      collector is already inside the cluster. The prize is a DoS of
-      the telemetry pipeline, not the product.
-
-      Drop as soon as a collector-contrib image is built with Go >= 1.26.6.
-
-  # ── golang.org/x/mod inside otelcol-contrib (ADR-0029) ────────────────────
+  # The bump introduced NO new advisory: every module the scanner still has
+  # something to say about carries the identical version in 0.157.0 and
+  # 0.160.0. Checked by diffing the two binaries' build info against OSV, not
+  # by reading the release notes.
   #
-  # These two are NOT part of the Go stdlib block above and do NOT clear the
-  # same way. Read them separately: the block above waits on a Go toolchain
-  # rebuild, which 0.159.0 (2026-08-18) already ships — it is built with
-  # Go 1.26.6. These two survive that bump. Verified by reading the build info
-  # compiled into `otelcol-contrib` in
-  # otel/opentelemetry-collector-contrib:0.159.0 (linux/amd64):
-  # `dep golang.org/x/mod v0.38.0`. So bumping the digest to 0.159.0 does not
-  # clear them, and no currently published tag does.
-  #
-  # Shared reasoning, STRUCTURAL rather than circumstantial, and the reason
-  # these are boxed at all: trivy reports x/mod from the module graph recorded
-  # in the binary's build info, not from what was actually linked. The only
-  # x/mod package compiled into `otelcol-contrib` is
-  # `golang.org/x/mod/semver` — pure semantic-version string comparison. Both
-  # defects below live in the module download and checksum-verification path
-  # (`golang.org/x/mod/sumdb` and friends), and none of those packages appear
-  # in the binary's symbol table. Confirmed by enumerating every
-  # `golang.org/x/mod/*` symbol in the shipped binary, not inferred from the
-  # module version.
-  #
-  # On top of that, both defects require the process to be FETCHING Go modules
-  # — acting as the `go` command against a hostile GOPROXY/GOSUMDB. A running
-  # collector never fetches Go modules; it is a compiled binary serving OTLP.
-  #
-  # Boxed to the same date as the block above so the whole collector section is
-  # re-argued in one pass. The real fix is upstream contrib bumping its own
-  # x/mod dependency to >= 0.40.0 (released 2026-08-13).
-
-  - id: CVE-2026-56864
-    expired_at: 2026-09-17
-    statement: |
-      golang.org/x/mod 0.38.0 — a malicious GOSUMDB was capable of serving
-      arbitrary module content without detection. Fixed in 0.40.0.
-
-      Not exploitable here, structurally: the vulnerable code
-      (`golang.org/x/mod/sumdb`, the checksum-database client) is NOT
-      compiled into `otelcol-contrib`. The only x/mod package linked into
-      the binary is `golang.org/x/mod/semver`. trivy flags this from the
-      module graph in the build info, not from a linked call path.
-
-      Independently, the defect requires the process to fetch Go modules
-      through an attacker-controlled GOSUMDB. The collector is a built
-      binary serving OTLP; it never runs a module download.
-
-      Drop as soon as a collector-contrib image ships x/mod >= 0.40.0.
-      Re-verify with `go version -m otelcol-contrib` on the new image
-      rather than assuming a tag bump carries it — 0.159.0 did not.
-
-  - id: CVE-2026-56865
-    expired_at: 2026-09-17
-    statement: |
-      golang.org/x/mod 0.38.0 — a malicious GOPROXY was previously capable
-      of forging up to two sumdb tree entries. Fixed in 0.40.0. Same
-      module-verification surface as CVE-2026-56864.
-
-      Not exploitable here, for the same structural reason: the sumdb client
-      is absent from the binary, only `golang.org/x/mod/semver` is linked,
-      and the collector never fetches Go modules at runtime.
-
-      Drop as soon as a collector-contrib image ships x/mod >= 0.40.0.
-
-  # ── golang.org/x/crypto/ssh inside otelcol-contrib (ADR-0029) ─────────────
-  #
-  # Separate from the Go stdlib block (a toolchain rebuild does not clear it)
-  # and from the x/mod pair (different package, different call path). Same
-  # image, same reachability posture.
-
-  - id: CVE-2026-56854
-    expired_at: 2026-10-01
-    statement: |
-      golang.org/x/crypto/ssh 0.54.0 — an SSH SERVER using certificate
-      authentication could fail to enforce source-address critical options,
-      an authentication bypass for connections that should have been
-      refused by origin. Fixed in 0.55.0, which no published
-      collector-contrib tag ships yet (the pin is 0.157.0; trivy reads
-      v0.54.0 out of its build info), so no digest bump can currently
-      clear it.
-
-      Not exploitable here, structurally: the collector runs NO SSH
-      server. Its listeners are the OTLP receivers in
-      deploy/pulumi/src/platform/otel-collector.ts and nothing else —
-      x/crypto/ssh rides in via contrib components (the sshcheck
-      receiver, an SSH CLIENT) that our collector.yaml never enables. A
-      server-side certificate-auth bypass needs a server accepting SSH
-      connections, and this deployment has no such surface; the pod is
-      cluster-internal behind a NetworkPolicy besides.
-
-      Drop as soon as a collector-contrib image ships
-      golang.org/x/crypto >= 0.55.0 — re-verify with
-      `go version -m otelcol-contrib` on the candidate image rather than
-      assuming a tag bump carries it, exactly as the x/mod entries above
-      had to.
-
-  # ── google.golang.org/grpc inside otelcol-contrib (ADR-0029) ──────────────
-  #
-  # Separate from the Go stdlib block (a toolchain rebuild does not clear
-  # it) and from the x/mod / x/crypto pairs (different module). Same image,
-  # same reachability posture. grpc 1.83.1 is the library fix; no published
-  # collector-contrib tag ships it yet (latest is 0.159.0, 2026-08-17).
-
-  - id: CVE-2026-84304
-    expired_at: 2026-10-01
-    statement: |
-      google.golang.org/grpc 1.82.1 — HIGH, marked fixed in 1.83.1. Compiled
-      into otelcol-contrib inside the digest-pinned 0.157.0 image. trivy
-      reads that version from the binary. Latest published collector-contrib
-      tag is 0.159.0 (2026-08-17); grpc 1.83.1 is the library fix, and no
-      digest bump of a currently published tag is known to carry it.
-
-      Not exploitable here: the collector's gRPC listeners are the OTLP
-      receivers in deploy/pulumi/src/platform/otel-collector.ts. Peers are
-      our own pods and the Aspire dashboard, cluster-internal, under a
-      NetworkPolicy. An attacker who can speak gRPC to this process is
-      already inside the cluster. The prize is a denial of service against
-      the telemetry pipeline, not the product.
-
-      Drop as soon as a collector-contrib image ships
-      google.golang.org/grpc >= 1.83.1 — re-verify with
-      `go version -m otelcol-contrib` on the candidate image rather than
-      assuming a tag bump carries it.
+  # One entry survives, below, because amqp091-go is still 1.12.0.
 
   # ── github.com/rabbitmq/amqp091-go inside otelcol-contrib (ADR-0029) ──────
   #
@@ -339,7 +118,7 @@ vulnerabilities:
     statement: |
       github.com/rabbitmq/amqp091-go 1.12.0 — HIGH, a denial of service via
       oversized AMQP payloads, marked fixed in 1.13.0. Compiled into
-      otelcol-contrib inside the digest-pinned 0.157.0 image; not a package
+      otelcol-contrib inside the digest-pinned 0.160.0 image; not a package
       this repo references, and it appears in no lockfile we own.
 
       No published tag clears it. Checked rather than assumed, because the
