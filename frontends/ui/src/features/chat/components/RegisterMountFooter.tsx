@@ -33,7 +33,7 @@ import { FolderKanban } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
-import { sourceSignalStyle } from '@/features/layout/components/SourceSignalChip'
+import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
 import type { CitedDocument } from '../lib/citations'
 import { useChatStore } from '../store'
 
@@ -75,27 +75,29 @@ export const RegisterMountFooter: FC<RegisterMountFooterProps> = ({ documents })
     >
       <SectionLabel className="shrink-0">{t('workspace.registerMount.label')}</SectionLabel>
       {offers.map((offer) => (
-        <span
+        <SourceSignalChip
           key={offer.projectId}
-          className="flex h-6 items-center gap-1 rounded-full border pl-2.5 pr-1 text-xs font-medium"
-          style={sourceSignalStyle('project')}
+          signal="project"
+          icon={FolderKanban}
+          className="max-w-56"
+          trailing={
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              disabled={!conversationId || mountsPending.includes(offer.projectId)}
+              onClick={() => {
+                if (!conversationId) return
+                void mountProject(conversationId, offer.projectId, offer.projectName)
+              }}
+              className="h-auto p-0 px-1 text-xs"
+            >
+              {t('workspace.registerMount.action')}
+            </Button>
+          }
         >
-          <FolderKanban className="size-3 shrink-0" aria-hidden="true" />
-          <span className="max-w-40 truncate">{offer.projectName}</span>
-          <Button
-            type="button"
-            variant="link"
-            size="sm"
-            disabled={!conversationId || mountsPending.includes(offer.projectId)}
-            onClick={() => {
-              if (!conversationId) return
-              void mountProject(conversationId, offer.projectId, offer.projectName)
-            }}
-            className="h-auto p-0 px-1 text-xs"
-          >
-            {t('workspace.registerMount.action')}
-          </Button>
-        </span>
+          {offer.projectName}
+        </SourceSignalChip>
       ))}
     </div>
   )

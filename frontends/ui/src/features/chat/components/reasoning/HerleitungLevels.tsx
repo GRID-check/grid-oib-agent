@@ -40,7 +40,7 @@ import { CircleSlash } from 'lucide-react'
 
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
-import { SourceSignalChip, sourceSignalStyle } from '@/features/layout/components/SourceSignalChip'
+import { SourceSignalChip } from '@/features/layout/components/SourceSignalChip'
 import { cn } from '@/lib/utils'
 import type { LevelGroup } from '../../lib/herleitung-levels'
 import { LEVEL_SIGNAL } from '../../lib/herleitung-levels'
@@ -88,18 +88,17 @@ export const HerleitungLevels: FC<HerleitungLevelsProps> = ({ groups }) => {
                 // repeat the level's own label back at it ("Projekt · Projekt
                 // 1") and say nothing the count does not.
                 group.projects.map((sub) => (
-                  <span
+                  <SourceSignalChip
                     key={sub.projectId ?? '__unattributed__'}
-                    className="flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium"
-                    style={sourceSignalStyle('project')}
+                    signal="project"
+                    iconless
+                    className="max-w-56 gap-1.5 pr-2.5"
+                    trailing={<span className="tabular-nums opacity-80">{sub.entries.length}</span>}
                   >
-                    <span className="max-w-40 truncate">
-                      {sub.projectName
-                        ? t('workspace.attribution.project', { project: sub.projectName })
-                        : t('workspace.herleitung.levels.project')}
-                    </span>
-                    <span className="tabular-nums opacity-80">{sub.entries.length}</span>
-                  </span>
+                    {sub.projectName
+                      ? t('workspace.attribution.project', { project: sub.projectName })
+                      : t('workspace.herleitung.levels.project')}
+                  </SourceSignalChip>
                 ))
               ) : (
                 <span className="text-muted-foreground text-xs tabular-nums">

@@ -86,21 +86,51 @@ interface SourceSignalChipSpanProps {
    * all three travel together are untouched.
    */
   icon?: typeof Globe
+  /**
+   * Suppress the glyph. A chip whose label already names its own kind — the
+   * Herleitung's per-project subgroup, under a heading that says "Projekt" —
+   * repeats itself with one, and the tint is already carrying the provenance.
+   */
+  iconless?: boolean
+  /**
+   * A trailing element inside the chip: a count, or a control (mount, remove).
+   *
+   * This slot exists because three organisms on the Büro path each hand-rolled
+   * the same `h-6 … rounded-full border … text-xs font-medium` span to get it,
+   * duplicating the four values {@link chipClasses} centralises. That is the
+   * fork `frontends/ui/AGENTS.md` names: each copy looks locally correct and
+   * they drift on the first token retune. The shape belongs here, once.
+   *
+   * The right padding tightens automatically when this is set, because a
+   * control needs room the label's own inset would waste.
+   */
+  trailing?: ReactNode
+  /** Passed through so a caller can pin its own chip in a spec. */
+  'data-testid'?: string
 }
 
-/** Static provenance chip (span). */
+/** Static provenance chip (span), optionally carrying a trailing count or control. */
 export const SourceSignalChip = ({
   signal,
   children,
   className,
   title,
   icon,
+  iconless,
+  trailing,
+  'data-testid': testId,
 }: SourceSignalChipSpanProps) => {
   const Icon = icon ?? iconForTint(signal)
   return (
-    <span className={cn(chipClasses, className)} style={sourceSignalStyle(signal)} title={title}>
-      <Icon aria-hidden="true" />
+    <span
+      className={cn(chipClasses, trailing !== undefined && 'pr-1', className)}
+      style={sourceSignalStyle(signal)}
+      title={title}
+      data-testid={testId}
+    >
+      {!iconless && <Icon aria-hidden="true" />}
       <span className="truncate">{children}</span>
+      {trailing}
     </span>
   )
 }

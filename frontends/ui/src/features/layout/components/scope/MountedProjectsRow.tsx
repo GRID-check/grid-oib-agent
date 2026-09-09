@@ -28,7 +28,7 @@ import { FolderKanban, X } from 'lucide-react'
 import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
-import { sourceSignalStyle } from '../SourceSignalChip'
+import { SourceSignalChip } from '../SourceSignalChip'
 import type { MountedProject } from './scope-tree-model'
 
 export interface MountedProjectsRowProps {
@@ -66,27 +66,29 @@ export const MountedProjectsRow: FC<MountedProjectsRowProps> = ({
         {mounted.map((project) => {
           const isRemoving = removing.includes(project.projectId)
           return (
-            <span
+            <SourceSignalChip
               key={project.projectId}
+              signal="project"
+              icon={FolderKanban}
+              data-testid="mounted-project-chip"
               className={cn(
-                'duration-quick flex h-6 shrink-0 items-center gap-1 rounded-full border pl-2.5 pr-1 text-xs font-medium transition-opacity ease-out motion-reduce:transition-none',
+                'duration-quick max-w-56 transition-opacity ease-out motion-reduce:transition-none',
                 isRemoving && 'opacity-60'
               )}
-              style={sourceSignalStyle('project')}
-              data-testid="mounted-project-chip"
+              trailing={
+                <button
+                  type="button"
+                  onClick={() => onUnmount(project.projectId)}
+                  disabled={isRemoving}
+                  aria-label={t('workspace.tree.mountRemove', { project: project.projectName })}
+                  className="focus-visible:ring-ring/60 pointer-coarse:size-8 flex size-4 items-center justify-center rounded-full opacity-70 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-progress"
+                >
+                  <X className="size-3" aria-hidden="true" />
+                </button>
+              }
             >
-              <FolderKanban className="size-3 shrink-0" aria-hidden="true" />
-              <span className="max-w-40 truncate">{project.projectName}</span>
-              <button
-                type="button"
-                onClick={() => onUnmount(project.projectId)}
-                disabled={isRemoving}
-                aria-label={t('workspace.tree.mountRemove', { project: project.projectName })}
-                className="focus-visible:ring-ring/60 pointer-coarse:size-8 flex size-4 items-center justify-center rounded-full opacity-70 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 disabled:cursor-progress"
-              >
-                <X className="size-3" aria-hidden="true" />
-              </button>
-            </span>
+              {project.projectName}
+            </SourceSignalChip>
           )
         })}
       </div>
