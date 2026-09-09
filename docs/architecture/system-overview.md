@@ -401,4 +401,4 @@ What lives where in the checkout.
 | `skills/` | API-consumer skill examples |
 | `scripts/` | Utility scripts, including `scripts/ingest_oib.py` |
 | `releasenotes/` | reno release notes — one YAML file per user-visible change, published to piloti.at/changelog |
-| `data/oib/` | OIB Richtlinien PDFs, tracked with Git LFS |
+| `data/oib/` | Where the OIB Richtlinien PDFs go. Operator-provided and gitignored: the directory ships empty and is filled by an admin upload or by dropping files in before first boot |

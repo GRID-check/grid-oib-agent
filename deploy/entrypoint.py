@@ -199,9 +199,13 @@ def main() -> int:
     print("", flush=True)
 
     # The OIB knowledge base is purely volume-based: it persists on the mounted
-    # data volume across redeploys, and on a fresh volume the background sync
-    # below ingests the repo-shipped corpus (data/oib/*.pdf) live. There is no
-    # baked seed to restore.
+    # data volume across redeploys, and there is no baked seed to restore. The
+    # corpus is operator-provided (data/oib/README.md): the sync below ingests
+    # whatever it finds in OIB_DOCUMENTS_DIR and OIB_UPLOADS_DIR, and finds
+    # nothing on a fresh volume until the platform owner uploads the PDFs or
+    # drops them into the bind-mounted directory. An empty corpus is not an
+    # error -- discover_pdfs() skips a directory that does not exist -- so the
+    # server starts either way and the sync logs a zero-file run.
     web_proc = subprocess.Popen(["python", "/app/deploy/start_web.py"])
 
     threading.Thread(target=_run_oib_sync_background, daemon=True).start()

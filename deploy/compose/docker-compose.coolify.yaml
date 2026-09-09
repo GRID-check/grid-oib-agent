@@ -162,9 +162,10 @@ services:
     expose:
       - "8000"
     volumes:
-      # OIB source PDFs (Git LFS). Requires LFS objects to be present at build/
-      # deploy time — see the LFS note in docs/deployment/coolify.md. If absent,
-      # OIB ingestion fails non-fatally and the app still boots (no OIB KB).
+      # Operator-provided OIB corpus; the directory ships empty
+      # (data/oib/README.md). An empty or absent corpus is not an error: the app
+      # boots and the sync logs a zero-file run until the platform owner uploads
+      # the PDFs through the admin UI or drops them in here.
       - ./data/oib:/app/data/oib:ro
       - aiq-data:/app/data
       - chroma_data:/app/data/chroma_data

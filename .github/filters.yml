@@ -50,13 +50,14 @@ backend:
   - '.github/filters.yml'
   - '.github/actions/**'
 # The retrieval regression gate: everything that decides how a
-# Punkt is cut, located or excluded, plus the harness and corpus.
+# Punkt is cut, located or excluded, plus the harness. The corpus itself is no
+# longer here to list -- it is operator-provided and gitignored
+# (data/oib/README.md), so it can never appear in a diff.
 retrieval:
   - 'sources/knowledge_layer/**'
   - 'src/aiq_agent/common/german_text.py'
   - 'src/aiq_agent/common/legal_terms.py'
   - 'frontends/benchmarks/oib_retrieval/**'
-  - 'data/oib/**'
   - 'Taskfile.yml'
   - '.github/workflows/ci.yml'
   - '.github/filters.yml'

@@ -65,7 +65,7 @@ The Python backend service running NAT + FastAPI.
 | Mount | Purpose |
 |-------|---------|
 | `../../configs:/app/configs:ro` | NAT workflow YAML configs |
-| `../../data/oib:/app/data/oib:ro` | OIB Richtlinien PDFs |
+| `../../data/oib:/app/data/oib:ro` | OIB Richtlinien PDFs. Operator-provided — the directory is gitignored and ships empty (`data/oib/README.md`); an empty corpus boots fine and answers nothing until it is filled |
 | `aiq-data:/app/data` | Persistent data (summaries DB, job DB) |
 | `chroma_data:/app/data/chroma_data` | ChromaDB vector persistence |
 

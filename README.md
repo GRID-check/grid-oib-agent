@@ -121,7 +121,8 @@ docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env up -
 # 3. OIB knowledge-base ingestion starts automatically in the background when
 #    the aiq-agent container boots — watch its progress in the container logs:
 docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env logs -f aiq-agent
-# To re-run ingestion manually (incremental — e.g. after adding PDFs to data/oib/):
+# To re-run ingestion manually (incremental — e.g. after adding PDFs to data/oib/,
+#  which ships empty; see data/oib/README.md):
 docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env exec aiq-agent python scripts/ingest_oib.py
 # (An admin-token-guarded `POST /v1/admin/oib/sync` endpoint triggers the same re-run over HTTP.)
 
@@ -160,7 +161,7 @@ The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-ini
 │   └── benchmarks/         # Evaluation harnesses
 ├── configs/                # Workflow configs — config_oib_openrouter.yml is the working one
 ├── deploy/                 # Docker Compose, Dockerfile, env templates
-├── data/oib/               # OIB Richtlinien PDFs (Git LFS)
+├── data/oib/               # Where the OIB PDFs go — operator-provided, ships empty
 ├── scripts/                # Utility scripts (ingest_oib.py)
 └── docs/                   # Documentation (see docs/architecture/ for the current deep-dives)
 ```
