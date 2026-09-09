@@ -141,10 +141,22 @@ def test_base_url_trailing_rerank_is_stripped(given, expected) -> None:
     assert _reranker(base_url=given).base_url == expected
 
 
-async def test_first_failure_warns_then_debugs_within_cooldown(monkeypatch, caplog) -> None:
+@pytest.mark.parametrize("uptime", [1.0, 10_000.0], ids=["fresh-boot", "long-running"])
+async def test_first_failure_warns_then_debugs_within_cooldown(monkeypatch, caplog, uptime) -> None:
+    """The first failure warns whatever the host's uptime is.
+
+    ``time.monotonic()`` is time since boot on Linux, so a freshly started
+    container reads well under the cooldown. While "never warned" was the float
+    ``0.0``, ``now - 0.0`` was already inside the window there and the first
+    failure logged at debug -- the one warning the throttle exists to guarantee,
+    swallowed on exactly the hosts that had just started failing. The parameters
+    pin both clocks so uptime can never decide this again.
+    """
+
     def _raise(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("down")
 
+    monkeypatch.setattr(ce.time, "monotonic", lambda: uptime)
     _serve(monkeypatch, _raise)
     reranker = _reranker()
     with caplog.at_level(logging.DEBUG, logger=ce.__name__):

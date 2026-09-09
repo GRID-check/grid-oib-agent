@@ -60,7 +60,11 @@ _BREAKER_COOLDOWN_SECONDS = 300.0
 _breaker_lock = threading.Lock()
 _consecutive_failures = 0
 _breaker_tripped_until = 0.0  # time.monotonic() timestamp; 0.0 means closed
-_last_failure_warn_at = 0.0
+#: ``None`` means "not warned yet in this process". A float sentinel cannot say
+#: that: ``time.monotonic()`` is time since boot on Linux, so a fresh container
+#: reads well under the cooldown and ``now - 0.0 < _BREAKER_COOLDOWN_SECONDS``
+#: swallowed the one warning the throttle exists to guarantee.
+_last_failure_warn_at: float | None = None
 
 
 def _env_float(name: str, fallback: float) -> float:
@@ -183,7 +187,7 @@ def _throttled_warning(message: str, *args: Any) -> None:
     global _last_failure_warn_at
     now = time.monotonic()
     with _breaker_lock:
-        emit_warning = now - _last_failure_warn_at >= _BREAKER_COOLDOWN_SECONDS
+        emit_warning = _last_failure_warn_at is None or now - _last_failure_warn_at >= _BREAKER_COOLDOWN_SECONDS
         if emit_warning:
             _last_failure_warn_at = now
     if emit_warning:
@@ -198,7 +202,7 @@ def _reset_breaker_state() -> None:
     with _breaker_lock:
         _consecutive_failures = 0
         _breaker_tripped_until = 0.0
-        _last_failure_warn_at = 0.0
+        _last_failure_warn_at = None
 
 
 def _normalize_base_url(base_url: str) -> str:

@@ -211,10 +211,10 @@ def _shared_store(monkeypatch):
     monkeypatch.setattr(redis.Redis, "from_url", _guarded_from_url)
     cache.reset_local_store()
     cache._client = None
-    cache._client_failed_at = 0.0
+    cache._client_failed_at = None
     yield from_url_calls
     cache._client = None
-    cache._client_failed_at = 0.0
+    cache._client_failed_at = None
     cache.reset_local_store()
     assert orig_from_url is not None  # keep linters honest about the capture
 
@@ -398,7 +398,7 @@ def test_no_shared_url_uses_local_only(monkeypatch):
     monkeypatch.setattr(redis.Redis, "from_url", _no_client_allowed)
     cache.reset_local_store()
     cache._client = None
-    cache._client_failed_at = 0.0
+    cache._client_failed_at = None
     try:
         assert cache._get_client() is None
         cache.set_json("k", {"a": 1}, ttl_seconds=60)
@@ -407,9 +407,40 @@ def test_no_shared_url_uses_local_only(monkeypatch):
         assert cache.get_json("k") is None
     finally:
         cache._client = None
-        cache._client_failed_at = 0.0
+        cache._client_failed_at = None
         cache.reset_local_store()
 
 
 def _no_client_allowed(*_args, **_kwargs):
     raise AssertionError("must not build a real client without REDIS_URL")
+
+
+@pytest.mark.parametrize("uptime", [1.0, 10_000.0], ids=["fresh-boot", "long-running"])
+def test_cold_start_builds_the_client_whatever_the_uptime(monkeypatch, uptime):
+    """A process that has never failed builds the client, however young the host.
+
+    ``time.monotonic()`` is time since boot on Linux. While "never failed" was
+    the float ``0.0``, ``now - 0.0 < _CLIENT_RETRY_SECONDS`` held for the first
+    30 seconds of a fresh container: ``_get_client`` returned None and every
+    call silently took the in-process tier, with nothing in the logs. The cold
+    start is exactly when the shared cache is worth most.
+    """
+    built = []
+
+    def _from_url(*args, **kwargs):
+        built.append((args, kwargs))
+        return object()
+
+    monkeypatch.setenv("REDIS_URL", "redis://cache.test:6379/0")
+    monkeypatch.setattr(redis.Redis, "from_url", _from_url)
+    monkeypatch.setattr(cache.time, "monotonic", lambda: uptime)
+    cache.reset_local_store()
+    cache._client = None
+    cache._client_failed_at = None
+    try:
+        assert cache._get_client() is not None
+        assert len(built) == 1
+    finally:
+        cache._client = None
+        cache._client_failed_at = None
+        cache.reset_local_store()

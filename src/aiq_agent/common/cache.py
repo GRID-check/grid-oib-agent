@@ -49,7 +49,12 @@ _TOMBSTONE_TTL_SECONDS = 30.0
 _local_tombstones: dict[str, float] = {}
 
 _client: Any | None = None
-_client_failed_at: float = 0.0
+#: ``None`` means "the client has never failed in this process". A float
+#: sentinel cannot say that: ``time.monotonic()`` is time since boot on Linux,
+#: so ``now - 0.0 < _CLIENT_RETRY_SECONDS`` held for the first 30s of a fresh
+#: container and every call silently took the in-process tier -- the cold start
+#: is exactly when the shared cache is worth most.
+_client_failed_at: float | None = None
 _client_lock = threading.Lock()
 
 # After a connection failure, skip Redis for a short window instead of paying
@@ -66,7 +71,7 @@ def _get_client() -> Any | None:
     with _client_lock:
         if _client is not None:
             return _client
-        if time.monotonic() - _client_failed_at < _CLIENT_RETRY_SECONDS:
+        if _client_failed_at is not None and time.monotonic() - _client_failed_at < _CLIENT_RETRY_SECONDS:
             return None
         try:
             import redis
