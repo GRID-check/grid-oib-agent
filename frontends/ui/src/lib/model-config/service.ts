@@ -33,6 +33,19 @@ export interface OrgModelConfigView {
   updatedAt: Date | null
 }
 
+function flattenModelOverrides(overrides: ModelOverrides | null | undefined): Record<string, string> {
+  const flat: Record<string, string> = {}
+  for (const [group, value] of Object.entries(overrides ?? {})) {
+    if (value && typeof value.model === 'string') flat[group] = value.model
+  }
+  return flat
+}
+
+function flatOverridesEqual(a: Record<string, string>, b: Record<string, string>): boolean {
+  const keys = Object.keys(a)
+  return keys.length === Object.keys(b).length && keys.every((key) => b[key] === a[key])
+}
+
 /** The org's current configuration (active version or "defaults"). */
 export async function getOrgModelConfig(organizationId: string): Promise<OrgModelConfigView> {
   const db = getDb()
@@ -64,11 +77,7 @@ export async function getActiveModelOverrides(organizationId: string): Promise<R
   return getCached(overridesCacheKey(organizationId), OVERRIDES_CACHE_TTL_MS, async () => {
     const { activeVersion } = await getOrgModelConfig(organizationId)
     if (!activeVersion) return null
-    const overrides = activeVersion.overrides as ModelOverrides
-    const flat: Record<string, string> = {}
-    for (const [group, value] of Object.entries(overrides ?? {})) {
-      if (value && typeof value.model === 'string') flat[group] = value.model
-    }
+    const flat = flattenModelOverrides(activeVersion.overrides as ModelOverrides)
     return Object.keys(flat).length > 0 ? flat : null
   })
 }
@@ -122,6 +131,12 @@ export async function createAndActivateVersion(params: {
   comment: string | null
   actorUserId: string
 }): Promise<OrgModelConfigVersion> {
+  // Read before writing: the backend's shared record is deleted only when the
+  // EFFECTIVE selection actually moves. A re-save of the identical map still
+  // appends a history version, but cross-tier invalidation would evict every
+  // backend replica's hot entry for no change. One extra read on a rare admin
+  // write; uncached, so the comparison cannot lie from a stale entry.
+  const { activeVersion: previous } = await getOrgModelConfig(params.organizationId)
   const db = getDb()
   return db.transaction(async (tx) => {
     const [latest] = await tx
@@ -159,7 +174,14 @@ export async function createAndActivateVersion(params: {
     return inserted
   }).then(async (inserted) => {
     await invalidateCached(overridesCacheKey(params.organizationId))
-    await invalidateBackendModelConfig(params.organizationId)
+    if (
+      !flatOverridesEqual(
+        flattenModelOverrides(previous?.overrides as ModelOverrides | null),
+        flattenModelOverrides(params.overrides)
+      )
+    ) {
+      await invalidateBackendModelConfig(params.organizationId)
+    }
     return inserted
   })
 }
@@ -189,6 +211,10 @@ export async function activateVersion(params: {
     if (!row) throw new Error('not found: version does not exist for this organization')
     version = row
   }
+  // Same compare-before-delete as above: re-activating the already-active
+  // version (or deactivating when already on defaults) moves nothing the
+  // backend caches, so the cross-tier delete is skipped.
+  const { activeVersion: previous } = await getOrgModelConfig(params.organizationId)
   await db
     .insert(orgModelConfigs)
     .values({
@@ -202,6 +228,8 @@ export async function activateVersion(params: {
       set: { activeVersionId: params.versionId, updatedBy: params.actorUserId, updatedAt: new Date() },
     })
   await invalidateCached(overridesCacheKey(params.organizationId))
-  await invalidateBackendModelConfig(params.organizationId)
+  if ((previous?.id ?? null) !== params.versionId) {
+    await invalidateBackendModelConfig(params.organizationId)
+  }
   return version
 }

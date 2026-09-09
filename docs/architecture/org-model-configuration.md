@@ -355,11 +355,54 @@ them up:
 |---|---|---|
 | Interactive WS chat | `server.js` resolves the org's **effective** overrides at WS upgrade (`GET /api/auth/websocket-scope` → `getEffectiveModelOverrides`: platform defaults with the org's own choices layered over them) and forwards `x-grid-model-overrides`. When the turn kicks off an async deep-research job, that job is submitted **in-process** by `chat_researcher/register.py`, which captures the map from the live WS request context (`get_model_overrides_from_context()`) rather than re-resolving it. | Yes |
 | Scheduled / manual job runs (ADR-0046) | `fireJob()` (`frontends/ui/src/lib/jobs/service.ts`) resolves the org's **effective** overrides (`getEffectiveModelOverrides`) and passes them explicitly as `model_overrides` in the `POST /v1/internal/skills/submit` payload. | Yes |
-| Generic REST async-job proxy: `POST /api/jobs/async/submit` → backend `POST /v1/jobs/async/submit` | **Fixed 2026-07-16** (`0bdfb72`, `a78f5d4`). `frontends/ui/src/app/api/jobs/async/[...path]/route.ts` now resolves the caller's effective overrides (`getEffectiveModelOverrides`) and forwards them — via the shared `GridRequestContext` builder, so both the legacy `x-grid-model-overrides` header and the signed `X-Grid-Request-Context` envelope carry them. Belt-and-suspenders on the backend: `get_model_overrides_from_context()` (`common/model_overrides.py`) reads the header/envelope first; when neither is present it falls back to a **just-in-time resolution of the effective selection** — `resolve_org_model_overrides()` calls the BFF's internal `GET /api/internal/model-overrides` endpoint, which itself returns the merged platform-plus-org map (the org's own choices win per group) (`GRID_INTERNAL_API_TOKEN`-guarded), cached in two tiers — a 10 s in-process memo and the shared cache key `modelconfig:{org}` (ADR-0020, 5 min), which the BFF deletes on a config save or rollback, a ZDR toggle, and a platform-defaults save (`lib/model-config/backend-key.ts`), so a save reaches every backend replica within ~10 s — and fail-open to `{}` (YAML defaults) on any error, never written to the shared tier — mirroring the BYOK credential-resolution pattern. | **Yes**, via header-first-then-org-resolution precedence. See also `docs/api/bff-routes.md` and `docs/api/python-endpoints.md`. |
+| Generic REST async-job proxy: `POST /api/jobs/async/submit` → backend `POST /v1/jobs/async/submit` | **Fixed 2026-07-16** (`0bdfb72`, `a78f5d4`). `frontends/ui/src/app/api/jobs/async/[...path]/route.ts` now resolves the caller's effective overrides (`getEffectiveModelOverrides`) and forwards them — via the shared `GridRequestContext` builder, so both the legacy `x-grid-model-overrides` header and the signed `X-Grid-Request-Context` envelope carry them. Belt-and-suspenders on the backend: `get_model_overrides_from_context()` (`common/model_overrides.py`) reads the header/envelope first; when neither is present it falls back to a **just-in-time resolution of the effective selection** — `resolve_org_model_overrides()` calls the BFF's internal `GET /api/internal/model-overrides` endpoint, which itself returns the merged platform-plus-org map (the org's own choices win per group) (`GRID_INTERNAL_API_TOKEN`-guarded), cached in two tiers — a 10 s in-process memo and the shared cache key `modelconfig:{org}` (ADR-0020, 60 s), which the BFF deletes on a config save or rollback, a ZDR toggle, and a platform-defaults save (`lib/model-config/backend-key.ts`), so a save reaches every backend replica within ~10 s — and fail-open to `{}` (YAML defaults) on any error, with errors negative-cached for 1 s in-process only, never written to the shared tier — mirroring the BYOK credential-resolution pattern. | **Yes**, via header-first-then-org-resolution precedence. See also `docs/api/bff-routes.md` and `docs/api/python-endpoints.md`. |
 
 The JIT fallback (`resolve_org_model_overrides` / `/api/internal/model-overrides`)
 also covers any future endpoint the BFF doesn't front, or a turn where the
 best-effort WS-upgrade header injection failed — not just this one proxy.
+
+### Propagation bound — how fast a save reaches traffic
+
+A save is fast, not instantaneous, and "fleet in seconds" holds only when the
+invalidation path is intact:
+
+- **The BFF→backend delete travels over the shared cache (Dragonfly/Redis).**
+  `REDIS_URL` must be configured on BOTH the BFF and the backend. Without it
+  each side falls back to a per-process (BFF: per-replica) memory store, the
+  delete reaches only the replica that performed the save, and every other
+  replica serves its memo until the TTLs below expire.
+- **Backend tiers** (`src/aiq_agent/common/model_overrides.py`): L1 10 s
+  in-process memo, L2 60 s shared entry, both write-invalidated by the BFF
+  delete. Errors are negative-cached for 1 s in L1 only; empty successes
+  (`{}, False` — also what a missing `GRID_INTERNAL_API_TOKEN` resolves to)
+  stay L1-only so "no configuration" can never shadow a concurrent save in L2.
+  Residual race: a fetch that started before the save can complete after the
+  delete and re-populate L2 with the pre-save record (stale up to L2 60 s);
+  a replica holding a pre-save L1 entry serves it for up to L1 10 s regardless.
+- **BFF tiers** (`OVERRIDES_CACHE_TTL_MS`, `DEFAULTS_CACHE_TTL_MS`): 5 minutes
+  each, write-invalidated on save/rollback. A no-op save (identical map, or a
+  displayName/locale-only org-settings patch) skips the cross-tier backend
+  delete but still drops the local entry.
+- **Direct-SQL or out-of-band writes bypass every delete above** and always pay
+  the full TTLs: up to 5 min on the BFF side, L1 10 s + L2 60 s on the backend.
+  Change configuration through the API/routes, never by hand.
+
+When a save appears not to apply, check the audit trail before the caches —
+every legitimate writer records one of these (in the org, or the platform org
+for the platform rows):
+
+| Event | Writer |
+|---|---|
+| `model_config.version.activated` | org save and rollback / re-activate |
+| `model_config.zdr.updated` | ZDR toggle |
+| `org.settings.updated` | org settings save (check `fields` for `zdrOnly`/`webSearchEnabled`) |
+| `platform.model_defaults.updated` | platform-owner save |
+| `platform.model_defaults.bootstrapped` | first-boot bootstrap (`system:bootstrap`) |
+
+No event + stale reads = the write never happened (or bypassed the routes —
+see the direct-SQL note above). Event present + stale reads = a missed
+invalidation: confirm `REDIS_URL` on both sides, then look for
+`[cache] invalidate failed for modelconfig:*` lines on the BFF.
 
 ## Security
 

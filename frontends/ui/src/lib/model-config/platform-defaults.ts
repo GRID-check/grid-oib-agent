@@ -88,6 +88,11 @@ export async function listPlatformModelDefaults(): Promise<PlatformModelDefault[
   )
 }
 
+function platformDefaultsEqual(a: PlatformModelDefaults, b: PlatformModelDefaults): boolean {
+  const keys = Object.keys(a)
+  return keys.length === Object.keys(b).length && keys.every((key) => b[key] === a[key])
+}
+
 /**
  * Replace the platform defaults with `defaults` — the whole set, not a patch.
  *
@@ -112,6 +117,17 @@ export async function savePlatformModelDefaults(
   const db = executor ?? getDb()
   const entries = Object.entries(input.defaults)
   const keep = entries.map(([agentGroup]) => agentGroup)
+
+  // Read before writing: a platform save that changes nothing must not evict
+  // every backend replica's hot entry (the prefix delete below moves the whole
+  // fleet). Unreadable-before means "unknown", which invalidates — a save that
+  // cannot prove it was a no-op is treated as a change, never as a skip.
+  let previous: PlatformModelDefaults | null = null
+  try {
+    previous = await getPlatformModelDefaults()
+  } catch {
+    previous = null
+  }
 
   const rows = await withPlatformAccess(
     'platform model defaults are fleet-wide configuration, owned by no tenant',
@@ -165,14 +181,20 @@ export async function savePlatformModelDefaults(
       })
   )
 
-  await invalidatePlatformModelDefaults()
+  await invalidatePlatformModelDefaults({
+    backend: previous === null || !platformDefaultsEqual(previous, input.defaults),
+  })
   return rows
 }
 
 /** Drop the cached defaults (after a write, or from tests). */
-export async function invalidatePlatformModelDefaults(): Promise<void> {
+export async function invalidatePlatformModelDefaults(options: { backend?: boolean } = {}): Promise<void> {
+  const { backend = true } = options
   await invalidateCached(DEFAULTS_CACHE_KEY)
   // A platform default moves every org that follows it; the backend's
-  // per-org copies all have to go.
-  await invalidateEveryBackendModelConfig()
+  // per-org copies all have to go — unless the save changed nothing, in
+  // which case the fleet-wide eviction is skipped (see `savePlatformModelDefaults`).
+  if (backend) {
+    await invalidateEveryBackendModelConfig()
+  }
 }

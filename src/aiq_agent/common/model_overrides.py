@@ -45,12 +45,27 @@ MODEL_OVERRIDES_HEADER = "x-grid-model-overrides"
 # BFF deletes `modelconfig:{org}` when a tenant saves or rolls back a config,
 # toggles ZDR, or the platform owner moves the defaults. L1 is short so that
 # deletion is visible fleet-wide within seconds rather than the minute the
-# per-replica memo alone allowed; a positive L2 entry lives for minutes because
-# it is invalidated by writes, never by time alone. Errors are negative-cached
-# in L1 only, never written to L2.
+# per-replica memo alone allowed; a positive L2 entry is invalidated by writes,
+# never by time alone, so its TTL only bounds the damage when a delete is
+# missed. Errors are negative-cached in L1 for ~1s only, never written to L2:
+# a longer negative TTL would pin a transient BFF outage (including its ZDR
+# bit) across the fleet, while no negative cache at all would retry-thunder a
+# downed BFF on every turn.
 _POSITIVE_TTL_SECONDS = 10.0
-_NEGATIVE_TTL_SECONDS = 10.0
-_SHARED_TTL_SECONDS = 300.0
+_NEGATIVE_TTL_SECONDS = 1.0
+# Bounds the write-after-delete race window: a fetch that started BEFORE an
+# admin save (reading the pre-save rows) can complete AFTER the BFF's delete
+# and re-populate L2 with the stale record, which then serves every replica
+# until this TTL expires. 60s caps that staleness; it cannot be zero because
+# L2 is also the cold-start path that keeps a fresh replica off the BFF.
+#
+# RESIDUAL RACE (accepted): delete-then-repopulate as above, plus a replica
+# whose L1 still holds the pre-save entry serves it for up to L1 10s after the
+# save regardless of L2. Worst case after an admin save is therefore ~L1 + L2
+# staleness on a replica that lost the race; the common case is seconds via
+# the delete. Direct-SQL or out-of-band writes skip the delete entirely and
+# always pay the full TTLs — see docs/architecture/org-model-configuration.md.
+_SHARED_TTL_SECONDS = 60.0
 
 
 def shared_model_config_key(organization_id: str) -> str:
@@ -174,7 +189,9 @@ def _fetch_org_config(organization_id: str) -> tuple[dict[str, str], bool]:
     """
     token = os.environ.get("GRID_INTERNAL_API_TOKEN")
     if not token:
-        # No internal-token trust channel — fall back to YAML defaults.
+        # No internal-token trust channel — fall back to YAML defaults. The
+        # ({}, False) success is kept L1-only by the caller (never written to
+        # L2), so an unconfigured backend cannot shadow a real config.
         return {}, False
 
     import httpx
@@ -255,7 +272,13 @@ def _resolve_org_config(organization_id: str | None) -> _OverridesCacheEntry | N
         try:
             overrides, zdr_only = _fetch_org_config(organization_id)
             ttl = _POSITIVE_TTL_SECONDS
-            _write_shared(organization_id, overrides, zdr_only)
+            # L1 only for empty successes: ({}, False) is also what a missing
+            # GRID_INTERNAL_API_TOKEN and a genuinely unconfigured org resolve
+            # to, and writing it to L2 would let "no configuration" shadow a
+            # concurrent admin save for the full shared TTL. A populated record
+            # is the only thing L2 may hold.
+            if overrides or zdr_only:
+                _write_shared(organization_id, overrides, zdr_only)
             annotate_current_span(cache_model_config="miss")
         except Exception as exc:  # noqa: BLE001 - fail open by design
             logger.warning("Org model-config resolution failed for org %s: %s", organization_id, type(exc).__name__)

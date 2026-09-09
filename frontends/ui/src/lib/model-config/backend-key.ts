@@ -20,6 +20,11 @@ const PREFIX = 'modelconfig:'
 export const backendModelConfigKey = (organizationId: string): string => `${PREFIX}${organizationId}`
 
 export async function invalidateBackendModelConfig(organizationId: string): Promise<void> {
+  // Fail-open by construction: `invalidateCached` logs `[cache] invalidate
+  // failed for <key>` with the key name and never throws, so a sick cache
+  // cannot fail the admin save it follows. METRICS HOOK: count those lines
+  // (key prefix `modelconfig:`) if missed invalidations ever need an alert —
+  // a silent drop here reads as "the save did nothing" for up to L2 60s.
   await invalidateCached(backendModelConfigKey(organizationId))
 }
 

@@ -179,11 +179,12 @@ describe('requireProjectAccess', () => {
     it('miss then populate: the first request checks WorkOS and stores each result', async () => {
       await requireProjectAccess(session(), PROJECT_ID, 'project:edit')
       expect(check).toHaveBeenCalledTimes(2)
-      // The key carries the resource TYPE as well as the id, so a project and a
-      // workflow that happen to share an external id cannot collide.
+      // The key carries the ORG and the resource TYPE as well as the id, so a
+      // project and a workflow that happen to share an external id cannot
+      // collide — and neither can two tenants checking the same project id.
       expect([...store.map.keys()].sort()).toEqual([
-        'authz:check:om_1:project:proj_1:project:edit',
-        'authz:check:om_1:project:proj_1:project:manage',
+        'authz:check:org_1:om_1:project:proj_1:project:edit',
+        'authz:check:org_1:om_1:project:proj_1:project:manage',
       ])
     })
 
