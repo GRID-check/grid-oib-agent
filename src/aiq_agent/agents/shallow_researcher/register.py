@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from typing import Any
 
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
@@ -41,6 +42,35 @@ from .models import ShallowResearchAgentState
 from .tool_search import ToolSearchSettings
 
 logger = logging.getLogger(__name__)
+
+#: Tools that only an office (Büro) turn can use. A project turn cannot reach
+#: either: `find_projects` answers about the organization's other projects, and
+#: `open_project` mounts one, which the mounts route refuses for a project
+#: conversation.
+_OFFICE_ONLY_TOOLS = frozenset({"find_projects", "open_project"})
+
+
+def _tools_for_this_surface(tools: list["Any"]) -> list["Any"]:
+    """Drop the office-only tools on a turn that is not in the office.
+
+    Fails OPEN: if the surface cannot be determined the tools stay bound, so a
+    context problem costs prompt budget rather than the office's ability to
+    find a project.
+    """
+    try:
+        from aiq_agent.knowledge.workspace_digest import is_workspace_turn
+        from aiq_agent.project_context import get_organization_id_from_context
+        from aiq_agent.project_context import get_project_id_from_context
+
+        if is_workspace_turn(
+            organization_id=get_organization_id_from_context(),
+            project_id=get_project_id_from_context(),
+        ):
+            return tools
+    except Exception:
+        logger.debug("Surface lookup failed; leaving the office tools bound", exc_info=True)
+        return tools
+    return [tool for tool in tools if getattr(tool, "name", "") not in _OFFICE_ONLY_TOOLS]
 
 
 class ShallowResearchAgentConfig(FunctionBaseConfig, name="shallow_research_agent"):
@@ -168,6 +198,19 @@ async def shallow_research_agent(config: ShallowResearchAgentConfig, builder: Bu
         try:
             data_sources = state.data_sources
             selected_tools = filter_tools_by_sources(tools, data_sources)
+            # The office half of the tool set (ADR-0054) is bound in config for
+            # every turn and is reachable on none but an office one. Left in, a
+            # project turn pays two full tool schemas — roughly two thousand
+            # characters of description — on every request, to offer a model a
+            # search for "which project is this about" inside the project it is
+            # already in, and a mount the mounts route refuses because a project
+            # conversation is not mountable.
+            #
+            # Narrowed here rather than in the YAML because the config is static
+            # and the answer is per turn: the same agent serves both surfaces
+            # (ADR-0052, one answering agent). The per-run agent below already
+            # exists for exactly this shape of narrowing.
+            selected_tools = _tools_for_this_surface(selected_tools)
             # Agent skills: resolved per RUN (ADR-0018 — never cached on the
             # shared agent instance), builtin + org set from the resolver, then
             # narrowed by the config allowlist. The runtime's `use_skill` tool
