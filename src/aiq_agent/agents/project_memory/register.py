@@ -19,6 +19,7 @@ import logging
 
 from pydantic import Field
 
+from aiq_agent.agents.project_memory.proposal import emit_memory_proposal_card as _emit_memory_proposal_card
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
@@ -33,37 +34,6 @@ _CARD_SHOWN_RESULT = (
     "A confirmation was shown to the user asking whether to remember this org-wide or save it to "
     "this project. It has NOT been saved yet — do not claim it was saved; the user decides."
 )
-
-
-def _emit_memory_proposal_card(*, content: str, kind: str, confidence: str) -> bool:
-    """Build and register a ``memory_proposal`` confirmation card.
-
-    Returns True if the card was added to a bound conversation-scoped card
-    registry, False when no card channel is available (so the caller can fall
-    back to an honest error string). Mirrors ``emit_card``'s None handling.
-    """
-    from aiq_agent.cards.models import grid_card_adapter
-    from aiq_agent.cards.registry import get_card_registry
-
-    registry = get_card_registry()
-    if registry is None:
-        return False
-
-    card = {
-        "type": "memory_proposal",
-        "title": "Neue Erkenntnis merken",
-        "content": content,
-        "kind": kind,
-        "confidence": confidence,
-    }
-    try:
-        validated = grid_card_adapter.validate_python(card).model_dump(exclude_none=True)
-    except Exception:
-        logger.exception("Failed to build memory_proposal card")
-        return False
-    registry.add(validated)
-    logger.info("Emitted memory_proposal card (kind=%s) for user-authorized memory write", kind)
-    return True
 
 
 _TOOL_DESCRIPTION = (

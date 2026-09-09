@@ -584,6 +584,11 @@ _TRANSPARENCY_EXTRA_FIELDS = (
     # for — so a new name goes into the schema first, and into this tuple in
     # the same change.
     "answer_meta",
+    # What memory the turn READ — the notes the digest carried, how many it left
+    # out, how many exist, and how many `search_memory` brought back. Rendered
+    # as one collapsed line under the answer, NOT as a citation: it states what
+    # was read, never what was used. ADR-0055, contract C3.
+    "memory_context",
 )
 
 # Agent Skills extra (the chat agent records which skills it force-activated

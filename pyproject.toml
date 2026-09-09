@@ -80,6 +80,12 @@ aiq_deep_researcher = "aiq_agent.agents.deep_researcher.register"
 aiq_clarifier = "aiq_agent.agents.clarifier.register"
 aiq_data_source_registry = "aiq_agent.common.data_source_registry"
 aiq_project_memory = "aiq_agent.agents.project_memory.register"
+# The READ half of memory (ADR-0055): `search_memory` reaches the notes the
+# turn-start digest had to leave out. Its own entry point rather than a line in
+# `project_memory.register`, for the reason every split in this list has one —
+# the write tool and the read tool are separate surfaces with separate context
+# requirements, and a deployment must be able to bind one without the other.
+aiq_project_memory_search = "aiq_agent.agents.project_memory.search"
 # The Büro's own tools (ADR-0054): `find_projects` searches the
 # Projektregister. Its own entry point rather than a line in project_memory's,
 # because it is a different surface with a different context requirement.

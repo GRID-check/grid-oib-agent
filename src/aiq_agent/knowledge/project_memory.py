@@ -20,6 +20,11 @@ import urllib.parse
 import urllib.request
 from contextvars import ContextVar
 from contextvars import Token
+from dataclasses import dataclass
+
+from aiq_agent.knowledge.memory_context import MemoryCarry
+from aiq_agent.knowledge.memory_context import MemoryNote
+from aiq_agent.knowledge.memory_context import parse_carry
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +40,11 @@ class OrgMemoryDisabledError(RuntimeError):
     """
 
 
+# The kinds a memory row may carry. FIVE, and `profile_graduation` is not one
+# of them (ADR-0055, contract C7): no writer ever produced it, the enum guard
+# below fails closed on it, and a vocabulary entry nothing writes is a shape
+# every reader has to keep handling. `test_project_memory_client` pins its
+# absence so re-adding it is a decision rather than a merge.
 VALID_KINDS = {"decision", "constraint", "open_question", "derived_fact", "preference"}
 VALID_CONFIDENCES = {"low", "medium", "high"}
 VALID_SCOPES = {"project", "organization"}
@@ -76,13 +86,21 @@ _opener = urllib.request.build_opener(_NoRedirectHandler)
 _turn_memory_writes: ContextVar[list[str] | None] = ContextVar("turn_memory_writes", default=None)
 
 
-def begin_turn_memory_log() -> Token:
-    """Start recording this turn's memory writes; reset with the token."""
-    return _turn_memory_writes.set([])
+def begin_turn_memory_log() -> tuple[Token, Token]:
+    """Start recording this turn's memory writes; reset with the token.
+
+    Two ContextVars, one token pair: what was written, and what those writes
+    retired. They are begun and ended together because they are two halves of
+    one fact — "this turn changed memory" — and a caller that bound only one of
+    them would leave the other reading whatever the previous turn left.
+    """
+    return (_turn_memory_writes.set([]), _turn_memory_supersessions.set([]))
 
 
-def end_turn_memory_log(token: Token) -> None:
-    _turn_memory_writes.reset(token)
+def end_turn_memory_log(token: tuple[Token, Token]) -> None:
+    writes_token, supersessions_token = token
+    _turn_memory_writes.reset(writes_token)
+    _turn_memory_supersessions.reset(supersessions_token)
 
 
 def record_turn_memory_write(content: str) -> None:
@@ -95,6 +113,39 @@ def record_turn_memory_write(content: str) -> None:
 def turn_memory_writes() -> tuple[str, ...]:
     """The contents written this turn, in order; empty outside a turn."""
     return tuple(_turn_memory_writes.get() or ())
+
+
+#: Ids of the notes a write RETIRED this turn (ADR-0055, contract C4). A
+#: correction is the quietest event in this system — the replaced note simply
+#: vanishes from the panel — so the turn that performs one says so on its live
+#: status line. Bound and reset by the same pair as the write log above,
+#: which is what keeps it a per-turn fact.
+_turn_memory_supersessions: ContextVar[list[str] | None] = ContextVar("turn_memory_supersessions", default=None)
+
+
+def record_turn_memory_supersession(superseded_id: str) -> None:
+    """Note that a write retired ``superseded_id``, and say so on the live line.
+
+    No-op outside a turn, and that is the gate rather than an accident: the
+    post-answer reflection stage writes corrections too, minutes after the
+    reader stopped watching a status line, and a background task is not a place
+    to push a step into a stream the answer already closed. In a turn, the
+    running count is emitted — the live line REPLACES rather than accumulates
+    (``common/turn_status.py``), so the reader sees one honest total and not one
+    line per retirement.
+    """
+    retired = _turn_memory_supersessions.get()
+    if retired is None or not superseded_id or superseded_id in retired:
+        return
+    retired.append(superseded_id)
+    from aiq_agent.common.turn_status import emit_memory_superseded
+
+    emit_memory_superseded(len(retired))
+
+
+def turn_memory_supersessions() -> tuple[str, ...]:
+    """Ids retired by this turn's writes, in order; empty outside a turn."""
+    return tuple(_turn_memory_supersessions.get() or ())
 
 
 def _internal_base_url() -> str:
@@ -128,12 +179,30 @@ def _error_code(exc: urllib.error.HTTPError) -> str | None:
 VALID_PROVENANCES = {"agent", "distillation"}
 
 
+@dataclass(frozen=True)
+class MemoryDigest:
+    """The turn-start memory read: the text the model sees, and what is in it.
+
+    ``digest`` is what it always was — the bounded block composed into the
+    prompt, ``None`` when there is no active memory. The other three are
+    contract C2 (ADR-0055): the SAME selection the digest text was built from,
+    reported as data so the reader can be told what the model was told. They are
+    a record of what was READ and carry no claim that the answer used any of it.
+
+    All three degrade to empty against a BFF that does not send them yet, which
+    is what lets this ship before the endpoint half does.
+    """
+
+    digest: str | None = None
+    carry: MemoryCarry = MemoryCarry()
+
+
 def fetch_memory_digest(
     *,
     project_id: str | None,
     organization_id: str | None,
     query: str | None = None,
-) -> str | None:
+) -> MemoryDigest | None:
     """Fetch the CURRENT core-memory digest via the internal BFF endpoint.
 
     The digest normally rides the ``x-grid-project-memory`` header set on the WS
@@ -141,10 +210,14 @@ def fetch_memory_digest(
     mid-session never reaches the agent until a reconnect. Calling this at the
     start of a turn re-serves the up-to-date digest.
 
-    Returns the digest string, or ``None`` when there is no active memory (a valid
-    empty result). Raises RuntimeError on configuration problems and urllib errors
-    on transport failures, so the caller can fall back to the frozen header digest
-    instead of dropping memory entirely. Blocking; call via ``asyncio.to_thread``.
+    Returns a :class:`MemoryDigest`, or ``None`` when there is nothing to ask
+    about (no project and no organization). A successful call with no active
+    memory comes back as a ``MemoryDigest`` whose ``digest`` is ``None`` — a
+    valid empty result, and distinct from "we did not ask".
+
+    Raises RuntimeError on configuration problems and urllib errors on transport
+    failures, so the caller can fall back to the frozen header digest instead of
+    dropping memory entirely. Blocking; call via ``asyncio.to_thread``.
     """
     if not project_id and not organization_id:
         return None
@@ -174,8 +247,187 @@ def fetch_memory_digest(
 
     with _opener.open(request, timeout=_DIGEST_TIMEOUT_SECONDS) as response:
         body = json.loads(response.read().decode("utf-8"))
+    if not isinstance(body, dict):
+        return MemoryDigest()
     digest = body.get("digest")
-    return digest if isinstance(digest, str) and digest.strip() else None
+    return MemoryDigest(
+        digest=digest if isinstance(digest, str) and digest.strip() else None,
+        # Absent on a BFF that has not shipped C2 yet: an empty carry, which
+        # renders as no marker rather than as a marker claiming zero notes.
+        carry=parse_carry(body),
+    )
+
+
+#: What ``search_memory`` asks for when the model does not say (contract C1).
+#: Eight is the digest's own working-set size rather than a new number: a search
+#: that returns twenty rows to answer "what do we know about the Keller" has
+#: replaced the cap with a bigger cap instead of giving the turn a second path.
+SEARCH_DEFAULT_LIMIT = 8
+
+#: The ceiling the endpoint itself enforces. Named here because asking for more
+#: returns this many anyway, so the clamp is honesty rather than defence.
+SEARCH_MAX_LIMIT = 20
+
+
+@dataclass(frozen=True)
+class MemorySearchHit:
+    """One note the recall endpoint returned, with the facts a reader curates by.
+
+    Richer than :class:`~aiq_agent.knowledge.memory_context.MemoryNote` because
+    two different readers are served: the MODEL is shown ``kind``, ``confidence``,
+    ``verification`` and ``scope`` so it can weigh a note the way the digest lets
+    it weigh one, while the answer marker gets the three-field note and links to
+    the panel for the rest.
+    """
+
+    id: str
+    kind: str
+    content: str
+    confidence: str = "medium"
+    verification: str = ""
+    pinned: bool = False
+    scope: str = "project"
+    updated_at: str = ""
+    score: float = 0.0
+
+    def as_note(self) -> MemoryNote:
+        """The bounded three-field shape the answer marker renders."""
+        return MemoryNote(id=self.id, kind=self.kind, content=self.content)
+
+
+@dataclass(frozen=True)
+class MemorySearchResult:
+    """A recall answer: the hits, and how large the searched scope was."""
+
+    items: tuple[MemorySearchHit, ...] = ()
+    total: int = 0
+    returned: int = 0
+
+
+def _as_search_hit(raw: object) -> MemorySearchHit | None:
+    """One wire entry to a :class:`MemorySearchHit`; ``None`` when unusable.
+
+    Per ENTRY, not per response: a malformed row is dropped and the rest of the
+    recall still reaches the turn. An entry without an id or content is unusable
+    — the model could not act on it and the marker could not link to it.
+    """
+    if not isinstance(raw, dict):
+        return None
+    note_id = raw.get("id")
+    content = raw.get("content")
+    if not isinstance(note_id, str) or not note_id.strip():
+        return None
+    if not isinstance(content, str) or not content.strip():
+        return None
+
+    def _text(key: str, default: str = "") -> str:
+        value = raw.get(key)
+        return value.strip() if isinstance(value, str) and value.strip() else default
+
+    score = raw.get("score")
+    return MemorySearchHit(
+        id=note_id.strip(),
+        kind=_text("kind"),
+        content=content.strip(),
+        confidence=_text("confidence", "medium"),
+        verification=_text("verification"),
+        pinned=bool(raw.get("pinned")),
+        scope=_text("scope", "project"),
+        updated_at=_text("updatedAt"),
+        score=float(score) if isinstance(score, (int, float)) and not isinstance(score, bool) else 0.0,
+    )
+
+
+def search_memory_notes(
+    *,
+    query: str,
+    project_id: str | None,
+    organization_id: str | None,
+    limit: int = SEARCH_DEFAULT_LIMIT,
+) -> MemorySearchResult | None:
+    """Search long-term memory through the internal BFF endpoint (contract C1).
+
+    ``GET /api/internal/memory/search?organizationId&projectId&q&limit`` →
+    ``{"items": [...], "total": n, "returned": n}``. Same client, same service
+    token and the same no-redirect opener as the digest read, because it is the
+    same trust boundary: the backend never opens the app database, it asks the
+    single writer.
+
+    **Scope is stated, never chosen.** The caller passes the turn's own
+    organization and — on a project turn — its project, and the endpoint decides
+    what that means: a request with a project returns that project's notes plus
+    the organization's, one without returns organization-scoped notes only, and
+    never another project's. There is deliberately no scope parameter on this
+    function for the same reason there is none on the tool above it: a knob the
+    model could set is a knob that can be set wrong, and the fact that the BFF
+    would refuse it is not a reason to offer it.
+
+    Returns ``None`` — never raises — on a missing token, a transport failure, an
+    HTTP error or an unreadable body. Recall is a second path to memory, not the
+    turn's correctness: a search that could not run must cost the answer nothing.
+    Blocking; call via ``asyncio.to_thread``.
+    """
+    query = (query or "").strip()
+    if not query or not organization_id:
+        return None
+
+    token = os.environ.get("GRID_INTERNAL_API_TOKEN")
+    if not token:
+        logger.debug("Memory search skipped: GRID_INTERNAL_API_TOKEN is not configured")
+        return None
+
+    # A size this client cannot read as one — absent, ``None``, ``True``, zero,
+    # negative, a word — is the DEFAULT and never one, the same rule
+    # ``workspace_digest.clamped_limit`` states: "no particular number" is a
+    # request for the ordinary answer, and answering it with a single note would
+    # read, to the model, as a store with one note in it.
+    if limit is None or isinstance(limit, bool):
+        wanted = SEARCH_DEFAULT_LIMIT
+    else:
+        try:
+            wanted = int(limit)
+        except (TypeError, ValueError):
+            wanted = SEARCH_DEFAULT_LIMIT
+        if wanted < 1:
+            wanted = SEARCH_DEFAULT_LIMIT
+    wanted = min(wanted, SEARCH_MAX_LIMIT)
+
+    params = {"organizationId": organization_id, "q": query[:2000], "limit": str(wanted)}
+    if project_id:
+        params["projectId"] = project_id
+
+    request = urllib.request.Request(
+        f"{_internal_base_url()}/api/internal/memory/search?{urllib.parse.urlencode(params)}",
+        headers={"X-Grid-Internal-Token": token},
+        method="GET",
+    )
+
+    try:
+        with _opener.open(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        logger.warning("Memory search endpoint returned %s", exc.code)
+        return None
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, UnicodeDecodeError):
+        logger.warning("Memory search failed", exc_info=True)
+        return None
+
+    if not isinstance(body, dict):
+        logger.warning("Memory search response was not a JSON object")
+        return None
+
+    raw_items = body.get("items")
+    items = tuple(
+        hit
+        for hit in (_as_search_hit(entry) for entry in (raw_items if isinstance(raw_items, list) else []))
+        if hit is not None
+    )[:wanted]
+    returned = body.get("returned")
+    return MemorySearchResult(
+        items=items,
+        total=max(0, int(body["total"])) if isinstance(body.get("total"), int) else len(items),
+        returned=max(0, int(returned)) if isinstance(returned, int) else len(items),
+    )
 
 
 # A memory row is durable, tenant-wide within its scope, and read into every
@@ -321,6 +573,13 @@ def insert_memory_item(
             item_id = body.get("item", {}).get("id")
             if item_id:
                 record_turn_memory_write(content)
+                # The route reports the retirement rather than deriving it from
+                # the returned row (a duplicate refresh returns an EXISTING item
+                # whose supersedes_id records an earlier request's work), so this
+                # is the one place either writer learns that a correction landed.
+                superseded_id = body.get("supersededId")
+                if isinstance(superseded_id, str) and superseded_id.strip():
+                    record_turn_memory_supersession(superseded_id.strip())
             return item_id
     except urllib.error.HTTPError as exc:
         if exc.code == 404:

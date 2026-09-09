@@ -92,6 +92,87 @@ def test_insert_omits_the_supersedes_quote_when_absent(monkeypatch):
     assert "supersedesContent" not in captured["payload"]
 
 
+def test_a_retirement_is_recorded_and_said_out_loud(monkeypatch):
+    """ADR-0055 contract C4: a correction is the quietest event in the system.
+
+    The route reports ``supersededId`` rather than letting the caller derive it
+    from the returned row, and this is the one place either writer learns that a
+    correction landed — so it is where the turn's tally and its live line come
+    from.
+    """
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    said: list[int] = []
+    monkeypatch.setattr("aiq_agent.common.turn_status.emit_memory_superseded", said.append)
+    token = pm.begin_turn_memory_log()
+    try:
+        with _patched_opener(monkeypatch, body={"item": {"id": "new-1"}, "supersededId": "old-1"}):
+            pm.insert_memory_item(
+                scope="project",
+                project_id="p1",
+                organization_id="o1",
+                kind="decision",
+                content="Flachdach gewählt",
+                supersedes_content="Satteldach gewählt",
+            )
+        assert pm.turn_memory_supersessions() == ("old-1",)
+        # The running total, not one line per retirement: the live line replaces
+        # rather than accumulates.
+        assert said == [1]
+    finally:
+        pm.end_turn_memory_log(token)
+
+
+def test_a_write_that_retired_nothing_says_nothing(monkeypatch):
+    """`supersededId` is null when the quote resolved to nothing, or to an entry
+    the agent may not retire. The caller must then be honest about it."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    said: list[int] = []
+    monkeypatch.setattr("aiq_agent.common.turn_status.emit_memory_superseded", said.append)
+    token = pm.begin_turn_memory_log()
+    try:
+        with _patched_opener(monkeypatch, body={"item": {"id": "new-1"}, "supersededId": None}):
+            pm.insert_memory_item(scope="project", project_id="p1", organization_id="o1", kind="decision", content="x")
+        assert pm.turn_memory_supersessions() == ()
+        assert said == []
+    finally:
+        pm.end_turn_memory_log(token)
+
+
+def test_a_background_write_does_not_push_a_line_into_a_closed_turn(monkeypatch):
+    """The post-answer reflection stage writes corrections too, minutes after the
+    reader stopped watching. Outside a bound turn there is nothing to say it to,
+    and the write still lands."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    said: list[int] = []
+    monkeypatch.setattr("aiq_agent.common.turn_status.emit_memory_superseded", said.append)
+    with _patched_opener(monkeypatch, body={"item": {"id": "new-1"}, "supersededId": "old-1"}):
+        item_id = pm.insert_memory_item(
+            scope="project", project_id="p1", organization_id="o1", kind="decision", content="x"
+        )
+    assert item_id == "new-1"
+    assert said == []
+
+
+def test_profile_graduation_is_not_a_kind_this_side_knows(monkeypatch):
+    """ADR-0055 contract C7, from the Python half.
+
+    No writer ever produced `profile_graduation`, and the enum guard below fails
+    closed on it. Pinned so that re-adding a kind nothing writes is a decision
+    rather than a merge — and so the TypeScript union dropping it cannot leave
+    this side quietly accepting a value the database no longer has.
+    """
+    assert "profile_graduation" not in pm.VALID_KINDS
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    with pytest.raises(ValueError):
+        pm.insert_memory_item(
+            scope="project",
+            project_id="p1",
+            organization_id="o1",
+            kind="profile_graduation",
+            content="x",
+        )
+
+
 def test_insert_raises_without_token(monkeypatch):
     monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
     with pytest.raises(RuntimeError):

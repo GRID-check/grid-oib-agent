@@ -47,6 +47,8 @@ import urllib.request
 from dataclasses import dataclass
 from dataclasses import field
 
+from aiq_agent.knowledge.memory_context import MemoryCarry
+from aiq_agent.knowledge.memory_context import parse_carry
 from aiq_agent.knowledge.project_memory import _DIGEST_TIMEOUT_SECONDS
 from aiq_agent.knowledge.project_memory import _internal_base_url
 from aiq_agent.knowledge.project_memory import _opener
@@ -97,6 +99,15 @@ class WorkspaceDigest:
 
     digest: str | None = None
     projects: tuple[WorkspaceProject, ...] = field(default_factory=tuple)
+    #: What the memory half of this response carried, omitted and holds
+    #: (ADR-0055, contract C2). The office reads organization memory on every
+    #: turn and told nobody which notes those were; this is that record, and it
+    #: says what was READ — never that the answer used any of it.
+    #:
+    #: Empty against a BFF that does not send the fields yet, which is what lets
+    #: this ship before the endpoint half does: the marker is then absent rather
+    #: than present and claiming zero.
+    carry: MemoryCarry = MemoryCarry()
 
 
 def clamped_limit(limit: object, *, default: int = MAX_PROJECT_ENTRIES) -> int:
@@ -252,6 +263,7 @@ def fetch_workspace_digest(
     )
     return WorkspaceDigest(
         digest=digest if isinstance(digest, str) and digest.strip() else None,
+        carry=parse_carry(body),
         # Bounded by what THIS caller asked for, not by the prompt block's five:
         # the block truncates itself (``render_workspace_context``), while a
         # caller that asked for ten — the `find_projects` enumeration, a

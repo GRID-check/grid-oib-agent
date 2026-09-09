@@ -873,12 +873,17 @@ async def _resolve_run_context(
         try:
             from aiq_agent.knowledge.project_memory import fetch_memory_digest
 
-            memory_digest = await asyncio.to_thread(
+            # The worker composes a prompt and delivers no answer frame, so it
+            # takes the digest TEXT and leaves the read record (ADR-0055,
+            # contract C2/C3) where it belongs: on the chat turn that has a
+            # marker to render it in.
+            read = await asyncio.to_thread(
                 fetch_memory_digest,
                 project_id=identity.get("project_id"),
                 organization_id=identity.get("organization_id"),
                 query=query,
             )
+            memory_digest = read.digest if read is not None else None
         except Exception:
             logger.warning(
                 "Job %s: live memory digest fetch failed; using the digest from submit time",

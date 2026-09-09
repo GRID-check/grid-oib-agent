@@ -74,6 +74,47 @@ def test_the_worker_still_injects_the_project_id_the_office_turn_does_not_have()
     assert PROJECT_ID_HEADER in WORKER_IDENTITY_HEADERS
 
 
+def test_the_memory_search_tool_declares_the_organisation_and_not_the_project(config: dict):
+    """`search_memory` (ADR-0055) runs in the same two shapes as `remember`.
+
+    Every note belongs to an organisation, and a search without one has no scope
+    at all — which is the single thing this tool may never do. The PROJECT is
+    deliberately not declared: an office turn legitimately has none, and its
+    ABSENCE is what tells the BFF to serve organisation-scoped notes only
+    (contract C1). Declaring it would state a requirement the Büro shape cannot
+    meet and would not make the office turn any safer.
+    """
+    assert set(TOOL_CONTEXT_REQUIREMENTS["project_memory_search"]) == {ORGANIZATION_ID_HEADER}
+    # And it is bound where the answering agent runs, which is the half a config
+    # edit can silently drop: the requirement guards nothing for a tool nobody
+    # binds, and `test_the_worker_supplies_what_every_bound_tool_needs` above
+    # only sees it once it is in a tools list.
+    assert "project_memory_search" in _bound_tool_types(config, "shallow_research_agent").values()
+
+
+def test_the_memory_search_tool_cannot_ask_across_scopes():
+    """ADR-0055's confirmation, from the declaration side.
+
+    The tool takes a query and a size and NOTHING that names a tenant: the
+    organisation and the project come off the request context, so a project turn
+    can only ever ask about its own project and a Büro turn can only ask about
+    the office. Asserted on the shipped input schema rather than on the BFF's
+    behaviour, because the BFF refusing a bad request is not the same as the
+    request being unaskable.
+    """
+    import asyncio
+    from unittest.mock import MagicMock
+
+    from aiq_agent.agents.project_memory.search import ProjectMemorySearchConfig
+    from aiq_agent.agents.project_memory.search import project_memory_search
+
+    async def _fields() -> set[str]:
+        async with project_memory_search(ProjectMemorySearchConfig(), MagicMock()) as info:
+            return set(info.input_schema.model_fields)
+
+    assert asyncio.run(_fields()) == {"query", "limit"}
+
+
 def test_the_bim_tools_declare_the_organisation_and_not_the_project(config: dict):
     """The building-model tools take their project as an ARGUMENT (spec AG-10).
 

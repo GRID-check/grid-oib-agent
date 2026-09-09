@@ -189,7 +189,9 @@ class TestTheWorkerFetchesTheOfficesDigest:
 
         def _fetch(*, project_id, organization_id, query):
             called.update(project_id=project_id, organization_id=organization_id)
-            return "PROJECT_MEMORY v1\n- Atrium ist OIB 2.3"
+            # The client returns the READ (digest text plus what it carried,
+            # ADR-0055 C2); the worker composes a prompt and takes only the text.
+            return pm.MemoryDigest(digest="PROJECT_MEMORY v1\n- Atrium ist OIB 2.3")
 
         monkeypatch.setattr(pm, "fetch_memory_digest", _fetch)
 

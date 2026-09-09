@@ -169,6 +169,36 @@ class TestFetch:
             result = wd.fetch_workspace_digest(organization_id="org_1", membership_id="om_1", query="x")
         assert len(result.projects) == wd.MAX_PROJECT_ENTRIES
 
+    def test_the_office_digest_reports_what_it_carried(self, monkeypatch):
+        """ADR-0055 contract C2, on the Büro's one round trip.
+
+        The office reads organization memory on every turn and told nobody which
+        notes those were; the same three fields the project digest gained ride
+        this response too, so the office marker is fed from the read that
+        actually happened.
+        """
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+        body = {
+            "digest": "ORG_MEMORY v1",
+            "projects": [],
+            "carried": [{"id": "m1", "kind": "preference", "content": "Wir zeichnen in ArchiCAD"}],
+            "omitted": 2,
+            "total": 11,
+        }
+        with _patched_opener(monkeypatch, body=body):
+            result = wd.fetch_workspace_digest(organization_id="org_1", membership_id="om_1", query="x")
+        assert result is not None
+        assert [note.id for note in result.carry.carried] == ["m1"]
+        assert (result.carry.omitted, result.carry.total) == (2, 11)
+
+    def test_an_older_bff_without_the_carry_fields_costs_the_office_turn_nothing(self, monkeypatch):
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+        with _patched_opener(monkeypatch, body={"digest": "ORG_MEMORY v1", "projects": []}):
+            result = wd.fetch_workspace_digest(organization_id="org_1", membership_id="om_1", query="x")
+        assert result is not None
+        assert result.digest == "ORG_MEMORY v1"
+        assert not result.carry
+
 
 class TestRenderWorkspaceContext:
     def test_names_every_project_with_its_id_and_says_it_is_bounded(self):

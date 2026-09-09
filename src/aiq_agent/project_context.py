@@ -87,6 +87,15 @@ TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     # project id went missing would silently escalate every finding to the whole
     # office instead of failing.
     "project_memory_remember": (ORGANIZATION_ID_HEADER,),
+    # `search_memory` (ADR-0055), the read half. Same requirement as the write
+    # half and for the same reason: every note belongs to an organisation, and
+    # a search without one has no scope at all — which is the one thing this
+    # tool may never perform. The PROJECT is deliberately not a requirement: an
+    # office turn legitimately has none, and its absence is what tells the BFF
+    # to serve organisation-scoped notes ONLY (contract C1). Declaring it here
+    # would state a requirement the Büro shape cannot meet, and the tool would
+    # still have to decide the branch at its own call site.
+    "project_memory_search": (ORGANIZATION_ID_HEADER,),
     # The Projektregister search (ADR-0054). The organization is what makes the
     # question answerable at all — the register never crosses that boundary
     # (spec PR-17) — so it is the requirement. The MEMBERSHIP header is what

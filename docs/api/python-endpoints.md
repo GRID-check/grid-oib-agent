@@ -172,6 +172,7 @@ BFF), so anything a tool needs from it arrives this way.
 | Tool (NAT `_type`) | Bound as | Calls | Needs from the request context | On failure |
 |---|---|---|---|---|
 | `project_memory_remember` | `remember` | `POST /api/internal/memory` | `x-grid-organization-id` — the only thing BOTH shapes of this tool have. In a project turn `x-grid-project-id` selects the project row; in the Büro there is none, the write goes to ORGANISATION scope (`project_id` null) and additionally sends `x-grid-user-id` + `x-grid-organization-membership-id`, because the route authorizes an org write as the acting user's `org:memory:write` rather than as the service token (ADR-0054, spec AG-8) | Returns an honest error string, or a `memory_proposal` card when the org write is denied by policy — `403 ORG_MEMORY_DISABLED`, which is the one code both the deployment off-switch and an ungranted permission answer with, so the tool has one branch to degrade through (AG-9). Never raises |
+| `project_memory_search` | `search_memory(query, limit=None)` | `GET /api/internal/memory/search` | `x-grid-organization-id` — every note belongs to one, and a search without it has no scope at all. The PROJECT is read off `x-grid-project-id` and sent only when the turn has one: its ABSENCE is what asks for organisation-scoped notes only, so an office turn cannot receive a project's notes. Neither id is a tool argument, and the tool exposes no `scope` — the model chooses the query, never the scope (ADR-0055, contract C1) | Returns an error string. Never raises. Without an organisation it refuses rather than returning an empty list, because "nothing found" would read as a fact about the store |
 | `ifc_query` | `ifc_query` | `POST /api/internal/bim/query` | `x-grid-organization-id`. The PROJECT is an ARGUMENT, not a header: in a project chat `project_id` may be left empty and the turn's own project is used, and in the Büro it is required and must name a project the conversation has brought into view (`agents/bim/register.resolve_tool_project`, spec AG-10) | Returns a refusal string naming the projects that ARE in view — never raises, and never a bare "no", which the model answers with the same id again |
 | `ifc_measure` | `ifc_measure` | `POST /api/internal/bim/source` (then measures locally) | The same two, resolved by the same function, so the two model-addressing tools cannot drift into two rules about which project they read | The same refusals, plus a trace line recording that the call was refused for want of a project (`outcome="no_project"`) |
 | `workspace_find_projects` | `find_projects(query, limit=None)` | `GET /api/internal/workspace/digest` | `x-grid-organization-id`; `x-grid-organization-membership-id` decides which projects are readable | Returns an error string. Never raises. Without an organization it refuses rather than returning an empty list — the Projektregister never crosses the organization boundary (ADR-0054) |
@@ -195,6 +196,17 @@ fail-open (`knowledge/project_memory.py`, `knowledge/workspace_digest.py`):
 `GET /api/internal/memory/digest` re-serves the live memory digest every turn,
 and `GET /api/internal/workspace/digest` serves the office turn its organization
 memory plus the Projektregister recall for the question in one round trip.
+
+Both of those responses also report **what the digest carried**: `carried`
+(exactly the notes in the digest text, ≤20, each ≤120 characters), `omitted`
+(the number the digest text already discloses to the model) and `total`
+(ADR-0055, contract C2). They ride the turn as `MemoryCarry` and become the
+answer frame's `memory_context` — `{carried, omitted, total, searched}` — which
+is what finally tells the READER the omission count the model was always told.
+All three tolerate being absent, so a BFF that has not shipped that half serves
+the digest as before and the frame simply has no `memory_context`. The field
+states what was READ, never what was USED: whether a note changed the answer is
+a claim this system cannot verify, and nothing downstream may present it as one.
 
 `find_projects`' second argument is `limit` (1…`RECALL_MAX_LIMIT` = 10, default
 `max_results` = 5). The model raises it when it has to NAME a set before

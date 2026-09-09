@@ -72,6 +72,12 @@ class TurnFacts:
     organization_id: str | None = None
     project_id: str | None = None
     user_id: str | None = None
+    #: The acting person's WorkOS organization MEMBERSHIP — a different identity
+    #: from the user id, and the one the BFF authorizes an organization-scoped
+    #: memory write by (ADR-0054 spec AG-8, ADR-0055 contract C6). Captured here
+    #: because a stage that proposes a firm-wide finding has to say WHO it is
+    #: proposing for, and the request context is gone by the time it runs.
+    organization_membership_id: str | None = None
 
     #: The user's question and the delivered answer, verbatim. A handler that
     #: needs them bounded slices them itself — the caps differ per stage.

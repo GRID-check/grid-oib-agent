@@ -71,18 +71,34 @@ class TestSanitizeFindings:
         assert len(items) == 1
         assert items[0]["kind"] == "constraint"
         assert items[0]["confidence"] == "medium"  # defaulted
-        assert items[0]["scope"] == "project"  # forced
+        assert items[0]["scope"] == "project"  # the default when none is asked for
 
-    def test_org_scope_is_forced_to_project(self):
-        # The autonomous stage NEVER writes org-wide memory (audit finding S1);
-        # a model-proposed organization scope is coerced to project.
-        raw = [{"kind": "preference", "content": "Client prefers metric drawings.", "scope": "organization"}]
-        items = R._sanitize_findings(raw, has_project=True)
+    def test_an_organisation_finding_may_now_be_proposed(self):
+        """ADR-0055 contract C6, the half this function used to refuse.
+
+        It coerced every finding to `project` because there was no write-time
+        authorization gate and no human review. ADR-0054 added the gate and the
+        proposal card is the review, so the stage may PROPOSE firm-wide — it
+        still cannot write one, because the BFF decides that.
+        """
+        raw = [{"kind": "preference", "content": "Wir zeichnen in ArchiCAD.", "scope": "organization"}]
+        items = R._sanitize_findings(raw, has_project=True, has_organization=True)
+        assert items and items[0]["scope"] == "organization"
+
+    def test_an_organisation_finding_without_an_organisation_falls_back_to_the_project(self):
+        raw = [{"kind": "preference", "content": "Wir zeichnen in ArchiCAD.", "scope": "organization"}]
+        items = R._sanitize_findings(raw, has_project=True, has_organization=False)
         assert items and items[0]["scope"] == "project"
 
-    def test_dropped_when_no_project_in_scope(self):
+    def test_an_unrecognised_scope_is_the_project(self):
+        raw = [{"kind": "preference", "content": "Anything.", "scope": "galaxy"}]
+        items = R._sanitize_findings(raw, has_project=True, has_organization=True)
+        assert items and items[0]["scope"] == "project"
+
+    def test_dropped_when_no_project_and_no_organisation_in_scope(self):
         raw = [{"kind": "decision", "content": "Anything."}]
         assert R._sanitize_findings(raw, has_project=False) == []
+        assert R._sanitize_findings(raw, has_project=False, has_organization=False) == []
 
     def test_drops_content_already_in_digest(self):
         digest = 'PROJECT_MEMORY v1\n- [decision | high | agent] "Client chose a flat roof"'
@@ -432,6 +448,126 @@ class TestRunMemoryReflection:
             memory_digest=None,
         )
         assert ids == []  # error swallowed, nothing recorded
+
+
+class TestOrganisationFindingsArriveAsProposals:
+    """ADR-0055 contract C6: the office finally has a realistic writer.
+
+    The stage still writes only project-scoped findings. An organisation finding
+    takes the same write path and is expected to be REFUSED — the BFF authorizes
+    it as the acting user's `org:memory:write` — and that refusal is what turns
+    it into an offer a person accepts from their own session.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_organisation_finding_is_authorized_as_the_acting_person(self, monkeypatch):
+        recorded = []
+
+        def fake_insert(**kwargs):
+            recorded.append(kwargs)
+            return "id-1"
+
+        monkeypatch.setattr(R, "insert_memory_item", fake_insert)
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "preference", "content": "Wir zeichnen in ArchiCAD.", '
+            '"confidence": "high", "scope": "organization", "supersedes": ""}]}'
+        )
+        await R.run_memory_reflection(
+            llm=llm,
+            query="Womit zeichnen wir?",
+            answer="In ArchiCAD.",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest="(none)",
+            user_id="user-1",
+            organization_membership_id="om-1",
+        )
+        assert recorded[0]["scope"] == "organization"
+        assert recorded[0]["project_id"] is None
+        # WHO it is proposed for. Without it the route has nobody to authorize
+        # the write as, and the finding could only ever be refused.
+        assert recorded[0]["user_id"] == "user-1"
+        assert recorded[0]["organization_membership_id"] == "om-1"
+
+    @pytest.mark.asyncio
+    async def test_a_refused_organisation_write_becomes_a_proposal_card(self, monkeypatch):
+        offered: list[dict] = []
+
+        def fake_insert(**kwargs):
+            raise R.OrgMemoryDisabledError("no org:memory:write")
+
+        monkeypatch.setattr(R, "insert_memory_item", fake_insert)
+        monkeypatch.setattr(
+            R,
+            "emit_memory_proposal_card",
+            lambda **kwargs: (offered.append(kwargs), True)[1],
+        )
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "preference", "content": "Wir zeichnen in ArchiCAD.", '
+            '"confidence": "high", "scope": "organization", "supersedes": ""}]}'
+        )
+        written = await R.run_memory_reflection(
+            llm=llm,
+            query="Womit zeichnen wir?",
+            answer="In ArchiCAD.",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest="(none)",
+        )
+        # Nothing was written, and the return says so: a proposal is not a row.
+        assert written == []
+        assert offered == [{"content": "Wir zeichnen in ArchiCAD.", "kind": "preference", "confidence": "high"}]
+
+    @pytest.mark.asyncio
+    async def test_a_refusal_with_no_card_channel_drops_the_finding_quietly(self, monkeypatch):
+        """The safe end of the trade: an unaccepted org note is one nobody asked
+        for, so it is dropped rather than written by another route."""
+        monkeypatch.setattr(
+            R, "insert_memory_item", lambda **kwargs: (_ for _ in ()).throw(R.OrgMemoryDisabledError("no"))
+        )
+        monkeypatch.setattr(R, "emit_memory_proposal_card", lambda **kwargs: False)
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "preference", "content": "Wir zeichnen in ArchiCAD.", '
+            '"confidence": "high", "scope": "organization", "supersedes": ""}]}'
+        )
+        assert (
+            await R.run_memory_reflection(
+                llm=llm,
+                query="q",
+                answer="a",
+                project_id="proj-1",
+                organization_id="org-1",
+                conversation_id="conv-1",
+                memory_digest="(none)",
+            )
+            == []
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_project_finding_is_still_written_directly(self, monkeypatch):
+        """The half that did not change. A project write is addressed by its
+        project row and carries no acting user, because the route does not
+        authorize it by one."""
+        recorded = []
+        monkeypatch.setattr(R, "insert_memory_item", lambda **kw: (recorded.append(kw), "id-1")[1])
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "decision", "content": "Flachdach gewählt.", '
+            '"confidence": "high", "scope": "project", "supersedes": ""}]}'
+        )
+        written = await R.run_memory_reflection(
+            llm=llm,
+            query="q",
+            answer="a",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest="(none)",
+        )
+        assert written == [{"id": "id-1", "kind": "decision", "content": "Flachdach gewählt."}]
+        assert recorded[0]["scope"] == "project"
+        assert recorded[0]["project_id"] == "proj-1"
 
 
 class TestMemoryReflectionAsAStage:

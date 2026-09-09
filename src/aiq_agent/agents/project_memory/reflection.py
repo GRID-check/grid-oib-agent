@@ -39,10 +39,12 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from aiq_agent.agents.project_memory.proposal import emit_memory_proposal_card
 from aiq_agent.common.json_utils import extract_json
 from aiq_agent.common.llm_factory import strict_json_response_format
 from aiq_agent.knowledge.project_memory import VALID_CONFIDENCES
 from aiq_agent.knowledge.project_memory import VALID_KINDS
+from aiq_agent.knowledge.project_memory import OrgMemoryDisabledError
 from aiq_agent.knowledge.project_memory import insert_memory_item
 from aiq_agent.knowledge.project_memory import looks_like_personal_data
 
@@ -74,6 +76,15 @@ class _ReflectionFinding(BaseModel):
             "When this finding CORRECTS an entry in the existing memory shown to you, the "
             "verbatim content of that entry, copied exactly. Empty string when the finding "
             "adds something new instead of replacing anything."
+        )
+    )
+    scope: Literal["project", "organization"] = Field(
+        description=(
+            "'project' for a finding about THIS project — the ordinary case, and the default "
+            "whenever you are unsure. 'organization' ONLY for something that holds across the "
+            "whole office and would apply to every project in it. An organization finding is "
+            "not written: it is PROPOSED, and a person with the right to set firm-wide memory "
+            "decides."
         )
     )
 
@@ -115,9 +126,8 @@ REFLECTION_SYSTEM_PROMPT = (
     "conversations.\n\n"
     "Record a finding ONLY if ALL of these hold:\n"
     "- it is durable — true across future turns, not transient conversation detail;\n"
-    "- it is specific to THIS project — NEVER general building-code knowledge (OIB limits, "
-    "ÖNORM values etc. already live in the corpus) and NEVER a firm-wide policy (this stage "
-    "only records project-scoped findings; org-wide conventions are set by a human, not here);\n"
+    "- it is NEVER general building-code knowledge — OIB limits, ÖNORM values and the like "
+    "already live in the corpus and are not memory;\n"
     "- it is NOT already present in the existing memory shown below (never restate) — this bars "
     "RESTATEMENTS, not CORRECTIONS: a finding that changes what an existing entry says is new;\n"
     "- it captures something the USER established (a decision, constraint, open question, "
@@ -140,13 +150,23 @@ REFLECTION_SYSTEM_PROMPT = (
     "obsolete: a finding that adds detail alongside an entry, or covers a different aspect of "
     "the same topic, must leave `supersedes` as an empty string. Never quote an entry that is "
     "not shown below, and never invent one.\n\n"
+    "SCOPE: PROJECT BY DEFAULT, ORGANISATION BY PROPOSAL. Almost every finding is about THIS "
+    "project and takes scope 'project'; it is recorded straight away. A finding takes scope "
+    "'organization' only when it holds for the WHOLE OFFICE and would apply to every project in "
+    "it — a firm-wide convention, a standing preference for how this office works, a rule the "
+    "office follows regardless of the job. That is a high bar: an organisation note is read into "
+    "every project's memory in the tenant, so getting it wrong is wrong everywhere at once. An "
+    "organisation finding is NOT written by you. It is proposed, and a person who holds the right "
+    "to set firm-wide memory decides whether it is kept. When you are unsure, choose 'project'.\n"
     "kind must be one of: decision, constraint, open_question, derived_fact, preference.\n"
     "confidence is one of: low, medium, high.\n"
     "content must be ONE concise, self-contained sentence about this project.\n"
-    "supersedes is the verbatim content of the entry being replaced, or an empty string.\n\n"
+    "supersedes is the verbatim content of the entry being replaced, or an empty string.\n"
+    "scope is 'project' or 'organization'.\n\n"
     f"Return AT MOST {MAX_NEW_ITEMS} findings. If nothing qualifies, return an empty list — "
     "that is the common and correct outcome. Respond with ONLY a JSON object of the form: "
-    '{"findings": [{"kind": "...", "content": "...", "confidence": "...", "supersedes": "..."}]}'
+    '{"findings": [{"kind": "...", "content": "...", "confidence": "...", "supersedes": "...", '
+    '"scope": "project"}]}'
 )
 
 
@@ -236,19 +256,33 @@ def _sanitize_findings(
     raw: Any,
     *,
     has_project: bool,
+    has_organization: bool = False,
     memory_digest: str | None = None,
 ) -> list[dict[str, str]]:
-    """Validate LLM-proposed findings into insertable **project-scoped** items.
+    """Validate LLM-proposed findings into insertable items.
 
-    The autonomous reflection stage records project-scoped findings ONLY — it
-    never writes ``organization`` scope. Firm-wide memory poisons every project
-    in the tenant and there is no write-time authorization gate or human review,
-    so org-wide writes stay a deliberate, human-driven action (audit finding S1).
+    **Why organization scope is allowed here now.** This function used to force
+    every finding to ``project`` and said so: firm-wide memory poisons every
+    project in the tenant, and there was no write-time authorization gate and no
+    human review, so an org-wide write stayed a deliberate human action (audit
+    finding S1). Both halves of that objection have since been answered.
+    ADR-0054 added the gate — the BFF authorizes an agent org write as the
+    ACTING user's ``org:memory:write`` and refuses it otherwise — and ADR-0055
+    makes the refusal the review: the refused write becomes a ``memory_proposal``
+    card a person accepts from their own session. So the stage may now PROPOSE
+    firm-wide findings, and it still cannot write one: the only thing that
+    changed is that the office has a realistic writer at all, which is the gap
+    ADR-0055 names.
+
+    A project finding is written directly, exactly as before. An organization
+    finding takes the write path and is expected to be refused; the refusal is
+    the mechanism, not an error.
+
     Drops anything malformed, out-of-vocabulary, empty, already present in the
-    digest, matching a PII/secret shape (audit finding S4), or when no project
-    is in scope.
+    digest, matching a PII/secret shape (audit finding S4), or scoped to a
+    target this turn does not have.
     """
-    if not isinstance(raw, list) or not has_project:
+    if not isinstance(raw, list) or not (has_project or has_organization):
         return []
     digest_entries = _digest_entry_contents(memory_digest)
     items: list[dict[str, str]] = []
@@ -293,11 +327,26 @@ def _sanitize_findings(
             importance = 5
         importance = min(10, max(1, importance))
 
+        # Scope, with the conservative fallback in both directions: anything
+        # this turn has no target for becomes the scope it does have, and an
+        # unrecognised value is the project. A finding is never dropped for its
+        # scope alone — the write path decides what an organisation finding may
+        # do, and it is the only thing that can.
+        scope = str(entry.get("scope", "project")).strip().lower()
+        if scope not in {"project", "organization"}:
+            scope = "project"
+        if scope == "organization" and not has_organization:
+            scope = "project"
+        if scope == "project" and not has_project:
+            scope = "organization" if has_organization else "project"
+        if scope == "project" and not has_project:
+            continue
+
         item = {
             "kind": kind,
             "content": content,
             "confidence": confidence,
-            "scope": "project",
+            "scope": scope,
             "salience": str(round(importance / 10.0, 2)),
         }
         if supersedes:
@@ -318,6 +367,8 @@ async def run_memory_reflection(
     organization_id: str | None,
     conversation_id: str | None,
     memory_digest: str | None,
+    user_id: str | None = None,
+    organization_membership_id: str | None = None,
 ) -> list[dict[str, str]]:
     """Run one reflection pass and record any qualifying findings.
 
@@ -357,6 +408,7 @@ async def run_memory_reflection(
     items = _sanitize_findings(
         findings,
         has_project=bool(project_id),
+        has_organization=bool(organization_id),
         memory_digest=memory_digest,
     )
     if not items:
@@ -365,7 +417,12 @@ async def run_memory_reflection(
 
     recorded: list[dict[str, str]] = []
     for item in items:
-        scope = item["scope"]  # always "project" — org-wide writes are excluded (S1)
+        # `project` is written; `organization` is PROPOSED (ADR-0055, contract
+        # C6). Both take the same write path, because the BFF is what tells the
+        # two apart: it authorizes an org write as the acting user's
+        # `org:memory:write` and refuses it otherwise, and that refusal is the
+        # human review the stage used to say it was missing.
+        scope = item["scope"]
         try:
             item_id = await asyncio.to_thread(
                 insert_memory_item,
@@ -383,7 +440,29 @@ async def run_memory_reflection(
                 # Retires the entry this finding corrects (frontend resolves the
                 # quote; unresolvable or human-curated targets are left alone).
                 supersedes_content=item.get("supersedes"),
+                # WHO the answered turn ran for. Read on the organisation branch
+                # only, where the write is authorized as that person rather than
+                # as the service token (spec AG-8) — a project write is addressed
+                # by its project row and needs no acting user.
+                user_id=user_id,
+                organization_membership_id=organization_membership_id,
             )
+        except OrgMemoryDisabledError:
+            # The expected outcome of an organisation proposal, not a failure:
+            # the office has not granted this person firm-wide memory (or the
+            # deployment keeps the off-switch shut), so the finding becomes an
+            # offer a person can accept from their own session instead of a
+            # write nobody authorized.
+            logger.info("Memory reflection: organisation finding refused by policy; offering it as a proposal")
+            if not emit_memory_proposal_card(content=item["content"], kind=item["kind"], confidence=item["confidence"]):
+                # No card channel is bound after the answer has shipped, which is
+                # the common case for this stage today: the turn's card registry
+                # was snapshotted and unbound before the post-answer stages ran.
+                # The finding is then dropped rather than written, which is the
+                # safe end of the trade — an unaccepted org note is one nobody
+                # asked for. Logged so the gap is countable.
+                logger.info("Memory reflection: no card channel bound; the organisation finding was dropped")
+            continue
         except Exception:
             logger.exception("Memory reflection: failed to record a %s finding", item["kind"])
             continue

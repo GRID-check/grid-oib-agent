@@ -293,6 +293,8 @@ def _every_live_payload(steps) -> list[dict]:
     turn_status.emit_answer_repair(removed_citations=1, unverified_quotes=1)
     turn_status.emit_escalation("Shallow agent emitted insufficiency marker")
     turn_status.emit_escalation("Portfolio-Recherche über 6 Projekte", portfolio_project_count=6)
+    turn_status.emit_memory_search(3)
+    turn_status.emit_memory_superseded(1)
     return _live(steps)
 
 

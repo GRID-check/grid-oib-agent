@@ -50,23 +50,66 @@ def test_returns_digest_string(monkeypatch):
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
     with _patched_opener(monkeypatch, body={"digest": "PROJECT_MEMORY v1\n- x"}) as captured:
         result = pm.fetch_memory_digest(project_id="p1", organization_id="o1")
-    assert result == "PROJECT_MEMORY v1\n- x"
+    assert result is not None
+    assert result.digest == "PROJECT_MEMORY v1\n- x"
     assert "/api/internal/memory/digest?" in captured["url"]
     assert "projectId=p1" in captured["url"]
     assert "organizationId=o1" in captured["url"]
     assert captured["method"] == "GET"
 
 
-def test_null_digest_returns_none(monkeypatch):
+def test_null_digest_reads_as_no_active_memory(monkeypatch):
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
     with _patched_opener(monkeypatch, body={"digest": None}):
-        assert pm.fetch_memory_digest(project_id="p1", organization_id=None) is None
+        result = pm.fetch_memory_digest(project_id="p1", organization_id=None)
+    # A successful call, and an empty one: distinct from "we did not ask",
+    # which is the only thing that returns None.
+    assert result is not None
+    assert result.digest is None
 
 
-def test_blank_digest_returns_none(monkeypatch):
+def test_blank_digest_reads_as_no_active_memory(monkeypatch):
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
     with _patched_opener(monkeypatch, body={"digest": "   "}):
-        assert pm.fetch_memory_digest(project_id="p1", organization_id=None) is None
+        result = pm.fetch_memory_digest(project_id="p1", organization_id=None)
+    assert result is not None
+    assert result.digest is None
+
+
+def test_the_digest_reports_what_it_carried(monkeypatch):
+    """Contract C2: the reader is told what the model was told (ADR-0055)."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    body = {
+        "digest": "PROJECT_MEMORY v1\n- x",
+        "carried": [
+            {"id": "m1", "kind": "decision", "content": "Flachdach gewählt"},
+            {"id": "m2", "kind": "constraint", "content": "x" * 400},
+            {"id": "", "kind": "decision", "content": "unusable, no id"},
+            "not a dict",
+        ],
+        "omitted": 7,
+        "total": 29,
+    }
+    with _patched_opener(monkeypatch, body=body):
+        result = pm.fetch_memory_digest(project_id="p1", organization_id="o1")
+    assert result is not None
+    assert [note.id for note in result.carry.carried] == ["m1", "m2"]
+    # Bounded on the way in, so a long note cannot ride the frame at full size.
+    assert len(result.carry.carried[1].content) == 120
+    assert result.carry.omitted == 7
+    assert result.carry.total == 29
+
+
+def test_an_older_bff_without_the_carry_fields_costs_the_turn_nothing(monkeypatch):
+    """The endpoint half ships separately; the digest must not need it."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    with _patched_opener(monkeypatch, body={"digest": "PROJECT_MEMORY v1"}):
+        result = pm.fetch_memory_digest(project_id="p1", organization_id="o1")
+    assert result is not None
+    assert result.digest == "PROJECT_MEMORY v1"
+    assert result.carry.carried == ()
+    assert result.carry.omitted == 0
+    assert result.carry.total == 0
 
 
 def test_transport_error_propagates(monkeypatch):

@@ -209,6 +209,18 @@ boundary in `ChatResearcherAgent.run()`:
 - `job_admission_rejected` + `retry_after_seconds` — set in the deep-research
   node's `JobAdmissionError` catch; marks the text as a queue-rejection notice,
   not a research answer.
+- `memory_context` (`{carried, omitted, total, searched}`) — what the turn READ
+  out of long-term memory (ADR-0055). `carried` is exactly the notes the digest
+  put in front of the model (≤20, each ≤120 chars), `omitted` and `total` are the
+  counts the digest text already disclosed to the model and now discloses to the
+  reader, and `searched` is how many notes `search_memory` brought back this
+  turn. Unlike everything above it, it is NOT graph state: the digest half comes
+  off the turn-start context load and the search half off a per-turn `ContextVar`
+  registry (`knowledge/memory_context.py`), so it is attached in `_run` rather
+  than in `_apply_transparency_extras`. Absent when the turn read no memory at
+  all. **It says what was read, never what was used** — whether a note changed
+  the answer is a claim this system cannot verify, so it must never be rendered
+  as a citation or worded as influence.
 
 If you add another structured signal to the chat response, this is where it must
 be lifted, and the frontend Zod schema (`schemas.ts`) must declare it.

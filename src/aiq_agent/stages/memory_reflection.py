@@ -107,8 +107,13 @@ def _gate(facts: TurnFacts) -> GateDecision:
         # once the report exists.
         return GateDecision.skip("deep_research_job")
     if not facts.project_id:
-        # The autonomous stage writes project-scoped memory ONLY (audit S1), so
-        # an org-only conversation has nothing it may safely write.
+        # An office turn has no project row to write against, and the only thing
+        # this stage could do there is PROPOSE a firm-wide note (ADR-0055,
+        # contract C6) — which needs a card channel, and the turn's card
+        # registry is snapshotted and unbound before the post-answer stages run.
+        # So the office keeps the in-turn `remember` tool as its writer for now,
+        # and this stage stays a project stage. Widening it is a change to where
+        # a proposal card can be raised, not a change to this predicate.
         return GateDecision.skip("no_project")
     text = (facts.answer or "").strip()
     if not facts.query or not text:
@@ -156,6 +161,11 @@ async def _handler(ctx: StageContext) -> dict[str, Any] | None:
         organization_id=facts.organization_id,
         conversation_id=facts.conversation_id,
         memory_digest=digest_with_turn_writes(facts.memory_digest, facts.remembered_this_turn),
+        # WHO the answered turn ran for. Read on the organisation branch alone,
+        # where a proposal is authorized as that person rather than as the
+        # service token (ADR-0055, contract C6).
+        user_id=facts.user_id,
+        organization_membership_id=facts.organization_membership_id,
     )
     if not recorded:
         # `None` is `empty` — the common, correct outcome for a turn that

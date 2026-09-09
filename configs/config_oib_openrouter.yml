@@ -514,6 +514,12 @@ functions:
   remember:
     _type: project_memory_remember
 
+  # The read half (ADR-0055): reaches the notes the turn-start digest had to
+  # leave out. Scope is the turn's own — the model passes a query and a size,
+  # never a project or an organisation — and the BFF enforces it.
+  search_memory:
+    _type: project_memory_search
+
   # The Projektregister search (ADR-0054). Answers "which projects do we have
   # that ..." from the office's Steckbriefe — names, ids and profile facts,
   # never document content. Refuses (as a string) outside an organisation; the
@@ -615,6 +621,10 @@ functions:
       - ris_fetch_tool
       - ris_catalog_lookup_tool
       - remember
+      # The read half of memory (ADR-0055). Bound beside `remember` because
+      # they are one surface: the injected digest is a working set, and this is
+      # how a turn reaches the rest of the store when a question needs it.
+      - search_memory
       - emit_card
       - describe_card
       - surface_documents
@@ -839,6 +849,7 @@ functions:
       - ris_catalog_lookup_tool
       - advanced_web_search_tool
       - remember
+      - search_memory
       - emit_card
       - describe_card
       - surface_documents
