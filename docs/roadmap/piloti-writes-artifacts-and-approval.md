@@ -20,22 +20,23 @@ built, guarded, audited, provenance-stamped and **on by default in every
 deployment**. Nothing the model can call reaches it. What it files is never
 indexed, so the agent cannot read its own report, and a reviewer can only
 accept or reject a task with a reason that reaches the next cron run. The gap
-is not a flag and not a new agent. It is four seams, each already half-built:
-a tool that writes, a door between draft and published, a review that can say
-*revise*, and an index that admits an approved Piloti document without letting
-it pose as a norm.
+is not a flag and not a new agent. It is **one small state machine on the
+document row** plus four seams that already half-exist: a tool that writes, a
+door between draft and published, a review that can say *revise*, and an index
+that admits an approved Piloti document without letting it pose as a norm.
 
 ```mermaid
 flowchart LR
   Q[question or handoff] --> T[turn]
-  T -->|write_document| D[draft on the session shelf<br/>indexed, agent can re-read]
-  D -->|publish_document| P[project document<br/>authored_by=agent · task awaiting_review]
-  P --> I[inbox task.awaiting_review]
+  T -->|write_document| D[draft · session shelf<br/>indexed for this conversation]
+  D -->|publish_document| P[project document<br/>authored_by=agent · review=pending]
+  P --> I[inbox document.awaiting_review]
   I --> R{review}
-  R -->|accept| A[approved · ingested as agent_authored<br/>cited as Bürodokument, never as a norm]
+  R -->|approve| A[review=approved<br/>ingested as agent_authored<br/>cited as Bürodokument, never as a norm]
   R -->|revise + comment| V[revision task<br/>prior version + comment in context]
   V --> T
-  R -->|reject| X[rejected · reason kept]
+  T -->|new version| P2[new row · supersedes the old]
+  R -->|reject| X[review=rejected · reason kept]
   A --> C[conversation about the document<br/>subject_resource = document]
   C --> T
 ```
@@ -53,9 +54,9 @@ a **contract**, not a directory. Today the contract is in three places:
 | Which budget it spends (research vs interaction) | a name list inside `_count_interaction_calls`, `researcher/agent.py:152` |
 | Whether it writes, and whether a person must click first | nowhere; `remember` writes silently, org memory becomes a proposal card, both by convention in their own module |
 
-The plan (slice 0) lifts those into one table, `src/aiq_agent/tools/contract.py`,
-where every tool row declares `context`, `budget` (`research | interaction |
-write`) and `door` (`free | draft | publish`). One test asserts every tool the
+Slice 0 lifts those into one table, `src/aiq_agent/tools/contract.py`, where
+every tool row declares `context`, `budget` (`research | interaction | write`)
+and `door` (`free | draft | publish`). One test asserts every tool the
 production config binds has a row. Adding a tool becomes one module plus one
 row, and the loop, the worker and the UI read the row instead of a name list.
 
@@ -76,48 +77,113 @@ defaults to `true` in `feature-flags.ts:271` and in
 is on the built-in editor and admin roles (`authz/catalog.ts:559,575`). The
 path is live and has **two producers**: the deep-research report and a diagram
 the user clicks to file. What has to be built is the *producer the model can
-call*, and it belongs on the Python side as a thin tool that asks the BFF to
-file, the same way the job worker already calls
-`app/api/internal/jobs/[jobId]/outcome`. Filing logic stays in the one function
-it lives in today; a second filing path is the thing `generated.ts` forbids.
+call*. It belongs on the Python side as a thin tool that asks the BFF to file,
+the same way the job worker already calls
+`app/api/internal/jobs/[jobId]/outcome`. Filing logic stays in the one
+function it lives in today; a second filing path is the thing `generated.ts`
+forbids.
 
-### 1.3 Approval, then re-ingest?
+### 1.3 Is this a state machine on top of the file primitives?
 
-Yes, with one guard. The reason nothing agent-authored is indexed today is
-sound: a Piloti report in *Projektwissen* is indistinguishable from a stamped
-Gutachten and could be cited as evidence for a normative value. The guard is
-provenance, not exclusion:
+Yes, and naming it that is what makes the plan sharp. The first draft of this
+document hung the review on the **task** row, because the task already has
+`review`, `reviewReason` and an audit action. That was the wrong owner. A task
+is a unit of *work* (queued, running, succeeded). What a reviewer judges is the
+*artifact*, and a document written in a chat turn has no run at all. Putting
+review on the task would have meant creating a task with no work in it, just
+to hold a decision, and joining tasks into the file list to show a badge.
 
-- A **draft** lives on the session shelf, which is already indexed per
-  conversation (chat attachments go through the same ingest and the turn waits
-  for them, `GRID_INGEST_WAIT_SECONDS`). The agent can re-read and revise its
-  own draft inside the conversation with no new machinery.
-- A **published** document is a `documents` row with `authored_by = 'agent'`
-  and a task row awaiting review. Not indexed yet.
-- An **approved** document is ingested with `doc_class: agent_authored`. The
-  grounding block prints who approved it and when; the source-kind lane is
-  `buero`, sub-label "Piloti-Dokument, freigegeben von …"; the citation gate
-  refuses it as the source of a normative value. It can back "we decided",
-  never "the OIB requires".
+So the state lives on the `documents` row, and it is deliberately tiny.
+
+#### The states
+
+| `review` | Meaning | Who gets there |
+|---|---|---|
+| `none` | born approved: a person uploaded it | every `authored_by = 'user'` row, forever |
+| `pending` | Piloti published it; a person has not decided | `publish_document`, "Ins Projekt übernehmen", a task filing its artifact |
+| `approved` | a person with `project:edit` took responsibility for it | the review action |
+| `rejected` | refused, reason kept | the review action |
+
+Plus one link, `superseded_by_id`, set when a newer version lands. "Superseded"
+is not a state; it is derived from the link, so a row cannot be both
+`approved` and forgotten to be marked superseded.
+
+#### What is deliberately not a state
+
+- **Shelf is location, not state.** A draft is a document on the session
+  shelf, which already exists, is already indexed per conversation, and is
+  already cleaned up with it. Publishing does not *move* a document across
+  shelves; it files a new project-shelf row from the draft's bytes through
+  `fileGeneratedDocument`, ref kind `answer_artifact` (already used by the
+  diagram producer). The draft stays with the conversation.
+- **No `draft`, `in_review`, `revising` states.** A draft is "on the session
+  shelf". In review is `pending`. Revising is a task whose output will be a new
+  `pending` row. Every extra state would need a badge, a transition, a guard
+  and a CHECK; none of these earns them.
+- **`revise` is an action, not a state.** It creates a revision task and leaves
+  the old row `pending` until the new one supersedes it.
+
+#### The guards, as constraints
+
+The repo's ratchet doctrine says to close the layer that holds while people
+are tired. Two CHECKs on `documents`, in the same migration as the column:
+
+```
+review = 'none'            <=>  authored_by = 'user'
+status = 'indexed'          =>  review IN ('none', 'approved')
+```
+
+The second one is the whole safety argument of `generated.ts` ("nothing agent-
+written comes back as Projektwissen") turned from a code path into a row
+invariant. The ingest dispatch in `collection-file-ref.ts` changes from
+`authoredBy === 'user'` to `review IN ('none','approved')`, and the database
+refuses the case the code forgets.
+
+#### One transition function
+
+`lib/documents/review.ts` exports one function,
+`transitionDocumentReview(doc, to, actor, reason?)`, and it is the only
+writer of `review`. Effects hang off it, never off a route:
+
+| Transition | Effects |
+|---|---|
+| `→ pending` | inbox `document.awaiting_review` to the project's editors; audit `document.proposed` |
+| `pending → approved` | dispatch ingest with `doc_class: agent_authored`; resolve the inbox item; audit `document.approved` |
+| `pending → rejected` | reason required; resolve the inbox item; audit `document.rejected` |
+| new version lands | set `superseded_by_id` on the old row; if the old row was `approved`, discard its chunks (`discardSupersededObjects` already exists for replaced uploads); audit `document.superseded` |
+
+The task row keeps `review` for chat-job outputs that produce no artifact.
+When a task has an artifact (`filingStatus = filed`), `reviewTask` delegates
+to `transitionDocumentReview`; there is one truth and the task mirrors it.
+
+#### Where the tools sit on this machine
+
+| Tool | Door | Transition it can cause |
+|---|---|---|
+| `write_document` | `draft` | none: a session-shelf row, no review column involved |
+| `publish_document` | `publish` | `→ pending` |
+| `create_task(kind=revision)` | `publish` | eventually a new `pending` row that supersedes |
+| review actions in the UI | human only | `pending → approved / rejected`, revise |
+
+The model can propose; only a person can approve. That is the door.
 
 ## 2. What exists, and what each slice adds
 
 | Piece | Exists | Adds |
 |---|---|---|
-| Filing | `fileGeneratedDocument`: permissions, flag, quota, audit, byte-level marking | one producer `agent_document`, one internal route |
+| Filing | `fileGeneratedDocument`: permissions, flag, quota, audit, byte-level marking; ref kinds `agent_run`, `answer_artifact` | one producer `agent_document`, one internal route |
 | Draft space | session shelf, indexed, cleaned up with the conversation | the tool writes there first |
-| Review | `tasks` row: `review ∈ {accepted, rejected}`, `reviewReason` (1,000 chars), `filingStatus`, audit `task.reviewed` | `revise`; kind `document`; the review reaches a revision run, not only the next cron |
-| Notification | inbox registry, `job.completed`, `job.failed` | `task.awaiting_review` |
+| Review | on `tasks`: `accepted | rejected`, reason, audit | `documents.review`, `superseded_by_id`, two CHECKs, one transition function; task review delegates |
+| Notification | inbox registry with `document.assigned_to_you` as precedent | `document.awaiting_review` |
 | Conversation about a thing | `conversations.subject_resource_{type,id}` (ADR-0047), `document` in `SHAREABLE_RESOURCE_TYPES` | a "Besprechen" entry on the document and on the report card |
 | Rendering | `lib/answer-export`: Markdown, DOCX, cards, citations; PDF in the report producer | reused as is |
-| Versions | none | `supersedes_document_id` on `documents` |
-| Delegation | `tasks` created only by a cron job; the roadmap's "@Piloti bis Freitag" trigger unbuilt | a `create_task` tool |
+| Supersede cleanup | `discardSupersededObjects` for a re-uploaded file | called from the transition |
+| Delegation | `tasks` created only by a cron job | a `create_task` tool |
 | Tool contract | context needs (one entry), budget class (a name list) | one table, one test |
 
 ## 3. Slices
 
 Each slice ships alone, is measured before the next starts, and is one PR.
-Effort is relative to the PR under review.
 
 ### Slice 0: the tool contract (small)
 
@@ -146,63 +212,64 @@ Effort is relative to the PR under review.
 - **Done when** "schreib mir den Aktenvermerk zur Besprechung mit der MA 37"
   produces a file on the session shelf, opened from the chat, and the next turn
   can say "kürze Punkt 3" and rewrite it.
-- **Measured by** the share of turns that leave an artifact (a `document.drafted`
-  audit action, counted per project).
+- **Measured by** the share of turns that leave an artifact (audit
+  `document.drafted`, counted per project).
 
-### Slice 2: the publish door (medium)
+### Slice 2: the state machine and the publish door (medium)
 
-- Tool `publish_document(documentId)` with door `publish`. It does not file
-  by itself: it creates a task of kind `document` in `awaiting_review`, moves
-  the bytes through `fileGeneratedDocument` with producer `agent_document`,
-  `authored_by_ref = task.id`, `authored_by_ref_kind = 'task'`. Not indexed.
-- Inbox type `task.awaiting_review` to the project's editors, deep link to the
-  document.
+- Migration: `documents.review`, `superseded_by_id`, the two CHECKs, backfill
+  `review = 'none'` for user rows and `approved` for the two existing
+  producers' rows (a filed report today is already treated as the assignee's
+  responsibility, `agent-authored-reports.md`).
+- `lib/documents/review.ts` with the one transition function and its effects.
+- Tool `publish_document(documentId)`, door `publish`: files a project row
+  from the draft through `fileGeneratedDocument`, producer `agent_document`,
+  then `→ pending`. "Ins Projekt übernehmen" on the card is the same call from
+  the UI.
+- Inbox type `document.awaiting_review`, deep link to the document.
 - Review controls on the document page and on the report card: **Freigeben**,
-  **Überarbeiten** (with a comment), **Ablehnen**. `TASK_REVIEWS` gains
-  `revise`.
-- A user's "Ins Projekt übernehmen" click on a draft card is the same publish,
-  from the UI side, through the same task.
+  **Überarbeiten** (comment required), **Ablehnen** (reason required).
+  `reviewTask` delegates when the task filed an artifact.
 - **Done when** a published draft appears in the project folder with the
-  Piloti byline, in the reviewer's inbox, and cannot be cited by the next turn.
+  Piloti byline and a "Freigabe ausstehend" badge, lands in the reviewer's
+  inbox, and the database refuses to mark it indexed.
 
 ### Slice 3: approval indexes, revision loops (medium)
 
-- **Accept** dispatches the ingest with `doc_class: agent_authored`, shelf
-  `project`. `norm_registry` / `source_kinds` get the lane and the label; the
+- **Approve** dispatches ingest with `doc_class: agent_authored`, shelf
+  `project`. `norm_registry` / `source_kinds` get the lane and label; the
   grounding block carries `Freigegeben von … am …`; `verify_citations` refuses
   it behind a normative value (a test with a `[N]` on a Wert from an
   agent-authored hit).
 - **Revise** creates a task of kind `revision` whose run receives the prior
-  document's Markdown, the reviewer's comment, and the original conversation.
-  Its output supersedes the prior row (`supersedes_document_id`); the old one
-  stays, shown as "ersetzt durch".
-- **Reject** keeps the reason on the task; the document stays unpublished on
-  the session shelf.
+  document's Markdown, the reviewer's comment and the original conversation.
+  Its output is a new `pending` row that supersedes the prior one; the old
+  one shows "ersetzt durch".
+- **Reject** keeps the reason; the draft stays on the session shelf.
 - **Done when** a rejected-with-comment report comes back as a new version,
-  and an accepted one is searchable but never appears as a Fundstelle for a
+  and an approved one is searchable but never appears as a Fundstelle for a
   number.
-- **Measured by** time from `task.awaiting_review` to `accepted`, per kind.
+- **Measured by** time from `pending` to `approved`, per producer.
 
 ### Slice 4: talk to the document (small)
 
-- "Besprechen" on any document, agent-authored or not, opens a conversation
-  with `subject_resource = document`. The turn's inventory pins that document
-  as the focus file (`focus_file.py` already does this for a file-native ask).
-- On a filed report the same button appears on the report card and in the
+- "Besprechen" on any document opens a conversation with
+  `subject_resource = document`; `focus_file.py` already pins a subject file
+  into the turn's inventory. The same entry sits on the report card and in the
   inbox item.
 - **Done when** a reviewer can ask "warum steht in Abschnitt 3 GK 4?" and get an
   answer that cites the report's own sources.
 
 ### Slice 5: delegate from chat (medium)
 
-- Tool `create_task(kind, goal, due)` with door `publish` (a task costs money
-  on the requester's budget). Kinds: `compliance_check`, `einreichcheck`,
-  `document`. The first two already have engines; their Markdown output goes
-  through slice 1 and 2 instead of a transient panel.
-- `@Piloti` mention with an imperative becomes a task when the model chooses
-  the tool; the mention service already routes the address.
+- Tool `create_task(kind, goal, due)`, door `publish` (a task spends the
+  requester's budget). Kinds: `compliance_check`, `einreichcheck`, `document`,
+  `revision`. The first two already have engines; their Markdown output goes
+  through slices 1 and 2 instead of a transient panel.
+- `@Piloti` with an imperative becomes a task when the model chooses the tool;
+  the mention service already routes the address.
 - **Done when** "@Piloti mach den Einreichcheck bis Freitag" yields a task row,
-  a run, a document awaiting review, and an inbox item.
+  a run, a `pending` document and an inbox item.
 
 ### Slice 6: the agent can tidy (medium)
 
@@ -221,15 +288,17 @@ Each is one producer key in `GENERATED_DOCUMENT_PRODUCER_REF_KINDS`, one
 renderer, one call site, and a skill that knows the shape: Einreichcheck-
 Protokoll, Brandschutzkonzept-Entwurf, Flächenaufstellung, Aktenvermerk,
 Behördenschreiben, Prüfbericht. The catalogue grows without a second filing
-path.
+path and without a new state.
 
 ## 4. What this plan refuses
 
 - **No second filing path.** Every producer calls `fileGeneratedDocument`.
+- **No second review axis.** `documents.review` is the truth; the task mirrors.
 - **No new agent.** The researcher writes documents the way it emits cards.
-- **No silent publish.** Draft is free; publish is a task a person reviews.
+- **No silent publish.** Draft is free; publish is `pending` until a person acts.
 - **No agent document as a norm.** Approved documents are Bürowissen with a
   visible approver, never a Fundstelle for a value.
+- **No fourth state** without a badge, a transition, a guard and a CHECK.
 - **`sources/` stays put.** Evidence sources are packages; workspace tools
   are modules under `tools/` behind one contract.
 
@@ -242,8 +311,8 @@ slice 0 ─┬─ slice 1 ── slice 2 ── slice 3
             slice 6 (needs 0 only)
 ```
 
-Slice 0 and slice 1 are the first PR. Slice 6 can run in parallel with 2 and
-3 because it touches folders, not documents.
+Slices 0 and 1 are the first PR. Slice 6 can run beside 2 and 3 because it
+touches folders, not review.
 
 ## 6. Open items found on the way
 
