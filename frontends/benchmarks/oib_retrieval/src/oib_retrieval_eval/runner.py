@@ -396,7 +396,15 @@ def main(argv: list[str] | None = None) -> int:
         file=stream,
     )
 
-    report = structure.measure_structure(index)
+    # An empty `data/oib` is the ordinary state of a fresh clone, not a bug in the
+    # harness, so it exits with the instruction rather than a traceback. This is also
+    # why there is no CI job here any more: no CI checkout can hold the corpus
+    # (ADR-0044, "Update (2026-09-09)").
+    try:
+        report = structure.measure_structure(index)
+    except corpus.CorpusMissingError as exc:
+        print(f"\nCANNOT RUN — {exc}", file=stream)
+        return 1
     print_structure(report, stream)
     if args.fail_below is not None:
         citable_pct = report.totals[corpus.ARM_PUNKT].isolated_pct

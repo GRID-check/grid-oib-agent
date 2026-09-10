@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    The compliance check now looks for evidence only in your own documents, and
+    derives the requirements only from the Richtlinien. It used to search both
+    in one place, so a requirement could count as documented on the strength of
+    the Richtlinie text that states it. Documents on the office archive shelf
+    still count as evidence.

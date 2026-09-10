@@ -123,7 +123,15 @@ class AgentGroup(StrEnum):
     """
 
     CLARIFIER = "clarifier"
-    SHALLOW_RESEARCH = "shallow_research"
+    # The member is RESEARCH because the agent is no longer "the shallow one";
+    # the VALUE stays "shallow_research" because it is a PERSISTED KEY. Every
+    # org that re-pointed this agent's model has that exact string in
+    # `platform_models.agent_group`, and the group already carries a separate
+    # display label (`agent-groups.ts`), so the rename costs the value nothing.
+    # Do not "finish" the rename by changing the string: it would orphan every
+    # live override silently, since an unknown group id is dropped by
+    # `sanitize_model_overrides` rather than reported.
+    RESEARCH = "shallow_research"
     DEEP_RESEARCH = "deep_research"
     DEEP_RESEARCH_ROUTER = "deep_research_router"
     MEMORY_REFLECTION = "memory_reflection"

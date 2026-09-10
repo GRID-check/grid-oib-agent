@@ -668,9 +668,13 @@ class TestGuessDisplayTitle:
     def test_covers_every_real_corpus_file(self):
         """Every shipped OIB corpus PDF derives a confident (non-None) title."""
         corpus = Path("data/oib")
-        if not corpus.is_dir():
-            pytest.skip("corpus not present in this checkout")
-        for pdf in corpus.glob("*.pdf"):
+        # The directory is committed (it carries a README); the PDFs are
+        # operator-provided and gitignored. Guarding on the directory would let
+        # this pass vacuously in every fresh clone, asserting nothing at all.
+        pdfs = sorted(corpus.glob("*.pdf"))
+        if not pdfs:
+            pytest.skip("no OIB corpus in this checkout — see data/oib/README.md")
+        for pdf in pdfs:
             assert nr.guess_display_title(pdf.name), pdf.name
 
 

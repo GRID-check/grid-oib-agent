@@ -325,7 +325,7 @@ difference is the whole ergonomics of the feature.
 | Invocation | Deliverable | Default destination | Authorization |
 |---|---|---|---|
 | **Deep research** (chat or job, `jobs.output = 'deep-research'`) | one report | **`/projects/<p>/files/`**, into a folder named on the submit form | **commissioned** — the run was requested with a form that showed where the report will land |
-| Shallow / chat turn | any work product | `/projects/<p>/work/` | **confirmed** — the agent offers `fs_publish`, the user clicks |
+| Chat turn | any work product | `/projects/<p>/work/` | **confirmed** — the agent offers `fs_publish`, the user clicks |
 | Compliance run, BCF export, take-off, Raumbuch | export node | `/work/` | confirmed |
 | Job with `output = 'chat'` | a conversation | — | — |
 
@@ -515,7 +515,7 @@ tree:
 > summaries, and every chat turn injects the full list into ~5 prompt templates
 > — so per-turn LLM cost grew linearly with the corpus, paid even on chit-chat.
 > Cap it.
-> — `_available_documents_limit`, `agents/chat_researcher/register.py`
+> — `_available_documents_limit`, `agents/researcher/conversation_register.py`
 
 That cap is 50. So today, at a thousand documents, the agent is shown fifty of
 them, on every turn, whether or not the turn is about files — and

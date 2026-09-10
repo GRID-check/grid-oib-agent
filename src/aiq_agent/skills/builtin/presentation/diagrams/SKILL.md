@@ -9,7 +9,7 @@ description: >
   than mermaid. Not for measured geometry (Maß, Fläche, Höhe): schematic cards
   own those.
 metadata:
-  grid-agents: shallow_researcher
+  grid-agents: researcher
   grid-cards: diagram
 ---
 

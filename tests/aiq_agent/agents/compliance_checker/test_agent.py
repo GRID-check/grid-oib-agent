@@ -1,16 +1,8 @@
-"""Full-pipeline tests for ComplianceCheckAgent (mocked LLM + mocked knowledge_search tool).
+"""Full-pipeline tests for run_compliance_check (fake LLM + fake knowledge_search tool).
 
-These tests exercise the whole 3-stage pipeline end to end (no NAT builder
-involved -- ComplianceCheckAgent is NAT-independent, like the other agents in
-this fleet) with canned structured LLM responses and a canned knowledge_search
-tool, asserting:
-  - Stage 1/Stage 2 LLM call counts stay within the design budget.
-  - ComplianceMatrix assembly is correct (rows, not_applicable, status_counts).
-  - Gaps are ranked by risk_score descending and never include "erfuellt".
-  - Open questions are deduplicated.
-  - A Stage 1 (or Stage 2) worker failure degrades gracefully instead of
-    aborting the whole run.
-  - Stage 1/Stage 2 fan-out respects max_concurrency.
+The fake LLM dispatches on the human message of each structured call; the
+fake knowledge_search records which turn shelves each retrieval ran under,
+which is how the Stage 1 / Stage 2 scoping is pinned.
 """
 
 from __future__ import annotations
@@ -18,19 +10,32 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from datetime import UTC
+from datetime import datetime
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 
 import pytest
 from langchain_core.messages import AIMessage
 
-from aiq_agent.agents.compliance_checker.agent import ComplianceCheckAgent
-from aiq_agent.agents.compliance_checker.models import ComplianceCheckAgentState
+from aiq_agent.agents.compliance_checker.agent import EVIDENCE_SHELVES
+from aiq_agent.agents.compliance_checker.agent import REGULATION_SHELVES
+from aiq_agent.agents.compliance_checker.agent import RichtlinieOutcome
+from aiq_agent.agents.compliance_checker.agent import _Judged
+from aiq_agent.agents.compliance_checker.agent import assemble_matrix
+from aiq_agent.agents.compliance_checker.agent import build_request
+from aiq_agent.agents.compliance_checker.agent import gap_sort_key
+from aiq_agent.agents.compliance_checker.agent import run_compliance_check
+from aiq_agent.agents.compliance_checker.models import UNJUDGED_STATUS
 from aiq_agent.agents.compliance_checker.models import ComplianceCheckRequest
-from aiq_agent.common import LLMProvider
+from aiq_agent.agents.compliance_checker.models import EvidenceFinding
+from aiq_agent.agents.compliance_checker.models import RequirementItem
+from aiq_agent.agents.compliance_checker.models import RequirementProfile
+from aiq_agent.agents.compliance_checker.report import render_compliance_report
+from aiq_agent.common.focus_file import SHELVES
+from aiq_agent.common.focus_file import get_turn_shelves
 
-# Fixed Stage 1 canned profile shape: richtlinie -> applicability tags for the
-# requirements RequirementProfile should return for that Richtlinie.
+# Stage 1 canned profile shape: richtlinie -> applicability tags of its requirements.
 _PROFILE_SPEC: dict[int, list[str]] = {
     1: ["anwendbar"] * 5,
     2: ["anwendbar"] * 5,
@@ -39,11 +44,8 @@ _PROFILE_SPEC: dict[int, list[str]] = {
     5: ["anwendbar"] * 4,
     6: ["anwendbar"] * 3 + ["zu_pruefen"],
 }
-_TOTAL_REQUIREMENTS = sum(len(tags) for tags in _PROFILE_SPEC.values())  # 27
-_TOTAL_APPLICABLE = sum(
-    sum(1 for tag in tags if tag in ("anwendbar", "zu_pruefen")) for tags in _PROFILE_SPEC.values()
-)  # 26
-_TOTAL_NOT_APPLICABLE = _TOTAL_REQUIREMENTS - _TOTAL_APPLICABLE  # 1
+_TOTAL_APPLICABLE = 26
+_TOTAL_NOT_APPLICABLE = 1
 
 _STATUS_CYCLE = ["nicht_erfuellt", "kein_nachweis", "teilweise", "erfuellt"]
 
@@ -79,7 +81,6 @@ class _FakeStructuredLLM:
         if richtlinie_match and "Leite die anwendbaren" in human_text:
             self.stage1_calls += 1
             richtlinie = int(richtlinie_match.group(1))
-            tags = _PROFILE_SPEC[richtlinie]
             requirements = [
                 {
                     "id": f"R{richtlinie}-{i + 1}",
@@ -89,7 +90,7 @@ class _FakeStructuredLLM:
                     "applicability": tag,
                     "rationale": "Testbegruendung.",
                 }
-                for i, tag in enumerate(tags)
+                for i, tag in enumerate(_PROFILE_SPEC[richtlinie])
             ]
             payload = {"richtlinie": richtlinie, "scope_notes": "Test.", "requirements": requirements}
             return AIMessage(content=json.dumps(payload))
@@ -103,6 +104,20 @@ class _FakeStructuredLLM:
         raise AssertionError(f"Unexpected LLM call, human message: {human_text[:200]!r}")
 
 
+class _RecordingSearch:
+    """knowledge_search stand-in that records (query, turn shelves) per retrieval."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, frozenset[str] | None]] = []
+
+    async def ainvoke(self, args: dict) -> str:
+        self.calls.append((args["query"], get_turn_shelves()))
+        return "Auszug: Beispielhafter Wissensbasis-Text."
+
+    def queries(self, prefix: str) -> list[str]:
+        return [query for query, _ in self.calls if query.startswith(prefix)]
+
+
 @pytest.fixture
 def fake_knowledge_search_tool():
     tool = MagicMock()
@@ -110,144 +125,224 @@ def fake_knowledge_search_tool():
     return tool
 
 
-def _provider_for(fake_llm) -> MagicMock:
-    provider = MagicMock(spec=LLMProvider)
-    provider.get = MagicMock(return_value=fake_llm)
-    return provider
+async def _run(fake_llm, tool, request: ComplianceCheckRequest, **kwargs):
+    return await run_compliance_check(request, llm=fake_llm, knowledge_search=tool, **kwargs)
 
 
 @pytest.mark.asyncio
 async def test_full_pipeline_call_budget_and_matrix_assembly(fake_knowledge_search_tool):
     fake_llm = _FakeStructuredLLM()
-    agent = ComplianceCheckAgent(
-        llm_provider=_provider_for(fake_llm),
-        knowledge_search_tool=fake_knowledge_search_tool,
-        max_concurrency=3,
-        requirement_batch_size=9,
-    )
-    request = ComplianceCheckRequest(
-        richtlinien=[1, 2, 3, 4, 5, 6],
-        project_name="Testprojekt",
-        project_description="Buerogebaeude, 4 Geschosse.",
-    )
+    request = ComplianceCheckRequest(richtlinien=[1, 2, 3, 4, 5, 6], project_description="Buerogebaeude, 4 Geschosse.")
 
-    result = await agent.run(ComplianceCheckAgentState(), request=request)
+    result = await _run(fake_llm, fake_knowledge_search_tool, request, max_concurrency=3, batch_size=9)
 
-    # Call-budget assertions: README.md targets ~10-25 LLM calls for a full
-    # 6-Richtlinien check. Stage 1 = one call per Richtlinie; Stage 2 =
-    # ceil(26 applicable / 9 per batch) = 3.
-    assert result.stage1_llm_calls == 6
-    assert result.stage2_llm_calls == 3
-    assert result.total_llm_calls == 9
-    assert result.total_llm_calls <= 25
+    # One Stage 1 call per Richtlinie; batches never straddle Richtlinien, so
+    # with <= 9 applicable per Richtlinie Stage 2 is one call per Richtlinie.
     assert fake_llm.stage1_calls == 6
-    assert fake_llm.stage2_calls == 3
+    assert fake_llm.stage2_calls == 6
+    assert fake_llm.stage1_calls + fake_llm.stage2_calls <= 25
 
     matrix = result.matrix
+    assert matrix.richtlinien == [1, 2, 3, 4, 5, 6]
     assert len(matrix.not_applicable) == _TOTAL_NOT_APPLICABLE
     assert len(matrix.findings) == _TOTAL_APPLICABLE
     assert sum(matrix.status_counts.values()) == _TOTAL_APPLICABLE
+    assert matrix.notices == []
 
-    # Gap ranking: only non-"erfuellt" findings appear, sorted by risk_score desc.
     assert all(gap.status != "erfuellt" for gap in matrix.gaps)
-    scores = [gap.risk_score for gap in matrix.gaps]
-    assert scores == sorted(scores, reverse=True)
-    # nicht_erfuellt (high confidence) must outrank teilweise.
-    nicht_erfuellt_scores = [g.risk_score for g in matrix.gaps if g.status == "nicht_erfuellt"]
-    teilweise_scores = [g.risk_score for g in matrix.gaps if g.status == "teilweise"]
-    assert min(nicht_erfuellt_scores) > max(teilweise_scores)
-
-    # Open questions are deduplicated (every kein_nachweis finding uses the
-    # same canned question text in this test).
+    assert [gap_sort_key(g) for g in matrix.gaps] == sorted(gap_sort_key(g) for g in matrix.gaps)
     assert matrix.open_questions == ["Bitte Nachweis nachreichen."]
 
-    # Markdown report sanity: German headers + matrix table + gap list + open questions.
     report = result.report_markdown
-    assert "# Testprojekt: Soll-Ist-Abgleich" in report
+    assert "# OIB-Compliance-Check: Soll-Ist-Abgleich" in report
     assert "## Compliance-Matrix" in report
     assert "## Risikogewichtete Lueckenliste" in report
     assert "## Offene Fragen" in report
     assert "## Nicht anwendbare Anforderungen" in report
+    assert "## Hinweise" not in report
     assert "Bitte Nachweis nachreichen." in report
 
 
 @pytest.mark.asyncio
-async def test_stage1_partial_failure_does_not_abort_pipeline(fake_knowledge_search_tool):
+async def test_stage1_reads_the_law_and_stage2_reads_the_project_documents():
+    """Defect (a): the two stages must not search the same collection set.
+
+    Stage 1 derives requirements from the base OIB corpus; Stage 2 judges
+    evidence in the user's documents. Before this pin both hit whatever the
+    turn's scope held, so Richtlinie text came back as "Projektunterlagen".
+    """
+    search = _RecordingSearch()
+    request = ComplianceCheckRequest(richtlinien=[1, 2], project_description="Test.")
+
+    await _run(_FakeStructuredLLM(), search, request)
+
+    stage1 = [shelves for query, shelves in search.calls if query.startswith("OIB-Richtlinie")]
+    stage2 = [shelves for query, shelves in search.calls if query.startswith("Projektunterlagen")]
+    assert len(stage1) == 4 and len(stage2) > 0
+    assert set(stage1) == {REGULATION_SHELVES}
+    assert set(stage2) == {EVIDENCE_SHELVES}
+    assert REGULATION_SHELVES.isdisjoint(EVIDENCE_SHELVES)
+    assert get_turn_shelves() is None  # the restriction never leaks out of the retrieval task
+
+
+def test_evidence_shelves_are_pinned():
+    """WHICH shelves count as evidence, not merely that the two stages differ.
+
+    The disjointness assertion above holds for any Stage 2 set that omits ``base``,
+    including one that omits ``archiv`` too — and that narrowing shipped once. It is
+    not a scoping detail: ``register.project_documents_in_scope()`` returns False when
+    the signed scope names only shelves outside this set, and ``_run_richtlinie`` then
+    short-circuits EVERY applicable requirement to ``nicht_geprueft``. An office that
+    keeps its submitted project documents on the Archiv shelf (ADR-0024) therefore goes
+    from a matrix with findings to a full "keine Projektunterlagen" table. So the set is
+    pinned by membership, and adding or removing a shelf has to be a decision made here.
+    """
+    assert EVIDENCE_SHELVES == frozenset({"archiv", "project", "session"})
+    assert REGULATION_SHELVES == frozenset({"base"})
+    # Every shelf the product has is accounted for by exactly one stage: nothing new can
+    # appear in `focus_file.SHELVES` and be silently invisible to the compliance check.
+    assert EVIDENCE_SHELVES | REGULATION_SHELVES == SHELVES
+
+
+@pytest.mark.asyncio
+async def test_per_richtlinie_evidence_query_is_issued_once():
+    search = _RecordingSearch()
+    request = ComplianceCheckRequest(richtlinien=[1], project_description="Test.")
+
+    await _run(_FakeStructuredLLM(), search, request, batch_size=2)  # 5 applicable -> 3 batches
+
+    assert len(search.queries("Projektunterlagen Nachweis OIB-Richtlinie 1")) == 1
+    assert len(search.queries("Projektunterlagen Nachweis fuer:")) == 3
+
+
+@pytest.mark.asyncio
+async def test_stage1_partial_failure_is_reported_not_swallowed(fake_knowledge_search_tool):
     class _FlakyLLM(_FakeStructuredLLM):
         async def ainvoke(self, messages, config=None):
             if "OIB-Richtlinie 4" in messages[1].content:
+                self.stage1_calls += 1
                 raise RuntimeError("simulated stage1 failure")
             return await super().ainvoke(messages, config=config)
 
     fake_llm = _FlakyLLM()
-    agent = ComplianceCheckAgent(llm_provider=_provider_for(fake_llm), knowledge_search_tool=fake_knowledge_search_tool)
     request = ComplianceCheckRequest(richtlinien=[1, 2, 3, 4, 5, 6], project_description="Test.")
 
-    result = await agent.run(ComplianceCheckAgentState(), request=request)
+    result = await _run(fake_llm, fake_knowledge_search_tool, request)
 
-    # Every Richtlinie is still attempted, even though one failed.
-    assert result.stage1_llm_calls == 6
-    # Richtlinie 4's requirements never entered the matrix.
+    assert fake_llm.stage1_calls == 6  # every Richtlinie was attempted
     assert all(row.richtlinie != 4 for row in result.matrix.findings)
-    assert all(req.richtlinie != 4 for req in result.matrix.not_applicable)
+    assert result.matrix.notices == ["OIB-Richtlinie 4: Anforderungsprofil fehlgeschlagen (simulated stage1 failure)."]
+    assert "## Hinweise" in result.report_markdown
+    assert "simulated stage1 failure" in result.report_markdown
 
 
 @pytest.mark.asyncio
-async def test_stage2_batch_failure_yields_kein_nachweis_not_a_dropped_requirement(fake_knowledge_search_tool):
-    """A failed evidence batch must not silently drop requirements from the matrix."""
+async def test_stage2_batch_failure_yields_unjudged_rows_not_kein_nachweis(fake_knowledge_search_tool):
+    """A failed evidence batch keeps its requirements in the matrix, marked as not judged."""
 
     class _FlakyEvidenceLLM(_FakeStructuredLLM):
         async def ainvoke(self, messages, config=None):
             if "Bewerte den Nachweisstatus" in messages[1].content:
+                self.stage2_calls += 1
                 raise RuntimeError("simulated stage2 failure")
             return await super().ainvoke(messages, config=config)
 
     fake_llm = _FlakyEvidenceLLM()
-    agent = ComplianceCheckAgent(
-        llm_provider=_provider_for(fake_llm),
-        knowledge_search_tool=fake_knowledge_search_tool,
-        requirement_batch_size=9,
-    )
     request = ComplianceCheckRequest(richtlinien=[1], project_description="Test.")
 
-    result = await agent.run(ComplianceCheckAgentState(), request=request)
+    result = await _run(fake_llm, fake_knowledge_search_tool, request)
 
-    assert result.stage2_llm_calls == 1
-    assert len(result.matrix.findings) == 5  # all 5 Richtlinie-1 requirements are "anwendbar"
-    assert all(row.status == "kein_nachweis" for row in result.matrix.findings)
-    assert all(gap.status == "kein_nachweis" for gap in result.matrix.gaps)
+    assert fake_llm.stage2_calls == 1  # one batch, attempted once
+    assert len(result.matrix.findings) == 5
+    assert {row.status for row in result.matrix.findings} == {UNJUDGED_STATUS}
+    assert result.matrix.gaps == []
+    assert result.matrix.status_counts == {UNJUDGED_STATUS: 5}
+    assert "simulated stage2 failure" in result.matrix.notices[0]
+    assert "Nicht geprueft" in result.report_markdown
 
 
 @pytest.mark.asyncio
-async def test_stage1_respects_max_concurrency(fake_knowledge_search_tool):
+async def test_dead_retriever_surfaces_as_retrieval_failed():
+    """A retriever that raises must not read as 'the documents are silent'."""
+
+    class _DeadForEvidence:
+        async def ainvoke(self, args: dict) -> str:
+            if args["query"].startswith("Projektunterlagen"):
+                raise ConnectionError("vector store unreachable")
+            return "OIB-Auszug."
+
+    fake_llm = _FakeStructuredLLM()
+    request = ComplianceCheckRequest(richtlinien=[1], project_description="Test.")
+
+    result = await _run(fake_llm, _DeadForEvidence(), request)
+
+    assert fake_llm.stage2_calls == 0
+    assert {row.status for row in result.matrix.findings} == {UNJUDGED_STATUS}
+    assert all("vector store unreachable" in row.reasoning for row in result.matrix.findings)
+    assert "kein_nachweis" not in result.matrix.status_counts
+    assert result.matrix.notices == [
+        "OIB-Richtlinie 1: Abruf der Projektunterlagen fehlgeschlagen (vector store unreachable)."
+    ]
+
+
+@pytest.mark.asyncio
+async def test_no_project_documents_in_scope_skips_stage2(fake_knowledge_search_tool):
+    fake_llm = _FakeStructuredLLM()
+    request = ComplianceCheckRequest(richtlinien=[1], project_description="Test.", project_documents_in_scope=False)
+
+    result = await _run(fake_llm, fake_knowledge_search_tool, request)
+
+    assert fake_llm.stage1_calls == 1
+    assert fake_llm.stage2_calls == 0
+    assert {row.status for row in result.matrix.findings} == {UNJUDGED_STATUS}
+    assert all("Keine Projektunterlagen im Suchbereich" in row.reasoning for row in result.matrix.findings)
+
+
+@pytest.mark.asyncio
+async def test_llm_calls_respect_max_concurrency(fake_knowledge_search_tool):
     in_flight = 0
     max_in_flight = 0
-    lock = asyncio.Lock()
 
     class _ConcurrencyTrackingLLM(_FakeStructuredLLM):
         async def ainvoke(self, messages, config=None):
             nonlocal in_flight, max_in_flight
-            async with lock:
-                in_flight += 1
-                max_in_flight = max(max_in_flight, in_flight)
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
             await asyncio.sleep(0.01)
             try:
                 return await super().ainvoke(messages, config=config)
             finally:
-                async with lock:
-                    in_flight -= 1
+                in_flight -= 1
 
     fake_llm = _ConcurrencyTrackingLLM()
-    agent = ComplianceCheckAgent(
-        llm_provider=_provider_for(fake_llm),
-        knowledge_search_tool=fake_knowledge_search_tool,
-        max_concurrency=2,
-    )
     request = ComplianceCheckRequest(richtlinien=[1, 2, 3, 4, 5, 6], project_description="Test.")
 
-    await agent.run(ComplianceCheckAgentState(), request=request)
+    await _run(fake_llm, fake_knowledge_search_tool, request, max_concurrency=2)
 
+    assert fake_llm.stage1_calls + fake_llm.stage2_calls == 12
     assert max_in_flight <= 2
+
+
+@pytest.mark.asyncio
+async def test_retrievals_are_not_held_back_by_the_llm_bound():
+    """Perf item 1: the semaphore bounds LLM calls only; all Stage 1 retrievals may be in flight at once."""
+    in_flight = 0
+    max_in_flight = 0
+
+    class _SlowSearch:
+        async def ainvoke(self, args: dict) -> str:  # noqa: ARG002
+            nonlocal in_flight, max_in_flight
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            await asyncio.sleep(0.01)
+            in_flight -= 1
+            return "Auszug."
+
+    request = ComplianceCheckRequest(richtlinien=[1, 2, 3, 4, 5, 6], project_description="Test.")
+
+    await _run(_FakeStructuredLLM(), _SlowSearch(), request, max_concurrency=1)
+
+    assert max_in_flight == 12  # 6 Richtlinien x 2 Stage 1 queries
 
 
 @pytest.mark.asyncio
@@ -255,66 +350,137 @@ async def test_no_applicable_requirements_skips_stage2_entirely(fake_knowledge_s
     class _AllNotApplicableLLM(_FakeStructuredLLM):
         async def ainvoke(self, messages, config=None):
             response = await super().ainvoke(messages, config=config)
-            if "Leite die anwendbaren" in messages[1].content:
-                payload = json.loads(response.content)
-                for req in payload["requirements"]:
-                    req["applicability"] = "nicht_anwendbar"
-                return AIMessage(content=json.dumps(payload))
-            return response
+            if "Leite die anwendbaren" not in messages[1].content:
+                return response
+            payload = json.loads(response.content)
+            for req in payload["requirements"]:
+                req["applicability"] = "nicht_anwendbar"
+            return AIMessage(content=json.dumps(payload))
 
     fake_llm = _AllNotApplicableLLM()
-    agent = ComplianceCheckAgent(llm_provider=_provider_for(fake_llm), knowledge_search_tool=fake_knowledge_search_tool)
     request = ComplianceCheckRequest(richtlinien=[1], project_description="Test.")
 
-    result = await agent.run(ComplianceCheckAgentState(), request=request)
+    result = await _run(fake_llm, fake_knowledge_search_tool, request)
 
-    assert result.stage1_llm_calls == 1
-    assert result.stage2_llm_calls == 0
+    assert fake_llm.stage1_calls == 1
+    assert fake_llm.stage2_calls == 0
     assert result.matrix.findings == []
     assert result.matrix.gaps == []
     assert len(result.matrix.not_applicable) == 5
-    assert fake_knowledge_search_tool.ainvoke.await_count > 0  # Stage 1 still retrieved OIB context
+    assert fake_knowledge_search_tool.ainvoke.await_count == 2  # Stage 1 still retrieved OIB context
 
 
-def test_build_request_from_state_uses_config_default_when_unset():
-    from aiq_agent.agents.compliance_checker.agent import build_request_from_state
+# --- stage 3 -----------------------------------------------------------------
 
-    state = ComplianceCheckAgentState(project_context="Ein Testprojekt.")
-    request = build_request_from_state(state, default_richtlinien=[2, 4])
+
+def _requirement(rid: str, richtlinie: int, punkt: str) -> RequirementItem:
+    return RequirementItem(
+        id=rid,
+        richtlinie=richtlinie,
+        punkt=punkt,
+        requirement=f"Anforderung {punkt}",
+        applicability="anwendbar",
+        rationale="x",
+    )
+
+
+def _finding(rid: str, status: str, confidence: str) -> EvidenceFinding:
+    return EvidenceFinding(
+        requirement_id=rid,
+        status=status,
+        evidence_quotes=[],
+        source_files=[],
+        confidence=confidence,
+        reasoning=f"{status}/{confidence}",
+        open_question=None,
+    )
+
+
+def _outcome(
+    richtlinie: int, requirements: list[RequirementItem], findings: list[EvidenceFinding]
+) -> RichtlinieOutcome:
+    profile = RequirementProfile(richtlinie=richtlinie, scope_notes="", requirements=requirements)
+    return RichtlinieOutcome(richtlinie, profile, _Judged(findings=tuple(findings)))
+
+
+def test_gap_ranking_never_puts_a_confirmed_violation_below_a_guessed_one():
+    """Defect (b): the old 0-100 risk_score scored nicht_erfuellt/high (85) below nicht_erfuellt/low (100)."""
+    requirements = [_requirement(f"R2-{i}", 2, f"2.{i}") for i in range(1, 6)]
+    findings = [
+        _finding("R2-1", "teilweise", "high"),
+        _finding("R2-2", "nicht_erfuellt", "low"),
+        _finding("R2-3", "kein_nachweis", "high"),
+        _finding("R2-4", "nicht_erfuellt", "high"),
+        _finding("R2-5", "erfuellt", "low"),
+    ]
+
+    matrix = assemble_matrix([_outcome(2, requirements, findings)], [2])
+
+    assert [(g.status, g.confidence) for g in matrix.gaps] == [
+        ("nicht_erfuellt", "high"),
+        ("nicht_erfuellt", "low"),
+        ("kein_nachweis", "high"),
+        ("teilweise", "high"),
+    ]
+    assert not hasattr(matrix.gaps[0], "risk_score")
+
+
+def test_report_prints_status_and_confidence_in_the_gap_list_and_takes_the_timestamp():
+    requirements = [_requirement("R2-1", 2, "3.1.2")]
+    matrix = assemble_matrix([_outcome(2, requirements, [_finding("R2-1", "nicht_erfuellt", "high")])], [2, 4])
+
+    report = render_compliance_report(matrix, generated_at=datetime(2026, 9, 7, 14, 2, tzinfo=UTC))
+
+    assert "*Erstellt: 2026-09-07 14:02 UTC | Geprueft: OIB-Richtlinien 2, 4*" in report
+    assert "- **[Nicht erfuellt, Konfidenz hoch]** OIB-Richtlinie 2, Punkt 3.1.2 -- Anforderung 3.1.2." in report
+    assert "Risiko" not in report.replace("Risikogewichtete", "")
+
+
+def test_report_escapes_pipes_and_renders_the_empty_table_row():
+    requirements = [_requirement("R1-1", 1, "1.1").model_copy(update={"requirement": "a | b"})]
+    matrix = assemble_matrix([_outcome(1, requirements, [_finding("R1-1", "erfuellt", "high")])], [1])
+    assert "| a \\| b |" in render_compliance_report(matrix, generated_at=datetime.now(UTC))
+
+    empty = assemble_matrix([], [1])
+    assert "*Keine bewerteten Anforderungen*" in render_compliance_report(empty, generated_at=datetime.now(UTC))
+
+
+# --- request -----------------------------------------------------------------
+
+_CONTEXT_LAGER = (
+    "PROJECT_CONTEXT v1\nconfirmed:\n"
+    "- bundesland=wien\n- hauptnutzung=lager\n- gebaeudeklasse=GK1\n- denkmalschutz=true\n"
+)
+
+
+def test_build_request_uses_config_default_when_unset():
+    request = build_request(project_context="Ein Testprojekt.", default_richtlinien=[2, 4])
 
     assert request.richtlinien == [2, 4]
     assert request.project_description == "Ein Testprojekt."
+    assert request.project_descriptors == {}
 
 
-def test_build_request_from_state_prefers_state_override():
-    from aiq_agent.agents.compliance_checker.agent import build_request_from_state
-
-    state = ComplianceCheckAgentState(richtlinien=[6])
-    request = build_request_from_state(state, default_richtlinien=[1, 2, 3])
+def test_build_request_prefers_explicit_scope_and_never_narrows_it():
+    request = build_request(project_context=_CONTEXT_LAGER, richtlinien=[6], default_richtlinien=[1, 2, 3])
 
     assert request.richtlinien == [6]
 
 
-_CONTEXT_LAGER = "PROJECT_CONTEXT v1\nconfirmed:\n- bundesland=wien\n- hauptnutzung=lager\n- gebaeudeklasse=GK1\n"
-
-
-def test_build_request_from_state_applicability_keeps_check_richtlinie():
-    """Storage building: RL 6 is verdict `check` — kept, because `check` means the
-    checker must still verify it (review finding H2). RL 5 (`likely`) is kept too."""
-    from aiq_agent.agents.compliance_checker.agent import build_request_from_state
-
-    state = ComplianceCheckAgentState(project_context=_CONTEXT_LAGER)
-    request = build_request_from_state(state)
+def test_build_request_applicability_keeps_check_and_likely_richtlinien():
+    """Storage building: RL 6 is verdict `check` and RL 5 `likely`; both are kept (review finding H2)."""
+    request = build_request(project_context=_CONTEXT_LAGER)
 
     assert 6 in request.richtlinien
-    assert 5 in request.richtlinien  # likely is kept
+    assert 5 in request.richtlinien
 
 
-def test_build_request_from_state_never_narrows_explicit_scope():
-    """An explicit user-provided scope is used untouched (never narrowed)."""
-    from aiq_agent.agents.compliance_checker.agent import build_request_from_state
+def test_build_request_populates_descriptors_from_confirmed_facts():
+    request = build_request(project_context=_CONTEXT_LAGER)
 
-    state = ComplianceCheckAgentState(project_context=_CONTEXT_LAGER, richtlinien=[6])
-    request = build_request_from_state(state)
-
-    assert request.richtlinien == [6]
+    assert request.project_descriptors == {
+        "bundesland": "wien",
+        "hauptnutzung": "lager",
+        "gebaeudeklasse": "GK1",
+        "denkmalschutz": "ja",
+    }

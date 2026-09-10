@@ -20,7 +20,7 @@
     "description": "Prüft ein Detail gegen die Büroregeln.",
     "body": "Vergleiche das Detail mit dem Regeldetail.",
     "metadata": {
-      "grid-agents": "shallow_researcher"
+      "grid-agents": "researcher"
     },
     "origin": "org"
   },

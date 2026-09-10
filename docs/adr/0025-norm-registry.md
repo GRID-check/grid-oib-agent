@@ -65,7 +65,7 @@ labels, not as a typed graph.**
    verification (build script and admin verify endpoint) — the former
    separate seeds file is gone.
 2. **Doctrine as prompt, once** — the Normenhierarchie doctrine is a single
-   constant (`NORM_DOCTRINE`) injected into the shallow researcher, deep
+   constant (`NORM_DOCTRINE`) injected into the researcher, deep
    researcher, planner, and writer templates as `{{ norm_doctrine }}`.
 3. **OIB corpus stays out of the registry.** The knowledge base is its source
    of truth; what a corpus document *is* (Richtlinie / Leitfaden / Erläuterung

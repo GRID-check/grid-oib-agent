@@ -118,7 +118,7 @@ llms:
   # ───────────────────────────────────────────────────────────────────────────
 
   # Shallow Research — fast retrieval + synthesis (the quick-answer tier).
-  shallow_llm:
+  research_llm:
     _type: openai
     model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-5.6-luna}
     base_url: "https://openrouter.ai/api/v1"
@@ -578,18 +578,18 @@ functions:
     requirement_batch_size: 9
     verbose: false
 
-  clarifier_agent:
-    _type: clarifier_agent
-    llm: clarifier_llm
-    planner_llm: clarifier_llm
-    max_turns: 3
-    enable_plan_approval: true
-    log_response_max_chars: 2000
-    verbose: true
-
+  # The FUNCTION NAME here is deliberately still `shallow_research_agent` while
+  # the `_type` is `research_agent`. NAT puts the function name — not the type —
+  # on the wire as `Function Start: <name>`, and the frontend persists that
+  # string as `functionName` in every stored turn's metadata
+  # (`lib/conversations/message-provenance.ts`). Renaming it would leave old
+  # turns matching one name and new turns another, and the live-trace rules that
+  # match it (`features/chat/lib/live-activity.ts`, `executed-steps.ts`) key on
+  # the substring `shallow`, so a bare greeting would start announcing
+  # "Recherche läuft". The type is free because no `_type` is ever persisted.
   shallow_research_agent:
-    _type: shallow_research_agent
-    llm: shallow_llm
+    _type: research_agent
+    llm: research_llm
     # Explicit list (replaces registry inheritance) so the non-data-source
     # `remember`, `emit_card` and `ask_user` tools are included alongside
     # search/knowledge.
@@ -614,7 +614,7 @@ functions:
     # this surface documents, plus one repair.
     #
     # The accounting is `new_iterations += len(response.tool_calls)` in
-    # `shallow_researcher/agent.py`, charged when the model EMITS the call and
+    # `researcher/agent.py`, charged when the model EMITS the call and
     # never refunded. Three consequences that are not obvious from the name:
     #   * a call that comes back with 0 hits costs what one that answers costs;
     #   * PARALLEL calls each cost one, so a model emitting three per turn gets
@@ -710,7 +710,7 @@ functions:
     # OpenRouter server-side tool search (ADR-0048). ON, with the measured
     # configuration below. Orthogonal to `tool_search` above: that one decides
     # WHICH tools are bound, this one decides whether their schemas travel with
-    # the request. Requires `api_type: responses` on shallow_llm — enabling it
+    # the request. Requires `api_type: responses` on research_llm — enabling it
     # without that fails the workflow build instead of quietly sending the
     # schemas; the build-time probe against the live endpoint is what says the
     # deferral is honoured, so the first deploy after a model change is where
@@ -838,6 +838,17 @@ workflow:
   _type: chat_deepresearcher_agent
   verbose: true
   enable_clarifier: true
+  # The clarification step that confirms a research plan before deep research
+  # runs. A block on the workflow rather than its own function: it has one
+  # caller and is never chosen by a model. The `clarifier` agent group is
+  # unchanged, so a per-org model override still re-points it.
+  clarifier:
+    llm: clarifier_llm
+    planner_llm: clarifier_llm
+    max_turns: 3
+    enable_plan_approval: true
+    log_response_max_chars: 2000
+    verbose: true
   use_async_deep_research: true
   checkpoint_db: ${AIQ_CHECKPOINT_DB:-./checkpoints.db}
   # Enables the async post-answer memory-reflection stage (reuses the cheap

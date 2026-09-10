@@ -21,7 +21,7 @@ this reached production repeatedly (issues #291-#294, #333, #335, #336, #340).
 The design point
 ----------------
 Agents assemble message windows out of **conversation context**: checkpointed
-history, a trimmed window, or a shallow answer that just triggered an
+history, a trimmed window, or a chat answer that just triggered an
 escalation. Context legitimately ends on an assistant turn — that assistant
 answer is the most useful thing the next agent can read.
 

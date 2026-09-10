@@ -89,9 +89,14 @@ register_agent(
     description="Performs comprehensive multi-loop deep research",
 )
 
+# ``config_name`` is the NAT function NAME in the YAML, not its ``_type``
+# (``research_agent``). The name is what NAT puts on the wire and what every
+# stored turn keeps as ``functionName``, so it is a persisted identifier and is
+# deliberately still ``shallow_research_agent`` — see the note on that block in
+# ``configs/config_oib_openrouter.yml``.
 register_agent(
-    agent_type="shallow_researcher",
-    class_path="aiq_agent.agents.shallow_researcher.agent.ShallowResearcherAgent",
+    agent_type="researcher",
+    class_path="aiq_agent.agents.researcher.agent.ResearcherAgent",
     config_name="shallow_research_agent",
     description="Performs quick single-turn research",
 )

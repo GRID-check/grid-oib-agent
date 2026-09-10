@@ -3,7 +3,7 @@ name: nutzungssicherheit
 description: >
   Treppe, Geländer, Türbreite. Die Zahl gehört gezeichnet.
 metadata:
-  grid-agents: shallow_researcher,deep_researcher
+  grid-agents: researcher,deep_researcher
   grid-cards: stair_diagram,guardrail_check,dimension_diagram,elevator_requirement,legal_basis
 ---
 

@@ -28,7 +28,7 @@ from pydantic_core import PydanticUndefined
 # keeps rendering — and only their description in the model-facing catalog is
 # suppressed. Every emission path reads this set: `emit_card`
 # (`cards/register.py`), post-hoc batch generation (`validate_cards` in
-# `cards/models.py`) and the DSML salvage (`shallow_researcher/dsml.py`).
+# `cards/models.py`) and the DSML salvage (`researcher/dsml.py`).
 #
 # Two kinds of member, one mechanism:
 #
@@ -54,9 +54,9 @@ SYSTEM_CARD_TYPES = frozenset({"memory_proposal", "document_grid", "follow_ups"}
 # Card types that stopped being cards — the RHETORICAL shapes, the ones almost
 # every answer could carry. A verdict, the takeaways and the single callout are
 # the answer's own anatomy, not exhibits attached beside it, so they left the
-# card system entirely: the shallow answer envelope (```answer_json) carries them as
+# card system entirely: the chat answer envelope (```answer_json) carries them as
 # optional fields, validated and gated platform-side
-# (`agents/shallow_researcher/answer_meta.py` — a verdict must be a short
+# (`agents/researcher/answer_meta.py` — a verdict must be a short
 # VALUE, a takeaway block is earned by length, one callout at most), and they
 # travel on the answer itself, beside ``answer_confidence``, never in the
 # ``cards`` array. `summary` has no trailer field — its role is covered by the

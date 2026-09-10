@@ -1,13 +1,13 @@
 # Audit — async memory-reflection stage & the memory write path
 
 > Multi-persona audit of the post-answer memory-reflection stage
-> (`src/aiq_agent/agents/project_memory/reflection.py`) and the surrounding
+> (`src/aiq_agent/memory/reflection.py`) and the surrounding
 > project-memory system. Records the findings, what was hardened in code, and
 > what remains a deliberate follow-up. See also
 > [project-memory-design.md](./project-memory-design.md) §3.5.
 
 ## Scope reviewed
-Reflection stage + its wiring (`agents/chat_researcher/register.py`), the
+Reflection stage + its wiring (`agents/researcher/conversation_register.py`), the
 internal write endpoint (`app/api/internal/memory/route.ts`), the memory service
 (`lib/projects/memory-service.ts`), the backend write client
 (`knowledge/project_memory.py`), the WS scope route, `requireProjectAccess`, and
@@ -46,9 +46,9 @@ privacy/GDPR, UX, backend/SRE, adversarial user, end-user architect.
 
 ## Hardening applied
 Round 1 (reflection stage):
-1. **Project-scope only.** `_sanitize_findings` forces every finding to project
-   scope and drops all when no project is in scope; `schedule_memory_reflection`
-   requires a `project_id`.
+1. **Project-scope only.** The write is unconditionally project-scoped — there
+   is no scope field for a model to propose, and findings are dropped when no
+   project is in scope; the reflection stage requires a `project_id`.
 2. **Substantive-answer gate.** `_reflection_answer_is_substantive` keeps
    reflection off meta/error/insufficiency/empty turns.
 3. **In-prompt digest de-duplication** + an **injection-aware prompt**.
@@ -78,8 +78,9 @@ Round 4:
    deployments can no longer enable reflection.
 
 Round 5:
-10. **PII/secret filter (S4).** `_sanitize_findings` drops any finding
-    matching a coarse PII/secret shape before it is persisted (see the
+10. **PII/secret filter (S4).** `_finding_from_entry` drops any finding
+    matching a coarse PII/secret shape before it is persisted, and before the
+    per-pass cap is applied, so a dropped finding never costs a good one its slot (see the
     updated S4 row above).
 
 Round 3:

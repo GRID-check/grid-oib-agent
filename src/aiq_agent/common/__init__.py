@@ -218,16 +218,20 @@ def _build_checkpointer_serde() -> JsonPlusSerializer:
     This flips the checkpointer from permissive to STRICT deserialization: only
     the listed pydantic state types may be reconstructed from a checkpoint. The
     list below is the complete set of custom pydantic types carried in
-    ``ChatResearcherState`` (the shallow graph has no checkpointer). Any NEW
-    pydantic state type MUST be added here or restore will break for it.
+    ``ConversationState`` (a research turn's own state is never checkpointed).
+    Any NEW pydantic state type MUST be added here or restore will break for it.
+
+    A type that was on this list and is gone (``ShallowResult``, whose one
+    escalation bit is a plain field now) needs no entry: a blocked type decodes
+    to its own kwargs dict instead of raising, and a channel the graph no
+    longer declares is dropped on restore.
     """
     # Imported lazily to avoid a circular import: the agent state modules import
     # from ``aiq_agent.common`` at module load time.
-    from aiq_agent.agents.chat_researcher.models.result import ShallowResult
     from aiq_agent.knowledge.schema import AvailableDocument
 
     return JsonPlusSerializer(
-        allowed_msgpack_modules=[ShallowResult, AvailableDocument],
+        allowed_msgpack_modules=[AvailableDocument],
     )
 
 

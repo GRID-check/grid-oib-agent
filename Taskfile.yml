@@ -130,9 +130,61 @@ tasks:
       - uvx --from apm-cli=={{.APM_VERSION}} apm install --frozen
 
   agents:audit:
-    desc: Scan installed agent skills for drift and hidden Unicode
+    desc: Fail when apm.lock.yaml is stale against skills/, or the deployed skills have drifted
     cmds:
-      - uvx --from apm-cli=={{.APM_VERSION}} apm audit
+      # THE GATE for `skills/`. Nothing else can be: `skills/` is the source and
+      # `.claude/`/`.agents/` are generated and gitignored, so a diff shows the
+      # edited skill and never the lockfile it invalidated. That is how
+      # apm.lock.yaml went stale against seven files while a perfectly good
+      # `apm audit` sat one command away — the same shape as the `sources/`
+      # suites before this branch: a check that exists, and no gate that runs it.
+      #
+      # Two different failures, so two checks:
+      #
+      # 1. `apm install --frozen` re-deploys from `skills/` and REWRITES the
+      #    lockfile's recorded hashes. If that rewrite changes the file, the
+      #    committed lockfile did not describe `skills/` — someone edited a
+      #    skill and never re-locked. The file on disk is now correct, so the
+      #    fix is to commit it. (`--frozen` only refuses when apm.yml and the
+      #    lockfile disagree about PACKAGES; it says nothing about content,
+      #    which is why this comparison and not its exit status is the signal.)
+      #
+      # 2. `apm audit` then compares the deployment against the lockfile — a
+      #    post-condition on step 1, confirming the install did what it said.
+      #    It cannot be run FIRST: a fresh checkout has no `.claude/` or
+      #    `.agents/` at all, so an audit before the install reports every file
+      #    missing. (A hand-edited file under `.claude/` is therefore repaired
+      #    by step 1 rather than reported by step 2 — correct, since those
+      #    directories are generated output, and worth knowing so nobody reads
+      #    a green run as proof nobody touched them.) The audit PRINTS its
+      #    verdict and EXITS 0 either way, so the status here comes from
+      #    matching its SUCCESS line. Matching the failure line instead would
+      #    mean a reworded apm release silently stops catching anything — the
+      #    same defect one level up. Its info-level "unusual characters"
+      #    findings are printed and not gated: this repo's prose is German and
+      #    legitimately full of non-ASCII.
+      - |
+        before=$(sha256sum apm.lock.yaml | cut -d' ' -f1)
+        uvx --from apm-cli=={{.APM_VERSION}} apm install --frozen
+        after=$(sha256sum apm.lock.yaml | cut -d' ' -f1)
+        if [ "$before" != "$after" ]; then
+          echo ''
+          echo 'task agents:audit: apm.lock.yaml was stale against skills/.'
+          echo 'It has just been rewritten to match. COMMIT apm.lock.yaml.'
+          exit 1
+        fi
+        report=$(uvx --from apm-cli=={{.APM_VERSION}} apm audit 2>&1) || true
+        printf '%s\n' "$report"
+        case "$report" in
+          *"No drift detected"*) ;;
+          *)
+            echo ''
+            echo 'task agents:audit: the deployed skills do not match apm.lock.yaml.'
+            echo 'Something edited .claude/ or .agents/ directly; those are generated.'
+            echo 'Fix the source under skills/, then re-run `task agents:setup`.'
+            exit 1
+            ;;
+        esac
 
   agents:update:
     desc: Refresh agent-skill pins in apm.yml, then review the diff before committing
@@ -326,16 +378,37 @@ tasks:
     cmds:
       - '{{.PY}} -X faulthandler -m pytest tests/ -q'
 
+  be:test:sources:
+    desc: The sources/ package suites, which no CI job used to run
+    cmds:
+      # One pytest per package, not `pytest sources`, and the glob rather than a
+      # list so a new package is covered the day it lands.
+      #
+      # Every package ships a `tests/__init__.py`, so one run over all of them
+      # derives the module name `tests.conftest` for each and the second one
+      # aborts collection with "Plugin already registered under a different
+      # name". Splitting the invocation is what makes this suite runnable at
+      # all; merging it into one run needs those conftest names disambiguated
+      # first.
+      - 'for d in sources/*/tests; do "{{.PY}}" -X faulthandler -m pytest "$d" -q || exit 1; done'
+
   be:eval:retrieval:
-    desc: Retrieval regression gate — the Punkt arm must keep its citable-unit share (model-free, offline)
+    desc: 'Retrieval structure check — the Punkt arm''s citable-unit share (model-free, offline; NEEDS the operator corpus in data/oib)'
     env:
       PYTHONPATH: src:frontends/benchmarks/oib_retrieval/src
     cmds:
-      # ADR-0044 rule 7 made enforceable: a chunker or German-analyzer change
+      # ADR-0044 rule 7 made measurable: a chunker or German-analyzer change
       # that makes fewer Punkte survive as a citable unit fails here, on the
       # real corpus, with no embedder and no key. Baseline is in the harness
-      # README; the gate sits a few points under it so a measurement wobble is
-      # not a red build while a real regression is.
+      # README; the threshold sits a few points under it so a measurement
+      # wobble is not a failure while a real regression is.
+      #
+      # NOT A CI GATE ANY MORE. It was one until 2026-09-09, when the corpus
+      # became operator-provided and gitignored (data/oib/README.md) and no CI
+      # checkout could hold the PDFs to measure. This is now an opt-in local
+      # tool: run it yourself before a chunker or German-analyzer change, and
+      # quote the number in the PR. Without a corpus it exits 1 saying so.
+      # What was lost and what would restore it: ADR-0044, "Update (2026-09-09)".
       - '{{.PY}} -m oib_retrieval_eval.runner --structure-only --fail-below {{.RETRIEVAL_GATE_PCT | default "95"}}'
 
   be:eval:overview:
@@ -358,7 +431,7 @@ tasks:
       - '{{.PY}} -m oib_retrieval_eval.record_vector'
 
   be:eval:turn-shapes:
-    desc: ADR-0052 turn-shape eval against the live shallow model (needs OPENROUTER_API_KEY; skips without it)
+    desc: ADR-0052 turn-shape eval against the live researcher model (needs OPENROUTER_API_KEY; skips without it)
     cmds:
       # The two behaviours ADR-0052 moved from the router into the prompt — a
       # greeting does not search, a commissioned report escalates before it
@@ -396,6 +469,10 @@ tasks:
       - task: be:lint
       - task: be:test:ci
       - task: be:test:api:ci
+      # sources/ used to be covered only by the push-stage pre-commit hook,
+      # which CI's repo-lint job skips — a stale test there stayed green
+      # through every gate. Now it is part of the tier.
+      - task: be:test:sources
 
   # ── infra (deploy/pulumi) ───────────────────────────────────────────────────
 
@@ -461,8 +538,12 @@ tasks:
       - '{{.RELNOTES}} publish {{.CLI_ARGS}}'
 
   lint:repo:
-    desc: pre-commit across the whole repo — the same scope CI lints
+    desc: pre-commit across the whole repo, plus the agent-skill lockfile — the same scope CI lints
     cmds:
       # From the venv, not PATH: `uv sync --group dev` installs pre-commit into
       # .venv and nothing puts it on PATH.
       - '{{.VENV_BIN}}/pre-commit{{.EXE}} run --all-files'
+      # `skills/` is source and `.claude/`/`.agents/` are generated and
+      # gitignored, so an edit to a skill that was never re-locked shows up
+      # here and nowhere else. See the task for what each half catches.
+      - task: agents:audit

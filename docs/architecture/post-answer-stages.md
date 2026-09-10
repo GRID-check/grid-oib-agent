@@ -45,7 +45,7 @@ The three things that are already the same shape, built three times:
 
 | what | where | runs after | delivery | timeout | gate | observability |
 |---|---|---|---|---|---|---|
-| memory reflection | `src/aiq_agent/agents/project_memory/reflection.py:398` | the answer is generated | DB row → REST poll | **none** | `_reflection_answer_is_substantive` | profiler span |
+| memory reflection | `src/aiq_agent/memory/reflection.py:398` | the answer is generated | DB row → REST poll | **none** | `_reflection_answer_is_substantive` | profiler span |
 | post-hoc card generation | `src/aiq_agent/cards/generate.py:105` | the deep report is delivered | job SSE artifact re-emit | `30.0s` (`generate.py:22`) | `if not report` | none |
 | follow-ups (today) | inside the answering LLM call | — | terminal WS frame (`cards`) | — | the model's judgement | none |
 
@@ -76,9 +76,9 @@ earlier pass missed. Three separate things surface memory in the UI and only one
 of them is the reflection stage:
 
 1. **The in-turn `remember` tool** emits a `memory_proposal` card
-   (`src/aiq_agent/agents/project_memory/register.py:38-65`). That card goes into
+   (`src/aiq_agent/memory/register.py:38-65`). That card goes into
    the conversation-scoped `CardRegistry`, is lifted onto the answer as
-   `response.cards` (`chat_researcher/register.py:1204-1206`), rides
+   `response.cards` (`researcher/conversation_register.py:1204-1206`), rides
    `_STREAM_EXTRA_FIELDS` (`register.py:200-221`) onto the terminal
    `finish_reason="stop"` chunk (`register.py:337-375`), is attached to the
    WebSocket frame (`aiq_api/websocket_reconnect.py:1059-1063`) and rendered
@@ -136,7 +136,7 @@ needs the channel built. Section 4 builds it out of parts that already exist.
 
 ### 1.2 How it is scheduled and forced
 
-`chat_researcher/register.py:1222-1253`, inside the streaming generator, **after
+`researcher/conversation_register.py:1222-1253`, inside the streaming generator, **after
 the answer is fully built and before the deltas are yielded** (`register.py:1258`):
 
 ```
@@ -367,8 +367,8 @@ override, and the ADR-0022 BYOK credential swap by construction.
 ### 2.3 What a stage receives
 
 `TurnFacts` — frozen, request-context-free, captured at schedule time by the one
-call site, exactly as the reflection block does today
-(`chat_researcher/register.py:867-915`):
+call site (`researcher/conversation_register.py`, from `turn.context` and
+`turn.response.post_answer_turn_facts`):
 
 ```
 conversation_id, ws_parent_id (the turn key), organization_id, project_id, user_id,
@@ -431,7 +431,7 @@ handler to invent output.
  Import-time registration, same shape as NAT's
 `@register_function` that the whole agent tier already uses.
 
-**One call site.** `chat_researcher/register.py:1222-1253` — the bespoke
+**One call site.** `researcher/conversation_register.py:1222-1253` — the bespoke
 reflection block — is replaced by:
 
 ```python
@@ -441,7 +441,7 @@ schedule_post_answer_stages(TurnFacts.from_turn(result, response, ctx))
 Adding a stage never touches `register.py` again. That is the test of the design.
 
 > **[as built]** The assembly is `_post_answer_turn_facts(...)` in
-> `chat_researcher/register.py`, not a `TurnFacts.from_turn` classmethod, and the
+> `researcher/conversation_register.py`, not a `TurnFacts.from_turn` classmethod, and the
 > models ride alongside it as `llms={AgentGroup.MEMORY_REFLECTION: …}`. Reading
 > graph state (`_result_field`, `user_intent`, `research_truncated`) is the
 > *caller's* knowledge; putting it on `TurnFacts` would import chat-researcher
@@ -491,7 +491,7 @@ A stage that declares `delivery="frame"` needs to push a frame down a socket the
 agent tier does not own. That inversion already exists in this repo, in the
 opposite direction: `conversation_context.register_context_appender`
 (`src/aiq_agent/conversation_context.py:52-56`, registered at
-`chat_researcher/register.py:822`) — "`aiq_api` owns the socket, `aiq_agent`
+`researcher/conversation_register.py:822`) — "`aiq_api` owns the socket, `aiq_agent`
 owns the graph".
 
 So: `src/aiq_agent/stages/delivery.py` declares

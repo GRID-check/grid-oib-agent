@@ -689,18 +689,18 @@ class TestRunAgentStateFields:
     @pytest.mark.asyncio
     async def test_run_agent_skips_unsupported_state_fields(self):
         """Fields absent from a state model are not passed (no validation errors)."""
-        from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
+        from aiq_agent.agents.researcher.models import ResearchAgentState
         from aiq_api.jobs.runner import _run_agent
 
         captured: dict = {}
 
-        class FakeShallowAgent:
+        class FakeResearcherAgent:
             async def run(self, state):
                 captured["state"] = state
                 return state
 
-        FakeShallowAgent.__module__ = "aiq_agent.agents.shallow_researcher.agent"
-        FakeShallowAgent.__name__ = "ShallowResearcherAgent"
+        FakeResearcherAgent.__module__ = "aiq_agent.agents.researcher.agent"
+        FakeResearcherAgent.__name__ = "ResearcherAgent"
 
         monitor = MagicMock()
         monitor.is_cancelled = False
@@ -708,16 +708,16 @@ class TestRunAgentStateFields:
         monitor.stop = AsyncMock()
 
         await _run_agent(
-            agent=FakeShallowAgent(),
+            agent=FakeResearcherAgent(),
             input_text="quick lookup",
             monitor=monitor,
             user_info={"name": "Ada"},
-            clarifier_result="not a shallow field",
+            clarifier_result="not a researcher-state field",
             project_context="facts: {}",
         )
 
         state = captured["state"]
-        assert isinstance(state, ShallowResearchAgentState)
+        assert isinstance(state, ResearchAgentState)
         assert state.user_info == {"name": "Ada"}
         assert state.project_context == "facts: {}"
         assert not hasattr(state, "clarifier_result")
@@ -1911,7 +1911,7 @@ class TestDeepResearchReflection:
 
         with (
             patch(
-                "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+                "aiq_agent.memory.reflection.run_memory_reflection",
                 new=AsyncMock(return_value=["mem-1"]),
             ) as mock_reflect,
             patch(
@@ -1951,7 +1951,7 @@ class TestDeepResearchReflection:
         builder.get_llm = AsyncMock()
 
         with patch(
-            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            "aiq_agent.memory.reflection.run_memory_reflection",
             new=AsyncMock(),
         ) as mock_reflect:
             await _run_deep_research_reflection(
@@ -1979,7 +1979,7 @@ class TestDeepResearchReflection:
         builder.get_llm = AsyncMock()
 
         with patch(
-            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            "aiq_agent.memory.reflection.run_memory_reflection",
             new=AsyncMock(),
         ) as mock_reflect:
             await _run_deep_research_reflection(
@@ -2007,7 +2007,7 @@ class TestDeepResearchReflection:
         builder.get_llm = AsyncMock()
 
         with patch(
-            "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+            "aiq_agent.memory.reflection.run_memory_reflection",
             new=AsyncMock(),
         ) as mock_reflect:
             await _run_deep_research_reflection(
@@ -2038,7 +2038,7 @@ class TestDeepResearchReflection:
 
         with (
             patch(
-                "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+                "aiq_agent.memory.reflection.run_memory_reflection",
                 new=AsyncMock(side_effect=RuntimeError("boom")),
             ),
             patch(
@@ -2080,7 +2080,7 @@ class TestDeepResearchReflection:
 
         with (
             patch(
-                "aiq_agent.agents.project_memory.reflection.run_memory_reflection",
+                "aiq_agent.memory.reflection.run_memory_reflection",
                 new=AsyncMock(side_effect=never_finishes),
             ),
             patch(

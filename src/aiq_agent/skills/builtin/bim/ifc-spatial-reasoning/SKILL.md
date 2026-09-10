@@ -4,7 +4,7 @@ description: >
   Am Modell messen mit ifc_measure oder ifc_query, bevor eine OIB-Zahl
   behauptet wird.
 metadata:
-  grid-agents: shallow_researcher,deep_researcher
+  grid-agents: researcher,deep_researcher
   grid-cards: ifc_viewer,ifc_element,ifc_schedule,ifc_compliance,ifc_diff
 ---
 

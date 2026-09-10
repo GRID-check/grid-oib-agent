@@ -9,6 +9,7 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 from pydantic import Field
 
+from aiq_agent.common.message_utils import content_to_text
 from aiq_agent.knowledge import AvailableDocument
 
 
@@ -34,11 +35,8 @@ class DeepResearchAgentState(BaseModel):
         messages: Conversation history with LangGraph message reducer.
         data_sources: List of data sources selected by the user.
         user_info: Optional user information.
-        tools_info: Information about available tools.
         todos: Todo list managed by TodoListMiddleware.
         files: Virtual filesystem managed by FilesystemMiddleware.
-        subagents: Status of configured DeepAgents subagents.
-        rubric: DeepAgents rubric used by RubricMiddleware when available.
         clarifier_result: Log from clarifier agent dialog.
         available_documents: User-uploaded documents with summaries for context.
     """
@@ -46,11 +44,8 @@ class DeepResearchAgentState(BaseModel):
     messages: Annotated[list[AnyMessage], add_messages]
     data_sources: list[str] | None = None
     user_info: dict[str, Any] | None = None
-    tools_info: list[dict[str, Any]] | None = None
     todos: list[dict[str, Any]] = Field(default_factory=list)
     files: Annotated[dict[str, Any], _merge_dict_state] = Field(default_factory=dict)
-    subagents: list[dict[str, Any]] = Field(default_factory=list)
-    rubric: str | None = None
     clarifier_result: str | None = None
     available_documents: list[AvailableDocument] | None = None
     project_context: str | None = None
@@ -69,7 +64,7 @@ class DeepResearchAgentState(BaseModel):
     # Evidence-gathering was CUT OFF, not completed: the run hit its wall-clock
     # budget or the orchestrator's step limit and the answer was salvaged from
     # whatever it had reached by then. Set ONLY on a cutoff (None otherwise), so
-    # presence is the fact — the same contract the shallow researcher's
+    # presence is the fact — the same contract the researcher's
     # ``research_truncated`` uses, and the field the websocket layer already
     # lifts onto the terminal frame.
     research_truncated: bool | None = None
@@ -94,7 +89,7 @@ class DeepResearchAgentState(BaseModel):
     # wire-ready dicts from ``source_entry_to_wire``, each carrying the ``[N]``
     # label it wears in the prose plus the locator (document/file/page), the
     # coarse ``kind`` and the norm registry's binding note. Same field name and
-    # same shape as the shallow researcher's, because the two feed one reader:
+    # same shape as the researcher's, because the two feed one reader:
     # the job runner lifts it into the job output and into the message metadata
     # as ``sources``, where the BFF's ``normalizeAgentAnswerMetadata`` decodes
     # it into the stored ``citations`` envelope. Without it a deep answer's
@@ -117,11 +112,11 @@ class DeepResearchAgentState(BaseModel):
     # The writer's own self-assessment of how well the report is grounded in the
     # sources it cited, parsed from the trailing ``[CONFIDENCE:...]`` marker in
     # ``/shared/output.md`` and already passed through the deterministic
-    # overconfidence guard. Same three names and shapes the shallow/chat path
+    # overconfidence guard. Same three names and shapes the chat path
     # uses, because one reader consumes both: the job runner lifts them onto the
     # job output and the frontend renders one confidence chip either way. A deep
     # answer used to carry none of this, so the chip the product shows beside
-    # every shallow answer was simply missing on the longest reports it writes —
+    # every chat answer was simply missing on the longest reports it writes —
     # which reads as a broken feature, not as "not assessed". None means "no
     # signal" (marker absent or malformed) and nothing renders.
     answer_confidence: Literal["low", "medium", "high"] | None = None
@@ -130,7 +125,7 @@ class DeepResearchAgentState(BaseModel):
     # guard capped the level, this reason may still argue for the pre-cap one.
     answer_confidence_reason: str | None = None
     # Why the surfaced level is lower than the writer claimed, in the shared
-    # five-token taxonomy (see ``shallow_researcher.markers.CappedReason``).
+    # five-token taxonomy (see ``researcher.markers.CappedReason``).
     # Deep never measures an IFC model and has no single-source fallback, so in
     # practice only ``ungrounded`` and ``quote_unverified`` can occur here — the
     # other three are kept so a surface never has to branch on which agent wrote
@@ -153,3 +148,17 @@ class DeepResearchAgentState(BaseModel):
     # dropped: the transparency doctrine forbids a class of instruction the
     # product declines to admit ran.
     skills_hidden: list[str] | None = None
+
+
+def last_message_text(result: Any) -> str | None:
+    """The final message's text from a graph state (dict or object), or None when blank.
+
+    The writer normally persists its report to ``/shared/output.md``; this is
+    the fallback when it did not, and the researcher's fallback when a worker
+    put its notes in prose instead of the structured channel. Structured block
+    content is joined as text rather than repr'd.
+    """
+    messages = result.get("messages") if isinstance(result, dict) else getattr(result, "messages", None)
+    if not messages:
+        return None
+    return content_to_text(getattr(messages[-1], "content", None)).strip() or None

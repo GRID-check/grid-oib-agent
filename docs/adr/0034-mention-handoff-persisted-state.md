@@ -191,9 +191,9 @@ frame going missing is a slightly forgetful agent.
 ### Consequences of the addendum
 
 - The agent tier now has a second, deliberately tiny entry point
-  (`ChatResearcherAgent.append_context_message`) that writes history without running
-  the graph. It touches `messages` only — never turn-scoped state (`shallow_result`,
-  confidence, routing extras) — so it cannot leak a previous turn's signals forward.
+  (`ConversationGraph.append_context_message`) that writes history without running
+  the graph. It touches `messages` only — never turn-scoped state (the escalation
+  ask, confidence, routing extras) — so it cannot leak a previous turn's signals forward.
 - `aiq_api` reaches it through a registered appender rather than an import, keeping the
   socket tier free of the graph. A process without a chat agent logs and no-ops.
 - A version skew (new client, old backend) degrades to *pre-change* behaviour: the old

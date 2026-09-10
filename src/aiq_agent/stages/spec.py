@@ -86,7 +86,7 @@ class TurnFacts:
 
     #: Which path the turn took, observed after the answer (``meta`` for a
     #: direct reply, ``shallow``, ``deep``, ``error``); see
-    #: ``chat_researcher.agent.observed_routing``.
+    #: ``ResearchAgentState.observed_routing``.
     routing_decision: str | None = None
     #: The research loop hit its tool-iteration ceiling: the turn ran out of
     #: budget before it ran out of question.

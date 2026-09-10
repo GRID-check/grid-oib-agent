@@ -40,8 +40,8 @@ ENGINE_CACHE_MAX_SIZE = 10
 
 DEFAULT_COUNTRY = "at"
 
-# The norm catalog is admin-edited, effectively static data that the shallow
-# research answer path reads many times per turn (prompt render ×iterations,
+# The norm catalog is admin-edited, effectively static data that the
+# researcher's answer path reads many times per turn (prompt render ×iterations,
 # knowledge/RIS tools, and RIS wire serialization). Memoize the parsed
 # ``(NormsFile, version)`` in-process for this many seconds so those repeated
 # reads don't each pay a blocking DB SELECT + full JSON re-parse on the event

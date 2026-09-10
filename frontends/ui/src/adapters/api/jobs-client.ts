@@ -27,7 +27,7 @@ import type { SkillSnapshot } from './skills-client'
 
 /**
  * What a job produces — the user's choice, and the only thing that decides
- * which agent runs it (`chat` → shallow_researcher, `deep-research` →
+ * which agent runs it (`chat` → researcher, `deep-research` →
  * deep_researcher). Was `execution`, denormalised from skill metadata.
  */
 export type JobOutput = 'chat' | 'deep-research'
@@ -294,7 +294,7 @@ export const listJobRuns = async (
 /**
  * The skills a job with this output kind may attach.
  *
- * `chat` resolves against `shallow_researcher` and `deep-research` against
+ * `chat` resolves against `researcher` and `deep-research` against
  * `deep_researcher`, both via `grid-agents` — so the picker can never offer a
  * skill the chosen output kind cannot run. Re-fetch when the output changes.
  */

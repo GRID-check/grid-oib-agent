@@ -3,7 +3,7 @@ name: hygiene
 description: >
   Ob dieser Raum ein Aufenthaltsraum ist, und was OIB 3 dann verlangt.
 metadata:
-  grid-agents: shallow_researcher,deep_researcher
+  grid-agents: researcher,deep_researcher
   grid-cards: daylight_incidence,requirement_checklist,legal_basis
 ---
 

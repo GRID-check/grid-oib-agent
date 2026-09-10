@@ -164,9 +164,7 @@ class TestApplyModelOverride:
         """The two layers are independent: the platform can re-tune thinking for
         a group no org has re-modelled."""
         llm = _FakeLlm(model_name="vendor/yaml", reasoning_effort="medium")
-        result = apply_model_override(
-            llm, AgentGroup.SHALLOW_RESEARCH, overrides={}, zdr_only=False, reasoning_effort="none"
-        )
+        result = apply_model_override(llm, AgentGroup.RESEARCH, overrides={}, zdr_only=False, reasoning_effort="none")
         assert result.model_name == "vendor/yaml"
         assert result.reasoning_effort == "none"
 
@@ -175,7 +173,7 @@ class TestApplyModelOverride:
         _mock_bff(monkeypatch, {"efforts": {}})
         llm = _FakeLlm(reasoning_effort="medium")
 
-        result = apply_model_override(llm, AgentGroup.SHALLOW_RESEARCH, overrides={}, zdr_only=False)
+        result = apply_model_override(llm, AgentGroup.RESEARCH, overrides={}, zdr_only=False)
 
         assert result.reasoning_effort == "medium"
 
@@ -184,7 +182,7 @@ class TestApplyModelOverride:
         _mock_bff(monkeypatch, {"efforts": {"shallow_research": "xhigh"}})
         llm = _FakeLlm(reasoning_effort="none")
 
-        result = apply_model_override(llm, AgentGroup.SHALLOW_RESEARCH, overrides={}, zdr_only=False)
+        result = apply_model_override(llm, AgentGroup.RESEARCH, overrides={}, zdr_only=False)
 
         assert result.reasoning_effort == "xhigh"
 

@@ -1,15 +1,35 @@
 # Domain catalog for deep research source routing.
 #
 # This file is intentionally data-only. Add, remove, or revise domains here
-# without changing Python source code. Source IDs must match entries in the
-# data_source_registry for the active workflow config.
+# without changing Python source code.
+#
+# NOTHING SHIPPED READS IT. `domain_catalog_path` is a field on the deep
+# researcher's config (`agents/deep_researcher/register.py`), and no config in
+# `configs/` or under `frontends/benchmarks/` sets it — so every running agent
+# gets the built-in single-domain fallback
+# (`source_routing._default_general_research_config`) instead of this catalog.
+# `tests/aiq_agent/agents/deep_researcher/test_source_routing.py` writes its own
+# catalog into `tmp_path`; the only place this path appears in a test is as a
+# string literal handed to a stub. So no test loads this file either, and
+# nothing checks that the `preferred_source_ids` below still name real
+# data_source_registry entries: get one wrong and you find out at runtime, in
+# the deployment that first sets `domain_catalog_path`.
+#
+# Kept rather than deleted because whether this product wants domain routing at
+# all is an open decision, not a cleanup. If the answer is yes, the wiring is
+# one `domain_catalog_path:` line plus a parity test against the active
+# workflow config's data_source_registry; if it is no, delete the directory.
+#
+# The catalog used to route between news, prediction markets and academic
+# papers, which is what the upstream blueprint shipped. Those sources are gone;
+# these domains are the ones this product's fleet can actually serve.
 
 default_domain_id: general_research
 
 domains:
   - domain_id: general_research
     domain_name: General Research
-    description: Broad factual research, explainers, company/product research, and mixed-domain questions.
+    description: Broad factual research, explainers, and mixed-domain questions.
     preferred_source_ids:
       - knowledge_layer
       - web_search
@@ -17,31 +37,14 @@ domains:
       - web_search
     is_default: true
 
-  - domain_id: scholarly_technical
-    domain_name: Scholarly and Technical Research
-    description: Scientific, engineering, medical, benchmark, method, paper, and standards-heavy questions.
+  - domain_id: legal_regulatory
+    domain_name: Law and Regulation
+    description: >-
+      Building law, Bauordnungen, OIB-Richtlinien, ÖNORMen, and any question
+      whose answer has to be grounded in a citable Bestimmung rather than in
+      prose about one.
     preferred_source_ids:
-      - paper_search
-      - web_search
+      - ris
       - knowledge_layer
-    fallback_source_ids:
-      - web_search
-
-  - domain_id: market_forecasting
-    domain_name: Market Forecasting
-    description: Markets, probabilities, companies, commodities, crypto, elections, and forward-looking outcomes.
-    preferred_source_ids:
-      - prediction_market
-      - news_search
-      - web_search
-    fallback_source_ids:
-      - web_search
-
-  - domain_id: current_news
-    domain_name: Current News
-    description: Recent events, breaking developments, announcements, and fast-changing public facts.
-    preferred_source_ids:
-      - news_search
-      - web_search
     fallback_source_ids:
       - web_search

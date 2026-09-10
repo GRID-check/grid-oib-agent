@@ -409,8 +409,8 @@ class TestResolveDeepResearchCheckpointer:
 
     @pytest.mark.asyncio
     async def test_returns_none_for_non_deep_research_agent(self):
-        """Other agent types (e.g. shallow_research_agent) are never given a checkpointer."""
-        fn_config = SimpleNamespace(type="shallow_research_agent", checkpoint_db="./checkpoints.db")
+        """Other agent types (e.g. research_agent) are never given a checkpointer."""
+        fn_config = SimpleNamespace(type="research_agent", checkpoint_db="./checkpoints.db")
 
         result = await _resolve_deep_research_checkpointer(fn_config)
 

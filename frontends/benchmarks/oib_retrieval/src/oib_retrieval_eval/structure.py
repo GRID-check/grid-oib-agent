@@ -51,6 +51,7 @@ from oib_retrieval_eval.corpus import ARM_PAGE
 from oib_retrieval_eval.corpus import ARM_PUNKT
 from oib_retrieval_eval.corpus import CHUNK_OVERLAP
 from oib_retrieval_eval.corpus import CHUNK_SIZE
+from oib_retrieval_eval.corpus import CorpusMissingError
 from oib_retrieval_eval.corpus import default_corpus_dir
 from oib_retrieval_eval.corpus import extract_pages
 from oib_retrieval_eval.corpus import page_documents
@@ -258,13 +259,40 @@ def _sum_arms(rows: Iterable[ArmStructure], arm: str) -> ArmStructure:
     )
 
 
+def _require_corpus(index: PunktIndex, corpus_dir: Path) -> None:
+    """Fail with an instruction, before the first extraction, if the corpus is not here."""
+    missing = [
+        index.file_name(richtlinie)
+        for richtlinie in index.richtlinien
+        if not (corpus_dir / index.file_name(richtlinie)).is_file()
+    ]
+    if not missing:
+        return
+    raise CorpusMissingError(
+        f"no OIB corpus to measure: {len(missing)} of {len(index.richtlinien)} Richtlinien PDFs "
+        f"named by the Punkt index are not in {corpus_dir}.\n"
+        f"First missing: {missing[0]}\n"
+        "The corpus is operator-provided and gitignored — see data/oib/README.md for how to "
+        "fill this directory. This harness is an opt-in local tool; it is not run in CI, "
+        "because no CI checkout can have a corpus."
+    )
+
+
 def measure_structure(
     index: PunktIndex,
     corpus_dir: Path | None = None,
     cache_dir: Path | None = None,
 ) -> StructureReport:
-    """Run the structural before/after over every Richtlinie in the Punkt index."""
+    """Run the structural before/after over every Richtlinie in the Punkt index.
+
+    Raises ``CorpusMissingError`` when the PDFs the index names are not on disk. The
+    corpus is operator-provided and gitignored (``data/oib/README.md``), so an empty
+    ``data/oib`` is the ordinary state of a fresh clone — the answer to it is an
+    instruction, not the ``FileNotFoundError`` that ``pdf_path.stat()`` used to raise
+    several frames deep.
+    """
     corpus_dir = default_corpus_dir() if corpus_dir is None else corpus_dir
+    _require_corpus(index, corpus_dir)
 
     per_richtlinie: dict[str, dict[str, ArmStructure]] = {}
     unlocated: dict[str, list[str]] = {}

@@ -2,7 +2,7 @@
 
 Skills are reusable, versioned instruction packages (the agentskills.io
 format) that extend what the model can be told how to do on:
-- **Interactive chat turns** (`shallow_researcher`), and
+- **Interactive chat turns** (`researcher`), and
 - **Async deep-research jobs** (`deep_researcher`).
 
 A **job** is the other half of the feature and a separate object: a
@@ -415,23 +415,34 @@ offers exactly the skills this one gate resolves for that agent — which is the
 payoff of consolidating availability onto a single key.
 
 The agent vocabulary is the `AGENT_REGISTRY` identifiers
-(`frontends/aiq_api/src/aiq_api/registry.py`): **`shallow_researcher`** and
+(`frontends/aiq_api/src/aiq_api/registry.py`): **`researcher`** and
 **`deep_researcher`**. There is one spelling; the older `deep_research_agent`
 name is gone from the skills path entirely, because two vocabularies for one
 agent meant a `grid-agents` value that was correct in one file and inert in
 the other.
+
+`researcher` was called `shallow_researcher` until the chat agent was renamed.
+Because the name is author-written and was seeded by ten migrations, both
+resolvers read the old spelling as the new one (`AGENT_ALIASES` in
+`src/aiq_agent/skills/resolver.py`, `SKILL_AGENT_ALIASES` in
+`frontends/ui/src/lib/skills/types.ts`, and the mirror in
+`features/skills/lib/agent-scope.ts`), and
+`frontends/ui/drizzle/0081_grid_agents_researcher_rename.sql` moved the stored
+rows. The alias is not decoration: an unknown name is IGNORED, and an allowlist
+of only ignored names reads as absent — so dropping it would silently offer
+every chat-scoped skill to deep research as well.
 
 Every builtin declares `grid-agents`, and the value splits the corpus in two.
 
 The five in `research/` and `synthesis/` declare `deep_researcher` **and nothing
 else**. They are DeepAgents subagent skills: their instructions call `execute`,
 read and write `/shared/` and return `ResearchNotes`, none of which exists in a
-chat turn. That one key is what keeps the shallow chat researcher from being
+chat turn. That one key is what keeps the chat researcher from being
 offered a procedure it cannot carry out.
 
 The six in `bim/`, `oib/` and `presentation/` are chat skills and say so.
 `ifc-spatial-reasoning` and the four `oib/` domain skills name both agents;
-`diagrams` names **`shallow_researcher` alone**, and the reason is
+`diagrams` names **`researcher` alone**, and the reason is
 worth stating because it looks like an omission. A builtin FILE does not reach
 deep research through `grid-agents` at all: `resolve_served_skills` keeps only
 BFF-served rows (`origin == "org"`), and the builtins reach deep subagents
@@ -446,7 +457,7 @@ Since `grid-agents` is the ONLY thing doing the targeting,
 The research and synthesis builtins declare `grid-agents: deep_researcher`
 and nothing else. They are DeepAgents subagent skills: their instructions call
 `execute`, read and write `/shared/` and return `ResearchNotes`, none of which
-exists in a chat turn. That one key is what keeps the shallow chat researcher
+exists in a chat turn. That one key is what keeps the chat researcher
 from being offered a procedure it cannot carry out. The OIB and BIM skills
 name both agents, because the questions they are about get asked in chat.
 `platform-skills.spec.ts` asserts every builtin still declares `grid-agents`. The BFF forwards platform metadata
@@ -461,7 +472,7 @@ turn, and neither of them is the model: the user's own request, and the
 platform's standard tier.
 
 - Chat turns: `_extract_query_and_sources` / `_extract_query_from_text` in
-  `src/aiq_agent/agents/chat_researcher/utils.py` parse `data_sources` and
+  `src/aiq_agent/turn/payload.py` parse `data_sources` and
   `skills` out of the turn input. The JSON envelope mirrors the
   `data_sources` mechanism, so a message like
   `{"query": "...", "data_sources": ["web_search"], "skills": ["forecast-analysis"]}`
@@ -487,7 +498,8 @@ Progressive disclosure has exactly two levels:
   the skills forced for this turn. `grid-auto-invoke: false` omits a skill
   from L1. It stays resolved, stays in the `/` picker, and stays loadable
   when forced. Absent means on. Both blocks are pre-collated by the register
-  layer (`ShallowAgentFlat` / `DeepAgentFlat`) and render via the runtime's
+  layer (`researcher/register.py::_skills_block`,
+  `deep_researcher/agent.py::_skills_block`) and render via the runtime's
   `prompt_block()` / `forced_block()`; `None` renders no section.
 - **L2 — the body.** The model must call the `use_skill` tool to load a
   body before following it. A failed lookup returns an error listing the
@@ -526,7 +538,7 @@ backend lifts onto `force_skills`.
 
 - **Endpoint:** `GET /api/skills/invocable` → `listInvocableSkills`, filtered
   to enabled *offers* and org-authored skills a chat turn can actually run
-  (`shallow_researcher`). Pipeline machinery and standard skills are not in
+  (`researcher`). Pipeline machinery and standard skills are not in
   this list: they load on their own, and putting them in a `/` menu would
   hand somebody a name they cannot look up, edit or switch off. Deep-research
   skills stay out for the same reason they stay out of chat. Any org member
@@ -595,7 +607,7 @@ skills_enabled: true        # default true; false disables the use_skill tool + 
 skill_allowlist: []         # empty = every resolved skill is offered
 ```
 
-Both are fields on `ShallowResearchAgentConfig`. `use_skill` and the skill
+Both are fields on `ResearchAgentConfig`. `use_skill` and the skill
 index are bound on **every** turn, greetings included: there is no classifier
 and no `requires_sources` gate in front of the answering agent any more
 (ADR-0052), so whether a turn loads a skill is the model's call, pinned by the
@@ -612,8 +624,8 @@ The deep-research side is different by construction: it does NOT use the
 config): per-agent skill *sources* wired through `SkillsMiddleware` with a
 `FilesystemBackend` over `src/aiq_agent/skills/builtin/` and read-only
 filesystem permission rules (`factory.runtime_skill_filesystem_permissions`).
-`force_skills` is never passed to deep research — the chat orchestrator drops
-it (`chat_researcher/agent.py`).
+`force_skills` is never passed to deep research — the conversation graph drops
+it (`researcher/conversation.py`).
 
 ## Data model (grid_app, Drizzle)
 
@@ -991,7 +1003,7 @@ payload and response in `docs/api/python-endpoints.md`.
 
 **Agent selection is deterministic from the JOB's output kind**, never from
 anything read off the skill: `_OUTPUT_AGENT_TYPES` maps `chat` →
-`shallow_researcher` and `deep-research` → `deep_researcher`, and `agent_type`
+`researcher` and `deep-research` → `deep_researcher`, and `agent_type`
 is an explicit escape hatch for future output kinds.
 
 **Two spellings on the wire, for one deploy window.** The field is `output`;
@@ -1204,8 +1216,9 @@ history surfaces, and the run-history link and job-glyph rendering that
   `standard` skill is forced without being asked for, that the user's own
   forces are listed before it, and that a user forcing a standard skill by name
   does not list it twice.
-- `tests/aiq_agent/agents/chat_researcher/` — the envelope parsing
-  (`test_utils.py`, `test_register_helpers.py`) and per-turn skill forcing.
+- `tests/aiq_agent/turn/test_payload.py` and
+  `tests/aiq_agent/turn/test_payload_parsing.py` — the envelope parsing;
+  `tests/aiq_agent/agents/researcher/` — per-turn skill forcing.
 - BFF vitest, toolbox: `lib/skills/service.spec.ts` (authz, tenant filters,
   snapshot and targeting semantics — pinned against the Python cases — plus the
   `platform standard skills` block, which asserts each of the standard-tier

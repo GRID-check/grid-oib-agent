@@ -33,8 +33,9 @@ to add here has no home yet: give it one under
 
 ## Where the scoped guides are
 
-Each service keeps its own `AGENTS.md` beside the code, for what holds only
-there. **Read the one for the area you are about to touch, before you touch
+Each service keeps its own `AGENTS.md` beside the code, and inside
+`src/aiq_agent/` so do the packages with invariants of their own, for what holds
+only there. **Read the one for the area you are about to touch, before you touch
 it.** They are additive: this file still applies.
 
 Harnesses find them on their own, but late. Claude reaches one only after it has
@@ -131,6 +132,7 @@ ones that will fail your PR.
 | Write a commit, or open **or rename** a PR | Conventional Commits — `feat` `fix` `docs` `refactor` `perf` `test` `ci` `build` `chore` `revert`. The **PR title** most of all: the repo squash-merges it, so the title is the commit that lands on `develop`. [`CONTRIBUTING.md`](CONTRIBUTING.md#commits-and-pr-titles) | The **Conventional PR title** job blocks the PR. A prose title is the one that keeps slipping through, because nothing local checks it |
 | Add an environment variable | Add its row to [`docs/deployment/environment-variables.md`](docs/deployment/environment-variables.md) in the same change | Review |
 | Change what a customer can notice | `task release:note -- <slug>` | The **Release note** CI job |
+| Edit anything under `skills/` | Commit the re-locked `apm.lock.yaml` with it — `task agents:audit` rewrites it for you. The deployment is gitignored, so nothing else in your diff shows the lockfile went stale | `task lint:repo` and CI's **repo-lint** job |
 | Change behaviour a doc describes | Update the doc in the same commit | Review. Stale docs are a bug, because an agent acts on them |
 | Learn something the repo could have told you | Write it down where the next agent will already be looking, before you carry on | Nothing, once. Then everyone re-earns it. [The ratchet](docs/contributing/correction-ratchet.md#human-intervention-is-a-failure-signal) |
 
@@ -140,8 +142,9 @@ strong evidence rather than a guarantee. `task verify:fast` skips two production
 builds, `fe:build` and `web:build`.
 
 Two gates sit outside `task verify` and are still required: `task db:test:rls`
-whenever you touch the tenant boundary, and the suites under `sources/` and
-`packages/`, which no CI job runs at all.
+whenever you touch the tenant boundary, and the suites under `packages/`, which
+no CI job runs at all. (`sources/` used to be in that sentence; it is covered
+now, by `task be:test:sources` in both `be:verify` and CI.)
 
 ## Two rules that span services
 
@@ -173,7 +176,8 @@ delete. Reduce complexity, never features. That pass is part of done.
 ## Reference
 
 - Code conventions, the `any` ban, coercing raw `sql<T>`, where a shared helper
-  belongs, capability doctrine:
+  belongs, capability doctrine, and **the shape of a Python function** (two
+  levels of nesting, early exits, sixty lines, pure where it can be):
   [`docs/contributing/code-conventions.md`](docs/contributing/code-conventions.md).
 - Patterns in use and what enforces each:
   [`docs/architecture/patterns-in-use.md`](docs/architecture/patterns-in-use.md).

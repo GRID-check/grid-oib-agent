@@ -9,6 +9,43 @@ tooling (`ruff`, `eslint`, `tsconfig`), not here.
 Ruff, line length 120, Python 3.11. New tools use `@register_function` with a
 `FunctionBaseConfig` subclass.
 
+### Shape of a function
+
+The agent tier grew to nineteen thousand lines with functions that ran two
+hundred lines deep and four `if`s wide, and the cost was not aesthetic: a fix
+in the middle of one of them could not be tested on its own, and a reader had
+to hold the whole thing to know which branch they were in. These rules are the
+floor for anything under `src/aiq_agent`, `sources/` and `frontends/aiq_api`,
+new or touched:
+
+- **Two levels of nesting inside a function, at most.** A third `if`/`for`/
+  `try` inside a function body is a function waiting to be named. Ruff's
+  `PLR1702` (`max-nested-blocks = 2`) is the check; it is turned on for the
+  paths that already meet it and joins the rest as they are brought under.
+- **Early exit, never an `else` ladder.** Guard clauses first, the happy path
+  last and unindented. `if not x: return` beats wrapping the body in `if x:`.
+- **Sixty lines is long.** Past that, the function is doing two things.
+  Split at the point where you would write a comment saying what the next
+  block does; the comment is the function's name.
+- **Pure where it can be.** Take inputs, return outputs. A function that reads
+  or writes module-level state cannot be tested without resetting the world,
+  and cannot run twice in one process safely. Module-level mutable state is
+  reserved for the registries NAT populates at boot, and each one has a
+  `reset_*` for tests.
+- **Never swallow.** `except Exception: pass`, or a bare `except` that logs
+  and continues, hides the fault the next reader needs. Catch the exception
+  you can handle, and re-raise or return a typed failure for the rest.
+- **Gather what is independent.** Two `await`s that do not depend on each
+  other are one `asyncio.gather`. The staged pipelines already do this with a
+  bounded `Semaphore`; a sequential loop of awaits is the smell.
+- **Data in, data out.** Prefer a small frozen dataclass or Pydantic model over
+  a dict with agreed keys, and over a class that carries state between
+  methods. A method that only uses `self` to reach one field is a function.
+
+None of this is a licence to rewrite a file you are passing through. Touch a
+function, leave it meeting the bar; leave the neighbours alone unless the
+change needs them.
+
 ## TypeScript
 
 ### `any` is not a type we accept, in production code or in tests

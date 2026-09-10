@@ -35,7 +35,7 @@ The OIB Richtlinien are Austria's core building-technical regulations — hundre
 | **RAG over Your Documents** | Upload project PDFs (plans, specifications). They are ingested into a **project-scoped** collection and searched alongside the OIBs — never mixed across projects. |
 | **Project & Organization Memory** | Grid records durable findings about a project (decisions, constraints, open questions) as it works, and carries them into every future conversation. Org-wide memory applies across all your projects. Everything is visible and editable on the project page. |
 | **Rich-UI Cards** | When a structured format helps, the agent answers with a typed **card** (legal-basis citation, summary, profile update) instead of plain prose. |
-| **Multi-Agent Research** | A **LangGraph** pipeline classifies intent, clarifies ambiguity, and runs shallow or deep research — with inspectable thinking traces. Deep research runs as an async job with a live progress panel. |
+| **Multi-Agent Research** | A **LangGraph** pipeline: one researcher answers every turn and decides for itself when a question needs deep research, clarifying the plan on the way — with inspectable thinking traces. Deep research runs as an async job with a live progress panel. |
 | **Web Search** | When the OIBs don't cover a topic, the agent can fall back to **Tavily** web search (a toggleable data source you control). |
 | **Project Lifecycle** | Organise documents and chats per project with **WorkOS FGA** access control, plus a grace-period **soft-delete → restore → hard-purge** pipeline with legal holds. |
 | **Real-Time Answers** | Chat streams over **WebSocket**; the agent's reasoning, sources, and cards appear as it works. |
@@ -58,7 +58,7 @@ flowchart TB
     subgraph Backend["Tier 2 · Python backend (port 8000)"]
         FAST["FastAPI (aiq_api plugin)"]
         NAT["NeMo Agent Toolkit"]
-        LG["LangGraph<br/>intent → clarifier → shallow / deep researcher"]
+        LG["LangGraph<br/>researcher → (escalate?) clarify → deep researcher"]
         DASK["Dask — async deep-research jobs"]
         CHROMA["ChromaDB — oib_knowledge + proj_* + mem_*"]
     end
@@ -121,7 +121,8 @@ docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env up -
 # 3. OIB knowledge-base ingestion starts automatically in the background when
 #    the aiq-agent container boots — watch its progress in the container logs:
 docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env logs -f aiq-agent
-# To re-run ingestion manually (incremental — e.g. after adding PDFs to data/oib/):
+# To re-run ingestion manually (incremental — e.g. after adding PDFs to data/oib/,
+#  which ships empty; see data/oib/README.md):
 docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env exec aiq-agent python scripts/ingest_oib.py
 # (An admin-token-guarded `POST /v1/admin/oib/sync` endpoint triggers the same re-run over HTTP.)
 
@@ -160,7 +161,7 @@ The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-ini
 │   └── benchmarks/         # Evaluation harnesses
 ├── configs/                # Workflow configs — config_oib_openrouter.yml is the working one
 ├── deploy/                 # Docker Compose, Dockerfile, env templates
-├── data/oib/               # OIB Richtlinien PDFs (Git LFS)
+├── data/oib/               # Where the OIB PDFs go — operator-provided, ships empty
 ├── scripts/                # Utility scripts (ingest_oib.py)
 └── docs/                   # Documentation (see docs/architecture/ for the current deep-dives)
 ```

@@ -15,7 +15,7 @@ call (`intent_llm`, prompt `intent_classification.j2`, result `IntentResult` +
 `DepthDecision`) that labelled the message `meta`, `shallow`, `deep` or
 `out_of_scope` before any answering agent ran. The label did more than name the
 turn. It decided what the answering agent was *allowed* to do: a `meta` turn
-entered the shallow researcher with `requires_sources=False`, which switched on
+entered the researcher with `requires_sources=False`, which switched on
 the "meta partition" (`_is_search_tool`, `_RESEARCH_ONLY_BASENAMES`,
 `_meta_tool_binding`, a narrowed `ToolNode`) so that only interaction tools were
 bound, and the skill runtime was not built at all.
@@ -80,10 +80,10 @@ shallow_research ─(envelope.escalate_to_deep?)─▶ clarifier ─▶ deep_res
        └─────────────────────────────────────────────────────────────────────▶ END
 ```
 
-- **Entry is the shallow researcher on every turn**, with its full tool set
+- **Entry is the researcher on every turn**, with its full tool set
   bound every time: data-source search, `surface_documents`, `remember`,
   `emit_card`, `use_skill` and the rest of the config's `tools:` list. There is
-  no meta partition and no `requires_sources` on `ShallowResearchAgentState`.
+  no meta partition and no `requires_sources` on `ResearchAgentState`.
 - **The answer envelope is the one output shape.** A direct reply (greeting,
   shelf listing, off-topic decline, "what can you do") is an envelope with
   `answer` only and no `confidence`; a researched answer carries `confidence`
@@ -93,7 +93,7 @@ shallow_research ─(envelope.escalate_to_deep?)─▶ clarifier ─▶ deep_res
   report ("erstell mir einen Bericht") escalates immediately, without a
   retrieval first.
 - **`routing_decision` stays on the wire, observed after the answer**
-  (`chat_researcher.agent.observed_routing`): `meta` when the agent consulted no
+  (`ResearchAgentState.observed_routing`): `meta` when the agent consulted no
   data source and gave no self-assessment, `shallow` otherwise, `deep` set by
   the clarifier hand-off, `error` on a failed turn. `routing_reason`, the live
   status keys `status.routing.*` and `emit_routing` are gone. The post-answer
@@ -131,9 +131,10 @@ shallow_research ─(envelope.escalate_to_deep?)─▶ clarifier ─▶ deep_res
 
 The shape of the graph and the binding are tests, not comments:
 
-- `tests/aiq_agent/agents/chat_researcher/test_agent.py`: the compiled graph
-  has no classifier node and its entry point is `shallow_research`.
-- `tests/aiq_agent/agents/shallow_researcher/test_agent.py`: the full tool set
+- `tests/aiq_agent/agents/researcher/conversation/test_graph.py`: the
+  compiled graph has no classifier node and its entry point is
+  `shallow_research`.
+- `tests/aiq_agent/agents/researcher/test_agent.py`: the full tool set
   is bound on every turn; there is no narrowed binding to fall into.
 - `tests/aiq_agent/common/test_turn_status.py`: the live status vocabulary
   carries no `routing.*` keys.
@@ -142,7 +143,7 @@ The two prompt-pinned behaviours, "a greeting does not search" and "a
 commissioned report escalates first", are model judgment and cannot be tested
 against a fake LLM. They are pinned by
 `tests/benchmarks/test_turn_shapes_live.py`: the real agent on the real prompt
-against the shallow model through OpenRouter, with stub tools that record the
+against the researcher's own model through OpenRouter, with stub tools that record the
 trace. It fails on a greeting whose trace shows a data-source call, on a report
 request whose trace shows a retrieval before the escalation, and on a control
 Baurecht question that does not retrieve. It runs weekly and on demand
@@ -190,5 +191,6 @@ the drift signal, not the merge gate.
   (deleted with this ADR); the bug it recorded, a valid persona answer discarded
   for an empty source registry, is resolved by the envelope carrying no
   `confidence` on a direct reply.
-- The graph: `src/aiq_agent/agents/chat_researcher/agent.py` (`_build_graph`,
-  `observed_routing`). The envelope: `src/aiq_agent/common/answer_envelope.py`.
+- The graph: `src/aiq_agent/agents/researcher/conversation.py`
+  (`_build_graph`); the observation: `ResearchAgentState.observed_routing`.
+  The envelope: `src/aiq_agent/common/answer_envelope.py`.

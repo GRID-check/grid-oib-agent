@@ -8,7 +8,7 @@ chat entrypoint reads that registry after the turn and attaches the cards to
 the response.
 
 This is the SYNCHRONOUS card channel: the answering agent emits cards from full
-context, as a visible tool step, on the shallow chat path. The async
+context, as a visible tool step, on the chat path. The async
 deep-research job runner has no card registry bound in its Dask worker, so it
 still derives cards post-hoc from the finished report via
 :func:`aiq_agent.cards.generate.generate_cards`. Both surfaces describe the same
@@ -58,7 +58,7 @@ place none: the reader scrolls past the drawings to reach the answer they asked 
 # where a card lands. Every line here is paid on every turn whether or not a card is emitted, so
 # the CRAFT — which card actually improves an ordinary answer, and how to tell the three
 # table-shaped cards apart — lives in the `<cards>` section of the researcher's system prompt
-# (`shallow_researcher/prompts/researcher.j2`), where the `piloti-cards` platform skill used to
+# (`researcher/prompts/researcher.j2`), where the `piloti-cards` platform skill used to
 # carry it before the house skills were folded into the prompts. A new card type earns a trigger
 # line in the shared doctrine; its craft paragraph belongs in that prompt section. The doctrine
 # itself moved to `catalog.py` when the post-hoc generator started rendering it too — a trigger

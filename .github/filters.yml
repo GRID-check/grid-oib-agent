@@ -12,7 +12,7 @@
 # Two families, because "what to TEST" and "what to BUILD INTO AN IMAGE" are
 # different questions about the same change:
 #
-#   backend / frontend / web / infra / retrieval
+#   backend / frontend / web / infra
 #       The test-and-lint scope. Deliberately WIDE: they include the harnesses,
 #       the Taskfile that defines the commands, and the composite actions, so a
 #       change to how a job runs cannot merge without that job running.
@@ -35,6 +35,11 @@
 backend:
   - 'src/**'
   - 'frontends/aiq_api/**'
+  # The offline eval harnesses. `be:test:ci` runs `tests/benchmarks/`, which
+  # imports them, so a harness-only change must still run the backend suite.
+  # It used to arrive here via the `retrieval` filter; that filter is gone
+  # (see below) and this line is what replaces it.
+  - 'frontends/benchmarks/**'
   - 'sources/**'
   - 'tests/**'
   - 'ci/**'
@@ -49,17 +54,16 @@ backend:
   - '.github/workflows/ci.yml'
   - '.github/filters.yml'
   - '.github/actions/**'
-# The retrieval regression gate: everything that decides how a
-# Punkt is cut, located or excluded, plus the harness and corpus.
-retrieval:
-  - 'sources/knowledge_layer/**'
-  - 'src/aiq_agent/common/german_text.py'
-  - 'src/aiq_agent/common/legal_terms.py'
-  - 'frontends/benchmarks/oib_retrieval/**'
-  - 'data/oib/**'
-  - 'Taskfile.yml'
-  - '.github/workflows/ci.yml'
-  - '.github/filters.yml'
+# There was a `retrieval:` family here, feeding the `retrieval-eval` job. Both
+# are gone: the gate measured the real OIB Richtlinien, and those became
+# operator-provided and gitignored (data/oib/README.md), so no CI checkout can
+# hold a corpus to measure. The paths it watched
+# (sources/knowledge_layer, common/german_text.py, common/legal_terms.py,
+# frontends/benchmarks/oib_retrieval) are all inside `backend:` — the last of
+# them only since the `frontends/benchmarks/**` line above, added here so
+# removing the filter did not leave the harness watched by nothing. So nothing
+# lost a filter; only the job went. See ci.yml's `ci-ok` comment and ADR-0044's
+# "Update (2026-09-09)".
 frontend:
   - 'frontends/ui/**'
   # The BFF's model-config tests read the workflow config (the agent

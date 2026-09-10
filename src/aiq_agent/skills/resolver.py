@@ -51,7 +51,7 @@ _REQUEST_TIMEOUT_SECONDS = 5.0
 #:
 #: Both names are DELIVERED, and they are delivered differently. The chat
 #: researcher resolves inside a live request and builds a ``SkillRuntime`` per
-#: turn (``shallow_researcher/register.py``). Deep research runs in a Dask worker
+#: turn (``researcher/register.py``). Deep research runs in a Dask worker
 #: with no request headers to read an organization off, so it resolves per RUN
 #: through :func:`resolve_served_skills`, keyed on an organization the job runner
 #: captured at submit time and put on the agent state — see
@@ -61,7 +61,35 @@ _REQUEST_TIMEOUT_SECONDS = 5.0
 #: one, which cost the product's longest answers its house voice in silence:
 #: naming an agent nothing resolves for is not a smaller mistake than naming an
 #: agent that does not exist, it is only a quieter one.
-KNOWN_AGENTS = frozenset({"shallow_researcher", "deep_researcher"})
+KNOWN_AGENTS = frozenset({"researcher", "deep_researcher"})
+
+#: Retired ``grid-agents`` names and the agent each one now means.
+#:
+#: ``shallow_researcher`` was renamed to ``researcher``. Skill authors write
+#: this key by hand and ten past migrations seeded it, so rows carrying the old
+#: name outlive the rename: the forward migration
+#: (``frontends/ui/drizzle/0081_grid_agents_researcher_rename.sql``) rewrites the
+#: ones we can see, and this map covers everything else — a row written by an
+#: older BFF mid-deploy, a restored backup, an org skill somebody re-imports.
+#:
+#: An alias, and not merely a second member of ``KNOWN_AGENTS``, because the
+#: failure it prevents is silent in BOTH directions. Left out entirely, an
+#: allowlist of only unknown names reads as absent (see ``_agent_allows``) and
+#: every chat-only skill would quietly become available to deep research too.
+#: Added as a known name instead, ``{"shallow_researcher"}`` would be a known
+#: set that does not contain ``researcher``, and the skill would vanish from
+#: chat. Normalising is the only reading that keeps the author's intent.
+#:
+#: Mirrored in ``frontends/ui/src/lib/skills/service.ts::skillTargetsAgent`` and
+#: ``frontends/ui/src/features/skills/lib/agent-scope.ts``; the three are a
+#: contract set and ``test_resolver.py`` / ``service.spec.ts`` /
+#: ``agent-scope.spec.ts`` pin them against the same case.
+AGENT_ALIASES: dict[str, str] = {"shallow_researcher": "researcher"}
+
+
+def canonical_agent(name: str) -> str:
+    """The current name for ``name``, following one retired alias."""
+    return AGENT_ALIASES.get(name, name)
 
 
 def _cache_ttl_seconds() -> float:
@@ -100,13 +128,21 @@ def _is_curated(skill: Skill) -> bool:
 
 
 def _agent_allows(skill: Skill, agent: str | None) -> bool:
-    """Respect the ``grid-agents`` metadata: absent = all agents."""
+    """Respect the ``grid-agents`` metadata: absent = all agents.
+
+    Both sides go through :func:`canonical_agent`: the stored names because a
+    row may predate the ``shallow_researcher`` → ``researcher`` rename, and the
+    caller's ``agent`` because a mid-deploy caller may still be asking under the
+    old name. Normalising only one side reintroduces the failure the alias
+    exists to prevent, in the opposite direction.
+    """
     if agent is None:
         return True
     allowed = skill.metadata.get("grid-agents")
     if not allowed:
         return True
-    names = {name.strip() for name in allowed.split(",") if name.strip()}
+    agent = canonical_agent(agent)
+    names = {canonical_agent(name.strip()) for name in allowed.split(",") if name.strip()}
     unknown = names - KNOWN_AGENTS
     if unknown:
         logger.warning(

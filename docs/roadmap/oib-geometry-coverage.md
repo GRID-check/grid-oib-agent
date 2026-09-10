@@ -2,7 +2,7 @@
 
 *Written 2026-08-12 against shipped code; operator rows re-verified 2026-08-13
 against `ifc_spatial.tools.MEASURE_FN` / `.FIRE_ASPECTS` and
-`aiq_agent.agents.bim.measure_register.VALID_OPERATIONS` / `.MEASURES`.*
+`aiq_agent.tools.bim.measure_register.VALID_OPERATIONS` / `.MEASURES`.*
 
 A row here names an operator an agent can actually call. „Library only" means
 the function exists and is tested and **no tool surface reaches it** — worth

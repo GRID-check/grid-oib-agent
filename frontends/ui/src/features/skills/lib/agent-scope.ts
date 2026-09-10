@@ -16,8 +16,36 @@
  * The agents that run skills. There is no third, and both resolvers IGNORE any
  * other name, so this list is the whole vocabulary a UI has to offer.
  */
-export const SKILL_AGENTS = ['shallow_researcher', 'deep_researcher'] as const
+export const SKILL_AGENTS = ['researcher', 'deep_researcher'] as const
 export type SkillAgent = (typeof SKILL_AGENTS)[number]
+
+/**
+ * Retired `grid-agents` names, and the agent each one now means.
+ *
+ * `shallow_researcher` became `researcher`. Authors write this key by hand and
+ * ten past migrations seeded it, so rows carrying the old name outlive the
+ * rename; `0081_grid_agents_researcher_rename.sql` rewrites the rows we can
+ * see and this map covers the rest.
+ *
+ * It must be an alias rather than a third entry in `SKILL_AGENTS`, and the
+ * reason is that BOTH other readings fail silently. Unknown, the name is
+ * ignored, and an allowlist of only ignored names reads as absent — a chat-only
+ * skill would quietly become available to deep research. Known, the allowlist
+ * would be `{shallow_researcher}`, which does not contain `researcher` — the
+ * skill would quietly vanish from chat instead.
+ *
+ * Mirrored in `lib/skills/service.ts::skillTargetsAgent` and in
+ * `src/aiq_agent/skills/resolver.py::AGENT_ALIASES`; the three are a contract
+ * set, pinned against the same case in each suite.
+ */
+const AGENT_ALIASES: Record<string, SkillAgent> = {
+  shallow_researcher: 'researcher',
+}
+
+/** The current name for `name`, following one retired alias. */
+export function canonicalAgent(name: string): string {
+  return AGENT_ALIASES[name] ?? name
+}
 
 export interface AgentScope {
   selected: SkillAgent[]
@@ -44,7 +72,10 @@ function isAgent(name: string): name is SkillAgent {
 }
 
 export function parseAgentScope(raw: string | undefined): AgentScope {
-  const listed = split(raw)
+  // Canonicalised first, so a row still saying `shallow_researcher` shows the
+  // scope its author chose instead of an "unknown name" the editor would then
+  // write back verbatim on the next save.
+  const listed = split(raw).map(canonicalAgent)
   const selected = listed.filter(isAgent)
   return {
     // No known name — including no key at all — means every agent.
@@ -73,7 +104,7 @@ export function formatAgentScope(scope: AgentScope): string {
  * would be the repeated chrome this UI has been stripping out.
  */
 export function agentScopeLabelKey(raw: string | undefined): 'chatOnly' | 'deepOnly' | null {
-  const known = split(raw).filter(isAgent)
+  const known = split(raw).map(canonicalAgent).filter(isAgent)
   if (known.length === 0 || known.length === SKILL_AGENTS.length) return null
-  return known[0] === 'shallow_researcher' ? 'chatOnly' : 'deepOnly'
+  return known[0] === 'researcher' ? 'chatOnly' : 'deepOnly'
 }

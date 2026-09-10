@@ -29,9 +29,11 @@ runs:
         PYTHON_VERSION: ${{ inputs.python-version }}
         # uv's default hard-link install leaves nltk's bundled corpora with
         # st_nlink>=2. nltk pathsec then refuses to open them (CWE-59), which
-        # is how llama-index's SentenceSplitter dies on the retrieval gate
-        # and on any production path that actually splits. Copy mode is the
-        # install that matches how those files have to be read.
+        # is how llama-index's SentenceSplitter dies on any path that actually
+        # splits — the retrieval harness (`task be:eval:retrieval`, now a local
+        # tool) is where it was first hit, and production splits too. Copy mode
+        # is the install that matches how those files have to be read.
+        # Symptom and the one-directory repair: docs/contributing/gotchas.md.
         UV_LINK_MODE: copy
       run: |
         uv venv --python "$PYTHON_VERSION" .venv

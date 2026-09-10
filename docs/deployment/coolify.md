@@ -296,7 +296,7 @@ preview exists. Public reachability comes entirely from the proxy + FQDN vars.
 
 The knowledge base is **purely volume-based** — there is no baked seed. Each
 fresh preview starts with an empty Chroma volume, so the backend ingests and
-**embeds the repo-shipped OIB corpus (`data/oib/*.pdf`) on first boot** — real
+**embeds whatever OIB corpus the operator has provided on first boot** — real
 OpenRouter embedding spend and a few minutes of warm-up, once per new volume
 (the persistent volume means a redeploy of the *same* environment reuses the
 already-embedded corpus and pays nothing).
@@ -362,17 +362,19 @@ baked into the image:
 > of truth). Nothing to migrate by hand; just expect the first boot after the
 > switch to ingest. Set `OIB_FORCE_REINGEST=true` once only if you want to force
 > a rebuild.
-- **Source PDFs + registry** — `data/oib/*.pdf` (committed to the repo as normal
-  git blobs, ~71 MB, so they ship in every image), admin uploads under
-  `data/oib_uploads/`, and `data/oib_registry.json` (a `pdf-path → sha256` map),
-  all on the `aiq-data` volume (`/app/data`).
+- **Source PDFs + registry** — `data/oib/*.pdf` (operator-provided; the
+  directory is gitignored and ships empty, so nothing is baked into the image),
+  admin uploads under `data/oib_uploads/`, and `data/oib_registry.json` (a
+  `pdf-path → sha256` map), all on the `aiq-data` volume (`/app/data`).
 
 On boot, `oib_sync` compares each PDF's hash to the registry and embeds only what
 is new or changed. Because both volumes persist across redeploys of the same
 environment, a **redeploy re-uses the already-embedded corpus and pays nothing**.
 A brand-new volume (first-ever deploy, or a fresh per-PR preview) has no registry
-yet, so the repo-shipped `data/oib/*.pdf` are embedded live on first boot — a
-one-time cost per new volume (§5).
+yet, so whatever PDFs the operator has provided are embedded live on first
+boot — a one-time cost per new volume (§5). A brand-new volume with no corpus
+yet costs nothing and answers nothing: the OIB knowledge base stays empty until
+the platform owner uploads it.
 
 > **Why no baked seed?** A previous version fetched a pre-embedded tarball at
 > build time (`OIB_SEED_URL` + an `oib-seed` Dockerfile stage) and restored it on
@@ -403,7 +405,7 @@ redeploys of the same environment; each preview gets its own set.
 > Both OIB volumes persist across redeploys of the same environment, so an
 > ingested corpus survives a redeploy — it is lost only if the volumes are
 > deleted (or a brand-new preview environment starts with empty volumes, in
-> which case the repo-shipped `data/oib/*.pdf` are re-ingested live on first
+> which case the operator-provided `data/oib/*.pdf` are re-ingested live on first
 > boot).
 
 ---

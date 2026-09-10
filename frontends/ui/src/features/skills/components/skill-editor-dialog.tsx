@@ -588,7 +588,7 @@ export function SkillEditorDialog({
                         // allowlist reads as "all agents" to both resolvers. So
                         // the last remaining box is held.
                         const last = checked && agents.selected.length === 1
-                        const key = agent === 'shallow_researcher' ? 'chat' : 'deep'
+                        const key = agent === 'researcher' ? 'chat' : 'deep'
                         return (
                           <Field
                             key={agent}

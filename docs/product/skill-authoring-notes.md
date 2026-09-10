@@ -21,7 +21,7 @@ The real path, end to end:
 | Discovery | `skills/builtin.py` | `builtin/<collection>/<name>/SKILL.md` is parsed **strictly**. A malformed frontmatter is a deployment error, not a skip. |
 | Validation | `skills/models.py` | `name` ≤64 chars and must equal the directory name; `description` ≤1024 chars, non-empty, **no angle brackets** (it lands in a system prompt); `grid-cards` is checked against the live card catalog and a typo raises at parse time. |
 | Resolution | `skills/resolver.py` | Per run: every non-`grid-catalog: curated` builtin, plus the org's rows from the BFF (which shadow builtins by name), then filtered by `grid-agents`. Fails **open** to the builtin set. |
-| Level 1 | `skills/runtime.py::prompt_block` | Renders `## Available skills` + one line per skill: `` - `name`: description ``, verbatim. This string becomes `state.skills_block` in the agent's system prompt (`agents/shallow_researcher/register.py`). |
+| Level 1 | `skills/runtime.py::prompt_block` | Renders `## Available skills` + one line per skill: `` - `name`: description ``, verbatim. This string becomes `state.skills_block` in the agent's system prompt (`agents/researcher/register.py`). |
 | Level 2 | `skills/runtime.py::build_tools` | A LangChain tool named `use_skill(skill_name)` returns the body. **The model must call it.** Nothing else loads a body. |
 | Forcing | `forced_block` | If the user pins a skill in the UI, a second block says it is active and MUST be loaded. This is the only non-model-driven path. |
 
@@ -50,7 +50,7 @@ Four consequences that matter more than any generic advice:
    overtriggering on questions where loading it wastes a turn. Verify with:
 
    ```python
-   SkillRuntime(SkillResolver(agent="shallow_researcher").resolve()).prompt_block()
+   SkillRuntime(SkillResolver(agent="researcher").resolve()).prompt_block()
    ```
 
    Read the block the model will actually read. It takes ten seconds and it is

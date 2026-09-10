@@ -428,6 +428,11 @@ def main() -> None:
                     "and restart the application.[/yellow]\n"
                 )
                 os._exit(1)
+    except ValueError:
+        # A removed provider (nim) or another fail-fast config error: boot must
+        # die loudly with the migration pointer, not limp on into a deep client
+        # failure. Anything else (unreadable file, bad YAML) stays fail-open.
+        raise
     except Exception as e:
         logger.debug(f"Failed to validate LLM config: {e}")
 

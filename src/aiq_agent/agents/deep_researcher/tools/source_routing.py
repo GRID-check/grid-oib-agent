@@ -101,15 +101,17 @@ class DomainCatalogRegistry:
 
     def domain_payloads(self, available_source_ids: set[str]) -> list[dict[str, Any]]:
         """Build catalog entries with source availability annotations."""
-        domains: list[dict[str, Any]] = []
-        for entry in self.config.domains:
-            configured_ids = set(entry.preferred_source_ids) | set(entry.fallback_source_ids)
-            domain = entry.model_dump(mode="json")
-            domain["preferred_source_ids"] = _filter_available(entry.preferred_source_ids, available_source_ids)
-            domain["fallback_source_ids"] = _filter_available(entry.fallback_source_ids, available_source_ids)
-            domain["unavailable_source_ids"] = sorted(configured_ids - available_source_ids)
-            domains.append(domain)
-        return domains
+        return [_domain_payload(entry, available_source_ids) for entry in self.config.domains]
+
+
+def _domain_payload(entry: DomainCatalogEntry, available_source_ids: set[str]) -> dict[str, Any]:
+    configured_ids = set(entry.preferred_source_ids) | set(entry.fallback_source_ids)
+    return {
+        **entry.model_dump(mode="json"),
+        "preferred_source_ids": _filter_available(entry.preferred_source_ids, available_source_ids),
+        "fallback_source_ids": _filter_available(entry.fallback_source_ids, available_source_ids),
+        "unavailable_source_ids": sorted(configured_ids - available_source_ids),
+    }
 
 
 def runtime_source_tools(
@@ -230,19 +232,21 @@ def build_lookup_source_catalog_tool(
     allowed_source_ids: Sequence[str] | None = None,
     domain_catalog_path: str | Path | None = None,
 ) -> BaseTool:
-    """Build the router-only source catalog lookup tool."""
+    """Build the router-only source catalog lookup tool.
+
+    The catalog is rendered ONCE, here: the tool set and the domain file are
+    fixed for the run, and the tool used to re-read and re-parse the YAML on
+    every call inside a synchronous tool.
+    """
+    catalog = json.dumps(
+        source_catalog_payload(tools, allowed_source_ids=allowed_source_ids, domain_catalog_path=domain_catalog_path),
+        indent=2,
+        ensure_ascii=False,
+    )
 
     @tool
     def lookup_source_catalog() -> str:
         """Return configured source domains, available source IDs, and exact source tool names."""
-        return json.dumps(
-            source_catalog_payload(
-                tools,
-                allowed_source_ids=allowed_source_ids,
-                domain_catalog_path=domain_catalog_path,
-            ),
-            indent=2,
-            ensure_ascii=False,
-        )
+        return catalog
 
     return lookup_source_catalog

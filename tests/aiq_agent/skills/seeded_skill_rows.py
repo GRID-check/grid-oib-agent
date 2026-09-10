@@ -5,7 +5,7 @@ place ``piloti-voice`` and ``piloti-cards`` exist in this repo: a row of SQL
 text on one side of the stack and a :class:`~aiq_agent.skills.models.Skill` on
 the other. Two suites need that translation and they must not disagree about
 it — ``test_seeded_platform_skills.py`` checks the rows parse and validate, and
-``agents/shallow_researcher/test_standard_skills_reach_the_model.py`` runs the
+``agents/researcher/test_standard_skills_reach_the_model.py`` runs the
 resolved skills through a real turn. A second parser would let one of them keep
 passing against text no database has held since the last update migration.
 

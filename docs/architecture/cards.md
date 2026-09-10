@@ -38,7 +38,7 @@ members survive only so stored threads keep rendering, and the flat variants
 live on the same components (`flat` prop) so the two renderings cannot drift
 (`features/chat/lib/answer-meta-cards.ts` maps the shapes). On the generation
 side the envelope is REQUESTED from the provider too, not only taught: the
-shallow agent walks an enforcement ladder per call — OpenRouter structured
+researcher walks an enforcement ladder per call — OpenRouter structured
 outputs (`json_schema`, strict, derived from the same Pydantic models by
 `render_envelope_response_format`), then `json_object`, then a plain request —
 on the tool-free forced-synthesis call, and on tool-bound iterations only
@@ -365,7 +365,7 @@ emit one, and everything already stored keeps working.
 
 Adding a type to the set does five things at once. All three emission paths refuse
 it — `emit_card` (`cards/register.py`), post-hoc batch generation (`validate_cards`
-in `cards/models.py`) and the DSML salvage (`shallow_researcher/dsml.py`) — and
+in `cards/models.py`) and the DSML salvage (`researcher/dsml.py`) — and
 `model_facing_card_types()` drops it from every advertised surface, so `L1`
 (`render_card_index`), `L2` (`render_card_details`, hence `describe_card` AND the
 `grid-cards` shapes block) and the worked example all go together.
@@ -448,7 +448,7 @@ reason is the same each time: they are not true there.
 The CRAFT — which card actually improves an ordinary answer, and how the
 verdict divides the ruling with the answer's first sentence — is in neither
 rendering. It lives in the `<cards>` and `<answer_meta>` sections of the
-researcher's system prompt (`shallow_researcher/prompts/researcher.j2`), where
+researcher's system prompt (`researcher/prompts/researcher.j2`), where
 the retired `piloti-cards` platform skill used to carry it: a forced skill's
 body only reached the model through a `use_skill` call it could skip, and the
 prompt is unconditional. The post-hoc path cannot read a prompt meant for the
@@ -470,7 +470,7 @@ submission.
 Two content cards is the doctrine's ceiling. For a long time it was also
 unreachable, for a reason that had nothing to do with the doctrine.
 
-The shallow agent forces synthesis at `tool_iteration_ceiling`
+The researcher forces synthesis at `tool_iteration_ceiling`
 (`max_tool_iterations`, five in production, plus a reserve sized to the standard
 skills the deployment forces on every turn), and every tool call was charged to
 it — `emit_card` and `describe_card` included. Those are the answer's OUTPUT
@@ -489,7 +489,7 @@ generous reading on purpose: it decides only when a card starts costing
 research, never how many cards an answer should carry. It is a CEILING on the
 exemption rather than a second budget: a call past it is charged to research
 again, so the tool loop still terminates where it always did. The counter is
-`interaction_iterations` on the shallow agent's state, per turn.
+`interaction_iterations` on the researcher's state, per turn.
 
 The rule this leaves is the one that was always meant to be in force: how many
 cards an answer carries is a judgement about the answer, decided by the doctrine
@@ -504,7 +504,7 @@ front of the answering agent), so whether a turn ships a card is decided by
 what the answer has to show, never by a label given before the answer.
 
 This used to be contradictory rather than decided: when the intent classifier
-still existed, the shallow prompt's meta output contract said "no tool calls"
+still existed, the researcher prompt's meta output contract said "no tool calls"
 while the `<cards>` block six lines below sat outside both `requires_sources`
 guards and told the model to emit one. The mandatory-sounding half won, and a
 Baurecht question that classified `meta` — „Wie läuft das
@@ -531,7 +531,7 @@ never got the card named, versus a shape the model cannot fill in), so every exi
 in `_emit` now logs: refusals at `warning` naming the card TYPE the model reached
 for, the success at `info` as before.
 
-Because the doctrine lives on the tool, the shallow researcher's `<cards>` block
+Because the doctrine lives on the tool, the researcher's `<cards>` block
 no longer restates it. It points at the `emit_card` description and keeps only
 what is true of cards but not of the tool — cards are in addition to the written
 answer, so always write the prose too; and if asked whether Grid can render
@@ -596,7 +596,7 @@ the model nothing it has not already written. A group giving both is refused by
 the Pydantic validator — the renderer would have to pick, and either choice
 silently discards half the request.
 
-Emitting one is not optional politeness: the shallow researcher's `<cards>`
+Emitting one is not optional politeness: the researcher's `<cards>`
 block asks for the matching card by default on any answer that came from
 `ifc_query`, and names which card goes with which operation. That is the one
 part of the trigger doctrine that stayed in the prompt rather than moving to the
@@ -788,7 +788,7 @@ without re-plumbing generation or transport.
    exactly how fifteen schematic cards sat behind a disclaimer. A trigger line,
    and only a trigger line: the paragraph explaining when the card earns its
    place belongs in the `<cards>` section of the researcher prompt
-   (`shallow_researcher/prompts/researcher.j2`). A token ceiling on the tool
+   (`researcher/prompts/researcher.j2`). A token ceiling on the tool
    description fails if the doctrine drifts back into carrying craft.
 7. For a **system** card (tool-emitted, never model-emitted): add it to
    `SYSTEM_CARD_TYPES` and register the emitting tool in the agent's `tools:`
@@ -919,10 +919,10 @@ instead. Next phases: a 3D massing card
   researcher's own prompts have no `<cards>` block at all — it holds `emit_card`
   with nothing but the tool description to go on. That description is a much
   better thing to hold since it gained the doctrine, but the doctrine names no
-  IFC trigger (that guidance stayed in the shallow prompt, above), so a deep
+  IFC trigger (that guidance stayed in the researcher prompt, above), so a deep
   answer about the building still comes back as prose with element links.
   Closing this means giving
-  the deep researcher the same `<cards>` guidance the shallow one now has, not
+  the deep researcher the same `<cards>` guidance the researcher now has, not
   relaxing the post-hoc restriction, which would only license invented ids.
 - A silent card-generation failure is currently indistinguishable from "no cards";
   emission should surface failures.

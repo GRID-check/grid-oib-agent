@@ -331,7 +331,7 @@ _ACTION_KEYS = {
 _QUERY_KEYS = ("query", "search_query", "question", "q", "text", "name_contains")
 
 #: Function-group separators used by NAT-qualified tool names (mirrors
-#: ``shallow_researcher.agent._TOOL_NAME_SEPARATORS``).
+#: ``researcher.agent._TOOL_NAME_SEPARATORS``).
 _TOOL_NAME_SEPARATORS = ("__", ".")
 
 
@@ -517,7 +517,7 @@ def emit_answer_repair(*, removed_citations: int, unverified_quotes: int) -> Non
 
 
 def emit_escalation(reason: str | None = None) -> None:
-    """Shallow → deep, announced at the moment the router decides it.
+    """Chat answer → deep research, announced at the moment the router decides it.
 
     Deep research is minutes, not seconds. A reader who is told the short
     answer was not good enough is waiting; one who is not is wondering whether

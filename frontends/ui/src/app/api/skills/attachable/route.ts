@@ -2,7 +2,7 @@
  * The job builder's skill picker — the skills a job with this output kind may
  * attach (`GET /api/skills/attachable?output=chat|deep-research`).
  *
- * `chat` runs on `shallow_researcher` and `deep-research` on `deep_researcher`,
+ * `chat` runs on `researcher` and `deep-research` on `deep_researcher`,
  * and availability comes from `grid-agents` — the one gate. Offering a skill
  * the chosen output cannot run would be offering a job that fails at fire time,
  * which is precisely what consolidating availability onto that key prevents.

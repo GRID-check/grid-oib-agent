@@ -43,7 +43,7 @@ Browser WebSocket
       • ALSO sets the signed X-Grid-Request-Context envelope (below)
       • proxies the upgrade to the aiq-agent backend
   → NAT workflow  chat_deepresearcher_agent
-      LangGraph:  shallow_research  (entry on EVERY turn, full tool set bound)
+      LangGraph:  shallow_research  (the researcher; entry on EVERY turn, full tool set bound)
                     ├─ envelope.escalate_to_deep → clarifier → deep_research → END
                     └─ otherwise                 → END
 
@@ -55,9 +55,9 @@ Browser WebSocket
     the model's own clause). A commissioned report escalates immediately,
     without a retrieval first.
 
-    Note: the shallow node doubles as the conversational assistant, so the UI
+    Note: the researcher doubles as the conversational assistant, so the UI
     presents it neutrally as "Assistant" (getDisplayName in
-    intermediate-step-parser.ts), not "Shallow Research Agent" — a greeting is
+    intermediate-step-parser.ts), not "Research Agent" — a greeting is
     not a research run.
   → response streamed back through the MONKEYPATCHED WS handler
       frontends/aiq_api/src/aiq_api/websocket_reconnect.py
@@ -67,8 +67,10 @@ Browser WebSocket
 ```
 
 Key files:
-- Graph build: `src/aiq_agent/agents/chat_researcher/agent.py` (`_build_graph`, nodes).
-- Workflow registration + response creation: `src/aiq_agent/agents/chat_researcher/register.py`.
+- Graph build: `src/aiq_agent/agents/researcher/conversation.py` (`_build_graph`,
+  nodes). The escalation edge and the conversation-scoped state belong to the
+  researcher; the workflow only wires them up.
+- Workflow registration + response creation: `src/aiq_agent/agents/researcher/conversation_register.py`.
 - WS wire types (NAT, vendored): `.venv/Lib/site-packages/nat/data_models/api_server.py`
   — `ChatResponse` and the WS message models are `extra="allow"`, so extra
   fields (cards, deep_research_job_id) survive serialization.
@@ -90,32 +92,34 @@ so the frontend can read them at `message.<field>` (not nested under
 
 **Transparency extras (WP-A).** The same lift carries a family of optional,
 additive "why did the turn behave this way?" signals. Each rides
-`register._STREAM_EXTRA_FIELDS` onto the terminal `ChatResponseChunk`
-(`_response_to_chunks`), then `websocket_reconnect.py` lifts it onto the terminal
+`turn.streaming.STREAM_EXTRA_FIELDS` onto the terminal `ChatResponseChunk`
+(`response_to_chunks`), then `websocket_reconnect.py` lifts it onto the terminal
 `system_response` message via `_TRANSPARENCY_EXTRA_FIELDS` / `_pull_response_extra`.
 All are **absent unless applicable** (never null-spammed) and reset at the turn
-boundary in `ChatResearcherAgent.run()`:
+boundary in `ConversationGraph.run()`:
 
 - `routing_decision` (`meta`/`shallow`/`deep`/`error`) — which path the turn
-  took, OBSERVED after the answer (`chat_researcher.agent.observed_routing`):
+  took, OBSERVED after the answer
+  (`ResearchAgentState.observed_routing`, a derived property of the
+  finished research state):
   `meta` when the agent consulted no data source and gave no self-assessment,
   `shallow` otherwise, `deep` set by the clarifier hand-off, `error` on a
   failed turn. Nothing decides it up front (ADR-0052), so there is no
   `routing_reason`.
 - `escalation_reason` — set by the clarifier node only on a shallow→deep
-  escalation, and only from the structured `ShallowResult.escalation_reason`
-  carried by the shallow agent's envelope (`escalate_to_deep` plus the model's
+  escalation, and only from the structured `escalation_ask_reason` the
+  answering node wrote from the researcher's envelope (`escalate_to_deep` plus the model's
   own one-clause `escalation_reason`). There is no keyword/prose fallback: a substring match on the answer tail ("nicht
   finden", "weitere Recherche erforderlich") false-positived on successful
   German legal answers and surprise-escalated them to deep research. Likewise
-  an empty/missing shallow answer is a generation failure — the node answers
+  an empty/missing answer is a generation failure — the node answers
   with the standard retry-able error (`escalate_to_deep=False`) instead of
   deep-escalating on a bug.
 - `answer_confidence_reason` (≤300 chars) — the model's own one-clause
-  justification. The shallow researcher may append `| <reason>` to its terminal
+  justification. The researcher may append `| <reason>` to its terminal
   `[CONFIDENCE:<level>]` marker (`researcher.j2`); `markers.py` parses it
   (fail-open: an invalid level discards level AND reason, the reason is trimmed
-  and capped), and `_finalize_shallow_answer` carries it as
+  and capped), and `conversation.py::_finalize_answer` carries it as
   `answer_confidence_reason` alongside the level. Escalated turns drop it.
 - `answer_confidence_capped_reason` (`"ungrounded" | "quote_unverified" |
   "normative_claim_uncited" | "measurement_only" | "citation_fallback"`) — set when
@@ -132,7 +136,7 @@ boundary in `ChatResearcherAgent.run()`:
   - `"normative_claim_uncited"` / `"measurement_only"` — the two reasons about
     the SECOND kind of grounding, below.
   - `"citation_fallback"` — the answer's only citation is the single registry
-    source the shallow agent appended when nothing the model wrote survived
+    source the researcher appended when nothing the model wrote survived
     verification (`_append_minimal_citation`). The registry is cumulative across
     the conversation, so that source may have been retrieved on an earlier turn
     for a different question: it is treated exactly like a measurement (ceiling
@@ -145,10 +149,10 @@ boundary in `ChatResearcherAgent.run()`:
   a readable `method` and the GlobalIds it was derived from
   (`ifc_spatial.envelope.Answer`) — so a correctly measured number was capped to
   `"low"` for lacking evidence it structurally cannot have. Two extra signals
-  travel from the shallow researcher alongside `answer_citation_grounded`:
+  travel from the researcher alongside `answer_citation_grounded`:
   - `answer_measurement_grounded` — this turn produced at least one
-    `declared`/`computed` `ifc_measure` answer. Written by the shallow agent's
-    tools node (a sticky OR across the tool loop; `shallow_researcher/grounding.py`
+    `declared`/`computed` `ifc_measure` answer. Written by the researcher's
+    tools node (a sticky OR across the tool loop; `researcher/grounding.py`
     decides what counts — a refusal, an outage, an `inferred` guess and a
     `decidable: false` finding all do not). Lifts the surfaced confidence off the
     `"low"` floor to at most `"medium"`; `"high"` still requires a verified
@@ -185,7 +189,7 @@ boundary in `ChatResearcherAgent.run()`:
   **What counts as a measurement.** `ifc_measure`'s renderer states it: a result
   from an operation that could measure something ends with a line reporting how
   many QUANTITIES in it carry a `declared`/`computed` provenance
-  (`agents/bim/measurement_evidence.py`), and the gate reads that count. It used
+  (`tools/bim/measurement_evidence.py`), and the gate reads that count. It used
   to search the result for „gemessen" / „deklariert" instead, which three
   renderers write into prose explaining why NOTHING could be measured
   („gemessen: raumhoehe an 0 von 3 Bauteilen") — so a refusal granted
@@ -275,7 +279,7 @@ client  user_message  content.text = {"query": …, "data_sources": […],
            • format_context_turn()  → "Anna Weber: <text>", capped at 4000 chars
            • append_conversation_context()  → the registered appender
       4. continue  ← no process_workflow_request, no socket registration
-  → ChatResearcherAgent.append_context_message()
+  → ConversationGraph.append_context_message()
       graph.aupdate_state({thread_id}, {"messages": [HumanMessage(...)]})
 ```
 
@@ -287,7 +291,7 @@ next real turn's `ainvoke` then reads the ingested turns as ordinary history.
 Key pieces:
 - Wire parse, char caps, appender registry: `src/aiq_agent/conversation_context.py`.
 - The appender is *published*, not imported: `aiq_api` owns the socket and
-  `aiq_agent` owns the graph, so `chat_researcher/register.py` calls
+  `aiq_agent` owns the graph, so `researcher/conversation_register.py` calls
   `register_context_appender(agent.append_context_message)` where the compiled graph
   (and its checkpointer) exists.
 - Fail-soft throughout. A missing appender, a dead checkpointer or a raising append is
@@ -405,7 +409,7 @@ Intake wizard answers
   → /api/websocket-scope reads profile_prompt_view → returns projectContext
   → server.js sets header  x-grid-project-context  on the WS upgrade
   → src/aiq_agent/project_context.py reads the header (truncated to 4000 chars)
-  → chat_researcher/register.py sets state.project_context
+  → researcher/conversation_register.py sets state.project_context
   → injected into every prompt: all *.j2 have {% if project_context %}{{ project_context }}
 ```
 
@@ -449,7 +453,7 @@ projection) uses the same labels.
 
 The agent keeps the brief current by emitting a `project_profile_patch` card
 (via `emit_card`) whenever the conversation establishes a durable hard fact —
-the shallow-researcher prompt has an explicit "Keeping the Project Brief
+the researcher prompt has an explicit "Keeping the Project Brief
 current" policy, and the card model carries the canonical fact-key vocabulary
 (`PROFILE_FACT_VOCABULARY` in `cards/models.py`, mirroring the intake
 definition). The card only proposes: the user's Accept posts the JSON-Patch to
@@ -619,8 +623,8 @@ alone.
 **The subject is also a prompt fact, not only a retrieval hint.** Scoping
 retrieval to the right file answers "where do I look"; it does not answer "what
 is *this document*". `register.py` lifts the turn ContextVars onto
-`ChatResearcherState.focus_file_name` / `.focus_shelf`, the graph carries them
-into `ShallowResearchAgentState`, and the answering prompt (`researcher.j2`
+`ConversationState.focus_file_name` / `.focus_shelf`, the graph carries them
+into `ResearchAgentState`, and the answering prompt (`researcher.j2`
 §"This turn's subject") names the file — so a bare "fass zusammen" has an
 antecedent. Without that the model asked which document the user meant while
 the composer bar on screen said exactly which one, and retrieval's correct
@@ -649,7 +653,7 @@ double LLM failure" below for the fix that closed the practical case of
 this.
 
 `available_documents` is fetched **once per turn**, in
-`chat_researcher/register.py`, aggregated across the collections in the
+`researcher/conversation_register.py`, aggregated across the collections in the
 request's header-based scope (or the base + session collection fallback when
 no scope header is present). Identity is `(collection, file_name)` — the same
 filename on the Büroarchiv and in a project is two documents (ADR-0047). The
@@ -659,7 +663,7 @@ sort-then-slice let ~40 OIB filenames eat the window and made "welche Dateien
 hast du im Büroarchiv" answer from Basiswissen. The prompt block is grouped
 by shelf (`aiq_agent.knowledge.inventory.render_inventory_block`) and empty
 in-scope shelves render as empty rather than being omitted. The same list is
-then shared by the shallow, clarifier, and deep-research paths for that turn
+then shared by the researcher, clarifier, and deep-research paths for that turn
 — it is not re-fetched per node.
 
 **Prompt gating asymmetry — fixed 2026-07-16 (`77a4d7a`)**: the deep-research
@@ -668,8 +672,8 @@ prompts (`agents/deep_researcher/prompts/planner.j2`,
 `agents/deep_researcher/prompts/researcher.j2`, and
 `agents/deep_researcher/prompts/source_router.j2`) used to gate document
 *awareness* purely on `available_documents` being non-empty, unlike the
-shallow researcher's unconditional "use `knowledge_search` first" instruction
-(`agents/shallow_researcher/prompts/researcher.j2:31`). The document
+researcher's unconditional "use `knowledge_search` first" instruction
+(`agents/researcher/prompts/researcher.j2:31`). The document
 *listing* block is still wrapped in `{% if available_documents %}` (nothing
 to list when the document_metadata table has no row), but `planner.j2` and
 `researcher.j2` now separately instruct the agent to probe `knowledge_search`
@@ -697,7 +701,7 @@ at indexing and is the wrong place to look.
 
 The prompts therefore label the block "Knowledge-base inventory (index — NOT
 sources)" and state that a filename is not citable until a retrieval result has
-returned a passage from it (`shallow_researcher/prompts/researcher.j2`,
+returned a passage from it (`researcher/prompts/researcher.j2`,
 `deep_researcher/prompts/{researcher,orchestrator}.j2`); the anti-memory rule in
 `<citation_format>` covers document citation keys and not only URLs, and the
 prompt no longer tells the model that verification will sort the references out
@@ -1055,7 +1059,7 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    `deleteDerivedObjects` (`lib/documents/object-cleanup.ts`). One turn may
    call the tool at most `MAX_IMAGE_VIEWS_PER_TURN` times (6,
    `common/image_view_budget.py`, a per-turn ContextVar bound beside the card
-   registry in `chat_researcher/register.py`); past that it answers with a
+   registry in `researcher/conversation_register.py`); past that it answers with a
    text block. Because the SeaweedFS `storage_key` lives only in the frontend's
    `documents` table, the tool resolves `(collection, filename)` through a new
    token-guarded BFF route `GET /api/internal/document-file`
@@ -1145,7 +1149,7 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   the curated `binding_note` lines, a static OIB-corpus citation note, and the
   project applicability section (`applicability.render_project_block`). The
   Normenhierarchie doctrine itself is one constant (`NORM_DOCTRINE`) injected
-   into the shallow-researcher, deep-researcher, planner, and writer templates
+   into the researcher, deep-researcher, planner, and writer templates
    as `{{ norm_doctrine }}`.
 - **Jurisdiction** — `resolve_country(project_context)` regexes the structured
    `country=<cc>` fact from the prompt text (`at`/`de`/`ch`/`other`, authored
@@ -1221,7 +1225,7 @@ same thing.
 | "How many external walls on the ground floor?" | `lib/bim/query.ts` → SQL over `bim_elements`. A `COUNT(*)` with a `WHERE`; an LLM summing forty thousand elements from retrieved prose is a fact turned into a guess. |
 
 The agent reaches the second through the `ifc_query` tool
-(`src/aiq_agent/agents/bim/register.py`), which posts to
+(`src/aiq_agent/tools/bim/register.py`), which posts to
 `POST /api/internal/bim/query` with the shared service token — the same
 single-writer separation the `remember` tool uses. Models are addressed by
 project and file name; no UUID travels through a conversation.
@@ -1424,7 +1428,7 @@ answer are unaffected, and the fallback says so.
 
 - The `deep_research` graph node submits a Dask job and returns the stub message
   **plus** a structured `deep_research_job_id` (added in this pass), threaded
-  through `ChatResearcherState` → `ChatResponse.deep_research_job_id` → monkeypatch
+  through `ConversationState` → `ChatResponse.deep_research_job_id` → monkeypatch
   → `message.deep_research_job_id`.
 - The frontend (`use-websocket-chat.ts`) opens the research panel from the
   **structured field** (`deepResearchJobId`), falling back to the old prose regex
@@ -1440,7 +1444,7 @@ runner). And the research tab can 403 — see §9.
 
 **Collection-scope re-injection gap — now diagnosable (fixed 2026-07-16,
 `f8093a0`)**: the `X-Grid-Collection-Scope` header is captured once at submit
-time (`chat_researcher/register.py`) and threaded into the async job payload
+time (`researcher/conversation_register.py`) and threaded into the async job payload
 as `collection_scope`. The Dask worker only re-injects it into its own
 request context conditionally — `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
 does `if collection_scope is not None:` before base64url-encoding it back
@@ -1467,7 +1471,7 @@ in `grid_app` (`FOR UPDATE SKIP LOCKED`) and fires through the BFF's internal
 endpoint into `POST /v1/internal/skills/submit` (internal-token-guarded wrapper
 around `submit_agent_job`, so admission control and cost tracking apply
 unchanged). The agent follows the job's `output` (`chat` →
-`shallow_researcher`, `deep-research` → `deep_researcher`), and the submitted
+`researcher`, `deep-research` → `deep_researcher`), and the submitted
 job carries `force_skills` — the attached skill's name, or an empty list when
 the prompt runs alone. A `chat` job additionally carries a `conversation_id`,
 and the worker writes the question and answer into that thread at completion
@@ -1490,10 +1494,13 @@ Soll-Ist-Abgleich through this open-ended deep-research harness — see §8c.
 ## 8. Backend agent architecture & DRY debt
 
 Registered agents (via NAT `@register_function` + `FunctionBaseConfig`):
-`chat_deepresearcher_agent` (entrypoint), `clarifier_agent`,
-`shallow_research_agent`, `deep_research_agent` (+ eval/placeholder wrappers).
+`chat_deepresearcher_agent` (entrypoint), `shallow_research_agent`,
+`deep_research_agent` (+ eval/placeholder wrappers). The clarifier is no longer
+among them: it is a step of the conversation graph
+(`researcher/clarify.py`) configured by the `clarifier:` block on
+`chat_deepresearcher_agent`.
 
-No shared base-agent class exists; four agent classes each repeat: tool
+No shared base-agent class exists; the remaining agent classes each repeat: tool
 resolution/exclusion, `LLMProvider` construction, verbose/trace callback setup,
 per-request data-source-filtered rebuild, tool-availability validation, and
 prompt-loading fallbacks. Good shared primitives already live in
@@ -1540,9 +1547,9 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   `{agentGroup: openrouterModelId}`) is parsed by
   `src/aiq_agent/common/model_overrides.py` and applied request-scoped:
   `LLMProvider.with_model_overrides()` (group-tagged roles; identity when
-  nothing applies) in the shallow/deep/clarifier `_run` closures, plus
-  `apply_model_override()` at the clarifier planner and the reflection
-  scheduling site. Async jobs carry
+  nothing applies) in the researcher/deep `_run` closures and in
+  `clarify.Clarifier.deps_for`, plus `apply_model_override()` at the clarifier
+  planner and the reflection scheduling site. Async jobs carry
   the map through `submit_agent_job` → `jobs/runner.py` (provider + header
   re-injection). Only the model id changes; params/keys stay from YAML. When
   no header/envelope carries the map (e.g. the generic async-job proxy before

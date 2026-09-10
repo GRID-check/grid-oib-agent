@@ -72,7 +72,7 @@ many tenants concurrently and module state leaks across both turns and tenants.
 
 `cards/registry.py` and `common/citation_verification.py` are the reference
 pair; `common/cost_tracking.py`, `common/profiler.py` and
-`agents/bim/measurement_sources.py` follow it.
+`tools/bim/measurement_sources.py` follow it.
 **Enforced by:** review.
 
 ## Idempotent global registration

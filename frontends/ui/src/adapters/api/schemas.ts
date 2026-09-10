@@ -251,7 +251,7 @@ export const NATGenerateResponseContentSchema = z.object({
 
 /**
  * Wire cap for `answer_confidence_reason`, mirroring the backend's
- * `_CONFIDENCE_REASON_MAX_CHARS` (`shallow_researcher/markers.py`) and the
+ * `_CONFIDENCE_REASON_MAX_CHARS` (`researcher/markers.py`) and the
  * documented protocol limit (`docs/api/websocket-protocol.md`). A longer value
  * is a contract violation and degrades to "absent".
  */

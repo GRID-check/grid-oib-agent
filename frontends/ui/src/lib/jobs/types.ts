@@ -42,7 +42,7 @@ export const KNOWLEDGE_SOURCE_ID = 'knowledge_layer'
  * must never be able to attach a skill its chosen output kind cannot run.
  */
 export const AGENT_FOR_OUTPUT: Record<JobOutput, KnownSkillAgent> = {
-  chat: 'shallow_researcher',
+  chat: 'researcher',
   'deep-research': 'deep_researcher',
 }
 

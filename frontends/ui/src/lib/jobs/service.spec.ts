@@ -545,9 +545,9 @@ describe('fireScheduledJob', () => {
 })
 
 describe('listAttachableSkills', () => {
-  it('resolves chat against the shallow researcher and deep-research against the deep one', async () => {
+  it('resolves chat against the researcher and deep-research against the deep one', async () => {
     await listAttachableSkills(session, 'chat')
-    expect(resolveSelectableSkills).toHaveBeenCalledWith('org_1', 'shallow_researcher')
+    expect(resolveSelectableSkills).toHaveBeenCalledWith('org_1', 'researcher')
     await listAttachableSkills(session, 'deep-research')
     expect(resolveSelectableSkills).toHaveBeenCalledWith('org_1', 'deep_researcher')
   })

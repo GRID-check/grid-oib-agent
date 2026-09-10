@@ -162,7 +162,7 @@ Chat is **WebSocket-only** (ADR 0009). A turn runs through a LangGraph workflow
 full tool set → (escalate?) → clarifier → deep research** (ADR-0052). There is
 no classifier in front of it: the agent decides per turn, in its answer
 envelope, whether to reply directly, to research and cite, or to hand off to
-deep research. Shallow research answers directly from retrieval; deep research is
+deep research. Research answers directly from retrieval; deep research is
 dispatched as an async job (§5.5). Responses stream back through a monkeypatched
 NAT WebSocket handler that lifts structured fields (cards, deep-research job id)
 onto the message. → `docs/architecture/backend-deep-dive.md` §2.
@@ -401,4 +401,4 @@ What lives where in the checkout.
 | `skills/` | API-consumer skill examples |
 | `scripts/` | Utility scripts, including `scripts/ingest_oib.py` |
 | `releasenotes/` | reno release notes — one YAML file per user-visible change, published to piloti.at/changelog |
-| `data/oib/` | OIB Richtlinien PDFs, tracked with Git LFS |
+| `data/oib/` | Where the OIB Richtlinien PDFs go. Operator-provided and gitignored: the directory ships empty and is filled by an admin upload or by dropping files in before first boot |

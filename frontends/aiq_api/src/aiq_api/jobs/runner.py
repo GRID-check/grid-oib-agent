@@ -636,7 +636,7 @@ def _resolve_worker_tool_refs(fn_config: Any) -> list[str]:
     while validation elsewhere reported the inherited tools as available. This
     matches the two other resolution sites (the sync agent build in
     deep_researcher/register.py and the chat-route validator in
-    chat_researcher/register.py), which both treat an empty list as "inherit".
+    researcher/conversation_register.py), which both treat an empty list as "inherit".
     """
     tool_refs = getattr(fn_config, "tools", None)
     if not tool_refs:
@@ -763,8 +763,8 @@ async def _create_llm_provider(builder: Any, fn_config: Any) -> tuple[Any, Any]:
             if llm_ref not in llm_cache:
                 llm_cache[llm_ref] = await get_langchain_llm(builder, llm_ref)
             default_llm = llm_cache[llm_ref]
-            if getattr(fn_config, "type", None) == "shallow_research_agent":
-                default_group = AgentGroup.SHALLOW_RESEARCH
+            if getattr(fn_config, "type", None) == "research_agent":
+                default_group = AgentGroup.RESEARCH
 
     provider = LLMProvider()
     provider.set_default(default_llm, group=default_group)
@@ -1191,7 +1191,7 @@ async def run_agent_job(
 
             # WHAT the project already knows. The chat path fetches a live digest
             # per turn and falls back to the connection-time one only on failure
-            # (chat_researcher/register.py); the same discipline here, with the
+            # (researcher/conversation_register.py); the same discipline here, with the
             # BFF-built `project_memory` as the frozen fallback. A successful
             # fetch is authoritative even when empty — memory may have been
             # cleared since the job fired.
@@ -1394,7 +1394,7 @@ async def run_agent_job(
                     # - Grid response cards, re-emitted with the report artifact.
                     #   Additive: card failures never fail the job.
                     # - Project-memory reflection. The chat path runs this
-                    #   post-answer for shallow/meta turns but skips deep jobs
+                    #   post-answer for chat/meta turns but skips deep jobs
                     #   (the report exists only now). Awaited, guarded and
                     #   fail-open — the user already has the report, so this
                     #   never affects the job outcome, only its bookkeeping.
@@ -1697,7 +1697,7 @@ def _create_agent_instance(
     except TypeError:
         pass
 
-    # Try llm_provider + tools pattern (ShallowResearcherAgent style)
+    # Try llm_provider + tools pattern (ResearcherAgent style)
     try:
         return agent_cls(
             llm_provider=llm_provider,
@@ -1876,7 +1876,7 @@ def _get_agent_state_class(agent) -> type | None:
 def _bound_card_registry() -> Iterator[CardRegistry]:
     """Bind a fresh per-job ``CardRegistry`` for the agent run, and unbind it after.
 
-    The chat turn does the same around ``agent.run`` (``chat_researcher/register.py``),
+    The chat turn does the same around ``agent.run`` (``researcher/conversation_register.py``),
     with a conversation-scoped registry it clears per turn. A job has no
     conversation of its own to key on and runs once, so a fresh registry is the
     per-turn state here — the ``ContextVar`` rule in ``src/aiq_agent/AGENTS.md``.
@@ -1958,8 +1958,8 @@ async def _run_deep_research_reflection(
     """Best-effort project-memory reflection over a finished deep-research report.
 
     The synchronous chat path runs a post-answer reflection stage for
-    shallow/meta turns but deliberately skips deep-research jobs (see
-    chat_researcher/register.py, ``not deep_research_job_id``) because the report
+    chat/meta turns but deliberately skips deep-research jobs (see
+    researcher/conversation_register.py, ``not deep_research_job_id``) because the report
     does not exist until the async job completes. This closes that gap on the
     worker, where the report and the submitting identity are both in hand.
 
@@ -1986,7 +1986,6 @@ async def _run_deep_research_reflection(
         # (audit finding S1); an org-only job has nothing it may safely record.
         return
     try:
-        from aiq_agent.agents.project_memory.reflection import run_memory_reflection
         from aiq_agent.common import AgentGroup
         from aiq_agent.common import apply_model_override
         from aiq_agent.common import apply_org_credential
@@ -1995,6 +1994,7 @@ async def _run_deep_research_reflection(
         from aiq_agent.common.cost_tracking import BudgetSnapshot
         from aiq_agent.common.cost_tracking import track_llm_costs
         from aiq_agent.common.profiler import track_agent_profile
+        from aiq_agent.memory.reflection import run_memory_reflection
         from aiq_agent.stages.memory_reflection import REFLECTION_TIMEOUT_S
 
         reflection_llm = await get_langchain_llm(builder, reflection_llm_ref)
@@ -2174,7 +2174,7 @@ def _extract_answer_transparency(result: Any) -> dict[str, Any]:
 
     # The answer's own self-assessment, read here so it rides the SAME dict to
     # the same two surfaces instead of growing a second lift with its own bugs.
-    # The three travel together on purpose: the shallow path has always sent the
+    # The three travel together on purpose: the chat path has always sent the
     # level with its reason, because "niedrig" alone tells a reader their answer
     # might be wrong and nothing about what to check, and a level whose reason
     # was dropped in transport is the exact complaint that pairing exists to

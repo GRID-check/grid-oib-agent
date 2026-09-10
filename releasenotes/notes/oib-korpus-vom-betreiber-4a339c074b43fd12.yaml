@@ -1,0 +1,14 @@
+---
+other:
+  - >
+    The OIB Richtlinien are no longer shipped with the software. A new
+    installation starts with an empty knowledge base, and whoever operates the
+    platform loads the documents once, either through the administration area or
+    by placing them on the server before first start. Existing installations keep
+    the documents they have already indexed and need to do nothing.
+upgrade:
+  - >
+    Before deploying to a brand-new volume, make sure the OIB documents are
+    available to the platform. Until they are loaded, Piloti will answer
+    questions about your own project documents but will find nothing in the
+    building regulations.

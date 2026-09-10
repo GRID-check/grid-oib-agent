@@ -147,7 +147,7 @@ into `project_context` (`compose_project_context`), whose answering prompt tells
 the model to treat confirmed facts as *binding constraints it must never
 contradict*. That rule is meant for the intake profile; inherited by agent-authored
 `unverified` notes it turns stale memory into something the agent defends. The
-answering prompt (`shallow_researcher/prompts/researcher.j2`) therefore carves
+answering prompt (`researcher/prompts/researcher.j2`) therefore carves
 `PROJECT_MEMORY` out explicitly: prior notes, not confirmed facts and not law;
 `user_confirmed` alone carries a confirmed fact's weight; entries run pinned-first
 then newest-first; the current conversation always wins; and a memory entry is
@@ -177,7 +177,7 @@ The in-turn `remember` tool depends on the answering agent pausing mid-flow to
 record a finding — which a busy answer often skips. The **reflection stage** is
 the safety net. It runs in the chat entrypoint's *post-processing phase*,
 **scheduled after the answer is already returned** (`schedule_memory_reflection`
-in `agents/project_memory/reflection.py`), so it never adds latency to the reply.
+in `memory/reflection.py`), so it never adds latency to the reply.
 
 Flow (fire-and-forget background task on the event loop):
 1. The entrypoint captures the turn (query + answer), the project/organization
@@ -234,7 +234,7 @@ Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
 - **Reflection can retire what it corrects**, not only append. Each finding
   carries a `supersedes` field (part of the strict structured-output contract, so
   the model has a sanctioned way to return one): the verbatim content of the entry
-  it replaces, copied from the digest it was shown. `_sanitize_findings` honours
+  it replaces, copied from the digest it was shown. `_finding_from_entry` honours
   it ONLY when it matches one COMPLETE entry of the shown digest (normalized
   equality against the parsed entry contents, not a substring test — a truncated
   quote like "Client chose a flat" for "Client chose a flat roof" would otherwise

@@ -100,6 +100,9 @@ services:
       - "${PORT:-8000}:8000"
     volumes:
       - ../../configs:/app/configs:ro
+      # Operator-provided OIB corpus; ships empty (data/oib/README.md). Read-only
+      # on purpose: an admin removes a document through the UI, which records an
+      # exclusion, rather than by deleting a file the mount would restore.
       - ../../data/oib:/app/data/oib:ro
       - aiq-data:/app/data
       - chroma_data:/app/data/chroma_data

@@ -8,7 +8,7 @@ and manual skill runs. It must:
 - reject malformed payloads (missing organization_id, invalid output enum,
   neither output nor execution, oversized input) with 422;
 - select the agent type DETERMINISTICALLY from the JOB's chosen output kind:
-  ``chat`` -> shallow_researcher, ``deep-research`` -> deep_researcher, with an
+  ``chat`` -> researcher, ``deep-research`` -> deep_researcher, with an
   explicit ``agent_type`` as the only override;
 - accept the pre-rename ``execution`` spelling for one release, with ``output``
   winning when both arrive (the BFF and this service deploy separately);
@@ -197,10 +197,10 @@ def test_empty_skills_submits_with_no_forced_skills(client, prod_token, submit_m
 # --- deterministic agent selection ----------------------------------------
 
 
-def test_chat_output_selects_shallow_researcher(client, prod_token, submit_mock):
+def test_chat_output_selects_researcher(client, prod_token, submit_mock):
     resp = _post(client, _valid_body(output="chat", agent_type=None))
     assert resp.status_code == 200
-    assert submit_mock.await_args.kwargs["agent_type"] == "shallow_researcher"
+    assert submit_mock.await_args.kwargs["agent_type"] == "researcher"
 
 
 def test_deep_research_output_selects_deep_researcher(client, prod_token, submit_mock):
@@ -229,7 +229,7 @@ def test_output_only_is_the_new_contract(client, prod_token, submit_mock):
     assert "execution" not in body
     resp = _post(client, body)
     assert resp.status_code == 200
-    assert submit_mock.await_args.kwargs["agent_type"] == "shallow_researcher"
+    assert submit_mock.await_args.kwargs["agent_type"] == "researcher"
 
 
 def test_execution_only_still_works_during_the_deploy_window(client, prod_token, submit_mock):
@@ -237,13 +237,13 @@ def test_execution_only_still_works_during_the_deploy_window(client, prod_token,
     del body["output"]
     resp = _post(client, body)
     assert resp.status_code == 200
-    assert submit_mock.await_args.kwargs["agent_type"] == "shallow_researcher"
+    assert submit_mock.await_args.kwargs["agent_type"] == "researcher"
 
 
 def test_output_wins_when_both_are_sent(client, prod_token, submit_mock):
     resp = _post(client, _valid_body(output="chat", execution="deep-research"))
     assert resp.status_code == 200
-    assert submit_mock.await_args.kwargs["agent_type"] == "shallow_researcher"
+    assert submit_mock.await_args.kwargs["agent_type"] == "researcher"
 
 
 def test_neither_output_nor_execution_is_422_not_500(client, prod_token, submit_mock):

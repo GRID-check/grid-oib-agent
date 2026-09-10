@@ -27,7 +27,7 @@ assumptions. Each is the 2024 industry default. Each is wrong for this domain.
 | **The law is a corpus.** Chunk it, embed it, retrieve by similarity, hand the model sixteen passages | `sources/knowledge_layer/src/register.py:1312`, `top_k: 16` | The OIB Richtlinien are a *rule system*: numbered requirements with applicability conditions over a small set of project facts (Gebäudeklasse, Nutzung, Höhe, Fläche, Bundesland), thresholds, exceptions, cross-references and editions. Which requirement applies is a function of the project, not of the wording of the question. A similarity search over a user's sentence is the weakest possible way to find it |
 | **The project is a set of documents.** Chunk them the same way as the law | `adapter.py:3157` (same splitter), `proj_<id>` collections | A plan, a Nachweis, a Baubeschreibung are carriers of *facts*: a room height, a door width, a fire compartment, a U-value. The check the user wants is a join between a requirement and a fact, and neither side of that join is a chunk |
 | **The answer is a message.** Generate text, then verify what can be verified and strip the rest | `citation_verification.py:2295-2365`; `deep_researcher/agent.py:1090` ("it still ships") | A compliance answer is a *derivation*: these facts, this rule, this passage, therefore this verdict. When the derivation is the object, verification is structural (is a leaf missing?) and repair is targeted (find that leaf). When the message is the object, verification can only subtract |
-| **The agent is a searcher.** A ReAct loop with a budget of calls | `configs/config_oib_openrouter.yml:705` (7 calls), `shallow_researcher/agent.py:997` | A searcher spends its budget guessing what to look for. A deriver knows what it needs (the facts the applicable rules depend on) and spends the budget filling exactly those slots |
+| **The agent is a searcher.** A ReAct loop with a budget of calls | `configs/config_oib_openrouter.yml:705` (7 calls), `researcher/agent.py:997` | A searcher spends its budget guessing what to look for. A deriver knows what it needs (the facts the applicable rules depend on) and spends the budget filling exactly those slots |
 
 The first review measured how well the defaults are executed. Well. This one
 asks whether they are the right defaults. They are not, and the strongest
@@ -120,7 +120,7 @@ fact
   value · unit · tolerance
   asserted_by     intake (confirmed | assumed | unknown)      already three-state: intake-definition.ts:19-24
                   | document extraction (file, page, bbox)   visual-extraction-schema.md
-                  | ifc measurement (GlobalId[], tolerance)   agents/bim/measurement_sources.py
+                  | ifc measurement (GlobalId[], tolerance)   tools/bim/measurement_sources.py
                   | conversation (message id)                 the `derived_fact` that never graduated
                   | user (confirmed in the panel)
   status          active | superseded_by · valid_from
@@ -218,7 +218,7 @@ tools. They are not the change.
 
 ### 4.2 The agent loop: from a search budget to a derivation program
 
-The shallow researcher's loop is *think → call tools → think → answer*, with
+The researcher's loop is *think → call tools → think → answer*, with
 the budget charged per emitted call. In the new shape the loop is typed:
 
 ```
@@ -409,7 +409,7 @@ provenance; build the `derived_fact → fact` graduation writer. *Pass:* for a
 test project with an IFC model, every slot OIB 4 needs is either filled with
 a locus or listed as unknown with the sources that were tried.
 
-**Loop III: derive in chat.** The shallow path resolves an OIB 4 question to
+**Loop III: derive in chat.** The chat path resolves an OIB 4 question to
 requirement ids, filters by applicability, fetches proof, derives, and renders
 the tree; everything else falls back to today's pipeline and is marked
 `retrieved`. *Pass:* on the compliance suite, derived answers beat retrieved

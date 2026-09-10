@@ -29,7 +29,7 @@ _listing_shelf: ContextVar[Shelf | None] = ContextVar("grid_listing_shelf", defa
 # How many files the cap dropped, per shelf, for the turn being rendered.
 #
 # A contextvar for the same reason ``_listing_shelf`` is one: the cap is applied
-# at AGGREGATION time (``chat_researcher.register``) and the block is rendered
+# at AGGREGATION time (``agents.researcher.conversation_register``) and the block is rendered
 # much later, by ``render_prompt_template``, with no call path between them that
 # could carry an extra argument.
 _inventory_drops: ContextVar[dict[Shelf | None, int]] = ContextVar("grid_inventory_drops", default={})

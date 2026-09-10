@@ -344,13 +344,13 @@ class TestGenericUrlExtractor:
         assert entries[0].url == "https://a.com"
         assert entries[1].url == "https://b.com"
 
-    def test_paper_search_markdown_format(self):
+    def test_scholar_search_markdown_format(self):
         content = (
             "1. **Attention Is All You Need** (2017)\n"
             "   - **Publication**: NeurIPS\n"
             "   - **Link**: https://arxiv.org/abs/1706.03762"
         )
-        entries = extract_sources_from_tool_result("paper_search_tool", content)
+        entries = extract_sources_from_tool_result("scholar_search_tool", content)
         assert len(entries) == 1
         assert entries[0].url == "https://arxiv.org/abs/1706.03762"
 
@@ -375,7 +375,7 @@ class TestGenericUrlExtractor:
     def test_no_results_status_with_source_id_is_not_citable(self):
         """source_id does not make source status text citable evidence."""
         entries = extract_sources_from_tool_result(
-            "duckduckgo_news_search_tool",
+            "news_search_tool",
             "News search returned no results",
             source_id="news_search",
         )
@@ -383,7 +383,7 @@ class TestGenericUrlExtractor:
 
     def test_error_status_is_not_citable(self):
         entries = extract_sources_from_tool_result(
-            "duckduckgo_news_search_tool",
+            "news_search_tool",
             "Error: News search failed",
             source_id="news_search",
         )
@@ -504,7 +504,7 @@ class TestGenericUrlExtractor:
             "2. **Spider: A Large-Scale Dataset** (2018)\n"
             "   - Link: https://arxiv.org/abs/2308.15363"
         )
-        entries = extract_sources_from_tool_result("paper_search_tool", content)
+        entries = extract_sources_from_tool_result("scholar_search_tool", content)
         assert len(entries) == 2
         # Each URL should have its own title, not both sharing the first title
         titles = {e.url: e.title for e in entries}
@@ -954,7 +954,7 @@ class TestVerifyCitations:
         assert "Finding [1][3]." in result.verified_report
 
     def test_references_with_dashes(self, registry):
-        """Shallow researcher uses '- [N] Title - URL' format."""
+        """Researcher uses '- [N] Title - URL' format."""
         report = "Finding [1].\n\n**References:**\n- [1] Article 1 - https://valid.com/article1"
         result = verify_citations(report, registry)
         assert len(result.valid_citations) == 1

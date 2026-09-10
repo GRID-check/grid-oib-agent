@@ -88,7 +88,7 @@ Response:
 {
   "agents": [
     {"agent_type": "deep_researcher", "description": "Performs comprehensive multi-loop deep research"},
-    {"agent_type": "shallow_researcher", "description": "Performs quick single-turn research"}
+    {"agent_type": "researcher", "description": "Performs quick single-turn research"}
   ]
 }
 ```

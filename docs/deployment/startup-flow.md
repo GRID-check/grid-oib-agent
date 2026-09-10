@@ -137,7 +137,8 @@ docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env exec
 ```
 
 This command:
-1. Enumerates PDFs in `data/oib/`
+1. Enumerates PDFs in `data/oib/` and `data/oib_uploads/` (both may be empty —
+   the corpus is operator-provided, see `data/oib/README.md`)
 2. Computes SHA-256 hashes and compares against `data/oib_registry.json`
 3. Uploads new/changed files to the LlamaIndex ingestor
 4. Polls file status until SUCCESS or FAILED (2s interval, 600s timeout)

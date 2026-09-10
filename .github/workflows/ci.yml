@@ -28,7 +28,6 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       web: ${{ steps.filter.outputs.web }}
       infra: ${{ steps.filter.outputs.infra }}
-      retrieval: ${{ steps.filter.outputs.retrieval }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -97,23 +96,16 @@ jobs:
         run: |
           . .venv/bin/activate
           SKIP=ruff-check,ruff-format,pytest pre-commit run --all-files
-
-  retrieval-eval:
-    name: Retrieval regression gate
-    needs: changes
-    if: needs.changes.outputs.retrieval == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup-python-env
-        with:
-          python-version: "3.13"
       - uses: ./.github/actions/setup-task
-      # Model-free and key-free: the structural arm cuts the real corpus two
-      # ways and counts which Punkte survive as a citable unit. Fails when the
-      # Punkt arm drops under the gate (ADR-0044 rule 7; audit Part IV).
-      - name: Structural retrievability gate
-        run: task be:eval:retrieval
+      # The other half of `task lint:repo`, and deliberately in THIS job rather
+      # than behind a paths filter: `skills/` is the source, `.claude/` and
+      # `.agents/` are generated and gitignored, and apm.lock.yaml records
+      # hashes of both — so an edit to a skill that was never re-locked appears
+      # in no diff at all. It went unnoticed for seven files until an audit was
+      # run by hand. `apm audit` exits 0 on drift; `task agents:audit` is the
+      # wrapper that does not.
+      - name: Agent-skill lockfile (apm)
+        run: task agents:audit
 
   backend-test:
     name: Backend tests (py${{ matrix.python }})
@@ -134,6 +126,12 @@ jobs:
         run: task be:test:ci
       - name: aiq_api plugin suite
         run: task be:test:api:ci
+      # sources/ was covered only by the push-stage pre-commit hook, which the
+      # repo-lint job skips — so a stale test there stayed green through every
+      # gate until someone ran pytest by hand. Same definition as the local
+      # `task be:verify`.
+      - name: sources/ package suites
+        run: task be:test:sources
       - name: Coverage comment (backend)
         if: github.event_name == 'pull_request' && matrix.python == '3.13'
         continue-on-error: true # never fail CI on a comment hiccup
@@ -413,10 +411,20 @@ jobs:
     # the row-level-security boundary actually holds (ADR-0041). The unit shards
     # cannot — the integration suite self-skips without a database.
     #
-    # `retrieval-eval` IS here for the same reason: it is the only check that
-    # proves a chunker still leaves Punkte as citable units (ADR-0044 rule 7).
-    # Skipped is fine when the retrieval paths did not change.
-    needs: [changes, backend-lint, backend-test, frontend, frontend-test, tenant-isolation, web, infra, repo-lint, release-note, retrieval-eval]
+    # `retrieval-eval` USED TO BE here, for the same reason: it was the only
+    # check that proved a chunker still leaves Punkte as citable units
+    # (ADR-0044 rule 7). It is gone, deliberately, and the reason is written
+    # down here rather than deleted with it: the gate reads the real OIB
+    # Richtlinien, and those are now operator-provided and gitignored
+    # (data/oib/README.md), so no CI checkout can ever have a corpus to measure.
+    # A job that can only pass vacuously is worse than no job.
+    #
+    # The harness survives as an opt-in local tool (`task be:eval:retrieval`),
+    # and it now says so when the corpus is absent instead of raising.
+    # What restoring the gate would take, and what was lost with it:
+    # docs/adr/0044-retrieval-correctness-and-the-measurement-gate.md,
+    # "Update (2026-09-09)".
+    needs: [changes, backend-lint, backend-test, frontend, frontend-test, tenant-isolation, web, infra, repo-lint, release-note]
     runs-on: ubuntu-latest
     steps:
       - name: Require needed jobs to have passed (skipped is fine)

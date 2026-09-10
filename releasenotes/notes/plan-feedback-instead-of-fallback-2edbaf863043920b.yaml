@@ -1,0 +1,7 @@
+---
+improvements:
+  - >
+    When Piloti proposes a research plan and you answer in your own words, that
+    answer is now used to revise the plan. Until now anything that read like an
+    objection dropped the plan and returned a quick answer instead, so what you
+    asked for was lost. A plain no still skips the plan and answers directly.

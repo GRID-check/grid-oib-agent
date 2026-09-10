@@ -18,10 +18,10 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from aiq_agent.agents.chat_researcher.models import ChatResearcherState
-from aiq_agent.agents.shallow_researcher.agent import ShallowResearcherAgent
-from aiq_agent.agents.shallow_researcher.agent import _shelf_label
-from aiq_agent.agents.shallow_researcher.models import ShallowResearchAgentState
+from aiq_agent.agents.researcher.agent import ResearcherAgent
+from aiq_agent.agents.researcher.agent import _shelf_label
+from aiq_agent.agents.researcher.models import ConversationState
+from aiq_agent.agents.researcher.models import ResearchAgentState
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common.data_source_registry import populate_from_config
@@ -61,7 +61,7 @@ def real_tool():
     return searching_tool
 
 
-def _render(agent: ShallowResearcherAgent, **overrides) -> str:
+def _render(agent: ResearcherAgent, **overrides) -> str:
     kwargs = {
         "tools": [{"name": "knowledge_search", "description": "Search the knowledge base"}],
         "user_info": None,
@@ -76,7 +76,7 @@ def _render(agent: ShallowResearcherAgent, **overrides) -> str:
 
 class TestResearcherPromptNamesTheSubject:
     def test_focused_file_is_named_with_its_shelf(self, mock_llm_provider, real_tool):
-        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         rendered = _render(agent, focus_file_name=SUBJECT, focus_shelf_label="Projektwissen")
 
@@ -89,14 +89,14 @@ class TestResearcherPromptNamesTheSubject:
 
     def test_shelf_is_omitted_rather_than_invented(self, mock_llm_provider, real_tool):
         """An unknown shelf names the file alone — never a guessed shelf."""
-        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         rendered = _render(agent, focus_file_name=SUBJECT, focus_shelf_label=None)
 
         assert f"## This turn's subject: **{SUBJECT}**\n" in rendered
 
     def test_no_subject_renders_no_subject_block(self, mock_llm_provider, real_tool):
-        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         rendered = _render(agent, focus_file_name=None, focus_shelf_label=None)
 
@@ -104,7 +104,7 @@ class TestResearcherPromptNamesTheSubject:
 
     def test_render_survives_callers_that_pass_no_focus_at_all(self, mock_llm_provider, real_tool):
         """The template is rendered under StrictUndefined; the guards must hold."""
-        agent = ShallowResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         rendered = _render(agent)
 
@@ -152,13 +152,13 @@ class TestSubjectKeepsTheSearchTools:
         )
         mock_llm.ainvoke = AsyncMock(side_effect=[AIMessage(content="Zusammenfassung.")])
 
-        agent = ShallowResearcherAgent(
+        agent = ResearcherAgent(
             llm_provider=mock_llm_provider,
             tools=[searching_tool, remember_tool],
         )
         mock_llm.bind_tools.reset_mock()
 
-        state = ShallowResearchAgentState(
+        state = ResearchAgentState(
             messages=[HumanMessage(content="fass zusammen")],
             focus_file_name=SUBJECT,
             focus_shelf="project",
@@ -177,30 +177,29 @@ class TestSubjectSurvivesTheGraphHandoff:
 
     @pytest.mark.asyncio
     async def test_shallow_node_forwards_the_subject(self):
-        from aiq_agent.agents.chat_researcher.agent import ChatResearcherAgent
+        from aiq_agent.agents.researcher.conversation import ConversationGraph
 
         captured: dict = {}
 
         async def shallow(state):
             captured["focus_file_name"] = state.focus_file_name
             captured["focus_shelf"] = state.focus_shelf
-            result = MagicMock()
-            result.messages = list(state.messages) + [AIMessage(content="Zusammenfassung.")]
-            result.escalation_requested = False
-            result.answer_confidence_marker = None
-            return result
+            return ResearchAgentState(
+                messages=list(state.messages) + [AIMessage(content="Zusammenfassung.")],
+                escalation_requested=False,
+            )
 
         async def unused(state):  # pragma: no cover — the route never reaches these
             raise AssertionError("shallow turn must not escalate")
 
-        agent = ChatResearcherAgent(
-            shallow_research_fn=shallow,
+        agent = ConversationGraph(
+            research_fn=shallow,
             deep_research_fn=unused,
             clarifier_fn=unused,
         )
 
         await agent.run(
-            ChatResearcherState(
+            ConversationState(
                 messages=[HumanMessage(content="fass zusammen")],
                 focus_file_name=SUBJECT,
                 focus_shelf="project",

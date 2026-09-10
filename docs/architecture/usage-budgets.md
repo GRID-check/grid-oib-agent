@@ -118,7 +118,7 @@ track_llm_costs()  ──sets──▶  grid_cost_tracker_var (ContextVar)
 ```
 
 - **Activation points (the only wiring, 3 total)**:
-  - sync chat turn — `chat_researcher/register.py` around `agent.run(...)`
+  - sync chat turn — `researcher/conversation_register.py` around `agent.run(...)`
   - async Dask job — `aiq_api/jobs/runner.py` around `_run_agent(...)`
     (identity + budget captured at submit time via `capture_usage_context()`)
   - background memory reflection — `project_memory/reflection.py` (own

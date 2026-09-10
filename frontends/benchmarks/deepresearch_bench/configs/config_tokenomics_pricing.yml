@@ -26,8 +26,6 @@ tokenomics:
       # Key "web_search" matches "advanced_web_search_tool" via substring lookup.
       "web_search":
         cost_per_call: 0.016
-      "paper_search":
-        cost_per_call: 0.0003
     default:
       input_per_1m_tokens: 1.00
       output_per_1m_tokens: 4.00

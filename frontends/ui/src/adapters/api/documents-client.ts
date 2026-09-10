@@ -9,7 +9,6 @@ import { apiConfig } from './config'
 import { xhrUpload, XhrUploadError } from '@/lib/http/xhr-upload'
 import {
   CollectionInfoSchema,
-  CollectionListResponseSchema,
   FileInfoSchema,
   FileListResponseSchema,
   UploadResponseSchema,
@@ -157,24 +156,6 @@ export const createDocumentsClient = (options: DocumentsClientOptions = {}) => {
 
       const data = await response.json()
       return CollectionInfoSchema.parse(data)
-    },
-
-    /**
-     * List all collections
-     */
-    async listCollections(): Promise<CollectionInfo[]> {
-      const response = await fetch(getCollectionsUrl(), {
-        method: 'GET',
-        headers: getHeaders(),
-      })
-
-      if (!response.ok) {
-        await handleApiError(response, 'Failed to list collections')
-      }
-
-      const data = await response.json()
-      const validated = CollectionListResponseSchema.parse(data)
-      return validated.collections
     },
 
     /**

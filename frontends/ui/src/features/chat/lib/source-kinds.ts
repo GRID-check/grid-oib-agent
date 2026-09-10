@@ -26,7 +26,7 @@ import type { SourceSignal, SourceTint } from '@/features/layout/lib/source-pres
  * derived from, the operator expression, a tolerance and a provenance, which is
  * a stronger audit trail than a quotation. It is a kind here so every surface
  * that already renders off `kind` picks it up; it is deliberately NOT a
- * citation on the backend (`aiq_agent/agents/bim/measurement_sources.py`).
+ * citation on the backend (`aiq_agent/tools/bim/measurement_sources.py`).
  */
 export type SourceKind = 'baurecht' | 'buero' | 'projekt' | 'web' | 'messung'
 

@@ -1175,7 +1175,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 )
 
             # Pull the model's guarded self-assessed answer confidence (present
-            # only on grounded shallow answers that emitted the marker) so the
+            # only on grounded chat answers that emitted the marker) so the
             # frontend can render the honest self-assessment chip.
             answer_confidence = getattr(data_model, "answer_confidence", None)
             if answer_confidence is None and isinstance(data_model, BaseModel):
@@ -1187,7 +1187,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
 
             # Pull the transparency extras (WP-A) the same way (attr or pydantic
             # model_extra). Each rides the terminal-chunk extras lift set by the
-            # chat_researcher register and is surfaced only when present, never
+            # researcher conversation_register and is surfaced only when present, never
             # null-spammed. See docs/architecture/backend-deep-dive.md.
             transparency_extras = {
                 name: value

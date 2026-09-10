@@ -1,7 +1,8 @@
 /**
  * Typed catalog of the OIB 2023 Richtlinien (Austrian building-code guidelines).
  *
- * This is the real corpus that ships in `data/oib`. Each entry carries the
+ * This is the published OIB corpus an operator loads into `data/oib` (the
+ * directory is gitignored and ships empty). Each entry carries the
  * official code, the German and English titles, a one-line English scope, and a
  * link to the source. We deliberately point every entry at the official overview
  * page rather than inventing deep links — the overview page is the stable,

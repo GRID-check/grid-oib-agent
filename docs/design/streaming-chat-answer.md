@@ -3,7 +3,7 @@
 **Status:** Implemented (2026-07-18). Streaming is the default delivery; there is
 no runtime flag — the backend and frontend ship together in this monorepo, so
 the change is atomic and needs no staged rollout toggle.
-**Related:** the per-turn chat path (`chat_researcher`), `websocket_reconnect.py`,
+**Related:** the per-turn chat path (`agents/researcher/conversation_register.py`), `websocket_reconnect.py`,
 the `frontends/ui` chat store.
 
 ## Why this is cross-stack, not backend-only
