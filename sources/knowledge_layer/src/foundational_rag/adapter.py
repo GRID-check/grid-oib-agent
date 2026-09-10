@@ -624,6 +624,20 @@ class FoundationalRagRetriever(BaseRetriever):
 
 
 @register_ingestor("foundational_rag")
+def _provenance_from_config(config: dict) -> dict[str, str]:
+    """The provenance keys a job config carries, or an empty dict.
+
+    Twin of the llamaindex adapter's helper of the same name, and read through
+    ``aiq_agent.common.provenance`` for the same reason: the keys are spelled
+    once, on the side that parses them back.
+    """
+    from aiq_agent.common.provenance import parse_agent_provenance
+    from aiq_agent.common.provenance import provenance_metadata
+
+    provenance = parse_agent_provenance(config)
+    return provenance_metadata(provenance) if provenance else {}
+
+
 class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
     """
     Ingestor adapter that calls hosted NVIDIA RAG Blueprint endpoints.
@@ -957,6 +971,18 @@ class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
                         from aiq_agent.knowledge import set_document_folder_path
 
                         set_document_folder_path(collection_name, file_name, folder_path)
+                    # Provenance, same parity argument (ADR-0054): who wrote the
+                    # document belongs to the document. Only the metadata ROW is
+                    # written here — this backend hands the file to a remote RAG
+                    # server and never sees the chunks, so the four keys reach
+                    # `Chunk.metadata` only under the llamaindex ingestor. A
+                    # deployment on this backend therefore renders a published
+                    # Piloti document unmarked rather than mismarked.
+                    provenance = _provenance_from_config(config)
+                    if provenance:
+                        from aiq_agent.knowledge import set_document_provenance
+
+                        set_document_provenance(collection_name, file_name, provenance)
                     logger.info(f"  Summary generated ({len(summary)} chars)")
 
         # Clean up executor

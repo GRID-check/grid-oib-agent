@@ -18,7 +18,7 @@ import {
   type NewDocumentVersion,
 } from '@/lib/db/schema'
 import type { DocumentVersionState } from './lifecycle-types'
-import { OPEN_DOCUMENT_VERSION_STATES } from './lifecycle-types'
+import { DOCUMENT_VERSION_STATES, OPEN_DOCUMENT_VERSION_STATES } from './lifecycle-types'
 
 /** A document's version list is a page, like every other list in this tier. */
 export const DOCUMENT_VERSION_LIST_LIMIT = 200
@@ -105,6 +105,65 @@ export async function findOpenVersion(
     )
     .limit(1)
   return row ?? null
+}
+
+/**
+ * How many versions a set of documents has, and what the newest one's state is.
+ *
+ * The Files listing's badge reads this. It is a GROUPED read over the ids a
+ * caller has already listed rather than one query per card, because the badge
+ * appears on every tile of a corpus that routinely runs to hundreds — and it is
+ * the NEWEST version's state, not the published one's: the news about a
+ * document is the draft somebody filed on Friday, not the version that was live
+ * before it.
+ *
+ * `count(*)` and the `array_agg` pick come back through raw fragments, so both
+ * are coerced here (`Number`, and a membership check against the state tuple)
+ * rather than trusted: drizzle decodes only direct column references.
+ */
+export interface DocumentVersionSummary {
+  documentId: string
+  versionCount: number
+  /** The newest version's state — what the badge shows. */
+  state: DocumentVersionState
+}
+
+export async function listDocumentVersionSummaries(
+  documentIds: readonly string[],
+  organizationId: string,
+): Promise<DocumentVersionSummary[]> {
+  if (documentIds.length === 0) return []
+  const db = getDb()
+  const rows = await db
+    .select({
+      documentId: documentVersions.documentId,
+      versionCount: sql<number>`count(*)`,
+      newestState: sql<string>`(array_agg(${documentVersions.state} order by ${documentVersions.versionNumber} desc))[1]`,
+    })
+    .from(documentVersions)
+    .where(
+      and(
+        eq(documentVersions.organizationId, organizationId),
+        inArray(documentVersions.documentId, [...documentIds]),
+      ),
+    )
+    .groupBy(documentVersions.documentId)
+    .limit(DOCUMENT_VERSION_LIST_LIMIT)
+
+  const known: readonly string[] = DOCUMENT_VERSION_STATES
+  return rows.flatMap((row) =>
+    known.includes(row.newestState)
+      ? [
+          {
+            documentId: row.documentId,
+            versionCount: Number(row.versionCount),
+            state: row.newestState as DocumentVersionState,
+          },
+        ]
+      : // A state this build has never heard of (a newer deploy, a rollback) is
+        // no badge at all, which is what an unknown editorial state honestly is.
+        [],
+  )
 }
 
 /**

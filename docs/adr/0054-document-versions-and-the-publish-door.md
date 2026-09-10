@@ -129,6 +129,65 @@ Four decisions carry the rest:
   reviewers pressing Freigeben at the same instant, a retried request, a
   half-applied deploy.
 
+### Indexing: what a publish does to the retrieval corpus
+
+Written as an addendum because the record above said "Slice 4 dispatches only a
+published version to the index" and left the mechanism to that slice. It is
+built now, and three properties carry it.
+
+**Only a published version, and only its own bytes.** `dispatchDocument`'s guard
+refuses a machine-authored row unless the dispatch names the version the row's
+`published_version_id` points at. That is a COMPARISON and not a list of allowed
+states, so `draft`, `in_review`, `changes_requested`, `approved`-but-unpublished,
+`superseded` and `rejected` are refused by one rule rather than six, and a later
+state cannot be forgotten. The dispatch happens in the `ingestPublished` effect
+of the transition table's `publish` row and nowhere else, so "only a published
+version is dispatched" is a property of the table.
+
+The clause is worth what stands behind it, and what stands behind it is the
+database: `document_versions_published_is_approved` refuses a published row with
+no approver, and `uniq_document_versions_published_per_document` refuses a
+second. **Indexed ⟹ published ⟹ approved by a person** is a chain of
+constraints, not a chain of call sites.
+
+**A filename namespace, from creation.** `documents.filename` is the retrieval
+index's join key and is never renamed, so a published Piloti document is filed
+as `piloti/<document id>/<name>` from the moment the row is written — not
+rewritten on the way into the index, which would index under one string and
+purge under another. No browser produces a filename containing `/`, so no upload
+shelf can present a name inside the namespace: the collision `generatedFilename`
+put within the model's reach (a report landing on the filename of the document
+it was written from) becomes unrepresentable rather than unlikely. Migration
+0083 widens `uniq_documents_live_name_per_collection` to
+`authored_by = 'user' OR filename LIKE 'piloti/%'` — two arms that cannot meet —
+and `collectionFileRef` accepts a machine-authored row only when it is published
+AND namespaced, which keeps "indexed" and "purgeable" the same set. The OBJECT
+key stays flat and unchanged; the row's name and the key's basename are allowed
+to differ because the ingest dispatch now STATES the name (`file_name` on
+`POST /v1/ingest`) instead of letting the backend read it off the presigned URL.
+
+**Provenance is metadata, never a `doc_class`.** Four keys —
+`authored_by`, `approved_by` (the approver's display name), `approved_at`,
+`producer` — travel on the dispatch, onto every chunk and onto the backend's
+document-metadata row. `doc_class` is untouched: it is a closed norm-hierarchy
+vocabulary whose fail-open lane is „Basisdokument", and filing authorship there
+would file it under the hierarchy of authority. The retrieval side maps the keys
+to the `buero_piloti` lane
+([`../architecture/agent-document-provenance.md`](../architecture/agent-document-provenance.md)).
+
+**Supersede and archive purge.** Publishing over a previous version purges that
+version's chunks BEFORE the new bytes are sent — a version has no filename, the
+ITEM does, so both address the same chunks and purging afterwards would delete
+what had just been written. It also decides the failure case correctly: with the
+backend down, the replaced version's passages are already gone rather than still
+answering. Archiving purges too, for every document and not only a Piloti one:
+„archiviert" is a statement that the file has left the working set, and a file
+that keeps coming back as a hit has not left it. Both go through
+`purgeIngestedChunks`, never `discardSupersededObjects` — the bytes stay, which
+is what makes a version list openable. The backend's `unregister_summary` takes
+the document-metadata row with the chunks, so a superseded version's provenance
+does not outlive the passages it described.
+
 ### What this amends in ADR-0047
 
 ADR-0047's 2026-08-20 addendum says `Zuweisen` is the promotion gesture and that
@@ -190,10 +249,12 @@ to be `human`; a machine caller is refused before any permission is read.
 `schemas.spec.ts` fails when a transition names an audit action WorkOS does not
 know.
 
-The one thing NOT enforced by a test: that slice 4's ingest dispatch actually
-goes through the `ingestPublished` effect slot rather than a new call site.
-The slot exists and is a documented no-op; review is the only gate on that until
-slice 4 lands with its own spec.
+The indexing addendum has its own: `dispatch.spec.ts` walks every version state
+through the dispatcher's guard, `lifecycle.spec.ts` asserts the dispatch happens
+from the effect with the four provenance keys and that the purge precedes it,
+`collection-file-ref.spec.ts` asserts both halves of the addressability rule, and
+`frontends/aiq_api/tests/test_ingest_provenance.py` is the backend twin for the
+wire.
 
 ## More Information
 

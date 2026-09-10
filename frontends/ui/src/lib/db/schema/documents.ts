@@ -416,19 +416,36 @@ export const documents = pgTable('documents', {
   statusIdx: index('documents_status_idx').on(table.status),
   orgScopeIdx: index('documents_org_scope_idx').on(table.organizationId, table.scope),
   /**
-   * One human-uploaded document per filename in a collection (migration 0074,
-   * restated by 0077). The ingest pipeline replaces passages by filename, so a
-   * second row under one name is a ghost; `findLiveDocumentByFilename` is the
-   * probe that makes the upload paths replace instead, and this is that
-   * probe's WHERE clause as a constraint, for the concurrent first upload the
-   * probe misses. Partial on `authored_by = 'user'`: a machine-authored row
-   * carries a model-chosen name and owns no chunks, and must coexist with a
-   * person's file of the same name. "Live" means "exists": there is no soft
-   * delete on this table (0077 dropped the `deleted_at IS NULL` half).
+   * One live document per filename in a collection, over every row that can own
+   * chunks (migrations 0074, restated by 0077, widened by 0083).
+   *
+   * The ingest pipeline replaces passages by filename, so a second row under
+   * one name is a ghost; `findLiveDocumentByFilename` is the probe that makes
+   * the upload paths replace instead, and this is that probe's WHERE clause as
+   * a constraint, for the concurrent first upload the probe misses. "Live"
+   * means "exists": there is no soft delete on this table (0077 dropped the
+   * `deleted_at IS NULL` half).
+   *
+   * The predicate is a UNION of two disjoint sets, and it is disjoint by
+   * construction rather than by luck:
+   *
+   *   - `authored_by = 'user'` — 0074's original rule. A machine-authored row
+   *     outside the namespace carries a model-chosen name, owns no chunks, and
+   *     must coexist with a person's file of the same name.
+   *   - `filename LIKE 'piloti/%'` — the namespace a publishable Piloti
+   *     document is filed under (ADR-0054, `documents/agent-namespace.ts`). A
+   *     published version of such a row IS indexed, so it needs exactly the
+   *     rule the first arm gives a human upload. No browser produces a filename
+   *     containing `/`, so no upload shelf can present a name in this arm — the
+   *     two arms cannot meet, and widening the index therefore changes nothing
+   *     a person can do.
+   *
+   * Drizzle's index builder can express the predicate but not a `LIKE`, so the
+   * `sql` fragment below is the whole of it and the migration is the authority.
    */
   liveNamePerCollectionUidx: uniqueIndex('uniq_documents_live_name_per_collection')
     .on(table.organizationId, table.collectionName, table.filename)
-    .where(sql`${table.authoredBy} = 'user'`),
+    .where(sql`${table.authoredBy} = 'user' OR ${table.filename} LIKE 'piloti/%'`),
   /**
    * A document's folder must belong to the document's own project (migration
    * 0030). The project is pinned to the tenant by its row-level-security

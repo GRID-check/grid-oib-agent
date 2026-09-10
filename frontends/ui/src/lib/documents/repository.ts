@@ -46,6 +46,18 @@ export interface DocumentListRow {
    * indexed would make the derivation quietly wrong.
    */
   authoredBy: DocumentAuthor
+  /**
+   * The version the item's storage columns mirror, or `null` (ADR-0054).
+   *
+   * On the LIST row because `collectionFileRef` REQUIRES it: a machine-authored
+   * row owns chunks only once a version of it has been published, and the two
+   * sweeps that address the backend from a list — the status/metadata
+   * reconcile and the session-document cleanup — build their refs out of these
+   * rows. A row type that cannot answer the question cannot be handed to the
+   * constructor at all, which is the same argument `authoredBy` makes one line
+   * up.
+   */
+  publishedVersionId: string | null
   collectionName: string
   folderId: string | null
   /**
@@ -106,6 +118,7 @@ export async function listProjectDocuments(
         contentType: documents.contentType,
         status: documents.status,
         authoredBy: documents.authoredBy,
+        publishedVersionId: documents.publishedVersionId,
         collectionName: documents.collectionName,
         folderId: documents.folderId,
         originPath: documents.originPath,

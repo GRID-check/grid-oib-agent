@@ -93,6 +93,11 @@ aiq_bim_measure = "aiq_agent.tools.bim.measure_register"
 # card, have no optional dependency between them, and a deployment that loads
 # one loads the reason for the other four.
 aiq_files = "aiq_agent.tools.files.register"
+# The working directory's two doors into the project (`file_draft`,
+# `submit_draft`). Its OTHER four verbs are stock DeepAgents tools bound
+# directly by the researcher's register and are not NAT functions at all, so
+# this entry point covers exactly the two that call the BFF.
+aiq_documents = "aiq_agent.tools.documents.register"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "sources/**/tests"]

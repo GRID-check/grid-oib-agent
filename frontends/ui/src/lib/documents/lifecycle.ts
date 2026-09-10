@@ -44,12 +44,18 @@ import { publishToUsers } from '@/lib/events/bus'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { listAssignmentsForResources } from '@/lib/assignments/repository'
+import { getBackendUrl } from '@/lib/backend-proxy'
+import { resolvePeople } from '@/lib/sharing/directory'
 import { bucketAdminS3Client, s3Client } from '@/lib/s3'
 import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
 import type { Document, DocumentVersion } from '@/lib/db/schema'
 import { getAccessibleDocument } from './access'
+import { isAgentDocumentFilename } from './agent-namespace'
+import { collectionFileRef, purgeIngestedChunks } from './collection-file-ref'
 import { contentDigest } from './content-digest'
-import { findDocumentInOrg } from './repository'
+import { documentDisplayName } from './display-name'
+import { findDocumentInOrg, findFolderPathInProject } from './repository'
+import type { AgentDocumentProvenance } from './service'
 import {
   DOCUMENT_VERSION_TRANSITIONS,
   findDocumentVersionTransition,
@@ -62,6 +68,7 @@ import {
 import {
   compareAndSwapVersionState,
   findDocumentVersion,
+  listDocumentVersionSummaries,
   findOpenVersion,
   findPublishedVersion,
   insertDocumentVersion,
@@ -69,7 +76,20 @@ import {
   nextVersionNumber,
   promoteVersionToPublished,
   setDocumentLifecycle,
+  type DocumentVersionSummary,
 } from './version-repository'
+
+/**
+ * Ceiling on the chunk purge the publish path runs.
+ *
+ * Its own constant rather than an import of `documents/service.ts`'s
+ * `BACKEND_FETCH_TIMEOUT_MS`, which is module-private there, and the same ten
+ * seconds for the same reason: an unreachable backend must not hold a BFF
+ * request past Cloudflare's ~100s origin timeout. The purge is best-effort, so
+ * exceeding it costs a superseded version's chunks lingering until the
+ * platform's vector reconcile, never a failed publish.
+ */
+const BACKEND_PURGE_TIMEOUT_MS = 10_000
 
 /** What a transition needs beyond the row it is acting on. */
 export interface TransitionInput {
@@ -183,7 +203,15 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
         anchorId: context.version.id,
         actorUserId: context.session.userId,
         groupKey: reviewGroupKey(context.document.id, context.version.id),
-        payload: { versionId: context.version.id, versionNumber: context.version.versionNumber },
+        // `subject` is what the inbox ROW renders — the generic renderer reads
+        // it out of the payload and interpolates it into „{actor} bittet Sie um
+        // die Freigabe von {subject}". Without it the row named no file and the
+        // reader had to open the link to find out which one was waiting.
+        payload: {
+          versionId: context.version.id,
+          versionNumber: context.version.versionNumber,
+          subject: documentDisplayName(context.document),
+        },
       })),
     )
   },
@@ -229,21 +257,150 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
   },
 
   /**
-   * NOTHING happens here, on purpose, and the slot exists anyway.
+   * Index the version that was just published, with the provenance that says
+   * who wrote it and who cleared it (ADR-0054 § Indexing).
    *
-   * Publishing is what would make a document Piloti wrote retrievable BY
-   * Piloti, and the build spec's condition on that seam is explicit: it may
-   * arrive only together with the labelled-citation work (a `buero_piloti`
-   * lane, chunk provenance, the verdict-reference gate), never before it. That
-   * is slice 4.
+   * The slot was named before it did anything, and that is why the door could
+   * be opened without moving a call site: "only a published version is ever
+   * dispatched" is a property of the transition table — this effect appears on
+   * the `publish` row and nowhere else — rather than of somebody remembering
+   * where to put the dispatch. Do not call `dispatchDocument` from anywhere
+   * else in this module.
    *
-   * Naming the slot now is the whole point. When slice 4 lands it replaces this
-   * function, and the call site does not move — so the "only a published version
-   * is ever dispatched" rule stays a property of the transition table rather
-   * than of somebody remembering where to put the dispatch. Do not call
-   * `dispatchDocument` from anywhere else in this module.
+   * ## Purge first, then dispatch
+   *
+   * The previous published version's chunks go BEFORE the new bytes are sent,
+   * and the order is not tidiness. A version does not have a filename; the ITEM
+   * does (`documents.filename` is written once and never renamed), so both
+   * versions address the same chunks. Purging after the dispatch would delete
+   * the passages that had just been written. Purging first also decides the
+   * failure case correctly: when the backend is down, the superseded version's
+   * chunks are already gone and the new ones never arrive, so the document
+   * stops answering rather than answering out of the version somebody
+   * replaced. `unregister_summary` on the backend takes the document-metadata
+   * row with them, so the superseded version's provenance does not outlive its
+   * chunks.
+   *
+   * ## What is NOT decided here
+   *
+   * The `doc_class` is untouched. Provenance is its own axis
+   * (`docs/architecture/agent-document-provenance.md`): `doc_class` is a closed
+   * norm-hierarchy vocabulary whose fail-open lane is "Basisdokument", and
+   * filing authorship there would file a Piloti document under the hierarchy of
+   * authority. The shelf is untouched for the same reason — the document really
+   * does sit on the project or Archiv shelf, and `collectionName` already says
+   * which.
    */
-  ingestPublished: async () => {},
+  ingestPublished: async ({ session, document, version, previous }) => {
+    // Human-authored items are dispatched by whatever wrote their bytes — the
+    // three upload shelves — and re-dispatching here would double-ingest every
+    // re-upload. This effect exists for the door ADR-0054 opened.
+    if (document.authoredBy === 'user') return
+
+    // Both halves of `collectionFileRef`'s restated rule, asked before anything
+    // is sent: a row outside the `piloti/` namespace would be indexed under a
+    // name no purge can address, because every purge builds its ref from the
+    // row and that constructor would answer `null`. Refusing to index it is the
+    // safe direction and the only one that keeps "indexed" and "purgeable" the
+    // same set. Reachable for a document filed before the namespace existed.
+    if (!isAgentDocumentFilename(document.filename)) {
+      console.warn(
+        `[documents] published version ${version.id} is not under the piloti/ namespace; not indexed`,
+      )
+      return
+    }
+
+    // Cycle-broken on purpose: `documents/service.ts` imports this module for
+    // `recordUploadedVersion` and `versionedStorageKey`, so a static import
+    // back would be a load-order cycle. Same device, same reason, as
+    // `sharing/service.ts` reaching the mentions service.
+    const { dispatchDocument, AgentAuthoredDocumentNotIndexableError } = await import('./service')
+
+    if (previous) {
+      await purgeSupersededChunks(document)
+    }
+
+    try {
+      await dispatchDocument({
+        organizationId: session.organizationId,
+        projectId: document.projectId,
+        documentId: document.id,
+        filename: document.filename,
+        storageKey: version.storageKey,
+        storageBucket: version.storageBucket,
+        collectionName: document.collectionName,
+        folderPath: await resolveFolderPath(document, session.organizationId),
+        versionId: version.id,
+        provenance: await agentProvenance(session.organizationId, document, version),
+      })
+    } catch (error) {
+      // The one refusal this effect can provoke and must not turn into a failed
+      // publish: the version row is durable and a person approved it, so the
+      // editorial act stands whether or not the index accepted the bytes. Every
+      // other outcome — a backend timeout, a non-2xx — is already absorbed by
+      // `dispatchIngest`, which records `failed` on the row. Anything else is a
+      // real fault and is re-raised rather than swallowed.
+      if (!(error instanceof AgentAuthoredDocumentNotIndexableError)) throw error
+      console.warn(`[documents] ingest refused the published version ${version.id}`)
+    }
+  },
+}
+
+/**
+ * Forget the chunks the version being replaced left behind.
+ *
+ * Through `collectionFileRef` like every other `(collection, filename)` call:
+ * `null` means "this row owns nothing over there", which is the honest answer
+ * for a document nobody ever published. Best-effort, because the publish itself
+ * is durable and the platform's vector reconcile is the sweep that catches a
+ * backend that said no.
+ */
+async function purgeSupersededChunks(document: Document): Promise<void> {
+  const ref = collectionFileRef(document)
+  if (!ref) return
+  await purgeIngestedChunks(getBackendUrl(), ref, BACKEND_PURGE_TIMEOUT_MS)
+}
+
+/**
+ * The four keys a published Piloti document carries into every chunk.
+ *
+ * `approved_by` is the person's DISPLAY NAME and not their user id, because the
+ * value is rendered into a German line the model and the reader both see
+ * („freigegeben von Maria Huber am 01.09.2026"). Resolved through
+ * `resolvePeople`, which is how every collaboration surface in this tier turns
+ * an id into a name, so the grounding block and the share roster cannot
+ * disagree about what somebody is called. An id the directory cannot resolve —
+ * a deactivated member, a WorkOS hiccup — yields `null` rather than a raw id:
+ * the label degrades to the bare „Piloti-Dokument" instead of printing a
+ * `user_01…` at an architect.
+ */
+async function agentProvenance(
+  organizationId: string,
+  document: Document,
+  version: DocumentVersion,
+): Promise<AgentDocumentProvenance> {
+  const approver = version.approvedBy
+    ? (await resolvePeople(organizationId, [version.approvedBy])).get(version.approvedBy)
+    : undefined
+  return {
+    authored_by: 'agent',
+    approved_by: approver?.name ?? null,
+    approved_at: version.approvedAt?.toISOString() ?? null,
+    producer: document.authoredByProducer,
+  }
+}
+
+/**
+ * The materialised folder path the item is filed under, or `null`.
+ *
+ * Re-resolved rather than carried, for the reason the re-ingest path resolves
+ * it: `folder_path` is what the backend files the document under (ADR-0049),
+ * and a dispatch that omitted it would silently un-file a document somebody had
+ * filed.
+ */
+async function resolveFolderPath(document: Document, organizationId: string): Promise<string | null> {
+  if (!document.folderId || !document.projectId) return null
+  return findFolderPathInProject(document.folderId, document.projectId, organizationId)
 }
 
 /** Every effect a transition names, in order. */
@@ -740,6 +897,22 @@ export async function archiveDocument(
     ])
   }
   await setDocumentLifecycle(documentId, session.organizationId, 'archived')
+  // „Archiviert" is a statement that the file has left the working set, and a
+  // file that keeps answering questions has not left it. The chunks therefore
+  // go, for a human upload as much as for a Piloti document — this docstring
+  // said so before the code did. Purged and not deleted: the row, every
+  // version and every object stay, so the only thing that has to be rebuilt if
+  // somebody ever un-archives is the index.
+  //
+  // Best-effort, and AFTER the lifecycle write: the row is the durable record
+  // of intent, and an unreachable backend must not leave a document that a
+  // person believes is archived still listed as active. `chunksPurged` rides on
+  // the audit event so a `false` is visible where somebody looks, exactly as
+  // `deleteDocument` records it.
+  const purgeRef = collectionFileRef(document)
+  const chunksPurged = purgeRef
+    ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_PURGE_TIMEOUT_MS)
+    : null
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },
@@ -750,6 +923,9 @@ export async function archiveDocument(
       projectId: document.projectId ?? '',
       filename: document.filename.slice(0, 200),
       collectionName: document.collectionName,
+      // `null` is "this row owns no chunks", which is a different fact from
+      // "the backend refused" and must not read as one.
+      chunksPurged,
     },
     request,
   })
@@ -801,6 +977,26 @@ export async function listDocumentVersionViews(
   }
 }
 
+/**
+ * The editorial state of documents a caller has ALREADY listed.
+ *
+ * Authorization is the listing's. These ids come out of `listDocuments`, which
+ * ran `requireProjectAccess` before it returned them, and this adds no field a
+ * reader of that listing may not see — how many versions a file has and what
+ * state the newest one is in are the two facts the Files badge renders. Passing
+ * the ids rather than a project id is what keeps it that way: this function
+ * cannot widen a listing, only annotate one.
+ *
+ * Returned as a Map because every caller merges it row by row.
+ */
+export async function summarizeDocumentVersions(
+  organizationId: string,
+  documentIds: readonly string[],
+): Promise<Map<string, DocumentVersionSummary>> {
+  const summaries = await listDocumentVersionSummaries(documentIds, organizationId)
+  return new Map(summaries.map((summary) => [summary.documentId, summary]))
+}
+
 /** `GET /api/documents/[id]/versions/[versionId]` */
 export async function getDocumentVersionView(
   session: AuthorizedSession,
@@ -815,3 +1011,4 @@ export async function getDocumentVersionView(
 
 /** Every transition, re-exported so a spec reads one list rather than two. */
 export { DOCUMENT_VERSION_TRANSITIONS }
+export type { DocumentVersionSummary }

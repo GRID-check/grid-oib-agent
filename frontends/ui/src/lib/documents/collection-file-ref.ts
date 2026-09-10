@@ -12,12 +12,15 @@
  * Sicherheitskonzept it was written from, on the same day, in the same
  * collection. The collision is reachable by the model, not merely accidental.
  *
- * A machine-authored row owns NO backend state by construction: nothing
- * `authoredBy !== 'user'` is ever dispatched to `/v1/ingest` (the guard in
- * `dispatchDocument`), so it has no chunks, no summary row, no page text and no
- * tags. Every `(collection, filename)` call it makes therefore addresses
- * SOMEBODY ELSE'S document — reading their summary onto its own card, or
- * deleting their chunks when it is deleted.
+ * A machine-authored row owns backend state in exactly ONE case, and owned none
+ * at all until ADR-0054's publish door existed. Nothing `authoredBy !== 'user'`
+ * reaches `/v1/ingest` unless it is the document's PUBLISHED version, filed
+ * under the `piloti/` namespace (the guard in `dispatchDocument`, and the
+ * `ingestPublished` effect that is its only agent-authored caller). Every other
+ * machine-authored row has no chunks, no summary row, no page text and no tags,
+ * so every `(collection, filename)` call it makes addresses SOMEBODY ELSE'S
+ * document — reading their summary onto its own card, or deleting their chunks
+ * when it is deleted.
  *
  * Instances of that were found one at a time until this module existed:
  * `reindexProject`, `findStorageKeyByCollectionAndFilename`, `joinHitsToFiles`,
@@ -33,12 +36,13 @@
  *
  * So the join gets a constructor instead of a convention. {@link
  * collectionFileRef} is the only way to obtain a {@link CollectionFileRef}, it
- * cannot be called without a row that states its authorship, and it answers
- * `null` for a row a machine wrote. The URL builders below take a ref and
- * nothing else. A caller that forgets the question does not have the value the
- * call needs, and `CollectionFileRef | null` makes the compiler ask what to do
- * about the `null` — so the failure mode is "does not compile" rather than
- * "fails open at runtime, silently, against another tenant's document".
+ * cannot be called without a row that states its authorship AND whether it has
+ * a published version, and it answers `null` for a row that owns nothing over
+ * there. The URL builders below take a ref and nothing else. A caller that
+ * forgets the question does not have the value the call needs, and
+ * `CollectionFileRef | null` makes the compiler ask what to do about the `null`
+ * — so the failure mode is "does not compile" rather than "fails open at
+ * runtime, silently, against another tenant's document".
  *
  * ## What this does NOT cover
  *
@@ -52,10 +56,15 @@
  *   default to `project` and never appear in an `archiv` or `session` query.
  *   Safety that rests on a column default is worth writing down, not relying
  *   on; both go through the constructor now.
- * - It gates on `authoredBy !== 'user'`, which encodes TODAY's invariant
- *   ("machine-authored ⇒ never indexed ⇒ owns no backend state"). A future
- *   producer that is machine-authored AND indexed — which `DocumentListRow`'s
- *   own comment anticipates — would need this rule restated, not reused.
+ * - It used to gate on `authoredBy !== 'user'` alone, which encoded the
+ *   invariant of the day ("machine-authored ⇒ never indexed ⇒ owns no backend
+ *   state"), and said in this list that a producer which is machine-authored
+ *   AND indexed would need the rule RESTATED rather than reused. That producer
+ *   arrived — a published Piloti document (ADR-0054) — and the rule is restated
+ *   here rather than relaxed: a machine-authored row is addressable only when
+ *   it has a published version and its filename is in the `piloti/` namespace,
+ *   which are precisely the two conditions under which chunks of its own can
+ *   exist. Both are asked of the ROW, so no caller can assert either.
  * - It is the BFF side only. The Python backend joins on `(collection,
  *   file_name)` with no notion of `authored_by`; this BFF is the sole authority
  *   on authorship, and anything else that talks to that backend is outside the
@@ -67,12 +76,17 @@
  */
 
 import type { DocumentAuthor } from '@/lib/db/schema'
+import { isAgentDocumentFilename } from './agent-namespace'
 
 declare const humanAuthored: unique symbol
 
 /**
- * A `(collectionName, filename)` pair that has been shown to belong to a
- * human-authored row, and may therefore address backend state.
+ * A `(collectionName, filename)` pair that has been shown to name a row which
+ * owns backend state, and may therefore address it.
+ *
+ * The brand is still called `humanAuthored` because that is what it meant for
+ * every row until the publish door existed, and renaming a module-private
+ * symbol changes no behaviour while making every `git blame` on this file lie.
  *
  * The brand is a `declare`d module-private symbol: no other module can name it,
  * so no other module can produce this type. {@link collectionFileRef} is the
@@ -97,6 +111,18 @@ export interface AuthoredDocumentRow {
   collectionName: string
   filename: string
   authoredBy: DocumentAuthor
+  /**
+   * The version whose bytes the item's storage columns mirror, or `null` when
+   * nothing has been published (ADR-0054).
+   *
+   * REQUIRED for the same reason `authoredBy` is, and it is the half of the
+   * restated rule a caller would otherwise be free to leave out: a
+   * machine-authored row has chunks of its own only after somebody published a
+   * version of it, and an optional column would let every row that forgot the
+   * `select` read as "published" or as "not published" by accident. `null` is
+   * a legitimate answer for a human upload, which owns its chunks regardless.
+   */
+  publishedVersionId: string | null
 }
 
 /**
@@ -109,7 +135,20 @@ export interface AuthoredDocumentRow {
  * ignore it, because there is no ref to make the call with.
  */
 export function collectionFileRef(row: AuthoredDocumentRow): CollectionFileRef | null {
-  if (row.authoredBy !== 'user') return null
+  // A machine-authored row is addressable only where chunks of its own can
+  // exist, and that is exactly one place: a PUBLISHED version, filed under the
+  // `piloti/` namespace. Both halves are load-bearing and neither implies the
+  // other. Without the published check, a draft — which is never dispatched —
+  // would purge a name it never wrote. Without the namespace check, a row from
+  // before the namespace existed (or from a producer that never adopted it)
+  // would address `slug(model's title)-YYYY-MM-DD.ext` in the project's own
+  // collection, which is the human document's name on the day the model reused
+  // its title. `ingestPublished` refuses to dispatch such a row for the same
+  // reason, so "indexed" and "addressable" stay the same set.
+  if (row.authoredBy !== 'user') {
+    if (!row.publishedVersionId) return null
+    if (!isAgentDocumentFilename(row.filename)) return null
+  }
   // The single documented widening in this module: the brand exists only in the
   // type system, so the constructed value cannot carry it. Confined here on
   // purpose — this assertion is what the rest of the codebase does NOT have to

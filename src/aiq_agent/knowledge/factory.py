@@ -606,6 +606,30 @@ def get_document_folder_paths(collection: str, filenames: list[str]) -> dict[str
     return _get_document_metadata_store().get_folder_paths_batch(collection, filenames)
 
 
+def set_document_provenance(collection: str, filename: str, provenance: dict[str, str] | None) -> bool:
+    """Set the provenance of a document Piloti wrote and a person released (ADR-0054).
+
+    UPDATE-only (never creates a row), like :func:`set_document_folder_path`:
+    returns ``False`` when no metadata row exists for ``(collection, filename)``.
+    ``None``/empty clears it, which is what "a human wrote this" means.
+
+    The row is deleted with the chunks (:func:`unregister_summary`, called by
+    every ``delete_file`` path), so a superseded or archived version's
+    provenance never outlives the passages it described.
+    """
+    return _get_document_metadata_store().set_provenance(collection, filename, provenance or None)
+
+
+def get_document_provenance(collection: str, filename: str) -> dict[str, str] | None:
+    """Return the stored provenance for one document, or ``None`` when unmarked.
+
+    The row-level twin of the four keys every chunk carries. Retrieval reads
+    the CHUNK, because that is what a hit is; this is for the surfaces that
+    have a filename and no chunk — a collection listing, an inventory row.
+    """
+    return _get_document_metadata_store().get_provenance(collection, filename)
+
+
 def rewrite_document_folder_paths(collection: str, from_path: str, to_path: str | None) -> int:
     """Re-file every document under ``from_path`` onto ``to_path`` (ADR-0049).
 

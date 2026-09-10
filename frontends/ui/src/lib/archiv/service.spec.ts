@@ -173,6 +173,7 @@ describe('listArchiv', () => {
         status: 'completed',
         collectionName: 'archiv_org-1',
         authoredBy: 'user',
+        publishedVersionId: null,
         errorMessage: null,
         metadata: { ingestJobId: 'secret' },
         summary: 's',
@@ -204,6 +205,7 @@ describe('searchArchivDocuments', () => {
         collectionName: 'archiv_org-1',
         errorMessage: null,
         authoredBy: 'user',
+        publishedVersionId: null,
       },
     ]
     vi.mocked(listArchivDocuments).mockResolvedValue([])

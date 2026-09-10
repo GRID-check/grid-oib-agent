@@ -53,6 +53,16 @@ does not exist, so a moved file is caught; a missing row is not.
 | The card a proposed file operation leaves | `src/aiq_agent/tools/files/cards.py` — `propose_file_operation`; `src/aiq_agent/cards/models.py` — `FileOperationProposalCard` | [`cards.md`](cards.md) | ADR-0030 |
 | Executing an accepted file-operation proposal | `frontends/ui/src/features/grid-cards/lib/file-operations.ts` — `applyFileOperations` | [`cards.md`](cards.md) | ADR-0030, ADR-0055 |
 | The turn's inventory rows, for tools that resolve names | `src/aiq_agent/knowledge/inventory.py` — `set_turn_documents`, `get_turn_documents` | — | ADR-0047 |
+| When a document shows a version-state badge, and which review controls a reader gets | `frontends/ui/src/features/documents/lib/document-lifecycle.ts` — one filter over `DOCUMENT_VERSION_TRANSITIONS` | [`docs/user-guides/agent-authored-reports.md`](../user-guides/agent-authored-reports.md) | ADR-0054 |
+| Freigabe und Fassungen, rendered | `frontends/ui/src/features/documents/components/document-lifecycle-panel.tsx`; mounted in `frontends/ui/src/features/documents/components/file-preview-pane.tsx` and `frontends/ui/src/features/layout/components/ReportCard.tsx` | same | ADR-0054 |
+| Which lifecycle permissions this reader holds | `frontends/ui/src/lib/documents/lifecycle-permissions.ts` — resolved on the server, handed to the pane as data | same | ADR-0038 |
+| How the Files listing learns a document's editorial state | `frontends/ui/src/lib/documents/version-repository.ts` — `listDocumentVersionSummaries`; `frontends/ui/src/lib/documents/lifecycle.ts` — `summarizeDocumentVersions` | same | ADR-0054 |
+| A version's bytes for „Öffnen" | `frontends/ui/src/app/api/documents/[id]/versions/[versionId]/content/route.ts` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0055 |
+| The piloti filename namespace for indexed agent documents | `frontends/ui/src/lib/documents/agent-namespace.ts` — `agentDocumentFilename`, `isAgentDocumentFilename` | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0054 |
+| Indexing a published version, with provenance | `frontends/ui/src/lib/documents/lifecycle.ts` — the `ingestPublished` effect | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0054 |
+| Chunk purge on supersede and archive | `frontends/ui/src/lib/documents/lifecycle.ts` — `purgeSupersededChunks`, `archiveDocument` | [`deletion-pipeline.md`](deletion-pipeline.md) | ADR-0054, ADR-0011 |
+| The provenance wire on `/v1/ingest` | `frontends/aiq_api/src/aiq_api/routes/ingest.py`; `frontends/aiq_api/src/aiq_api/models/requests.py` — `IngestRequest` | [`docs/api/python-endpoints.md`](../api/python-endpoints.md) | ADR-0054 |
+| Provenance on chunks and on the metadata row | `sources/knowledge_layer/src/llamaindex/adapter.py`; `src/aiq_agent/knowledge/factory.py` — `set_document_provenance` | [`docs/technical-reference/document-ingestion.md`](../technical-reference/document-ingestion.md) | ADR-0054 |
 
 ## Shelves, session files, storage
 

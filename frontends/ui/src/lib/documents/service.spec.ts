@@ -505,6 +505,7 @@ describe('listDocuments', () => {
         id: 'doc-1',
         filename: 'plan.pdf',
         displayName: null,
+        publishedVersionId: null,
         originPath: null,
         contentHash: null,
         fileSize: 1024,
@@ -712,6 +713,7 @@ describe('searchProjectDocuments', () => {
       collectionName: 'proj_abc',
       errorMessage: null,
       authoredBy: 'user',
+      publishedVersionId: null,
     },
     {
       id: 'doc-b',
@@ -721,6 +723,7 @@ describe('searchProjectDocuments', () => {
       collectionName: 'proj_abc',
       errorMessage: null,
       authoredBy: 'user',
+      publishedVersionId: null,
     },
   ]
 
@@ -1462,6 +1465,9 @@ describe('the authorship gate on the (collection, filename) join', () => {
           id: 'doc-agent',
           filename: collidingName,
           displayName: null,
+          // Nothing published: an agent DRAFT, which is what a row filed by
+          // `fileGeneratedDocument` is until somebody releases a version of it.
+          publishedVersionId: null,
           originPath: null,
           contentHash: null,
           fileSize: 1024,

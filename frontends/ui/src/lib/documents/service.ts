@@ -200,6 +200,47 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
  *   - dispatch failed     → status failed   (markDocumentIngestFailed)
  *   - ok but no job id    → status left as-is ('uploaded' on first upload)
  */
+/**
+ * The two things only some dispatch callers know.
+ *
+ * One trailing bag rather than a seventh and eighth positional on a function
+ * that already takes six — and one bag rather than two parameters because they
+ * arrive together, from the one caller that has a version row in hand.
+ */
+export interface DispatchIngestExtras {
+  /**
+   * The `documents.filename` these bytes are known by — the retrieval index's
+   * join key. Omitted only where the ingested object is not the row's file.
+   */
+  fileName?: string | null
+  /** Set only for a published Piloti document. */
+  provenance?: AgentDocumentProvenance | null
+}
+
+/**
+ * What a published Piloti document carries into the retrieval index.
+ *
+ * The four keys are spelled here and parsed in
+ * `src/aiq_agent/common/provenance.py`; the pair is the whole contract, and a
+ * typo on either side is silent — a human document is what an unmarked chunk
+ * looks like. So the field names ARE the wire names (snake_case, unlike every
+ * other interface in this file) rather than being mapped at the fetch, which is
+ * where a rename would go unnoticed.
+ *
+ * `authored_by` is not optional and has one legal value: this type exists only
+ * for documents Piloti wrote, and an absent author is what every human document
+ * already sends.
+ */
+export interface AgentDocumentProvenance {
+  authored_by: 'agent'
+  /** The DISPLAY NAME of the person who approved it, never their user id. */
+  approved_by: string | null
+  /** ISO timestamp of that approval. */
+  approved_at: string | null
+  /** Which pipeline wrote the document — `documents.authored_by_producer`. */
+  producer: string | null
+}
+
 export async function dispatchIngest(
   documentId: string,
   collectionName: string,
@@ -222,7 +263,9 @@ export async function dispatchIngest(
    * the backend has no `project_folders` table to join against, the path is what
    * a person reads, and a prefix match over it is the folder's whole subtree.
    */
-  folderPath: string | null = null
+  folderPath: string | null = null,
+  /** See {@link DispatchIngestExtras}. */
+  extras: DispatchIngestExtras = {}
 ): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' }> {
   const bucket = resolveDocumentBucket(storageBucket)
   // The backend fetches the file itself, from inside the Docker network —
@@ -266,6 +309,22 @@ export async function dispatchIngest(
         document_id: documentId,
         thumbnail_upload_url: thumbnailUploadUrl,
         folder_path: folderPath,
+        // The document's IDENTITY inside the collection, stated rather than
+        // left to be derived. Without it the backend reads the name off the
+        // presigned URL's last path segment, which is the OBJECT KEY's
+        // basename — and `storageKeySegment` has already flattened that
+        // (`piloti/<id>/x.md` becomes `piloti_<id>_x.md`, a name with a
+        // backslash or over 255 characters becomes a different one again). The
+        // chunks would then be filed under a string no purge ever asks for,
+        // because every purge addresses `documents.filename`. `null` keeps the
+        // old derivation for the one caller that genuinely ingests a different
+        // file than the row names — the IFC digest.
+        file_name: extras.fileName ?? null,
+        // Absent for every human document, and the Python side treats absent,
+        // null and a non-agent author identically (`parse_agent_provenance`).
+        // Spread so the four keys are the four keys, never a nested object the
+        // chunk metadata would have to be taught to flatten.
+        ...(extras.provenance ?? {}),
       }),
       signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
     })
@@ -930,11 +989,37 @@ export interface BeginModelExtractionInput {
 }
 
 /**
- * What a stored object needs before anything can be started for it. Identical
- * to {@link BeginModelExtractionInput} because the IFC branch is the one that
- * needs more: `dispatchIngest` uses a strict subset of these fields.
+ * What a stored object needs before anything can be started for it.
+ *
+ * `BeginModelExtractionInput` plus the one field only the ingest branch reads,
+ * because the IFC branch is otherwise the one that needs more: `dispatchIngest`
+ * uses a strict subset of these fields.
  */
-export type DispatchDocumentInput = BeginModelExtractionInput
+export interface DispatchDocumentInput extends BeginModelExtractionInput {
+  /**
+   * WHICH VERSION these bytes are — the half of the publish door the row cannot
+   * answer on its own (ADR-0054).
+   *
+   * A machine-authored document is refused unless this names the row's
+   * `published_version_id`, so a draft, an in-review version, an
+   * approved-but-unpublished one, a superseded one and a rejected one all fail
+   * the same check rather than each needing to be listed. Absent means "the
+   * caller is not dispatching a particular version", which is every human
+   * upload path and every re-index — and which an agent-authored row is refused
+   * for, exactly as it was before this door existed.
+   */
+  versionId?: string | null
+  /**
+   * The provenance a published Piloti document carries into every chunk
+   * (`docs/architecture/agent-document-provenance.md`).
+   *
+   * Never assembled here: this tier does not know who approved anything. It is
+   * built by the `ingestPublished` effect, which is the only caller that has a
+   * version row and a directory in hand, and travels verbatim onto the wire so
+   * the keys the Python side parses are the keys the BFF wrote.
+   */
+  provenance?: AgentDocumentProvenance | null
+}
 
 export interface DispatchDocumentResult {
   jobId: string | null
@@ -958,14 +1043,17 @@ export interface DispatchDocumentResult {
  * forget the branch: it cannot see it.
  */
 /**
- * Thrown when something tries to index a document a machine wrote.
+ * Thrown when something tries to index a document a machine wrote and nobody
+ * published.
  *
  * Named and exported so a caller can tell this refusal apart from a backend
  * failure: one is a bug in the caller, the other is an outage.
  */
 export class AgentAuthoredDocumentNotIndexableError extends Error {
   constructor(readonly documentId: string) {
-    super(`document ${documentId} was written by a machine and must not be indexed`)
+    super(
+      `document ${documentId} was written by a machine and is not a published version, so it must not be indexed`
+    )
     this.name = 'AgentAuthoredDocumentNotIndexableError'
   }
 }
@@ -974,9 +1062,32 @@ export async function dispatchDocument(
   input: DispatchDocumentInput
 ): Promise<DispatchDocumentResult> {
   /**
-   * A document a machine wrote never reaches the retrieval index — checked
-   * HERE, at the one place every ingestion path funnels through, and checked by
-   * READING THE ROW rather than by trusting the caller.
+   * A document a machine wrote reaches the retrieval index in exactly ONE case,
+   * and it is checked HERE, at the one place every ingestion path funnels
+   * through, by READING THE ROW rather than by trusting the caller.
+   *
+   * ## The one case, and why it is a row invariant
+   *
+   * The rule used to be "human-authored, full stop". ADR-0054 widened it by one
+   * clause and no more: an agent-authored row passes when the dispatch names
+   * the version the row's `published_version_id` points at. Everything else a
+   * version can be — `draft`, `in_review`, `changes_requested`, `approved` but
+   * not yet published, `superseded`, `rejected` — fails the SAME comparison
+   * rather than being enumerated, so a later state cannot be forgotten here.
+   *
+   * The clause is worth exactly as much as what stands behind it, and what
+   * stands behind it is the database: `document_versions_published_is_approved`
+   * refuses a published row with no `approved_by`/`approved_at`, and
+   * `uniq_document_versions_published_per_document` refuses a second published
+   * version. So `published_version_id` names a version a PERSON approved, and
+   * "indexed ⟹ published ⟹ approved by a person" is a chain of constraints
+   * rather than a chain of call sites.
+   *
+   * The version id travels in the input because the row cannot supply it: the
+   * question is not "does this document have a published version" but "are
+   * these the published version's bytes". A re-index that enumerated documents
+   * and re-dispatched them names no version and is refused, which is what keeps
+   * „Projekt neu indizieren" from putting a superseded draft back in the index.
    *
    * The invariant used to live in `generated.ts`, which only proved that the
    * FILING path does not ingest. That is a claim about one function; the claim
@@ -1002,7 +1113,7 @@ export async function dispatchDocument(
   // caller", and treating an absent row as `user` trusts the caller about the
   // only thing left. No caller reaches this without having inserted first, so
   // the refusal costs nothing today; it is what keeps the next one honest.
-  if (!row || row.authoredBy !== 'user') {
+  if (!row || !mayBeIndexed(row, input.versionId ?? null)) {
     throw new AgentAuthoredDocumentNotIndexableError(input.documentId)
   }
 
@@ -1015,8 +1126,27 @@ export async function dispatchDocument(
     input.storageKey,
     input.organizationId,
     input.storageBucket,
-    input.folderPath ?? null
+    input.folderPath ?? null,
+    // The ROW's filename, not the caller's: the join key belongs to the row,
+    // and this is the same "never trust the caller" argument the guard above
+    // makes about authorship.
+    { fileName: row.filename, provenance: input.provenance ?? null }
   )
+}
+
+/**
+ * Whether this document, dispatched for this version, may be indexed.
+ *
+ * Split out of {@link dispatchDocument} so the rule is one expression a reader
+ * can hold: a person's document always, a machine's only as its own published
+ * version. `dispatch.spec.ts` walks every version state through it.
+ */
+function mayBeIndexed(
+  row: Pick<Document, 'authoredBy' | 'publishedVersionId'>,
+  versionId: string | null
+): boolean {
+  if (row.authoredBy === 'user') return true
+  return Boolean(row.publishedVersionId) && row.publishedVersionId === versionId
 }
 
 /**
@@ -1051,6 +1181,13 @@ export async function beginModelExtraction(
     filename: input.filename,
     storageKey: input.storageKey,
     storageBucket: input.storageBucket,
+    // No `fileName`: what is ingested here is the Markdown DIGEST, not the
+    // model the row names, so the backend's own derivation from the presigned
+    // URL (`digest.md`) is what these chunks have always been filed under.
+    // Stating `input.filename` would rename them to `haus.ifc` and orphan every
+    // chunk already written under the old name. That the row's purge therefore
+    // addresses a name its chunks do not carry is a defect this change did not
+    // introduce and does not fix — see the note in the slice report.
     dispatchDigest: (digestStorageKey) =>
       dispatchIngest(
         input.documentId,

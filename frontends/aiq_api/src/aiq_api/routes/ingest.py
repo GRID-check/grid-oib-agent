@@ -62,6 +62,13 @@ def add_ingest_routes(router: APIRouter):
         knowledge index. ``folder_path`` (optional) is the materialised
         project-folder path the document is filed under; it is stamped onto the
         document's metadata row so surfacing and retrieval can see the filing.
+        ``file_name`` (optional) is the document's identity inside the
+        collection as the BFF knows it; without it the name is derived from the
+        presigned URL's last path segment, which is the object key's basename.
+        ``authored_by``/``approved_by``/``approved_at``/``producer`` (optional,
+        all four together) are the provenance of a document Piloti wrote and a
+        person released (ADR-0054); they are stamped onto every chunk and onto
+        the document metadata row, and absent means "a human wrote this".
         ``x-grid-organization-id`` (forwarded by the BFF for
         per-project/Archiv uploads) is threaded into the job so the VLM used
         during ingestion resolves the org's BYOK credential and runtime model
@@ -106,7 +113,14 @@ def add_ingest_routes(router: APIRouter):
 
             config: dict = {
                 "cleanup_files": True,
-                "original_filenames": [_extract_filename(file_ref)],
+                # The BFF's own `documents.filename` when it stated one, and the
+                # presigned URL's last path segment otherwise. Stating it is what
+                # keeps the chunk `file_name` metadata equal to the join key every
+                # chunk purge addresses: the URL segment is the OBJECT KEY's
+                # basename, which the BFF sanitises (a slash becomes an
+                # underscore, a 300-character name is cut), so the derived form
+                # can be a string no purge ever asks for.
+                "original_filenames": [request.file_name or _extract_filename(file_ref)],
             }
             if request.thumbnail_upload_url:
                 # Same two gates as file_ref, BEFORE the value is used
@@ -138,6 +152,13 @@ def add_ingest_routes(router: APIRouter):
             # sync) gets.
             if request.document_id:
                 config["document_id"] = request.document_id
+            # Who wrote this document and who released it, carried into the
+            # detached ingest thread so the ingestor can stamp it onto every
+            # chunk and onto the document metadata row (ADR-0054). Absent for
+            # every human document, and absence is what the parser expects — see
+            # aiq_agent.common.provenance.parse_agent_provenance, which returns
+            # None for anything unmarked.
+            config.update(_provenance_config(request))
 
             # Fast thumbnail: generate a 200px JPEG before the job enters the
             # pool so the BFF polling sees it (near-)instantly. Fail-open —
@@ -209,6 +230,35 @@ def add_ingest_routes(router: APIRouter):
                     os.unlink(temp_path)
                 except OSError:
                     pass
+
+
+def _provenance_config(request: IngestRequest) -> dict[str, str]:
+    """The provenance keys this request carries, empty fields dropped.
+
+    The four names are spelled in ``aiq_agent.common.provenance`` and read back
+    from chunk metadata by the same module; this route neither renames nor
+    validates them, because a route that re-spells a metadata key is where the
+    BFF and the parser silently stop agreeing. An ``authored_by`` that is not
+    ``agent`` is dropped along with the rest: the one value the retrieval side
+    acts on is that token, so anything else is an unmarked document and must not
+    arrive carrying half a provenance.
+    """
+    from aiq_agent.common.provenance import AGENT_AUTHOR
+    from aiq_agent.common.provenance import KEY_APPROVED_AT
+    from aiq_agent.common.provenance import KEY_APPROVED_BY
+    from aiq_agent.common.provenance import KEY_AUTHORED_BY
+    from aiq_agent.common.provenance import KEY_PRODUCER
+    from aiq_agent.common.provenance import is_agent_author
+
+    if not is_agent_author(request.authored_by):
+        return {}
+    fields = {
+        KEY_AUTHORED_BY: AGENT_AUTHOR,
+        KEY_APPROVED_BY: (request.approved_by or "").strip(),
+        KEY_APPROVED_AT: (request.approved_at or "").strip(),
+        KEY_PRODUCER: (request.producer or "").strip(),
+    }
+    return {key: value for key, value in fields.items() if value}
 
 
 def _assert_public_host_resolution(url: str, field: str = "file_ref") -> None:

@@ -31,6 +31,7 @@ export async function listArchivDocuments(
       contentHash: documents.contentHash,
       status: documents.status,
       authoredBy: documents.authoredBy,
+      publishedVersionId: documents.publishedVersionId,
       collectionName: documents.collectionName,
       folderId: documents.folderId,
       originPath: documents.originPath,

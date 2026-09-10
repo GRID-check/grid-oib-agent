@@ -54,6 +54,10 @@ export async function moveDocumentToFolder(
       filename: documents.filename,
       collectionName: documents.collectionName,
       authoredBy: documents.authoredBy,
+      // Selected for `collectionFileRef` below: a published Piloti document has
+      // chunks and a metadata row, so its folder move must be mirrored like any
+      // other document's (ADR-0054).
+      publishedVersionId: documents.publishedVersionId,
     })
     .from(documents)
     .where(and(eq(documents.id, input.documentId), eq(documents.organizationId, session.organizationId)))
@@ -97,6 +101,7 @@ export async function moveDocumentToFolder(
     collectionName: document.collectionName,
     filename: document.filename,
     authoredBy: document.authoredBy,
+    publishedVersionId: document.publishedVersionId,
   })
   if (backendRef) {
     await mirrorDocumentFolderPath(backendRef, destinationPath)

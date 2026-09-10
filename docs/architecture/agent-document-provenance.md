@@ -74,10 +74,26 @@ value the reader copies into a Nachweis, and `verify_citations` cannot help:
 it proves the source is real, and this source IS real. The answer, its prose
 and its citations are untouched — only the masthead goes.
 
-## Still the other slice
+## Where the keys come from
 
-The publish path itself: the dispatcher guard that admits only a published
-version, the `piloti/<item id>/<slug>.<ext>` filename namespace and the widened
-live-name index, and the chunk purge on supersede and archive. See
+The publish path, and only it. `POST /api/documents/{id}/versions/{vid}/publish`
+runs the lifecycle's `ingestPublished` effect, which dispatches the published
+version's bytes to `POST /v1/ingest` with these four fields beside `file_name`,
+`collection` and `folder_path`. The dispatcher refuses a machine-authored row
+unless the dispatch names the row's own `published_version_id`, so a draft, an
+in-review version, an approved-but-unpublished one, a superseded one and a
+rejected one never reach the index; the document is filed under the
+`piloti/<document id>/<name>` namespace so a model-chosen title cannot collide
+with a person's upload, and migration 0083 makes that a unique index rather than
+a convention. Superseding and archiving purge the chunks, and the backend's
+`unregister_summary` takes the `document_metadata` row's `provenance` with them.
+
+The BFF resolves `approved_by` through `resolvePeople`, the same lookup every
+collaboration surface uses, so the grounding block and the share roster cannot
+disagree about what somebody is called; an id the directory cannot resolve
+yields `null` and the label degrades to the bare `Piloti-Dokument` rather than
+printing a WorkOS id at an architect.
+
+See ADR-0054 § Indexing for the door, and
 [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md)
-§3.
+§3 for the design of record.

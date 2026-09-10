@@ -22,6 +22,7 @@ import type { FolderItem } from '@/features/documents/components/project-file-wo
 import type { DocumentWireRow } from '@/features/documents/lib/file-item'
 import type { FolderRow } from '@/lib/projects/folder-service'
 import type { ListedDocument } from './service'
+import type { DocumentVersionState } from './lifecycle-types'
 
 /**
  * Serialize one listed document.
@@ -32,11 +33,23 @@ import type { ListedDocument } from './service'
  * them, and dropping a field from a shared listing to slim one caller's payload
  * is how the other three start rendering blanks.
  */
-export function toDocumentWireRow(row: ListedDocument): DocumentWireRow & {
+export function toDocumentWireRow(
+  row: ListedDocument,
+  /**
+   * The document's editorial state, when the caller has read it
+   * (`summarizeDocumentVersions`). Optional because not every listing pays for
+   * that second query — the chat's surfaced-documents reader shows no badge —
+   * and an absent summary means "not known here", which the badge renders as
+   * nothing rather than as `Entwurf`.
+   */
+  summary?: { versionCount: number; state: DocumentVersionState },
+): DocumentWireRow & {
   collectionName: string
   updatedAt: string
 } {
   return {
+    versionState: summary?.state ?? null,
+    versionCount: summary?.versionCount ?? null,
     id: row.id,
     filename: row.filename,
     displayName: row.displayName,

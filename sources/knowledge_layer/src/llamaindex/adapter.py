@@ -635,7 +635,34 @@ EMBED_EXCLUDED_METADATA_KEYS = (
     "drawing_data",
     "segment_index",
     "segment_count",
+    # Provenance (ADR-0054). Excluded from both renderings and STORED anyway:
+    # exclusion governs what the splitter renders into the embedded text and
+    # the LLM header, not what the vector store keeps, and retrieval reads
+    # these off `Chunk.metadata` directly. A release date and a producer id
+    # carry no retrieval signal, and embedding an approver's name would shift
+    # every chunk of the document toward whoever signed it — the German line
+    # the reader and the model see is built once, in the grounding block, from
+    # the stored fields.
+    "authored_by",
+    "approved_by",
+    "approved_at",
+    "producer",
 )
+
+
+def _provenance_from_config(config: dict) -> dict[str, str]:
+    """The provenance keys a job config carries, or an empty dict.
+
+    Read through ``aiq_agent.common.provenance`` rather than by picking four
+    strings out of ``config``, so the ingest side and the retrieval side spell
+    the keys once. Empty for every human document, which is what makes the
+    stamping loop a no-op for them.
+    """
+    from aiq_agent.common.provenance import parse_agent_provenance
+    from aiq_agent.common.provenance import provenance_metadata
+
+    provenance = parse_agent_provenance(config)
+    return provenance_metadata(provenance) if provenance else {}
 
 
 def _apply_metadata_exclusions(document: Any) -> None:
@@ -3686,8 +3713,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # chunk's metadata (next to file_name) so it survives into
                     # Chunk.metadata at retrieval and drives the lane/kind
                     # classifiers ahead of the filename guess.
+                    #
+                    # Provenance rides in the same loop and is a SEPARATE axis
+                    # (ADR-0054): who wrote the document and who released it,
+                    # never what it is. It goes on the CHUNK because that is
+                    # where retrieval reads it — `norm_registry.lane_for_hit`
+                    # and the grounding block both see a chunk, not a metadata
+                    # row — and an empty dict for every human document leaves
+                    # those chunks byte-for-byte unchanged.
+                    provenance = _provenance_from_config(config)
                     for doc in all_documents:
                         doc.metadata["doc_class"] = doc_class
+                        doc.metadata.update(provenance)
                         _apply_metadata_exclusions(doc)
 
                     # Create/update index with all documents
@@ -3802,6 +3839,18 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         folder_path = (config.get("folder_path") or "").strip() or None
                         if folder_path:
                             set_document_folder_path(collection_name, file_name, folder_path)
+
+                        # The same four keys on the document metadata row, so a
+                        # surface that reads the row rather than a chunk — the
+                        # collection listing, the agent's inventory — sees the
+                        # author too. The row is deleted with the chunks
+                        # (`unregister_summary` in `delete_file`), which is what
+                        # makes a superseded or archived version's provenance
+                        # go with the passages it described.
+                        if provenance:
+                            from aiq_agent.knowledge import set_document_provenance
+
+                            set_document_provenance(collection_name, file_name, provenance)
 
                         # Also store in local FileInfo for backwards compatibility
                         file_id = config.get("file_id")

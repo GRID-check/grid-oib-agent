@@ -169,7 +169,14 @@ describe('purgeCollectionChunks', () => {
   // Built through the constructor, like production: a bare filename is no
   // longer callable, which is the point of the signature.
   const ref = (filename: string) => {
-    const value = collectionFileRef({ collectionName: CONVERSATION_ID, filename, authoredBy: 'user' })
+    const value = collectionFileRef({
+      collectionName: CONVERSATION_ID,
+      filename,
+      authoredBy: 'user',
+      // A session attachment's own bytes: a person uploaded them, and a human
+      // upload owns its chunks whatever its version pointer says.
+      publishedVersionId: null,
+    })
     if (!value) throw new Error('fixture is not a user-authored row')
     return value
   }
@@ -201,7 +208,12 @@ describe('purgeCollectionChunks', () => {
     // delete the chunks of whatever human document shares that name — the leak
     // this signature exists to make unrepresentable.
     expect(
-      collectionFileRef({ collectionName: CONVERSATION_ID, filename: 'a.pdf', authoredBy: 'agent' })
+      collectionFileRef({
+        collectionName: CONVERSATION_ID,
+        filename: 'a.pdf',
+        authoredBy: 'agent',
+        publishedVersionId: null,
+      })
     ).toBeNull()
   })
 

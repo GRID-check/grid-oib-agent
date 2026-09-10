@@ -1,0 +1,25 @@
+---
+features:
+  - >
+    Publishing a document Piloti wrote is what makes it searchable. Until
+    somebody in your office has approved it and published it, it stays out of
+    the index — a draft, a document in review, one that is approved but not yet
+    issued, and a rejected one are all outside it, and only the published
+    version is ever indexed.
+improvements:
+  - >
+    When a new version is published, the previous one leaves the index before
+    the new one enters it, so Piloti never answers out of a version that has
+    just been replaced. The older bytes stay in the version list and can still
+    be opened.
+  - >
+    An archived document stops answering questions. Until now it kept coming
+    back as a source although it had left the working set — that now holds for
+    every file, not only the ones Piloti wrote. The file and its versions stay
+    exactly where they were; archiving is not deleting.
+fixes:
+  - >
+    A document Piloti wrote can no longer take a filename away from a file
+    somebody uploaded. A report could previously land on the same filename as
+    the document it was written from; such documents now get a namespace of
+    their own, and the database no longer accepts two documents under one name.

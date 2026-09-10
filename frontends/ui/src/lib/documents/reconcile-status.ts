@@ -60,6 +60,18 @@ export interface ReconcilableDocument {
    * compile rather than silently reconciling as if a person had uploaded it.
    */
   authoredBy: DocumentAuthor
+  /**
+   * The version the item's storage columns mirror, or `null` (ADR-0054).
+   *
+   * REQUIRED for the same reason `authoredBy` is, and it became necessary the
+   * day a machine-authored row could own backend state after all: a published
+   * Piloti document HAS a file in the collection list and must be enriched from
+   * it, while a draft of the same document still owns nothing. Authorship alone
+   * can no longer tell those apart, so `collectionFileRef` asks both — and a row
+   * type that cannot answer fails to compile rather than reconciling as if it
+   * had.
+   */
+  publishedVersionId: string | null
   errorMessage: string | null
   metadata?: unknown
 }
