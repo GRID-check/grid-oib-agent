@@ -34,7 +34,3 @@ upgrade:
     Ersetzte Fassungen behalten ihre Dateien und zählen deshalb weiter auf das
     Speicherkontingent der Organisation. Eine Aufbewahrungsregel pro
     Organisation gibt es noch nicht.
-  - >
-    Sieben neue Audit-Ereignisse müssen vor dem ersten Einsatz in WorkOS
-    registriert werden — `npm run provision:audit-schemas -- --apply`. Ohne das
-    weist WorkOS die Ereignisse ab.
