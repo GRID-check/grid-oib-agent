@@ -716,7 +716,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         </div>
       )
     },
-    [cards, cardSet, projectId, messageId]
+    [cards, cardSet, projectId, messageId, anatomy?.callout]
   )
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
