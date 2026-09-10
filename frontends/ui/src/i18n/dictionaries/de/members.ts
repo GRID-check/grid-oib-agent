@@ -19,9 +19,9 @@ export const members: typeof en.members = {
   },
   roleDescriptions: {
     'project-viewer':
-      'Kann Projektinhalte, Dateien und Unterhaltungen lesen. Kann nichts ändern und den Recherche-Agenten nicht nutzen.',
+      'Kann Projektinhalte, Dateien und Unterhaltungen lesen. Kann nichts ändern und Piloti nicht nutzen.',
     'project-contributor':
-      'Kann außerdem den Recherche-Agenten in diesem Projekt nutzen, aber dessen Dokumente und Gedächtnis nicht ändern.',
+      'Kann außerdem Piloti in diesem Projekt nutzen, aber dessen Dokumente und Gedächtnis nicht ändern.',
     'project-editor':
       'Kann außerdem Dokumente bearbeiten sowie Projektprofil und Gedächtnis aktualisieren.',
     'project-admin': 'Kann außerdem Projekteinstellungen, Mitglieder und Rollen verwalten.',

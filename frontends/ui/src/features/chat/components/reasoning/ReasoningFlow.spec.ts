@@ -16,12 +16,57 @@ const t = ((key: string) => key) as unknown as Translator
 const card = (id: string): CitedDocument => ({
   id,
   title: id,
+  fileName: `${id}.pdf`,
   kind: 'baurecht',
   tint: 'law',
   loci: [{ key: 'whole', isCited: true }],
 })
 
 const base: ReasoningFlowProps = { steps: [], userQuestion: 'Frage?' }
+
+const retrievalStep = (
+  index: number,
+  query: string,
+  reason?: string,
+  tools: string[] = ['knowledge_search']
+): ThinkingStep => ({
+  id: `r${index}`,
+  userMessageId: 'u1',
+  category: 'agents',
+  functionName: `status:retrieval:${index}`,
+  displayName: `status:retrieval:${index}`,
+  content: JSON.stringify({
+    kind: 'status',
+    channel: 'live',
+    slot: `retrieval:${index}`,
+    key: 'status.retrieval.withQuery',
+    values: { corpus: 'knowledge', query },
+    tools,
+    ...(reason ? { reason } : {}),
+  }),
+  timestamp: new Date(),
+  isComplete: true,
+})
+
+const toolHit = (id: string, file: string, round?: number): ThinkingStep => ({
+  id: `t-${id}`,
+  userMessageId: 'u1',
+  category: 'tools',
+  functionName: 'knowledge_search',
+  displayName: 'knowledge_search',
+  content: '',
+  timestamp: new Date(),
+  isComplete: true,
+  traceLanes: [
+    {
+      key: 'baurecht_oib',
+      label: 'OIB-Richtlinie',
+      hitCount: 1,
+      sources: [{ name: `${file}.pdf`, round }],
+      signal: 'law',
+    },
+  ],
+})
 
 /** A desktop chat column; a phone viewport. */
 const DESKTOP_W = 680
@@ -35,8 +80,9 @@ const framingHandles = (g: ReturnType<typeof buildGraph>): string[] =>
 const targetHandles = (g: ReturnType<typeof buildGraph>, id: string): string[] =>
   ((g.nodes.find((n) => n.id === id)!.data as { targets: Array<{ id: string }> }).targets).map((h) => h.id)
 
+const isColumnId = (id: string) => /(^|-)col-\d+$/.test(id)
 const columnToColumnEdges = (g: ReturnType<typeof buildGraph>) =>
-  g.edges.filter((e) => e.source.startsWith('col-') && e.target.startsWith('col-'))
+  g.edges.filter((e) => isColumnId(e.source) && isColumnId(e.target))
 
 /** Cards each column node carries, left→right. */
 const columnCards = (g: ReturnType<typeof buildGraph>): string[][] =>
@@ -118,6 +164,147 @@ describe('buildGraph — parallel wiring (P1-4)', () => {
     }
     // The bug was framing→src1→src2→…: there must be NO column→column edge.
     expect(columnToColumnEdges(g)).toHaveLength(0)
+  })
+
+  test('one retrieval round keeps the old fan — no round nodes', () => {
+    const steps = [retrievalStep(0, 'Fluchtweg GK4')]
+    const cards = [card('a'), card('b')]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      cards
+    )
+    expect(g.nodes.filter((n) => n.type === 'round')).toHaveLength(0)
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'framing', target: 'col-0' }))
+  })
+
+  test('two retrieval rounds become a spine, then the fan', () => {
+    const steps = [retrievalStep(0, 'OIB 3 Pkt. 3.4.2'), retrievalStep(1, 'Überhang Dachrand')]
+    const cards = [card('a'), card('b')]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      cards
+    )
+    // No tool hits claimed either fetch. Cards stay in "Belegt durch"; the
+    // spine does not pretend the last search returned them.
+    expect(g.nodes.map((n) => n.id)).toEqual(['framing', 'round-0', 'round-1', 'findings'])
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'framing', target: 'round-0' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-0', target: 'round-1' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'findings' }))
+    expect(g.nodes.filter((n) => n.type === 'sourceColumn')).toHaveLength(0)
+    expect(g.edges.filter((e) => e.source === 'framing' && e.target.includes('col-'))).toHaveLength(0)
+    expect(columnToColumnEdges(g)).toHaveLength(0)
+    expect(g.rows).toEqual([['framing'], ['round-0'], ['round-1'], ['findings']])
+  })
+
+  test('each checkpoint hangs the files THAT fetch returned', () => {
+    const steps = [
+      retrievalStep(0, 'OIB 2'),
+      toolHit('oib', 'a'),
+      retrievalStep(1, 'Grundriss', 'Die Richtlinie staffelt nach GK — der Plan fehlt.'),
+      toolHit('plan', 'b'),
+    ]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+    expect(columnCards(g)).toEqual([['a'], ['b']])
+    expect(g.nodes.map((n) => n.id)).toEqual([
+      'framing',
+      'round-0',
+      'r0-col-0',
+      'round-1',
+      'r1-col-0',
+      'findings',
+    ])
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-0', target: 'r0-col-0' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'r0-col-0', target: 'round-1' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'r1-col-0' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'r1-col-0', target: 'findings' }))
+    const round0 = g.nodes.find((n) => n.id === 'round-0')!.data as { actions: string[] }
+    const round1 = g.nodes.find((n) => n.id === 'round-1')!.data as { text: string; actions: string[] }
+    expect(round0.actions).toEqual(['thinking.stepName.corpus'])
+    expect(round1.text).toContain('der Plan fehlt')
+    expect(g.rows).toEqual([
+      ['framing'],
+      ['round-0'],
+      ['r0-col-0'],
+      ['round-1'],
+      ['r1-col-0'],
+      ['findings'],
+    ])
+  })
+
+  test('a merged knowledge_search step still hangs each fetch\'s files on its checkpoint', () => {
+    const merged: ThinkingStep = {
+      id: 'merged',
+      userMessageId: 'u1',
+      category: 'tools',
+      functionName: 'knowledge_search',
+      displayName: 'knowledge_search',
+      content: '',
+      timestamp: new Date(),
+      isComplete: true,
+      traceLanes: [
+        {
+          key: 'baurecht_oib',
+          label: 'OIB-Richtlinie',
+          hitCount: 1,
+          sources: [{ name: 'a.pdf', round: 0 }],
+          signal: 'law',
+        },
+        {
+          key: 'projekt',
+          label: 'Projektwissen',
+          hitCount: 1,
+          sources: [{ name: 'b.pdf', round: 1 }],
+          signal: 'project',
+        },
+      ],
+    }
+    const g = buildGraph(
+      {
+        ...base,
+        steps: [retrievalStep(0, 'OIB 2'), retrievalStep(1, 'Grundriss'), merged],
+        answerConfidence: 'high',
+      },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+    expect(columnCards(g)).toEqual([['a'], ['b']])
+  })
+
+  test('the spine speaks the checkpoint, never the search query (PF-12)', () => {
+    const steps = [
+      retrievalStep(0, 'OIB 3 Pkt. 3.4.2'),
+      retrievalStep(
+        1,
+        'Überhang Dachrand',
+        'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel — messe den Überhang.'
+      ),
+    ]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+    const round0 = g.nodes.find((n) => n.id === 'round-0')!.data as { label: string; text: string }
+    const round1 = g.nodes.find((n) => n.id === 'round-1')!.data as { label: string; text: string }
+    expect(round0.text).toBe('')
+    expect(round0.label).toBe('thinking.node.roundTab')
+    expect(round1.text).toBe(
+      'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel — messe den Überhang.'
+    )
+    expect(round1.label).toBe('thinking.node.checkpointTab')
+    expect(round0.text).not.toContain('OIB 3 Pkt. 3.4.2')
+    expect(round1.text).not.toContain('Überhang Dachrand')
   })
 
   test('stacked columns keep exactly two straight edges each — nothing pierces a card', () => {

@@ -75,6 +75,13 @@ const STEP_NAME_RULES: Array<{ match: RegExp; key: string }> = [
   { match: /web[_-]?search|tavily/, key: 'webSearch' },
   { match: /ris/, key: 'ris' },
   { match: /knowledge|retriev|corpus/, key: 'corpus' },
+  { match: /ifc[_-]?measure/, key: 'measure' },
+  { match: /ifc/, key: 'model' },
+  { match: /view_knowledge_image/, key: 'drawing' },
+  { match: /surface_documents/, key: 'documents' },
+  { match: /remember/, key: 'note' },
+  { match: /emit_card/, key: 'card' },
+  { match: /compliance_check/, key: 'compliance' },
   // The working directory (§1 of the design of record): four verbs over a
   // conversation's own scratch, and ONE chip between them. „Entwurf" is the
   // work a reader recognises; „write_file, read_file, edit_file, edit_file,

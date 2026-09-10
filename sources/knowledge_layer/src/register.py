@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 from contextlib import suppress
+from typing import Any
 from typing import Literal
 
 from pydantic import Field
@@ -80,14 +81,24 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "BROWSE files, no legal question): that is `surface_documents`. After "
     "you cite a project or Büroarchiv file, do not also call "
     "`surface_documents`; the UI peeks the cited file. Live Austrian law "
-    "(statutes, Bauordnungen) is the RIS tools, not this index.\n"
+    "(statutes, Bauordnungen) is the RIS tools, not this index. When you "
+    "already know the document AND the Punkt or page you need, that is "
+    "`read_passage` — a lookup, not a second search.\n"
     "HOW TO QUERY — rewrite the user question into a search query (topic + "
     "jurisdiction + implied year). Prefer one precise call over a broad dump. "
-    "At most 2 calls; change the query on the second. Never invent a "
-    "`file_name`; take it from the inventory or the user. The OIB base corpus "
+    "If a conclusion names a document and a Punkt or page you have not opened, "
+    "open it with `read_passage`; search again only when you still do not know "
+    "WHICH document holds the answer. Empty results: change the query and "
+    "try again; do not invent a citation around a gap you could still close. "
+    "Never invent a `file_name`; take it from the inventory or the user. The "
+    "OIB base corpus "
     "is not enumerated there — reach it by `doc_class` (e.g. `oib_richtlinie`) "
     "or by plain semantic search, never a guessed name. Do not pass a raw "
     "`filters` object unless you need `content_type`.\n"
+    "ALWAYS pass `conclusion=` — one sentence saying what you now know and what "
+    "you still need, which is why you are making THIS call. Empty on your first "
+    "call of the turn. It is the Herleitung checkpoint the reader sees above the "
+    "fetch; it changes nothing about the search and never appears in `answer`.\n"
     "RETURNS — numbered passages with Source, Citation (copy this key "
     "verbatim), Dokumentart, Ordner (the folder the file is filed in, when it "
     "has one), page, and the passage. Cite only those keys. "
@@ -1252,7 +1263,7 @@ def _trace_lanes_json(
             sig = (name, detail or "")
             existing = {(s.get("name"), s.get("detail") or "") for s in bucket["sources"]}
             if name and sig not in existing:
-                entry: dict[str, object] = {"name": name}
+                entry: dict[str, Any] = {"name": name}
                 title = _hit_display_title(chunk, resolved_titles)
                 if title and title != name:
                     entry["title"] = title
@@ -1266,6 +1277,14 @@ def _trace_lanes_json(
                     # it in the reader's own locale from the approver and the
                     # ISO date rather than parse it back out of prose.
                     entry["provenance"] = provenance_metadata(provenance)
+                try:
+                    from aiq_agent.common.turn_status import current_retrieval_round
+
+                    rnd = current_retrieval_round()
+                except Exception:  # noqa: BLE001 — a missing round stamp must not drop the hit
+                    rnd = None
+                if rnd is not None:
+                    entry["round"] = rnd
                 bucket["sources"].append(entry)
         return json.dumps({"lanes": list(lanes.values())}, ensure_ascii=False)
     except Exception:
@@ -1578,6 +1597,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         title_contains: str | None = None,
         file_name: str | None = None,
         folder: str | None = None,
+        conclusion: str = "",
     ) -> str:
         """Read and cite passages from the ingested knowledge base.
 
@@ -1585,6 +1605,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             query (str): The fact or passage you need, rewritten as a search
                 query (topic + jurisdiction + implied year). Not the raw user
                 message.
+            conclusion (str): ONE sentence: what you now know and what you
+                still need, which is why you are making this call. Empty on
+                your first call of the turn, when you know nothing yet. It is
+                the Herleitung checkpoint the reader sees above this fetch; it
+                does not change what is searched and does not belong in your
+                answer.
             file_name (str | None): Indexed file name to read (from the
                 inventory or the user). Never invent a name. Base-corpus
                 files are not listed in the inventory — filter those with
@@ -1606,6 +1632,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         Returns:
             str: Numbered excerpts with a Citation key to copy verbatim.
         """
+        # `conclusion` is deliberately unread HERE. It is a checkpoint channel,
+        # not a retrieval parameter: the researcher's agent node reads it off
+        # the tool CALL (`turn_status.emit_retrieval`) before this coroutine
+        # runs, and it must not influence what is searched — a sentence that
+        # changed the result would make the Herleitung a cause instead of a
+        # record of one.
         query = (query or "").strip()
         file_name = (file_name or "").strip() or None
         title_contains = (title_contains or "").strip() or None

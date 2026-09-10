@@ -237,6 +237,10 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
   'status.documents.waiting': 'thinking.turnStatus.',
   'status.retrieval.withQuery': 'thinking.turnStatus.',
   'status.retrieval.plain': 'thinking.turnStatus.',
+  // The locator rounds: a passage the agent already identified is being READ,
+  // not searched for. No `{corpus}` slot — the document names itself.
+  'status.retrieval.punkt': 'thinking.turnStatus.',
+  'status.retrieval.page': 'thinking.turnStatus.',
   'status.retrieval.requery': 'thinking.turnStatus.',
   'status.action.remember': 'thinking.turnStatus.',
   'status.action.card': 'thinking.turnStatus.',
@@ -256,6 +260,10 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
   // of the two just happened.
   'status.action.draftFiled': 'thinking.turnStatus.',
   'status.action.draftSubmitted': 'thinking.turnStatus.',
+  // Handing the work over: this turn will not produce the answer, something
+  // outside the conversation will. Its own key, and not one of the two above,
+  // because no draft is moving.
+  'status.action.taskCreated': 'thinking.turnStatus.',
   'status.citations': 'thinking.turnStatus.',
   'status.repair': 'thinking.turnStatus.',
   'status.escalation': 'thinking.turnStatus.',

@@ -47,7 +47,9 @@ The gates are the point, not an accident (see ``docs/architecture/cards.md``):
 
 - a verdict must be a short VALUE the reader can copy — a number, a class,
   „Nicht geregelt" — so anything longer than :data:`VERDICT_VALUE_MAX_CHARS`
-  is a heading claiming too much, and is dropped;
+  is a heading claiming too much, and is dropped. It is also exclusive to
+  ``kind=ruling``; an absent kind is the legacy envelope and keeps today's
+  behaviour (the verdict may survive);
 - a takeaway block is earned by an answer long enough to need one
   (:data:`TAKEAWAYS_MIN_PROSE_CHARS`, mirroring the frontend's lede threshold)
   and holds two to five items, never more;
@@ -70,6 +72,7 @@ from typing import get_origin
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import ValidationError
+from pydantic import field_validator
 
 from aiq_agent.common.provenance import normalize_document_name
 from aiq_agent.common.turn_status import VERDICT_DROP_AGENT_AUTHORED
@@ -100,10 +103,10 @@ _ANSWER_JSON_FENCE_RE = re.compile(rf"```{ENVELOPE_FENCE}[ \t]*\n(.*?)\n?```", r
 VERDICT_VALUE_MAX_CHARS = 60
 
 #: A summary is the whole answer in ONE to TWO sentences — the standfirst the
-#: reader gets before the prose. Unlike the verdict it is expected on
-#: basically every research reply (a ruling is earned, a summary is owed).
-#: Above this it is a paragraph wearing a summary's name, and it is dropped
-#: whole — the prose's own lede then does the job, so nothing is lost.
+#: reader gets before the prose. It is owed on a ruling; a walkthrough earns
+#: one only when it pays for the extra line. Above this it is a paragraph
+#: wearing a summary's name, and it is dropped whole — the prose's own lede
+#: then does the job, so nothing is lost.
 SUMMARY_MAX_CHARS = 320
 
 #: The callout's PLACEMENT marker. The one anatomy field whose right place the
@@ -133,6 +136,10 @@ TAKEAWAYS_MAX_ITEMS = 5
 #: substring test can judge — „RL 2" would match half the registry. Below the
 #: floor the gate abstains rather than guessing in either direction.
 _MIN_MATCHABLE_NAME_CHARS = 4
+
+#: Exclusive shapes of a shallow answer. A verdict is kept only for ``ruling``.
+AnswerKind = Literal["direct", "walkthrough", "ruling", "handoff"]
+ANSWER_KINDS: tuple[str, ...] = get_args(AnswerKind)
 
 
 class _EnvelopeModel(BaseModel):
@@ -216,13 +223,24 @@ class AnswerMetaConfidence(_EnvelopeModel):
 class AnswerMeta(_EnvelopeModel):
     """The validated envelope beyond ``answer``. Every field optional.
 
-    Two kinds of field, deliberately separate: ANATOMY (verdict, takeaways,
-    callout — rendered content, gated through :data:`ANATOMY_FIELDS` onto the
-    wire) and CONTROL (confidence, escalate_to_deep — signals the platform
-    consumes, which never ride the ``answer_meta`` wire payload; confidence
-    travels as ``answer_confidence`` exactly as it always has).
+    Two kinds of field, deliberately separate: ANATOMY (kind, summary, verdict,
+    takeaways, callout — rendered content, gated through :data:`ANATOMY_FIELDS`
+    onto the wire) and CONTROL (confidence, escalate_to_deep — signals the
+    platform consumes, which never ride the ``answer_meta`` wire payload;
+    confidence travels as ``answer_confidence`` exactly as it always has).
+
+    ``kind`` is exclusive: a verdict is kept only for ``ruling``. An absent
+    kind is the legacy envelope and keeps today's behaviour. Unknown values
+    are coerced to ``walkthrough`` (no verdict) rather than failing open
+    to a ruling.
     """
 
+    kind: AnswerKind | None = Field(
+        default=None,
+        description=(
+            'exclusive answer shape: "direct" | "walkthrough" | "ruling" | "handoff"; verdict is only for kind=ruling'
+        ),
+    )
     summary: str | None = Field(
         default=None,
         description="the whole answer in 1-2 sentences: outcome plus the decisive qualifier, in the answer's language",
@@ -244,10 +262,23 @@ class AnswerMeta(_EnvelopeModel):
         description="with escalate_to_deep: one short clause saying why, in the answer's language",
     )
 
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _coerce_kind(cls, value: object) -> str | None:
+        if not isinstance(value, str):
+            return None
+        kind = value.strip()
+        if not kind:
+            return None
+        # Unknown is not legacy. Legacy is ABSENT kind. Garbage that kept the
+        # gavel made exclusive kinds fail open to a ruling.
+        return kind if kind in ANSWER_KINDS else "walkthrough"
+
     @property
     def empty(self) -> bool:
         return (
-            self.summary is None
+            self.kind is None
+            and self.summary is None
             and self.verdict is None
             and not self.takeaways
             and self.callout is None
@@ -289,6 +320,10 @@ def _gate_summary(meta: AnswerMeta, ctx: GateContext) -> str | None:
         )
         return None
     return summary
+
+
+def _gate_kind(meta: AnswerMeta, ctx: GateContext) -> str | None:
+    return meta.kind
 
 
 def _verdict_drop_reason(verdict: AnswerMetaVerdict, ctx: GateContext) -> str | None:
@@ -335,6 +370,11 @@ def _names_agent_authored_document(reference: AnswerMetaReference | None, ctx: G
 
 def _gate_verdict(meta: AnswerMeta, ctx: GateContext) -> dict | None:
     if meta.verdict is None:
+        return None
+    # Exclusive kinds: a present non-ruling kind drops the verdict. An absent
+    # kind is the legacy envelope — the verdict may still survive.
+    if meta.kind is not None and meta.kind != "ruling":
+        logger.info("answer_meta verdict gated out: kind %s is not ruling", meta.kind)
         return None
     value = meta.verdict.value.strip()
     subject = meta.verdict.subject.strip()
@@ -425,6 +465,7 @@ class AnatomyField:
 
 
 ANATOMY_FIELDS: tuple[AnatomyField, ...] = (
+    AnatomyField("kind", _gate_kind),
     AnatomyField("summary", _gate_summary),
     AnatomyField("verdict", _gate_verdict),
     AnatomyField("callout", _gate_callout),
@@ -747,6 +788,10 @@ def render_envelope_schema() -> str:
         "callout": AnswerMetaCallout,
     }
     for field in ANATOMY_FIELDS:
+        if field.name == "kind":
+            kinds = " | ".join(json.dumps(k) for k in ANSWER_KINDS)
+            lines.append(f"kind: {kinds}")
+            continue
         if field.name == "summary":
             description = AnswerMeta.model_fields["summary"].description
             lines.append(f"summary: string ({description})")
@@ -756,5 +801,6 @@ def render_envelope_schema() -> str:
             continue
         model_cls = field_models.get(field.name)
         if model_cls is not None:
-            lines.append(f"{field.name}: {_shape(model_cls)}")
+            suffix = " (only for kind=ruling)" if field.name == "verdict" else ""
+            lines.append(f"{field.name}: {_shape(model_cls)}{suffix}")
     return "\n".join(f"  {line}" for line in lines)

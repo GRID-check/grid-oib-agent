@@ -19,6 +19,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useChatStore } from '../store'
 import { buildCitationModel } from '../lib/citations'
 import { deriveTraceLanes } from '../lib/trace-lanes'
+import { retrievalRounds } from '../lib/retrieval-rounds'
 import { pruneMessageForStorage } from '../lib/prune-message-for-storage'
 import type { Conversation } from '../types'
 
@@ -220,5 +221,53 @@ describe('updateThinkingStepByFunctionName — repeated calls of the same tool',
     expect(
       deriveTraceLanes(useChatStore.getState().getThinkingStepsForMessage('msg-1')).map((l) => l.key)
     ).toContain('web')
+  })
+})
+
+describe('retrievalRounds against the real store merge', () => {
+  beforeEach(() => {
+    const conversation = conversationWithUserMessage()
+    useChatStore.setState({
+      currentUserId: 'user-1',
+      currentUserMessageId: 'msg-1',
+      currentConversation: conversation,
+      conversations: [conversation],
+      thinkingSteps: [],
+    })
+  })
+
+  const stamped = (payload: string, round: number): string =>
+    payload.replace('"sources":[{', `"sources":[{"round":${round},`)
+
+  const retrievalStatus = (index: number, query: string): void => {
+    useChatStore.getState().addThinkingStep({
+      category: 'agents',
+      functionName: `status:retrieval:${index}`,
+      displayName: `status:retrieval:${index}`,
+      content: JSON.stringify({
+        kind: 'status',
+        channel: 'live',
+        slot: `retrieval:${index}`,
+        key: 'status.retrieval.withQuery',
+        values: { corpus: 'knowledge', query },
+      }),
+      isComplete: true,
+    })
+  }
+
+  it('assigns each fetch\'s files to its checkpoint after two knowledge_search completions merge', () => {
+    retrievalStatus(0, 'OIB 2')
+    startToolStep()
+    useChatStore.getState().updateThinkingStepByFunctionName(TOOL, stamped(firstCallPayload, 0), true)
+    retrievalStatus(1, 'Grundriss')
+    useChatStore.getState().updateThinkingStepByFunctionName(TOOL, stamped(secondCallPayload, 1), true)
+
+    const steps = useChatStore.getState().getThinkingStepsForMessage('msg-1')
+    const knowledgeSteps = steps.filter((s) => s.functionName === TOOL)
+    expect(knowledgeSteps).toHaveLength(1)
+
+    const rounds = retrievalRounds(steps)
+    expect(rounds[0]?.sourceNames).toEqual(['OIB-RL_2_Brandschutz.pdf'])
+    expect(rounds[1]?.sourceNames).toEqual(['Brandschutzkonzept.pdf'])
   })
 })

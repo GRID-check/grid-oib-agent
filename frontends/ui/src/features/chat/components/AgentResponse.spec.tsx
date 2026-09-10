@@ -741,6 +741,63 @@ describe('AgentResponse', () => {
       expect(screen.getByText('Result')).toBeInTheDocument()
       expect(screen.queryByText('Note')).not.toBeInTheDocument()
     })
+
+    test('kind=direct wears the "Note" tab even on a shallow route', () => {
+      render(
+        <AgentResponse
+          content="Hello there"
+          routingDecision="shallow"
+          answerMeta={{ v: 1, kind: 'direct', summary: 'Kurz die Lage.' }}
+        />
+      )
+
+      expect(screen.getByText('Note')).toBeInTheDocument()
+      expect(screen.queryByText('Result')).not.toBeInTheDocument()
+    })
+
+    test('kind=walkthrough wears the "Answer" tab, not "Result"', () => {
+      render(
+        <AgentResponse
+          content="So legen Sie den Ordner an."
+          routingDecision="shallow"
+          answerMeta={{ v: 1, kind: 'walkthrough', summary: 'Pläne unter Einreichung ablegen.' }}
+        />
+      )
+
+      expect(screen.getByText('Answer')).toBeInTheDocument()
+      expect(screen.queryByText('Result')).not.toBeInTheDocument()
+      expect(screen.queryByText('Note')).not.toBeInTheDocument()
+    })
+
+    test('kind=ruling keeps the "Result" tab', () => {
+      render(
+        <AgentResponse
+          content="REI 60 gilt."
+          routingDecision="shallow"
+          answerMeta={{
+            v: 1,
+            kind: 'ruling',
+            verdict: { value: 'REI 60', subject: 'Feuerwiderstand tragender Bauteile' },
+          }}
+        />
+      )
+
+      expect(screen.getByText('Result')).toBeInTheDocument()
+      expect(screen.queryByText('Answer')).not.toBeInTheDocument()
+    })
+
+    test('kind=handoff wears the "Note" tab, not "Result"', () => {
+      render(
+        <AgentResponse
+          content="Dafür starte ich eine Tiefenrecherche."
+          routingDecision="shallow"
+          answerMeta={{ v: 1, kind: 'handoff' }}
+        />
+      )
+
+      expect(screen.getByText('Note')).toBeInTheDocument()
+      expect(screen.queryByText('Result')).not.toBeInTheDocument()
+    })
   })
 
   describe('lede typesetting', () => {
@@ -882,6 +939,22 @@ describe('AgentResponse', () => {
         <AgentResponse content="REI 60 gilt." answerMeta={answerMeta} isStreaming />
       )
       expect(container.textContent).not.toContain('Binnen sechs Wochen')
+    })
+
+    test('a walkthrough does not wear the verdict gavel even if a verdict is present', () => {
+      const { container } = render(
+        <AgentResponse
+          content="So legen Sie den Ordner an."
+          answerMeta={{
+            v: 1,
+            kind: 'walkthrough',
+            summary: 'Legen Sie die Pläne unter Einreichung ab.',
+            verdict: { value: 'REI 60', subject: 'Feuerwiderstand tragender Bauteile' },
+          }}
+        />
+      )
+      expect(container.textContent).toContain('Legen Sie die Pläne unter Einreichung ab.')
+      expect(container.textContent).not.toContain('Feuerwiderstand tragender Bauteile')
     })
 
     test('a body that claims the callout with [[callout]] takes it out of the after-prose block', () => {

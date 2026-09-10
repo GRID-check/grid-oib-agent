@@ -130,6 +130,28 @@ def test_knowledge_search_description_is_the_evidence_tool() -> None:
     assert "WHEN TO CALL" in desc
     assert "WHEN NOT TO CALL" in desc
     assert "Citation" in desc
+    # The numeric budget is the ceiling. A two-call cap here told the model
+    # not to loop even after the prompt stopped saying so.
+    assert "At most 2 calls" not in desc
+    # …and a conclusion that NAMES its passage is now a lookup rather than a
+    # tighter search: `read_passage` opens it, and this description is where
+    # the model is told so. Searching again for a passage you can already
+    # address is the round the second landing exists to remove.
+    assert "`read_passage`" in desc
+    assert "search again only when you still do not know" in desc
+
+
+def test_knowledge_search_asks_for_the_checkpoint_in_an_argument() -> None:
+    """The Herleitung checkpoint has a SLOT now.
+
+    Prose beside the tool calls was the only channel, and a tool-calling model
+    routinely writes none — which is why `hasConclusion` was worth counting at
+    all. A declared argument is filled the way every other argument is filled.
+    """
+    desc = _KNOWLEDGE_SEARCH_DESCRIPTION
+    assert "`conclusion=`" in desc
+    assert "Empty on your first call" in desc
+    assert "never appears in `answer`" in desc
 
 
 def test_the_description_says_what_a_piloti_document_may_be_cited_for() -> None:

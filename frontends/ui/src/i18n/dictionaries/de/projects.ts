@@ -5,7 +5,7 @@ export const projects: typeof en.projects = {
   list: {
     heading: 'Projekte',
     description:
-      'Jedes Bauprojekt in einem ruhigen Arbeitsbereich — Dokumente, Mitglieder, OIB/RIS-Recherche und Chat, gemeinsam fundiert.',
+      'Jedes Bauprojekt in einem Arbeitsbereich — Dokumente, Mitglieder und Chat, fundiert in den Dateien, dem Büroarchiv und dem Baurecht.',
     loading: 'Projekte werden geladen…',
     searchPlaceholder: 'Projekte durchsuchen…',
     searchAria: 'Projekte nach Namen durchsuchen',
@@ -27,7 +27,7 @@ export const projects: typeof en.projects = {
     empty: {
       title: 'Starten Sie Ihr erstes Projekt',
       description:
-        'Piloti ist ein Copilot für die OIB/RIS-Baukonformität. Legen Sie ein Projekt an, um dessen Dokumente, Mitglieder und Recherche in einem Arbeitsbereich zu bündeln — und stellen Sie Piloti Fragen, fundiert im österreichischen Baurecht.',
+        'Piloti ist der Arbeitsbereich, in dem ein Planungsbüro ein Bauprojekt führt. Legen Sie ein Projekt an, um Dateien, Mitglieder und Chat zusammenzubringen — und sprechen Sie mit Piloti über die Arbeit, fundiert in den Dateien, dem Büroarchiv und dem österreichischen Baurecht.',
       action: 'Erstellen Sie Ihr erstes Projekt',
     },
   },
@@ -36,7 +36,7 @@ export const projects: typeof en.projects = {
   },
   card: {
     summaryFallback:
-      'Arbeitsbereich für OIB/RIS-Baukonformität. Fügen Sie Dokumente und ein Briefing hinzu, um Piloti zu fundieren.',
+      'Arbeitsbereich des Planungsbüros. Fügen Sie Dokumente und ein Briefing hinzu, damit Piloti aus diesem Projekt arbeiten kann.',
     status: {
       active: 'Aktiv',
     },
@@ -78,7 +78,7 @@ export const projects: typeof en.projects = {
       oibBrandschutzAudit: { label: 'OIB Brandschutz-Audit', name: 'OIB Brandschutz-Audit' },
     },
     footnote:
-      'Erstellen Sie einen fokussierten Arbeitsbereich für Dokumente, Recherche, Mitglieder und Chat — fundiert in den OIB-Richtlinien und im RIS.',
+      'Erstellen Sie einen Arbeitsbereich für Dokumente, Mitglieder und Chat, fundiert in den Projektdateien, dem Büroarchiv und dem Baurecht.',
     submit: 'Projekt erstellen',
   },
   applicableStandards: {

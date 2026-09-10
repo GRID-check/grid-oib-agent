@@ -109,9 +109,50 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+#: Which retrieval round the agent is in RIGHT NOW — the slot ``emit_retrieval``
+#: just announced. Knowledge-layer Trace-Lanes read this so a hit is stamped
+#: with the fetch that produced it, even after the UI merges two
+#: ``knowledge_search`` completions onto one thinking step.
+#:
+#: **It has to be set where the tool RUNS.** ``emit_retrieval`` sets it too, but
+#: that call happens in Piloti's *agent* node, and LangGraph runs every
+#: node in its own task built with ``copy_context()``: the tools node inherits
+#: the context the RUN started with, never the one the previous node mutated.
+#: For a release every hit was therefore unstamped and the Herleitung fell back
+#: to stream order, which puts both fetches on the first checkpoint. The
+#: authoritative set is ``PilotiAgent._tools_node`` via
+#: :func:`retrieval_round_scope`, immediately around the ToolNode invocation —
+#: parallel tool calls copy the context when their sibling tasks are created,
+#: so setting it once in the parent covers the whole batch.
+_retrieval_round: ContextVar[int | None] = ContextVar("grid_retrieval_round", default=None)
+
+
+def current_retrieval_round() -> int | None:
+    """The fetch slot the running tool result belongs to, or ``None``."""
+    return _retrieval_round.get()
+
+
+@contextmanager
+def retrieval_round_scope(round_index: int | None) -> Iterator[None]:
+    """Stamp every hit fetched inside this block with ``round_index``.
+
+    ``None`` is a real value: an action-only round (``remember`` / ``emit_card``)
+    is not a fetch and its results belong to no layer of the spine. Resets on
+    exit, so a round never leaks into the next node or the next turn.
+    """
+    token = _retrieval_round.set(round_index)
+    try:
+        yield
+    finally:
+        _retrieval_round.reset(token)
+
 
 #: Step-name prefix for the status one-liners in this module. The suffix is the
 #: SLOT (``status:context``, ``status:routing``, …) — one step per slot, so the
@@ -161,6 +202,15 @@ KEY_DOCUMENTS_WAITING = "status.documents.waiting"
 #: Retrieval, with and without a query to quote.
 KEY_RETRIEVAL_WITH_QUERY = "status.retrieval.withQuery"
 KEY_RETRIEVAL_PLAIN = "status.retrieval.plain"
+#: A LOCATOR round: the agent already knows which passage it wants and is
+#: opening it rather than searching for it ("Liest OIB-Richtlinie 2, Pkt.
+#: 3.5.2"). Two keys because German prints a Punkt and a page differently
+#: ("Pkt. 3.5.2" vs "S. 12") and English differently again, and a shared
+#: template with one slot cannot carry both. The document travels as a VALUE
+#: because it is a proper noun — the office's or the publisher's own name for
+#: the document, the same word in every locale (rule 1 of the module docstring).
+KEY_RETRIEVAL_PUNKT = "status.retrieval.punkt"
+KEY_RETRIEVAL_PAGE = "status.retrieval.page"
 #: The retrieval loop trying other formulations after judging the first pool
 #: insufficient. Value-less on purpose: the alternative queries are the
 #: model's words, not the reader's, and the rule above keeps them off the line.
@@ -219,6 +269,8 @@ ALL_STATUS_KEYS: tuple[str, ...] = (
     "status.documents.waiting",
     "status.retrieval.withQuery",
     "status.retrieval.plain",
+    "status.retrieval.punkt",
+    "status.retrieval.page",
     "status.retrieval.requery",
     "status.action.remember",
     "status.action.card",
@@ -229,6 +281,7 @@ ALL_STATUS_KEYS: tuple[str, ...] = (
     "status.action.fileProposal",
     "status.action.draftFiled",
     "status.action.draftSubmitted",
+    "status.action.taskCreated",
     "status.citations",
     "status.repair",
     "status.escalation",
@@ -346,6 +399,11 @@ def emit_status(
 #: claiming a narrowing the system did not perform.
 _SEARCH_CORPORA: tuple[tuple[str, str], ...] = (
     ("knowledge_search", "knowledge"),
+    # The locator reads the same corpus through the same scope, so it is the
+    # same corpus to the reader and the same layer of the spine to the
+    # Herleitung. What differs is only how the line READS — see
+    # :data:`_LOCATOR_TOOL_BASENAMES`.
+    ("read_passage", "knowledge"),
     ("ris_", "ris"),
     ("advanced_web_search", "web"),
     ("web_search", "web"),
@@ -377,6 +435,35 @@ _ACTION_KEYS = {
 #: Argument names a retrieval query hides behind, in preference order.
 _QUERY_KEYS = ("query", "search_query", "question", "q", "text", "name_contains")
 
+#: The retrieval tools' checkpoint argument: one sentence saying what the model
+#: now knows and what it still needs, written as part of the CALL rather than as
+#: prose beside it.
+#:
+#: Prose was the only channel, and a tool-calling model routinely writes none —
+#: which is why ``hasConclusion`` was worth counting at all. An argument the
+#: schema declares is a slot the model fills the way it fills every other slot,
+#: so the checkpoint stops depending on a habit the API discourages.
+CONCLUSION_ARG = "conclusion"
+
+#: Where a round's checkpoint sentence came from. Stable tokens, because they
+#: are counted: ``argument`` is the structured slot, ``prose`` the assistant
+#: message beside the calls (still honoured — an older prompt, or a model that
+#: narrates anyway, must not lose its checkpoint), ``none`` a layer with no body.
+CHECKPOINT_FROM_ARGUMENT = "argument"
+CHECKPOINT_FROM_PROSE = "prose"
+CHECKPOINT_FROM_NONE = "none"
+
+#: Retrieval tools that OPEN a named passage instead of searching for one.
+#: Their arguments are an address, not a question, so they are kept out of
+#: :func:`_query_text` — a document name quoted as if it were the reader's
+#: search string is a sentence nobody typed.
+_LOCATOR_TOOL_BASENAMES = frozenset({"read_passage"})
+
+#: Room for the document name on a locator line, after the label and the Punkt
+#: or page that follows it. Same budget as the quoted query and for the same
+#: reason: the line has one row.
+MAX_DOCUMENT_CHARS = 32
+
 #: Function-group separators used by NAT-qualified tool names (mirrors
 #: ``piloti.agent._TOOL_NAME_SEPARATORS``).
 _TOOL_NAME_SEPARATORS = ("__", ".")
@@ -398,6 +485,56 @@ def _search_corpus(base: str) -> str | None:
     return None
 
 
+def is_search_call(call: Any) -> bool:
+    """Does this ONE tool call fetch evidence from a corpus?
+
+    The atom under :func:`is_retrieval_round`, exported because the round-zero
+    fan-out cap counts and drops exactly these: an interaction call
+    (``emit_card``, ``remember``), a skill load or an ``ask_user`` is not a
+    search and must never be the call a cap takes away.
+    """
+    if not isinstance(call, dict):
+        return False
+    base = tool_basename(str(call.get("name") or ""))
+    return bool(base) and base != "use_skill" and _search_corpus(base) is not None
+
+
+def is_retrieval_round(tool_calls: list[dict[str, Any]] | None) -> bool:
+    """Would :func:`emit_retrieval` count this batch of calls as a FETCH?
+
+    The same predicate, exported, because two nodes need the same answer about
+    the same batch: the agent node charges the round and advances the counter,
+    the tools node stamps the hits with the round that counter was on. Deriving
+    it twice from different rules is how the stamp and the spine layer would
+    drift apart by one.
+    """
+    return any(is_search_call(call) for call in tool_calls or ())
+
+
+def _locator_line(args: Any) -> tuple[str, dict[str, str]] | None:
+    """The ``(key, values)`` for a round that OPENS a named passage.
+
+    "Liest OIB-Richtlinie 2, Pkt. 3.5.2" is a different claim from "Sucht im
+    OIB-Wissen": it says the passage was already identified and is being read,
+    which is exactly the checkpoint the Herleitung draws. ``None`` when the call
+    names no document — the round then falls back to the plain corpus line
+    rather than printing a line with a hole in it.
+    """
+    if not isinstance(args, dict):
+        return None
+    document = str(args.get("document") or "").strip()
+    if not document:
+        return None
+    values = {"document": clip(document, MAX_DOCUMENT_CHARS)}
+    punkt = str(args.get("punkt") or "").strip()
+    if punkt:
+        return KEY_RETRIEVAL_PUNKT, {**values, "punkt": punkt}
+    page = args.get("page")
+    if page is not None and str(page).strip():
+        return KEY_RETRIEVAL_PAGE, {**values, "page": str(page).strip()}
+    return None
+
+
 def _query_text(args: Any) -> str | None:
     """The retrieval query inside a tool call's arguments, or ``None``.
 
@@ -412,10 +549,51 @@ def _query_text(args: Any) -> str | None:
         value = args.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    for value in args.values():
+    for name, value in args.items():
+        # The checkpoint sentence is never the query. It is the longest string
+        # a retrieval call carries, so the "first non-empty string" fallback
+        # would quote the model's own reasoning back at the reader as if it
+        # were what they asked.
+        if name == CONCLUSION_ARG:
+            continue
         if isinstance(value, str) and value.strip():
             return value.strip()
     return None
+
+
+def _conclusion_argument(calls: list[dict[str, Any]]) -> str | None:
+    """The checkpoint sentence a round wrote INTO its tool calls, if any.
+
+    First non-empty wins: a parallel batch is one round and therefore one
+    checkpoint, and the calls are emitted together, so "the first one that said
+    something" is the only ordering there is.
+    """
+    for call in calls:
+        args = call.get("args")
+        if not isinstance(args, dict):
+            continue
+        value = args.get(CONCLUSION_ARG)
+        if isinstance(value, str) and value.strip():
+            return " ".join(value.split())
+    return None
+
+
+def _resolve_conclusion(calls: list[dict[str, Any]], prose: str | None) -> tuple[str, str]:
+    """This round's checkpoint sentence and where it came from.
+
+    The ARGUMENT wins. It is the one the prompt now asks for and the one a
+    tool-calling model reliably produces; prose beside the calls stays as the
+    fallback because a model that narrates anyway should not lose its
+    checkpoint, and because a deployment pinned to an older prompt still has
+    only that channel.
+    """
+    argument = _conclusion_argument(calls)
+    if argument:
+        return argument, CHECKPOINT_FROM_ARGUMENT
+    text = " ".join(str(prose).split()) if prose else ""
+    if text:
+        return text, CHECKPOINT_FROM_PROSE
+    return "", CHECKPOINT_FROM_NONE
 
 
 #: Where the reader's own documents live, as SHELF IDS. ``base`` is absent on
@@ -534,7 +712,12 @@ def emit_subject_document(
     push_custom_step(f"{STATUS_STEP_PREFIX}{SUBJECT_DOCUMENT_SLOT}", payload)
 
 
-def emit_retrieval(tool_calls: list[dict[str, Any]] | None, *, round_index: int) -> None:
+def emit_retrieval(
+    tool_calls: list[dict[str, Any]] | None,
+    *,
+    round_index: int,
+    conclusion: str | None = None,
+) -> bool:
     """ONE line for a whole round of tool calls: where it looks, and for what.
 
     "Sucht im OIB-Wissen: „Fluchtweglänge GK4“" is a different sentence from
@@ -547,14 +730,33 @@ def emit_retrieval(tool_calls: list[dict[str, Any]] | None, *, round_index: int)
     in parallel batches — three separate lines in the same instant would be a
     log stream, not a status. ``round_index`` keeps successive rounds from
     collapsing into one step under the frontend's name dedupe.
+
+    ``conclusion`` is the model's own one-sentence Thought for this round —
+    what it now knows and what it still needs. Same discipline as escalation
+    ``reason``: it travels as a field, never as a live-line value, because it
+    has a language. The Herleitung renders it as the spine node's body. Absent
+    when the model wrote none; the graph then keeps the layer without
+    inventing a conclusion, and without falling back to the query (PF-12).
+
+    It has TWO channels and this function is where they are ranked. The
+    retrieval tools declare a ``conclusion`` ARGUMENT, which is what the prompt
+    now asks the model to fill; the parameter here is the prose written beside
+    the tool calls, which is what it used to be asked for. The argument wins,
+    prose is the fallback, and :func:`emit_checkpoint` records which one it
+    was — ranking them anywhere else would let the sentence the spine renders
+    and the source it is counted under disagree.
+
+    Returns True when a retrieval round was emitted (search corpora), so the
+    caller can increment the round counter. Action-only rounds return False.
     """
     calls = [call for call in (tool_calls or []) if isinstance(call, dict)]
     if not calls:
-        return
+        return False
 
     corpora: list[str] = []
     tools: list[str] = []
     query: str | None = None
+    locator: tuple[str, dict[str, str]] | None = None
     action_key: str | None = None
     for call in calls:
         base = tool_basename(str(call.get("name") or ""))
@@ -568,7 +770,10 @@ def emit_retrieval(tool_calls: list[dict[str, Any]] | None, *, round_index: int)
         if corpus is not None:
             if corpus not in corpora:
                 corpora.append(corpus)
-            query = query or _query_text(call.get("args"))
+            if base in _LOCATOR_TOOL_BASENAMES:
+                locator = locator or _locator_line(call.get("args"))
+            else:
+                query = query or _query_text(call.get("args"))
         elif action_key is None:
             action_key = _ACTION_KEYS.get(base)
 
@@ -577,6 +782,12 @@ def emit_retrieval(tool_calls: list[dict[str, Any]] | None, *, round_index: int)
         if query:
             values["query"] = clip(query, MAX_QUERY_CHARS)
             key = KEY_RETRIEVAL_WITH_QUERY
+        elif locator is not None:
+            # A round that BOTH searched and located shows the search query: it
+            # is the reader's own words and the one thing they can still say no
+            # to. The locator line is for the round that only opens a passage,
+            # which is the round this tool exists to make possible.
+            key, values = locator
         else:
             key = KEY_RETRIEVAL_PLAIN
     elif action_key is not None:
@@ -584,9 +795,82 @@ def emit_retrieval(tool_calls: list[dict[str, Any]] | None, *, round_index: int)
         values = {}
     else:
         # Nothing left to say but an internal tool name. Say nothing.
-        return
+        return False
 
-    emit_status(f"retrieval:{round_index}", key, values=values, tools=tools)
+    reason_text, conclusion_source = _resolve_conclusion(calls, conclusion)
+    reason = clip(reason_text, MAX_REASON_CHARS) or None
+    if corpora:
+        # Search fetches own the spine. Stamp the round so tool results that
+        # land later (and get merged onto one thinking step) still know which
+        # fetch they belonged to.
+        _retrieval_round.set(round_index)
+        emit_status(
+            f"retrieval:{round_index}",
+            key,
+            values=values,
+            tools=tools,
+            reason=reason,
+        )
+        # Emitted HERE rather than by the caller so the two can never disagree:
+        # ``hasConclusion`` is exactly "this layer got a body", read off the same
+        # ``reason`` the spine will render, and ``source`` says which channel
+        # produced it.
+        emit_checkpoint(round_index=round_index, has_conclusion=reason is not None, source=conclusion_source)
+        return True
+    # An action round is not a retrieval round. Putting one on
+    # ``status:retrieval:N`` stole the next search's slot under name-dedupe.
+    # The slot is derived from the KEY rather than from the tool name, so the
+    # two verbs that share :data:`KEY_ACTION_FILE_PROPOSAL` share one slot as
+    # well: one key, one line, one step — which is what that key was for.
+    slot = f"action:{key.rsplit('.', 1)[-1]}"
+    emit_status(slot, key, values=values, tools=tools, reason=reason)
+    return False
+
+
+#: Slot prefix for the Herleitung checkpoint record. The round is part of the
+#: STEP NAME, like ``status:retrieval:N`` and for the same reason: two steps
+#: sharing a name collapse into one under the frontend's dedupe, and a spine of
+#: three rounds that reports one checkpoint is not countable.
+CHECKPOINT_SLOT = "checkpoint"
+
+
+def emit_checkpoint(*, round_index: int, has_conclusion: bool, source: str = CHECKPOINT_FROM_NONE) -> None:
+    """Record that a retrieval round drew a Herleitung checkpoint, and whether
+    that checkpoint has a BODY.
+
+    Technical channel, like :func:`emit_research_truncated`, and for the same
+    kind of operator question. The spine draws one layer per round; the body of
+    a layer is the model's own Thought, which exists only when the model wrote
+    prose beside its tool calls — with tool-calling models, often it did not.
+    That rate decides whether the Herleitung reads as reasoning or as a list of
+    empty headers, and nothing could answer it: the conclusion travels as
+    ``reason`` on a LIVE event, so counting its absence meant reading the
+    reader's own text out of traces.
+
+    What is counted here is therefore the BOOLEAN and never the sentence:
+    ``round`` says which layer, ``hasConclusion`` whether it has a body, and
+    ``source`` which channel produced it (:data:`CHECKPOINT_FROM_ARGUMENT` /
+    :data:`CHECKPOINT_FROM_PROSE` / :data:`CHECKPOINT_FROM_NONE`). None of the
+    three is language-specific and none is anybody's words.
+
+    ``source`` is what makes the change measurable rather than merely believed.
+    Asking for the sentence in a tool ARGUMENT instead of in prose is a bet that
+    a tool-calling model fills a declared slot more reliably than it narrates;
+    the rate of ``argument`` against ``prose`` against ``none``, per round, is
+    that bet's scoreboard, and without it a prompt edit could only be argued
+    about.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{CHECKPOINT_SLOT}:{round_index}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": f"{CHECKPOINT_SLOT}:{round_index}",
+            "round": round_index,
+            "hasConclusion": has_conclusion,
+            "source": source,
+        },
+    )
 
 
 def emit_documents_waiting(*, file_count: int) -> None:
@@ -657,6 +941,81 @@ def emit_escalation(reason: str | None = None) -> None:
 #: Slot for the budget-exhaustion record. Its own slot, so it never overwrites
 #: a retrieval line and the frontend's name dedupe keeps it apart.
 BUDGET_SLOT = "budget"
+
+
+#: Slot prefix for the family-coverage record. The family key is part of the
+#: STEP NAME, like ``status:checkpoint:N`` and for the same reason: a turn that
+#: touched OIB-RL 2 and OIB-RL 4 must leave two countable records, and two steps
+#: sharing a name collapse into one under the frontend's dedupe.
+COVERAGE_SLOT = "coverage"
+
+
+def emit_family_coverage(*, family: str, listed: int, opened: int) -> None:
+    """Record how much of a Richtlinien-Familie the turn actually read.
+
+    Technical channel, like :func:`emit_checkpoint`, and for the same kind of
+    operator question. "OIB-Richtlinie 2" is four documents — 2, 2.1, 2.2,
+    2.3 — and an overview answer that opened three of them reads exactly like
+    one that opened all four: the prose is fluent, every citation resolves, and
+    the missing part is missing in the one way nothing checks. The inventory
+    knows the family; the source registry knows what was read; the difference
+    is the miss rate, and it was not countable before this event existed.
+
+    Counts only, never filenames: which parts exist is a property of the corpus
+    and which were read is a number, and neither needs anybody's document names
+    in a trace.
+
+    Args:
+        family: The family key as the inventory prints it (``"2"``).
+        listed: Members the inventory named for this turn.
+        opened: Members a retrieval actually returned a passage from.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{COVERAGE_SLOT}:{family}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": f"{COVERAGE_SLOT}:{family}",
+            "family": family,
+            "listed": listed,
+            "opened": opened,
+        },
+    )
+
+
+#: Slot for the round-zero fan-out cap. Its OWN slot rather than
+#: :data:`BUDGET_SLOT`: this is the budget being PROTECTED, not exhausted, and
+#: collapsing the two under one step name would make the frontend's name dedupe
+#: drop one of them — on exactly the turns that had both.
+FANOUT_SLOT = "budget:fanout"
+
+
+def emit_fanout_capped(*, round_index: int, kept: int, dropped: int) -> None:
+    """Record that a first round asked for more searches than it may run.
+
+    Technical channel, and no ``key``: whether the reader should be told "two
+    of your three searches did not run" is a product decision, and shipping a
+    live key would make it silently. What this is for is the operator question
+    the cap creates — *how often does a first round fan out past two, and does
+    the second round then get its budget?* — which the truncation event alone
+    cannot answer, because a capped turn is precisely one that did NOT truncate.
+
+    Args:
+        round_index: The fetch round the cap applied to (zero, by construction).
+        kept: Search calls executed.
+        dropped: Search calls answered with the explanation instead.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{FANOUT_SLOT}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": FANOUT_SLOT,
+            "round": round_index,
+            "kept": kept,
+            "dropped": dropped,
+        },
+    )
 
 
 def emit_research_truncated(

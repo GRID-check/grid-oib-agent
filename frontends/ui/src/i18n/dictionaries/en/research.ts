@@ -26,7 +26,7 @@ export const research = {
     },
     loggedOutTitle: 'Piloti opens after your organization is verified.',
     loggedOutBody:
-      'Sign in to unlock project-scoped OIB research, document reading, and member access controls.',
+      'Sign in to unlock the project workspace: your files, the office archive, and the building-regulation corpus.',
     signInSso: 'Sign in with SSO',
     welcomeTitle: 'How can Piloti help with your project?',
   },
@@ -224,9 +224,9 @@ export const research = {
     subjectCleared: 'No longer asking about that file.',
     subjectClearedUndo: 'Undo',
     aiDisclosure:
-      'Piloti is an AI — answers can be wrong; verify them against the cited Richtlinie.',
+      'Piloti is an AI — answers can be wrong; verify them against the cited files.',
     placeholderDefault: 'Check data sources and ask a research question...',
-    signInToStart: 'Sign in to start researching',
+    signInToStart: 'Sign in to start working',
     researchCompletedNewSession: 'Research completed. Create a new session for further questions.',
     researchFailedFollowUp: 'Research didn’t finish. Ask a follow-up or try again.',
     typeResponse: 'Type your response to Piloti...',

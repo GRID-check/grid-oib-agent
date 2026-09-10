@@ -98,7 +98,7 @@ export const chat = {
   composer: {
     /** Shown when the reader holds project:view but not project:chat. */
     noProjectChatPermission:
-      'The research agent is unavailable in this project for you right now. If you have read-only access, a project admin can grant you the Contributor role.',
+      'Piloti is unavailable in this project for you right now. If you have read-only access, a project admin can grant you the Contributor role.',
     placeholder: 'Ask Piloti about this project …',
     sources: 'Data basis',
     sourcesAria: 'Data basis — {enabled} of {total} sources enabled. Opens the data sources panel.',
@@ -139,9 +139,12 @@ export const chat = {
     input: 'Input',
     result: 'Result',
     // Role tab for a conversational / clarifying reply (routing_decision =
-    // 'meta': greetings, capability questions, clarifying Rückfragen) — marks
-    // it visibly apart from a substantive Baurecht 'Result'.
+    // 'meta' or answer_meta.kind = 'direct': greetings, capability questions,
+    // clarifying Rückfragen) — marks it visibly apart from a substantive
+    // Baurecht 'Result'.
     note: 'Note',
+    // Walkthrough: a guided answer without a ruling — not the Result document.
+    answer: 'Answer',
   },
   // "Belegt durch" provenance chip row under answers that carry source data.
   answerSources: {
@@ -876,6 +879,12 @@ export const chat = {
         retrieval: {
           withQuery: 'Searching {corpus}: “{query}”',
           plain: 'Searching {corpus} …',
+          // The passage was already identified and is being READ, so the line
+          // names the document instead of a corpus. `{document}` is the name
+          // the publisher or the office gave it — a proper noun, sent as
+          // itself and never translated.
+          punkt: 'Reading {document}, Pkt. {punkt} …',
+          page: 'Reading {document}, p. {page} …',
           // The first pool was not enough; other formulations are being tried.
           // The formulations are the model's words, so they stay off the line.
           requery: 'First results are not enough — searching with other terms …',
@@ -943,6 +952,13 @@ export const chat = {
       skill: 'Skill: {name}',
       // The bare `use_skill` frame with no identifiable skill behind it.
       skillUnnamed: 'Skill',
+      model: 'Building model',
+      measure: 'Measurement',
+      drawing: 'Drawing',
+      documents: 'Files',
+      note: 'Note',
+      card: 'Card',
+      compliance: 'Compliance check',
     },
     // Reader-facing names for the nodes and tools the backend emits, used by
     // the opt-in technical panel. The names on the wire are internal ids
@@ -1006,11 +1022,17 @@ export const chat = {
       framingTab: 'Framing',
       framingTitle: 'Question understood',
       framingQuestion: 'You asked: “{question}”',
+      // A second (or later) retrieval round on the Herleitung spine — the
+      // live line replaced this sentence; the graph keeps it as its own node.
+      roundTab: 'Search {n}',
+      // Same layer, when the model wrote a Thought: the conclusion that
+      // caused the next fetch, not the search query (PF-12).
+      checkpointTab: 'Conclusion {n}',
       contextLabel: 'Context',
       sourcesTab: 'Sources',
       sourcesTitle: 'Sources examined',
-      findingsTab: 'Assessment',
-      // Reasoning-only detail in the assessment node: which source lanes
+      findingsTab: 'Findings',
+      // Reasoning-only detail in the findings node: which source lanes
       // produced hits. NOT the answer's trust verdict (confidence/provenance) —
       // that lives once, on the answer card.
       findingsHits: 'Hits in: {lanes}',
@@ -1018,13 +1040,13 @@ export const chat = {
       // actually read, before naming which strata it came from.
       findingsTally: '{hits, plural, one {# hit} other {# hits}} across {docs} documents',
       findingsTallyOne: '{hits, plural, one {# hit} other {# hits}} in 1 document',
-      // While the turn streams there is no assessment yet, but the graph still
+      // While the turn streams there are no findings yet, but the graph still
       // needs its converge point — otherwise the source columns dangle and the
       // shape jumps when the answer lands.
-      findingsPendingTab: 'Assessment',
+      findingsPendingTab: 'Findings',
       findingsPending: 'Weighing the sources …',
       // The search did not finish; it ran into its iteration ceiling. It
-      // belongs in the assessment node because that node answers "what was
+      // belongs in the findings node because that node answers "what was
       // this answer built on?", and where the chain broke off is part of it.
       // {tool} is the last step that RAN, never the next one: nobody knows
       // what the model would have chosen, because it never got to propose it.

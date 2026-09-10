@@ -11,6 +11,7 @@ from langchain_core.tools import tool
 
 from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_ALLOWANCE
 from aiq_agent.agents.piloti.agent import PilotiAgent
+from aiq_agent.agents.piloti.agent import _assistant_checkpoint
 from aiq_agent.agents.piloti.agent import _count_interaction_calls
 from aiq_agent.agents.piloti.answer_pipeline import append_minimal_citation
 from aiq_agent.agents.piloti.models import ResearchAgentState
@@ -2558,7 +2559,7 @@ class TestADirectReplyMayStillEmitACard:
         # The carve-out is for a turn that ANSWERS something. A decline has no
         # content, so nothing here is loosened for it.
         contract = self._render().split("<output_contract>")[1].split("</output_contract>")[0]
-        off_topic = contract.split("An off-topic decline")[1].split("A researched answer")[0]
+        off_topic = contract.split("An off-topic decline")[1].split("A walkthrough")[0]
         assert "no tool calls" in off_topic
 
     def test_the_direct_reply_shape_names_the_card_rule_and_its_limit(self):
@@ -2578,6 +2579,93 @@ class TestADirectReplyMayStillEmitACard:
     def test_the_cards_block_says_out_loud_that_it_is_always_on(self):
         cards = self._render().split("\n<cards>\n")[1].split("\n</cards>\n")[0]
         assert "on for EVERY turn" in cards
+
+    def test_the_contract_names_the_four_kinds_and_earns_a_ruling(self):
+        """A workspace turn is not a researched Bescheid by default.
+
+        The envelope already has ``direct | walkthrough | ruling | handoff``.
+        The prompt has to name those kinds and keep ``verdict`` behind a
+        copyable legal value, or every file walkthrough inherits the gavel.
+        """
+        contract = self._render().split("<output_contract>")[1].split("</output_contract>")[0]
+        for kind in ("direct", "walkthrough", "ruling", "handoff"):
+            assert kind in contract
+        assert "copyable legal value" in contract
+        walkthrough = contract.split("A walkthrough")[1].split("A ruling")[0]
+        assert "`verdict`" in walkthrough or "verdict" in walkthrough
+        assert "no `verdict`" in walkthrough or "No `verdict`" in walkthrough or "not emit" in walkthrough.lower()
+
+    def test_walkthrough_examples_exist_and_carry_no_verdict(self):
+        rendered = self._render()
+        assert 'type="walkthrough"' in rendered
+        # Two workspace moves the old contract had no shape for.
+        lowered = rendered.lower()
+        assert "zusammen" in lowered or "summar" in lowered
+        assert "ordn" in lowered or "organis" in lowered
+        # Each walkthrough example is a fenced envelope; none of them may
+        # grow a verdict, or the model copies the gavel onto a filing turn.
+        chunks = rendered.split('type="walkthrough"')
+        assert len(chunks) >= 3, "need two walkthrough examples"
+        for chunk in chunks[1:]:
+            example = chunk.split("</example>", 1)[0]
+            assert '"verdict"' not in example
+
+    def test_the_research_example_is_a_walkthrough_not_a_topic_gavel(self):
+        """An overview question taught ``kind=ruling`` / ``value: Brandschutz``.
+
+        Brandschutz is a topic, not a copyable legal value. The model copies
+        the example.
+        """
+        rendered = self._render()
+        research = rendered.split('type="research"')[1].split("</example>", 1)[0]
+        assert '"kind": "walkthrough"' in research
+        assert '"verdict"' not in research
+        ruling = rendered.split('type="ruling"')[1].split("</example>", 1)[0]
+        assert '"kind": "ruling"' in ruling
+        assert '"value": "REI 60"' in ruling
+        assert '"value": "Brandschutz"' not in rendered
+
+    def test_the_identity_example_does_not_reduce_the_job_to_oib_questions(self):
+        rendered = self._render()
+        identity = rendered.split('type="direct_reply"')[1].split("</example>", 1)[0]
+        assert "Piloti" in identity
+        assert "Ich beantworte Fragen zu OIB" not in identity
+        assert "OIB-Richtlinien, österreichischem Baurecht" not in identity
+
+    def test_the_research_budget_is_a_ceiling_not_a_two_call_cap(self):
+        """The runtime already loops; the old cap told the model not to.
+
+        A conclusion that names a file, Punkt or measure not yet opened
+        must fetch it. The numeric budget is the ceiling.
+        """
+        rendered = self._render()
+        assert "Grid OIB Research Agent" not in rendered
+        assert "at most 2 calls" not in rendered
+        assert "not every question is a legal question" in rendered
+        assert "commit to it; re-plan only" not in rendered
+        rules = rendered.split("<research_rules>")[1].split("</research_rules>")[0]
+        assert "ceiling" in rules.lower() or "budget" in rules.lower()
+        assert "Punkt" in rules or "punkt" in rules.lower()
+        assert "Herleitung checkpoint" in rules
+        assert "files that fetch returned" in rules
+        # The checkpoint has a SLOT now, not just an instruction to narrate:
+        # a tool-calling model fills a declared argument far more reliably than
+        # it writes prose beside its calls.
+        assert "`conclusion` argument" in rules
+        assert "empty on your first call" in rules.lower()
+        # …and a conclusion that names its passage is opened, not searched for.
+        assert "`read_passage`" in rules
+        # The one place the prompt states a NUMBER, because the runtime enforces
+        # it: a model that is capped without being told reads the notice as a
+        # failure and retries the search it just lost.
+        assert "first round runs at most two searches" in rules
+        # A family question is not answered by opening most of the family. The
+        # inventory names the members; this is the rule that acts on them, and
+        # the escape hatch it leaves is naming a member, never describing one.
+        assert "open EVERY member the knowledge-base inventory lists" in rules
+        assert "nicht gelesen" in rules
+        stimme = rendered.split("<stimme>")[1].split("</stimme>")[0]
+        assert "Folgerung der Herleitung" in stimme
 
 
 class TestKnowledgeInventoryIsNotCitable:
@@ -3378,6 +3466,33 @@ class TestInteractionCallCounting:
     def test_it_tolerates_no_calls(self):
         assert _count_interaction_calls([]) == 0
         assert _count_interaction_calls(None) == 0
+
+
+class TestAssistantCheckpoint:
+    """The Thought before a tool round is the Herleitung checkpoint.
+
+    Empty content is the common tool-calling collapse — we keep the round as a
+    layer and do not invent a conclusion. A fenced answer is the final reply,
+    not a checkpoint.
+    """
+
+    def test_a_sentence_before_the_calls_is_the_checkpoint(self):
+        message = AIMessage(
+            content="OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.",
+            tool_calls=[{"name": "knowledge_search", "args": {"query": "x"}, "id": "1"}],
+        )
+        assert _assistant_checkpoint(message) == ("OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.")
+
+    def test_empty_content_is_not_invented(self):
+        message = AIMessage(
+            content="",
+            tool_calls=[{"name": "knowledge_search", "args": {"query": "x"}, "id": "1"}],
+        )
+        assert _assistant_checkpoint(message) is None
+
+    def test_a_fenced_answer_is_not_a_checkpoint(self):
+        message = AIMessage(content='```answer_json\n{"answer": "x", "kind": "direct"}\n```')
+        assert _assistant_checkpoint(message) is None
 
 
 class TestRepairRetrievalFailOpen:

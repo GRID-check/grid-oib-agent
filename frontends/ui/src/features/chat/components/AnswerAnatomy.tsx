@@ -18,6 +18,16 @@ import { CalloutCard } from '@/features/grid-cards/components/CalloutCard'
 import { KeyTakeawaysCard } from '@/features/grid-cards/components/KeyTakeawaysCard'
 import { VerdictHeaderCard } from '@/features/grid-cards/components/VerdictHeaderCard'
 import { FadeIn } from '@/components/motion'
+import type { AnswerKind } from '@/lib/conversations/message-answer-meta'
+
+/**
+ * The gavel is the ruling's signature. A walkthrough / direct / handoff that
+ * still carries a verdict must not open as a ruling. An absent kind is the
+ * legacy envelope: a present verdict still earns the masthead.
+ */
+function showsVerdictMasthead(kind: AnswerKind | undefined, verdict: GridCard | undefined): boolean {
+  return Boolean(verdict) && verdict?.type === 'verdict_header' && (kind === 'ruling' || kind === undefined)
+}
 
 /**
  * The answer's masthead: the verdict (when one was earned) and the summary —
@@ -26,12 +36,17 @@ import { FadeIn } from '@/components/motion'
  * styling when a summary is present, so the emphasis exists exactly once).
  * One hairline closes the whole header over the prose, whatever it holds.
  */
-export const AnatomyMasthead: FC<{ verdict?: GridCard; summary?: string }> = ({ verdict, summary }) => {
-  if (!verdict && !summary) return null
+export const AnatomyMasthead: FC<{
+  verdict?: GridCard
+  summary?: string
+  kind?: AnswerKind
+}> = ({ verdict, summary, kind }) => {
+  const showVerdict = showsVerdictMasthead(kind, verdict)
+  if (!showVerdict && !summary) return null
   return (
     <FadeIn distance={4}>
       <header className="flex flex-col gap-3 border-b border-border/70 pb-4">
-        {verdict && verdict.type === 'verdict_header' && (
+        {showVerdict && verdict && verdict.type === 'verdict_header' && (
           <VerdictHeaderCard
             flat
             verdict={verdict.verdict}

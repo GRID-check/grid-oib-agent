@@ -91,7 +91,7 @@ export const chat: typeof en.chat = {
   composer: {
     /** Shown when the reader holds project:view but not project:chat. */
     noProjectChatPermission:
-      'Der Recherche-Agent steht Ihnen in diesem Projekt derzeit nicht zur Verfügung. Wenn Sie nur Lesezugriff haben, kann Ihnen eine Projektadministratorin oder ein Projektadministrator die Rolle „Mitwirkender“ erteilen.',
+      'Piloti steht Ihnen in diesem Projekt derzeit nicht zur Verfügung. Wenn Sie nur Lesezugriff haben, kann Ihnen eine Projektadministratorin oder ein Projektadministrator die Rolle „Mitwirkender“ erteilen.',
     placeholder: 'Fragen Sie Piloti zu diesem Projekt …',
     sources: 'Datengrundlage',
     sourcesAria: 'Datengrundlage – {enabled} von {total} Quellen aktiv. Öffnet die Datenquellen.',
@@ -128,9 +128,11 @@ export const chat: typeof en.chat = {
     input: 'Eingabe',
     result: 'Ergebnis',
     // Rollen-Tab für eine konversationelle / klärende Antwort (routing_decision
-    // = 'meta': Begrüßungen, Fähigkeits- und Rückfragen) — deutlich abgesetzt
-    // von einem inhaltlichen Baurecht-'Ergebnis'.
+    // = 'meta' oder answer_meta.kind = 'direct': Begrüßungen, Fähigkeits- und
+    // Rückfragen) — deutlich abgesetzt von einem inhaltlichen Baurecht-'Ergebnis'.
     note: 'Hinweis',
+    // Walkthrough: eine geführte Antwort ohne Urteil — nicht das Ergebnis-Dokument.
+    answer: 'Antwort',
   },
   answerSources: {
     label: 'Belegt durch',
@@ -857,6 +859,12 @@ export const chat: typeof en.chat = {
         retrieval: {
           withQuery: 'Sucht {corpus}: „{query}“',
           plain: 'Sucht {corpus} …',
+          // Die Fundstelle steht schon fest und wird GELESEN — deshalb nennt
+          // die Zeile das Dokument statt eines Korpus. `{document}` ist der
+          // Name, den Herausgeber oder Büro vergeben haben: ein Eigenname, der
+          // unübersetzt durchgereicht wird.
+          punkt: 'Liest {document}, Pkt. {punkt} …',
+          page: 'Liest {document}, S. {page} …',
           // Die erste Trefferliste reichte nicht; es wird mit anderen
           // Formulierungen weitergesucht. Die Formulierungen selbst sind
           // die des Modells und stehen deshalb nicht in der Zeile.
@@ -931,6 +939,13 @@ export const chat: typeof en.chat = {
       skill: 'Skill: {name}',
       // Das blanke `use_skill`-Frame ohne erkennbaren Skill dahinter.
       skillUnnamed: 'Skill',
+      model: 'Gebäudemodell',
+      measure: 'Messung',
+      drawing: 'Plan',
+      documents: 'Dateien',
+      note: 'Notiz',
+      card: 'Karte',
+      compliance: 'Normprüfung',
     },
     // Lesbare Namen für die Knoten und Werkzeuge, die das Backend meldet — für
     // das Technik-Panel (Opt-in). Auf der Leitung stehen interne Ids
@@ -1007,11 +1022,17 @@ export const chat: typeof en.chat = {
       framingTab: 'Einordnung',
       framingTitle: 'Frage verstanden',
       framingQuestion: 'Sie fragen: „{question}“',
+      // A second (or later) retrieval round on the Herleitung spine — the
+      // live line replaced this sentence; the graph keeps it as its own node.
+      roundTab: 'Suche {n}',
+      // Same layer, when the model wrote a Thought: the conclusion that
+      // caused the next fetch, not the search query (PF-12).
+      checkpointTab: 'Folgerung {n}',
       contextLabel: 'Kontext',
       sourcesTab: 'Quellen',
       sourcesTitle: 'Geprüfte Quellen',
-      findingsTab: 'Einschätzung',
-      // Reine Herleitungs-Info im Einschätzungsknoten: in welchen Quellenspuren
+      findingsTab: 'Stand',
+      // Reine Herleitungs-Info im Stand-Knoten: in welchen Quellenspuren
       // es Treffer gab. NICHT das Vertrauensurteil (Konfidenz/Belege) — das
       // steht einmal auf der Antwortkarte.
       findingsHits: 'Treffer in: {lanes}',
@@ -1019,13 +1040,13 @@ export const chat: typeof en.chat = {
       // tatsächlich gelesen wurde, bevor die Quellenarten aufgezählt werden.
       findingsTally: '{hits} Treffer in {docs} Dokumenten',
       findingsTallyOne: '{hits} Treffer in 1 Dokument',
-      // Während der Zug streamt gibt es noch keine Einschätzung, der Graph
+      // Während der Zug streamt gibt es noch keinen Stand, der Graph
       // braucht seinen Zusammenführungspunkt aber trotzdem — sonst hängen die
       // Quellenspalten in der Luft und die Form springt, sobald die Antwort da ist.
-      findingsPendingTab: 'Einschätzung',
+      findingsPendingTab: 'Stand',
       findingsPending: 'Quellen werden abgewogen …',
       // Die Recherche lief nicht zu Ende, sondern gegen ihre Iterationsgrenze.
-      // Im Einschätzungsknoten, weil er die Frage „was lag der Antwort
+      // Im Stand-Knoten, weil er die Frage „was lag der Antwort
       // zugrunde?“ beantwortet — und dazu gehört, wo die Kette abbrach.
       // {tool} ist der zuletzt AUSGEFÜHRTE Schritt, nicht der nächste: welchen
       // das Modell als Nächstes gewählt hätte, weiß niemand — es kam nicht mehr

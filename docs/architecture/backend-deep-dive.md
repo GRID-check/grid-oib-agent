@@ -665,6 +665,21 @@ in-scope shelves render as empty rather than being omitted. The same list is
 then shared by Piloti, clarifier, and deep-research paths for that turn
 — it is not re-fetched per node.
 
+The Basiswissen shelf is FOLDED to a count rather than ~39 filenames (it is a
+platform constant, and retrieval reaches it without names) — with one
+exception. The fold carries one line per **Richtlinien-Familie** naming the
+parts the corpus actually holds: `OIB-Richtlinie 2: 2, 2.1, 2.2, 2.3`. "OIB-
+Richtlinien 1–6" is a range and names no members, so an overview answer could
+open three parts of OIB 2, forget the fourth, and read as complete — fluent
+prose, every citation resolving, the gap invisible. Retrieval can recover
+filenames; it cannot recover which parts EXIST, because a search that never
+returns 2.3 looks exactly like a Richtlinie without one. Membership is derived
+from indexed filenames (`norm_registry.oib_families`, Richtlinien only — a
+Leitfaden or an Erläuterung is read WITH a Richtlinie and is not a part of it)
+and computed BEFORE the inventory cap, which drops base rows first. The rule
+that acts on it is in `<research_rules>`; `status:coverage:<family>` records
+listed against opened per turn so the miss rate is countable.
+
 **Prompt gating asymmetry — fixed 2026-07-16 (`77a4d7a`)**: the deep-research
 prompts (`agents/deep_researcher/prompts/planner.j2`,
 `agents/deep_researcher/prompts/orchestrator.j2`,
@@ -947,6 +962,42 @@ Thumbnails are ephemeral: there is no separate DB column — the key is derived
 deterministically from `storageKey`, and a missing/expired SeaweedFS object falls
 back gracefully to the SVG sketch. Re-ingesting a document overwrites the
 thumbnail at the same key.
+
+### The locator: `read_passage`
+
+`knowledge_search` is a *search*, and for a long time it was the only way to
+reach a passage. So a second round that already knew what it wanted — "the
+Herleitung concluded that OIB-Richtlinie 2 Pkt. 3.5.2 decides this, and I have
+not read it" — had to ask the corpus to find that passage again by similarity,
+paying a full fan-out, a reranker pass and possibly the requery judge for a
+lookup it could already address.
+
+`read_passage` (`sources/knowledge_layer/src/read_passage.py`) is that lookup:
+`document` (exact indexed name, stored display title, or the derived OIB title)
+plus `punkt` (the `punkt_id` the Punkt chunker verified against the corpus's own
+contents pages) or `page`. It is deterministic — one filtered fetch per
+collection the named document lives in, no reranker, no requery, no LLM
+anywhere — and it re-checks the Punkt/page in Python after the store's metadata
+filter, because "the store applies the filter" is a contract and a locator that
+returns the neighbouring requirement is worse than one that returns nothing.
+
+Three things make it fit the rest of the tier rather than sit beside it. Its
+output is `_format_results`, so citations, the `Punkt:` line and the
+`## Trace-Lanes` fan-out under the round stamp all work unchanged and nothing
+downstream learns a second shape. Its collection scope, base corpus and file
+exclusions are read off the `knowledge_search` instance named in its config
+(`knowledge_search: knowledge_search`) rather than restated, so the two cannot
+end up pointed at different corpora. And it is listed under the same
+`knowledge_layer` data source, which is what makes `get_source_id_for_tool`
+resolve it — a retrieval tool missing from that list returns real passages that
+are never registered as citable, and the answer's citations are then stripped as
+unsupported.
+
+It is charged to the research budget like a search, because it reads evidence
+and that budget is what bounds evidence-gathering; it is simply the cheapest
+thing the budget can buy. The live line names what is being read rather than a
+corpus: `status.retrieval.punkt` / `status.retrieval.page`
+("Liest OIB-Richtlinie 2, Pkt. 3.5.2").
 
 ### Agentic retrieval quality package (ADR-0039)
 
