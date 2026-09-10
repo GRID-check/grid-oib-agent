@@ -33,8 +33,10 @@
 import 'server-only'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { NotFoundError } from '@/lib/api/errors'
-import { AI_GENERATOR_NAME, type AiProvenanceMarking } from '@/lib/ai-provenance'
+import type { AiProvenanceMarking } from '@/lib/ai-provenance'
 import type { DocumentVersion } from '@/lib/db/schema'
+import { getOrganizationDisplayName } from '@/lib/organizations/service'
+import { resolveDocumentBranding, type DocumentBranding } from './branding'
 import { contentDigest } from './content-digest'
 import { fileGeneratedDocument, type GeneratedRendering } from './generated'
 import { createDocumentVersion } from './lifecycle'
@@ -45,21 +47,50 @@ import { findOpenVersion } from './version-repository'
 export const AGENT_DOCUMENT_MEDIA_TYPE = 'text/markdown'
 
 /**
- * The bytes of an agent-written document: the model's Markdown, plus the
- * marking, as text.
+ * The bytes of an agent-written document: the model's Markdown, wrapped in what
+ * every file Piloti produces has to say about itself, plus the marking, as
+ * text.
  *
  * Exported and pure so a test can assert on the STRING — the seam already
  * asserts the marking is in the bytes, and this is where a reader checks that
- * it is in a place a person will actually see.
+ * the branding and the marking are in a place a person will actually see.
+ *
+ * ## Where each piece goes, and why it is not all in one place
+ *
+ * ONE line above the title and a block below it, rather than a single block at
+ * either end.
+ *
+ * The line is chrome: „Erstellt mit Piloti für …" is the Markdown equivalent of
+ * the PDF's running header, it identifies the file at a glance in a preview
+ * pane, and one line does not turn the document into an appendix to its own
+ * front matter.
+ *
+ * The block is the disclaimer, and it stays at the FOOT for the reason this
+ * renderer already gave about the marking: the first line of a filed document
+ * is its title, and three sentences of liability above it turn every preview
+ * and every paste into a disclaimer with a document underneath. It is also the
+ * last thing a reader sees before deciding whether to forward the file, which
+ * is the moment it is about.
+ *
+ * `branding` is a parameter and not an import, so this function stays pure and
+ * so the resolution — which reads an organization's override — happens once, at
+ * the filing seam, rather than inside a renderer that would then have to be
+ * async to do it.
  */
 export function renderAgentDocumentMarkdown(
   body: string,
   marking: AiProvenanceMarking,
+  branding: DocumentBranding,
 ): GeneratedRendering {
-  // A trailing block rather than a leading one: the first line of a filed
-  // document is its title, and a notice above it turns every preview and every
-  // paste into a disclaimer with a document underneath.
-  const text = `${body.trimEnd()}\n\n---\n\n<!-- ${AI_GENERATOR_NAME} -->\n\n\`\`\`\n${marking}\n\`\`\`\n`
+  const footer = [
+    `**${branding.productName} — ${branding.tagline}**`,
+    branding.prose,
+    branding.disclaimer,
+    branding.footerLine,
+  ].join('\n\n')
+  const text =
+    `${branding.headerLine}\n\n${body.trim()}\n\n---\n\n${footer}\n\n` +
+    `<!-- ${branding.aiGeneratorName} -->\n\n\`\`\`\n${marking}\n\`\`\`\n`
   return {
     bytes: new TextEncoder().encode(text),
     contentType: AGENT_DOCUMENT_MEDIA_TYPE,
@@ -109,6 +140,25 @@ export interface FiledAgentDocumentDraft {
 export async function fileAgentDocumentDraft(
   input: FileAgentDocumentDraftInput,
 ): Promise<FiledAgentDocumentDraft> {
+  // Resolved once, before the render, and every part of it fails soft: an
+  // unreachable WorkOS gives a header line naming the product alone, and an
+  // unreadable settings row gives the platform's own words. Neither costs the
+  // filing.
+  //
+  // NO locale is passed, deliberately. This function's one caller is the
+  // agent's internal route, and the agent sends no `grid-locale` cookie and no
+  // `Accept-Language` — so `getLocale()` here would resolve to the APP default
+  // for every tenant, and a German Aktenvermerk would carry an English header
+  // line for no better reason than that. Leaving it out inherits
+  // `organizations.default_locale` instead: the office's own language, which is
+  // the language its documents are written in. See
+  // `ResolveDocumentBrandingInput.locale`.
+  const organizationName = await getOrganizationDisplayName(input.session.organizationId)
+  const branding = await resolveDocumentBranding({
+    organizationId: input.session.organizationId,
+    organizationName,
+  })
+
   const filed = await fileGeneratedDocument({
     session: input.session,
     projectId: input.projectId,
@@ -116,7 +166,7 @@ export async function fileAgentDocumentDraft(
     ref: input.ref,
     title: input.title,
     request: input.request,
-    render: ({ marking }) => renderAgentDocumentMarkdown(input.content, marking),
+    render: ({ marking }) => renderAgentDocumentMarkdown(input.content, marking, branding),
   })
 
   const document = await findDocumentInOrg(filed.documentId, input.session.organizationId)

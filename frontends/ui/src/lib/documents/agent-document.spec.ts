@@ -19,11 +19,21 @@ vi.mock('./generated', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./generated')>()),
   fileGeneratedDocument: vi.fn(),
 }))
+// The two reads the branding resolution makes. Stubbed rather than left to fail
+// soft: both DO fail soft (see `loadOrganizationBrandingOverride`), but a spec
+// that relied on that would be asserting the platform default by way of a
+// database that is not there, and would go on passing if the override layer
+// stopped being read at all.
+vi.mock('@/lib/organizations/service', () => ({
+  getOrgSettings: vi.fn(async () => ({ displayName: null, defaultLocale: 'de', settings: {} })),
+  getOrganizationDisplayName: vi.fn(async () => 'Musterbüro ZT GmbH'),
+}))
 vi.mock('./lifecycle', () => ({ createDocumentVersion: vi.fn() }))
 vi.mock('./repository', () => ({ findDocumentInOrg: vi.fn() }))
 vi.mock('./version-repository', () => ({ findOpenVersion: vi.fn() }))
 
 import { aiProvenanceMarking, markingIsInBytes } from '@/lib/ai-provenance'
+import { PLATFORM_DOCUMENT_BRANDING, resolveDocumentBranding } from './branding'
 import { makeDocument } from '@/test-utils/db-fixtures'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { fileGeneratedDocument } from './generated'
@@ -41,16 +51,26 @@ const session = { userId: 'user_1', organizationId: 'org_1', email: 'a@grid.test
 
 describe('renderAgentDocumentMarkdown', () => {
   const marking = aiProvenanceMarking({})
+  const branding = {
+    productName: 'Piloti',
+    tagline: PLATFORM_DOCUMENT_BRANDING.copy.de.tagline,
+    headerLine: 'Erstellt mit Piloti für Musterbüro ZT GmbH',
+    footerLine: 'Piloti · Entwurf, nicht freigegeben',
+    prose: PLATFORM_DOCUMENT_BRANDING.copy.de.prose.replace('{product}', 'Piloti'),
+    disclaimer: PLATFORM_DOCUMENT_BRANDING.copy.de.disclaimer,
+    logo: null,
+    aiGeneratorName: 'Piloti',
+  }
 
   it('puts the marking IN the bytes, which is the only place Markdown has', () => {
-    const rendered = renderAgentDocumentMarkdown('# Aktenvermerk\n\nGK 4.', marking)
+    const rendered = renderAgentDocumentMarkdown('# Aktenvermerk\n\nGK 4.', marking, branding)
     expect(markingIsInBytes(rendered.bytes, marking)).toBe(true)
     expect(rendered.contentType).toBe(AGENT_DOCUMENT_MEDIA_TYPE)
   })
 
   it('keeps the marking as visible text, not as a comment a paste would drop', () => {
     const text = new TextDecoder().decode(
-      renderAgentDocumentMarkdown('# Aktenvermerk', marking).bytes,
+      renderAgentDocumentMarkdown('# Aktenvermerk', marking, branding).bytes,
     )
     // Inside a fenced block, after the body. A `<!-- … -->` wrapper survives the
     // byte check and dies on the first "paste as plain text".
@@ -60,9 +80,47 @@ describe('renderAgentDocumentMarkdown', () => {
 
   it('keeps the model’s own body intact', () => {
     const text = new TextDecoder().decode(
-      renderAgentDocumentMarkdown('# Titel\n\n- eins\n- zwei', marking).bytes,
+      renderAgentDocumentMarkdown('# Titel\n\n- eins\n- zwei', marking, branding).bytes,
     )
     expect(text).toContain('- eins\n- zwei')
+  })
+
+  it('carries the branding IN the bytes, which is the only place a file has', () => {
+    // The byline in the preview pane is chrome and stays in the app. A file on
+    // somebody's disk, or attached to an Einreichung, carries only what is
+    // inside it — so every one of these four lines is asserted on the string.
+    const text = new TextDecoder().decode(
+      renderAgentDocumentMarkdown('# Aktenvermerk', marking, branding).bytes,
+    )
+    expect(text).toContain(branding.headerLine)
+    expect(text).toContain(branding.prose)
+    expect(text).toContain(branding.disclaimer)
+    expect(text).toContain(branding.footerLine)
+    expect(text).toContain(`${branding.productName} — ${branding.tagline}`)
+  })
+
+  it('puts the header line above the title and the disclaimer below the body', () => {
+    // One line of chrome above, three sentences of liability below. The other
+    // way round turns every preview and every paste into a disclaimer with a
+    // document underneath it.
+    const text = new TextDecoder().decode(
+      renderAgentDocumentMarkdown('# Aktenvermerk\n\nGK 4.', marking, branding).bytes,
+    )
+    expect(text.indexOf(branding.headerLine)).toBeLessThan(text.indexOf('# Aktenvermerk'))
+    expect(text.indexOf('GK 4.')).toBeLessThan(text.indexOf(branding.prose))
+    expect(text.indexOf(branding.prose)).toBeLessThan(text.indexOf('AIGenerated=true'))
+  })
+})
+
+describe('the filing seam resolves the branding once', () => {
+  it('hands the renderer the platform copy in the document’s language', async () => {
+    const branding = await resolveDocumentBranding({
+      organizationId: 'org_1',
+      organizationName: 'Musterbüro ZT GmbH',
+      locale: 'de',
+    })
+    expect(branding.headerLine).toBe('Erstellt mit Piloti für Musterbüro ZT GmbH')
+    expect(branding.aiGeneratorName).toBe('Piloti')
   })
 })
 

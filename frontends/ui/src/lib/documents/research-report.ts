@@ -45,8 +45,10 @@ import { PDF_MEDIA_TYPE, renderMarkdownPdf } from '@/lib/pdf/markdown-pdf'
 import type { DocumentFact } from '@/lib/answer-export/answer-document'
 import { AI_GENERATOR_NAME } from '@/lib/ai-provenance'
 import { buildProjectBriefView } from '@/lib/project-profile/brief-view'
+import { getOrganizationDisplayName } from '@/lib/organizations/service'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { resolveDocumentBranding } from './branding'
 import { fileGeneratedDocument, type FiledGeneratedDocument } from './generated'
 
 export interface FileResearchReportInput {
@@ -149,7 +151,12 @@ export function splitReportTitle(report: string): { title: string | null; body: 
  *   - **Projektphase, Katastralgemeinde, Geschosse, Fluchtniveau, Widmung** —
  *     the rest of the brief. A cover identifies; it does not summarise. The
  *     brief is a page in the app and a section of no document.
- *   - **The organization's name or mark.** This is a report, not a letterhead.
+ *   - **The organization's name or mark, as a FACT ROW.** This is a report, not
+ *     a letterhead. The office is named once, in the branding header line above
+ *     the facts (`./branding`, „Erstellt mit Piloti für …") — which is chrome
+ *     saying who this was made for, not a claim the report makes about its
+ *     subject. A fact row would put the office beside Standort and Bundesland,
+ *     where every other line is something the report was checked against.
  */
 const COVER_FACT_PLACEHOLDER = '—'
 
@@ -281,8 +288,22 @@ export async function fileResearchReport(
 ): Promise<FiledGeneratedDocument> {
   const { session, projectId, runId, report, cards, request } = input
   const { title, body } = splitReportTitle(report)
-  const [t, locale] = await Promise.all([getTranslations('answerExport'), getLocale()])
+  const [t, locale, organizationName] = await Promise.all([
+    getTranslations('answerExport'),
+    getLocale(),
+    getOrganizationDisplayName(session.organizationId),
+  ])
   const documentTitle = title ?? t('documentTitle')
+  // The words on the cover's header line, prose block and page footer. Resolved
+  // ONCE, before the render, and from one module — see `./branding`. It fails
+  // soft to the platform's own copy, which is true of every deployment, so a
+  // settings read that cannot be made never costs the filing of a report a
+  // twelve-minute run just produced.
+  const branding = await resolveDocumentBranding({
+    organizationId: session.organizationId,
+    organizationName,
+    locale,
+  })
 
   return fileGeneratedDocument({
     session,
@@ -370,6 +391,10 @@ export async function fileResearchReport(
         // twice and is now right once — for the reason the seam gives: it is
         // the one place that knows whether a reference IS a run.
         marking,
+        // The header line, the cover prose and the footer line. `branding` is a
+        // superset of the renderer's `DocumentChrome`, so the words stay owned
+        // by `./branding` and the PDF module never imports the copy.
+        branding,
       })
       return { bytes, contentType: PDF_MEDIA_TYPE, marking }
     },

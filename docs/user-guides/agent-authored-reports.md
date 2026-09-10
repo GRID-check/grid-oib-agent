@@ -234,6 +234,21 @@ does not.
 The marking is in both places on purpose: the block is for the person who opens
 it, the properties are for the system that files it.
 
+### Was auf jeder Datei steht
+
+Every file Piloti produces — the filed report and a document a chat turn wrote —
+also carries a short block of the product's own words, inside the bytes rather
+than around them. One line at the top names what made the file and for which
+office („Erstellt mit Piloti für …"); two sentences say that Piloti drafted it
+and that responsibility for its content belongs to the person who gives it
+Freigabe, and to nobody before that; one line at the foot of every page repeats
+„Entwurf, nicht freigegeben" so a single sheet pulled out of a folder still says
+what it is. That block is not the „KI-generiert" marking above and does not
+replace it: the marking says how much of the document to trust, and this says
+who is answerable for it. Nothing has to be switched on, and there is nothing to
+configure — an office that later wants its own wording gets it without the
+documents changing shape.
+
 **A filed drawing is marked too.** When Piloti draws a Verfahren and you file it,
 the project gets two files and both say what they are. The **PDF** prints the
 line under the drawing and carries the same `AIGenerated` properties in its

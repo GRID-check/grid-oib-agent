@@ -63,6 +63,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | Chunk purge on supersede and archive | `frontends/ui/src/lib/documents/lifecycle.ts` — `purgeSupersededChunks`, `archiveDocument` | [`deletion-pipeline.md`](deletion-pipeline.md) | ADR-0054, ADR-0011 |
 | The provenance wire on `/v1/ingest` | `frontends/aiq_api/src/aiq_api/routes/ingest.py`; `frontends/aiq_api/src/aiq_api/models/requests.py` — `IngestRequest` | [`docs/api/python-endpoints.md`](../api/python-endpoints.md) | ADR-0054 |
 | Provenance on chunks and on the metadata row | `sources/knowledge_layer/src/llamaindex/adapter.py`; `src/aiq_agent/knowledge/factory.py` — `set_document_provenance` | [`docs/technical-reference/document-ingestion.md`](../technical-reference/document-ingestion.md) | ADR-0054 |
+| What every file Piloti produces says about itself (header line, prose, footer, logo slot) and the platform-default / organization-override resolver | `frontends/ui/src/lib/documents/branding.ts` — `resolveDocumentBranding` | [`docs/user-guides/agent-authored-reports.md`](../user-guides/agent-authored-reports.md) | ADR-0054 |
 
 ## Shelves, session files, storage
 

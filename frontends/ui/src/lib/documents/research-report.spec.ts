@@ -40,6 +40,22 @@ vi.mock('@/i18n/server', () => ({
 }))
 
 /**
+ * The two reads behind the branding on the cover: the office's own name, and
+ * the organization override that could replace the platform's words with its
+ * own.
+ *
+ * Both fail soft in production (an unreachable WorkOS names the product alone,
+ * an unreadable settings row gives the platform copy), and both are stubbed
+ * here anyway — a spec that leant on the fallback would assert the default by
+ * way of a database that is not there, and would go on passing if the override
+ * layer stopped being read at all.
+ */
+vi.mock('@/lib/organizations/service', () => ({
+  getOrgSettings: vi.fn(async () => ({ displayName: null, defaultLocale: 'de', settings: {} })),
+  getOrganizationDisplayName: vi.fn(async () => 'Musterbüro ZT GmbH'),
+}))
+
+/**
  * The project row the cover block reads its facts off.
  *
  * Mocked at the repository and not at the database, because what this spec is
@@ -233,6 +249,35 @@ describe('fileResearchReport', () => {
       'AIGenerated=true; AIGenerator=Piloti; AIHumanReviewed=false; AIRunId=run_7'
     )
     expect(pdf.info.Creator).toBe('Piloti')
+  })
+
+  /**
+   * The branding, read back out of the produced PDF.
+   *
+   * On the bytes and not on the element tree, for the reason
+   * `fileGeneratedDocument` checks the marking on the bytes: react-pdf is free
+   * to drop what it was handed, and a `chrome` prop that never reached a page
+   * would satisfy every assertion about the object that described the file.
+   *
+   * The prose is the half that cannot be enforced from outside — the words are
+   * inside a compressed content stream, so `fileGeneratedDocument` cannot check
+   * it the way it checks the marking. This is where a parser sees it instead.
+   */
+  it('prints the header line, the prose and the footer line into the file', async () => {
+    await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
+    const pdf = await readPdf((await runRenderer()).bytes)
+
+    // Real German, from `lib/documents/branding.ts` — not this spec's `t:<key>`
+    // stub, and not a second copy written in the renderer.
+    expect(pdf.text).toContain(normalizePdfText('Erstellt mit Piloti für Musterbüro ZT GmbH'))
+    expect(pdf.text).toContain(normalizePdfText('Es ist ein Arbeitsstand und keine Freigabe'))
+    expect(pdf.text).toContain(normalizePdfText('Entwurf, nicht freigegeben'))
+
+    // The marking is still IN the bytes. The branding is added matter and must
+    // never displace the one thing the filing seam refuses a document without.
+    expect(pdf.info.Keywords).toBe(
+      'AIGenerated=true; AIGenerator=Piloti; AIHumanReviewed=false; AIRunId=run_7'
+    )
   })
 
   /**
