@@ -21,6 +21,7 @@ Node must already be on the PATH. Install lines:
 
 | Question | Go to |
 |---|---|
+| Where does X live in the code | [`docs/architecture/where-is-what.md`](docs/architecture/where-is-what.md) |
 | Set up, branch, commit, get a PR merged | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | Everything written down, by the question you arrived with | [`docs/README.md`](docs/README.md) |
 | How the system works | [`docs/architecture/system-overview.md`](docs/architecture/system-overview.md) |

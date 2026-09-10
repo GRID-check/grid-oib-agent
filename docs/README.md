@@ -6,14 +6,17 @@ with. See the [root README](../README.md) for what Grid is, and
 
 ## New here? Read these five, in order
 
-1. [`architecture/system-overview.md`](architecture/system-overview.md) for what
+1. [`architecture/where-is-what.md`](architecture/where-is-what.md) for the
+   concept-to-path index: which module owns filing, ingest dispatch, the answer
+   envelope, authz, tasks. Read it first, then grep only for what it misses.
+2. [`architecture/system-overview.md`](architecture/system-overview.md) for what
    the system is, how the pieces fit, and what lives where in the checkout (§12).
-2. [`../CONTRIBUTING.md`](../CONTRIBUTING.md) for setup, branching, the merge gate.
-3. [`contributing/testing-and-verification.md`](contributing/testing-and-verification.md)
+3. [`../CONTRIBUTING.md`](../CONTRIBUTING.md) for setup, branching, the merge gate.
+4. [`contributing/testing-and-verification.md`](contributing/testing-and-verification.md)
    for `task verify` and the traps behind it.
-4. [`contributing/code-conventions.md`](contributing/code-conventions.md) for
-   house rules that already cost somebody an afternoon.
-5. [`adr/README.md`](adr/README.md) for the decisions and why they went that way.
+5. [`contributing/code-conventions.md`](contributing/code-conventions.md) for
+   house rules that already cost somebody an afternoon, and
+   [`adr/README.md`](adr/README.md) for the decisions and why they went that way.
 
 ## Where things live
 
@@ -33,7 +36,7 @@ with. See the [root README](../README.md) for what Grid is, and
 | [`roadmap/`](roadmap/) | Where this is going: the agentic workspace review, IFC, spatial reasoning, cross-project RAG | You are scoping something that is not built yet |
 | [`audit/`](audit/) | Frozen run logs from past audit and feedback-triage loops | You are tracing where a finding or a spec's evidence came from |
 | [`compliance/`](compliance/) | Audits and external dependency review | You are answering a compliance question |
-| [`superpowers/`](superpowers/) | Archived plans and specs from past pieces of work | You are reconstructing the history of a change |
+| [`superpowers/`](superpowers/) | Plans and specs from individual pieces of work. A spec here can be the design of record — [agent-authored documents](superpowers/specs/2026-08-20-agent-authored-documents-design.md) is marked **built** and is current | You need the design behind a shipped change, or you are reconstructing its history |
 
 ## Architecture
 
@@ -42,10 +45,11 @@ Start with [`system-overview.md`](architecture/system-overview.md), then
 
 | Area | Documents |
 |---|---|
+| Where is what | [`where-is-what.md`](architecture/where-is-what.md) — concept to owning module, doc and ADR |
 | Patterns | [`patterns-in-use.md`](architecture/patterns-in-use.md) |
 | Whole system | [`system-overview.md`](architecture/system-overview.md), [`overview.md`](architecture/overview.md), [`backend-deep-dive.md`](architecture/backend-deep-dive.md) |
 | BFF and data | [`bff-service-architecture.md`](architecture/bff-service-architecture.md), [`grid-app-database.md`](architecture/grid-app-database.md), [`multitenancy-and-auth-spec.md`](architecture/multitenancy-and-auth-spec.md) |
-| Documents and projects | [`document-roles.md`](architecture/document-roles.md) |
+| Documents and projects | [`document-roles.md`](architecture/document-roles.md), [`piloti-filesystem-design.md`](architecture/piloti-filesystem-design.md) (exploration, superseded in scope — read its header first), [`2026-08-13-file-native-ownership-design.md`](superpowers/specs/2026-08-13-file-native-ownership-design.md), [`2026-08-20-agent-authored-documents-design.md`](superpowers/specs/2026-08-20-agent-authored-documents-design.md) (built, the design of record), [`user-guides/agent-authored-reports.md`](user-guides/agent-authored-reports.md) |
 | Knowledge and retrieval | [`rag-system-audit-2026-08.md`](architecture/rag-system-audit-2026-08.md), [`visual-ingestion.md`](architecture/visual-ingestion.md), [`visual-extraction-schema.md`](architecture/visual-extraction-schema.md), [`citation-system-audit-2026-07.md`](architecture/citation-system-audit-2026-07.md), [`quote-verification-calibration-2026-07.md`](architecture/quote-verification-calibration-2026-07.md). Why there is no meta-vs-research split any more: [ADR-0052](adr/0052-one-answering-agent-no-intent-router.md) |
 | Memory | [`project-memory-design.md`](architecture/project-memory-design.md), [`memory-system-audit-2026-07.md`](architecture/memory-system-audit-2026-07.md), [`memory-reflection-audit.md`](architecture/memory-reflection-audit.md), [`post-answer-stages.md`](architecture/post-answer-stages.md) |
 | Failure learning | [`platform-failure-learning.md`](architecture/platform-failure-learning.md), [`semantic-notes.md`](architecture/semantic-notes.md) |

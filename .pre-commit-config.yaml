@@ -151,6 +151,17 @@ repos:
         pass_filenames: false
         files: ^docs/adr/.*\.md$|^scripts/check_adrs\.py$
 
+      - id: doc-paths
+        name: the concept index points at files that exist
+        # docs/architecture/where-is-what.md is only worth reading while its
+        # paths resolve, and they sit in code spans, so markdown-link-check
+        # never looks at them. A rename turns a row into the grep the index
+        # exists to remove, with nothing local objecting.
+        entry: python3 scripts/check_doc_paths.py
+        language: system
+        pass_filenames: false
+        files: ^docs/architecture/where-is-what\.md$|^scripts/check_doc_paths\.py$
+
       - id: validate-skills
         name: skill bundles are well-formed
         # The script existed and nothing ran it — not pre-commit, not the
