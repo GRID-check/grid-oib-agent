@@ -114,6 +114,17 @@ on the task instead of dying with the run. Not in this build.
 
 ## 2. The document lifecycle
 
+**One history for humans and agents.** A re-upload under the same name
+already replaces a document in place and discards the old object (migration
+0074, `replaceDocumentContents`, `discardSupersededObjects`). That is
+versioning without the history. `document_versions` becomes the version table
+for every document: a human upload creates a published version (born
+approved, `approved_by` = the uploader), a re-upload creates the next
+published version and keeps the previous one's bytes, an agent filing creates
+a draft version. Same pointer, same badges, same version list. Bytes are
+purged when the document is deleted, not when a version is superseded; a
+per-organization retention policy is a later row.
+
 **Resource model.** `documents` stays the item; its id is what citations,
 subjects, assignments, shares and folders reference. A new table
 `document_versions` holds each version's bytes and its editorial state.
