@@ -41,7 +41,9 @@ vi.mock('@/features/chat/store', () => {
  * action that settles it. Keyed by card type so a missing entry is an explicit,
  * readable failure rather than silent under-coverage.
  */
-const SETTLE_CASES: Partial<Record<GridCard['type'], { card: GridCard; action: string }>> = {
+const SETTLE_CASES: Partial<
+  Record<GridCard['type'], { card: GridCard; action: string; response?: unknown }>
+> = {
   project_profile_patch: {
     card: {
       type: 'project_profile_patch',
@@ -76,6 +78,46 @@ const SETTLE_CASES: Partial<Record<GridCard['type'], { card: GridCard; action: s
     // is about the wiring, and the accept path has its own spec.
     action: 'Discard',
   },
+  document_draft: {
+    card: {
+      type: 'document_draft',
+      title: 'Aktenvermerk – Fluchtweg',
+      path: '/entwuerfe/aktenvermerk.md',
+      bytes: 4820,
+      version: 2,
+      document_id: 'doc-1',
+      version_id: 'ver-1',
+      version_state: 'draft',
+    } as GridCard,
+    // Unlike the three above, this one HAS to reach its route: the card's only
+    // decision is the submit, and there is no decline. So the case carries the
+    // body the lifecycle client parses — a client that stopped agreeing with
+    // the route's response shape would fail here rather than settle on nothing.
+    action: 'Send for approval',
+    response: {
+      version: {
+        id: 'ver-1',
+        documentId: 'doc-1',
+        versionNumber: 1,
+        state: 'in_review',
+        contentType: 'text/markdown',
+        fileSize: 10,
+        contentHash: 'h1',
+        submittedBy: 'user_1',
+        submittedAt: '2026-09-10T00:00:00.000Z',
+        reviewedBy: null,
+        reviewedAt: null,
+        approvedBy: null,
+        approvedAt: null,
+        publishedBy: null,
+        publishedAt: null,
+        reviewComment: null,
+        createdBy: 'user_1',
+        createdAt: '2026-09-10T00:00:00.000Z',
+        updatedAt: '2026-09-10T00:00:00.000Z',
+      },
+    },
+  },
 }
 
 describe('interactive card wiring', () => {
@@ -101,7 +143,15 @@ describe('interactive card wiring', () => {
   })
 
   for (const [type, testCase] of Object.entries(SETTLE_CASES)) {
+    /** The body this card's route answers with, for the cases that need one. */
+    const stubFetch = () =>
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve({ ok: true, status: 200, json: async () => testCase.response ?? {} })),
+      )
+
     it(`records the decision on the owning message for ${type}`, async () => {
+      stubFetch()
       const user = userEvent.setup()
       render(<GridCards cards={[testCase.card]} projectId="proj-1" messageId="msg-1" />)
 
@@ -120,6 +170,7 @@ describe('interactive card wiring', () => {
     // identity has to be the original array index in both cases: renumber it
     // and every decision already recorded on this message names another card.
     it(`keys ${type} on its original index when drawn inline`, async () => {
+      stubFetch()
       const user = userEvent.setup()
       render(
         <GridCardItem card={testCase.card} index={2} projectId="proj-1" messageId="msg-1" />,
@@ -147,6 +198,7 @@ describe('interactive card wiring', () => {
     })
 
     it(`keys ${type} on its original index in the fallback block`, async () => {
+      stubFetch()
       const user = userEvent.setup()
       const filler: GridCard = { type: 'summary', title: 'Platzhalter', content: 'x' } as GridCard
       render(

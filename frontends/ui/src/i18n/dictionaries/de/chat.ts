@@ -381,9 +381,26 @@ export const chat: typeof en.chat = {
       // Wie oft dieser Pfad in dieser Unterhaltung geschrieben wurde. Eigenes
       // Token neben der Größe, damit eine Sprache das „v" fallen lassen kann.
       version: 'v{version}',
-      // Die eine Aktion — und sie tut noch nichts; ein späterer Schnitt
-      // verbindet sie mit der Dokument-API.
+      // Der Entwurf liegt nur in dieser Unterhaltung. „Übernehmen" ist deshalb
+      // eine Bitte an Piloti und kein Formular: die Datei liegt im
+      // Arbeitsordner des Agenten, nicht im Browser, und Piloti legt sie in der
+      // Sitzung der Lesenden ab. Der Klick schreibt den Satz in die
+      // Eingabezeile, abgeschickt wird er von der Person.
       file: 'Ins Projekt übernehmen',
+      fileRequest: 'Leg diesen Entwurf ins Projekt ab.',
+      // Ab hier liegt das Dokument im Projekt.
+      filed: 'Liegt als Entwurf im Projekt',
+      open: 'Im Projekt öffnen',
+      submit: 'Zur Freigabe einreichen',
+      submitting: 'Wird eingereicht …',
+      submitted: 'Zur Freigabe eingereicht — wartet auf eine Person',
+      // Der Zustand, den eine Person schon gesetzt hat. Kein Knopf: Was jetzt
+      // passiert, entscheidet sie in der Dateiablage.
+      inReview: 'Wartet auf Freigabe',
+      changesRequested: 'Änderungen erbeten',
+      approved: 'Freigegeben',
+      published: 'Veröffentlicht',
+      error: 'Das Einreichen hat nicht geklappt. Bitte in der Dateiablage erneut versuchen.',
     },
     // Die Änderung an der Ablage, die Piloti VORGESCHLAGEN hat. Bis zum
     // Annehmen ist nichts geschehen: Der Agent kann gar keine Dokumentzeile
@@ -850,6 +867,12 @@ export const chat: typeof en.chat = {
           // Dateiname: Die Karte sagt gleich darauf, welcher Vorgang welche
           // Datei betrifft — mit den Schaltflächen daneben.
           fileProposal: 'Vorschlag für Ihre Ablage wird vorbereitet …',
+          // Die zwei Schritte, die die Unterhaltung verlassen. Eigene Zeilen,
+          // weil sich hier nicht der Entwurf ändert, sondern wo er liegt — und
+          // weil Ablegen und Einreichen für die Lesenden zwei verschiedene
+          // Dinge sind: das eine legt etwas hin, das andere bittet jemanden.
+          draftFiled: 'Entwurf wird im Projekt abgelegt …',
+          draftSubmitted: 'Entwurf wird zur Freigabe eingereicht …',
         },
         // Das Vertrauensversprechen des Produkts, laut ausgesprochen: geprüft
         // wird nicht „irgendetwas an den Belegen“, sondern jede Fundstelle

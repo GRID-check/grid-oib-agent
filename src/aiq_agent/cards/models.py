@@ -2195,6 +2195,23 @@ class DocumentGridCard(CardModel):
 
 
 # ── Draft card (system-emitted) ──────────────────────────────────────────────
+#: The editorial states of a document version, mirrored (not imported) from
+#: ``DOCUMENT_VERSION_STATES`` in
+#: ``frontends/ui/src/lib/documents/lifecycle-types.ts`` — the same
+#: parse-independently rule the request-context headers follow, since the
+#: contract crosses a language boundary and the JSON Schema at
+#: ``frontends/ui/tests/fixtures/document-lifecycle.schema.json`` is what pins
+#: the two together (``tests/aiq_agent/tools/documents/test_wire_contract.py``).
+DocumentVersionState = Literal[
+    "draft",
+    "in_review",
+    "changes_requested",
+    "approved",
+    "published",
+    "superseded",
+    "rejected",
+]
+
 # The one thing that says a chat turn WROTE something. Pushed by `write_file`
 # and `edit_file` from the conversation's working directory
 # (`tools/documents/draft_store.py`), never by the model: a draft the reader can
@@ -2205,12 +2222,22 @@ class DocumentGridCard(CardModel):
 class DocumentDraftCard(CardModel):
     """A document the agent wrote into this conversation's working directory.
 
-    System-emitted by the working directory's ``write_file`` / ``edit_file``.
-    The draft is NOT a project document: it is not filed, not indexed and not
-    citable until a person takes it into the project. The card's action reads
-    „Ins Projekt übernehmen" and is inert for now — the filing path it will call
-    is the document lifecycle API, and until that is wired the card reports the
-    draft rather than offering to move it.
+    System-emitted by the working directory's ``write_file`` / ``edit_file``, and
+    again by ``file_draft`` once the draft has become a project document.
+
+    **The card has two states, and the difference is three fields.** Unfiled, it
+    reports a file that exists in this conversation and nowhere else: not filed,
+    not indexed, not citable, not in the Files pane. Filed, it names a
+    ``documents`` row — and then it can offer the two things a reader wants,
+    opening it and sending it for review, both through the routes the Files pane
+    itself uses.
+
+    The three fields travel together or not at all: a card carrying a
+    ``document_id`` and no ``version_state`` could not say whether the draft is
+    still submittable, and one carrying a state with no ``version_id`` could not
+    submit it. ``_require_filed_together`` is what refuses the half-filled shape,
+    because the alternative is a card that renders a live-looking control over
+    nothing.
     """
 
     type: Literal["document_draft"] = "document_draft"
@@ -2218,6 +2245,25 @@ class DocumentDraftCard(CardModel):
     path: str = Field(min_length=1, description="Path in the working directory, e.g. '/entwuerfe/aktenvermerk.md'")
     bytes: int = Field(ge=0, description="Size of the draft as stored, in UTF-8 bytes")
     version: int = Field(ge=1, description="How often this path has been written or edited in this conversation")
+    document_id: str | None = Field(
+        default=None, description="The project document this draft was filed as; absent while it is unfiled"
+    )
+    version_id: str | None = Field(
+        default=None, description="The open version of that document — what 'submit for review' acts on"
+    )
+    version_state: DocumentVersionState | None = Field(
+        default=None, description="That version's editorial state, as the lifecycle API last reported it"
+    )
+
+    @model_validator(mode="after")
+    def _require_filed_together(self) -> "DocumentDraftCard":
+        filed = (self.document_id, self.version_id, self.version_state)
+        if any(filed) and not all(filed):
+            raise ValueError(
+                "document_id, version_id and version_state are the filed state and travel together: "
+                "a card with some of them cannot say what it is offering"
+            )
+        return self
 
 
 # ── File-operation proposal (system-emitted, interactive) ────────────────────

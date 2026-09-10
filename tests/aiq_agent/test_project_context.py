@@ -21,6 +21,12 @@ _INPUT_FIELD_MAP = {
     "disabledSources": "disabled_sources",
     "memoryReflectionEnabled": "memory_reflection_enabled",
     "bundesland": "bundesland",
+    # ADR-0054: the chat turn the envelope belongs to, and when it was minted.
+    # Both envelope-only, so they appear here and not in the individual-header
+    # cases — which is exactly what the map's `.get(...)` default asserts: a
+    # case without them must parse to None.
+    "conversationId": "conversation_id",
+    "issuedAt": "issued_at",
 }
 
 
@@ -357,7 +363,34 @@ class TestGridRequestContextFromEnvelope:
     def test_defaults_missing_fields_to_none_or_false(self):
         header, sig = self._envelope({})
         ctx = pc.GridRequestContext.from_envelope(header, sig, self.SECRET)
-        assert ctx == pc.GridRequestContext()
+        # Every PARSED field defaults; the two raw-envelope fields are what was
+        # received, so they are compared against the input rather than to None.
+        assert ctx == pc.GridRequestContext(envelope_header=header, envelope_signature=sig)
+
+    def test_the_raw_envelope_is_retained_byte_for_byte(self):
+        """A tool that calls back into the BFF echoes these; it never re-signs.
+
+        Re-encoding the parsed payload would reorder keys and drop whitespace,
+        and the signature covers the bytes, not the meaning.
+        """
+        header, sig = self._envelope({"organizationId": "org_1", "userId": "user_1", "conversationId": "conv_1"})
+        ctx = pc.GridRequestContext.from_envelope(header, sig, self.SECRET)
+        assert ctx is not None
+        assert ctx.envelope_header == header
+        assert ctx.envelope_signature == sig
+        assert ctx.conversation_id == "conv_1"
+
+    def test_an_unverified_envelope_leaves_nothing_to_echo(self):
+        """A wrong signature is an ABSENT envelope, so there are no bytes to echo."""
+        header, _ = self._envelope({"organizationId": "org_1"})
+        assert pc.GridRequestContext.from_envelope(header, "deadbeef", self.SECRET) is None
+
+    def test_issued_at_is_read_as_an_int_and_never_from_a_bool(self):
+        """`isinstance(True, int)` is true in Python; `issuedAt: true` is not a time."""
+        header, sig = self._envelope({"issuedAt": 1_757_500_000_000})
+        assert pc.GridRequestContext.from_envelope(header, sig, self.SECRET).issued_at == 1_757_500_000_000
+        header, sig = self._envelope({"issuedAt": True})
+        assert pc.GridRequestContext.from_envelope(header, sig, self.SECRET).issued_at is None
 
 
 class TestGridRequestContextEnvelopePrecedence:

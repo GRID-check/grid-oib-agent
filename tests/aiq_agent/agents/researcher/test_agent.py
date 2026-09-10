@@ -3584,6 +3584,30 @@ class TestTheWorkingDirectoryBlock:
         """The one thing that must not blur: a draft cannot ground an answer."""
         assert "keine Fundstelle" in _entwuerfe_block()
 
+    def test_filing_happens_on_request_and_names_its_tool(self):
+        block = _entwuerfe_block()
+        assert "`file_draft`" in block
+        # The four ways a user asks for it, so the model recognises the request
+        # rather than filing after every write.
+        for phrase in ("leg das ins Projekt", "ablegen", "abspeichern"):
+            assert phrase in block
+        assert "Von selbst wird nichts abgelegt" in block
+
+    def test_submitting_is_its_own_gesture_and_needs_a_filed_draft(self):
+        block = _entwuerfe_block()
+        assert "`submit_draft`" in block
+        assert "bereits abgelegten Entwurf" in block
+        assert "ausdrücklichen Wunsch" in block
+
+    def test_nothing_filed_may_be_called_approved(self):
+        """The claim that would reach a Bauherr: a draft is not a Freigabe."""
+        block = _entwuerfe_block()
+        assert "ENTWURF" in block
+        assert "Sage nie, es sei freigegeben, veröffentlicht" in block
+
+    def test_a_conversation_without_a_project_is_told_what_happens(self):
+        assert "Ohne Projekt" in _entwuerfe_block()
+
     def test_the_block_follows_the_tools_and_not_a_second_switch(self):
         """The flag is derived from what is bound, by the renderer itself."""
         from aiq_agent.agents.researcher.prompt import render_system_prompt
@@ -3611,6 +3635,22 @@ class TestTheWorkingDirectoryBudget:
         from aiq_agent.agents.researcher.agent import _INTERACTION_TOOL_BASENAMES
 
         assert {"ls", "read_file", "write_file", "edit_file"} <= _INTERACTION_TOOL_BASENAMES
+
+    def test_the_two_filing_verbs_are_interaction_tools_too(self):
+        """Filing is the END of the answer's output channel, not a way of learning something."""
+        from aiq_agent.agents.researcher.agent import _INTERACTION_TOOL_BASENAMES
+
+        assert {"file_draft", "submit_draft"} <= _INTERACTION_TOOL_BASENAMES
+
+    def test_a_write_then_file_turn_fits_inside_the_allowance(self):
+        """The shape filing actually has: one draft written, then handed over."""
+        calls = [
+            {"name": "write_file", "args": {}},
+            {"name": "file_draft", "args": {}},
+            {"name": "submit_draft", "args": {}},
+            {"name": "emit_card", "args": {}},
+        ]
+        assert _count_interaction_calls(calls) <= _INTERACTION_TOOL_ALLOWANCE
 
     def test_the_allowance_covers_the_more_expensive_turn_shape(self):
         """Six for the card and memory channel, three for a revision turn."""
@@ -3652,6 +3692,44 @@ class TestTheWorkingDirectoryBudget:
         for verb in ("ls", "read_file", "write_file", "edit_file"):
             _capture_sources(verb, "# Aktenvermerk\n\nGebäudeklasse 4", frozenset({verb}), registry)
         assert list(registry.all_sources()) == []
+
+
+def _bind_signed_turn(monkeypatch, *, conversation_id: str) -> None:
+    """A project-scoped chat turn carrying a valid signed envelope, as the WS upgrade leaves it."""
+    import base64
+    import hashlib
+    import hmac
+    import json
+    from types import SimpleNamespace
+
+    import nat.builder.context as nat_context
+
+    secret = "graph-turn-secret"  # noqa: S105 - test fixture value  # pragma: allowlist secret
+    payload = json.dumps(
+        {
+            "organizationId": "org_1",
+            "userId": "user_1",
+            "projectId": "3f8b0d2e-0000-4000-8000-000000000001",
+            "conversationId": conversation_id,
+            "issuedAt": 1_757_500_000_000,
+        }
+    )
+    header = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=")
+    signature = hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", secret)
+
+    class _Ctx:
+        metadata = SimpleNamespace(
+            headers={
+                "x-grid-project-id": "3f8b0d2e-0000-4000-8000-000000000001",
+                "x-grid-request-context": header,
+                "x-grid-request-context-sig": signature,
+            }
+        )
+        conversation_id = None
+
+    _Ctx.conversation_id = conversation_id
+    monkeypatch.setattr(nat_context.Context, "get", staticmethod(lambda: _Ctx()))
 
 
 class TestATurnThatWritesADraft:
@@ -3768,6 +3846,85 @@ class TestATurnThatWritesADraft:
         assert result.tool_iterations == 0
         assert result.interaction_iterations == 2
         assert result.research_truncated is None
+
+    @pytest.mark.asyncio
+    async def test_write_then_file_draft_files_once_and_the_card_names_the_document(
+        self, provider, scripted_llm, cards, working_directory, monkeypatch
+    ):
+        """The whole filing slice through the graph: one write, one filing, one card that can act.
+
+        Only the HTTP call is a double. The working directory, the draft store's
+        filing record, the card registry and the budget accounting are the real
+        ones, because what this test is for is that the three meet: the file the
+        turn wrote is the bytes that go out, the answer the route gives back is
+        what the card carries, and filing is charged to the interaction channel
+        rather than to research.
+        """
+        from langchain_core.tools import StructuredTool
+
+        from aiq_agent.tools.documents import register as filing_tools
+
+        backend, tools = working_directory
+        posted: list[dict] = []
+
+        async def _same_backend(conversation_id: str, dsn: str | None = None):
+            return backend
+
+        monkeypatch.setattr(filing_tools, "get_draft_backend", _same_backend)
+        monkeypatch.setattr(
+            filing_tools,
+            "post_document_version",
+            lambda payload, envelope: (
+                posted.append(payload),
+                {"documentId": "doc-7", "version": {"id": "ver-7", "state": "draft", "contentHash": "h7"}},
+            )[1],
+        )
+        _bind_signed_turn(monkeypatch, conversation_id="conv-1")
+
+        # A NAT function is bound as a plain tool here: the graph only needs a
+        # `BaseTool` with the right NAME, and building the NAT wrapper would test
+        # NAT rather than the turn.
+        file_draft_tool = StructuredTool.from_function(
+            coroutine=filing_tools.run_file_draft, name="file_draft", description="legt ab"
+        )
+
+        scripted_llm.ainvoke = AsyncMock(
+            side_effect=[
+                self._call(
+                    "write_file",
+                    {"file_path": "/entwuerfe/aktenvermerk.md", "content": "# Aktenvermerk\n\nFluchtweg.\n"},
+                    "1",
+                ),
+                self._call("file_draft", {"path": "/entwuerfe/aktenvermerk.md"}, "2"),
+                AIMessage(content="Der Aktenvermerk liegt als Entwurf im Projekt."),
+            ]
+        )
+
+        agent = ResearcherAgent(
+            llm_provider=provider,
+            tools=[web_search_tool, *tools, file_draft_tool],
+            max_tool_iterations=1,
+        )
+        result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Leg das ins Projekt")]))
+
+        assert [payload["op"] for payload in posted] == ["create"]
+        assert posted[0]["content"] == "# Aktenvermerk\n\nFluchtweg.\n"
+
+        drafts = [card for card in cards.snapshot() if card["type"] == "document_draft"]
+        # Two cards: the write's, which knows no document, and the filing's,
+        # which does. The reader sees the second one act.
+        assert "document_id" not in drafts[0]
+        assert (drafts[-1]["document_id"], drafts[-1]["version_id"], drafts[-1]["version_state"]) == (
+            "doc-7",
+            "ver-7",
+            "draft",
+        )
+
+        # Filing is the END of a drafting turn, not research: on a research
+        # budget of ONE the turn would have been forced into synthesis before it
+        # if `file_draft` were charged there.
+        assert result.tool_iterations == 0
+        assert result.interaction_iterations == 2
 
 
 # ---------------------------------------------------------------------------

@@ -71,6 +71,19 @@ TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "rename_document": (PROJECT_ID_HEADER,),
     "create_folder": (PROJECT_ID_HEADER,),
     "assign_document": (PROJECT_ID_HEADER,),
+    # Filing a draft into the project (`tools/documents/register.py`). The
+    # project header is what makes a filing ADDRESSABLE — a draft is filed INTO
+    # a project — so a run without it can only refuse.
+    #
+    # The signed envelope the tool ALSO needs is deliberately NOT declared here.
+    # This table lists what an entry path must SUPPLY, and the envelope is not
+    # supplyable: it is a per-turn credential the BFF mints from a live session,
+    # and a job worker synthesising one would be minting an identity rather than
+    # forwarding one. So the worker is allowed to bind the tool and the tool
+    # refuses the call, which is the honest shape — see the `_NO_ENVELOPE`
+    # refusal in `tools/documents/filing.py`.
+    "file_draft": (PROJECT_ID_HEADER,),
+    "submit_draft": (PROJECT_ID_HEADER,),
 }
 
 # Consolidated signed context envelope (backlog T3-9 follow-up, 2026-07-16).
@@ -289,6 +302,17 @@ def _as_dict(value: Any) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _as_epoch_millis(value: Any) -> int | None:
+    """The envelope's ``issuedAt`` as an int, or ``None`` when it is not a number.
+
+    A bool is rejected explicitly: ``isinstance(True, int)`` is true in Python,
+    and ``issuedAt: true`` would otherwise become the timestamp 1.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
 def _read_memory_reflection_flag() -> bool:
     """Fails closed: absent/anything-but-'true' header → False, so a missing
     header (older proxy, non-WS entrypoint) keeps the stage off rather than
@@ -321,6 +345,29 @@ class GridRequestContext:
     disabled_sources: list[str] | None = None
     memory_reflection_enabled: bool = False
     bundesland: str | None = None
+    #: The chat turn this request belongs to (ADR-0054). Envelope-only, like
+    #: `bundesland`: it is a field a BFF WRITE route authorizes on, so it may
+    #: never arrive as an unsigned header a caller could choose.
+    conversation_id: str | None = None
+    #: Epoch MILLISECONDS the envelope was minted. Inside the signed bytes, so
+    #: its age cannot be edited without breaking the signature. Parsed but NOT
+    #: enforced here: this tier has accepted envelopes without one since before
+    #: the field existed, and the window is the BFF verifier's to enforce
+    #: (`verifyGridRequestContextEnvelope`), which fails closed on it.
+    issued_at: int | None = None
+    #: The envelope EXACTLY as it arrived — the base64url header and its hex
+    #: signature, unparsed.
+    #:
+    #: Retained so a tool that calls back into the BFF can ECHO the signed bytes
+    #: rather than re-sign them. That distinction is the whole identity story of
+    #: ADR-0054 §4: the BFF minted this envelope from a real session, and the
+    #: internal document route reads the acting user out of it and files in that
+    #: person's pinned session. A Python tier that re-signed a payload of its own
+    #: would be choosing the user id — with a secret that authenticates the
+    #: SERVICE — which is precisely the wider principal the signature exists to
+    #: deny it. So: echo, never sign.
+    envelope_header: str | None = None
+    envelope_signature: str | None = None
 
     @classmethod
     def from_context(cls) -> "GridRequestContext":
@@ -432,6 +479,13 @@ class GridRequestContext:
             disabled_sources=_as_str_list(payload.get("disabledSources")),
             memory_reflection_enabled=bool(payload.get("memoryReflectionEnabled", False)),
             bundesland=_normalize_bundesland(payload.get("bundesland")),
+            conversation_id=_normalize_raw_id(payload.get("conversationId")),
+            issued_at=_as_epoch_millis(payload.get("issuedAt")),
+            # The bytes as received, not re-encoded from `payload`: a re-encode
+            # would reorder keys, drop whitespace, and produce something the
+            # signature no longer covers.
+            envelope_header=header_value,
+            envelope_signature=sig,
         )
 
     @classmethod
@@ -601,6 +655,20 @@ def get_user_message_id_from_context() -> str | None:
     except Exception:
         logger.debug("Failed to read user message id from NAT context", exc_info=True)
         return None
+
+
+def get_request_envelope_from_context() -> tuple[str | None, str | None]:
+    """The signed envelope EXACTLY as it arrived: ``(header, signature)``.
+
+    For a tool that calls back into the BFF. It echoes these two strings and
+    signs nothing of its own — the BFF verifies them with the same secret and
+    reads the acting user out of the verified payload (ADR-0054 §4). Both are
+    ``None`` off an authenticated chat turn (a CLI run, an eval, a job worker),
+    which is a refusal at the tool and never a reason to fall back to the
+    individual headers: those are unsigned, so a caller could choose them.
+    """
+    ctx = GridRequestContext.from_context()
+    return ctx.envelope_header, ctx.envelope_signature
 
 
 def get_conversation_id_from_context() -> str | None:

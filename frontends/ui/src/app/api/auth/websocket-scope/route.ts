@@ -72,6 +72,17 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       header: headerValue,
     }
 
+    // Echoed so `server.js` signs the conversation it was ALLOWED to sign.
+    // `buildCollectionScopeFromRequest` has just run `authorizeConversationScope`
+    // on this id (and the upgrade is refused when that throws), so what goes into
+    // the envelope is an id this tier asserted rather than the query param the
+    // client sent. The agent's document route authorizes on the verified payload
+    // (ADR-0054 §4) — a caller-chosen value must never reach it under a
+    // signature.
+    if (conversationId) {
+      response.conversationId = conversationId
+    }
+
     if (session) {
       response.organizationId = session.organizationId
       response.userId = session.userId

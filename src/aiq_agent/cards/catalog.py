@@ -113,7 +113,17 @@ ENVELOPE_CARD_TYPES = frozenset({"summary", "verdict_header", "key_takeaways", "
 # construction are two things to keep in sync, of which one stops being
 # maintained. A card that is genuinely one and not the other is the reason to
 # split them again — and then the split has to be argued at that card.
-INTERACTIVE_CARD_TYPES = frozenset({"project_profile_patch", "memory_proposal", "file_operation_proposal"})
+#
+# `document_draft` joined when `file_draft` gave it something to act on. It is a
+# borderline case worth stating: the card is emitted by a WRITE that already
+# happened (the draft exists), so emitting it costs the reader no decision — but
+# a FILED card offers „Zur Freigabe einreichen", and that is a non-idempotent
+# write which opens an inbox item on a colleague. The rule above is about the
+# answer, not about the emission, so it is a member. Its OTHER control, on an
+# unfiled card, writes nothing at all: it prefills the composer.
+INTERACTIVE_CARD_TYPES = frozenset(
+    {"project_profile_patch", "memory_proposal", "file_operation_proposal", "document_draft"}
+)
 
 # Card types whose fields must be COPIED from a tool result and cannot be
 # derived from prose: every one of them is addressed by IFC GlobalId, rule id

@@ -2,6 +2,7 @@
  * @vitest-environment node
  */
 import fixtureData from '../../tests/fixtures/grid_request_context.json'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -352,5 +353,79 @@ describe('verifyGridRequestContextEnvelope', () => {
 
   it('refuses a header that is not base64url JSON', () => {
     expect(verifyGridRequestContextEnvelope('not-json', 'deadbeef', SECRET, NOW)).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The producer this repo cannot type-check: server.js (ADR-0054)
+// ---------------------------------------------------------------------------
+
+/**
+ * `server.js` is plain CommonJS and duplicates `buildGridRequestContextEnvelopePayload`
+ * with a pinning comment, because it cannot import this module. The fixture pins
+ * the two builders' OUTPUT; nothing pinned their SOURCE, and the file's own
+ * comment says so ("it cannot catch drift in this file's source automatically
+ * since server.js has no test harness in this repo").
+ *
+ * That gap stopped being theoretical when the envelope became a credential: the
+ * WS upgrade is the only producer a chat turn has, so a field it forgets is a
+ * field the agent's document route never sees — and the failure is a refusal
+ * with no diagnostic on the other side of a language boundary.
+ *
+ * So this reads the file. It compares the FIELD NAMES and their ORDER, which is
+ * what the signature depends on (the payload is signed as `JSON.stringify`d
+ * bytes, so key order is part of the contract). It deliberately does not try to
+ * evaluate the duplicated function: what drifts is the list, not the arithmetic.
+ */
+describe('server.js mints the same envelope payload this module does', () => {
+  const source = readFileSync(new URL('../../server.js', import.meta.url), 'utf8')
+
+  /** The `payload.<field>` assignments of the duplicated builder, in file order. */
+  const serverFields = (): string[] => {
+    const start = source.indexOf('function buildGridRequestContextEnvelopeHeaders(input)')
+    expect(start, 'server.js no longer has the duplicated builder this spec pins').toBeGreaterThan(-1)
+    const body = source.slice(start, source.indexOf('const json = JSON.stringify(payload)', start))
+    return [...body.matchAll(/payload\.([A-Za-z]+)\s*=/g)].map((match) => match[1])
+  }
+
+  /** Every field this module's builder can emit, in the order it emits them. */
+  const canonicalFields = (): string[] =>
+    Object.keys(
+      buildGridRequestContextEnvelopePayload({
+        organizationId: 'org_1',
+        userId: 'user_1',
+        projectId: 'proj_1',
+        collectionScope: ['oib_knowledge'],
+        projectContext: 'context',
+        projectMemory: 'memory',
+        modelOverrides: { shallow_research: 'm' },
+        budget: { remainingOrgUsd: 1, remainingUserUsd: 1, remainingProjectUsd: 1 },
+        disabledSources: ['web_search'],
+        memoryReflectionEnabled: true,
+        bundesland: 'wien',
+        conversationId: 's_conv_1',
+        issuedAt: 1789430400000,
+      }),
+    )
+
+  it('carries every field, in the same key order — the signature is over the bytes', () => {
+    expect(serverFields()).toEqual(canonicalFields())
+  })
+
+  it('signs the conversation and the mint time, which is what makes it a credential', () => {
+    // Named on their own so the failure says WHICH property was lost: without
+    // `conversationId` the document route cannot tell which chat asked, and
+    // without `issuedAt` `verifyGridRequestContextEnvelope` refuses every
+    // envelope the WS upgrade mints.
+    expect(serverFields()).toContain('conversationId')
+    expect(serverFields()).toContain('issuedAt')
+  })
+
+  it('passes the conversation the scope route authorized, never the raw query param', () => {
+    // `conversationId` reaches the envelope from `result.data`, which is
+    // `/api/auth/websocket-scope`'s own render after `authorizeConversationScope`.
+    // Signing `parsedUrl.query.conversationId` instead would put a caller-chosen
+    // value inside a signature a write route trusts.
+    expect(source).toContain('conversationId: result.data?.conversationId')
   })
 })

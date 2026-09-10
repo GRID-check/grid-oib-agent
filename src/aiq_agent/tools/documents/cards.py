@@ -35,22 +35,57 @@ def draft_title(path: str, content: str) -> str:
     return path.rsplit("/", 1)[-1]
 
 
-def emit_draft_card(*, path: str, content: str, version: int) -> bool:
+#: The stored filing keys, as the card's own field names. Spelled here rather
+#: than imported from ``draft_store`` so this module keeps its one-way import
+#: (the store imports the card, never the other way round).
+_FILED_FIELDS = {
+    "grid_filed_document_id": "document_id",
+    "grid_filed_version_id": "version_id",
+    "grid_filed_state": "version_state",
+}
+
+
+def _filed_fields(filing: dict[str, str] | None) -> dict[str, str]:
+    """The three filed fields, or nothing at all when any of them is missing."""
+    if not filing:
+        return {}
+    fields = {name: filing[key] for key, name in _FILED_FIELDS.items() if filing.get(key)}
+    return fields if len(fields) == len(_FILED_FIELDS) else {}
+
+
+def emit_draft_card(
+    *,
+    path: str,
+    content: str,
+    version: int,
+    filing: dict[str, str] | None = None,
+    title: str | None = None,
+) -> bool:
     """Put the draft in front of the reader; ``True`` when a card channel took it.
 
     Fail-open by construction: a turn with no bound card registry (a CLI run, a
     test) still writes the file and still answers. The write is the product;
     the card is how it is announced.
+
+    ``filing`` is the draft store's record of the project document this path was
+    filed as (:data:`~aiq_agent.tools.documents.draft_store.FILING_KEYS`). Passed
+    through rather than looked up here, because the two callers know it for
+    different reasons: a write or an edit carries forward what the store held,
+    and ``file_draft`` carries what the BFF just answered. A card whose filing is
+    incomplete is emitted UNFILED rather than half-filed — the model validator
+    would refuse the mixed shape, and losing the buttons is better than losing
+    the card.
     """
     registry = get_card_registry()
     if registry is None:
         return False
     card = {
         "type": "document_draft",
-        "title": draft_title(path, content),
+        "title": title or draft_title(path, content),
         "path": path,
         "bytes": len(content.encode("utf-8")),
         "version": version,
+        **_filed_fields(filing),
     }
     try:
         validated = grid_card_adapter.validate_python(card).model_dump(exclude_none=True)

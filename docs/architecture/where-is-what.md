@@ -64,6 +64,11 @@ does not exist, so a moved file is caught; a missing row is not.
 | The provenance wire on `/v1/ingest` | `frontends/aiq_api/src/aiq_api/routes/ingest.py`; `frontends/aiq_api/src/aiq_api/models/requests.py` — `IngestRequest` | [`docs/api/python-endpoints.md`](../api/python-endpoints.md) | ADR-0054 |
 | Provenance on chunks and on the metadata row | `sources/knowledge_layer/src/llamaindex/adapter.py`; `src/aiq_agent/knowledge/factory.py` — `set_document_provenance` | [`docs/technical-reference/document-ingestion.md`](../technical-reference/document-ingestion.md) | ADR-0054 |
 | What every file Piloti produces says about itself (header line, prose, footer, logo slot) and the platform-default / organization-override resolver | `frontends/ui/src/lib/documents/branding.ts` — `resolveDocumentBranding` | [`docs/user-guides/agent-authored-reports.md`](../user-guides/agent-authored-reports.md) | ADR-0054 |
+| Filing a draft into the project, and submitting it | `src/aiq_agent/tools/documents/register.py` — `file_draft`, `submit_draft` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | ADR-0054, ADR-0055 |
+| The agent's one call to the lifecycle API (echoes the signed envelope, never signs) | `src/aiq_agent/tools/documents/filing.py` — `post_document_version` | same | ADR-0055 |
+| Where a filed draft's document id is remembered | `src/aiq_agent/tools/documents/draft_store.py` — `FILING_KEYS`, `arecord_filing` | same | — |
+| The signed envelope as the Python tier receives it | `src/aiq_agent/project_context.py` — `GridRequestContext.envelope_header`, `get_request_envelope_from_context` | same | ADR-0054 |
+| The draft card's filed state and its controls | `frontends/ui/src/features/grid-cards/components/DocumentDraftCard.tsx` | [`cards.md`](cards.md) | ADR-0030 |
 
 ## Shelves, session files, storage
 

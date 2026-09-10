@@ -84,7 +84,9 @@ _shelf_label = shelf_label
 # directory (`ls`, `read_file`, `write_file`, `edit_file` —
 # ``tools/documents``) and the five write-side workspace tools that propose a
 # file operation on a card (`move_document`, `rename_document`,
-# `create_folder`, `set_doc_class`, `assign_document` — ``tools/files``). Each
+# `create_folder`, `set_doc_class`, `assign_document` — ``tools/files``) plus the
+# working directory's two doors into the project (`file_draft`, `submit_draft` —
+# ``tools/documents/register.py``). Each
 # is an OUTPUT channel of the answer rather than a
 # way of learning something, so their calls are budgeted apart from research
 # (see ``_INTERACTION_TOOL_ALLOWANCE``). Matched on the tool's base name so an
@@ -103,6 +105,8 @@ _INTERACTION_TOOL_BASENAMES = frozenset(
         "create_folder",
         "set_doc_class",
         "assign_document",
+        "file_draft",
+        "submit_draft",
     }
 )
 
@@ -126,6 +130,15 @@ _INTERACTION_TOOL_BASENAMES = frozenset(
 # emits three cards. The two shapes are alternatives, so their ceilings are
 # not additive; raising the number for a turn that never happens would only
 # buy a runaway loop more room.
+#
+# `file_draft` and `submit_draft` add NOTHING either, for the same calibration
+# read one step further along. They are the END of a drafting turn, not a shape
+# of their own: the turn that files is the turn that wrote or revised, so the
+# call lands inside the three the working directory already has — one
+# `write_file` then one `file_draft` is two of three, and the expensive revision
+# shape (`read_file` + two `edit_file`) is not a turn that also files, because
+# the reader asked for a change and not for a handover. Raising the number for a
+# turn that does all five would only buy a runaway loop more room.
 #
 # It is a CEILING on the exemption, not a second budget to spend: a call past it
 # is charged to research exactly as before, so the tool loop still terminates on
@@ -189,7 +202,8 @@ def _count_interaction_calls(tool_calls: Iterable[Any]) -> int:
     """How many of a round's tool calls are the answer's own output channel.
 
     Interaction calls (``emit_card``, ``describe_card``, ``remember``, the
-    working directory's four file verbs and the five file-operation proposals)
+    working directory's four file verbs, its two filing verbs and the five
+    file-operation proposals)
     produce the answer's cards, its
     durable memory and its drafts, not evidence, so they are counted
     separately from the research budget. Matched on the BASE name, so a

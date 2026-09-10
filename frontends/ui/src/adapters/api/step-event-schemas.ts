@@ -250,6 +250,12 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
   // follows says which operation on which file, so the live line's job is only
   // to say that a proposal is being prepared — not to be the card, early.
   'status.action.fileProposal': 'thinking.turnStatus.',
+  // The two steps that leave the conversation: the draft becomes a project
+  // document, and then a person is asked to look at it. Kept apart, unlike the
+  // five proposal verbs above, because there is no card following to say which
+  // of the two just happened.
+  'status.action.draftFiled': 'thinking.turnStatus.',
+  'status.action.draftSubmitted': 'thinking.turnStatus.',
   'status.citations': 'thinking.turnStatus.',
   'status.repair': 'thinking.turnStatus.',
   'status.escalation': 'thinking.turnStatus.',

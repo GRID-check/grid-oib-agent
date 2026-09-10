@@ -26,7 +26,6 @@ import { DocumentChecklistCard } from '@/features/grid-cards/components/Document
 import { DeadlineTimelineCard } from '@/features/grid-cards/components/DeadlineTimelineCard'
 import { ChangeImpactCard } from '@/features/grid-cards/components/ChangeImpactCard'
 import { DiagramCard } from '@/features/grid-cards/components/DiagramCard'
-import { DocumentDraftCard } from '@/features/grid-cards/components/DocumentDraftCard'
 import { FollowUpsCard } from '@/features/grid-cards/components/FollowUpsCard'
 import { LegalBasisCard } from '@/features/grid-cards/components/LegalBasisCard'
 import { RequirementChecklistCard } from '@/features/grid-cards/components/RequirementChecklistCard'
@@ -960,17 +959,30 @@ function Gallery() {
         />
       </Section>
 
-      {/* A SYSTEM card: the working directory's write_file/edit_file pushes it,
-          so it reports a draft that exists rather than one the model described.
-          „Ins Projekt übernehmen" is drawn disabled — the filing call it will
-          make is a later slice, and a draft that says it is already in the
-          project would be the one wrong claim this card can make. */}
+      {/* A SYSTEM card, and the fourth INTERACTIVE one: the working directory's
+          write_file/edit_file pushes it, so it reports a draft that exists
+          rather than one the model described, and `file_draft` pushes it again
+          once that draft has become a project document.
+
+          Drawn UNFILED here, which is the state a reader meets first. „Ins
+          Projekt übernehmen" writes nothing: it puts the request in the
+          composer, because the draft's bytes live in the agent's working
+          directory and the browser has neither them nor a route to file them
+          (see the component's header). The FILED states — „Im Projekt öffnen"
+          and „Zur Freigabe einreichen" — are judged on
+          `/dev/document-draft-card`, which draws all three. */}
       <Section id="document_draft">
-        <DocumentDraftCard
-          title="Aktenvermerk – Abweichung Fluchtweglänge"
-          path="/entwuerfe/aktenvermerk-fluchtweg.md"
-          bytes={4820}
-          version={3}
+        <GridCards
+          cards={[
+            {
+              type: 'document_draft',
+              title: 'Aktenvermerk – Abweichung Fluchtweglänge',
+              path: '/entwuerfe/aktenvermerk-fluchtweg.md',
+              bytes: 4820,
+              version: 3,
+            },
+          ] as GridCard[]}
+          projectId={null}
         />
       </Section>
 

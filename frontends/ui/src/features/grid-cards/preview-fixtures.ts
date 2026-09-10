@@ -468,12 +468,26 @@ const RAW_FIXTURES: CardInput[] = [
   },
   {
     // The state a draft is usually met in: written more than once, because the
-    // reader asked for a change and the tool edited the same path again.
+    // reader asked for a change and the tool edited the same path again, and
+    // not yet filed — so the card offers to ASK Piloti to file it rather than
+    // claiming a project document that does not exist.
     type: 'document_draft',
     title: 'Aktenvermerk – Abweichung Fluchtweglänge',
     path: '/entwuerfe/aktenvermerk-fluchtweg.md',
     bytes: 4820,
     version: 3,
+  },
+  {
+    // The same draft after `file_draft`: it names a project document and an
+    // open version, which is what turns the card's two controls on.
+    type: 'document_draft',
+    title: 'Aktenvermerk – Abweichung Fluchtweglänge',
+    path: '/entwuerfe/aktenvermerk-fluchtweg.md',
+    bytes: 4820,
+    version: 3,
+    document_id: '00000000-0000-4000-8000-000000000001',
+    version_id: '00000000-0000-4000-8000-0000000000a1',
+    version_state: 'draft',
   },
   {
     // The state the card is usually met in: a tidying turn that proposed more

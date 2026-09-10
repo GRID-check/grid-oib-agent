@@ -390,9 +390,26 @@ export const chat = {
       // How often this path has been written in this conversation. Rendered as
       // its own token beside the size, so a locale can drop the „v".
       version: 'v{version}',
-      // The one action, and it does nothing yet — a later slice wires it to the
-      // document lifecycle API.
+      // The draft lives in this conversation only. "Add to the project" is
+      // therefore a request to Piloti rather than a form: the file is in the
+      // agent's working directory, not in the browser, and Piloti files it in
+      // the reader's own session. The click puts the sentence in the composer;
+      // the person sends it.
       file: 'Add to the project',
+      fileRequest: 'File this draft into the project.',
+      // From here on the document is in the project.
+      filed: 'Filed in the project as a draft',
+      open: 'Open in the project',
+      submit: 'Send for approval',
+      submitting: 'Sending …',
+      submitted: 'Sent for approval — waiting for a person',
+      // A state a person has already set. No button: what happens next is
+      // decided in the Files pane.
+      inReview: 'Awaiting approval',
+      changesRequested: 'Changes requested',
+      approved: 'Approved',
+      published: 'Published',
+      error: 'Sending for approval failed. Please try again from the Files pane.',
     },
     // The workspace change Piloti PROPOSED. Nothing has happened until the
     // reader accepts: the agent has no way to write a document row at all, so
@@ -865,6 +882,12 @@ export const chat = {
           // card names the operation and the file a moment later, with the
           // buttons attached, so saying it twice would only say it worse.
           fileProposal: 'Preparing a suggestion for your files…',
+          // The two steps that leave the conversation. Their own lines, because
+          // what changes here is not the draft but where it lives — and because
+          // filing and sending for approval are two different things to the
+          // reader: one puts something down, the other asks somebody.
+          draftFiled: 'Filing the draft in the project …',
+          draftSubmitted: 'Sending the draft for approval …',
         },
         // The product's trust proposition said out loud: what is checked is not
         // "the citations" in the abstract but every one of them, against what

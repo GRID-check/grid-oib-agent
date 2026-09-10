@@ -607,6 +607,12 @@ export const GridCardItem: FC<GridCardItemProps> = ({
           path={card.path}
           bytes={card.bytes}
           version={card.version}
+          documentId={card.document_id}
+          versionId={card.version_id}
+          versionState={card.version_state}
+          messageId={messageId}
+          cardKey={key}
+          decisionsMustPersist={decisionsMustPersist}
         />
       </FadeIn>
     )

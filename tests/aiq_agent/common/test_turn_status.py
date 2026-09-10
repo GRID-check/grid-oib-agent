@@ -316,6 +316,14 @@ def _every_live_payload(steps) -> list[dict]:
         [{"name": "move_document", "args": {"document": "plan.pdf", "target_folder": "Einreichung"}}],
         round_index=8,
     )
+    turn_status.emit_retrieval(
+        [{"name": "file_draft", "args": {"path": "/entwuerfe/a.md"}}],
+        round_index=9,
+    )
+    turn_status.emit_retrieval(
+        [{"name": "submit_draft", "args": {"path": "/entwuerfe/a.md"}}],
+        round_index=10,
+    )
     turn_status.emit_retrieval_requery(query_count=2)
     turn_status.emit_citation_check(source_count=3)
     turn_status.emit_answer_repair(removed_citations=1, unverified_quotes=1)

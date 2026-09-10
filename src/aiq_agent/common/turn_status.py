@@ -184,6 +184,15 @@ KEY_ACTION_DRAFT_EDIT = "status.action.draftEdit"
 #: a line naming the verb a second time would be the card, worse and earlier.
 #: What the line has to carry is that nothing is being changed yet.
 KEY_ACTION_FILE_PROPOSAL = "status.action.fileProposal"
+#: The two verbs that leave the conversation. Their own keys, and not the
+#: working directory's four, because what changes is not the draft but WHERE it
+#: is: „Entwurf wird geschrieben" while a document is being put into the
+#: project would describe the wrong half of what just happened. Filing and
+#: submitting are also kept apart, unlike the five proposal verbs that share
+#: one key: there the card names the operation a moment later, while here there
+#: is nothing else on screen to tell a filing from a handover to a reviewer.
+KEY_ACTION_DRAFT_FILED = "status.action.draftFiled"
+KEY_ACTION_DRAFT_SUBMITTED = "status.action.draftSubmitted"
 
 KEY_CITATIONS = "status.citations"
 #: The turn's one bounded repair: a citation or a quote failed verification,
@@ -213,6 +222,8 @@ ALL_STATUS_KEYS: tuple[str, ...] = (
     "status.action.draftWrite",
     "status.action.draftEdit",
     "status.action.fileProposal",
+    "status.action.draftFiled",
+    "status.action.draftSubmitted",
     "status.citations",
     "status.repair",
     "status.escalation",
@@ -354,6 +365,8 @@ _ACTION_KEYS = {
     "create_folder": KEY_ACTION_FILE_PROPOSAL,
     "set_doc_class": KEY_ACTION_FILE_PROPOSAL,
     "assign_document": KEY_ACTION_FILE_PROPOSAL,
+    "file_draft": KEY_ACTION_DRAFT_FILED,
+    "submit_draft": KEY_ACTION_DRAFT_SUBMITTED,
 }
 
 #: Argument names a retrieval query hides behind, in preference order.

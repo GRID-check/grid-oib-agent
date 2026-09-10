@@ -1587,13 +1587,26 @@
       "type": "object"
     },
     "DocumentDraftCard": {
-      "description": "A document the agent wrote into this conversation's working directory.\n\nSystem-emitted by the working directory's ``write_file`` / ``edit_file``.\nThe draft is NOT a project document: it is not filed, not indexed and not\ncitable until a person takes it into the project. The card's action reads\n\u201eIns Projekt \u00fcbernehmen\" and is inert for now \u2014 the filing path it will call\nis the document lifecycle API, and until that is wired the card reports the\ndraft rather than offering to move it.",
+      "description": "A document the agent wrote into this conversation's working directory.\n\nSystem-emitted by the working directory's ``write_file`` / ``edit_file``, and\nagain by ``file_draft`` once the draft has become a project document.\n\n**The card has two states, and the difference is three fields.** Unfiled, it\nreports a file that exists in this conversation and nowhere else: not filed,\nnot indexed, not citable, not in the Files pane. Filed, it names a\n``documents`` row \u2014 and then it can offer the two things a reader wants,\nopening it and sending it for review, both through the routes the Files pane\nitself uses.\n\nThe three fields travel together or not at all: a card carrying a\n``document_id`` and no ``version_state`` could not say whether the draft is\nstill submittable, and one carrying a state with no ``version_id`` could not\nsubmit it. ``_require_filed_together`` is what refuses the half-filled shape,\nbecause the alternative is a card that renders a live-looking control over\nnothing.",
       "properties": {
         "bytes": {
           "description": "Size of the draft as stored, in UTF-8 bytes",
           "minimum": 0,
           "title": "Bytes",
           "type": "integer"
+        },
+        "document_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The project document this draft was filed as; absent while it is unfiled",
+          "title": "Document Id"
         },
         "path": {
           "description": "Path in the working directory, e.g. '/entwuerfe/aktenvermerk.md'",
@@ -1618,6 +1631,41 @@
           "minimum": 1,
           "title": "Version",
           "type": "integer"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The open version of that document \u2014 what 'submit for review' acts on",
+          "title": "Version Id"
+        },
+        "version_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "draft",
+                "in_review",
+                "changes_requested",
+                "approved",
+                "published",
+                "superseded",
+                "rejected"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "That version's editorial state, as the lifecycle API last reported it",
+          "title": "Version State"
         }
       },
       "required": [

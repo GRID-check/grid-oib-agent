@@ -137,10 +137,18 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   // decision, so there is nothing to remember across a reload.
   follow_ups: 'presentational',
   document_grid: 'presentational',
-  // Reports a draft the working directory already holds; „Ins Projekt
-  // übernehmen" is inert in this slice — the slice that wires the filing call
-  // moves this line to 'interactive' and the type into INTERACTIVE_CARD_TYPES.
-  document_draft: 'presentational',
+  // Reports a draft the working directory holds, and — once `file_draft` has
+  // run — the project document it became. „Zur Freigabe einreichen" on a filed
+  // card is a real write through the lifecycle client: it opens an inbox item
+  // on a reviewer and moves the version to `in_review`, from which it can no
+  // longer be replaced. Pressing it twice is not idempotent, and a card that
+  // forgot it had been pressed would ask a colleague twice.
+  //
+  // The UNFILED card's „Ins Projekt übernehmen" writes nothing at all — it
+  // prefills the composer, like a follow-up chip — so it is not what makes this
+  // line interactive. See `DocumentDraftCard` for why filing cannot happen from
+  // the browser.
+  document_draft: 'interactive',
   building_section: 'presentational',
   stair_diagram: 'presentational',
   dimension_diagram: 'presentational',
@@ -220,6 +228,15 @@ export const CARD_DECISIONS = [
    * Files pane — honest about what it knows and about what it does not.
    */
   'partiallyApplied',
+  /**
+   * document_draft: the filed draft was sent for approval.
+   *
+   * Its own outcome rather than `accepted`, which is about a proposal the
+   * reader agreed to: nothing was proposed here. What happened is that a
+   * version left the writing states and a person was asked to look at it, and
+   * the card has to say THAT after a reload rather than „übernommen".
+   */
+  'submitted',
 ] as const
 
 export type CardDecision = (typeof CARD_DECISIONS)[number]

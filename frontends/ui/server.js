@@ -61,6 +61,19 @@ function buildGridRequestContextEnvelopeHeaders(input) {
   // `buildGridRequestContextEnvelopePayload`'s docstring in request-context.ts
   // (the canonical definition this function is pinned to).
   if (input.bundesland) payload.bundesland = input.bundesland
+  // `conversationId` and `issuedAt` (ADR-0054), appended LAST in key order for
+  // the reason `bundesland` was last before them: every pre-existing signed
+  // payload stays byte-identical, so the fixture's precomputed header/signature
+  // values keep exact-matching on both sides of the language boundary.
+  //
+  // These two are what make the envelope usable as a CREDENTIAL and not only as
+  // context. The agent's document route reads the acting user out of the
+  // verified payload and files in that person's pinned session, so it needs to
+  // know which conversation asked (`conversationId`) and it must be able to
+  // refuse a replay (`issuedAt`, inside the signed bytes, checked against
+  // GRID_REQUEST_CONTEXT_MAX_AGE_MS by `verifyGridRequestContextEnvelope`).
+  if (input.conversationId) payload.conversationId = input.conversationId
+  if (input.issuedAt !== undefined && input.issuedAt !== null) payload.issuedAt = input.issuedAt
 
   const json = JSON.stringify(payload)
   const headers = {
@@ -737,6 +750,17 @@ const startServer = async () => {
               disabledSources: result.data?.disabledSources,
               memoryReflectionEnabled: result.data?.memoryReflectionEnabled,
               bundesland: result.data?.bundesland,
+              // The conversation the scope route AUTHORIZED, not the raw query
+              // param: `buildCollectionScopeFromRequest` runs
+              // `authorizeConversationScope` on it and the upgrade is already
+              // refused when that fails, so the id echoed back is one this tier
+              // asserted. Signing the query param instead would put a
+              // caller-chosen value inside a signature a write route trusts.
+              conversationId: result.data?.conversationId,
+              // Minted HERE rather than inside the builder: the envelope's age
+              // is the age of THIS handshake, and a builder that stamped its own
+              // clock would silently refresh a payload a caller handed it.
+              issuedAt: Date.now(),
             })
           )
         } else if (result.status === 401 || result.status === 403) {

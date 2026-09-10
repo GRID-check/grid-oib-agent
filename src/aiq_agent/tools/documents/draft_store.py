@@ -39,6 +39,7 @@ import logging
 import os
 import unicodedata
 from dataclasses import dataclass
+from dataclasses import field
 
 from deepagents.backends.protocol import EditResult
 from deepagents.backends.protocol import WriteResult
@@ -78,6 +79,33 @@ MAX_DRAFT_BYTES = 256 * 1024
 #: edit. Not read by DeepAgents (it converts only ``content``/``encoding``/the
 #: timestamps), so it rides along without changing what the tools see.
 VERSION_KEY = "grid_draft_version"
+
+#: Where a filed draft's project document is remembered, on the stored item and
+#: beside the version counter.
+#:
+#: One conversation writing „Aktenvermerk" twice must land on ONE document with
+#: two versions, so the second ``file_draft`` of a path has to know the document
+#: the first one created. The BFF's own idempotency key (``{conversation}-{slug}``)
+#: would answer "is this already filed" but not "which open version do I replace,
+#: and against what content hash" — the ``update`` op needs both, and an
+#: If-Match it had to guess would either clobber a reviewer's edit or fail.
+#:
+#: They live on the stored VALUE and therefore have to be re-stamped after every
+#: write and edit: DeepAgents rebuilds the value from ``content``/``encoding``,
+#: so a key not written back after the operation is gone (``AGENTS.md``). That
+#: is what :meth:`DraftBackend._record` carries through, and what
+#: :func:`usage_from_items` reads back out.
+FILED_DOCUMENT_KEY = "grid_filed_document_id"
+FILED_VERSION_KEY = "grid_filed_version_id"
+FILED_HASH_KEY = "grid_filed_content_hash"
+#: The editorial state the BFF last reported for that version. Stored rather than
+#: re-fetched because the card the NEXT ``edit_file`` emits has to say whether the
+#: draft is still submittable, and a card that had to make a round trip to find
+#: out would be a card that renders late or wrong.
+FILED_STATE_KEY = "grid_filed_state"
+
+#: The four together, in the order a reader meets them.
+FILING_KEYS = (FILED_DOCUMENT_KEY, FILED_VERSION_KEY, FILED_HASH_KEY, FILED_STATE_KEY)
 
 #: Store rows read per page while totalling a conversation's bytes. The ceiling
 #: above bounds the real number far below this; the page size only decides how
@@ -119,6 +147,14 @@ class DraftUsage:
     content: str | None
     #: Times that path has been written or edited so far.
     version: int
+    #: The project document this path was filed as, if it has been: the three
+    #: :data:`FILING_KEYS` as stored. Empty when the draft has never been filed.
+    filing: dict[str, str] = field(default_factory=dict)
+
+
+def filing_from_value(value: dict) -> dict[str, str]:
+    """The filing keys of one stored item, dropping anything unset or not a string."""
+    return {key: value[key] for key in FILING_KEYS if isinstance(value.get(key), str) and value[key]}
 
 
 def usage_from_items(items: list[Item], file_path: str) -> DraftUsage:
@@ -126,6 +162,7 @@ def usage_from_items(items: list[Item], file_path: str) -> DraftUsage:
     total = 0
     content: str | None = None
     version = 0
+    filing: dict[str, str] = {}
     for item in items:
         raw = item.value.get("content")
         text = "\n".join(raw) if isinstance(raw, list) else str(raw or "")
@@ -133,7 +170,8 @@ def usage_from_items(items: list[Item], file_path: str) -> DraftUsage:
         if str(item.key) == file_path:
             content = text
             version = int(item.value.get(VERSION_KEY) or 0)
-    return DraftUsage(total_bytes=total, content=content, version=version)
+            filing = filing_from_value(item.value)
+    return DraftUsage(total_bytes=total, content=content, version=version, filing=filing)
 
 
 def path_refusal(file_path: str) -> str | None:
@@ -221,26 +259,69 @@ class DraftBackend(StoreBackend):
 
     # -- what a successful verb leaves behind ----------------------------------
 
-    def _record(self, file_path: str, version: int) -> None:
-        """Stamp the new version on the stored item and put the draft card up."""
+    def _record(self, file_path: str, version: int, filing: dict[str, str]) -> None:
+        """Stamp the new version on the stored item and put the draft card up.
+
+        ``filing`` is re-stamped and not merely preserved: DeepAgents rebuilt the
+        stored value from ``content``/``encoding`` a moment ago, so whatever the
+        item carried before the write is already gone. Losing it would mean the
+        next ``file_draft`` of an edited draft filed a SECOND document instead of
+        a second version of the first.
+        """
         store = self._get_store()
         namespace = self._get_namespace()
         item = store.get(namespace, file_path)
         if item is None:
             return
-        value = {**item.value, VERSION_KEY: version}
+        value = {**item.value, VERSION_KEY: version, **filing}
         store.put(namespace, file_path, value)
-        emit_draft_card(path=file_path, content=str(value.get("content") or ""), version=version)
+        emit_draft_card(
+            path=file_path,
+            content=str(value.get("content") or ""),
+            version=version,
+            filing=filing,
+        )
 
-    async def _arecord(self, file_path: str, version: int) -> None:
+    async def _arecord(self, file_path: str, version: int, filing: dict[str, str]) -> None:
         store = self._get_store()
         namespace = self._get_namespace()
         item = await store.aget(namespace, file_path)
         if item is None:
             return
-        value = {**item.value, VERSION_KEY: version}
+        value = {**item.value, VERSION_KEY: version, **filing}
         await store.aput(namespace, file_path, value)
-        emit_draft_card(path=file_path, content=str(value.get("content") or ""), version=version)
+        emit_draft_card(
+            path=file_path,
+            content=str(value.get("content") or ""),
+            version=version,
+            filing=filing,
+        )
+
+    # -- what the filing tool reads and writes ---------------------------------
+
+    async def aread(self, file_path: str) -> DraftUsage:
+        """This path's stored state: its content, its version and its filing.
+
+        The one read `file_draft` needs, and deliberately the same
+        :class:`DraftUsage` the write guards use rather than a second shape —
+        both questions are "what does the store hold for this path".
+        """
+        return await self._ausage(file_path)
+
+    async def arecord_filing(self, file_path: str, filing: dict[str, str]) -> None:
+        """Remember which project document this path was filed as.
+
+        Merged onto the stored value WITHOUT touching ``content``: filing does
+        not change the draft, so the version counter does not move and no card is
+        emitted from here — ``file_draft`` emits its own, which is the card that
+        knows a document id.
+        """
+        store = self._get_store()
+        namespace = self._get_namespace()
+        item = await store.aget(namespace, file_path)
+        if item is None:
+            return
+        await store.aput(namespace, file_path, {**item.value, **filing})
 
     # -- the two write verbs ---------------------------------------------------
 
@@ -252,7 +333,7 @@ class DraftBackend(StoreBackend):
             return WriteResult(error=refusal)
         result = super().write(file_path, text)
         if result.error is None:
-            self._record(file_path, usage.version + 1)
+            self._record(file_path, usage.version + 1, usage.filing)
         return result
 
     async def awrite(self, file_path: str, content: str) -> WriteResult:
@@ -263,7 +344,7 @@ class DraftBackend(StoreBackend):
             return WriteResult(error=refusal)
         result = await super().awrite(file_path, text)
         if result.error is None:
-            await self._arecord(file_path, usage.version + 1)
+            await self._arecord(file_path, usage.version + 1, usage.filing)
         return result
 
     def edit(
@@ -281,7 +362,7 @@ class DraftBackend(StoreBackend):
             return EditResult(error=refusal)
         result = super().edit(file_path, old_text, new_text, replace_all)
         if result.error is None:
-            self._record(file_path, usage.version + 1)
+            self._record(file_path, usage.version + 1, usage.filing)
         return result
 
     async def aedit(
@@ -299,7 +380,7 @@ class DraftBackend(StoreBackend):
             return EditResult(error=refusal)
         result = await super().aedit(file_path, old_text, new_text, replace_all)
         if result.error is None:
-            await self._arecord(file_path, usage.version + 1)
+            await self._arecord(file_path, usage.version + 1, usage.filing)
         return result
 
 
