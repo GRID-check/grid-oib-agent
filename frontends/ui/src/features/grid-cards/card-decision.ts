@@ -55,6 +55,13 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   project_profile_patch: 'interactive',
   // Asks the user to commit an org- or project-scoped memory write.
   memory_proposal: 'interactive',
+  // Asks the user to run a workspace change the agent only PROPOSED: a move, a
+  // rename, a new folder, a Dokumentart, an assignment. Accepting calls the
+  // same routes the Files pane calls, in this reader's session, and none of
+  // them is idempotent — a card that forgot it had been accepted would move the
+  // same files a second time (or fail confusingly, because they are no longer
+  // where the card says they are).
+  file_operation_proposal: 'interactive',
 
   // Presentation only — no commitment is started, nothing to remember.
   summary: 'presentational',
@@ -184,9 +191,16 @@ export const isInteractiveCardType = (type: GridCard['type']): boolean =>
  * derived from the card itself.
  */
 export const CARD_DECISIONS = [
-  /** project_profile_patch: the patch was applied to the project brief. */
+  /**
+   * project_profile_patch: the patch was applied to the project brief.
+   * file_operation_proposal: every operation on the card was applied.
+   *
+   * The file card reuses this pair rather than growing its own: the reader's
+   * answer is the same answer, and the card's payload already says which verb
+   * it was.
+   */
   'accepted',
-  /** project_profile_patch: the user declined the patch. */
+  /** project_profile_patch / file_operation_proposal: the user declined. */
   'rejected',
   /** memory_proposal: written org-wide. */
   'savedOrg',
@@ -194,6 +208,18 @@ export const CARD_DECISIONS = [
   'savedProject',
   /** memory_proposal: the user declined to remember it. */
   'dismissed',
+  /**
+   * file_operation_proposal: the reader accepted and SOME of the operations
+   * failed — a file that had moved since the proposal was written, a folder
+   * somebody deleted, a colleague who left the project.
+   *
+   * Its own outcome because the alternative is a card that says „übernommen"
+   * about four moves of which three happened. Which ones failed is NOT stored
+   * (a `CardInteraction` is a decision plus a timestamp, ADR-0030), so after a
+   * reload the card says that some could not be applied and points at the
+   * Files pane — honest about what it knows and about what it does not.
+   */
+  'partiallyApplied',
 ] as const
 
 export type CardDecision = (typeof CARD_DECISIONS)[number]

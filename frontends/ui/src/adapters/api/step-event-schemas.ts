@@ -246,6 +246,10 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
   'status.action.draftRead': 'thinking.turnStatus.',
   'status.action.draftWrite': 'thinking.turnStatus.',
   'status.action.draftEdit': 'thinking.turnStatus.',
+  // A file operation being PROPOSED. One key for all five verbs: the card that
+  // follows says which operation on which file, so the live line's job is only
+  // to say that a proposal is being prepared — not to be the card, early.
+  'status.action.fileProposal': 'thinking.turnStatus.',
   'status.citations': 'thinking.turnStatus.',
   'status.repair': 'thinking.turnStatus.',
   'status.escalation': 'thinking.turnStatus.',

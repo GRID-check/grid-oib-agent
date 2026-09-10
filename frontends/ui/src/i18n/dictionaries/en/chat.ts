@@ -394,6 +394,48 @@ export const chat = {
       // document lifecycle API.
       file: 'Add to the project',
     },
+    // The workspace change Piloti PROPOSED. Nothing has happened until the
+    // reader accepts: the agent has no way to write a document row at all, so
+    // the card is the whole of what the backend did. Accepting runs the same
+    // routes the Files pane runs, in the reader's own session.
+    fileOperationProposal: {
+      // One eyebrow per verb — the reader should know what kind of change this
+      // is before reading a single row of it.
+      eyebrow: {
+        move: 'Move',
+        rename: 'Rename',
+        create_folder: 'New folder',
+        set_doc_class: 'Document type',
+        assign: 'Assign',
+      },
+      // The project root has a path of nothing; it needs a name a person uses.
+      root: 'Top level',
+      prompt: 'Apply this?',
+      accept: 'Apply',
+      reject: 'Discard',
+      applying: 'Applying…',
+      applied: {
+        move: '{count, plural, one {File moved.} other {# files moved.}}',
+        rename: '{count, plural, one {File renamed.} other {# files renamed.}}',
+        create_folder: '{count, plural, one {Folder created.} other {# folders created.}}',
+        set_doc_class: '{count, plural, one {Document type set.} other {Document type set on # files.}}',
+        assign: '{count, plural, one {File assigned.} other {# files assigned.}}',
+      },
+      // Some of it landed and some did not. WHICH is not stored (a decision is
+      // a decision plus a timestamp), so after a reload this is all the card
+      // can honestly say — and it says where to look instead of guessing.
+      partial: 'Applied in part. Some entries could not be applied — check the file list.',
+      dismissed: 'Discarded. Nothing was changed.',
+      error: 'Could not be applied.',
+      // An operation with no route behind it yet. The proposal still reads; the
+      // control does not appear, and this says why rather than failing on click.
+      unavailable: {
+        noProjectDocClassRoute:
+          'The document type can currently only be set on the platform knowledge base, not on project files.',
+        noProject:
+          'This chat is not attached to a project, so there is no file store to change.',
+      },
+    },
     processMap: {
       eyebrow: 'Procedure',
       current: 'you are here',
@@ -819,6 +861,10 @@ export const chat = {
           draftRead: 'Reading the draft …',
           draftWrite: 'Writing the draft …',
           draftEdit: 'Revising the draft …',
+          // A workspace change being PROPOSED. Present tense and no verb: the
+          // card names the operation and the file a moment later, with the
+          // buttons attached, so saying it twice would only say it worse.
+          fileProposal: 'Preparing a suggestion for your files…',
         },
         // The product's trust proposition said out loud: what is checked is not
         // "the citations" in the abstract but every one of them, against what

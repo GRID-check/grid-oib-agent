@@ -2001,6 +2001,193 @@
       "title": "EnvelopeComponent",
       "type": "object"
     },
+    "FileOperationItem": {
+      "description": "One proposed change, in the vocabulary of the operation that owns it.\n\nDeliberately flat with per-operation fields rather than a nested union: the\ncard is built by the tool, validated once here, and rendered by one\ncomponent that switches on the CARD's `operation` \u2014 a shape the frontend's\ngenerated Zod can narrow without a second discriminator inside every row.\n:meth:`FileOperationProposalCard._require_operation_fields` is what keeps a\nrow from carrying another operation's fields.\n\n``document`` is a FILE NAME and never an id. The agent's inventory\n(``knowledge/inventory.py``) knows files by ``(collection, file_name)`` and\nhas no document ids in it at all, so a card carrying an id would be\ncarrying something the tool invented. The reader's session resolves the\nname against their own document list when they accept.",
+      "properties": {
+        "current": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What this is TODAY (current folder, name or Dokumentart) \u2014 for the before/after line",
+          "title": "Current"
+        },
+        "doc_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "set_doc_class: a key from the closed doc_class vocabulary",
+          "title": "Doc Class"
+        },
+        "document": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "File name exactly as the inventory lists it (move, rename, set_doc_class, assign)",
+          "title": "Document"
+        },
+        "folder_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "create_folder: the new folder's own name (one segment)",
+          "title": "Folder Name"
+        },
+        "member": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "assign: the person as the user named them; the reader's session resolves it against the project",
+          "title": "Member"
+        },
+        "new_display_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "rename: the new display name",
+          "title": "New Display Name"
+        },
+        "parent_folder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "create_folder: the parent folder PATH, or an empty string for the project root",
+          "title": "Parent Folder"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "projekt",
+                "buero"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which shelf the document sits on, so the name resolves in the right corpus",
+          "title": "Source"
+        },
+        "target_folder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "move: the destination folder PATH, e.g. 'Einreichung/Pl\u00e4ne'. Empty string is the project root",
+          "title": "Target Folder"
+        }
+      },
+      "title": "FileOperationItem",
+      "type": "object"
+    },
+    "FileOperationProposalCard": {
+      "description": "A workspace change the agent PROPOSES and the reader executes.\n\nSystem-emitted by the five tools under ``src/aiq_agent/tools/files/``. Every\none of them is a write, none of them writes: the card is the proposal, the\nreader's Accept runs it through the existing document/folder/assignment\nroutes in their own session, and the tool's own result text says plainly\nthat nothing has changed yet.",
+      "properties": {
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "One line of context under the list, when it adds something",
+          "title": "Note"
+        },
+        "operation": {
+          "description": "Which verb every entry in `operations` is",
+          "enum": [
+            "move",
+            "rename",
+            "create_folder",
+            "set_doc_class",
+            "assign"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operations": {
+          "description": "The proposed changes, in the order they will be applied",
+          "items": {
+            "$ref": "#/$defs/FileOperationItem"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Operations",
+          "type": "array"
+        },
+        "title": {
+          "description": "Short action title, e.g. 'Vier Dateien in \u201eEinreichung\u201c verschieben'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "file_operation_proposal",
+          "default": "file_operation_proposal",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "operation",
+        "operations"
+      ],
+      "title": "FileOperationProposalCard",
+      "type": "object"
+    },
     "FireAccessPlanCard": {
       "description": "A fire-brigade access (Feuerwehrzufahrt) site plan schematic.\n\nEmit for fire-access questions (OIB 2 / TRVB). Top-down plan: access route\nfrom the road, the Aufstellfl\u00e4che beside the facade, and the reach distance\nfrom the Aufstellfl\u00e4che to the farthest necessary entrance (typically\n<=80 m). Numeric minimums vary by Land \u2014 always corpus-grounded per check.",
       "properties": {
@@ -4415,6 +4602,7 @@
       "egress_diagram": "#/$defs/EgressDiagramCard",
       "elevator_requirement": "#/$defs/ElevatorRequirementCard",
       "energy_performance": "#/$defs/EnergyPerformanceCard",
+      "file_operation_proposal": "#/$defs/FileOperationProposalCard",
       "fire_access_plan": "#/$defs/FireAccessPlanCard",
       "fire_compartment": "#/$defs/FireCompartmentCard",
       "follow_ups": "#/$defs/FollowUpsCard",
@@ -4550,6 +4738,9 @@
     },
     {
       "$ref": "#/$defs/DocumentDraftCard"
+    },
+    {
+      "$ref": "#/$defs/FileOperationProposalCard"
     },
     {
       "$ref": "#/$defs/IfcViewerCard"

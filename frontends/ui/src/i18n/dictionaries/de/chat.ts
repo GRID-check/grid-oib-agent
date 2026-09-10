@@ -385,6 +385,53 @@ export const chat: typeof en.chat = {
       // verbindet sie mit der Dokument-API.
       file: 'Ins Projekt übernehmen',
     },
+    // Die Änderung an der Ablage, die Piloti VORGESCHLAGEN hat. Bis zum
+    // Annehmen ist nichts geschehen: Der Agent kann gar keine Dokumentzeile
+    // schreiben, die Karte ist also alles, was hinten passiert ist. Das
+    // Annehmen ruft dieselben Routen wie die Dateiablage — in der Sitzung der
+    // Lesenden.
+    fileOperationProposal: {
+      // Eine Augenbraue je Verb: Welche Art von Änderung das ist, gehört vor
+      // die erste Zeile und nicht dahinter.
+      eyebrow: {
+        move: 'Verschieben',
+        rename: 'Umbenennen',
+        create_folder: 'Neuer Ordner',
+        set_doc_class: 'Dokumentart',
+        assign: 'Zuweisen',
+      },
+      // Die oberste Ebene hat keinen Pfad, aber einen Namen, den Menschen sagen.
+      root: 'Oberste Ebene',
+      prompt: 'Übernehmen?',
+      accept: 'Übernehmen',
+      reject: 'Verwerfen',
+      applying: 'Wird übernommen …',
+      applied: {
+        move: '{count, plural, one {Datei verschoben.} other {# Dateien verschoben.}}',
+        rename: '{count, plural, one {Datei umbenannt.} other {# Dateien umbenannt.}}',
+        create_folder: '{count, plural, one {Ordner angelegt.} other {# Ordner angelegt.}}',
+        set_doc_class:
+          '{count, plural, one {Dokumentart gesetzt.} other {Dokumentart für # Dateien gesetzt.}}',
+        assign: '{count, plural, one {Datei zugewiesen.} other {# Dateien zugewiesen.}}',
+      },
+      // Teils übernommen, teils nicht. WELCHE, wird nicht gespeichert (eine
+      // Entscheidung ist eine Entscheidung und ein Zeitpunkt) — nach dem Neuladen
+      // ist das alles, was die Karte ehrlich sagen kann, und sie sagt, wo man
+      // nachsieht, statt zu raten.
+      partial:
+        'Teilweise übernommen. Einige Einträge konnten nicht ausgeführt werden — sehen Sie in der Dateiablage nach.',
+      dismissed: 'Verworfen. Es wurde nichts geändert.',
+      error: 'Konnte nicht übernommen werden.',
+      // Ein Vorgang, hinter dem es noch keine Route gibt. Der Vorschlag bleibt
+      // lesbar, die Schaltfläche erscheint nicht, und hier steht warum — statt
+      // beim Klick zu scheitern.
+      unavailable: {
+        noProjectDocClassRoute:
+          'Die Dokumentart lässt sich derzeit nur im Basiswissen der Plattform setzen, nicht an Projektunterlagen.',
+        noProject:
+          'Diese Unterhaltung gehört zu keinem Projekt, es gibt hier also keine Ablage zu ändern.',
+      },
+    },
     processMap: {
       eyebrow: 'Verfahrensablauf',
       current: 'hier stehen Sie',
@@ -799,6 +846,10 @@ export const chat: typeof en.chat = {
           draftRead: 'Entwurf wird gelesen …',
           draftWrite: 'Entwurf wird geschrieben …',
           draftEdit: 'Entwurf wird überarbeitet …',
+          // Eine vorgeschlagene Änderung an der Ablage. Kein Verb und kein
+          // Dateiname: Die Karte sagt gleich darauf, welcher Vorgang welche
+          // Datei betrifft — mit den Schaltflächen daneben.
+          fileProposal: 'Vorschlag für Ihre Ablage wird vorbereitet …',
         },
         // Das Vertrauensversprechen des Produkts, laut ausgesprochen: geprüft
         // wird nicht „irgendetwas an den Belegen“, sondern jede Fundstelle

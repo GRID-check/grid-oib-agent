@@ -476,6 +476,34 @@ const RAW_FIXTURES: CardInput[] = [
     version: 3,
   },
   {
+    // The state the card is usually met in: a tidying turn that proposed more
+    // than one move, so the batch and the „from → to" row both have to render.
+    type: 'file_operation_proposal',
+    title: 'Drei Dateien in „Einreichung/Pläne“ verschieben',
+    operation: 'move',
+    operations: [
+      {
+        document: 'Grundriss EG.pdf',
+        source: 'projekt',
+        current: 'Nachweise',
+        target_folder: 'Einreichung/Pläne',
+      },
+      {
+        document: 'Grundriss OG.pdf',
+        source: 'projekt',
+        current: '',
+        target_folder: 'Einreichung/Pläne',
+      },
+      {
+        document: 'Schnitt A-A.pdf',
+        source: 'projekt',
+        current: 'Nachweise',
+        target_folder: 'Einreichung/Pläne',
+      },
+    ],
+    note: 'Vorschlag — es wurde noch nichts verschoben.',
+  },
+  {
     type: 'building_section',
     title: 'Gebäudeschnitt – Höhenprüfung GK 4',
     storeys: [

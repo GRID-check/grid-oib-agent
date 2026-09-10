@@ -62,6 +62,11 @@ _EXAMPLE_EXEMPT = {
     # in Python from the file that was just written; the model never authors one,
     # so an example would teach a shape it must not produce.
     "document_draft",
+    # System-emitted (by the five write-side workspace tools) and built in
+    # Python from names the tool RESOLVED against the turn's inventory. An
+    # example would teach a shape the model must not produce — and this is the
+    # card where authoring one would mean naming a file it never looked up.
+    "file_operation_proposal",
 }
 
 

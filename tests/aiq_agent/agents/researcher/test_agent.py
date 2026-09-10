@@ -3526,8 +3526,8 @@ class TestRepairRetrievalsRunTogether:
 # ---------------------------------------------------------------------------
 
 
-def _render_researcher_prompt(*, drafting_enabled: bool) -> str:
-    """The default prompt, rendered with the working directory on or off."""
+def _render_researcher_prompt(*, drafting_enabled: bool = False, tidying_enabled: bool = False) -> str:
+    """The default prompt, rendered with the working directory / the file verbs on or off."""
     from pathlib import Path
 
     from aiq_agent.agents.researcher import agent as researcher_agent
@@ -3546,6 +3546,7 @@ def _render_researcher_prompt(*, drafting_enabled: bool) -> str:
         norm_doctrine=None,
         parcel_note=None,
         drafting_enabled=drafting_enabled,
+        tidying_enabled=tidying_enabled,
     )
 
 
@@ -3767,3 +3768,98 @@ class TestATurnThatWritesADraft:
         assert result.tool_iterations == 0
         assert result.interaction_iterations == 2
         assert result.research_truncated is None
+
+
+# ---------------------------------------------------------------------------
+# Tidying the workspace — the turn that PROPOSES instead of doing
+# ---------------------------------------------------------------------------
+
+
+def _aufraeumen_block() -> str:
+    return _render_researcher_prompt(tidying_enabled=True).split("<aufraeumen>")[1].split("</aufraeumen>")[0]
+
+
+class TestTheTidyingBlock:
+    """What the prompt says about file operations, and whether it says it at all."""
+
+    def test_a_turn_without_the_tools_is_never_told_to_tidy(self):
+        """The block names five tools; a turn that has none of them cannot obey it."""
+        assert "<aufraeumen>" not in _render_researcher_prompt(tidying_enabled=False)
+
+    def test_all_five_verbs_are_named(self):
+        block = _aufraeumen_block()
+        for verb in (
+            "`move_document`",
+            "`rename_document`",
+            "`create_folder`",
+            "`set_doc_class`",
+            "`assign_document`",
+        ):
+            assert verb in block
+
+    def test_nothing_may_be_claimed_as_done(self):
+        """The one failure this block exists to prevent: „ist verschoben"."""
+        block = _aufraeumen_block()
+        assert "ÄNDERN NICHTS" in block
+        assert "erst das Annehmen" in block
+        assert "Sage darum nie" in block
+
+    def test_a_name_is_taken_from_the_inventory_and_never_invented(self):
+        block = _aufraeumen_block()
+        assert "Rate nicht" in block
+        assert "frage nach dem genauen Namen" in block
+
+    def test_tidying_is_asked_for_and_not_volunteered(self):
+        assert "keine Aufräumaktion, um die niemand gebeten hat" in _aufraeumen_block()
+
+    def test_the_block_follows_the_tools_and_not_a_second_switch(self):
+        """The flag is derived from what is bound, by the renderer itself."""
+        from aiq_agent.agents.researcher.prompt import render_system_prompt
+        from aiq_agent.agents.researcher.prompt import system_prompt_template
+
+        state = ResearchAgentState(messages=[HumanMessage(content="Leg das zu den Einreichunterlagen")])
+        with_tools = render_system_prompt(
+            system_prompt_template(),
+            state,
+            [{"name": "move_document", "description": "Schlägt vor …"}],
+        )
+        without = render_system_prompt(
+            system_prompt_template(),
+            state,
+            [{"name": "web_search_tool", "description": "Search"}],
+        )
+        assert "<aufraeumen>" in with_tools
+        assert "<aufraeumen>" not in without
+
+
+class TestTheTidyingBudget:
+    """The five verbs are an OUTPUT channel too — and they cost no extra room."""
+
+    def test_the_five_verbs_are_interaction_tools(self):
+        from aiq_agent.agents.researcher.agent import _INTERACTION_TOOL_BASENAMES
+
+        assert {
+            "move_document",
+            "rename_document",
+            "create_folder",
+            "set_doc_class",
+            "assign_document",
+        } <= _INTERACTION_TOOL_BASENAMES
+
+    def test_the_allowance_did_not_move_for_them(self):
+        """A tidying turn proposes one or two operations and writes no draft.
+
+        The two shapes are alternatives rather than additions, so the ceiling
+        stays where the working directory left it — raising it for a turn that
+        does both would only give a runaway loop more room.
+        """
+        assert _INTERACTION_TOOL_ALLOWANCE == 9
+
+    def test_a_tidying_turn_fits_well_inside_the_allowance(self):
+        calls = [
+            {"name": "create_folder", "args": {}},
+            {"name": "move_document", "args": {}},
+            {"name": "move_document", "args": {}},
+            {"name": "emit_card", "args": {}},
+        ]
+        assert _count_interaction_calls(calls) == 4

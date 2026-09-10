@@ -43,6 +43,16 @@ does not exist, so a moved file is caught; a missing row is not.
 | The chat working directory (per-conversation drafts) | `src/aiq_agent/tools/documents/draft_store.py` — `DraftBackend`, `get_draft_backend` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | — |
 | The four file verbs bound to a chat turn | `src/aiq_agent/tools/documents/tools.py` — `draft_tools_for_turn` | same | — |
 | The card a written draft leaves | `src/aiq_agent/tools/documents/cards.py` — `emit_draft_card`; model in `src/aiq_agent/cards/models.py` — `DocumentDraftCard` | [`cards.md`](cards.md) | ADR-0012 |
+| Agent-document provenance keys (`authored_by`, `approved_by`, `approved_at`, `producer`) | `src/aiq_agent/common/provenance.py` — `parse_agent_provenance` | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0054 |
+| The Piloti lane and its label | `src/aiq_agent/common/source_kinds.py` — `AGENT_AUTHORED_LANE` | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0026 |
+| Lane placement from stated provenance | `src/aiq_agent/common/norm_registry.py` — `lane_for_hit` | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0026, ADR-0047 |
+| The `Herkunft:` line in the grounding block | `sources/knowledge_layer/src/register.py` — `_format_results` | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0054 |
+| A verdict may not rest on an agent-authored source | `src/aiq_agent/common/answer_envelope.py` — `_gate_verdict` | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0054 |
+| The write-side workspace verbs (propose, never write) | `src/aiq_agent/tools/files/register.py` — `move_document`, `rename_document`, `create_folder`, `assign_document` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | ADR-0055 |
+| Resolving a file, folder or Dokumentart name against what the turn can see | `src/aiq_agent/tools/files/resolve.py` — `resolve_document`, `resolve_folder` | same | ADR-0047 |
+| The card a proposed file operation leaves | `src/aiq_agent/tools/files/cards.py` — `propose_file_operation`; `src/aiq_agent/cards/models.py` — `FileOperationProposalCard` | [`cards.md`](cards.md) | ADR-0030 |
+| Executing an accepted file-operation proposal | `frontends/ui/src/features/grid-cards/lib/file-operations.ts` — `applyFileOperations` | [`cards.md`](cards.md) | ADR-0030, ADR-0055 |
+| The turn's inventory rows, for tools that resolve names | `src/aiq_agent/knowledge/inventory.py` — `set_turn_documents`, `get_turn_documents` | — | ADR-0047 |
 
 ## Shelves, session files, storage
 

@@ -33,6 +33,7 @@ from aiq_agent.common.profiler import flush_after_answer
 from aiq_agent.common.profiler import track_agent_profile
 from aiq_agent.common.turn_status import emit_documents_loading
 from aiq_agent.conversation_context import register_context_appender
+from aiq_agent.knowledge.inventory import set_turn_documents
 from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
 from aiq_agent.project_context import GridRequestContext
 from aiq_agent.stages import schedule_post_answer_stages
@@ -356,6 +357,14 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
                     resolve_stages=any_stage_llm,
                 )
                 skip_clarifier = not config.enable_clarifier or skip_clarifier_requested()
+                # The inventory reaches the PROMPT as the rendered block and the
+                # TOOLS as rows. The write-side workspace tools resolve a file
+                # name against these rows, and there is no argument that could
+                # carry them: a LangGraph run and a tool node sit between here
+                # and the call. Bound before the graph starts, so the child
+                # contexts copy it; called on every turn, including with None,
+                # which is what stops one turn resolving against the last one's.
+                set_turn_documents(inventory.available_documents)
                 state = _turn_state(inputs, context, inventory, header_scope, skip_clarifier=skip_clarifier)
                 outcome, registries = await _answer_in_registries(
                     agent,

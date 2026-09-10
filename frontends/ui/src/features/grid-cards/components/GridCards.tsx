@@ -6,6 +6,7 @@ import { SummaryCard } from './SummaryCard'
 import { LegalBasisCard } from './LegalBasisCard'
 import { ProjectProfilePatchCard } from './ProjectProfilePatchCard'
 import { MemoryProposalCard } from './MemoryProposalCard'
+import { FileOperationProposalCard } from './FileOperationProposalCard'
 import { RequirementChecklistCard } from './RequirementChecklistCard'
 import { ComparisonTableCard } from './ComparisonTableCard'
 import { VerdictHeaderCard } from './VerdictHeaderCard'
@@ -692,6 +693,22 @@ export const GridCardItem: FC<GridCardItemProps> = ({
           title={card.title}
           note={card.note ?? null}
           projectId={projectId ?? null}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'file_operation_proposal') {
+    return (
+      <FadeIn distance={6}>
+        <FileOperationProposalCard
+          title={card.title}
+          operation={card.operation}
+          operations={card.operations}
+          note={card.note}
+          messageId={messageId}
+          cardKey={key}
+          decisionsMustPersist={decisionsMustPersist}
         />
       </FadeIn>
     )

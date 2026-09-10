@@ -542,6 +542,30 @@ functions:
   surface_documents:
     _type: surface_documents
 
+  # The five WRITE-side workspace tools (src/aiq_agent/tools/files). Each one
+  # proposes: it resolves the file, the folder or the Dokumentart against what
+  # the turn can already see, renders ONE `file_operation_proposal` card, and
+  # changes nothing. Accepting the card runs the operation through the routes
+  # the Files pane already uses, in the reader's own session — the BFF stays
+  # the single writer of `grid_app` (ADR-0003), which is why there is no
+  # backend path here to write with.
+  #
+  # Bound on the SHALLOW researcher only. Deep research runs unattended on the
+  # job worker with nobody to press Accept, so a proposal card there is a
+  # decision nobody is on the other end of; the two agents differ here for the
+  # same reason `ask_user` does.
+  move_document:
+    _type: move_document
+  rename_document:
+    _type: rename_document
+  create_folder:
+    _type: create_folder
+  # set_doc_class is deliberately NOT bound: a project document has no doc_class
+  # route to accept the proposal into (only the platform corpus has one), and a
+  # proposal nobody can apply is worse than none. Bind it when that route exists.
+  assign_document:
+    _type: assign_document
+
   # BIM/IFC: deterministic structured queries over the project's uploaded IFC
   # model (ADR-0045). Distinct from knowledge_search in kind, not degree — that
   # tool retrieves text about REGULATIONS, this one runs SQL against THIS
@@ -604,6 +628,10 @@ functions:
       - emit_card
       - describe_card
       - surface_documents
+      - move_document
+      - rename_document
+      - create_folder
+      - assign_document
       - ifc_query
       - ifc_measure
       - ask_user

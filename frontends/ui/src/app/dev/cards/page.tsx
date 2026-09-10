@@ -1008,6 +1008,50 @@ function Gallery() {
           projectId={null}
         />
       </Section>
+
+      {/* The third interactive card, and a SYSTEM one: the five write-side
+          workspace tools push it and the model cannot author one. Several
+          operations of one kind land on ONE card, which is the shape a tidying
+          turn produces — so what this section shows is the list under one
+          question.
+
+          The gallery has no project in its store, and every route behind this
+          card is project-scoped: it therefore draws its reason line instead of
+          its buttons, which is a real product state. The buttons are judged on
+          `/dev/file-operation-proposal-card`, which sets a project. */}
+      <Section id="file_operation_proposal">
+        <GridCards
+          cards={[
+            {
+              type: 'file_operation_proposal',
+              title: 'Drei Dateien nach „Einreichung/Pläne“ verschieben',
+              operation: 'move',
+              operations: [
+                {
+                  document: 'Grundriss EG.pdf',
+                  source: 'projekt',
+                  current: 'Nachweise',
+                  target_folder: 'Einreichung/Pläne',
+                },
+                {
+                  document: 'Grundriss OG.pdf',
+                  source: 'projekt',
+                  current: '',
+                  target_folder: 'Einreichung/Pläne',
+                },
+                {
+                  document: 'Schnitt A-A.pdf',
+                  source: 'projekt',
+                  current: 'Nachweise',
+                  target_folder: 'Einreichung/Pläne',
+                },
+              ],
+              note: 'Vorschlag — es wurde noch nichts verschoben.',
+            },
+          ] as GridCard[]}
+          projectId={null}
+        />
+      </Section>
     </main>
   )
 }

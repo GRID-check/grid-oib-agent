@@ -188,6 +188,11 @@ export const CARD_EXPORT: Record<GridCard['type'], ExportKind> = {
   // The draft's own CONTENT is a document in its own right and travels as one;
   // what would land here is its path and its byte count.
   document_draft: 'chrome',
+  // A proposed change to the file store, awaiting a decision — and after an
+  // export nobody can see whether it was ever taken. Printed under „Befunde" it
+  // would tell a Behörde that files are filed where this card only SUGGESTED
+  // putting them. The same reasoning as the two proposals above it.
+  file_operation_proposal: 'chrome',
 
   // The drawing whose source the model wrote. Same treatment as a mermaid fence
   // in the prose, deliberately: a reader must not get two different things for

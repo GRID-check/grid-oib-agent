@@ -63,6 +63,19 @@ const SETTLE_CASES: Partial<Record<GridCard['type'], { card: GridCard; action: s
     } as GridCard,
     action: 'No',
   },
+  file_operation_proposal: {
+    card: {
+      type: 'file_operation_proposal',
+      title: 'Move two files',
+      operation: 'move',
+      operations: [
+        { document: 'Grundriss EG.pdf', source: 'projekt', current: '', target_folder: 'Einreichung' },
+      ],
+    } as GridCard,
+    // Discard settles without touching a route, like Reject above: this spec
+    // is about the wiring, and the accept path has its own spec.
+    action: 'Discard',
+  },
 }
 
 describe('interactive card wiring', () => {

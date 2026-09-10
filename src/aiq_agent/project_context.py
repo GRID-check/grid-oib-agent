@@ -62,6 +62,15 @@ USER_ID_HEADER = "x-grid-user-id"
 #: contract lived in two hand-maintained lists that nothing compared.
 TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "project_memory_remember": (PROJECT_ID_HEADER, ORGANIZATION_ID_HEADER),
+    # The five write-side workspace tools (`tools/files/`). Each proposes a
+    # change to a PROJECT's workspace — folders are project-scoped, and the
+    # reader's session applies the change against a project — so a run without
+    # the project header can only refuse, and refusing on every unattended run
+    # is the failure this table was written for.
+    "move_document": (PROJECT_ID_HEADER,),
+    "rename_document": (PROJECT_ID_HEADER,),
+    "create_folder": (PROJECT_ID_HEADER,),
+    "assign_document": (PROJECT_ID_HEADER,),
 }
 
 # Consolidated signed context envelope (backlog T3-9 follow-up, 2026-07-16).

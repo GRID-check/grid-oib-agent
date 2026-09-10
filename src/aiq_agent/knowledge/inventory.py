@@ -34,6 +34,22 @@ _listing_shelf: ContextVar[Shelf | None] = ContextVar("grid_listing_shelf", defa
 # could carry an extra argument.
 _inventory_drops: ContextVar[dict[Shelf | None, int]] = ContextVar("grid_inventory_drops", default={})
 
+# The turn's inventory ROWS, for the tools that have to resolve a file name the
+# reader typed against the files the reader actually has.
+#
+# The rendered block above is prose: it is what the MODEL reads, and a tool
+# cannot parse a shelf heading back into a document. The rows are what the
+# write-side workspace tools (`tools/files/`) resolve against, so a proposal
+# names a file that exists on a shelf the turn can see, and „verschieb den
+# Brandschutzplan" resolves or is refused rather than guessed.
+#
+# A ContextVar for the third time in this module and for the same reason: the
+# rows are aggregated in `turn/inventory.py` and read inside a tool call, with
+# a LangGraph run and a tool node between the two and no argument that could
+# travel. Set once per turn (`researcher/conversation_register.py`), so a turn
+# with no inventory reads the empty tuple rather than the previous turn's.
+_turn_documents: ContextVar[tuple[Any, ...]] = ContextVar("grid_turn_documents", default=())
+
 # User-facing shelves first; base last so the OIB corpus cannot evict them.
 _USER_SHELF_ORDER: tuple[Shelf, ...] = (Shelf.ARCHIV, Shelf.PROJECT, Shelf.SESSION)
 _INVENTORY_ORDER: tuple[Shelf, ...] = (*_USER_SHELF_ORDER, Shelf.BASE)
@@ -336,6 +352,21 @@ def set_inventory_drops(drops: dict[Shelf | None, int] | None) -> None:
 
 def get_inventory_drops() -> dict[Shelf | None, int]:
     return _inventory_drops.get()
+
+
+def set_turn_documents(docs: Sequence[Any] | None) -> None:
+    """Bind the inventory rows this turn may resolve names against.
+
+    Called once per turn with whatever the inventory load produced — including
+    ``None``, which binds the empty tuple. That is the reset: a turn that
+    resolved nothing must not inherit the last turn's shelves.
+    """
+    _turn_documents.set(tuple(docs or ()))
+
+
+def get_turn_documents() -> tuple[Any, ...]:
+    """The inventory rows bound for this turn; empty when there are none."""
+    return _turn_documents.get()
 
 
 def set_listing_shelf(shelf: Shelf | str | None) -> None:

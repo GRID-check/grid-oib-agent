@@ -14,8 +14,8 @@ meant to grow.
 ## Current card types
 
 Defined in `src/aiq_agent/cards/models.py` as a discriminated union (`GridCard`)
-— **41 types in four families**: 34 the answering model may emit through
-`emit_card`, three it may not on any surface (`SYSTEM_CARD_TYPES` — the
+— **43 types in four families**: 34 the answering model may emit through
+`emit_card`, five it may not on any surface (`SYSTEM_CARD_TYPES` — the
 tool-owned cards and the retired `follow_ups`), and four **envelope types**
 (`ENVELOPE_CARD_TYPES`: `summary`, `verdict_header`, `key_takeaways`,
 `callout`) that stopped being cards anywhere new: a research answer is
@@ -135,6 +135,7 @@ catalog omits them entirely).
 | `document_grid` | project/Büroarchiv files the user asked to see — the same raised `FileCard` the Files grid uses | the `surface_documents` tool |
 | `memory_proposal` **(interactive)** | a finding to be written to org- or project-scoped memory, for the user to confirm | the `remember` tool |
 | `document_draft` | a document written into this conversation's working directory — title, path, `v{n}` and size, with the Files feature's „Von Piloti erstellt" byline. Its „Ins Projekt übernehmen" is drawn **inert**: filing is a later slice, and until it is wired the card reports the draft rather than offering to move it | the working directory's `write_file` / `edit_file` |
+| `file_operation_proposal` **(interactive)** | a workspace change the agent PROPOSED and did not make — a move, a rename, a new folder, a Dokumentart, an assignment. One card type for five verbs, discriminated by `operation`, carrying a capped LIST so an „organise the Einreichung" turn is one decision and not four. Accepting runs the operations in order through the routes the Files pane uses, in the reader's own session, and reports each one — a batch where the third fails says three landed and one did not (`partiallyApplied`) | the five write-side tools under `src/aiq_agent/tools/files/` |
 
 **(interactive)** marks a card whose answer is a commitment and is therefore
 persisted on the message; see

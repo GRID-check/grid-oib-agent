@@ -36,7 +36,8 @@ from pydantic_core import PydanticUndefined
 #     must not be able to fabricate it (`memory_proposal` from `remember`,
 #     `document_grid` from `surface_documents`, `document_draft` from the
 #     working directory's `write_file`/`edit_file`, whose card names a file
-#     that has to exist).
+#     that has to exist, `file_operation_proposal` from the five write-side
+#     workspace tools, whose card names files the reader actually has).
 #   * RETIRED — the content moved off the card path entirely and the card only
 #     survives so that stored ones keep rendering. `follow_ups` was the first:
 #     the post-answer `follow_ups` STAGE now computes the questions after the
@@ -51,7 +52,9 @@ from pydantic_core import PydanticUndefined
 # dropping the type from the union would make `validateGridCards`
 # (`shared/cards/schemas.ts`) reject every stored `follow_ups` card, so every
 # historical thread would lose its chips and log a warning per card.
-SYSTEM_CARD_TYPES = frozenset({"memory_proposal", "document_grid", "document_draft", "follow_ups"})
+SYSTEM_CARD_TYPES = frozenset(
+    {"memory_proposal", "document_grid", "document_draft", "file_operation_proposal", "follow_ups"}
+)
 
 # Card types that stopped being cards — the RHETORICAL shapes, the ones almost
 # every answer could carry. A verdict, the takeaways and the single callout are
@@ -110,7 +113,7 @@ ENVELOPE_CARD_TYPES = frozenset({"summary", "verdict_header", "key_takeaways", "
 # construction are two things to keep in sync, of which one stops being
 # maintained. A card that is genuinely one and not the other is the reason to
 # split them again — and then the split has to be argued at that card.
-INTERACTIVE_CARD_TYPES = frozenset({"project_profile_patch", "memory_proposal"})
+INTERACTIVE_CARD_TYPES = frozenset({"project_profile_patch", "memory_proposal", "file_operation_proposal"})
 
 # Card types whose fields must be COPIED from a tool result and cannot be
 # derived from prose: every one of them is addressed by IFC GlobalId, rule id

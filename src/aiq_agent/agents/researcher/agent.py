@@ -80,14 +80,30 @@ logger = logging.getLogger(__name__)
 _shelf_label = shelf_label
 
 # Interaction tools: `remember` (durable memory), `emit_card` and
-# `describe_card` (UI cards), and the four verbs of the conversation's working
+# `describe_card` (UI cards), the four verbs of the conversation's working
 # directory (`ls`, `read_file`, `write_file`, `edit_file` —
-# ``tools/documents``). Each is an OUTPUT channel of the answer rather than a
+# ``tools/documents``) and the five write-side workspace tools that propose a
+# file operation on a card (`move_document`, `rename_document`,
+# `create_folder`, `set_doc_class`, `assign_document` — ``tools/files``). Each
+# is an OUTPUT channel of the answer rather than a
 # way of learning something, so their calls are budgeted apart from research
 # (see ``_INTERACTION_TOOL_ALLOWANCE``). Matched on the tool's base name so an
 # MCP/group-qualified variant (e.g. ``mcp__remember``) is still recognized.
 _INTERACTION_TOOL_BASENAMES = frozenset(
-    {"remember", "emit_card", "describe_card", "ls", "read_file", "write_file", "edit_file"}
+    {
+        "remember",
+        "emit_card",
+        "describe_card",
+        "ls",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "move_document",
+        "rename_document",
+        "create_folder",
+        "set_doc_class",
+        "assign_document",
+    }
 )
 
 # How many interaction calls a turn may make WITHOUT spending research budget.
@@ -102,10 +118,19 @@ _INTERACTION_TOOL_BASENAMES = frozenset(
 # one costs a `read_file` and the two `edit_file` calls a "kürze Punkt 3 und
 # ergänze die Frist" turn really makes. Nine.
 #
+# The five file-operation tools add NOTHING on top, and that is the calibration
+# rather than an omission. A tidying turn proposes one or two operations —
+# „leg den Brandschutznachweis zu den Einreichunterlagen" is one call, „räum
+# die Einreichunterlagen zusammen" is a handful of `move_document` calls that
+# all land on ONE card — and it is not a turn that also writes a draft and
+# emits three cards. The two shapes are alternatives, so their ceilings are
+# not additive; raising the number for a turn that never happens would only
+# buy a runaway loop more room.
+#
 # It is a CEILING on the exemption, not a second budget to spend: a call past it
 # is charged to research exactly as before, so the tool loop still terminates on
-# the ceiling no matter what the model does with the card channel or the
-# working directory.
+# the ceiling no matter what the model does with the card channel, the
+# working directory or the file verbs.
 _INTERACTION_TOOL_ALLOWANCE = 9
 
 # Cap on both tool-search caches (query → selection, selection → bound LLM).
@@ -163,8 +188,9 @@ class TurnBinding:
 def _count_interaction_calls(tool_calls: Iterable[Any]) -> int:
     """How many of a round's tool calls are the answer's own output channel.
 
-    Interaction calls (``emit_card``, ``describe_card``, ``remember`` and the
-    working directory's four file verbs) produce the answer's cards, its
+    Interaction calls (``emit_card``, ``describe_card``, ``remember``, the
+    working directory's four file verbs and the five file-operation proposals)
+    produce the answer's cards, its
     durable memory and its drafts, not evidence, so they are counted
     separately from the research budget. Matched on the BASE name, so a
     NAT/MCP-qualified variant counts too. A call whose shape cannot be read

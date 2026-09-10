@@ -696,6 +696,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="document-draft-card-preview"]',
   },
   {
+    id: 'file-operation-proposal-card',
+    mobile: true,
+    path: '/dev/file-operation-proposal-card',
+    description:
+      "The `file_operation_proposal` card \u2014 the workspace change Piloti proposed and did not make. The agent has no way to write a document row at all, so until this card is accepted nothing has happened; accepting runs the same routes the Files pane runs, in the reader's own session. Three panels, and what the shot is for is different in each. (1) A BATCH of three moves, because that is the shape a tidying turn produces \u2014 judge that the „von \u2192 nach\u201C rows stay legible when a file name is long, that the arrow does not wrap away from its target, and that „Oberste Ebene\u201C reads as a place rather than as a missing value. (2) A single rename, the other end of the range: one row, no „von\u201C. (3) `set_doc_class`, the operation with no project-scoped route behind it: the buttons are ABSENT and the reason stands where they would be, and it has to read as unavailable rather than as a card that failed to finish loading \u2014 in both themes. The settled states are not here; they are one sentence inside `ProposalShell`, already shot through `memory_proposal` in the gallery.",
+    waitFor: '[data-testid="file-operation-proposal-card-preview"]',
+  },
+  {
     id: 'condition-tree',
     mobile: true,
     path: '/dev/condition-tree',
@@ -1296,5 +1304,13 @@ export const SCREENSHOT_TARGETS = [
     description:
       'The same page for someone who has not worked in any project yet: the rail is filled by project recency instead, and the heading says "Your projects" rather than "Pick up where you left off". The label is load-bearing — the data cannot support a "continue" claim here, and the row timestamps fall back to the project’s own last movement.',
     waitFor: '[data-testid="projects-home-preview"]',
+  },
+  {
+    id: 'document-lifecycle',
+    mobile: true,
+    path: '/dev/document-lifecycle',
+    description:
+      'Freigabe und Fassungen, the CMS-like half of Dateien (ADR-0054): the whole badge set in its two neutral registers, a freshly filed Entwurf with the one control it allows, a version In Pr\u00fcfung with Freigeben / \u00c4nderungen anfordern / Ablehnen and the comment box open \u2014 the flow that must not be sendable without words \u2014 and a published document with three versions, who submitted, approved and published each, and the comment that sent version 2 back. No chroma anywhere in it: colour belongs to provenance, and an editorial state is not provenance.',
+    waitFor: '[data-testid="document-lifecycle-preview"]',
   },
 ]

@@ -93,6 +93,13 @@ def render_system_prompt(
         # namespace by gets no file verbs, and a prompt telling that model to
         # write a document would be describing a tool it cannot call.
         drafting_enabled=any(tool.get("name") == "write_file" for tool in tools_info),
+        # Same rule for the <aufraeumen> block and the five file-operation
+        # tools (`tools/files`): they are bound by the config and refuse
+        # outright without a project, so a deployment or a chat that does not
+        # have them must not be told to reach for them. Keyed on the one verb
+        # that is unambiguous — `create_folder` also exists as a word in the
+        # working directory's vocabulary, `move_document` does not.
+        tidying_enabled=any(tool.get("name") == "move_document" for tool in tools_info),
         user_info=state.user_info,
         current_datetime=datetime.now().strftime("%Y-%m-%d"),
         available_documents=documents,

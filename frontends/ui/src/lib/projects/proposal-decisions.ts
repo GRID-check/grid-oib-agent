@@ -27,7 +27,13 @@ const MAX_DECISIONS = 10
 /** Same order of size as one memory digest, so the two share the header budget. */
 const MAX_CHARS = 900
 
-type Decision = 'accepted' | 'rejected' | 'savedOrg' | 'savedProject' | 'dismissed'
+type Decision =
+  | 'accepted'
+  | 'rejected'
+  | 'savedOrg'
+  | 'savedProject'
+  | 'dismissed'
+  | 'partiallyApplied'
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -41,6 +47,11 @@ function verdictOf(decision: string): 'angenommen' | 'abgelehnt' | null {
     case 'accepted':
     case 'savedOrg':
     case 'savedProject':
+    // A partial application is a YES. What failed is a transport fact the next
+    // turn cannot act on and the reader can see in the Files pane; what the
+    // agent must not do is propose the same tidy-up again because some of it
+    // did not land.
+    case 'partiallyApplied':
       return 'angenommen'
     case 'rejected':
     case 'dismissed':
@@ -72,6 +83,23 @@ function describeCard(card: Record<string, unknown>): { kind: string; content: s
   if (type === 'memory_proposal') {
     const content = asString(card.content)
     return content ? { kind: 'Notiz', content } : null
+  }
+  if (type === 'file_operation_proposal') {
+    // The decision, in the words the card showed: the verb and what it named.
+    // Enough for the next turn to know it must not propose this again — and
+    // deliberately not the whole payload, which would spend the block's budget
+    // on rows nobody will act on.
+    const title = asString(card.title)
+    const operation = asString(card.operation)
+    const rows = Array.isArray(card.operations) ? card.operations : []
+    const subjects = rows
+      .filter(isRecord)
+      .map((row) => asString(row.document) ?? asString(row.folder_name))
+      .filter((subject): subject is string => subject !== undefined)
+      .slice(0, 3)
+    if (!title && !operation) return null
+    const named = subjects.length > 0 ? ` (${subjects.join('; ')})` : ''
+    return { kind: 'Ablage', content: `${title ?? operation}${named}` }
   }
   return null
 }
