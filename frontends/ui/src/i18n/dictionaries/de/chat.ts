@@ -770,6 +770,12 @@ export const chat: typeof en.chat = {
         retrieval: {
           withQuery: 'Sucht {corpus}: „{query}“',
           plain: 'Sucht {corpus} …',
+          // Die Fundstelle steht schon fest und wird GELESEN — deshalb nennt
+          // die Zeile das Dokument statt eines Korpus. `{document}` ist der
+          // Name, den Herausgeber oder Büro vergeben haben: ein Eigenname, der
+          // unübersetzt durchgereicht wird.
+          punkt: 'Liest {document}, Pkt. {punkt} …',
+          page: 'Liest {document}, S. {page} …',
           // Die erste Trefferliste reichte nicht; es wird mit anderen
           // Formulierungen weitergesucht. Die Formulierungen selbst sind
           // die des Modells und stehen deshalb nicht in der Zeile.

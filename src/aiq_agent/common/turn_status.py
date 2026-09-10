@@ -202,6 +202,15 @@ KEY_DOCUMENTS_WAITING = "status.documents.waiting"
 #: Retrieval, with and without a query to quote.
 KEY_RETRIEVAL_WITH_QUERY = "status.retrieval.withQuery"
 KEY_RETRIEVAL_PLAIN = "status.retrieval.plain"
+#: A LOCATOR round: the agent already knows which passage it wants and is
+#: opening it rather than searching for it ("Liest OIB-Richtlinie 2, Pkt.
+#: 3.5.2"). Two keys because German prints a Punkt and a page differently
+#: ("Pkt. 3.5.2" vs "S. 12") and English differently again, and a shared
+#: template with one slot cannot carry both. The document travels as a VALUE
+#: because it is a proper noun — the office's or the publisher's own name for
+#: the document, the same word in every locale (rule 1 of the module docstring).
+KEY_RETRIEVAL_PUNKT = "status.retrieval.punkt"
+KEY_RETRIEVAL_PAGE = "status.retrieval.page"
 #: The retrieval loop trying other formulations after judging the first pool
 #: insufficient. Value-less on purpose: the alternative queries are the
 #: model's words, not the reader's, and the rule above keeps them off the line.
@@ -231,6 +240,8 @@ ALL_STATUS_KEYS: tuple[str, ...] = (
     "status.documents.waiting",
     "status.retrieval.withQuery",
     "status.retrieval.plain",
+    "status.retrieval.punkt",
+    "status.retrieval.page",
     "status.retrieval.requery",
     "status.action.remember",
     "status.action.card",
@@ -351,6 +362,11 @@ def emit_status(
 #: claiming a narrowing the system did not perform.
 _SEARCH_CORPORA: tuple[tuple[str, str], ...] = (
     ("knowledge_search", "knowledge"),
+    # The locator reads the same corpus through the same scope, so it is the
+    # same corpus to the reader and the same layer of the spine to the
+    # Herleitung. What differs is only how the line READS — see
+    # :data:`_LOCATOR_TOOL_BASENAMES`.
+    ("read_passage", "knowledge"),
     ("ris_", "ris"),
     ("advanced_web_search", "web"),
     ("web_search", "web"),
@@ -370,6 +386,17 @@ _ACTION_KEYS = {
 
 #: Argument names a retrieval query hides behind, in preference order.
 _QUERY_KEYS = ("query", "search_query", "question", "q", "text", "name_contains")
+
+#: Retrieval tools that OPEN a named passage instead of searching for one.
+#: Their arguments are an address, not a question, so they are kept out of
+#: :func:`_query_text` — a document name quoted as if it were the reader's
+#: search string is a sentence nobody typed.
+_LOCATOR_TOOL_BASENAMES = frozenset({"read_passage"})
+
+#: Room for the document name on a locator line, after the label and the Punkt
+#: or page that follows it. Same budget as the quoted query and for the same
+#: reason: the line has one row.
+MAX_DOCUMENT_CHARS = 32
 
 #: Function-group separators used by NAT-qualified tool names (mirrors
 #: ``researcher.agent._TOOL_NAME_SEPARATORS``).
@@ -408,6 +435,30 @@ def is_retrieval_round(tool_calls: list[dict[str, Any]] | None) -> bool:
         if base and base != "use_skill" and _search_corpus(base) is not None:
             return True
     return False
+
+
+def _locator_line(args: Any) -> tuple[str, dict[str, str]] | None:
+    """The ``(key, values)`` for a round that OPENS a named passage.
+
+    "Liest OIB-Richtlinie 2, Pkt. 3.5.2" is a different claim from "Sucht im
+    OIB-Wissen": it says the passage was already identified and is being read,
+    which is exactly the checkpoint the Herleitung draws. ``None`` when the call
+    names no document — the round then falls back to the plain corpus line
+    rather than printing a line with a hole in it.
+    """
+    if not isinstance(args, dict):
+        return None
+    document = str(args.get("document") or "").strip()
+    if not document:
+        return None
+    values = {"document": clip(document, MAX_DOCUMENT_CHARS)}
+    punkt = str(args.get("punkt") or "").strip()
+    if punkt:
+        return KEY_RETRIEVAL_PUNKT, {**values, "punkt": punkt}
+    page = args.get("page")
+    if page is not None and str(page).strip():
+        return KEY_RETRIEVAL_PAGE, {**values, "page": str(page).strip()}
+    return None
 
 
 def _query_text(args: Any) -> str | None:
@@ -507,6 +558,7 @@ def emit_retrieval(
     corpora: list[str] = []
     tools: list[str] = []
     query: str | None = None
+    locator: tuple[str, dict[str, str]] | None = None
     action_key: str | None = None
     for call in calls:
         base = tool_basename(str(call.get("name") or ""))
@@ -520,7 +572,10 @@ def emit_retrieval(
         if corpus is not None:
             if corpus not in corpora:
                 corpora.append(corpus)
-            query = query or _query_text(call.get("args"))
+            if base in _LOCATOR_TOOL_BASENAMES:
+                locator = locator or _locator_line(call.get("args"))
+            else:
+                query = query or _query_text(call.get("args"))
         elif action_key is None:
             action_key = _ACTION_KEYS.get(base)
 
@@ -529,6 +584,12 @@ def emit_retrieval(
         if query:
             values["query"] = clip(query, MAX_QUERY_CHARS)
             key = KEY_RETRIEVAL_WITH_QUERY
+        elif locator is not None:
+            # A round that BOTH searched and located shows the search query: it
+            # is the reader's own words and the one thing they can still say no
+            # to. The locator line is for the round that only opens a passage,
+            # which is the round this tool exists to make possible.
+            key, values = locator
         else:
             key = KEY_RETRIEVAL_PLAIN
     elif action_key is not None:

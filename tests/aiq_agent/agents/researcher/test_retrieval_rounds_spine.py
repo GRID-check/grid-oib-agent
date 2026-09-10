@@ -52,6 +52,13 @@ def knowledge_search(query: str) -> str:
 
 
 @tool
+def read_passage(document: str, punkt: str = "") -> str:
+    """Open a named passage of a named document."""
+    SEEN.append(("read_passage", current_retrieval_round()))
+    return f"{document}, Pkt. {punkt}"
+
+
+@tool
 def remember(text: str) -> str:
     """Store a durable fact about this project."""
     SEEN.append(("remember", current_retrieval_round()))
@@ -78,7 +85,11 @@ def scripted_agent():
         llm.ainvoke = AsyncMock(side_effect=list(rounds))
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
-        return ResearcherAgent(llm_provider=provider, tools=[knowledge_search, remember], max_tool_iterations=6)
+        return ResearcherAgent(
+            llm_provider=provider,
+            tools=[knowledge_search, read_passage, remember],
+            max_tool_iterations=6,
+        )
 
     return build
 
@@ -131,6 +142,34 @@ class TestTheRoundStampReachesTheTool:
             "(LangGraph copies the context per node), so every hit ships "
             f"unstamped and the Herleitung falls back to stream order; saw {SEEN}"
         )
+
+    @pytest.mark.asyncio
+    async def test_a_search_then_a_locator_are_two_layers_of_one_spine(self, scripted_agent):
+        """The shape the locator exists to make possible.
+
+        Round 0 searches, the conclusion names a Punkt, round 1 OPENS it. Both
+        are fetches, so both are layers — and each is stamped with its own
+        number, or the Herleitung files the located passage under the search
+        that only pointed at it.
+        """
+        agent = scripted_agent(
+            _search("k1", "Fluchtweglänge GK4", "Ich brauche zuerst die Grundregel."),
+            AIMessage(
+                content="Die Grundregel verweist auf Pkt. 3.5.2; den habe ich noch nicht gelesen.",
+                tool_calls=[
+                    {
+                        "name": "read_passage",
+                        "args": {"document": "OIB-Richtlinie 2", "punkt": "3.5.2"},
+                        "id": "p1",
+                    }
+                ],
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        await agent.run(ResearchAgentState(messages=[HumanMessage(content="Wie lang darf der Fluchtweg sein?")]))
+
+        assert SEEN == [("knowledge_search", 0), ("read_passage", 1)]
 
     @pytest.mark.asyncio
     async def test_the_stamp_does_not_outlive_the_turn(self, scripted_agent):

@@ -793,6 +793,12 @@ export const chat = {
         retrieval: {
           withQuery: 'Searching {corpus}: “{query}”',
           plain: 'Searching {corpus} …',
+          // The passage was already identified and is being READ, so the line
+          // names the document instead of a corpus. `{document}` is the name
+          // the publisher or the office gave it — a proper noun, sent as
+          // itself and never translated.
+          punkt: 'Reading {document}, Pkt. {punkt} …',
+          page: 'Reading {document}, p. {page} …',
           // The first pool was not enough; other formulations are being tried.
           // The formulations are the model's words, so they stay off the line.
           requery: 'First results are not enough — searching with other terms …',

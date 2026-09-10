@@ -340,6 +340,11 @@ functions:
         description: "Search uploaded documents and files."
         tools:
           - knowledge_search
+          # The locator reads the same index through the same scope, so it
+          # belongs to the same source: narrowing that turns the knowledge base
+          # off must take both, and `get_source_id_for_tool` must resolve it or
+          # nothing it returns is captured as a citable source.
+          - read_passage
       - id: ris
         name: "RIS – Österreichisches Recht"
         description: "Search Austrian federal/state law and case law in the official RIS (Rechtsinformationssystem des Bundes) and fetch entire documents on demand."
@@ -510,6 +515,16 @@ functions:
     requery_llm: rerank_llm
     requery_max_queries: 2
 
+  # The locator beside the search: open the passage a conclusion NAMED
+  # (document + Punkt, or document + page) instead of searching for it again.
+  # Deterministic — one filtered fetch, no reranker, no requery judge, no LLM.
+  # Collection scope, base corpus and file exclusions are read off the
+  # `knowledge_search` instance named here rather than restated, so the two
+  # cannot end up pointed at different corpora.
+  read_passage:
+    _type: read_passage
+    knowledge_search: knowledge_search
+
   # Project Memory: silent, observable capture of durable project findings.
   # Available in project-scoped chats; no-ops (with a clear error) elsewhere.
   remember:
@@ -596,6 +611,7 @@ functions:
     tools:
       - web_search_tool
       - knowledge_search
+      - read_passage
       - view_knowledge_image
       - ris_search_tool
       - ris_fetch_tool

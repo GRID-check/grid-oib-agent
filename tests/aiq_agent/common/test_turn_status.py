@@ -187,6 +187,75 @@ class TestRetrieval:
         turn_status.emit_retrieval([{"name": "ris_search_tool", "args": {"query": "b"}}], round_index=1)
         assert _started(steps, "status:retrieval") == ["status:retrieval:0", "status:retrieval:1"]
 
+    def test_opening_a_named_passage_says_WHAT_is_being_read(self, steps) -> None:
+        """„Liest OIB-Richtlinie 2, Pkt. 3.5.2" — a different claim from „Sucht".
+
+        The reader is being told the passage was already identified, which is
+        the checkpoint the Herleitung draws. The document travels as a value
+        because it is its publisher's own name for it; the German „Pkt." and
+        the whole sentence around it belong to the frontend.
+        """
+        turn_status.emit_retrieval(
+            [{"name": "read_passage", "args": {"document": "OIB-Richtlinie 2", "punkt": "3.5.2"}}],
+            round_index=1,
+        )
+        payload = _live(steps)[0]
+        assert payload["key"] == "status.retrieval.punkt"
+        assert payload["values"] == {"document": "OIB-Richtlinie 2", "punkt": "3.5.2"}
+        assert payload["tools"] == ["read_passage"]
+
+    def test_a_page_locator_uses_its_own_key(self, steps) -> None:
+        turn_status.emit_retrieval(
+            [{"name": "read_passage", "args": {"document": "Brandschutzkonzept.pdf", "page": 12}}],
+            round_index=1,
+        )
+        payload = _live(steps)[0]
+        assert payload["key"] == "status.retrieval.page"
+        assert payload["values"] == {"document": "Brandschutzkonzept.pdf", "page": "12"}
+
+    def test_the_locator_is_a_retrieval_round_of_the_spine(self, steps) -> None:
+        """It reads evidence, so it is a layer — and it stamps the round."""
+        assert turn_status.is_retrieval_round([{"name": "read_passage", "args": {"document": "x", "punkt": "1"}}])
+        assert (
+            turn_status.emit_retrieval(
+                [{"name": "read_passage", "args": {"document": "x", "punkt": "1"}}], round_index=3
+            )
+            is True
+        )
+        assert turn_status.current_retrieval_round() == 3
+
+    def test_a_document_name_never_outgrows_its_slot(self, steps) -> None:
+        turn_status.emit_retrieval(
+            [{"name": "read_passage", "args": {"document": "Sehr langer Dokumentname " * 6, "punkt": "1"}}],
+            round_index=0,
+        )
+        assert len(_live(steps)[0]["values"]["document"]) <= turn_status.MAX_DOCUMENT_CHARS
+
+    def test_a_round_that_also_searched_shows_the_search_query(self, steps) -> None:
+        """The reader's own words beat an address they never typed.
+
+        A locator-only round is the one this tool exists for; a mixed round is
+        still a search, and the query is the thing they can still say no to.
+        """
+        turn_status.emit_retrieval(
+            [
+                {"name": "read_passage", "args": {"document": "OIB-Richtlinie 2", "punkt": "3.5.2"}},
+                {"name": "knowledge_search", "args": {"query": "Fluchtweglänge GK4"}},
+            ],
+            round_index=0,
+        )
+        payload = _live(steps)[0]
+        assert payload["key"] == "status.retrieval.withQuery"
+        assert payload["values"]["query"] == "Fluchtweglänge GK4"
+
+    def test_a_locator_call_naming_nothing_falls_back_to_the_plain_line(self, steps) -> None:
+        """Never a template with a hole in it — and never the document name
+        quoted as if it were the reader's search string."""
+        turn_status.emit_retrieval([{"name": "read_passage", "args": {"document": "OIB 2"}}], round_index=0)
+        payload = _live(steps)[0]
+        assert payload["key"] == "status.retrieval.plain"
+        assert payload["values"] == {"corpus": "knowledge"}
+
     def test_loading_a_skill_is_not_a_retrieval(self, steps) -> None:
         """The skills substrate narrates that itself, with the skill's human title."""
         turn_status.emit_retrieval([{"name": "use_skill", "args": {"skill_name": "x"}}], round_index=0)
@@ -350,10 +419,11 @@ class TestChannels:
 _ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:[._,][A-Za-z0-9]+)*$")
 
 #: Value names whose content is NOT ours: the reader's own query echoed back,
-#: and the tenant's authored skill title. Both are the same string in every
-#: locale by definition, so they are exempt from the id rule — and every OTHER
-#: value must be an id.
-_ECHOED_BACK = {"query", "skill"}
+#: the tenant's authored skill title, and — on a locator line — the document's
+#: own name plus the number the corpus gives the passage. Each is the same
+#: string in every locale by definition (a proper noun, or a figure), so they
+#: are exempt from the id rule — and every OTHER value must be an id.
+_ECHOED_BACK = {"query", "skill", "document", "punkt", "page"}
 
 #: Words that would betray German copy having leaked back into emitted data.
 #: Crude on purpose: it is a tripwire, not a language detector, and it is the
@@ -395,6 +465,14 @@ def _every_live_payload(steps) -> list[dict]:
         round_index=0,
     )
     turn_status.emit_retrieval([{"name": "web_search_tool", "args": {}}], round_index=1)
+    turn_status.emit_retrieval(
+        [{"name": "read_passage", "args": {"document": "OIB-Richtlinie 2", "punkt": "3.5.2"}}],
+        round_index=4,
+    )
+    turn_status.emit_retrieval(
+        [{"name": "read_passage", "args": {"document": "Brandschutzkonzept.pdf", "page": 12}}],
+        round_index=5,
+    )
     turn_status.emit_retrieval([{"name": "remember", "args": {"text": "x"}}], round_index=2)
     turn_status.emit_retrieval([{"name": "emit_card", "args": {"kind": "x"}}], round_index=3)
     turn_status.emit_retrieval_requery(query_count=2)
