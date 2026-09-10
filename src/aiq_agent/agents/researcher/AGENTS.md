@@ -5,6 +5,11 @@ it a checkpointer and one outgoing edge. Two NAT registrations: `register.py`
 for the agent, `conversation_register.py` for the workflow NAT runs per turn.
 `clarify.py` is a step of that graph, not an agent.
 
+The persona is a member of the planning office, not a compliance checker.
+Questions are about the work. Grounding is the project files, the office
+archive, and the regulation corpus — whichever the question needs. A ruling
+is one envelope `kind`, not the default.
+
 ## The seams
 
 **The agent is built once, at boot.** The prompt is read, the graph compiled

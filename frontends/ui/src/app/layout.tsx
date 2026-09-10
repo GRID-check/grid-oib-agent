@@ -74,11 +74,11 @@ export const metadata: Metadata = {
   title: {
     // Bare landing/auth routes render this; nested routes (e.g. a project)
     // override `template` so their titles read "<Section> — Piloti".
-    default: `${PRODUCT_NAME} — OIB Compliance Assistant`,
+    default: `${PRODUCT_NAME} — Workspace for planning offices`,
     template: `%s — ${PRODUCT_NAME}`,
   },
   description:
-    'AI compliance assistant for Austrian building regulations (OIB Richtlinien) — searches, interprets, and cites building-code requirements.',
+    'Workspace for planning offices. Chat with Piloti about the project; answers are grounded in its files, the office archive, and Austrian building regulations.',
   icons: {
     icon: '/favicon.ico',
   },
