@@ -387,6 +387,24 @@ _ACTION_KEYS = {
 #: Argument names a retrieval query hides behind, in preference order.
 _QUERY_KEYS = ("query", "search_query", "question", "q", "text", "name_contains")
 
+#: The retrieval tools' checkpoint argument: one sentence saying what the model
+#: now knows and what it still needs, written as part of the CALL rather than as
+#: prose beside it.
+#:
+#: Prose was the only channel, and a tool-calling model routinely writes none —
+#: which is why ``hasConclusion`` was worth counting at all. An argument the
+#: schema declares is a slot the model fills the way it fills every other slot,
+#: so the checkpoint stops depending on a habit the API discourages.
+CONCLUSION_ARG = "conclusion"
+
+#: Where a round's checkpoint sentence came from. Stable tokens, because they
+#: are counted: ``argument`` is the structured slot, ``prose`` the assistant
+#: message beside the calls (still honoured — an older prompt, or a model that
+#: narrates anyway, must not lose its checkpoint), ``none`` a layer with no body.
+CHECKPOINT_FROM_ARGUMENT = "argument"
+CHECKPOINT_FROM_PROSE = "prose"
+CHECKPOINT_FROM_NONE = "none"
+
 #: Retrieval tools that OPEN a named passage instead of searching for one.
 #: Their arguments are an address, not a question, so they are kept out of
 #: :func:`_query_text` — a document name quoted as if it were the reader's
@@ -475,10 +493,51 @@ def _query_text(args: Any) -> str | None:
         value = args.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    for value in args.values():
+    for name, value in args.items():
+        # The checkpoint sentence is never the query. It is the longest string
+        # a retrieval call carries, so the "first non-empty string" fallback
+        # would quote the model's own reasoning back at the reader as if it
+        # were what they asked.
+        if name == CONCLUSION_ARG:
+            continue
         if isinstance(value, str) and value.strip():
             return value.strip()
     return None
+
+
+def _conclusion_argument(calls: list[dict[str, Any]]) -> str | None:
+    """The checkpoint sentence a round wrote INTO its tool calls, if any.
+
+    First non-empty wins: a parallel batch is one round and therefore one
+    checkpoint, and the calls are emitted together, so "the first one that said
+    something" is the only ordering there is.
+    """
+    for call in calls:
+        args = call.get("args")
+        if not isinstance(args, dict):
+            continue
+        value = args.get(CONCLUSION_ARG)
+        if isinstance(value, str) and value.strip():
+            return " ".join(value.split())
+    return None
+
+
+def _resolve_conclusion(calls: list[dict[str, Any]], prose: str | None) -> tuple[str, str]:
+    """This round's checkpoint sentence and where it came from.
+
+    The ARGUMENT wins. It is the one the prompt now asks for and the one a
+    tool-calling model reliably produces; prose beside the calls stays as the
+    fallback because a model that narrates anyway should not lose its
+    checkpoint, and because a deployment pinned to an older prompt still has
+    only that channel.
+    """
+    argument = _conclusion_argument(calls)
+    if argument:
+        return argument, CHECKPOINT_FROM_ARGUMENT
+    text = " ".join(str(prose).split()) if prose else ""
+    if text:
+        return text, CHECKPOINT_FROM_PROSE
+    return "", CHECKPOINT_FROM_NONE
 
 
 #: Where the reader's own documents live, as SHELF IDS. ``base`` is absent on
@@ -545,8 +604,16 @@ def emit_retrieval(
     what it now knows and what it still needs. Same discipline as escalation
     ``reason``: it travels as a field, never as a live-line value, because it
     has a language. The Herleitung renders it as the spine node's body. Absent
-    when the model skipped Thought; the graph then keeps the layer without
+    when the model wrote none; the graph then keeps the layer without
     inventing a conclusion, and without falling back to the query (PF-12).
+
+    It has TWO channels and this function is where they are ranked. The
+    retrieval tools declare a ``conclusion`` ARGUMENT, which is what the prompt
+    now asks the model to fill; the parameter here is the prose written beside
+    the tool calls, which is what it used to be asked for. The argument wins,
+    prose is the fallback, and :func:`emit_checkpoint` records which one it
+    was — ranking them anywhere else would let the sentence the spine renders
+    and the source it is counted under disagree.
 
     Returns True when a retrieval round was emitted (search corpora), so the
     caller can increment the round counter. Action-only rounds return False.
@@ -599,7 +666,7 @@ def emit_retrieval(
         # Nothing left to say but an internal tool name. Say nothing.
         return False
 
-    reason_text = " ".join(str(conclusion).split()) if conclusion else ""
+    reason_text, conclusion_source = _resolve_conclusion(calls, conclusion)
     reason = clip(reason_text, MAX_REASON_CHARS) or None
     if corpora:
         # Search fetches own the spine. Stamp the round so tool results that
@@ -615,8 +682,9 @@ def emit_retrieval(
         )
         # Emitted HERE rather than by the caller so the two can never disagree:
         # ``hasConclusion`` is exactly "this layer got a body", read off the same
-        # ``reason`` the spine will render.
-        emit_checkpoint(round_index=round_index, has_conclusion=reason is not None)
+        # ``reason`` the spine will render, and ``source`` says which channel
+        # produced it.
+        emit_checkpoint(round_index=round_index, has_conclusion=reason is not None, source=conclusion_source)
         return True
     # remember / emit_card are not a retrieval round. Putting them on
     # ``status:retrieval:N`` stole the next search's slot under name-dedupe.
@@ -632,7 +700,7 @@ def emit_retrieval(
 CHECKPOINT_SLOT = "checkpoint"
 
 
-def emit_checkpoint(*, round_index: int, has_conclusion: bool) -> None:
+def emit_checkpoint(*, round_index: int, has_conclusion: bool, source: str = CHECKPOINT_FROM_NONE) -> None:
     """Record that a retrieval round drew a Herleitung checkpoint, and whether
     that checkpoint has a BODY.
 
@@ -646,8 +714,17 @@ def emit_checkpoint(*, round_index: int, has_conclusion: bool) -> None:
     reader's own text out of traces.
 
     What is counted here is therefore the BOOLEAN and never the sentence:
-    ``round`` says which layer, ``hasConclusion`` whether it has a body.
-    Neither is language-specific and neither is anybody's words.
+    ``round`` says which layer, ``hasConclusion`` whether it has a body, and
+    ``source`` which channel produced it (:data:`CHECKPOINT_FROM_ARGUMENT` /
+    :data:`CHECKPOINT_FROM_PROSE` / :data:`CHECKPOINT_FROM_NONE`). None of the
+    three is language-specific and none is anybody's words.
+
+    ``source`` is what makes the change measurable rather than merely believed.
+    Asking for the sentence in a tool ARGUMENT instead of in prose is a bet that
+    a tool-calling model fills a declared slot more reliably than it narrates;
+    the rate of ``argument`` against ``prose`` against ``none``, per round, is
+    that bet's scoreboard, and without it a prompt edit could only be argued
+    about.
     """
     push_custom_step(
         f"{STATUS_STEP_PREFIX}{CHECKPOINT_SLOT}:{round_index}",
@@ -657,6 +734,7 @@ def emit_checkpoint(*, round_index: int, has_conclusion: bool) -> None:
             "slot": f"{CHECKPOINT_SLOT}:{round_index}",
             "round": round_index,
             "hasConclusion": has_conclusion,
+            "source": source,
         },
     )
 

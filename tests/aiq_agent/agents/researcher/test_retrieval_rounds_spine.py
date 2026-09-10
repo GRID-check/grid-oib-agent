@@ -224,6 +224,45 @@ class TestCheckpointRate:
         # name, and a spine of N rounds reporting one checkpoint is not a rate.
         assert [c["step"] for c in checkpoints] == ["status:checkpoint:0", "status:checkpoint:1"]
 
+    @pytest.mark.asyncio
+    async def test_the_slot_wins_over_the_prose_through_the_whole_graph(self, scripted_agent, steps):
+        """The checkpoint the reader sees is the one the prompt asked for.
+
+        Round 0 leaves the argument empty, which is what the prompt asks for on
+        a first call, and writes no prose either — a bodyless layer. Round 1
+        fills the argument AND narrates; the argument is what the spine renders
+        and what the rate counts.
+        """
+        agent = scripted_agent(
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {"name": "knowledge_search", "args": {"query": "Fluchtweglänge GK4", "conclusion": ""}, "id": "k1"}
+                ],
+            ),
+            AIMessage(
+                content="Prosa nebenher.",
+                tool_calls=[
+                    {
+                        "name": "knowledge_search",
+                        "args": {"query": "Treppenraum", "conclusion": "Die Grundregel steht; offen ist der GK."},
+                        "id": "k2",
+                    }
+                ],
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        await agent.run(ResearchAgentState(messages=[HumanMessage(content="Wie lang?")]))
+
+        checkpoints = [step for step in steps if str(step.get("slot", "")).startswith("checkpoint")]
+        assert [(c["round"], c["hasConclusion"], c["source"]) for c in checkpoints] == [
+            (0, False, "none"),
+            (1, True, "argument"),
+        ]
+        rendered = [step["reason"] for step in steps if str(step.get("slot", "")).startswith("retrieval:1")]
+        assert rendered == ["Die Grundregel steht; offen ist der GK."]
+
 
 # --- The cross-language fixture ---------------------------------------------
 
@@ -303,10 +342,22 @@ def build_two_search_round_steps() -> list[dict]:
             conclusion="Ich brauche zuerst die Grundregel für Fluchtweglängen.",
         )
         first = _lanes_for_round(0, [_chunk(file_name="OIB-RL_2.pdf", page=12, collection="oib_knowledge")])
+        # Round 1 carries its checkpoint in the tool-call ARGUMENT, which is
+        # what the prompt now asks for and what a tool-calling model actually
+        # fills. Round 0 above carries prose, the fallback channel. One of each,
+        # so the fixture pins both on the wire — and both reach the frontend as
+        # the same `reason` field, which is why the walker needed no change.
         turn_status.emit_retrieval(
-            [{"name": "knowledge_search", "args": {"query": "Treppenraum Entrauchung"}}],
+            [
+                {
+                    "name": "knowledge_search",
+                    "args": {
+                        "query": "Treppenraum Entrauchung",
+                        "conclusion": "Die Grundregel steht; offen ist der Treppenraum.",
+                    },
+                }
+            ],
             round_index=1,
-            conclusion="Die Grundregel steht; offen ist der Treppenraum.",
         )
         second = _lanes_for_round(
             1,

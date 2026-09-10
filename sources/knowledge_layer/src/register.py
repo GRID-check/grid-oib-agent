@@ -95,6 +95,10 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "is not enumerated there — reach it by `doc_class` (e.g. `oib_richtlinie`) "
     "or by plain semantic search, never a guessed name. Do not pass a raw "
     "`filters` object unless you need `content_type`.\n"
+    "ALWAYS pass `conclusion=` — one sentence saying what you now know and what "
+    "you still need, which is why you are making THIS call. Empty on your first "
+    "call of the turn. It is the Herleitung checkpoint the reader sees above the "
+    "fetch; it changes nothing about the search and never appears in `answer`.\n"
     "RETURNS — numbered passages with Source, Citation (copy this key "
     "verbatim), Dokumentart, Ordner (the folder the file is filed in, when it "
     "has one), page, and the passage. Cite only those keys. "
@@ -1546,6 +1550,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         title_contains: str | None = None,
         file_name: str | None = None,
         folder: str | None = None,
+        conclusion: str = "",
     ) -> str:
         """Read and cite passages from the ingested knowledge base.
 
@@ -1553,6 +1558,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             query (str): The fact or passage you need, rewritten as a search
                 query (topic + jurisdiction + implied year). Not the raw user
                 message.
+            conclusion (str): ONE sentence: what you now know and what you
+                still need, which is why you are making this call. Empty on
+                your first call of the turn, when you know nothing yet. It is
+                the Herleitung checkpoint the reader sees above this fetch; it
+                does not change what is searched and does not belong in your
+                answer.
             file_name (str | None): Indexed file name to read (from the
                 inventory or the user). Never invent a name. Base-corpus
                 files are not listed in the inventory — filter those with
@@ -1574,6 +1585,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         Returns:
             str: Numbered excerpts with a Citation key to copy verbatim.
         """
+        # `conclusion` is deliberately unread HERE. It is a checkpoint channel,
+        # not a retrieval parameter: the researcher's agent node reads it off
+        # the tool CALL (`turn_status.emit_retrieval`) before this coroutine
+        # runs, and it must not influence what is searched — a sentence that
+        # changed the result would make the Herleitung a cause instead of a
+        # record of one.
         query = (query or "").strip()
         file_name = (file_name or "").strip() or None
         title_contains = (title_contains or "").strip() or None

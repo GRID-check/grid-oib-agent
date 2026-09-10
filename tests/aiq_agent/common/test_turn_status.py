@@ -359,9 +359,81 @@ class TestCheckpointIsCountable:
             conclusion="Fluchtweglänge hängt an Nutzung und Geschoss.",
         )
         (record,) = _technical(steps)
-        assert set(record) == {"kind", "channel", "slot", "round", "hasConclusion"}
+        assert set(record) == {"kind", "channel", "slot", "round", "hasConclusion", "source"}
         assert record["channel"] == turn_status.CHANNEL_TECHNICAL
         assert "Fluchtweg" not in json.dumps(record, ensure_ascii=False)
+
+    def test_the_argument_beats_the_prose(self, steps) -> None:
+        """The whole point of the slot.
+
+        A model that fills the declared argument AND narrates has said the same
+        thing twice; the argument is what the prompt asked for, so it is what
+        the spine renders and what the rate counts.
+        """
+        turn_status.emit_retrieval(
+            [
+                {
+                    "name": "knowledge_search",
+                    "args": {"query": "Fluchtweg", "conclusion": "Die Grundregel steht; offen ist der GK."},
+                }
+            ],
+            round_index=0,
+            conclusion="Prosa, die das Modell nebenher geschrieben hat.",
+        )
+        (line,) = _live(steps)
+        assert line["reason"] == "Die Grundregel steht; offen ist der GK."
+        (record,) = _technical(steps)
+        assert (record["hasConclusion"], record["source"]) == (True, turn_status.CHECKPOINT_FROM_ARGUMENT)
+
+    def test_prose_still_carries_a_round_that_filled_no_argument(self, steps) -> None:
+        """The fallback is not decoration: a deployment pinned to an older
+        prompt has only this channel, and it must not lose its checkpoints."""
+        turn_status.emit_retrieval(
+            [{"name": "knowledge_search", "args": {"query": "Fluchtweg"}}],
+            round_index=0,
+            conclusion="Ich brauche zuerst die Grundregel.",
+        )
+        (line,) = _live(steps)
+        assert line["reason"] == "Ich brauche zuerst die Grundregel."
+        (record,) = _technical(steps)
+        assert (record["hasConclusion"], record["source"]) == (True, turn_status.CHECKPOINT_FROM_PROSE)
+
+    def test_an_empty_first_call_is_recorded_as_no_body_at_all(self, steps) -> None:
+        """What the prompt asks for on the FIRST call: nothing is known yet, so
+        the slot is left empty rather than filled with a restated question."""
+        turn_status.emit_retrieval(
+            [{"name": "knowledge_search", "args": {"query": "Fluchtweg", "conclusion": "   "}}],
+            round_index=0,
+        )
+        (line,) = _live(steps)
+        assert "reason" not in line
+        (record,) = _technical(steps)
+        assert (record["hasConclusion"], record["source"]) == (False, turn_status.CHECKPOINT_FROM_NONE)
+
+    def test_a_parallel_batch_takes_the_first_conclusion_it_finds(self, steps) -> None:
+        """One round is one checkpoint, however many calls it fans out into."""
+        turn_status.emit_retrieval(
+            [
+                {"name": "knowledge_search", "args": {"query": "a", "conclusion": ""}},
+                {"name": "ris_search_tool", "args": {"query": "b", "conclusion": "Beide Korpora, ein Schluss."}},
+            ],
+            round_index=0,
+        )
+        assert len(_technical(steps)) == 1
+        assert _live(steps)[0]["reason"] == "Beide Korpora, ein Schluss."
+
+    def test_the_conclusion_is_never_quoted_back_as_the_query(self, steps) -> None:
+        """`_query_text` falls back to the first non-empty string argument, and
+        the checkpoint is the longest string a retrieval call carries — so
+        without the exclusion the model's own reasoning appears on the live line
+        as if it were what the reader asked for."""
+        turn_status.emit_retrieval(
+            [{"name": "surface_documents", "args": {"conclusion": "Ich brauche den Plan."}}],
+            round_index=0,
+        )
+        payload = _live(steps)[0]
+        assert payload["key"] == "status.retrieval.plain"
+        assert "query" not in payload["values"]
 
     def test_an_action_round_draws_no_checkpoint(self, steps) -> None:
         """``remember`` / ``emit_card`` are not layers of the spine."""

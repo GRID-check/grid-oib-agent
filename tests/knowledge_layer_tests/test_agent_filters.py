@@ -139,3 +139,16 @@ def test_knowledge_search_description_is_the_evidence_tool() -> None:
     # address is the round the second landing exists to remove.
     assert "`read_passage`" in desc
     assert "search again only when you still do not know" in desc
+
+
+def test_knowledge_search_asks_for_the_checkpoint_in_an_argument() -> None:
+    """The Herleitung checkpoint has a SLOT now.
+
+    Prose beside the tool calls was the only channel, and a tool-calling model
+    routinely writes none — which is why `hasConclusion` was worth counting at
+    all. A declared argument is filled the way every other argument is filled.
+    """
+    desc = _KNOWLEDGE_SEARCH_DESCRIPTION
+    assert "`conclusion=`" in desc
+    assert "Empty on your first call" in desc
+    assert "never appears in `answer`" in desc

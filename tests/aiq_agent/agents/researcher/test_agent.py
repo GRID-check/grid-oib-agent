@@ -2650,6 +2650,13 @@ class TestADirectReplyMayStillEmitACard:
         assert "Punkt" in rules or "punkt" in rules.lower()
         assert "Herleitung checkpoint" in rules
         assert "files that fetch returned" in rules
+        # The checkpoint has a SLOT now, not just an instruction to narrate:
+        # a tool-calling model fills a declared argument far more reliably than
+        # it writes prose beside its calls.
+        assert "`conclusion` argument" in rules
+        assert "empty on your first call" in rules.lower()
+        # …and a conclusion that names its passage is opened, not searched for.
+        assert "`read_passage`" in rules
         stimme = rendered.split("<stimme>")[1].split("</stimme>")[0]
         assert "Folgerung der Herleitung" in stimme
 

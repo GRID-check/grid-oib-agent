@@ -12,7 +12,7 @@
     "category": "agents",
     "functionName": "status:checkpoint:0",
     "displayName": "status:checkpoint:0",
-    "content": "{\"kind\": \"status\", \"channel\": \"technical\", \"slot\": \"checkpoint:0\", \"round\": 0, \"hasConclusion\": true}",
+    "content": "{\"kind\": \"status\", \"channel\": \"technical\", \"slot\": \"checkpoint:0\", \"round\": 0, \"hasConclusion\": true, \"source\": \"prose\"}",
     "isComplete": true
   },
   {
@@ -66,7 +66,7 @@
     "category": "agents",
     "functionName": "status:checkpoint:1",
     "displayName": "status:checkpoint:1",
-    "content": "{\"kind\": \"status\", \"channel\": \"technical\", \"slot\": \"checkpoint:1\", \"round\": 1, \"hasConclusion\": true}",
+    "content": "{\"kind\": \"status\", \"channel\": \"technical\", \"slot\": \"checkpoint:1\", \"round\": 1, \"hasConclusion\": true, \"source\": \"argument\"}",
     "isComplete": true
   }
 ]

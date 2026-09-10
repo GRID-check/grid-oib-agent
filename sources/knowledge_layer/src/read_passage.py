@@ -89,6 +89,10 @@ _READ_PASSAGE_DESCRIPTION = (
     "printed it (e.g. 'OIB-Richtlinie 2, Ausgabe Mai 2023' or 'oib-rl_2_ausgabe_mai_2023.pdf'), "
     "and `punkt=` the number alone ('3.5.2', no 'Pkt.') or `page=` the page number. "
     "Both together read that Punkt on that page.\n"
+    "ALWAYS pass `conclusion=` — one sentence saying what you now know and what you still "
+    "need, which is why you are opening THIS passage. It is the Herleitung checkpoint the "
+    "reader sees above the fetch; it changes nothing about what is opened and never appears "
+    "in `answer`.\n"
     "WHEN NOT TO CALL — you do not know WHICH document holds the answer, or you have only a "
     "topic: that is `knowledge_search`, and this tool cannot search for you. To put a file "
     "on screen it is `surface_documents`. Do not call it twice for the same Punkt.\n"
@@ -325,7 +329,7 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
                 chunk.metadata.setdefault("shelf", target.shelf)
         return chunks
 
-    async def _read(document: str, punkt: str | None = None, page: int | None = None) -> str:
+    async def _read(document: str, punkt: str | None = None, page: int | None = None, conclusion: str = "") -> str:
         """Open a passage you can name: one document plus one Punkt or one page.
 
         Args:
@@ -336,11 +340,19 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
                 "Pkt.", no title.
             page (int | None): The page number, 1-based. May be combined with
                 `punkt` to read that Punkt on that page.
+            conclusion (str): ONE sentence: what you now know and what you
+                still need, which is why you are opening this passage. It is
+                the Herleitung checkpoint the reader sees above this fetch; it
+                does not change what is opened and does not belong in your
+                answer.
 
         Returns:
             str: The passages, in the same grounding-block format
             `knowledge_search` returns, with Citation keys to copy verbatim.
         """
+        # `conclusion` is unread here on purpose — see the note in
+        # `register.search`. It is a checkpoint channel read off the tool CALL,
+        # never an input to what gets opened.
         document = (document or "").strip()
         punkt = (punkt or "").strip().strip(".") or None
         if not document:

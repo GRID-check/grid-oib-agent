@@ -241,8 +241,12 @@ def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -
         _INTERACTION_TOOL_ALLOWANCE,
     )
     # The same fact, said to the USER instead of the log: one line per ROUND.
-    # The Thought (if the model wrote one) rides as ``reason`` so the
-    # Herleitung can draw a checkpoint instead of the search query.
+    # The checkpoint sentence rides as ``reason`` so the Herleitung can draw a
+    # conclusion instead of the search query. Two channels carry it and
+    # ``emit_retrieval`` ranks them: the ``conclusion`` ARGUMENT the retrieval
+    # tools declare (what the prompt asks for), and — passed here — the prose
+    # the model wrote beside its calls, which is the fallback for a model that
+    # narrates instead of filling the slot.
     searched = emit_retrieval(
         calls,
         round_index=state.retrieval_round,
@@ -279,12 +283,18 @@ def _executing_retrieval_round(state: ResearchAgentState) -> int | None:
 
 
 def _assistant_checkpoint(response: Any) -> str | None:
-    """The one-sentence conclusion the model wrote before this tool round.
+    """The one-sentence conclusion the model wrote as PROSE before this round.
 
-    Empty when the model skipped Thought (common with tool-calling). The
-    Herleitung then keeps the round as a layer without a body — it must not
-    invent a conclusion, and it must not fall back to the search query (PF-12).
-    A fenced ``answer_json`` is the final answer, not a checkpoint.
+    The fallback channel. The prompt now asks for the sentence in the retrieval
+    tools' ``conclusion`` argument, because a tool-calling model fills a
+    declared slot far more reliably than it narrates — but a model that
+    narrates anyway must not lose its checkpoint, and neither must a deployment
+    pinned to an older prompt. ``emit_retrieval`` ranks the two.
+
+    Empty when the model wrote no prose. The Herleitung then keeps the round as
+    a layer without a body — it must not invent a conclusion, and it must not
+    fall back to the search query (PF-12). A fenced ``answer_json`` is the final
+    answer, not a checkpoint.
     """
     text = " ".join(content_to_text(getattr(response, "content", "") or "").split())
     if not text or text.startswith("```"):
