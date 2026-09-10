@@ -412,7 +412,12 @@ def emit_documents_loading(shelves: list[str] | None = None) -> None:
     )
 
 
-def emit_retrieval(tool_calls: list[dict[str, Any]] | None, *, round_index: int) -> None:
+def emit_retrieval(
+    tool_calls: list[dict[str, Any]] | None,
+    *,
+    round_index: int,
+    conclusion: str | None = None,
+) -> None:
     """ONE line for a whole round of tool calls: where it looks, and for what.
 
     "Sucht im OIB-Wissen: „Fluchtweglänge GK4“" is a different sentence from
@@ -425,6 +430,13 @@ def emit_retrieval(tool_calls: list[dict[str, Any]] | None, *, round_index: int)
     in parallel batches — three separate lines in the same instant would be a
     log stream, not a status. ``round_index`` keeps successive rounds from
     collapsing into one step under the frontend's name dedupe.
+
+    ``conclusion`` is the model's own one-sentence Thought for this round —
+    what it now knows and what it still needs. Same discipline as escalation
+    ``reason``: it travels as a field, never as a live-line value, because it
+    has a language. The Herleitung renders it as the spine node's body. Absent
+    when the model skipped Thought; the graph then keeps the layer without
+    inventing a conclusion, and without falling back to the query (PF-12).
     """
     calls = [call for call in (tool_calls or []) if isinstance(call, dict)]
     if not calls:
@@ -464,7 +476,14 @@ def emit_retrieval(tool_calls: list[dict[str, Any]] | None, *, round_index: int)
         # Nothing left to say but an internal tool name. Say nothing.
         return
 
-    emit_status(f"retrieval:{round_index}", key, values=values, tools=tools)
+    reason_text = " ".join(str(conclusion).split()) if conclusion else ""
+    emit_status(
+        f"retrieval:{round_index}",
+        key,
+        values=values,
+        tools=tools,
+        reason=clip(reason_text, MAX_REASON_CHARS) or None,
+    )
 
 
 def emit_documents_waiting(*, file_count: int) -> None:

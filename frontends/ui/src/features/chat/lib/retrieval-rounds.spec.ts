@@ -89,4 +89,26 @@ describe('retrievalRounds', () => {
       },
     ])
   })
+
+  test('a checkpoint sentence survives prune as reason, not as the query', () => {
+    const pruned = step({
+      id: 'p',
+      functionName: 'status:retrieval:1',
+      content: '',
+      rawPayload: '',
+      turnEvent: {
+        key: 'status.retrieval.withQuery',
+        values: { corpus: 'knowledge', query: 'Überhang Dachrand' },
+        reason: 'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.',
+      },
+    })
+    expect(retrievalRounds([pruned])).toEqual([
+      {
+        index: 1,
+        key: 'status.retrieval.withQuery',
+        values: { corpus: 'knowledge', query: 'Überhang Dachrand' },
+        reason: 'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.',
+      },
+    ])
+  })
 })

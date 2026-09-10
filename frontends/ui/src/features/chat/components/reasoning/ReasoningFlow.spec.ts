@@ -23,7 +23,7 @@ const card = (id: string): CitedDocument => ({
 
 const base: ReasoningFlowProps = { steps: [], userQuestion: 'Frage?' }
 
-const retrievalStep = (index: number, query: string): ThinkingStep => ({
+const retrievalStep = (index: number, query: string, reason?: string): ThinkingStep => ({
   id: `r${index}`,
   userMessageId: 'u1',
   category: 'agents',
@@ -35,6 +35,7 @@ const retrievalStep = (index: number, query: string): ThinkingStep => ({
     slot: `retrieval:${index}`,
     key: 'status.retrieval.withQuery',
     values: { corpus: 'knowledge', query },
+    ...(reason ? { reason } : {}),
   }),
   timestamp: new Date(),
   isComplete: true,
@@ -176,6 +177,33 @@ describe('buildGraph — parallel wiring (P1-4)', () => {
     )
     expect(columnToColumnEdges(g)).toHaveLength(0)
     expect(g.rows).toEqual([['framing'], ['round-0'], ['round-1'], ['col-0', 'col-1'], ['findings']])
+  })
+
+  test('the spine speaks the checkpoint, never the search query (PF-12)', () => {
+    const steps = [
+      retrievalStep(0, 'OIB 3 Pkt. 3.4.2'),
+      retrievalStep(
+        1,
+        'Überhang Dachrand',
+        'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel — messe den Überhang.'
+      ),
+    ]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+    const round0 = g.nodes.find((n) => n.id === 'round-0')!.data as { label: string; text: string }
+    const round1 = g.nodes.find((n) => n.id === 'round-1')!.data as { label: string; text: string }
+    expect(round0.text).toBe('')
+    expect(round0.label).toBe('thinking.node.roundTab')
+    expect(round1.text).toBe(
+      'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel — messe den Überhang.'
+    )
+    expect(round1.label).toBe('thinking.node.checkpointTab')
+    expect(round0.text).not.toContain('OIB 3 Pkt. 3.4.2')
+    expect(round1.text).not.toContain('Überhang Dachrand')
   })
 
   test('stacked columns keep exactly two straight edges each — nothing pierces a card', () => {

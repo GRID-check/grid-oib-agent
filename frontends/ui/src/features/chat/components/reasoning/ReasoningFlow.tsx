@@ -1,9 +1,10 @@
 /**
  * ReasoningFlow — the Herleitung rendered as a real node graph (@xyflow/react).
  *
- * Framing → (retrieval rounds, when there were two or more) → the parallel
- * Quellen fan-out → assessment → (live HITL) branches. One retrieval stays
- * the old fan. A second search is a new layer on the spine, not a mutated caption.
+ * Framing → (checkpoints, when there were two or more retrievals) → the
+ * parallel Quellen fan-out → assessment → (live HITL) branches. One retrieval
+ * stays the old fan. A second search is a new layer on the spine. Each layer
+ * speaks the model's conclusion when it wrote one, never the search query.
  * derived from the SAME streamed props the old ReasoningChain used, so the graph
  * grows as a turn streams in. The canvas is non-interactive (no pan/zoom/drag)
  * and renders at 1:1 — its height comes from MEASURED node heights (no fitView,
@@ -145,7 +146,6 @@ import {
 } from '../../lib/turn-events'
 import { stepNameLabel } from '../../lib/executed-steps'
 import { retrievalRounds } from '../../lib/retrieval-rounds'
-import { renderTurnEventKey } from '@/adapters/api/step-event-schemas'
 import type { ChoicePrompt } from './citations'
 
 /** Hidden connection handle (edges anchor to it; the dot itself is invisible). */
@@ -901,8 +901,11 @@ export function buildGraph(
   const edges: Edge[] = []
 
   // One retrieval stays the old fan. Two or more are a spine: each round is a
-  // layer the live line had already replaced. Sources still fan once, after
-  // the last round — we cannot yet hang a card on the round that fetched it.
+  // layer the live line had already replaced. The body is the checkpoint
+  // (what it concluded, what it still needed), never the query — PF-12
+  // reverted visible search queries; a missing Thought is an empty body, not
+  // a caption we invent. Sources still fan once, after the last round — we
+  // cannot yet hang a card on the round that fetched it.
   const rounds = retrievalRounds(props.steps)
   const spine = rounds.length >= 2
   const roundIds = spine ? rounds.map((_, i) => `round-${i}`) : []
@@ -910,10 +913,9 @@ export function buildGraph(
   nodes.push({ id: 'framing', type: 'framing', position: { x: 0, y: 0 }, data: framingData as Record<string, unknown> })
   if (spine) {
     rounds.forEach((round, i) => {
-      const text =
-        renderTurnEventKey(round.key, round.values, (k, vars) => t(k, vars as never)) ?? ''
+      const text = round.reason?.trim() ?? ''
       const roundData: RoundData = {
-        label: t('thinking.node.roundTab', { n: i + 1 }),
+        label: t(text ? 'thinking.node.checkpointTab' : 'thinking.node.roundTab', { n: i + 1 }),
         text,
         targets: [CENTRE_TOP],
         sources: [CENTRE_BOTTOM],

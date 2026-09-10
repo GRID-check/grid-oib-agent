@@ -167,6 +167,29 @@ class TestRetrieval:
         turn_status.emit_retrieval([{"name": "remember", "args": {"text": "Dachneigung 30°"}}], round_index=0)
         assert _live(steps)[0]["key"] == "status.action.remember"
 
+    def test_a_conclusion_travels_as_reason_not_as_a_value(self, steps) -> None:
+        """The Herleitung checkpoint is the model's own words.
+
+        Same discipline as escalation: it has a language, so it is not a
+        live-line value. Absent when the model skipped Thought.
+        """
+        turn_status.emit_retrieval(
+            [{"name": "knowledge_search_tool", "args": {"query": "Fluchtweglänge GK4"}}],
+            round_index=0,
+            conclusion="Fluchtweglänge hängt an Nutzung, GK und dem Treppenraum.",
+        )
+        payload = _live(steps)[0]
+        assert payload["reason"] == "Fluchtweglänge hängt an Nutzung, GK und dem Treppenraum."
+        assert "reason" not in payload["values"]
+        assert "text" not in payload
+
+        turn_status.emit_retrieval(
+            [{"name": "knowledge_search_tool", "args": {"query": "x"}}],
+            round_index=1,
+            conclusion="   ",
+        )
+        assert "reason" not in _live(steps)[1]
+
     def test_a_tool_we_cannot_name_says_NOTHING(self, steps) -> None:
         """The only thing left to say about it is its internal name.
 

@@ -90,9 +90,11 @@ export interface TurnEventStep {
  * turn appends payloads oldest-first, and the live line reads them newest-first,
  * so this is the same choice `turnEventLiveText` makes — persisted.
  *
- * Only `key` and `values` survive: the values are proper nouns, dictionary ids
- * and the reader's own words echoed back, never prose the backend wrote, so
- * they are safe to keep and cheap (the backend caps the query at 32 chars).
+ * `key` and `values` survive as the live line (proper nouns, dictionary ids,
+ * the reader's own words echoed back). `reason` survives as the Herleitung
+ * checkpoint: the model's own words, never interpolated into the live line,
+ * same discipline as an escalation rationale. The search query stays in
+ * `values` for the one-liner and is NOT what the graph draws (PF-12).
  */
 export const turnEventOf = (step: TurnEventStep): StoredTurnEvent | undefined => {
   if (!isStatusStepName(step.functionName || '')) return undefined
@@ -102,7 +104,12 @@ export const turnEventOf = (step: TurnEventStep): StoredTurnEvent | undefined =>
     if (payload.channel === 'technical') continue
     const key = payload.key?.trim()
     if (!key) continue
-    return payload.values ? { key, values: payload.values } : { key }
+    const reason = payload.reason?.trim()
+    return {
+      key,
+      ...(payload.values ? { values: payload.values } : {}),
+      ...(reason ? { reason } : {}),
+    }
   }
   return step.turnEvent
 }

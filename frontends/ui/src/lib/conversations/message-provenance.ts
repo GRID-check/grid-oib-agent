@@ -43,11 +43,12 @@ export interface StoredThinkingStep {
   /** The sources fan-out, which is the part of a step a reader actually reads. */
   traceLanes?: unknown[]
   /**
-   * The turn event's key and values (what was searched, in which corpus). Bounded
-   * here because the values are a client-supplied record: a handful of short
-   * strings, never a payload.
+   * The turn event's key, values (what was searched, in which corpus), and
+   * optional `reason` (the model's checkpoint sentence). Bounded because the
+   * values are a client-supplied record: a handful of short strings, never a
+   * payload. `reason` is the model's own words, capped like other reasons.
    */
-  turnEvent?: { key: string; values?: Record<string, string> }
+  turnEvent?: { key: string; values?: Record<string, string>; reason?: string }
 }
 
 /**
@@ -220,7 +221,11 @@ function sanitizeTurnEvent(input: unknown): { turnEvent?: StoredThinkingStep['tu
       if (safeName && safeValue !== undefined) values[safeName] = safeValue
     }
   }
-  return { turnEvent: Object.keys(values).length > 0 ? { key, values } : { key } }
+  const reason = cap(input.reason, MAX_REASON_CHARS)
+  const event: NonNullable<StoredThinkingStep['turnEvent']> = { key }
+  if (Object.keys(values).length > 0) event.values = values
+  if (reason) event.reason = reason
+  return { turnEvent: event }
 }
 
 /**

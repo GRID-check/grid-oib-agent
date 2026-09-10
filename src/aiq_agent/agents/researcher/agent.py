@@ -37,6 +37,7 @@ from langgraph.prebuilt import tools_condition
 
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
+from aiq_agent.common import content_to_text
 from aiq_agent.common import get_source_id_for_tool
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import begin_turn_capture
@@ -238,8 +239,24 @@ def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -
         _INTERACTION_TOOL_ALLOWANCE,
     )
     # The same fact, said to the USER instead of the log: one line per ROUND.
-    emit_retrieval(calls, round_index=state.tool_iterations)
+    # The Thought (if the model wrote one) rides as ``reason`` so the
+    # Herleitung can draw a checkpoint instead of the search query.
+    emit_retrieval(calls, round_index=state.tool_iterations, conclusion=_assistant_checkpoint(response))
     return research, interaction
+
+
+def _assistant_checkpoint(response: Any) -> str | None:
+    """The one-sentence conclusion the model wrote before this tool round.
+
+    Empty when the model skipped Thought (common with tool-calling). The
+    Herleitung then keeps the round as a layer without a body — it must not
+    invent a conclusion, and it must not fall back to the search query (PF-12).
+    A fenced ``answer_json`` is the final answer, not a checkpoint.
+    """
+    text = " ".join(content_to_text(getattr(response, "content", "") or "").split())
+    if not text or text.startswith("```"):
+        return None
+    return text
 
 
 def _recursion_limit(ceiling: int) -> int:

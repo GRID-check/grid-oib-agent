@@ -579,6 +579,13 @@ export interface ThinkingStep {
 export interface StoredTurnEvent {
   key: string
   values?: Record<string, string>
+  /**
+   * The model's own words: the conclusion that caused this fetch. Same
+   * discipline as an escalation `reason` — not interpolated into the live
+   * line, attributed on the Herleitung spine. Absent when the model skipped
+   * Thought; the graph then keeps the layer without inventing a caption.
+   */
+  reason?: string
 }
 
 /** Conversation/Session */

@@ -1,7 +1,9 @@
 # Voice, schema, and the agentic loop
 
-> **Status:** Research report, 2026-09-08. Not an implementation plan.
-> Isolated worktree: `.worktrees/architect-workspace-voice` on `research/architect-workspace-voice` (origin/develop @ `757f51fb4`).
+> **Status:** Research report, 2026-09-08. First landing (kinds, colleague
+> voice, chrome, docs) and the Herleitung checkpoint (Thought as spine body,
+> never the search query) now live on `research/architect-workspace-voice`.
+> Isolated worktree: `.worktrees/architect-workspace-voice`.
 > **Method.** Read the live system prompt, the answer envelope, the shallow ReAct loop, the Herleitung graph, and the production config. Cross-checked against the 2026-09-01 workspace architecture review, ADRs 0051–0052, and current industry writing on agentic RAG, coding agents, legal AI, and AEC clouds.
 
 **What “Harvey for architects” means here.** Harvey is a workspace for lawyers, not a statute chatbot. Piloti is a workspace for architects, not an OIB chatbot. Questions are about the work — files, drawings, the model, how to organise, what to tell a colleague. Answers are *grounded* in whichever of these actually bears: the project’s files, the office archive, and the Austrian building-regulation corpus. Not every question is a legal question. A ruling is only when there is a copyable legal value. Treating “workspace for architects” as “every answer is about law” is the same colocation this report is trying to kill.

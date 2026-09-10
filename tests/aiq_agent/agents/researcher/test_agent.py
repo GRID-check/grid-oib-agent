@@ -11,6 +11,7 @@ from langchain_core.tools import tool
 
 from aiq_agent.agents.researcher.agent import _INTERACTION_TOOL_ALLOWANCE
 from aiq_agent.agents.researcher.agent import ResearcherAgent
+from aiq_agent.agents.researcher.agent import _assistant_checkpoint
 from aiq_agent.agents.researcher.agent import _count_interaction_calls
 from aiq_agent.agents.researcher.answer_pipeline import append_minimal_citation
 from aiq_agent.agents.researcher.models import ResearchAgentState
@@ -2632,6 +2633,9 @@ class TestADirectReplyMayStillEmitACard:
         rules = rendered.split("<research_rules>")[1].split("</research_rules>")[0]
         assert "ceiling" in rules.lower() or "budget" in rules.lower()
         assert "Punkt" in rules or "punkt" in rules.lower()
+        assert "Herleitung checkpoint" in rules
+        stimme = rendered.split("<stimme>")[1].split("</stimme>")[0]
+        assert "Folgerung der Herleitung" in stimme
 
 
 class TestKnowledgeInventoryIsNotCitable:
@@ -3432,6 +3436,33 @@ class TestInteractionCallCounting:
     def test_it_tolerates_no_calls(self):
         assert _count_interaction_calls([]) == 0
         assert _count_interaction_calls(None) == 0
+
+
+class TestAssistantCheckpoint:
+    """The Thought before a tool round is the Herleitung checkpoint.
+
+    Empty content is the common tool-calling collapse — we keep the round as a
+    layer and do not invent a conclusion. A fenced answer is the final reply,
+    not a checkpoint.
+    """
+
+    def test_a_sentence_before_the_calls_is_the_checkpoint(self):
+        message = AIMessage(
+            content="OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.",
+            tool_calls=[{"name": "knowledge_search", "args": {"query": "x"}, "id": "1"}],
+        )
+        assert _assistant_checkpoint(message) == ("OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.")
+
+    def test_empty_content_is_not_invented(self):
+        message = AIMessage(
+            content="",
+            tool_calls=[{"name": "knowledge_search", "args": {"query": "x"}, "id": "1"}],
+        )
+        assert _assistant_checkpoint(message) is None
+
+    def test_a_fenced_answer_is_not_a_checkpoint(self):
+        message = AIMessage(content='```answer_json\n{"answer": "x", "kind": "direct"}\n```')
+        assert _assistant_checkpoint(message) is None
 
 
 class TestRepairRetrievalFailOpen:

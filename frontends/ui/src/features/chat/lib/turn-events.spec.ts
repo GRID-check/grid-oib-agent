@@ -486,4 +486,22 @@ describe('a stored step renders from its hoisted event', () => {
     const withStale = { ...live, turnEvent: { key: 'status.retrieval.withQuery', values: { corpus: 'knowledge', query: 'alt' } } }
     expect(turnEventLiveText(withStale, tDe)).toBe('Sucht im RIS …')
   })
+
+  test('a checkpoint reason is hoisted and never interpolated into the live line', () => {
+    const live = event('status:retrieval:1', {
+      kind: 'status',
+      channel: 'live',
+      slot: 'retrieval:1',
+      key: 'status.retrieval.withQuery',
+      values: { corpus: 'knowledge', query: 'Überhang Dachrand' },
+      reason: 'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.',
+    })
+    const hoisted = turnEventOf(live)
+    expect(hoisted?.reason).toBe('OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.')
+    expect(turnEventLiveText(live, tDe)).toBe('Sucht im OIB-Wissen: „Überhang Dachrand“')
+    expect(turnEventLiveText(live, tDe)).not.toContain('Einfallswinkel')
+    expect(turnEventLiveText({ functionName: live.functionName, content: '', turnEvent: hoisted }, tEn)).toBe(
+      'Searching the OIB knowledge base: “Überhang Dachrand”'
+    )
+  })
 })

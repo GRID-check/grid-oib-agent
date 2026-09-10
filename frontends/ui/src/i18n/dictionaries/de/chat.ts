@@ -895,6 +895,9 @@ export const chat: typeof en.chat = {
       // A second (or later) retrieval round on the Herleitung spine — the
       // live line replaced this sentence; the graph keeps it as its own node.
       roundTab: 'Suche {n}',
+      // Same layer, when the model wrote a Thought: the conclusion that
+      // caused the next fetch, not the search query (PF-12).
+      checkpointTab: 'Folgerung {n}',
       contextLabel: 'Kontext',
       sourcesTab: 'Quellen',
       sourcesTitle: 'Geprüfte Quellen',

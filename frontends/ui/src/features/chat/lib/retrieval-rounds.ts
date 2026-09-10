@@ -7,9 +7,11 @@
  * layer, not a mutated caption.
  *
  * Round identity is the slot in the step name (`status:retrieval:N`). The
- * persisted `turnEvent` (key + values) is the sentence the node can speak
- * after storage prune has dropped the payload. Requery is a different slot
- * (`status:retrieval:requery`) and is not a round.
+ * persisted `turnEvent.reason` is the checkpoint the node speaks — what the
+ * model concluded, and what it still needed — after storage prune has dropped
+ * the payload. The query in `values` stays on the live line; the graph never
+ * draws it (PF-12). Requery is a different slot (`status:retrieval:requery`)
+ * and is not a round.
  */
 
 import { turnEventOf, type TurnEventStep } from './turn-events'
@@ -18,6 +20,8 @@ export interface RetrievalRound {
   index: number
   key: string
   values?: Record<string, string>
+  /** Model's own checkpoint sentence. Absent when Thought was skipped. */
+  reason?: string
 }
 
 const RETRIEVAL_SLOT = /^status:retrieval:(\d+)$/i
@@ -35,7 +39,12 @@ export const retrievalRounds = (steps: TurnEventStep[]): RetrievalRound[] => {
     const event = turnEventOf(step)
     const key = event?.key?.trim()
     if (!key) continue
-    byIndex.set(index, event.values ? { index, key, values: event.values } : { index, key })
+    byIndex.set(index, {
+      index,
+      key,
+      ...(event.values ? { values: event.values } : {}),
+      ...(event.reason ? { reason: event.reason } : {}),
+    })
   }
   return [...byIndex.values()].sort((a, b) => a.index - b.index)
 }
