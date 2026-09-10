@@ -211,7 +211,7 @@ class TestTheCardAcceptsWhatModelsActuallyWrite:
         # while every short-fielded card sailed through. Tested through the
         # REAL registration seam (the DSML salvage mirrors emit_card's parse),
         # so a revert of strict=False fails this, not just a parsing habit.
-        from aiq_agent.agents.researcher.dsml import _salvage_card
+        from aiq_agent.agents.piloti.dsml import _salvage_card
         from aiq_agent.cards.registry import CardRegistry
         from aiq_agent.cards.registry import reset_card_registry
         from aiq_agent.cards.registry import set_card_registry

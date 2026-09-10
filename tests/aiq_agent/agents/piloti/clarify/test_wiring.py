@@ -14,11 +14,11 @@ import pytest
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from aiq_agent.agents.researcher.clarify import Clarifier
-from aiq_agent.agents.researcher.clarify import ClarifierSettings
-from aiq_agent.agents.researcher.clarify import ask_through_nat
-from aiq_agent.agents.researcher.clarify import resolve_tools
-from aiq_agent.agents.researcher.models import ClarifyRequest
+from aiq_agent.agents.piloti.clarify import Clarifier
+from aiq_agent.agents.piloti.clarify import ClarifierSettings
+from aiq_agent.agents.piloti.clarify import ask_through_nat
+from aiq_agent.agents.piloti.clarify import resolve_tools
+from aiq_agent.agents.piloti.models import ClarifyRequest
 from aiq_agent.common import AgentGroup
 from aiq_agent.common import LLMProvider
 from nat.data_models.interactive import HumanPromptRadio
@@ -98,7 +98,7 @@ class TestClarifierSettings:
 
     def test_it_hangs_off_the_workflow_config(self):
         """The one place a deployment addresses this step from now."""
-        from aiq_agent.agents.researcher.conversation_register import ChatDeepResearcherConfig
+        from aiq_agent.agents.piloti.conversation_register import ChatDeepResearcherConfig
 
         config = ChatDeepResearcherConfig(enable_clarifier=True, clarifier={"llm": "clarifier_llm", "max_turns": 3})
 
@@ -107,7 +107,7 @@ class TestClarifierSettings:
 
     def test_it_is_absent_by_default(self):
         """A deployment with no clarifier configures nothing."""
-        from aiq_agent.agents.researcher.conversation_register import ChatDeepResearcherConfig
+        from aiq_agent.agents.piloti.conversation_register import ChatDeepResearcherConfig
 
         assert ChatDeepResearcherConfig().clarifier is None
 
@@ -117,8 +117,8 @@ class TestBuildClarifierGuard:
 
     @pytest.mark.asyncio
     async def test_enabled_without_a_block_is_a_boot_error(self):
-        from aiq_agent.agents.researcher.conversation_register import ChatDeepResearcherConfig
-        from aiq_agent.agents.researcher.conversation_register import _build_clarifier
+        from aiq_agent.agents.piloti.conversation_register import ChatDeepResearcherConfig
+        from aiq_agent.agents.piloti.conversation_register import _build_clarifier
 
         with pytest.raises(ValueError, match="enable_clarifier"):
             await _build_clarifier(ChatDeepResearcherConfig(enable_clarifier=True), MagicMock())
@@ -126,8 +126,8 @@ class TestBuildClarifierGuard:
     @pytest.mark.asyncio
     async def test_disabled_resolves_nothing(self):
         """The graph gets None and the escalation goes straight to deep research."""
-        from aiq_agent.agents.researcher.conversation_register import ChatDeepResearcherConfig
-        from aiq_agent.agents.researcher.conversation_register import _build_clarifier
+        from aiq_agent.agents.piloti.conversation_register import ChatDeepResearcherConfig
+        from aiq_agent.agents.piloti.conversation_register import _build_clarifier
 
         assert await _build_clarifier(ChatDeepResearcherConfig(enable_clarifier=False), MagicMock()) is None
 
@@ -155,7 +155,7 @@ class TestResolveTools:
         """Empty means "everything the data-source registry has", not "nothing"."""
         builder = self.builder_returning(alpha_tool)
 
-        with patch("aiq_agent.agents.researcher.clarify.get_all_tool_refs", return_value=["registry_tool"]):
+        with patch("aiq_agent.agents.piloti.clarify.get_all_tool_refs", return_value=["registry_tool"]):
             await resolve_tools(ClarifierSettings(llm="llm"), builder)
 
         assert builder.get_tools.await_args.kwargs["tool_names"] == ["registry_tool"]
@@ -190,7 +190,7 @@ class TestAskThroughNat:
         answer = InteractionResponse(id="1", timestamp="2026-08-18T10:00:00Z", content=HumanResponseText(text="skip"))
         context, manager = self.context_answering(answer)
 
-        with patch("aiq_agent.agents.researcher.clarify.Context.get", return_value=context):
+        with patch("aiq_agent.agents.piloti.clarify.Context.get", return_value=context):
             reply = await ask_through_nat("Which period?", ())
 
         prompt = manager.prompt_user_input.await_args.args[0]
@@ -207,7 +207,7 @@ class TestAskThroughNat:
         )
         context, manager = self.context_answering(picked)
 
-        with patch("aiq_agent.agents.researcher.clarify.Context.get", return_value=context):
+        with patch("aiq_agent.agents.piloti.clarify.Context.get", return_value=context):
             reply = await ask_through_nat("**Focus**: which area?", ["Alpha", "Beta"])
 
         prompt = manager.prompt_user_input.await_args.args[0]
@@ -223,7 +223,7 @@ class TestAskThroughNat:
         typed = InteractionResponse(id="1", timestamp="2026-08-18T10:00:00Z", content=HumanResponseText(text="skip"))
         context, _ = self.context_answering(typed)
 
-        with patch("aiq_agent.agents.researcher.clarify.Context.get", return_value=context):
+        with patch("aiq_agent.agents.piloti.clarify.Context.get", return_value=context):
             assert await ask_through_nat("**Focus**: which area?", ["Alpha", "Beta"]) == "skip"
 
     @pytest.mark.asyncio
@@ -272,7 +272,7 @@ class TestDepsForRequest:
         """Org-disabled sources narrow the tool set even without a model override."""
         clarifier = self.clarifier_for(provider_varying(False), [alpha_tool, beta_tool])
 
-        with patch("aiq_agent.agents.researcher.clarify.filter_tools_by_sources", return_value=[alpha_tool]):
+        with patch("aiq_agent.agents.piloti.clarify.filter_tools_by_sources", return_value=[alpha_tool]):
             deps = clarifier.deps_for(request_with(["alpha"]))
 
         assert deps is not clarifier.boot
@@ -284,8 +284,8 @@ class TestDepsForRequest:
         clarifier = self.clarifier_for(provider_varying(True), [], planner)
 
         with (
-            patch("aiq_agent.agents.researcher.clarify.apply_model_override", return_value=planner) as override,
-            patch("aiq_agent.agents.researcher.clarify.apply_org_credential", return_value=planner),
+            patch("aiq_agent.agents.piloti.clarify.apply_model_override", return_value=planner) as override,
+            patch("aiq_agent.agents.piloti.clarify.apply_org_credential", return_value=planner),
         ):
             clarifier.deps_for(request_with())
 

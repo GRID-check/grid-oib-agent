@@ -44,7 +44,7 @@ down-vote (existing WS-7 capture: verdict + reason chip + comment)
   active lessons ──► bounded digest (≤20 lessons / 1600 chars, cached 5 min)
     └─ GET /api/internal/platform-lessons/digest   [token-guarded, cross-tenant]
          └─ aiq_agent.common.platform_lessons      [60 s TTL, fail-open to None]
-              └─ researcher.j2 §PLATFORM_LESSONS   [meta-framing, everything outranks it]
+              └─ piloti.j2 §PLATFORM_LESSONS   [meta-framing, everything outranks it]
 ```
 
 One code path serves both the event-driven kick (3 reports per vote) and the
@@ -319,5 +319,5 @@ means anything.
 | Schema | `frontends/ui/src/lib/db/schema/platform-lessons.ts`, migration `0068` |
 | Trigger | `frontends/ui/src/app/api/feedback/answers/route.ts` (`after()`) |
 | Internal pull | `frontends/ui/src/app/api/internal/platform-lessons/digest/route.ts` → `src/aiq_agent/common/platform_lessons.py` |
-| Prompt section | `src/aiq_agent/agents/researcher/prompts/researcher.j2` §PLATFORM_LESSONS |
+| Prompt section | `src/aiq_agent/agents/piloti/prompts/piloti.j2` §PLATFORM_LESSONS |
 | Dashboard | `frontends/ui/src/app/app/(shell)/platform/lessons/` |

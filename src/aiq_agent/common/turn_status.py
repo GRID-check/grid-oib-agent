@@ -379,7 +379,7 @@ _ACTION_KEYS = {
 _QUERY_KEYS = ("query", "search_query", "question", "q", "text", "name_contains")
 
 #: Function-group separators used by NAT-qualified tool names (mirrors
-#: ``researcher.agent._TOOL_NAME_SEPARATORS``).
+#: ``piloti.agent._TOOL_NAME_SEPARATORS``).
 _TOOL_NAME_SEPARATORS = ("__", ".")
 
 

@@ -1,4 +1,4 @@
-"""The four verbs the researcher is offered, and the card a written draft leaves.
+"""The four verbs Piloti is offered, and the card a written draft leaves.
 
 The tools themselves are stock DeepAgents; what this repo decides is WHICH of
 them the model sees, what they are called in German, whose working directory

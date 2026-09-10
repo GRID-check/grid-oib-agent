@@ -15,10 +15,10 @@ import pytest
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from aiq_agent.agents.researcher import conversation_register as register_mod
-from aiq_agent.agents.researcher.conversation_register import ChatDeepResearcherConfig
-from aiq_agent.agents.researcher.conversation_register import chat_deepresearcher_agent
-from aiq_agent.agents.researcher.models import ResearchAgentState
+from aiq_agent.agents.piloti import conversation_register as register_mod
+from aiq_agent.agents.piloti.conversation_register import ChatDeepResearcherConfig
+from aiq_agent.agents.piloti.conversation_register import chat_deepresearcher_agent
+from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.common import profiler as profiler_mod
 from aiq_agent.common.turn_admission import TurnAdmissionError
 from aiq_agent.knowledge import ingest_status_store

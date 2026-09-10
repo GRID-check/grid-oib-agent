@@ -84,13 +84,13 @@ needed job succeeded or was skipped by the path filter.
 ## The live turn-shape eval
 
 ADR-0052 deleted the intent router, so two things that used to be code are now
-the researcher's reading of its own prompt: a greeting or a question
+Piloti's reading of its own prompt: a greeting or a question
 about the assistant answers without calling a search tool, and a commissioned
 report („erstelle mir einen vollständigen Prüfbericht …") escalates to deep
 research before it retrieves anything.
 [`tests/benchmarks/test_turn_shapes_live.py`](../../tests/benchmarks/test_turn_shapes_live.py)
 pins both, plus a control question that must still search. It runs the real
-agent on the real prompt against the researcher's own model through OpenRouter, with
+agent on the real prompt against Piloti's own model through OpenRouter, with
 stub tools that record every call, so the assertion is on the trace rather
 than on the prose.
 

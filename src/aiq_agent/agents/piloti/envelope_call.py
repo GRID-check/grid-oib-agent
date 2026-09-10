@@ -66,7 +66,7 @@ def _fall_through(exc: BaseException, response_format: dict[str, Any]) -> None:
 async def ainvoke_with_envelope_json_mode(llm: Any, messages: list[Any]) -> Any:
     """Invoke ``llm`` down the envelope-enforcement ladder, strongest first.
 
-    Accepts both the bare researcher LLM and a tool-bound RunnableBinding
+    Accepts both Piloti's bare LLM and a tool-bound RunnableBinding
     (``bind`` merges kwargs on either). Only a parameter rejection drops to
     the next rung; everything else propagates from the rung it happened on.
 

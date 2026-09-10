@@ -19,7 +19,7 @@ through the LangChain callback manager, so they carry no ``run_id``/
 ``parent_run_id`` of their own. ``current_span_var`` closes that gap — the id
 of the innermost open span, pushed/reset with the same ContextVar token idiom
 already used in this codebase for ``session_registry``/``card_registry``
-(see ``agents/researcher/conversation_register.py``) — so nesting is correct across
+(see ``agents/piloti/conversation_register.py``) — so nesting is correct across
 ``await`` boundaries without depending on LangChain/LangGraph callback
 internals. ``profiled_node()`` wraps each graph node with it; LLM/tool spans
 read it as their parent when they open.

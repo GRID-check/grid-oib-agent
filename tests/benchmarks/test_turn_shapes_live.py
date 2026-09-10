@@ -1,10 +1,10 @@
 """Live turn-shape eval for the two behaviours ADR-0052 moved from code into the prompt.
 
-ADR-0052 deleted the intent classifier: every turn enters the
-researcher with every tool bound, and what the turn IS is decided by the model
+ADR-0052 deleted the intent classifier: every turn enters
+Piloti with every tool bound, and what the turn IS is decided by the model
 with the tools in hand. Two things that used to be routing are now the model's
 judgment, pinned only by the ``<output_contract>`` block of
-``src/aiq_agent/agents/researcher/prompts/researcher.j2``:
+``src/aiq_agent/agents/piloti/prompts/piloti.j2``:
 
 1. a greeting or a question about the assistant is a direct reply, and calls
    no data-source tool;
@@ -12,7 +12,7 @@ judgment, pinned only by the ``<output_contract>`` block of
    the envelope) BEFORE any retrieval of its own.
 
 This file is the eval the ADR said those behaviours lacked. It builds the real
-``ResearcherAgent`` on the real system prompt against the researcher's own
+``PilotiAgent`` on the real system prompt against Piloti's own
 model through OpenRouter, with STUB tools in place of the retrieval stack: the
 stubs record every call and return a plausible hit, so the trace shows exactly
 what the model chose to do and nothing here needs a corpus, a database or a
@@ -43,8 +43,8 @@ import pytest
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from aiq_agent.agents.researcher.agent import ResearcherAgent
-from aiq_agent.agents.researcher.models import ResearchAgentState
+from aiq_agent.agents.piloti.agent import PilotiAgent
+from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.common import AgentGroup
 from aiq_agent.common import LLMProvider
 from aiq_agent.common.data_source_registry import populate_from_config
@@ -183,7 +183,7 @@ _TRANSPORT_ERRORS = (openai.APIConnectionError, openai.RateLimitError, openai.In
 
 
 def _research_model_name() -> str:
-    """The researcher's model as the OIB config would boot it.
+    """Piloti's model as the OIB config would boot it.
 
     Read from ``research_llm.model_name`` rather than hard-coded here, so the
     eval follows the boot floor when it moves (``${GRID_DEFAULT_MODEL:-…}``
@@ -199,7 +199,7 @@ def _research_model_name() -> str:
     return os.environ.get(env_var) or default
 
 
-def _build_agent() -> ResearcherAgent:
+def _build_agent() -> PilotiAgent:
     """The real agent, the real prompt, the real model; stub tools."""
     from langchain_openai import ChatOpenAI
 
@@ -219,7 +219,7 @@ def _build_agent() -> ResearcherAgent:
     llm = enforce_chat_request_contract(apply_openrouter_structured_defaults(llm))
     provider = LLMProvider()
     provider.set_default(llm, group=AgentGroup.RESEARCH)
-    return ResearcherAgent(
+    return PilotiAgent(
         llm_provider=provider,
         tools=_TOOLS,
         # The repair pass re-searches after a failed verification. That is a
@@ -229,7 +229,7 @@ def _build_agent() -> ResearcherAgent:
     )
 
 
-async def _run_turn(agent: ResearcherAgent, question: str) -> ResearchAgentState:
+async def _run_turn(agent: PilotiAgent, question: str) -> ResearchAgentState:
     """One turn, with a single rerun for a transport failure only."""
     for attempt in (1, 2):
         _CALLS.clear()
@@ -260,7 +260,7 @@ def _data_source_registry():
 
 
 @pytest.fixture(scope="module")
-def agent() -> ResearcherAgent:
+def agent() -> PilotiAgent:
     return _build_agent()
 
 

@@ -31,14 +31,14 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from aiq_agent.agents.researcher.agent import ResearcherAgent
-from aiq_agent.agents.researcher.answer_pipeline import prose_without_references
-from aiq_agent.agents.researcher.grounding import _SENTENCE_SPLIT_RE
-from aiq_agent.agents.researcher.grounding import MEASUREMENT_TOOL_NAMES
-from aiq_agent.agents.researcher.grounding import answer_mentions_normative_claim
-from aiq_agent.agents.researcher.grounding import tool_result_is_measurement
-from aiq_agent.agents.researcher.markers import surface_answer_confidence
-from aiq_agent.agents.researcher.models import ResearchAgentState
+from aiq_agent.agents.piloti.agent import PilotiAgent
+from aiq_agent.agents.piloti.answer_pipeline import prose_without_references
+from aiq_agent.agents.piloti.grounding import _SENTENCE_SPLIT_RE
+from aiq_agent.agents.piloti.grounding import MEASUREMENT_TOOL_NAMES
+from aiq_agent.agents.piloti.grounding import answer_mentions_normative_claim
+from aiq_agent.agents.piloti.grounding import tool_result_is_measurement
+from aiq_agent.agents.piloti.markers import surface_answer_confidence
+from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.common import LLMProvider
 from aiq_agent.common.data_source_registry import reset_registry
 from aiq_agent.tools.bim.measure_register import _render
@@ -972,7 +972,7 @@ class TestMeasurementSignalReachesTheState:
 
     async def _run(self, mock_llm_provider, mock_llm, responses, question="Wie hoch ist der Keller?"):
         mock_llm.ainvoke = AsyncMock(side_effect=responses)
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[ifc_measure])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[ifc_measure])
         return await agent.run(ResearchAgentState(messages=[HumanMessage(content=question)]))
 
     @pytest.mark.asyncio
@@ -1153,7 +1153,7 @@ class TestTheSingleSourceFallbackIsNotTheModelsCitation:
         )
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
-        agent = ResearcherAgent(llm_provider=provider, tools=[ifc_measure])
+        agent = PilotiAgent(llm_provider=provider, tools=[ifc_measure])
         return await agent.run(
             ResearchAgentState(messages=[HumanMessage(content="Wie hoch ist der Keller und passt das?")])
         )

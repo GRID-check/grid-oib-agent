@@ -1,1 +1,1 @@
-"""Tests for researcher models."""
+"""Tests for Piloti models."""

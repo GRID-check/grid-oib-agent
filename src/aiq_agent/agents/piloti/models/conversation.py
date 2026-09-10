@@ -1,4 +1,4 @@
-"""The state of one conversation with the researcher.
+"""The state of one conversation with Piloti.
 
 This is the CONVERSATION-scoped state — the one the checkpointer persists
 between turns — as distinct from :class:`ResearchAgentState`, which is
@@ -86,7 +86,7 @@ class ConversationState(BaseModel):
     # STICKY, for the life of the conversation: the user rejected a research
     # plan. A rejection is not a cancel — the question is still on the table and
     # is answered on the shallow path in the same turn — but it is also durable
-    # information about what this reader wants, so it keeps the researcher's
+    # information about what this reader wants, so it keeps Piloti's
     # escalation from putting another plan in front of them for the rest of
     # the thread. A user
     # who has said no to a plan should not have to say it again.
@@ -118,7 +118,7 @@ class ConversationState(BaseModel):
     # the frontend as an honest self-assessment chip. None means "no signal"
     # (marker absent/malformed, or an error/escalation turn) — nothing renders.
     answer_confidence: Literal["low", "medium", "high"] | None = None
-    # Structured sources from the researcher's registry (wire dicts with
+    # Structured sources from Piloti's registry (wire dicts with
     # file_name/page/collection/origin). Attached to ChatResponse as ``sources``.
     verified_sources: list[dict[str, Any]] | None = None
     # --- Transparency extras (WP-A) -------------------------------------------
@@ -173,7 +173,7 @@ class ConversationState(BaseModel):
     # ``{"count": int, "reasons": [str, ...]}`` (reasons deduplicated, max 5).
     citations_removed: dict[str, Any] | None = None
     # The answer's structured anatomy — verdict / takeaways / callout — already
-    # validated and gated by the researcher (``answer_meta.gate_answer_meta``).
+    # validated and gated by Piloti (``answer_meta.gate_answer_meta``).
     # A native field of the answer, rendered by the frontend as answer
     # typography, never a card. Present only when something survived the gates.
     answer_meta: dict[str, Any] | None = None
@@ -191,7 +191,7 @@ class ConversationState(BaseModel):
     # Retry hint in seconds, only alongside ``job_admission_rejected``.
     retry_after_seconds: int | None = None
     # Skill names the user's request FORCED for this turn (parsed from the WS
-    # content JSON's `skills` array). Threaded into the researcher's
+    # content JSON's `skills` array). Threaded into Piloti's
     # per-run SkillRuntime, which resolves them against the run's skill set;
     # deep-research jobs ignore them.
     # NOTE: plain types only (list[str] | None) — a new pydantic TYPE would

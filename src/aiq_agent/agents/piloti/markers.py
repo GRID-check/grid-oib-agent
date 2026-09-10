@@ -1,6 +1,6 @@
-"""Control-marker detection for the researcher's answer contract.
+"""Control-marker detection for Piloti's answer contract.
 
-The researcher's prompt makes the model end research answers with two
+Piloti's prompt makes the model end research answers with two
 control markers:
 
 - ``[ESCALATE_TO_DEEP]`` — the model judged its own answer insufficient and
@@ -10,8 +10,8 @@ control markers:
   sources, with an optional one-clause justification the UI surfaces so the
   reader can see WHY the level was chosen.
 
-These helpers live in the researcher package (the layer that OWNS the
-marker contract) so both the researcher (which now extracts + strips them
+These helpers live in the Piloti package (the layer that OWNS the
+marker contract) so both Piloti (which now extracts + strips them
 before emitting/returning content) and the chat orchestrator (which consumes the
 resulting structured signals, with string-detection as a back-compat fallback)
 can share one implementation without a circular import.
@@ -85,7 +85,7 @@ def _strip_matches(content: str, matches: list[re.Match[str]]) -> str:
 
 
 def detect_and_strip_escalation_marker(content: Any) -> tuple[Any, bool]:
-    """Detect and remove the researcher insufficiency marker from a message.
+    """Detect and remove Piloti's insufficiency marker from a message.
 
     If ``content`` is not a string it is returned unchanged with ``False``.
     Only occurrences of :data:`ESCALATION_MARKER` inside the TAIL REGION (the

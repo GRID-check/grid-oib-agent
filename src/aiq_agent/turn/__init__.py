@@ -5,7 +5,7 @@ here: parsing what the request states about the turn, loading its context and
 document inventory, binding the per-turn registries, admitting the turn
 against capacity and budget, lifting the finished graph state onto the wire
 response, and streaming it. The workflow entry point
-(:mod:`aiq_agent.agents.researcher.conversation_register`) composes these
+(:mod:`aiq_agent.agents.piloti.conversation_register`) composes these
 units; each is a small tested function with an explicit signature, so a fix in
 one can be tested without standing up a NAT workflow.
 

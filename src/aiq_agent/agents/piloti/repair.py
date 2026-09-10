@@ -220,7 +220,7 @@ async def _retrieve(tool: BaseTool, lookups: Sequence[tuple[str, str | None]]) -
     sources: list[SourceEntry] = []
     for output in outputs:
         if isinstance(output, BaseException):
-            logger.warning("Researcher: repair lookup failed: %s", output)
+            logger.warning("Piloti: repair lookup failed: %s", output)
             continue
         text = str(output or "")
         if not text:
@@ -295,7 +295,7 @@ async def repair_answer(
     try:
         grounding, sources = await _retrieve(tool, lookups)
     except Exception:  # noqa: BLE001 - the answer already exists; a failed repair keeps it
-        logger.warning("Researcher: repair retrieval failed", exc_info=True)
+        logger.warning("Piloti: repair retrieval failed", exc_info=True)
         return None
     if not grounding:
         return None
@@ -305,7 +305,7 @@ async def repair_answer(
     try:
         response = await ainvoke_with_envelope_json_mode(llm, messages)
     except Exception:  # noqa: BLE001 - see above
-        logger.warning("Researcher: repair rewrite failed", exc_info=True)
+        logger.warning("Piloti: repair rewrite failed", exc_info=True)
         return None
     text = _clean_rewrite(response)
     return Repair(prose=text, sources=tuple(sources)) if text else None

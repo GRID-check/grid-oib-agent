@@ -155,7 +155,7 @@ bounded by per-org/member/project budgets — see
   schemas*, i.e. the pre-ADR-0048 behaviour. The gate is scoped to
   `shallow_research_agent` and lives on its per-agent settings object, never in
   module scope: it is not, and must not become, a fleet-wide model policy.
-  Since ADR-0052 the researcher binds its full tool set on every turn,
+  Since ADR-0052 Piloti binds its full tool set on every turn,
   greetings included, so this gate is what keeps the per-turn schema floor
   from growing with the tool list.
 - `reasoning_effort` is a **native** `ChatOpenAI` field

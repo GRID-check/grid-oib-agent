@@ -208,7 +208,7 @@ class TestTheVersionCounter:
 
 
 class TestTheAsyncHalf:
-    """The path the researcher actually runs: ToolNode awaits the coroutine."""
+    """The path Piloti actually runs: ToolNode awaits the coroutine."""
 
     @pytest.mark.asyncio
     async def test_write_and_edit_normalise_and_count(self, backend: DraftBackend) -> None:

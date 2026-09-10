@@ -74,8 +74,14 @@ viz = [
 workos = "aiq_agent.auth.workos_validator:get_validators"
 
 [project.entry-points."nat.plugins"]
-aiq_researcher_conversation = "aiq_agent.agents.researcher.conversation_register"
-aiq_researcher = "aiq_agent.agents.researcher.register"
+# `aiq_researcher*` and not `aiq_piloti*` although the package moved to
+# `agents/piloti`: a plugin entry-point name is what a deployment's
+# `NAT_PLUGIN_*` allow/deny lists and the installed dist-info carry, and a
+# stale `<pkg>.egg-info/entry_points.txt` from an older checkout is exactly the
+# ModuleNotFoundError-from-nowhere in `docs/contributing/gotchas.md`. Only the
+# module paths move.
+aiq_researcher_conversation = "aiq_agent.agents.piloti.conversation_register"
+aiq_researcher = "aiq_agent.agents.piloti.register"
 aiq_deep_researcher = "aiq_agent.agents.deep_researcher.register"
 aiq_data_source_registry = "aiq_agent.common.data_source_registry"
 aiq_project_memory = "aiq_agent.memory.register"
@@ -95,7 +101,7 @@ aiq_bim_measure = "aiq_agent.tools.bim.measure_register"
 aiq_files = "aiq_agent.tools.files.register"
 # The working directory's two doors into the project (`file_draft`,
 # `submit_draft`). Its OTHER four verbs are stock DeepAgents tools bound
-# directly by the researcher's register and are not NAT functions at all, so
+# directly by Piloti's register and are not NAT functions at all, so
 # this entry point covers exactly the two that call the BFF.
 aiq_documents = "aiq_agent.tools.documents.register"
 # Delegation (`create_task`). Its own entry point rather than a member of

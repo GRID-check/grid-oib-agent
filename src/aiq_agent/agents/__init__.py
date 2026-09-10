@@ -6,8 +6,8 @@ project-memory surface in ``aiq_agent.memory``.
 """
 
 from .deep_researcher import deep_research_agent
-from .researcher import chat_deepresearcher_agent
-from .researcher import research_agent
+from .piloti import chat_deepresearcher_agent
+from .piloti import research_agent
 
 __all__ = [
     "chat_deepresearcher_agent",

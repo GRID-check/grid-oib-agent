@@ -1,7 +1,7 @@
 """Memory reflection as a post-answer stage.
 
 The gate cases moved here verbatim from
-``tests/aiq_agent/agents/researcher/test_register_helpers.py`` — the
+``tests/aiq_agent/agents/piloti/test_register_helpers.py`` — the
 predicate is the same predicate, it just reads ``TurnFacts`` instead of the graph
 state now. The new cases are the two defects the migration closes: a hard
 timeout, and a gate that finally reads ``research_truncated``.
@@ -176,7 +176,7 @@ class TestHandler:
 
 class TestMatchesEscalationKeywords:
     """The insufficiency heuristic, read ONLY by this stage's gate: escalation
-    itself requires the researcher's explicit structured ask."""
+    itself requires Piloti's explicit structured ask."""
 
     def test_english_phrase_hits(self):
         assert matches_escalation_keywords("Unfortunately I don't have enough information to answer.") is True

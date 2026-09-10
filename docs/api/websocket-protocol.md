@@ -251,7 +251,7 @@ as-is. An old backend ignores the unknown keys and searches the full authorized
 scope — the pre-#429 behaviour, never a dropped frame.
 
 `focus_file_name` is not only a retrieval hint. It is lifted onto
-`ConversationState` and rendered into the answering prompt (`researcher.j2`),
+`ConversationState` and rendered into the answering prompt (`piloti.j2`),
 because a turn that says "fass zusammen" carries its subject in the composer bar
 and nowhere in its text: with retrieval scoped correctly but the model told
 nothing, the answer was "which document do you mean?" over an open PDF. The

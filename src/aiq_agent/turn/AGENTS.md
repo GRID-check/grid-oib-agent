@@ -4,14 +4,14 @@ Everything that happens exactly once per chat turn and is **not** the answering
 agent: parsing what the request says about the turn, loading its context and
 document inventory, binding the per-turn registries, admitting it against
 capacity and budget, lifting the finished state onto the wire, streaming it.
-`agents/researcher/conversation_register.py` composes these units in that order.
+`agents/piloti/conversation_register.py` composes these units in that order.
 
 ## What belongs here, and what does not
 
 Ask how often it runs. **Once per request, whatever the graph decides** — a
 header parse, an inventory load, a registry bind, a refusal — is a unit here.
 **Once per step of the conversation, deciding what the turn is** — an escalation
-edge, a clarify hop, an answer — is a graph node in `agents/researcher/`.
+edge, a clarify hop, an answer — is a graph node in `agents/piloti/`.
 
 Each unit is a plain function with an explicit signature, so it can be tested
 without standing up a NAT workflow. That is the point of the package: the
@@ -28,6 +28,6 @@ only.
 
 | When you | You must | What fails you |
 |---|---|---|
-| Reach for anything in `aiq_api` | Add it to `api_seam.py` and import it from there | `tests/aiq_agent/turn/test_api_seam.py` walks every module in `turn/` and `agents/researcher/` |
+| Reach for anything in `aiq_api` | Add it to `api_seam.py` and import it from there | `tests/aiq_agent/turn/test_api_seam.py` walks every module in `turn/` and `agents/piloti/` |
 | Add a wire field or a stage fact | Add it to the table in `response.py` and give it a test that reads it back | Nothing. A field nobody lifts is set, valid, and invisible |
 | Add setup I/O to the turn | Gather it with the existing `asyncio.gather` and let it fail open on its own | It lands on the time-to-first-byte path in series |

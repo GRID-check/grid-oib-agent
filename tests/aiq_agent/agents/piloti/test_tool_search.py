@@ -17,12 +17,12 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from aiq_agent.agents.researcher.agent import ResearcherAgent
-from aiq_agent.agents.researcher.models import ResearchAgentState
-from aiq_agent.agents.researcher.tool_search import QueryPart
-from aiq_agent.agents.researcher.tool_search import ToolSearchIndex
-from aiq_agent.agents.researcher.tool_search import ToolSearchSettings
-from aiq_agent.agents.researcher.tool_search import build_query_parts
+from aiq_agent.agents.piloti.agent import PilotiAgent
+from aiq_agent.agents.piloti.models import ResearchAgentState
+from aiq_agent.agents.piloti.tool_search import QueryPart
+from aiq_agent.agents.piloti.tool_search import ToolSearchIndex
+from aiq_agent.agents.piloti.tool_search import ToolSearchSettings
+from aiq_agent.agents.piloti.tool_search import build_query_parts
 from aiq_agent.common import LLMProvider
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
@@ -453,8 +453,8 @@ class TestTheAgentBindsWhatWasRetrieved:
         """Same bypass the agent tests use: these runs execute no real tool."""
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-            patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify,
-            patch("aiq_agent.agents.researcher.answer_pipeline.sanitize_report") as mock_sanitize,
+            patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.piloti.answer_pipeline.sanitize_report") as mock_sanitize,
         ):
             mock_verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
                 verified_report=content, removed_citations=[]
@@ -489,7 +489,7 @@ class TestTheAgentBindsWhatWasRetrieved:
         return provider
 
     def _agent(self, provider, **settings):
-        return ResearcherAgent(
+        return PilotiAgent(
             llm_provider=provider,
             tools=PRODUCTION_SHAPED_TOOLS,
             tool_search=ToolSearchSettings(**settings) if settings else None,
@@ -569,8 +569,8 @@ class TestNarrowingCostsNoTurn:
     def _bypass_citation_pipeline(self):
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-            patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify,
-            patch("aiq_agent.agents.researcher.answer_pipeline.sanitize_report") as mock_sanitize,
+            patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.piloti.answer_pipeline.sanitize_report") as mock_sanitize,
         ):
             mock_verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
                 verified_report=content, removed_citations=[]
@@ -604,11 +604,11 @@ class TestNarrowingCostsNoTurn:
         question = ResearchAgentState(messages=[HumanMessage(content="wie hoch ist der Keller")])
 
         provider_off, llm_off = self._provider(self._responses())
-        off = ResearcherAgent(llm_provider=provider_off, tools=PRODUCTION_SHAPED_TOOLS)
+        off = PilotiAgent(llm_provider=provider_off, tools=PRODUCTION_SHAPED_TOOLS)
         result_off = await off.run(question.model_copy(deep=True))
 
         provider_on, llm_on = self._provider(self._responses())
-        on = ResearcherAgent(
+        on = PilotiAgent(
             llm_provider=provider_on,
             tools=PRODUCTION_SHAPED_TOOLS,
             tool_search=ToolSearchSettings(enabled=True, top_k=3),
@@ -621,7 +621,7 @@ class TestNarrowingCostsNoTurn:
     def test_no_discovery_tool_is_added_to_the_tool_set(self):
         """The model is never offered a tool whose job is finding tools."""
         provider, _ = self._provider([AIMessage(content="Antwort")])
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=provider,
             tools=PRODUCTION_SHAPED_TOOLS,
             tool_search=ToolSearchSettings(enabled=True, top_k=3),
@@ -634,8 +634,8 @@ class TestNarrowingCostsNoTurn:
     def test_the_graph_gains_no_node(self):
         """Same two nodes as before: agent and tools. No retrieval step."""
         provider, _ = self._provider([AIMessage(content="Antwort")])
-        off = ResearcherAgent(llm_provider=provider, tools=PRODUCTION_SHAPED_TOOLS)
-        on = ResearcherAgent(
+        off = PilotiAgent(llm_provider=provider, tools=PRODUCTION_SHAPED_TOOLS)
+        on = PilotiAgent(
             llm_provider=provider,
             tools=PRODUCTION_SHAPED_TOOLS,
             tool_search=ToolSearchSettings(enabled=True, top_k=3),
@@ -662,13 +662,13 @@ class TestInertWhenDisabled:
 
     def test_no_settings_means_no_index_is_even_built(self, provider):
         """A deployment that does not ask for this does not pay for it."""
-        agent = ResearcherAgent(llm_provider=provider, tools=PRODUCTION_SHAPED_TOOLS)
+        agent = PilotiAgent(llm_provider=provider, tools=PRODUCTION_SHAPED_TOOLS)
 
         assert agent.tool_search is None
         assert agent._tool_search_index is None
 
     def test_disabled_settings_are_the_same_as_no_settings(self, provider):
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=provider,
             tools=PRODUCTION_SHAPED_TOOLS,
             tool_search=ToolSearchSettings(enabled=False, top_k=2),
@@ -678,7 +678,7 @@ class TestInertWhenDisabled:
         assert agent._tool_search_index is None
 
     def test_a_disabled_agent_binds_the_prebuilt_full_binding(self, provider):
-        agent = ResearcherAgent(llm_provider=provider, tools=PRODUCTION_SHAPED_TOOLS)
+        agent = PilotiAgent(llm_provider=provider, tools=PRODUCTION_SHAPED_TOOLS)
         binding, tools_info = agent._research_tool_binding(
             [HumanMessage(content="wie hoch ist der Keller")], agent.tools_info
         )
@@ -688,7 +688,7 @@ class TestInertWhenDisabled:
 
     def test_the_config_field_defaults_to_off(self):
         """An existing YAML with no `tool_search:` block must behave as today."""
-        from aiq_agent.agents.researcher.register import ResearchAgentConfig
+        from aiq_agent.agents.piloti.register import ResearchAgentConfig
 
         config = ResearchAgentConfig(llm="some_llm")
 
@@ -707,13 +707,13 @@ class TestObservability:
         llm.bind_tools = MagicMock(return_value=llm)
         llm.bind = MagicMock(return_value=llm)
         provider.get = MagicMock(return_value=llm)
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=provider,
             tools=PRODUCTION_SHAPED_TOOLS,
             tool_search=ToolSearchSettings(enabled=True, top_k=3),
         )
 
-        with caplog.at_level("INFO", logger="aiq_agent.agents.researcher.agent"):
+        with caplog.at_level("INFO", logger="aiq_agent.agents.piloti.agent"):
             agent._select_tools_for_query([HumanMessage(content="wie hoch ist der Keller")])
 
         records = [r for r in caplog.records if "[ToolSearch]" in r.getMessage()]
@@ -731,7 +731,7 @@ class TestObservability:
         llm.bind_tools = MagicMock(return_value=llm)
         llm.bind = MagicMock(return_value=llm)
         provider.get = MagicMock(return_value=llm)
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=provider,
             tools=PRODUCTION_SHAPED_TOOLS,
             tool_search=ToolSearchSettings(enabled=True, top_k=3),
@@ -740,7 +740,7 @@ class TestObservability:
         # A client's name and their Parzelle, not a credential — `detect-secrets`
         # reads the variable name. pragma: allowlist secret
         secret = "Bauherr Familie Gruber, Parzelle 1234/7, wie hoch ist der Keller"  # pragma: allowlist secret
-        with caplog.at_level("INFO", logger="aiq_agent.agents.researcher.agent"):
+        with caplog.at_level("INFO", logger="aiq_agent.agents.piloti.agent"):
             agent._select_tools_for_query([HumanMessage(content=secret)])
 
         for record in caplog.records:

@@ -7,7 +7,7 @@ metadata:
   # read and write `/shared/`, and return `ResearchNotes` — capabilities that
   # exist only inside a deep-research job. `grid-agents: deep_researcher` is now
   # the ONE thing keeping this skill out of a chat turn: it is the single
-  # availability gate, so removing it would offer the chat researcher a skill
+  # availability gate, so removing it would offer Piloti a skill
   # it cannot carry out. A skill declares WHO may use it and nothing else — when
   # and how a run happens is a property of the job, not of the skill.
   grid-agents: deep_researcher

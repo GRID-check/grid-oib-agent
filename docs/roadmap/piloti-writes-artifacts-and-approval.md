@@ -49,7 +49,7 @@ flowchart LR
 ## 1. The working directory
 
 **What it is.** DeepAgents' file tools (`ls`, `read_file`, `write_file`,
-`edit_file`) bound into the researcher's existing tool node, over a
+`edit_file`) bound into Piloti's existing tool node, over a
 `StoreBackend` whose namespace is the conversation. Verified by probe on the
 installed `deepagents` 0.6.12: the tools run inside a plain `StateGraph`
 because `ToolNode` injects the runtime they need; `BackendProtocol` has no
@@ -376,7 +376,7 @@ Measurements: share of turns that leave a draft; time from `in_review` to
 | Idempotency key forbids versions | `document_versions`; the item keeps its ref |
 | `discardSupersededObjects` deletes objects, not chunks | chunk purger on supersede and archive |
 | Audit actions unregistered unfile the document | registered in the same commit; provisioning is a deploy step |
-| DeepAgents "buys nothing" | overturned by probe: tools run in the researcher's graph; the backend is four methods; only NFC is ours |
+| DeepAgents "buys nothing" | overturned by probe: tools run in Piloti's graph; the backend is four methods; only NFC is ours |
 | Interaction budget cannot absorb writes | 6 to 9 with the derivation |
 | `artifacts` on the strict envelope | dropped; a system card from the tool result |
 | Slice 0 tool table is ceremony | dropped; one basename list |

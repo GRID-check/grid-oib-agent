@@ -227,22 +227,22 @@ def test_the_generic_card_seed_carries_the_craft_the_tool_no_longer_states():
 #: Surfaces the seeds are asserted against. Answer shape is taught on three
 #: prompts and the split between them is what these last tests pin; the deep
 #: agent module is read for the second delivery channel it opens.
-SHALLOW_PROMPT = REPO_ROOT / "src/aiq_agent/agents/researcher/prompts/researcher.j2"
+PILOTI_PROMPT = REPO_ROOT / "src/aiq_agent/agents/piloti/prompts/piloti.j2"
 DEEP_WRITER_PROMPT = REPO_ROOT / "src/aiq_agent/agents/deep_researcher/prompts/writer.j2"
 DEEP_AGENT = REPO_ROOT / "src/aiq_agent/agents/deep_researcher/agent.py"
 
 
 def _prompt_section(name: str) -> str:
-    prompt = SHALLOW_PROMPT.read_text(encoding="utf-8")
+    prompt = PILOTI_PROMPT.read_text(encoding="utf-8")
     match = re.search(rf"<{name}>.*?</{name}>", prompt, re.DOTALL)
-    assert match is not None, f"the researcher prompt no longer has a <{name}> section"
+    assert match is not None, f"Piloti's prompt no longer has a <{name}> section"
     return match.group(0)
 
 
 def _agents_with_a_delivery_surface() -> set[str]:
     """Agents that can actually be handed a resolved skill, read from the code.
 
-    Two channels exist and they are different by necessity. The chat researcher
+    Two channels exist and they are different by necessity. Piloti
     resolves per turn inside a live request, so it names the agent at the
     ``SkillResolver`` call site. Deep research runs in a Dask worker with no
     request to read an organization off, so it resolves per RUN through
@@ -326,7 +326,7 @@ def test_the_prompt_carries_the_voice_craft_the_retired_seed_taught():
         assert rule in body
 
     # The old split's section is gone, pointer and all.
-    prompt = SHALLOW_PROMPT.read_text(encoding="utf-8")
+    prompt = PILOTI_PROMPT.read_text(encoding="utf-8")
     assert "<answer_shape>" not in prompt
     assert "writing skill active for this turn" not in prompt
 
@@ -440,9 +440,9 @@ def test_the_notation_rule_and_the_prompt_formatting_rule_stay_on_their_own_ques
     craft a platform owner may rewrite. Asserted against each other so that a
     second copy of either in the other's home fails here rather than drifting.
     """
-    prompt = SHALLOW_PROMPT.read_text(encoding="utf-8")
+    prompt = PILOTI_PROMPT.read_text(encoding="utf-8")
     match = re.search(r"<formatting>.*?</formatting>", prompt, re.DOTALL)
-    assert match is not None, "the researcher prompt no longer has a <formatting> section"
+    assert match is not None, "Piloti's prompt no longer has a <formatting> section"
     formatting = match.group(0)
     body = _unwrapped(_effective_row("piloti-voice")["body"])
 
@@ -475,7 +475,7 @@ def test_the_voice_carries_the_certainty_split_the_confidence_field_cannot():
     prompt's ``<stimme>`` section (the live voice) and the retired seed body
     (the history it condenses).
     """
-    prompt = SHALLOW_PROMPT.read_text(encoding="utf-8")
+    prompt = PILOTI_PROMPT.read_text(encoding="utf-8")
     body = _unwrapped(_effective_row("piloti-voice")["body"])
 
     assert "Every researched answer carries `confidence`" in prompt

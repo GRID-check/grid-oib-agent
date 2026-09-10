@@ -1,4 +1,4 @@
-"""Researcher register: skill wiring (resolver → allowlist → runtime → tools).
+"""Piloti register: skill wiring (resolver → allowlist → runtime → tools).
 
 Covers the seam between the skills engine and the agent registration: the
 per-run resolution + allowlist narrowing + ``use_skill`` tool folding +
@@ -15,10 +15,10 @@ import pytest
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-import aiq_agent.agents.researcher.register as register_module
-from aiq_agent.agents.researcher.models import ResearchAgentState
-from aiq_agent.agents.researcher.register import ResearchAgentConfig
-from aiq_agent.agents.researcher.register import research_agent
+import aiq_agent.agents.piloti.register as register_module
+from aiq_agent.agents.piloti.models import ResearchAgentState
+from aiq_agent.agents.piloti.register import ResearchAgentConfig
+from aiq_agent.agents.piloti.register import research_agent
 
 
 @tool
@@ -41,7 +41,7 @@ class _FakeBuilder:
 
 
 def _make_agent_stub():
-    """ResearcherAgent replacement whose .run echoes the input state.
+    """PilotiAgent replacement whose .run echoes the input state.
 
     Records the tools each constructed instance was given so the test can
     assert the ``use_skill`` tool was folded into (only) the research-turn
@@ -113,7 +113,7 @@ async def test_research_turn_resolves_allows_and_folds_skill_tool():
     stub = _make_agent_stub()
 
     with (
-        patch.object(register_module, "ResearcherAgent", stub),
+        patch.object(register_module, "PilotiAgent", stub),
         patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
         patch.object(register_module, "SkillRuntime", return_value=runtime) as RuntimeCls,
         patch.object(register_module, "SkillResolver") as ResolverCls,
@@ -164,7 +164,7 @@ async def test_the_catalog_is_announced_before_the_llm_runs():
     announced = []
 
     with (
-        patch.object(register_module, "ResearcherAgent", _make_agent_stub()),
+        patch.object(register_module, "PilotiAgent", _make_agent_stub()),
         patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
         patch.object(register_module, "SkillRuntime", return_value=runtime),
         patch.object(register_module, "SkillResolver") as ResolverCls,
@@ -195,7 +195,7 @@ async def test_a_turn_without_skills_announces_nothing():
     announced = []
 
     with (
-        patch.object(register_module, "ResearcherAgent", _make_agent_stub()),
+        patch.object(register_module, "PilotiAgent", _make_agent_stub()),
         patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
         patch.object(register_module, "SkillResolver") as ResolverCls,
         patch.object(register_module, "emit_skills_offered", side_effect=lambda rt: announced.append(rt)),
@@ -227,7 +227,7 @@ async def test_explicit_slash_invocation_loads_the_skill():
     runtime = _skill_runtime(resolved, ["forecast-analysis"])
 
     with (
-        patch.object(register_module, "ResearcherAgent", _make_agent_stub()),
+        patch.object(register_module, "PilotiAgent", _make_agent_stub()),
         patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
         patch.object(register_module, "SkillRuntime", return_value=runtime) as RuntimeCls,
         patch.object(register_module, "SkillResolver") as ResolverCls,
@@ -260,7 +260,7 @@ async def test_skills_disabled_skips_resolution():
     )
 
     with (
-        patch.object(register_module, "ResearcherAgent", _make_agent_stub()),
+        patch.object(register_module, "PilotiAgent", _make_agent_stub()),
         patch.object(register_module, "SkillResolver") as ResolverCls,
     ):
         run_fn, gen = await _get_run_fn(config, builder)
@@ -287,7 +287,7 @@ async def test_allowlist_narrows_resolved_set():
     runtime.prompt_block.return_value = "## Verfügbare Skills"
 
     with (
-        patch.object(register_module, "ResearcherAgent", _make_agent_stub()),
+        patch.object(register_module, "PilotiAgent", _make_agent_stub()),
         patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
         patch.object(register_module, "SkillRuntime", return_value=runtime) as RuntimeCls,
         patch.object(register_module, "SkillResolver") as ResolverCls,
@@ -318,7 +318,7 @@ async def test_unknown_forced_skill_passes_through_allowlist():
     runtime.prompt_block.return_value = "## Verfügbare Skills"
 
     with (
-        patch.object(register_module, "ResearcherAgent", _make_agent_stub()),
+        patch.object(register_module, "PilotiAgent", _make_agent_stub()),
         patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
         patch.object(register_module, "SkillRuntime", return_value=runtime) as RuntimeCls,
         patch.object(register_module, "SkillResolver") as ResolverCls,
@@ -361,7 +361,7 @@ async def test_the_forced_house_skills_get_their_own_iteration_budget():
     stub = _make_agent_stub()
 
     with (
-        patch.object(register_module, "ResearcherAgent", stub),
+        patch.object(register_module, "PilotiAgent", stub),
         patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
         patch.object(register_module, "SkillRuntime", return_value=runtime),
         patch.object(register_module, "SkillResolver") as ResolverCls,
@@ -397,7 +397,7 @@ async def test_a_forced_skill_the_model_never_opened_is_not_reported_as_used(cap
     runtime = _skill_runtime(resolved, ["piloti-voice", "piloti-cards"], activated=["piloti-voice"])
 
     with (
-        patch.object(register_module, "ResearcherAgent", _make_agent_stub()),
+        patch.object(register_module, "PilotiAgent", _make_agent_stub()),
         patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
         patch.object(register_module, "SkillRuntime", return_value=runtime),
         patch.object(register_module, "SkillResolver") as ResolverCls,
@@ -449,7 +449,7 @@ async def test_the_model_credential_and_zdr_lookups_overlap():
         return False
 
     with (
-        patch.object(register_module, "ResearcherAgent", _make_agent_stub()),
+        patch.object(register_module, "PilotiAgent", _make_agent_stub()),
         patch.object(register_module, "get_model_overrides_from_context", side_effect=_slow_overrides),
         patch.object(register_module, "get_org_llm_credential_from_context", side_effect=_slow_reader),
         patch.object(register_module, "get_zdr_only_from_context", side_effect=_slow_zdr),
@@ -472,7 +472,7 @@ async def test_one_bad_tenant_reader_does_not_poison_the_others():
         raise RuntimeError("BFF down")
 
     with (
-        patch.object(register_module, "ResearcherAgent", _make_agent_stub()),
+        patch.object(register_module, "PilotiAgent", _make_agent_stub()),
         patch.object(register_module, "get_model_overrides_from_context", return_value={"shallow_research": "x/y"}),
         patch.object(register_module, "get_org_llm_credential_from_context", side_effect=_boom),
         patch.object(register_module, "get_zdr_only_from_context", return_value=False),
@@ -501,7 +501,7 @@ async def test_the_skill_resolve_runs_off_the_event_loop():
         return resolved
 
     with (
-        patch.object(register_module, "ResearcherAgent", _make_agent_stub()),
+        patch.object(register_module, "PilotiAgent", _make_agent_stub()),
         patch.object(register_module, "get_organization_id_from_context", return_value="org-1"),
         patch.object(register_module, "SkillRuntime", return_value=runtime),
         patch.object(register_module, "SkillResolver") as ResolverCls,

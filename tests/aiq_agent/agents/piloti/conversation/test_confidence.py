@@ -1,11 +1,11 @@
-"""Tests for self-assessed answer-confidence surfacing in the researcher.
+"""Tests for self-assessed answer-confidence surfacing in Piloti.
 
 Covers the node-level assembly (`_finalize_answer`) and end-to-end
 propagation through ``ConversationGraph.run()``: the guard caps ungrounded
 self-reports, escalation/error branches surface nothing, and a control marker
 left in the text is always stripped from the user-visible answer.
 
-The signals are the researcher's structured state fields
+The signals are Piloti's structured state fields
 (``escalation_requested``, ``answer_confidence_marker``, ...) — the model is
 the contract; nothing here is re-parsed from the answer text.
 """
@@ -15,15 +15,15 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
 from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
-from aiq_agent.agents.researcher.conversation import ConversationGraph
-from aiq_agent.agents.researcher.conversation import _finalize_answer
-from aiq_agent.agents.researcher.models import ConversationState
-from aiq_agent.agents.researcher.models import ResearchAgentState
+from aiq_agent.agents.piloti.conversation import ConversationGraph
+from aiq_agent.agents.piloti.conversation import _finalize_answer
+from aiq_agent.agents.piloti.models import ConversationState
+from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 
 
 def _signals(**fields) -> ResearchAgentState:
-    """A researcher state carrying just the signals a test names."""
+    """A Piloti state carrying just the signals a test names."""
     fields.setdefault("escalation_requested", False)
     return ResearchAgentState(messages=[], **fields)
 
@@ -118,8 +118,8 @@ class TestConfidenceEndToEnd:
         confidence_marker=None,
         confidence_reason: str | None = None,
     ):
-        """The real researcher state: the answer text is already marker-free and
-        the signals arrive on structured fields, as ``ResearcherAgent.run()`` sets them."""
+        """The real Piloti state: the answer text is already marker-free and
+        the signals arrive on structured fields, as ``PilotiAgent.run()`` sets them."""
 
         async def research(state_input):
             return ResearchAgentState(
@@ -191,7 +191,7 @@ class TestConfidenceEndToEnd:
 
     @pytest.mark.asyncio
     async def test_a_leaked_text_marker_is_stripped_but_not_read(self, deep_fn):
-        """The text is not a signal channel: a marker the researcher failed
+        """The text is not a signal channel: a marker Piloti failed
         to strip is removed from the answer, and the level comes from the
         structured field only."""
         research = self._research_returning("Teilantwort.\n[CONFIDENCE:medium | aus dem Text]", grounded=True)

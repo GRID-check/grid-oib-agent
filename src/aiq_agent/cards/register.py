@@ -57,8 +57,8 @@ place none: the reader scrolls past the drawings to reach the answer they asked 
 # The CONTRACT of the tool, and only that: which trigger takes which card, when to emit none, and
 # where a card lands. Every line here is paid on every turn whether or not a card is emitted, so
 # the CRAFT — which card actually improves an ordinary answer, and how to tell the three
-# table-shaped cards apart — lives in the `<cards>` section of the researcher's system prompt
-# (`researcher/prompts/researcher.j2`), where the `piloti-cards` platform skill used to
+# table-shaped cards apart — lives in the `<cards>` section of Piloti's system prompt
+# (`piloti/prompts/piloti.j2`), where the `piloti-cards` platform skill used to
 # carry it before the house skills were folded into the prompts. A new card type earns a trigger
 # line in the shared doctrine; its craft paragraph belongs in that prompt section. The doctrine
 # itself moved to `catalog.py` when the post-hoc generator started rendering it too — a trigger

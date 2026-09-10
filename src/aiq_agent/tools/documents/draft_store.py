@@ -228,7 +228,7 @@ class DraftBackend(StoreBackend):
     """A ``StoreBackend`` pinned to one conversation, NFC-normalising and bounded.
 
     Four overrides, two of them the async twin of the other two, because the
-    tools call whichever half the graph is running (the researcher is async;
+    tools call whichever half the graph is running (Piloti is async;
     the sync path exists so the invariant does not depend on that staying true).
     """
 

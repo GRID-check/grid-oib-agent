@@ -11,22 +11,22 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
-from aiq_agent.agents.researcher.clarify import CLARIFICATION_PROMPT
-from aiq_agent.agents.researcher.clarify import MAX_TOOL_ROUNDS
-from aiq_agent.agents.researcher.clarify import PLAN_GENERATION_PROMPT
-from aiq_agent.agents.researcher.clarify import SKIP_COMMANDS
-from aiq_agent.agents.researcher.clarify import TRACE_STEP_NAME
-from aiq_agent.agents.researcher.clarify import ClarifierSettings
-from aiq_agent.agents.researcher.clarify import ClarifyDeps
-from aiq_agent.agents.researcher.clarify import build_deps
-from aiq_agent.agents.researcher.clarify import clarify
-from aiq_agent.agents.researcher.clarify import fallback_clarification
-from aiq_agent.agents.researcher.clarify import format_plan_for_user
-from aiq_agent.agents.researcher.clarify import parse_json_response
-from aiq_agent.agents.researcher.clarify import parse_plan_reply
-from aiq_agent.agents.researcher.models import ClarificationResponse
-from aiq_agent.agents.researcher.models import ClarifyRequest
-from aiq_agent.agents.researcher.models import PlanResponse
+from aiq_agent.agents.piloti.clarify import CLARIFICATION_PROMPT
+from aiq_agent.agents.piloti.clarify import MAX_TOOL_ROUNDS
+from aiq_agent.agents.piloti.clarify import PLAN_GENERATION_PROMPT
+from aiq_agent.agents.piloti.clarify import SKIP_COMMANDS
+from aiq_agent.agents.piloti.clarify import TRACE_STEP_NAME
+from aiq_agent.agents.piloti.clarify import ClarifierSettings
+from aiq_agent.agents.piloti.clarify import ClarifyDeps
+from aiq_agent.agents.piloti.clarify import build_deps
+from aiq_agent.agents.piloti.clarify import clarify
+from aiq_agent.agents.piloti.clarify import fallback_clarification
+from aiq_agent.agents.piloti.clarify import format_plan_for_user
+from aiq_agent.agents.piloti.clarify import parse_json_response
+from aiq_agent.agents.piloti.clarify import parse_plan_reply
+from aiq_agent.agents.piloti.models import ClarificationResponse
+from aiq_agent.agents.piloti.models import ClarifyRequest
+from aiq_agent.agents.piloti.models import PlanResponse
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 
@@ -494,7 +494,7 @@ class TestTheTraceRow:
         """`clarifier_agent` is a UI dictionary key (intermediate-step-parser.ts)
         and it is stamped on turns persisted before the NAT function went away,
         so the live trace has to keep emitting exactly it."""
-        with patch("aiq_agent.agents.researcher.clarify.push_custom_step") as push:
+        with patch("aiq_agent.agents.piloti.clarify.push_custom_step") as push:
             await clarify(request_for(), deps_for(make_llm(clarification()), ask=AsyncMock()))
 
         assert push.call_args.args[0] == TRACE_STEP_NAME == "clarifier_agent"
@@ -510,7 +510,7 @@ class TestTheTraceRow:
             return "skip"
 
         with patch(
-            "aiq_agent.agents.researcher.clarify.push_custom_step",
+            "aiq_agent.agents.piloti.clarify.push_custom_step",
             side_effect=lambda *a: order.append("traced"),
         ):
             await clarify(request_for(), deps_for(make_llm(clarification("Which angle?")), ask=ask))

@@ -1,10 +1,10 @@
 """NAT registration for the chat workflow: the conversation graph as a turn.
 
-Beside the graph it registers (:mod:`aiq_agent.agents.researcher.conversation`)
+Beside the graph it registers (:mod:`aiq_agent.agents.piloti.conversation`)
 and nothing else: the config, the wiring of the sibling NAT functions into that
 graph, and a ``_run`` that composes the per-turn harness from
 :mod:`aiq_agent.turn`. The answering agent, the escalation edge and the
-conversation state are the researcher's, which is why this lives here rather
+conversation state are Piloti's, which is why this lives here rather
 than in a package of its own.
 """
 
@@ -17,10 +17,10 @@ from typing import Any
 from langchain_core.messages import HumanMessage
 from pydantic import Field
 
-from aiq_agent.agents.researcher.clarify import ClarifierSettings
-from aiq_agent.agents.researcher.clarify import build_clarifier
-from aiq_agent.agents.researcher.conversation import ConversationGraph
-from aiq_agent.agents.researcher.models import ConversationState
+from aiq_agent.agents.piloti.clarify import ClarifierSettings
+from aiq_agent.agents.piloti.clarify import build_clarifier
+from aiq_agent.agents.piloti.conversation import ConversationGraph
+from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.common import AgentGroup
 from aiq_agent.common import filter_tools_by_sources
 from aiq_agent.common import format_tool_unavailability_error
@@ -177,7 +177,7 @@ async def _build_clarifier(config: ChatDeepResearcherConfig, builder: Builder):
 
 
 async def _build_agent(config: ChatDeepResearcherConfig, builder: Builder) -> ConversationGraph:
-    """Resolve the sibling NAT functions into the researcher's conversation graph.
+    """Resolve the sibling NAT functions into Piloti's conversation graph.
 
     ``enable_clarifier`` decides HERE whether a clarifier is resolved at all: a
     deployment that runs without one hands the graph ``None`` and the escalation
@@ -432,4 +432,4 @@ async def chat_deepresearcher_agent(config: ChatDeepResearcherConfig, builder: B
     # imported because the socket is the front end's and the graph is ours.
     register_context_appender(agent.append_context_message)
     run = _turn_runner(agent, config, stage_llms, workflow_id)
-    yield FunctionInfo.from_fn(run, description="Chat researcher: one answering agent, escalation to deep research.")
+    yield FunctionInfo.from_fn(run, description="Piloti: one answering agent, escalation to deep research.")

@@ -35,7 +35,7 @@ STREAM_EXTRA_FIELDS = (
     "job_admission_rejected",
     "retry_after_seconds",
     # The answer's structured anatomy (verdict / takeaways / callout), gated by
-    # the researcher — a native answer field, never a card.
+    # Piloti — a native answer field, never a card.
     "answer_meta",
     # Agent Skills: which skills ran this turn, in the order their bodies were
     # fetched, and the ``grid-hidden`` subset the disclosure mutes until the

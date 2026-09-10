@@ -4,8 +4,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 
-from aiq_agent.agents.researcher.history import _count_message_tokens
-from aiq_agent.agents.researcher.history import trim_message_history
+from aiq_agent.agents.piloti.history import _count_message_tokens
+from aiq_agent.agents.piloti.history import trim_message_history
 
 
 class TestTrimMessageHistory:

@@ -164,7 +164,7 @@ _MAX_CACHED_BINDINGS = 32
 
 #: Where the turn's binding rides on the LangGraph config (``configurable``),
 #: so the compiled graph is shared across turns and never rebuilt.
-_TURN_BINDING_KEY = "researcher_turn"
+_TURN_BINDING_KEY = "piloti_turn"
 
 _SYNTHESIS_ANCHOR = (
     "You have exhausted your research budget. Synthesize the final answer now "
@@ -324,7 +324,7 @@ def _capture_sources(
     """Register the sources one tool result carries, gated twice.
 
     The tool must be in the agent's loaded tool set AND resolve to a
-    configured data source: the researcher tool list also carries interaction
+    configured data source: Piloti's tool list also carries interaction
     tools such as ``emit_card`` and ``remember``, whose confirmations would
     otherwise register as tool-name citation keys via the non-URL fallback.
     The registry is cumulative across the conversation; the citation-health
@@ -364,7 +364,7 @@ def _bind_registry() -> tuple[SourceRegistry, Any]:
     return registry, set_session_registry(registry)
 
 
-class ResearcherAgent:
+class PilotiAgent:
     """Fast, bounded research with tool-calling.
 
     A two-node LangGraph (``agent`` → ``tools`` → ``agent`` …) whose loop
@@ -375,9 +375,15 @@ class ResearcherAgent:
     Example:
         >>> provider = LLMProvider()
         >>> provider.set_default(my_llm)
-        >>> agent = ResearcherAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=5)
+        >>> agent = PilotiAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=5)
         >>> result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="What is CUDA?")]))
     """
+
+    #: The state model ``run`` takes. Declared rather than derived: the async
+    #: job runner used to spell it out of the class name, so renaming the class
+    #: silently handed the agent a bare dict instead of a state object
+    #: (``aiq_api.jobs.runner._get_agent_state_class``).
+    state_model = ResearchAgentState
 
     def __init__(
         self,
@@ -399,7 +405,7 @@ class ResearcherAgent:
             llm_provider: LLMProvider for role-based LLM access.
             tools: The boot tool set. A turn may narrow or extend it.
             system_prompt: Optional custom template; the default is
-                ``prompts/researcher.j2``, read once per process.
+                ``prompts/piloti.j2``, read once per process.
             max_tool_iterations: The RESEARCH budget, tool calls the turn may
                 spend looking things up before synthesis is forced.
             reserved_tool_iterations: Extra tool calls granted ON TOP of the
@@ -471,7 +477,7 @@ class ResearcherAgent:
         return self._graph
 
     def _get_llm(self) -> BaseChatModel:
-        """The boot researcher LLM."""
+        """Piloti's boot LLM (the shared ``RESEARCHER`` role)."""
         return self.llm_provider.get(LLMRole.RESEARCHER)
 
     def _bind_research_tools(self, llm: BaseChatModel, tools: Sequence[BaseTool]) -> Any:
@@ -699,7 +705,7 @@ class ResearcherAgent:
         result = await binding.tool_node.ainvoke(state)
         registry = get_session_registry()
         if registry is None:
-            raise RuntimeError("ResearcherAgent graph invoked outside run(): no source registry is bound")
+            raise RuntimeError("PilotiAgent graph invoked outside run(): no source registry is bound")
         measured = bool(state.answer_measurement_grounded)
         for message in result.get("messages", []):
             if not isinstance(message, ToolMessage) or not message.content:

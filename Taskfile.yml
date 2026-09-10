@@ -431,7 +431,7 @@ tasks:
       - '{{.PY}} -m oib_retrieval_eval.record_vector'
 
   be:eval:turn-shapes:
-    desc: ADR-0052 turn-shape eval against the live researcher model (needs OPENROUTER_API_KEY; skips without it)
+    desc: ADR-0052 turn-shape eval against Piloti's live model (needs OPENROUTER_API_KEY; skips without it)
     cmds:
       # The two behaviours ADR-0052 moved from the router into the prompt — a
       # greeting does not search, a commissioned report escalates before it

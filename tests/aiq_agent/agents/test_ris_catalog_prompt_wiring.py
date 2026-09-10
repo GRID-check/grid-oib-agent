@@ -1,4 +1,4 @@
-"""Prompt wiring: the norm registry block reaches the researcher prompts."""
+"""Prompt wiring: the norm registry block reaches both answering prompts."""
 
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -13,7 +13,7 @@ from aiq_agent.common.norm_registry import reset_registry_cache
 from aiq_agent.common.prompt_utils import render_prompt_template
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SHALLOW_TEMPLATE = REPO_ROOT / "src" / "aiq_agent" / "agents" / "researcher" / "prompts" / "researcher.j2"
+PILOTI_TEMPLATE = REPO_ROOT / "src" / "aiq_agent" / "agents" / "piloti" / "prompts" / "piloti.j2"
 DEEP_TEMPLATE = REPO_ROOT / "src" / "aiq_agent" / "agents" / "deep_researcher" / "prompts" / "researcher.j2"
 
 _HEADING = "## Normenregister (verifizierte Normen, Rang und Rolle annotiert)"
@@ -64,7 +64,7 @@ def _render_template(template_path: Path, ris_catalog) -> str:
     )
 
 
-@pytest.mark.parametrize("template_path", [SHALLOW_TEMPLATE, DEEP_TEMPLATE])
+@pytest.mark.parametrize("template_path", [PILOTI_TEMPLATE, DEEP_TEMPLATE])
 def test_templates_render_registry_block_when_present(template_path):
     rendered = _render_template(template_path, "- BO Wien — Bauordnung für Wien [LrKons/NOR12345678]")
 
@@ -72,7 +72,7 @@ def test_templates_render_registry_block_when_present(template_path):
     assert "BO Wien" in rendered
 
 
-@pytest.mark.parametrize("template_path", [SHALLOW_TEMPLATE, DEEP_TEMPLATE])
+@pytest.mark.parametrize("template_path", [PILOTI_TEMPLATE, DEEP_TEMPLATE])
 def test_templates_omit_registry_block_when_absent(template_path):
     rendered = _render_template(template_path, None)
 

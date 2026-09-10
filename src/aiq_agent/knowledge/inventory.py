@@ -29,7 +29,7 @@ _listing_shelf: ContextVar[Shelf | None] = ContextVar("grid_listing_shelf", defa
 # How many files the cap dropped, per shelf, for the turn being rendered.
 #
 # A contextvar for the same reason ``_listing_shelf`` is one: the cap is applied
-# at AGGREGATION time (``agents.researcher.conversation_register``) and the block is rendered
+# at AGGREGATION time (``agents.piloti.conversation_register``) and the block is rendered
 # much later, by ``render_prompt_template``, with no call path between them that
 # could carry an extra argument.
 _inventory_drops: ContextVar[dict[Shelf | None, int]] = ContextVar("grid_inventory_drops", default={})
@@ -46,7 +46,7 @@ _inventory_drops: ContextVar[dict[Shelf | None, int]] = ContextVar("grid_invento
 # A ContextVar for the third time in this module and for the same reason: the
 # rows are aggregated in `turn/inventory.py` and read inside a tool call, with
 # a LangGraph run and a tool node between the two and no argument that could
-# travel. Set once per turn (`researcher/conversation_register.py`), so a turn
+# travel. Set once per turn (`piloti/conversation_register.py`), so a turn
 # with no inventory reads the empty tuple rather than the previous turn's.
 _turn_documents: ContextVar[tuple[Any, ...]] = ContextVar("grid_turn_documents", default=())
 

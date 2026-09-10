@@ -21,13 +21,13 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
 from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
-from aiq_agent.agents.researcher.conversation import ConversationGraph
-from aiq_agent.agents.researcher.conversation import _finalize_answer
-from aiq_agent.agents.researcher.markers import MEASUREMENT_CONFIDENCE_CEILING
-from aiq_agent.agents.researcher.markers import answer_confidence_capped_reason
-from aiq_agent.agents.researcher.markers import surface_answer_confidence
-from aiq_agent.agents.researcher.models import ConversationState
-from aiq_agent.agents.researcher.models import ResearchAgentState
+from aiq_agent.agents.piloti.conversation import ConversationGraph
+from aiq_agent.agents.piloti.conversation import _finalize_answer
+from aiq_agent.agents.piloti.markers import MEASUREMENT_CONFIDENCE_CEILING
+from aiq_agent.agents.piloti.markers import answer_confidence_capped_reason
+from aiq_agent.agents.piloti.markers import surface_answer_confidence
+from aiq_agent.agents.piloti.models import ConversationState
+from aiq_agent.agents.piloti.models import ResearchAgentState
 
 # The two answers the whole design turns on: the same measured sentence, once
 # on its own and once with a legal conclusion bolted onto it.
@@ -212,7 +212,7 @@ class TestFinalizeAnswerCarriesTheSignals:
 
 
 class TestMeasurementConfidenceEndToEnd:
-    """Propagation from a researcher result through ``ConversationGraph.run()``."""
+    """Propagation from a Piloti result through ``ConversationGraph.run()``."""
 
     @pytest.fixture
     def deep_fn(self):
@@ -222,7 +222,7 @@ class TestMeasurementConfidenceEndToEnd:
         return deep
 
     def _research_state(self, answer: str, *, measured: bool, normative: bool, marker: str = "high"):
-        """The real researcher state, with the grounding fields set to real booleans."""
+        """The real Piloti state, with the grounding fields set to real booleans."""
 
         async def research(state_input):
             return ResearchAgentState(
@@ -265,7 +265,7 @@ class TestMeasurementConfidenceEndToEnd:
 class TestTheSingleSourceFallbackDoesNotLaunder:
     """The third kind of grounding, and why it is not the first.
 
-    The researcher appends ONE registry source when nothing the model cited
+    Piloti appends ONE registry source when nothing the model cited
     survived verification. The registry is cumulative across the conversation,
     so that source can be a Bauordnung link captured two turns ago for a
     different question — and treating it as citation grounding switched off the

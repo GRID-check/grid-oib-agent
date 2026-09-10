@@ -553,7 +553,7 @@ def _clarifier_llm(llm: BaseChatModel, tools: Sequence[BaseTool]) -> Any:
 
     Never both. OpenRouter's failure mode for an unsupported ``response_format``
     is to accept it and silently degrade — dropping tool calls — which is why
-    the researcher keeps json mode off its tool-bound calls by default
+    Piloti keeps json mode off its tool-bound calls by default
     (``envelope_call.py``). A clarifier with tools therefore asks for JSON in
     the prompt and parses it once; a clarifier without tools gets the schema
     enforced natively.

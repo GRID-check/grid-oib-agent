@@ -1,4 +1,4 @@
-"""Deferred tool loading, as the researcher wires it.
+"""Deferred tool loading, as Piloti wires it.
 
 The unit rules live in ``tests/aiq_agent/common/test_deferred_tool_loading.py``.
 These tests are about the SEAM: that the agent's research bindings — the
@@ -13,8 +13,8 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.tools import tool
 
-from aiq_agent.agents.researcher.agent import ResearcherAgent
-from aiq_agent.agents.researcher.tool_search import ToolSearchSettings
+from aiq_agent.agents.piloti.agent import PilotiAgent
+from aiq_agent.agents.piloti.tool_search import ToolSearchSettings
 from aiq_agent.common import LLMProvider
 from aiq_agent.common.deferred_tool_loading import DeferredToolBinding
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
@@ -87,21 +87,21 @@ def _deferred_names(bind_kwargs: dict) -> list[str]:
 
 
 def test_off_by_default_the_agent_binds_exactly_as_it_always_has(provider, llm):
-    agent = ResearcherAgent(llm_provider=provider, tools=TOOLS)
+    agent = PilotiAgent(llm_provider=provider, tools=TOOLS)
     assert agent.deferred_tool_loading is None
     assert agent._llm_with_tools.kind == "plain_binding"
     assert llm.bind_calls == []
 
 
 def test_a_disabled_settings_object_is_the_same_as_none(provider, llm):
-    agent = ResearcherAgent(llm_provider=provider, tools=TOOLS, deferred_tool_loading=DeferredToolLoadingSettings())
+    agent = PilotiAgent(llm_provider=provider, tools=TOOLS, deferred_tool_loading=DeferredToolLoadingSettings())
     assert agent.deferred_tool_loading is None
     assert agent._llm_with_tools.kind == "plain_binding"
     assert llm.bind_calls == []
 
 
 def test_enabled_the_construction_time_binding_defers_every_tool(provider, llm):
-    agent = ResearcherAgent(
+    agent = PilotiAgent(
         llm_provider=provider, tools=TOOLS, deferred_tool_loading=DeferredToolLoadingSettings(enabled=True)
     )
     assert isinstance(agent._llm_with_tools, DeferredToolBinding)
@@ -115,7 +115,7 @@ def test_a_narrowed_binding_is_deferred_too(provider, llm):
     # tool_search decides WHICH tools are bound; deferral decides whether their
     # schemas travel. A narrowed set that quietly stopped deferring would put
     # the schemas back on exactly the requests that select sources.
-    agent = ResearcherAgent(
+    agent = PilotiAgent(
         llm_provider=provider,
         tools=TOOLS,
         tool_search=ToolSearchSettings(enabled=True, top_k=1),
@@ -141,7 +141,7 @@ def test_a_narrowed_binding_is_deferred_too(provider, llm):
 
 def test_the_namespace_description_is_the_only_tool_text_sent_up_front(provider, llm):
     settings = DeferredToolLoadingSettings(enabled=True, namespace="piloti", namespace_description="Werkzeuge.")
-    ResearcherAgent(llm_provider=provider, tools=TOOLS, deferred_tool_loading=settings)
+    PilotiAgent(llm_provider=provider, tools=TOOLS, deferred_tool_loading=settings)
     namespace = next(t for t in llm.bind_calls[0]["tools"] if t["type"] == "namespace")
     assert namespace["name"] == "piloti"
     assert namespace["description"] == "Werkzeuge."
@@ -151,7 +151,7 @@ def test_a_chat_completions_deployment_keeps_the_full_binding(provider, llm):
     # A Kimi deployment runs Chat Completions against api.kimi.com. Even with
     # the flag set, that deployment must fall back to sending schemas.
     llm.use_responses_api = False
-    agent = ResearcherAgent(
+    agent = PilotiAgent(
         llm_provider=provider, tools=TOOLS, deferred_tool_loading=DeferredToolLoadingSettings(enabled=True)
     )
     assert agent._llm_with_tools.kind == "plain_binding"
@@ -159,7 +159,7 @@ def test_a_chat_completions_deployment_keeps_the_full_binding(provider, llm):
 
 
 def test_the_config_defaults_to_off():
-    from aiq_agent.agents.researcher.register import ResearchAgentConfig
+    from aiq_agent.agents.piloti.register import ResearchAgentConfig
 
     config = ResearchAgentConfig(llm="research_llm")
     assert config.deferred_tool_loading.enabled is False

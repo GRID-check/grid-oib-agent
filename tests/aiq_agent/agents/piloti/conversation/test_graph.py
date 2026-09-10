@@ -3,7 +3,7 @@
 Since ADR-0052 there is no classifier in front of the answering agent: every
 turn enters ``shallow_research`` with the full tool set, and the shape of the
 turn — a direct reply, a researched answer, a hand-off to deep research — is
-read off the researcher's result AFTER the answer exists. The fixtures here
+read off Piloti's result AFTER the answer exists. The fixtures here
 therefore seed the shallow path directly; nothing routes ahead of it.
 """
 
@@ -12,17 +12,17 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
 from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
-from aiq_agent.agents.researcher.conversation import CONVERSATION_SCOPED_FIELDS
-from aiq_agent.agents.researcher.conversation import TURN_SCOPED_FIELDS
-from aiq_agent.agents.researcher.conversation import ConversationGraph
-from aiq_agent.agents.researcher.markers import ESCALATION_MARKER
-from aiq_agent.agents.researcher.models import ClarifyResult
-from aiq_agent.agents.researcher.models import ConversationState
-from aiq_agent.agents.researcher.models import ResearchAgentState
+from aiq_agent.agents.piloti.conversation import CONVERSATION_SCOPED_FIELDS
+from aiq_agent.agents.piloti.conversation import TURN_SCOPED_FIELDS
+from aiq_agent.agents.piloti.conversation import ConversationGraph
+from aiq_agent.agents.piloti.markers import ESCALATION_MARKER
+from aiq_agent.agents.piloti.models import ClarifyResult
+from aiq_agent.agents.piloti.models import ConversationState
+from aiq_agent.agents.piloti.models import ResearchAgentState
 
 
 def _research_result(messages, answer: str, *, escalating: bool = False, direct: bool = False):
-    """A researcher result: the real state the researcher returns.
+    """A Piloti result: the real state Piloti returns.
 
     ``direct`` models a reply that consulted no source and graded nothing — a
     greeting, a listing, an off-topic decline — which is what the observed
@@ -174,9 +174,9 @@ class TestConversationGraph:
     @pytest.mark.asyncio
     async def test_a_direct_reply_never_escalates(self, mock_clarifier):
         """A direct reply (a memory/`remember` request, a greeting) ends on the
-        shallow path. The researcher owns `remember`; a deep-research job
+        shallow path. Piloti owns `remember`; a deep-research job
         does not have it, and there is no classifier left to misroute the turn
-        there anyway — only the researcher's own envelope can escalate."""
+        there anyway — only Piloti's own envelope can escalate."""
         deep_called = False
 
         async def direct_research(state_input):
@@ -207,7 +207,7 @@ class TestConversationGraph:
         assert deep_called is False, "a direct reply must not reach deep research"
         assert result.routing_decision == "meta"
         contents = [m.content for m in result.messages if isinstance(m, AIMessage)]
-        assert any("Notiert" in c for c in contents), "researcher should have answered"
+        assert any("Notiert" in c for c in contents), "Piloti should have answered"
         assert not any("comprehensive report" in c for c in contents)
 
     @pytest.mark.asyncio
@@ -244,7 +244,7 @@ class TestConversationGraph:
 
     @pytest.mark.asyncio
     async def test_run_propagates_data_sources(self, mock_deep_research, mock_clarifier):
-        """Test that run() propagates data_sources to the researcher."""
+        """Test that run() propagates data_sources to Piloti."""
         captured_state = {}
 
         async def capturing_research(state_input):
@@ -333,10 +333,10 @@ class TestConversationGraph:
         assert captured_state["data_sources"] == []
 
     @pytest.mark.asyncio
-    async def test_the_researcher_sets_the_listing_shelf_from_the_query(self, mock_deep_research, mock_clarifier):
+    async def test_piloti_sets_the_listing_shelf_from_the_query(self, mock_deep_research, mock_clarifier):
         """A shelf named in the question is the one the inventory prints in
-        full this turn. The researcher sets it as a ContextVar before the
-        researcher runs, so the prompt renderer sees it."""
+        full this turn. Piloti sets it as a ContextVar before the
+        Piloti runs, so the prompt renderer sees it."""
         from aiq_agent.knowledge.inventory import Shelf
         from aiq_agent.knowledge.inventory import get_listing_shelf
 
@@ -368,7 +368,7 @@ class TestConversationGraph:
 class TestRoutingBoundary:
     """Pins the shallow/deep split as the graph DOES it.
 
-    There is no classification to route on any more: the researcher's own
+    There is no classification to route on any more: Piloti's own
     envelope is the only thing that can send a turn to deep research, and a
     turn it answers directly ends where it is.
     """
@@ -399,8 +399,8 @@ class TestRoutingBoundary:
         return calls, research_answering, deep, clarifier
 
     @pytest.mark.asyncio
-    async def test_out_of_scope_is_answered_by_the_researcher(self, trackers):
-        """An off-topic question is the researcher's to decline — there is
+    async def test_out_of_scope_is_answered_by_piloti(self, trackers):
+        """An off-topic question is Piloti's to decline — there is
         no fixed redirect ahead of it any more. It declines without a source
         lookup, so the turn is observed as a direct reply; no clarifier, no
         deep research."""
@@ -414,7 +414,7 @@ class TestRoutingBoundary:
         state = ConversationState(messages=[HumanMessage(content="How do I bake a cake?")])
         result = await agent.run(state, thread_id="t")
 
-        assert calls["research"] is True, "the researcher answers every turn, off-topic ones included"
+        assert calls["research"] is True, "Piloti answers every turn, off-topic ones included"
         assert calls["deep"] is False
         assert calls["clarifier"] is False
         assert result.routing_decision == "meta"
@@ -573,7 +573,7 @@ class TestTurnBoundary:
         assert TURN_SCOPED_FIELDS == set(ConversationState.model_fields) - CONVERSATION_SCOPED_FIELDS
 
     @pytest.mark.asyncio
-    async def test_in_flight_documents_reach_the_researcher(self):
+    async def test_in_flight_documents_reach_piloti(self):
         seen: dict[str, object] = {}
 
         async def research(state_input):

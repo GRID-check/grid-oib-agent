@@ -405,7 +405,7 @@ functions:
   # GRID_NORMS_DIR; ADR-0025): typed spine with verified RIS pointers.
   # ris_search short-circuits to these pointers on a catalog match
   # (catalog_shortcut), ris_catalog_lookup annotates hits with registry
-  # relations, and the researcher prompts show the lane-rendered block.
+  # relations, and both answering prompts show the lane-rendered block.
   ris_catalog_lookup_tool:
     _type: ris_catalog_lookup
     max_matches: 8
@@ -550,7 +550,7 @@ functions:
   # the single writer of `grid_app` (ADR-0003), which is why there is no
   # backend path here to write with.
   #
-  # Bound on the SHALLOW researcher only. Deep research runs unattended on the
+  # Bound on Piloti only. Deep research runs unattended on the
   # job worker with nobody to press Accept, so a proposal card there is a
   # decision nobody is on the other end of; the two agents differ here for the
   # same reason `ask_user` does.
@@ -575,7 +575,7 @@ functions:
   # under their permissions and their audit actor (ADR-0054 §4). The BFF stays
   # the single writer of `grid_app`.
   #
-  # Bound on the SHALLOW researcher only, for the same reason as the proposal
+  # Bound on Piloti only, for the same reason as the proposal
   # tools and one more: the envelope is minted per chat turn, so an unattended
   # deep-research run has no signed identity to file as and the tool refuses.
   file_draft:
@@ -590,7 +590,7 @@ functions:
   # is created in the requesting person's pinned session, under their
   # permissions, and spends their budget.
   #
-  # Bound on the SHALLOW researcher only, for the two reasons the filing tools
+  # Bound on Piloti only, for the two reasons the filing tools
   # give and one of its own: the envelope is minted per chat turn, so an
   # unattended run has no identity to delegate as; and a background run
   # delegating further background runs is a loop with nobody in it.
@@ -676,7 +676,7 @@ functions:
     # this surface documents, plus one repair.
     #
     # The accounting is `new_iterations += len(response.tool_calls)` in
-    # `researcher/agent.py`, charged when the model EMITS the call and
+    # `piloti/agent.py`, charged when the model EMITS the call and
     # never refunded. Three consequences that are not obvious from the name:
     #   * a call that comes back with 0 hits costs what one that answers costs;
     #   * PARALLEL calls each cost one, so a model emitting three per turn gets

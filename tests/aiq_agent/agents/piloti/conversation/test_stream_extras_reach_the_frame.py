@@ -1,6 +1,6 @@
 """The crossing guard for ``STREAM_EXTRA_FIELDS``.
 
-``turn.streaming.STREAM_EXTRA_FIELDS`` is the list of names the chat researcher lifts
+``turn.streaming.STREAM_EXTRA_FIELDS`` is the list of names Piloti lifts
 off the finished ``ChatResponse`` and onto the terminal ``ChatResponseChunk``.
 The aiq_api handler then pulls names back off that chunk and attaches them to
 the websocket frame — via ``_TRANSPARENCY_EXTRA_FIELDS``,
@@ -22,7 +22,7 @@ two sides. The direction is the point. The handler lifts names off whatever
 response reaches it, so it may legitimately know a field this register never
 sets, and pinning equality would report the wider list as the bug.
 ``skills_hidden`` was that case until the chat agent learned to carry it: the
-researcher recorded the ``grid-hidden`` subset on its own state, the
+Piloti recorded the ``grid-hidden`` subset on its own state, the
 chat node dropped it, and the disclosure rendered the house voice at full weight
 on every answer. Both lists name it now.
 

@@ -18,10 +18,10 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from aiq_agent.agents.researcher.agent import ResearcherAgent
-from aiq_agent.agents.researcher.agent import _shelf_label
-from aiq_agent.agents.researcher.models import ConversationState
-from aiq_agent.agents.researcher.models import ResearchAgentState
+from aiq_agent.agents.piloti.agent import PilotiAgent
+from aiq_agent.agents.piloti.agent import _shelf_label
+from aiq_agent.agents.piloti.models import ConversationState
+from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common.data_source_registry import populate_from_config
@@ -61,7 +61,7 @@ def real_tool():
     return searching_tool
 
 
-def _render(agent: ResearcherAgent, **overrides) -> str:
+def _render(agent: PilotiAgent, **overrides) -> str:
     kwargs = {
         "tools": [{"name": "knowledge_search", "description": "Search the knowledge base"}],
         "user_info": None,
@@ -74,9 +74,9 @@ def _render(agent: ResearcherAgent, **overrides) -> str:
     return render_prompt_template(agent.system_prompt, **kwargs)
 
 
-class TestResearcherPromptNamesTheSubject:
+class TestPilotiPromptNamesTheSubject:
     def test_focused_file_is_named_with_its_shelf(self, mock_llm_provider, real_tool):
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         rendered = _render(agent, focus_file_name=SUBJECT, focus_shelf_label="Projektwissen")
 
@@ -89,14 +89,14 @@ class TestResearcherPromptNamesTheSubject:
 
     def test_shelf_is_omitted_rather_than_invented(self, mock_llm_provider, real_tool):
         """An unknown shelf names the file alone — never a guessed shelf."""
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         rendered = _render(agent, focus_file_name=SUBJECT, focus_shelf_label=None)
 
         assert f"## This turn's subject: **{SUBJECT}**\n" in rendered
 
     def test_no_subject_renders_no_subject_block(self, mock_llm_provider, real_tool):
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         rendered = _render(agent, focus_file_name=None, focus_shelf_label=None)
 
@@ -104,7 +104,7 @@ class TestResearcherPromptNamesTheSubject:
 
     def test_render_survives_callers_that_pass_no_focus_at_all(self, mock_llm_provider, real_tool):
         """The template is rendered under StrictUndefined; the guards must hold."""
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         rendered = _render(agent)
 
@@ -152,7 +152,7 @@ class TestSubjectKeepsTheSearchTools:
         )
         mock_llm.ainvoke = AsyncMock(side_effect=[AIMessage(content="Zusammenfassung.")])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[searching_tool, remember_tool],
         )
@@ -177,7 +177,7 @@ class TestSubjectSurvivesTheGraphHandoff:
 
     @pytest.mark.asyncio
     async def test_shallow_node_forwards_the_subject(self):
-        from aiq_agent.agents.researcher.conversation import ConversationGraph
+        from aiq_agent.agents.piloti.conversation import ConversationGraph
 
         captured: dict = {}
 

@@ -1,1 +1,1 @@
-"""Tests for researcher agent."""
+"""Tests for the Piloti agent."""

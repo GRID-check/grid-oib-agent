@@ -147,7 +147,7 @@ into `project_context` (`compose_project_context`), whose answering prompt tells
 the model to treat confirmed facts as *binding constraints it must never
 contradict*. That rule is meant for the intake profile; inherited by agent-authored
 `unverified` notes it turns stale memory into something the agent defends. The
-answering prompt (`researcher/prompts/researcher.j2`) therefore carves
+answering prompt (`piloti/prompts/piloti.j2`) therefore carves
 `PROJECT_MEMORY` out explicitly: prior notes, not confirmed facts and not law;
 `user_confirmed` alone carries a confirmed fact's weight; entries run pinned-first
 then newest-first; the current conversation always wins; and a memory entry is
@@ -161,7 +161,7 @@ back next turn. `lib/projects/proposal-decisions.ts` renders the most recent
 verdicts as a bounded `PROPOSAL_DECISIONS v1` block (≤10 lines / ≤900 chars,
 newest first, in the card's own words) that is appended to the digest on the
 handshake and on the live per-turn fetch. The memory header cap is sized for
-both blocks (`MEMORY_HEADER_MAX_CHARS`), and `researcher.j2` explains the
+both blocks (`MEMORY_HEADER_MAX_CHARS`), and `piloti.j2` explains the
 block once, next to PROJECT_MEMORY: accepted means already in place, declined
 means not raised again without new evidence.
 

@@ -1,4 +1,4 @@
-"""Retrieval-based tool narrowing for the researcher.
+"""Retrieval-based tool narrowing for Piloti.
 
 WHY THIS IS NOT A TOOL
 ======================

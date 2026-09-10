@@ -10,7 +10,7 @@ Every extra follows the same rule: present when applicable, absent (never
 null-spammed) otherwise.
 
 Since ADR-0052 the routing is an OBSERVATION: nothing decides a path before
-the answer, so every end-to-end case here seeds the researcher's result and reads
+the answer, so every end-to-end case here seeds Piloti's result and reads
 ``routing_decision`` off what the graph did with it.
 """
 
@@ -20,16 +20,16 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.researcher.conversation import ANSWER_LIFTS
-from aiq_agent.agents.researcher.conversation import ConversationGraph
-from aiq_agent.agents.researcher.conversation import _finalize_answer
-from aiq_agent.agents.researcher.ledger import citations_removed_summary
-from aiq_agent.agents.researcher.markers import ESCALATION_MARKER
-from aiq_agent.agents.researcher.markers import answer_confidence_capped_reason
-from aiq_agent.agents.researcher.markers import surface_answer_confidence
-from aiq_agent.agents.researcher.models import ClarifyResult
-from aiq_agent.agents.researcher.models import ConversationState
-from aiq_agent.agents.researcher.models import ResearchAgentState
+from aiq_agent.agents.piloti.conversation import ANSWER_LIFTS
+from aiq_agent.agents.piloti.conversation import ConversationGraph
+from aiq_agent.agents.piloti.conversation import _finalize_answer
+from aiq_agent.agents.piloti.ledger import citations_removed_summary
+from aiq_agent.agents.piloti.markers import ESCALATION_MARKER
+from aiq_agent.agents.piloti.markers import answer_confidence_capped_reason
+from aiq_agent.agents.piloti.markers import surface_answer_confidence
+from aiq_agent.agents.piloti.models import ClarifyResult
+from aiq_agent.agents.piloti.models import ConversationState
+from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.common.job_admission import JobAdmissionError
 from aiq_agent.turn.response import RESPONSE_LIFTS
 
@@ -161,7 +161,7 @@ class TestAnswerLifts:
     so that is what this checks, for both sides, by name.
     """
 
-    def test_every_source_is_readable_on_the_researchers_finished_state(self):
+    def test_every_source_is_readable_on_pilotis_finished_state(self):
         finished = ResearchAgentState(messages=[])
         for source, _ in ANSWER_LIFTS:
             assert hasattr(finished, source), f"{source} is not on ResearchAgentState"
@@ -221,7 +221,7 @@ def _research_result(
     escalation_reason: str | None = None,
     **fields,
 ) -> ResearchAgentState:
-    """A researcher result: the real state with the control fields a case names."""
+    """A Piloti result: the real state with the control fields a case names."""
     return ResearchAgentState(
         messages=list(messages) + [AIMessage(content=answer)],
         escalation_requested=escalating,
@@ -498,7 +498,7 @@ class TestCitationsRemovedEndToEnd:
 class TestResearchTruncatedEndToEnd:
     """Truncation is a fact about the ANSWER, so it rides the answer's frame.
 
-    The researcher already logs it and emits it as telemetry; neither of
+    Piloti already logs it and emits it as telemetry; neither of
     those can put a line under the answer a person is reading, which is the one
     place "the search stopped before it finished" changes what they do next.
     """

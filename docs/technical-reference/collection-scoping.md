@@ -221,7 +221,7 @@ This limit is relevant in multi-tenant or multi-project setups where many collec
 
 The scope header described above governs synchronous chat requests. Async
 deep-research jobs are different: the `X-Grid-Collection-Scope` header is
-read **once, at job submit time**, in `researcher/conversation_register.py`, and
+read **once, at job submit time**, in `piloti/conversation_register.py`, and
 carried through as a `collection_scope` field on the job payload rather than
 as a live header.
 

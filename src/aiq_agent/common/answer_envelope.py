@@ -32,7 +32,7 @@ model's output are ignored (never fatal), and the frontend sanitizer keeps a
 newer payload's version stamp and every field it knows, so a rollback renders
 what it can instead of blanking the row.
 
-**Home.** ``common/`` rather than the researcher, deliberately: the deep
+**Home.** ``common/`` rather than Piloti, deliberately: the deep
 writer's report is the obvious next adopter of the same contract (the job
 runner already parses a trailing ``[CONFIDENCE:…]`` line out of
 ``/shared/output.md``; the envelope generalises that), and a contract two

@@ -1,4 +1,4 @@
-"""The four file verbs the chat researcher gets, and nothing else.
+"""the four file verbs Piloti gets, and nothing else.
 
 ``ls``, ``read_file``, ``write_file``, ``edit_file`` — stock DeepAgents tools
 over :class:`~aiq_agent.tools.documents.draft_store.DraftBackend`. ``glob``,
@@ -33,7 +33,7 @@ from .draft_store import get_draft_backend
 
 logger = logging.getLogger(__name__)
 
-#: The verbs bound into the researcher's tool node, in the order the model
+#: The verbs bound into Piloti's tool node, in the order the model
 #: meets them. Everything else the middleware builds is dropped.
 DRAFT_TOOL_NAMES = ("ls", "read_file", "write_file", "edit_file")
 

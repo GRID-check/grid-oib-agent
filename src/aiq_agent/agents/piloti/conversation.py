@@ -1,6 +1,6 @@
 """The conversation graph: one answering agent, escalation as its own edge.
 
-Every turn enters the researcher with its full tool set. That agent decides,
+Every turn enters Piloti with its full tool set. That agent decides,
 per turn and in the answer envelope, what the turn is: a direct reply (no
 source consulted, no self-assessment), a researched answer (sources retrieved,
 cited, graded), or a hand-off to deep research (``escalate_to_deep`` with a
@@ -9,11 +9,11 @@ before the answer could only ever withhold capabilities the answer turned out
 to need, and the classes it produced — "meta", "listing", "out of scope" — are
 all shapes the answering model can choose itself.
 
-So this module adds exactly two things to :class:`ResearcherAgent`: the
+So this module adds exactly two things to :class:`PilotiAgent`: the
 escalation edge (clarifier, then deep research, unless the reader has already
 declined a plan), and the conversation-scoped state the checkpointer persists
 between turns — the message history and that sticky refusal. Everything else a
-turn carries out is a field of the researcher's own finished state, lifted by
+turn carries out is a field of Piloti's own finished state, lifted by
 :data:`ANSWER_LIFTS` rather than recomputed here.
 """
 
@@ -67,7 +67,7 @@ It must say two things: that nothing is being researched — the turn really is
 over, by the user's own choice, not by a failure — and how to get an answer
 after all. The second half is literally true: the cancellation sets
 ``deep_research_declined`` on the conversation, so re-asking the question
-routes straight to the researcher instead of producing plan number two.
+routes straight to Piloti instead of producing plan number two.
 """
 
 GENERIC_ERROR_MESSAGE = "An error occurred while researching your question. Please try again."
@@ -90,7 +90,7 @@ LEGACY_ESCALATION_REASON = "Shallow agent emitted insufficiency marker"
 CONVERSATION_SCOPED_FIELDS: frozenset[str] = frozenset({"messages", "deep_research_declined"})
 TURN_SCOPED_FIELDS: frozenset[str] = frozenset(ConversationState.model_fields) - CONVERSATION_SCOPED_FIELDS
 
-#: ``(researcher state attribute, conversation state field)``: what a finished
+#: ``(Piloti state attribute, conversation state field)``: what a finished
 #: answer carries out of the research turn. Every one of these is already
 #: decided by the agent that produced the answer — the guarded confidence and
 #: the observed routing are derived properties of its state, next to the
@@ -146,7 +146,7 @@ def _escalation_update(message: BaseMessage, result: ResearchAgentState) -> dict
 
 
 def _answer_update(message: BaseMessage, result: ResearchAgentState) -> dict[str, Any]:
-    """A finished answer with everything the researcher decided about it."""
+    """A finished answer with everything Piloti decided about it."""
     update: dict[str, Any] = {field: getattr(result, source) for source, field in ANSWER_LIFTS}
     update["messages"] = [message]
     update["escalate_to_deep"] = False
@@ -158,7 +158,7 @@ def _answer_update(message: BaseMessage, result: ResearchAgentState) -> dict[str
 def _stripped(content: str) -> str:
     """The answer text with any control marker removed.
 
-    The researcher's own pipeline already strips these; this is the defensive
+    Piloti's own pipeline already strips these; this is the defensive
     second pass, so no marker can reach a reader even if a message other than
     the one that pipeline cleaned ends up being the answer.
     """
@@ -169,7 +169,7 @@ def _stripped(content: str) -> str:
 
 def _finalize_answer(message: BaseMessage, result: ResearchAgentState) -> dict[str, Any]:
     """The node update for a finished research turn, from its answer message and
-    the structured signals the researcher extracted in its own ``run()``.
+    the structured signals Piloti extracted in its own ``run()``.
 
     Those signals are authoritative; non-string content passes through
     untouched with no signal at all.
@@ -190,7 +190,7 @@ def _finalize_answer(message: BaseMessage, result: ResearchAgentState) -> dict[s
 
 
 def _answer_message(new_messages: list[BaseMessage]) -> BaseMessage | None:
-    """The answer among the messages the researcher added: the last AIMessage
+    """The answer among the messages Piloti added: the last AIMessage
     that is not a tool call, else whatever came last."""
     final = next((m for m in reversed(new_messages) if isinstance(m, AIMessage) and not m.tool_calls), None)
     if final is not None:
@@ -233,9 +233,9 @@ def _plan_cancelled(original_query: str | None) -> Command:
 
 def _plan_rejected(original_query: str | None) -> Command:
     """A rejected plan is not a cancelled question. The question is right there
-    in the messages and the researcher can answer it; ending here told a user
+    in the messages and Piloti can answer it; ending here told a user
     who had just said "no" twice to retype the question the product was already
-    holding. Fall through to the researcher and remember the rejection for the
+    holding. Fall through to Piloti and remember the rejection for the
     rest of the conversation so ``_should_escalate`` never offers plan two."""
     logger.info("Conversation: Plan rejected by user, answering on the shallow path instead")
     return Command(
@@ -250,9 +250,9 @@ def _plan_rejected(original_query: str | None) -> Command:
 
 
 class ConversationGraph:
-    """One conversation with the researcher, across turns.
+    """One conversation with Piloti, across turns.
 
-    1. The researcher answers, with every tool it has.
+    1. Piloti answers, with every tool it has.
     2. If its envelope asks for deep research, the clarifier confirms a plan
        and deep research runs (as an async job when a submitter is wired).
 
@@ -329,14 +329,14 @@ class ConversationGraph:
             platform_lessons=state.platform_lessons,
             focus_file_name=state.focus_file_name,
             focus_shelf=state.focus_shelf,
-            # The user-requested forced skills, resolved by the researcher's
+            # The user-requested forced skills, resolved by Piloti's
             # register layer against the run's skill set — never passed to deep
             # research.
             force_skills=state.force_skills,
         )
 
     async def _run_research(self, research_state: ResearchAgentState) -> ResearchAgentState | dict[str, Any]:
-        """The researcher's result, or the error update for a failed call."""
+        """Piloti's result, or the error update for a failed call."""
         try:
             return await self.research_fn(research_state)
         except EmptySourceRegistryError as exc:
@@ -360,7 +360,7 @@ class ConversationGraph:
         if isinstance(result, dict):
             return result
         if not result.messages:
-            logger.error("The researcher returned no messages")
+            logger.error("Piloti returned no messages")
             return _error_update(GENERIC_ERROR_MESSAGE)
         message = _answer_message(result.messages[len(trimmed) :])
         if message is None:
@@ -446,7 +446,7 @@ class ConversationGraph:
 
     def _build_graph(self) -> CompiledStateGraph:
         # The node is still NAMED ``shallow_research`` although the agent behind
-        # it is now just the researcher. A LangGraph checkpoint records node
+        # it is now just Piloti. A LangGraph checkpoint records node
         # names in ``versions_seen``, so renaming one makes every conversation
         # written before the deploy look like it has never run this node; the
         # frontend also labels a step by this string

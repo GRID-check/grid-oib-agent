@@ -776,7 +776,7 @@ def extract_sources_from_tool_result(
     This means new sources (Bing, Perplexity, etc.) work automatically
     without any parser registration — as long as their output contains URLs.
 
-    The non-URL fallback is permissive on purpose: callers (the researcher and
+    The non-URL fallback is permissive on purpose: callers (Piloti and
     deep researchers) are responsible for deciding which tool calls are
     eligible to contribute sources, typically by limiting capture to the
     agent's loaded tool set. The optional ``source_id`` is stored on the
@@ -2090,7 +2090,7 @@ def _normalize_source_section_layout(ref_section: str) -> str:
         # German-or-else binary mirrors the writer's contract, which allows the
         # label exactly two forms: "**Quellen:**" for a German answer and
         # "**References:**" for an answer in any other language, never a label
-        # translated into a third language (see researcher.j2 <language> and
+        # translated into a third language (see piloti.j2 <language> and
         # <output_contract>). A translated label would land on "## Sources".
         lines[0] = "## Quellen" if _GERMAN_REFERENCE_HEADING_LABEL_RE.search(lines[0]) else "## Sources"
         ref_section = "\n".join(lines)

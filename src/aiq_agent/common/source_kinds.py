@@ -26,13 +26,13 @@ quotation is.
 That difference is why a measurement is a KIND here and is **not** a
 ``SourceEntry``. ``citation_grounded`` is derived from the registry's contents,
 and it is the one signal that lets an answer surface "high"; the normative
-brake in ``researcher.grounding`` is gated on its ABSENCE. A
+brake in ``piloti.grounding`` is gated on its ABSENCE. A
 measurement that entered the registry would therefore hand an answer's uncited
 legal verdict the evidence of its own basement measurement — the laundering
 path the grounding module exists to close. So measurements travel their own
 channel (:mod:`aiq_agent.tools.bim.measurement_sources`) and meet the
 retrieved sources only on the wire, where this taxonomy is all that is left of
-either. See ``tests/aiq_agent/agents/researcher/test_agent.py::
+either. See ``tests/aiq_agent/agents/piloti/test_agent.py::
 TestMeasurementSourcesDoNotGroundCitations``.
 
 ``auto`` exists in the click-dummy as a *selection mode* ("Piloti wählt die

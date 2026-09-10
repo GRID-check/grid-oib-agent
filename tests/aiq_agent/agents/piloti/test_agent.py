@@ -1,4 +1,4 @@
-"""Tests for the ResearcherAgent."""
+"""Tests for the PilotiAgent."""
 
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -9,14 +9,14 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from aiq_agent.agents.researcher.agent import _INTERACTION_TOOL_ALLOWANCE
-from aiq_agent.agents.researcher.agent import ResearcherAgent
-from aiq_agent.agents.researcher.agent import _count_interaction_calls
-from aiq_agent.agents.researcher.answer_pipeline import append_minimal_citation
-from aiq_agent.agents.researcher.models import ResearchAgentState
-from aiq_agent.agents.researcher.repair import VerificationFailures
-from aiq_agent.agents.researcher.repair import repair_answer
-from aiq_agent.agents.researcher.repair import repair_lookups
+from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_ALLOWANCE
+from aiq_agent.agents.piloti.agent import PilotiAgent
+from aiq_agent.agents.piloti.agent import _count_interaction_calls
+from aiq_agent.agents.piloti.answer_pipeline import append_minimal_citation
+from aiq_agent.agents.piloti.models import ResearchAgentState
+from aiq_agent.agents.piloti.repair import VerificationFailures
+from aiq_agent.agents.piloti.repair import repair_answer
+from aiq_agent.agents.piloti.repair import repair_lookups
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common.answer_envelope import render_envelope_response_format
@@ -79,8 +79,8 @@ def describe_card(card_types: str) -> str:
     return f"Shapes for: {card_types}"
 
 
-class TestResearcherAgent:
-    """Tests for the ResearcherAgent class."""
+class TestPilotiAgent:
+    """Tests for the PilotiAgent class."""
 
     @pytest.fixture(autouse=True)
     def _bypass_citation_pipeline(self):
@@ -92,8 +92,8 @@ class TestResearcherAgent:
         """
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-            patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify,
-            patch("aiq_agent.agents.researcher.answer_pipeline.sanitize_report") as mock_sanitize,
+            patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.piloti.answer_pipeline.sanitize_report") as mock_sanitize,
         ):
             mock_verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
                 verified_report=content, removed_citations=[]
@@ -123,8 +123,8 @@ class TestResearcherAgent:
         return web_search_tool
 
     def test_init_with_defaults(self, mock_llm_provider, real_tool):
-        """Test ResearcherAgent initialization with defaults."""
-        agent = ResearcherAgent(
+        """Test PilotiAgent initialization with defaults."""
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
         )
@@ -137,9 +137,9 @@ class TestResearcherAgent:
         assert agent.system_prompt is not None
 
     def test_init_with_custom_prompt(self, mock_llm_provider, real_tool):
-        """Test ResearcherAgent initialization with custom system prompt."""
+        """Test PilotiAgent initialization with custom system prompt."""
         custom_system = "Custom system prompt"
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
             system_prompt=custom_system,
@@ -148,7 +148,7 @@ class TestResearcherAgent:
 
     def test_init_with_custom_limits(self, mock_llm_provider, real_tool):
         """The research budget plus the reserve is the ceiling; nothing else bounds the loop."""
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
             max_tool_iterations=3,
@@ -159,9 +159,9 @@ class TestResearcherAgent:
         assert agent.tool_iteration_ceiling == 4
 
     def test_init_with_callbacks(self, mock_llm_provider, real_tool):
-        """Test ResearcherAgent initialization with callbacks."""
+        """Test PilotiAgent initialization with callbacks."""
         callbacks = [MagicMock()]
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
             callbacks=callbacks,
@@ -170,8 +170,8 @@ class TestResearcherAgent:
         assert agent.callbacks == callbacks
 
     def test_init_with_empty_tools(self, mock_llm_provider):
-        """Test ResearcherAgent initialization with empty tools."""
-        agent = ResearcherAgent(
+        """Test PilotiAgent initialization with empty tools."""
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[],
         )
@@ -181,7 +181,7 @@ class TestResearcherAgent:
 
     def test_build_tools_info(self, mock_llm_provider, real_tool):
         """Test _build_tools_info correctly extracts tool information."""
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
         )
@@ -192,7 +192,7 @@ class TestResearcherAgent:
 
     def test_get_llm(self, mock_llm_provider, mock_llm, real_tool):
         """Test _get_llm returns LLM from provider."""
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
         )
@@ -204,7 +204,7 @@ class TestResearcherAgent:
 
     def test_graph_property(self, mock_llm_provider, real_tool):
         """Test graph property returns compiled graph."""
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
         )
@@ -219,7 +219,7 @@ class TestResearcherAgent:
         agent_response = AIMessage(content="CUDA is a parallel computing platform.")
         mock_llm.ainvoke = AsyncMock(return_value=agent_response)
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
         )
@@ -238,7 +238,7 @@ class TestResearcherAgent:
         mock_llm.ainvoke = AsyncMock(return_value=agent_response)
 
         mock_callback = MagicMock()
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
             callbacks=[mock_callback],
@@ -269,7 +269,7 @@ class TestResearcherAgent:
                 self.reports.append(content)
 
         emit_callback = _EmitCallback()
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
             callbacks=[emit_callback],
@@ -298,7 +298,7 @@ class TestResearcherAgent:
     async def test_run_without_markers_sets_neutral_structured_signals(self, mock_llm_provider, mock_llm, real_tool):
         """A clean answer still marks extraction done, with neutral signals."""
         mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content="A clean grounded answer [1]."))
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Frage?")]))
 
@@ -323,7 +323,7 @@ class TestResearcherAgent:
             ]
         )
         mock_llm.ainvoke = AsyncMock(return_value=agent_response)
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Frage?")]))
 
@@ -390,7 +390,7 @@ class TestResearcherAgent:
                 self.reports.append(content)
 
         emit_callback = _EmitCallback()
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], callbacks=[emit_callback])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool], callbacks=[emit_callback])
 
         result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Geländerhöhe Terrasse?")]))
 
@@ -421,7 +421,7 @@ class TestResearcherAgent:
     async def test_run_accepts_the_bare_object_json_mode_produces(self, mock_llm_provider, mock_llm, real_tool):
         """Provider JSON mode emits an UNFENCED object; the chain must not care."""
         mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply(fenced=False)))
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Frage?")]))
 
@@ -441,7 +441,7 @@ class TestResearcherAgent:
             "## References\n- [1] https://example.com"
         )
         mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply(answer=prose)))
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Frage?")]))
 
@@ -454,7 +454,7 @@ class TestResearcherAgent:
         """A marker with nothing behind it must never reach the reader."""
         prose = "Die Antwort [1].\n\n[[callout]]\n\nMehr Text.\n\n## References\n- [1] https://example.com"
         mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply(answer=prose, callout=None)))
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Frage?")]))
 
@@ -464,7 +464,7 @@ class TestResearcherAgent:
     async def test_run_envelope_escalation_discards_the_anatomy(self, mock_llm_provider, mock_llm, real_tool):
         """`escalate_to_deep: true` sets the signal and drops the decoration."""
         mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply(escalate_to_deep=True)))
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Frage?")]))
 
@@ -493,7 +493,7 @@ class TestResearcherAgent:
         """Budget exhausted on a research turn → the synthesis call requests JSON."""
         bound = self._bindable(mock_llm, self._envelope_reply(fenced=False))
         # Ceiling 0: the very first agent_node call is forced synthesis.
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_tool_iterations=0)
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_tool_iterations=0)
 
         result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Frage?")]))
 
@@ -513,7 +513,7 @@ class TestResearcherAgent:
         rejected.status_code = 400
         bound.ainvoke = AsyncMock(side_effect=rejected)
         mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply()))
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_tool_iterations=0)
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_tool_iterations=0)
 
         result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Frage?")]))
 
@@ -535,7 +535,7 @@ class TestResearcherAgent:
         bound = self._bindable(mock_llm, "")
         bound.ainvoke = AsyncMock(side_effect=ConnectionError("upstream reset"))
         mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply()))
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_tool_iterations=0)
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool], max_tool_iterations=0)
 
         with pytest.raises(ConnectionError):
             await agent.run(ResearchAgentState(messages=[HumanMessage(content="Frage?")]))
@@ -548,15 +548,13 @@ class TestResearcherAgent:
         """Default OFF on tool-bound calls (silent tool-suppression risk); flag turns it on."""
         mock_llm.bind = MagicMock()
         mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content=self._envelope_reply()))
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
 
         await agent.run(ResearchAgentState(messages=[HumanMessage(content="Frage?")]))
         mock_llm.bind.assert_not_called()
 
         bound = self._bindable(mock_llm, self._envelope_reply())
-        opted_in = ResearcherAgent(
-            llm_provider=mock_llm_provider, tools=[real_tool], envelope_json_mode_with_tools=True
-        )
+        opted_in = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool], envelope_json_mode_with_tools=True)
         result = await opted_in.run(ResearchAgentState(messages=[HumanMessage(content="Frage?")]))
 
         mock_llm.bind.assert_called_once_with(response_format=render_envelope_response_format())
@@ -571,7 +569,7 @@ class TestResearcherAgent:
 
         # Use custom system_prompt that doesn't require email field
         custom_prompt = "You are an assistant. User: {{ user_info }}."
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
             system_prompt=custom_prompt,
@@ -592,7 +590,7 @@ class TestResearcherAgent:
         agent_response = AIMessage(content="Answer")
         mock_llm.ainvoke = AsyncMock(return_value=agent_response)
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
         )
@@ -612,28 +610,28 @@ class TestResearcherAgent:
 
     def test_a_missing_prompt_is_a_boot_failure(self, mock_llm_provider, real_tool):
         """No stub prompt, ever: production must not run on three lines of filler."""
-        from aiq_agent.agents.researcher import prompt as prompt_module
+        from aiq_agent.agents.piloti import prompt as prompt_module
         from aiq_agent.common.prompt_utils import PromptError
 
         prompt_module.system_prompt_template.cache_clear()
         try:
             with (
-                patch.object(prompt_module, "load_prompt", side_effect=PromptError("researcher.j2 missing")),
+                patch.object(prompt_module, "load_prompt", side_effect=PromptError("piloti.j2 missing")),
                 pytest.raises(PromptError),
             ):
-                ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+                PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
         finally:
             prompt_module.system_prompt_template.cache_clear()
 
     def test_the_prompt_template_is_read_once_per_process(self, mock_llm_provider, real_tool):
         """Two agents, one disk read: the 43 KB template is cached by name."""
-        from aiq_agent.agents.researcher import prompt as prompt_module
+        from aiq_agent.agents.piloti import prompt as prompt_module
 
         prompt_module.system_prompt_template.cache_clear()
         try:
             with patch.object(prompt_module, "load_prompt", wraps=prompt_module.load_prompt) as reads:
-                first = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
-                second = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+                first = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+                second = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
         finally:
             prompt_module.system_prompt_template.cache_clear()
 
@@ -642,7 +640,7 @@ class TestResearcherAgent:
 
     def test_default_prompt_requires_tool_result_references(self, mock_llm_provider, real_tool):
         """Default prompt tells the model to cite non-URL tool results by exact tool name."""
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
         )
@@ -653,7 +651,7 @@ class TestResearcherAgent:
 
     def test_default_prompt_matches_user_language(self, mock_llm_provider, real_tool):
         """Default prompt instructs the model to answer in the user's language."""
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
         )
@@ -664,7 +662,7 @@ class TestResearcherAgent:
 
     def test_default_prompt_keeps_escalate_marker_language_independent(self, mock_llm_provider, real_tool):
         """Language matching must NOT disturb the literal escalation marker contract."""
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
         )
@@ -683,7 +681,7 @@ class TestResearcherAgent:
     ) -> str:
         from aiq_agent.common import render_prompt_template
 
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
         return render_prompt_template(
             agent.system_prompt,
             tools=[{"name": real_tool.name, "description": "Search the web"}],
@@ -792,7 +790,7 @@ class TestResearcherAgent:
         final_response = AIMessage(content="Final answer")
         mock_llm.ainvoke = AsyncMock(side_effect=[tool_call_response, final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
         )
@@ -814,7 +812,7 @@ class TestResearcherAgent:
         final_response = AIMessage(content="Forced synthesis response")
         mock_llm.ainvoke = AsyncMock(return_value=final_response)
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
             max_tool_iterations=3,
@@ -866,7 +864,7 @@ class TestResearcherAgent:
             side_effect=[search_round, first_card_round, second_card_round, AIMessage(content="Final answer")]
         )
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool, emit_card, describe_card],
             max_tool_iterations=2,
@@ -896,7 +894,7 @@ class TestResearcherAgent:
         )
         mock_llm.ainvoke = AsyncMock(side_effect=[card_round, AIMessage(content="Final answer")])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool, emit_card],
             max_tool_iterations=5,
@@ -942,7 +940,7 @@ class TestResearcherAgent:
         agent_response = AIMessage(content="Answer")
         mock_llm.ainvoke = AsyncMock(return_value=agent_response)
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
         )
@@ -968,7 +966,7 @@ class TestResearcherAgent:
 
         mock_llm.ainvoke = AsyncMock(side_effect=capture_messages)
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
             max_tool_iterations=2,
@@ -1040,7 +1038,7 @@ def spy_search_tool(query: str) -> str:
     return f"Results for: {query}"
 
 
-class TestResearcherSourceRegistryGating:
+class TestPilotiSourceRegistryGating:
     """Tests that source capture is gated by data_source_registry."""
 
     @pytest.fixture(autouse=True)
@@ -1080,7 +1078,7 @@ class TestResearcherSourceRegistryGating:
         )
         mock_llm.ainvoke = AsyncMock(side_effect=[tool_call_response, final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[mcp_time__get_current_time],
         )
@@ -1101,7 +1099,7 @@ class TestResearcherSourceRegistryGating:
         final_response = AIMessage(content="Your project **test 1** is a Neubau, Beherbergung, GK3 building.")
         mock_llm.ainvoke = AsyncMock(side_effect=[final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[mcp_time__get_current_time],
         )
@@ -1135,7 +1133,7 @@ class TestResearcherSourceRegistryGating:
         final_response = AIMessage(content="Hallo! Bei mir läuft alles super.")
         mock_llm.ainvoke = AsyncMock(side_effect=[final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[empty_web_search_tool, remember_tool],
         )
@@ -1176,7 +1174,7 @@ class TestResearcherSourceRegistryGating:
         final_response = AIMessage(content="Hallo! Bei mir läuft alles super.")
         mock_llm.ainvoke = AsyncMock(side_effect=[search_call, final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[spy_search_tool, remember_tool],
             repair_pass=False,
@@ -1211,7 +1209,7 @@ class TestResearcherSourceRegistryGating:
         final_response = AIMessage(content="Answer [1].\n\n**References:**\n- [1] Results for: OIB 2.2")
         mock_llm.ainvoke = AsyncMock(side_effect=[search_call, final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[spy_search_tool, remember_tool],
             # This test is about tool GATING. The answer's "[1]" resolves to
@@ -1245,7 +1243,7 @@ class TestResearcherSourceRegistryGating:
         final_response = AIMessage(content="Answer from context.")
         mock_llm.ainvoke = AsyncMock(side_effect=[final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[empty_web_search_tool, remember_tool],
         )
@@ -1283,7 +1281,7 @@ class TestResearcherSourceRegistryGating:
         final_response = AIMessage(content="Here is an answer that cites nothing.")
         mock_llm.ainvoke = AsyncMock(side_effect=[tool_call_response, final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[empty_web_search_tool],
         )
@@ -1306,7 +1304,7 @@ class TestResearcherSourceRegistryGating:
         final_response = AIMessage(content="To fill in hohe_gebaeude_details I need the exact building height.")
         mock_llm.ainvoke = AsyncMock(side_effect=[final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[mcp_time__get_current_time],
         )
@@ -1342,7 +1340,7 @@ class TestResearcherSourceRegistryGating:
         )
         mock_llm.ainvoke = AsyncMock(side_effect=[tool_call_response, final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[mcp_time__get_current_time],
         )
@@ -1377,7 +1375,7 @@ class TestResearcherSourceRegistryGating:
         final_response = AIMessage(content="It's currently 4:54 AM in Tokyo.")
         mock_llm.ainvoke = AsyncMock(side_effect=[tool_call_response, final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[mcp_time__get_current_time],
         )
@@ -1419,7 +1417,7 @@ class TestResearcherSourceRegistryGating:
         final_response = AIMessage(content="CUDA is a parallel computing platform.")
         mock_llm.ainvoke = AsyncMock(side_effect=[tool_call_response, final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[mcp_time__get_current_time, web_search_with_urls],
         )
@@ -1453,7 +1451,7 @@ class TestResearcherSourceRegistryGating:
         final_response = AIMessage(content="The weather is clear.\n\n## Sources\n[1] weather_observation_tool")
         mock_llm.ainvoke = AsyncMock(side_effect=[tool_call_response, final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[weather_observation_tool],
         )
@@ -1468,7 +1466,7 @@ class TestResearcherSourceRegistryGating:
         assert result.messages[-1].content.rstrip().endswith("[1] weather_observation_tool")
 
 
-class TestResearcherSourceCaptureIntegration:
+class TestPilotiSourceCaptureIntegration:
     """Integration tests verifying source capture through the full pipeline.
 
     These tests do NOT bypass the citation pipeline — they verify that
@@ -1522,7 +1520,7 @@ class TestResearcherSourceCaptureIntegration:
         )
         mock_llm.ainvoke = AsyncMock(side_effect=[tool_call_response, final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[web_search_with_urls],
         )
@@ -1556,7 +1554,7 @@ class TestResearcherSourceCaptureIntegration:
         )
         mock_llm.ainvoke = AsyncMock(side_effect=[tool_call_response, final_response])
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[web_search_with_urls],
         )
@@ -1576,7 +1574,7 @@ class TestResearcherSourceCaptureIntegration:
 # ---------------------------------------------------------------------------
 
 
-class TestResearcherSessionRegistry:
+class TestPilotiSessionRegistry:
     """Tests verifying session-scoped SourceRegistry integration.
 
     These tests do NOT use the _bypass_citation_pipeline fixture — they verify
@@ -1616,7 +1614,7 @@ class TestResearcherSessionRegistry:
         )
         mock_llm.ainvoke = AsyncMock(return_value=agent_response)
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[web_search_tool],
         )
@@ -1658,7 +1656,7 @@ class TestResearcherSessionRegistry:
                     AIMessage(content="Answer without sources"),
                 ]
             )
-            agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[web_search_with_urls])
+            agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[web_search_with_urls])
 
             first = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Q1")]))
             second = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Q2")]))
@@ -1681,7 +1679,7 @@ class TestResearcherSessionRegistry:
         agent_response = AIMessage(content=("Answer [1].\n\n## Sources\n[1] Doc: https://session.example.com/doc"))
         mock_llm.ainvoke = AsyncMock(return_value=agent_response)
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[web_search_tool],
         )
@@ -1774,11 +1772,11 @@ class TestAppendMinimalCitation:
         )
 
 
-class TestResearcherAnswerGrounding:
+class TestPilotiAnswerGrounding:
     """The ``answer_citation_grounded`` overconfidence-guard signal set by run().
 
     This class deliberately does NOT inherit the citation-bypass autouse fixture
-    of TestResearcherAgent: each test controls the verification outcome
+    of TestPilotiAgent: each test controls the verification outcome
     and registry contents itself.
     """
 
@@ -1824,7 +1822,7 @@ class TestResearcherAnswerGrounding:
     def _agent(self, provider, **kwargs):
         # The fallback tests script exactly one search and one answer; the
         # repair pass would spend a third call and is not what they test.
-        return ResearcherAgent(llm_provider=provider, tools=[web_search_tool], **kwargs)
+        return PilotiAgent(llm_provider=provider, tools=[web_search_tool], **kwargs)
 
     @pytest.mark.asyncio
     async def test_grounded_when_verification_keeps_valid_citation(self, mock_llm_provider, mock_llm):
@@ -1835,7 +1833,7 @@ class TestResearcherAnswerGrounding:
         # its registry SourceEntry.
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[source]),
-            patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify,
         ):
             mock_verify.return_value = MagicMock(
                 verified_report="OIB-Richtlinie 2 regelt Brandschutz [1].",
@@ -1854,7 +1852,7 @@ class TestResearcherAnswerGrounding:
         source = SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool")
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[source]),
-            patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify,
         ):
             mock_verify.return_value = MagicMock(
                 verified_report="Answer without any citation.",
@@ -1874,7 +1872,7 @@ class TestResearcherAnswerGrounding:
         ]
         with (
             patch.object(SourceRegistry, "all_sources", return_value=sources),
-            patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify,
         ):
             mock_verify.return_value = MagicMock(
                 verified_report="Answer.",
@@ -1932,7 +1930,7 @@ class TestResearcherAnswerGrounding:
                 tool_name="ris_search",
             )
         )
-        with patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify:
+        with patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify:
             mock_verify.return_value = MagicMock(
                 verified_report="Hallo! Wie kann ich helfen?",
                 valid_citations=[],
@@ -1961,7 +1959,7 @@ class TestResearcherAnswerGrounding:
         registry.add(SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool"))
         registry.add(cited)
         registry.add(SourceEntry(url="https://example.com/c", title="C", tool_name="web_search_tool"))
-        with patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify:
+        with patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify:
             mock_verify.return_value = MagicMock(
                 verified_report="Antwort [1].",
                 valid_citations=[{"number": 1, "url": "https://example.com/b", "citation_key": None, "line": "[1]"}],
@@ -1979,7 +1977,7 @@ class TestResearcherAnswerGrounding:
         registry = SourceRegistry()
         registry.add(SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool"))
         registry.add(SourceEntry(citation_key="oib-richtlinie-2.pdf#p3", title="OIB 2", tool_name="kb_search"))
-        with patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify:
+        with patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify:
             mock_verify.return_value = MagicMock(
                 verified_report="Antwort [1].",
                 valid_citations=[
@@ -2006,7 +2004,7 @@ class TestResearcherAnswerGrounding:
         registry = SourceRegistry()
         only = SourceEntry(url="https://example.com/only", title="Only", tool_name="web_search_tool")
         registry.add(only)
-        with patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify:
+        with patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify:
             mock_verify.return_value = MagicMock(
                 verified_report="Answer without any citation.",
                 valid_citations=[],
@@ -2045,7 +2043,7 @@ class TestResearcherAnswerGrounding:
         registry = SourceRegistry()
         registry.add(SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool"))
         registry.add(SourceEntry(citation_key="oib-rl_4.pdf, p.9", title="OIB 4", tool_name="kb_search"))
-        with patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify:
+        with patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify:
             mock_verify.return_value = MagicMock(
                 verified_report="Antwort [1][2].",
                 valid_citations=[
@@ -2065,7 +2063,7 @@ class TestResearcherAnswerGrounding:
         self._after_a_lookup(mock_llm, "Answer without any citation.", query="https://example.com/only")
         registry = SourceRegistry()
         registry.add(SourceEntry(url="https://example.com/only", title="Only", tool_name="web_search_tool"))
-        with patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify:
+        with patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify:
             mock_verify.return_value = MagicMock(
                 verified_report="Answer without any citation.",
                 valid_citations=[],
@@ -2111,7 +2109,7 @@ class TestResearcherAnswerGrounding:
         source = SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool")
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[source]),
-            patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify,
         ):
             mock_verify.return_value = MagicMock(
                 verified_report="Antwort [1].",
@@ -2136,7 +2134,7 @@ class TestResearcherAnswerGrounding:
         source = SourceEntry(url="https://example.com/a", title="A", tool_name="web_search_tool")
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[source]),
-            patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify,
         ):
             mock_verify.return_value = MagicMock(
                 verified_report="Antwort [1].",
@@ -2179,8 +2177,8 @@ def knowledge_search(query: str) -> str:
     )
 
 
-class TestResearcherQuoteVerification:
-    """The researcher annotates fabricated quotes and flips answer_quotes_verified."""
+class TestPilotiQuoteVerification:
+    """Piloti annotates fabricated quotes and flips answer_quotes_verified."""
 
     @pytest.fixture
     def mock_llm(self):
@@ -2228,7 +2226,7 @@ class TestResearcherQuoteVerification:
             )
         )
         mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), final])
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
         state = ResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
         result = await _run_with_bound_registry(agent, state, SourceRegistry())
 
@@ -2247,7 +2245,7 @@ class TestResearcherQuoteVerification:
             )
         )
         mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), final])
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
         state = ResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
         result = await _run_with_bound_registry(agent, state, SourceRegistry())
 
@@ -2314,7 +2312,7 @@ class TestRepairLookups:
         assert len(repair_lookups(body, valid_citations=[], removed_citations=removed, unverified_quotes=[])) == 2
 
 
-class TestResearcherRepairPass:
+class TestPilotiRepairPass:
     """One bounded repair: a failed quote is re-searched and rewritten, once,
     and the answer that verifies better ships."""
 
@@ -2371,7 +2369,7 @@ class TestResearcherRepairPass:
     @pytest.mark.asyncio
     async def test_a_fabricated_quote_is_re_searched_and_rewritten_once(self, mock_llm_provider, mock_llm):
         mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.FABRICATED, self.VERBATIM])
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
         state = ResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
 
         result = await _run_with_bound_registry(agent, state, SourceRegistry())
@@ -2396,7 +2394,7 @@ class TestResearcherRepairPass:
             )
         )
         mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.FABRICATED, still_wrong])
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
         state = ResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
 
         result = await _run_with_bound_registry(agent, state, SourceRegistry())
@@ -2412,7 +2410,7 @@ class TestResearcherRepairPass:
     @pytest.mark.asyncio
     async def test_a_clean_answer_costs_no_extra_call(self, mock_llm_provider, mock_llm):
         mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.VERBATIM])
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[knowledge_search])
         state = ResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
 
         await _run_with_bound_registry(agent, state, SourceRegistry())
@@ -2422,7 +2420,7 @@ class TestResearcherRepairPass:
     @pytest.mark.asyncio
     async def test_switched_off_ships_the_marker_as_before(self, mock_llm_provider, mock_llm):
         mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.FABRICATED])
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=[knowledge_search], repair_pass=False)
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[knowledge_search], repair_pass=False)
         state = ResearchAgentState(messages=[HumanMessage(content="Treppenhoehe?")])
 
         result = await _run_with_bound_registry(agent, state, SourceRegistry())
@@ -2432,7 +2430,7 @@ class TestResearcherRepairPass:
 
 
 class TestClarificationGuidance:
-    """The researcher must be told to push back on under-specified queries —
+    """Piloti must be told to push back on under-specified queries —
     in shallow mode too, and independent of whether project_context is present.
 
     Regression: the only Rueckfrage/pushback guidance lived INSIDE the
@@ -2443,13 +2441,13 @@ class TestClarificationGuidance:
     def _render(self, *, project_context):
         from pathlib import Path
 
-        from aiq_agent.agents.researcher import agent as researcher_agent
+        from aiq_agent.agents.piloti import agent as piloti_agent
         from aiq_agent.common import load_prompt
         from aiq_agent.common import render_prompt_template
 
         prompt = load_prompt(
-            Path(researcher_agent.__file__).parent / "prompts",
-            "researcher",
+            Path(piloti_agent.__file__).parent / "prompts",
+            "piloti",
         )
         return render_prompt_template(
             prompt,
@@ -2495,11 +2493,11 @@ class TestOffTopicDeclineShape:
     def _render(self):
         from pathlib import Path
 
-        from aiq_agent.agents.researcher import agent as researcher_agent
+        from aiq_agent.agents.piloti import agent as piloti_agent
         from aiq_agent.common import load_prompt
         from aiq_agent.common import render_prompt_template
 
-        prompt = load_prompt(Path(researcher_agent.__file__).parent / "prompts", "researcher")
+        prompt = load_prompt(Path(piloti_agent.__file__).parent / "prompts", "piloti")
         return render_prompt_template(
             prompt,
             tools=[],
@@ -2623,8 +2621,8 @@ class TestKnowledgeInventoryIsNotCitable:
 
     DOCUMENTS = [{"file_name": "oib-rl_2_ausgabe_mai_2023.pdf", "summary": "Brandschutz.", "tags": []}]
 
-    def test_researcher_prompt_marks_the_inventory_as_not_a_source(self):
-        rendered = self._render(self._prompt("researcher/prompts/researcher.j2"), self.DOCUMENTS)
+    def test_piloti_prompt_marks_the_inventory_as_not_a_source(self):
+        rendered = self._render(self._prompt("piloti/prompts/piloti.j2"), self.DOCUMENTS)
 
         # The inventory still lists the file — the agent must know it exists.
         assert "oib-rl_2_ausgabe_mai_2023.pdf" in rendered
@@ -2636,17 +2634,17 @@ class TestKnowledgeInventoryIsNotCitable:
         assert "document citation keys" in citation_block
         assert "knowledge_search" in citation_block
 
-    def test_researcher_prompt_asks_for_disagreement_between_sources_to_be_shown(self):
+    def test_piloti_prompt_asks_for_disagreement_between_sources_to_be_shown(self):
         """The everyday chat surface had no rule about contradictory sources.
 
         `deep_researcher/prompts/writer.j2` has told the writer to surface
-        disagreement for a long time; the researcher prompt — the one that answers
+        disagreement for a long time; Piloti's prompt — the one that answers
         almost every question — mentioned contradiction only as a reason to
         escalate or to lower confidence, never as something to TELL the reader.
         In a legal product a smoothed-over difference is the dangerous failure:
         an unqualified answer reads as a settled one, and gets built on.
         """
-        source = self._prompt("researcher/prompts/researcher.j2")
+        source = self._prompt("piloti/prompts/piloti.j2")
 
         assert "<source_disagreement>" in source
         block = source.split("<source_disagreement>")[1].split("</source_disagreement>")[0]
@@ -2671,7 +2669,7 @@ class TestKnowledgeInventoryIsNotCitable:
         "User Uploaded Documents" was also simply untrue — and a heading rename
         must not leave dangling references to the old one."""
         for path in (
-            "researcher/prompts/researcher.j2",
+            "piloti/prompts/piloti.j2",
             "deep_researcher/prompts/researcher.j2",
             "deep_researcher/prompts/orchestrator.j2",
             "deep_researcher/prompts/planner.j2",
@@ -2680,8 +2678,8 @@ class TestKnowledgeInventoryIsNotCitable:
             source = self._prompt(path)
             assert "Uploaded Documents" not in source, path
 
-    def test_researcher_prompt_teaches_the_four_shelves(self):
-        source = self._prompt("researcher/prompts/researcher.j2")
+    def test_piloti_prompt_teaches_the_four_shelves(self):
+        source = self._prompt("piloti/prompts/piloti.j2")
         assert "<knowledge_shelves>" in source
         assert "Büroarchiv" in source
         assert "NEVER the OIB corpus" in source
@@ -2697,7 +2695,7 @@ class TestKnowledgeInventoryIsNotCitable:
                 "collection": "archiv_org",
             },
         ]
-        rendered = self._render(self._prompt("researcher/prompts/researcher.j2"), documents)
+        rendered = self._render(self._prompt("piloti/prompts/piloti.j2"), documents)
         archiv = rendered.split("### Büroarchiv", 1)[1].split("### ", 1)[0]
         assert "Buero-Standard.pdf" in archiv
         assert "oib-rl_2.pdf" not in archiv
@@ -2715,11 +2713,11 @@ class TestTheModelCardsAreActuallyAskedFor:
     def _render(self):
         from pathlib import Path
 
-        from aiq_agent.agents.researcher import agent as researcher_agent
+        from aiq_agent.agents.piloti import agent as piloti_agent
         from aiq_agent.common import load_prompt
         from aiq_agent.common import render_prompt_template
 
-        prompt = load_prompt(Path(researcher_agent.__file__).parent / "prompts", "researcher")
+        prompt = load_prompt(Path(piloti_agent.__file__).parent / "prompts", "piloti")
         return render_prompt_template(
             prompt,
             tools=[{"name": "ifc_query"}, {"name": "emit_card"}],
@@ -2868,14 +2866,14 @@ class TestMeasurementSourcesDoNotGroundCitations:
         measurement IS in the derivation trail, and the answer is STILL "low"
         for ``normative_claim_uncited``.
         """
-        from aiq_agent.agents.researcher.markers import answer_confidence_capped_reason
-        from aiq_agent.agents.researcher.markers import surface_answer_confidence
+        from aiq_agent.agents.piloti.markers import answer_confidence_capped_reason
+        from aiq_agent.agents.piloti.markers import surface_answer_confidence
 
         tools = self._measuring_turn(
             mock_llm,
             "Der Keller ist 2,70 m hoch und erfüllt damit die Mindestraumhöhe nach OIB-Richtlinie 4.",
         )
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=tools)
         state = ResearchAgentState(
             messages=[HumanMessage(content="Wie hoch ist der Keller?")],
         )
@@ -2924,7 +2922,7 @@ class TestMeasurementSourcesDoNotGroundCitations:
         Herleitung to a laundered verdict.
         """
         tools = self._measuring_turn(mock_llm, "Der Keller ist 2,70 m hoch.")
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=tools)
         state = ResearchAgentState(
             messages=[HumanMessage(content="Wie hoch ist der Keller?")],
         )
@@ -2944,11 +2942,11 @@ class TestMeasurementSourcesDoNotGroundCitations:
         Same turn as above minus the legal claim. ``measurement_only`` is the
         reason, exactly as before measurements had a Herleitung.
         """
-        from aiq_agent.agents.researcher.markers import answer_confidence_capped_reason
-        from aiq_agent.agents.researcher.markers import surface_answer_confidence
+        from aiq_agent.agents.piloti.markers import answer_confidence_capped_reason
+        from aiq_agent.agents.piloti.markers import surface_answer_confidence
 
         tools = self._measuring_turn(mock_llm, "Der Keller ist 2,70 m hoch.")
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=tools)
         state = ResearchAgentState(
             messages=[HumanMessage(content="Wie hoch ist der Keller?")],
         )
@@ -3011,7 +3009,7 @@ class TestMeasurementSourcesDoNotGroundCitations:
                 AIMessage(content="Der Keller ist 2,70 m hoch."),
             ]
         )
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[ifc_measure, empty_web_search_tool],
         )
@@ -3027,7 +3025,7 @@ class TestMeasurementSourcesDoNotGroundCitations:
     async def test_the_card_carries_the_audit_trail_the_envelope_had(self, mock_llm_provider, mock_llm):
         """Value, tolerance, German provenance, method, GlobalIds, model, caveat."""
         tools = self._measuring_turn(mock_llm, "Der Keller ist 2,70 m hoch.")
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=tools)
         state = ResearchAgentState(
             messages=[HumanMessage(content="Wie hoch ist der Keller?")],
         )
@@ -3056,11 +3054,11 @@ class TestMeasurementSourcesDoNotGroundCitations:
         citation would report one cited source out of zero retrieved.
         """
         tools = self._measuring_turn(mock_llm, "Der Keller ist 2,70 m hoch.")
-        agent = ResearcherAgent(llm_provider=mock_llm_provider, tools=tools)
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=tools)
         state = ResearchAgentState(
             messages=[HumanMessage(content="Wie hoch ist der Keller?")],
         )
-        with patch("aiq_agent.agents.researcher.ledger.citation_events") as events:
+        with patch("aiq_agent.agents.piloti.ledger.citation_events") as events:
             result, _ = await _run_with_captured_registry(agent, state)
 
         assert self._measurement_sources(result)
@@ -3093,8 +3091,8 @@ class TestTheResearchBudgetIsNotSpentOnForcedSkills:
     def _bypass_citation_pipeline(self):
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-            patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as verify,
-            patch("aiq_agent.agents.researcher.answer_pipeline.sanitize_report") as sanitize,
+            patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as verify,
+            patch("aiq_agent.agents.piloti.answer_pipeline.sanitize_report") as sanitize,
         ):
             verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
                 verified_report=content, removed_citations=[]
@@ -3110,7 +3108,7 @@ class TestTheResearchBudgetIsNotSpentOnForcedSkills:
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
         return (
-            ResearcherAgent(
+            PilotiAgent(
                 llm_provider=provider,
                 tools=[web_search_tool],
                 max_tool_iterations=iterations,
@@ -3186,8 +3184,8 @@ class TestTruncationIsObservable:
     def _bypass_citation_pipeline(self):
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-            patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as verify,
-            patch("aiq_agent.agents.researcher.answer_pipeline.sanitize_report") as sanitize,
+            patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as verify,
+            patch("aiq_agent.agents.piloti.answer_pipeline.sanitize_report") as sanitize,
         ):
             verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
                 verified_report=content, removed_citations=[]
@@ -3226,7 +3224,7 @@ class TestTruncationIsObservable:
         llm.ainvoke = AsyncMock(return_value=AIMessage(content="Die Antwort [1]."))
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=provider,
             tools=[web_search_tool],
             max_tool_iterations=3,
@@ -3259,7 +3257,7 @@ class TestTruncationIsObservable:
     async def test_the_log_says_what_was_cut_off_and_on_what_shape(self, caplog):
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="aiq_agent.agents.researcher.agent"):
+        with caplog.at_level(logging.WARNING, logger="aiq_agent.agents.piloti.agent"):
             await self._truncated_run()
 
         lines = [m for m in caplog.messages if "Research budget exhausted" in m]
@@ -3314,7 +3312,7 @@ class TestTruncationIsObservable:
         llm.ainvoke = AsyncMock(return_value=AIMessage(content="Die Antwort [1]."))
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
-        agent = ResearcherAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=2)
+        agent = PilotiAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=2)
 
         truncated = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Wie tief?")], tool_iterations=2))
         assert truncated.research_truncated is True
@@ -3328,7 +3326,7 @@ class TestTruncationIsObservable:
         llm.ainvoke = AsyncMock(return_value=AIMessage(content="Die Antwort [1]."))
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
-        agent = ResearcherAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=3)
+        agent = PilotiAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=3)
 
         finished = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Kurz gefragt")]))
         assert finished.research_truncated is None
@@ -3341,7 +3339,7 @@ class TestTruncationIsObservable:
         llm.ainvoke = AsyncMock(return_value=AIMessage(content="Die Antwort [1]."))
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
-        agent = ResearcherAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=3)
+        agent = PilotiAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=3)
 
         await agent.run(ResearchAgentState(messages=[HumanMessage(content="Kurz gefragt")]))
 
@@ -3536,11 +3534,11 @@ def _render_researcher_prompt(
     delegation on or off."""
     from pathlib import Path
 
-    from aiq_agent.agents.researcher import agent as researcher_agent
+    from aiq_agent.agents.piloti import agent as piloti_agent
     from aiq_agent.common import load_prompt
     from aiq_agent.common import render_prompt_template
 
-    prompt = load_prompt(Path(researcher_agent.__file__).parent / "prompts", "researcher")
+    prompt = load_prompt(Path(piloti_agent.__file__).parent / "prompts", "piloti")
     return render_prompt_template(
         prompt,
         tools=[],
@@ -3617,8 +3615,8 @@ class TestTheWorkingDirectoryBlock:
 
     def test_the_block_follows_the_tools_and_not_a_second_switch(self):
         """The flag is derived from what is bound, by the renderer itself."""
-        from aiq_agent.agents.researcher.prompt import render_system_prompt
-        from aiq_agent.agents.researcher.prompt import system_prompt_template
+        from aiq_agent.agents.piloti.prompt import render_system_prompt
+        from aiq_agent.agents.piloti.prompt import system_prompt_template
 
         state = ResearchAgentState(messages=[HumanMessage(content="Schreib den Aktenvermerk")])
         with_tools = render_system_prompt(
@@ -3677,8 +3675,8 @@ class TestTheDelegationBlock:
         assert "Von selbst wird kein Auftrag angelegt" in _delegieren_block()
 
     def test_the_block_follows_the_tools_and_not_a_second_switch(self):
-        from aiq_agent.agents.researcher.prompt import render_system_prompt
-        from aiq_agent.agents.researcher.prompt import system_prompt_template
+        from aiq_agent.agents.piloti.prompt import render_system_prompt
+        from aiq_agent.agents.piloti.prompt import system_prompt_template
 
         state = ResearchAgentState(messages=[HumanMessage(content="Mach den Einreichcheck bis Freitag")])
         with_tool = render_system_prompt(
@@ -3699,19 +3697,19 @@ class TestTheWorkingDirectoryBudget:
     """The file verbs are an OUTPUT channel, budgeted like cards and memory."""
 
     def test_the_four_verbs_are_interaction_tools(self):
-        from aiq_agent.agents.researcher.agent import _INTERACTION_TOOL_BASENAMES
+        from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_BASENAMES
 
         assert {"ls", "read_file", "write_file", "edit_file"} <= _INTERACTION_TOOL_BASENAMES
 
     def test_the_two_filing_verbs_are_interaction_tools_too(self):
         """Filing is the END of the answer's output channel, not a way of learning something."""
-        from aiq_agent.agents.researcher.agent import _INTERACTION_TOOL_BASENAMES
+        from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_BASENAMES
 
         assert {"file_draft", "submit_draft"} <= _INTERACTION_TOOL_BASENAMES
 
     def test_delegating_is_an_interaction_tool_too(self):
         """A turn that delegates decided not to research; it must not cost research budget."""
-        from aiq_agent.agents.researcher.agent import _INTERACTION_TOOL_BASENAMES
+        from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_BASENAMES
 
         assert "create_task" in _INTERACTION_TOOL_BASENAMES
 
@@ -3751,7 +3749,7 @@ class TestTheWorkingDirectoryBudget:
 
     def test_the_recursion_limit_still_derives_from_the_allowance(self):
         """Nothing else moves when the allowance does."""
-        from aiq_agent.agents.researcher.agent import _recursion_limit
+        from aiq_agent.agents.piloti.agent import _recursion_limit
 
         assert _recursion_limit(5) == ((5 + _INTERACTION_TOOL_ALLOWANCE) * 2) + 10
 
@@ -3764,7 +3762,7 @@ class TestTheWorkingDirectoryBudget:
         (``get_source_id_for_tool``) is what actually holds, because the file
         verbs ARE in the turn's bound tool set.
         """
-        from aiq_agent.agents.researcher.agent import _capture_sources
+        from aiq_agent.agents.piloti.agent import _capture_sources
 
         registry = SourceRegistry()
         for verb in ("ls", "read_file", "write_file", "edit_file"):
@@ -3823,8 +3821,8 @@ class TestATurnThatWritesADraft:
     def _bypass_citation_pipeline(self):
         with (
             patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-            patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify,
-            patch("aiq_agent.agents.researcher.answer_pipeline.sanitize_report") as mock_sanitize,
+            patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.piloti.answer_pipeline.sanitize_report") as mock_sanitize,
         ):
             mock_verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
                 verified_report=content, removed_citations=[]
@@ -3901,7 +3899,7 @@ class TestATurnThatWritesADraft:
             ]
         )
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=provider,
             tools=[web_search_tool, *tools],
             max_tool_iterations=1,
@@ -3978,7 +3976,7 @@ class TestATurnThatWritesADraft:
             ]
         )
 
-        agent = ResearcherAgent(
+        agent = PilotiAgent(
             llm_provider=provider,
             tools=[web_search_tool, *tools, file_draft_tool],
             max_tool_iterations=1,
@@ -4049,8 +4047,8 @@ class TestTheTidyingBlock:
 
     def test_the_block_follows_the_tools_and_not_a_second_switch(self):
         """The flag is derived from what is bound, by the renderer itself."""
-        from aiq_agent.agents.researcher.prompt import render_system_prompt
-        from aiq_agent.agents.researcher.prompt import system_prompt_template
+        from aiq_agent.agents.piloti.prompt import render_system_prompt
+        from aiq_agent.agents.piloti.prompt import system_prompt_template
 
         state = ResearchAgentState(messages=[HumanMessage(content="Leg das zu den Einreichunterlagen")])
         with_tools = render_system_prompt(
@@ -4071,7 +4069,7 @@ class TestTheTidyingBudget:
     """The five verbs are an OUTPUT channel too — and they cost no extra room."""
 
     def test_the_five_verbs_are_interaction_tools(self):
-        from aiq_agent.agents.researcher.agent import _INTERACTION_TOOL_BASENAMES
+        from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_BASENAMES
 
         assert {
             "move_document",

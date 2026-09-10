@@ -65,7 +65,7 @@ def test_the_image_tool_is_declared_with_its_own_type(functions: dict):
     assert entry["_type"] == "view_knowledge_image"
 
 
-def test_both_researchers_reach_the_same_knowledge_and_ris_tools(config: dict):
+def test_both_agents_reach_the_same_knowledge_and_ris_tools(config: dict):
     """Shallow and deep answer the same questions; a tool on one and not the
     other means the answer changes with the routing decision rather than with
     the question."""
@@ -85,8 +85,8 @@ def test_both_researchers_reach_the_same_knowledge_and_ris_tools(config: dict):
 def test_the_deep_researcher_can_show_a_file_and_not_only_cite_it(config: dict):
     """`surface_documents` emits the `document_grid` card. A deep run that
     could cite a project file but never show one answered „zeig mir den
-    Brandschutzplan" with a paragraph about it; the tool was bound on the
-    researcher only. The job runner binds the card registry the tool
+    Brandschutzplan" with a paragraph about it; the tool was bound on
+    Piloti only. The job runner binds the card registry the tool
     writes into (`jobs/runner.py::_bound_card_registry`); this is the other
     half, the two YAML lines."""
     assert "surface_documents" in _tools(config, "deep_research_agent")

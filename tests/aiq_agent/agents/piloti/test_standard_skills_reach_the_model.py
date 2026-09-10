@@ -44,10 +44,10 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
-import aiq_agent.agents.researcher.register as register_module
-from aiq_agent.agents.researcher.models import ResearchAgentState
-from aiq_agent.agents.researcher.register import ResearchAgentConfig
-from aiq_agent.agents.researcher.register import research_agent
+import aiq_agent.agents.piloti.register as register_module
+from aiq_agent.agents.piloti.models import ResearchAgentState
+from aiq_agent.agents.piloti.register import ResearchAgentConfig
+from aiq_agent.agents.piloti.register import research_agent
 from aiq_agent.common import cache as shared_cache
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
@@ -154,8 +154,8 @@ def bypass_citation_pipeline():
     """
     with (
         patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-        patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as verify,
-        patch("aiq_agent.agents.researcher.answer_pipeline.sanitize_report") as sanitize,
+        patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as verify,
+        patch("aiq_agent.agents.piloti.answer_pipeline.sanitize_report") as sanitize,
     ):
         verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
             verified_report=content, removed_citations=[]

@@ -2,10 +2,10 @@
 
 from urllib.parse import urlparse
 
-from aiq_agent.agents.researcher.markers import ESCALATION_MARKER
-from aiq_agent.agents.researcher.markers import detect_and_strip_confidence_marker
-from aiq_agent.agents.researcher.markers import detect_and_strip_escalation_marker
-from aiq_agent.agents.researcher.markers import surface_answer_confidence
+from aiq_agent.agents.piloti.markers import ESCALATION_MARKER
+from aiq_agent.agents.piloti.markers import detect_and_strip_confidence_marker
+from aiq_agent.agents.piloti.markers import detect_and_strip_escalation_marker
+from aiq_agent.agents.piloti.markers import surface_answer_confidence
 
 
 class TestDetectAndStripEscalationMarker:

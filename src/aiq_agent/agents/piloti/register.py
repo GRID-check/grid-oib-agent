@@ -1,6 +1,6 @@
 """NAT register function for research agent.
 
-One :class:`ResearcherAgent` is built at boot. Per request ``_run_turn``
+One :class:`PilotiAgent` is built at boot. Per request ``_run_turn``
 computes only what the turn varies (the data-source narrowing, the org's
 skills as a ``use_skill`` tool, the model override) as a :class:`TurnConfig`
 and hands it to ``agent.run``; nothing is compiled, read or re-indexed per turn.
@@ -54,7 +54,7 @@ from nat.data_models.function import FunctionBaseConfig
 # that imports this file, the pattern ``cards/register.py`` uses for
 # ``surface_documents``, and no extra plugin entry point to keep in sync.
 from . import ask_user as _ask_user  # noqa: F401
-from .agent import ResearcherAgent
+from .agent import PilotiAgent
 from .agent import TurnConfig
 from .models import ResearchAgentState
 from .tool_search import ToolSearchSettings
@@ -144,7 +144,7 @@ class _Deployment:
     """What the boot built, shared by every turn."""
 
     config: ResearchAgentConfig
-    agent: ResearcherAgent
+    agent: PilotiAgent
     provider: LLMProvider
     tools: list[Any]
     #: tool names → (is_valid, unavailable): the availability check is a scan
@@ -197,6 +197,11 @@ async def _resolve_skill_runtime(
     # A cold resolve is a blocking BFF round-trip (5s timeout); on a thread so
     # the miss stalls this turn and not every other conversation on the
     # replica. The org id is read here, on the loop, because it is a ContextVar.
+    # ``researcher`` and not ``piloti``: this is the skill scope stored in
+    # ``platform_skills.grid_agents`` and written by hand into every skill's
+    # frontmatter. Both resolvers ignore a name they do not know, so renaming
+    # it here without a migration and read-side aliases would silently serve
+    # the chat-scoped skills to deep research too. See ``skills/resolver.py``.
     resolver = SkillResolver(agent="researcher")
     resolved = await asyncio.to_thread(resolver.resolve, get_organization_id_from_context())
     if config.skill_allowlist:
@@ -368,7 +373,7 @@ async def research_agent(config: ResearchAgentConfig, builder: Builder):
     provider = LLMProvider()
     provider.set_default(llm, group=AgentGroup.RESEARCH)
     callbacks = [VerboseTraceCallback()] if is_verbose(config.verbose) else []
-    agent = ResearcherAgent(
+    agent = PilotiAgent(
         llm_provider=provider,
         tools=tools,
         max_tool_iterations=config.max_tool_iterations,

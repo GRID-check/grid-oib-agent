@@ -78,7 +78,7 @@ class ResearchAgentState(BaseModel):
     interaction_iterations: int = 0
     project_context: str | None = None
     # Anonymized fleet-wide failure patterns distilled from user feedback,
-    # threaded through from ChatResearcherState (see the note there).
+    # threaded through from ``ConversationState`` (see the note there).
     platform_lessons: str | None = None
     # The composer's "Asking about <file>" subject for this turn (filename +
     # shelf). Rendered into the system prompt so "summarize this document"
@@ -97,7 +97,7 @@ class ResearchAgentState(BaseModel):
     answer_quotes_verified: bool = True
     # The SECOND kind of grounding: whether THIS turn produced at least one
     # `declared`/`computed` answer from the IFC model (see
-    # ``researcher.grounding``). An IFC measurement carries a provenance,
+    # ``piloti.grounding``). An IFC measurement carries a provenance,
     # a tolerance, a readable method and the GlobalIds it was derived from, and
     # has no passage to quote — so it can never satisfy the citation gate, and a
     # correctly measured number used to be capped to "low" for lacking evidence
@@ -128,7 +128,7 @@ class ResearchAgentState(BaseModel):
     # source would switch the brake off entirely). Defaults to False.
     answer_citation_fallback_used: bool = False
     # Structured control-marker signals extracted (and stripped from the answer
-    # text) inside ResearcherAgent.run(). The chat orchestrator reads these
+    # text) inside PilotiAgent.run(). The chat orchestrator reads these
     # instead of re-parsing the answer string. ``escalation_requested`` doubles as
     # the extraction sentinel: None means "extraction did not run" (older caller,
     # or no real answer message) → the chat node falls back to string detection;
@@ -159,7 +159,7 @@ class ResearchAgentState(BaseModel):
     # can open document previews without inventing filenames.
     verified_sources: list[dict[str, Any]] | None = None
     # Skill names FORCED for this turn by the incoming request (parsed from the
-    # WS content JSON's `skills` array by the chat researcher). Resolved
+    # WS content JSON's `skills` array by Piloti). Resolved
     # against the run's skill set into the forced-activation list. None = no
     # skills were forced.
     force_skills: list[str] | None = None
@@ -243,7 +243,7 @@ class ResearchAgentState(BaseModel):
         """The self-assessment as it may be SURFACED, after the overconfidence guard.
 
         ``answer_confidence_marker`` is what the model claimed;
-        :func:`~aiq_agent.agents.researcher.markers.surface_answer_confidence`
+        :func:`~aiq_agent.agents.piloti.markers.surface_answer_confidence`
         decides how much of that claim the evidence in this same state supports.
         """
         return surface_answer_confidence(

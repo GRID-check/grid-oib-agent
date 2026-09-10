@@ -17,9 +17,9 @@ from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
 
-from aiq_agent.agents.researcher.markers import ConfidenceLevel
-from aiq_agent.agents.researcher.markers import answer_confidence_capped_reason
-from aiq_agent.agents.researcher.markers import surface_answer_confidence
+from aiq_agent.agents.piloti.markers import ConfidenceLevel
+from aiq_agent.agents.piloti.markers import answer_confidence_capped_reason
+from aiq_agent.agents.piloti.markers import surface_answer_confidence
 from aiq_agent.common import citation_events
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import sanitize_report
@@ -261,7 +261,7 @@ def _cited_sources_to_wire(registry: Any, valid_citations: list[dict[str, Any]])
     exists. Everything a reader needs from a citation — the page to open the
     PDF at, the snippet to hover, the lane and binding note — lives on the
     registry entry behind that binding. This is the join, mirroring
-    ``ResearcherAgent``'s so both agents emit one shape.
+    ``PilotiAgent``'s so both agents emit one shape.
 
     Deduplicated by entry identity in first-cited order: four passages of one
     Richtlinie are four citations but the reader wants the document once, and

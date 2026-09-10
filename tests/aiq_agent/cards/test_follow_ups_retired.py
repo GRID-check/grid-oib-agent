@@ -129,7 +129,7 @@ class TestTheModelCanNoLongerEmitOne:
     def test_the_dsml_salvage_drops_it(self):
         # Leaked DSML tool-call text is the third emission path: a `follow_ups`
         # block scraped out of the answer must not be registered either.
-        from aiq_agent.agents.researcher.dsml import _salvage_card
+        from aiq_agent.agents.piloti.dsml import _salvage_card
 
         registry = get_or_create_card_registry("conv-dsml-retired-follow-ups")
         registry.clear()

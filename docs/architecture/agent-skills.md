@@ -205,8 +205,7 @@ Which means the property has to survive the wire, and it does, in two places:
 
 The first standard skills were `piloti-voice` (seeded by
 `0053_piloti_voice_standard_skill.sql`) and `piloti-cards` — and both are
-**retired** (`0071_retire_piloti_house_skills.sql`): their craft moved into the
-researcher's system prompt (`<stimme>` and `<cards>` in `researcher.j2`) and
+**retired** (`0071_retire_piloti_house_skills.sql`): their craft moved into Piloti's system prompt (`<stimme>` and `<cards>` in `piloti.j2`) and
 the deep writer's prompt. The trade the delivery tier made for them did not
 hold: a forced skill contributes only its NAME to the prompt, the body travels
 through exactly one path — the `use_skill` closure — and a model that never
@@ -422,6 +421,10 @@ agent meant a `grid-agents` value that was correct in one file and inert in
 the other.
 
 `researcher` was called `shallow_researcher` until the chat agent was renamed.
+It stayed `researcher` when that agent's package was renamed again, to
+`agents/piloti`: this string is a wire name, stored in
+`platform_skills.grid_agents` and hand-written into skill frontmatter, so
+moving it costs another migration and another alias pair.
 Because the name is author-written and was seeded by ten migrations, both
 resolvers read the old spelling as the new one (`AGENT_ALIASES` in
 `src/aiq_agent/skills/resolver.py`, `SKILL_AGENT_ALIASES` in
@@ -437,7 +440,7 @@ Every builtin declares `grid-agents`, and the value splits the corpus in two.
 The five in `research/` and `synthesis/` declare `deep_researcher` **and nothing
 else**. They are DeepAgents subagent skills: their instructions call `execute`,
 read and write `/shared/` and return `ResearchNotes`, none of which exists in a
-chat turn. That one key is what keeps the chat researcher from being
+chat turn. That one key is what keeps Piloti from being
 offered a procedure it cannot carry out.
 
 The six in `bim/`, `oib/` and `presentation/` are chat skills and say so.
@@ -457,7 +460,7 @@ Since `grid-agents` is the ONLY thing doing the targeting,
 The research and synthesis builtins declare `grid-agents: deep_researcher`
 and nothing else. They are DeepAgents subagent skills: their instructions call
 `execute`, read and write `/shared/` and return `ResearchNotes`, none of which
-exists in a chat turn. That one key is what keeps the chat researcher
+exists in a chat turn. That one key is what keeps Piloti
 from being offered a procedure it cannot carry out. The OIB and BIM skills
 name both agents, because the questions they are about get asked in chat.
 `platform-skills.spec.ts` asserts every builtin still declares `grid-agents`. The BFF forwards platform metadata
@@ -498,7 +501,7 @@ Progressive disclosure has exactly two levels:
   the skills forced for this turn. `grid-auto-invoke: false` omits a skill
   from L1. It stays resolved, stays in the `/` picker, and stays loadable
   when forced. Absent means on. Both blocks are pre-collated by the register
-  layer (`researcher/register.py::_skills_block`,
+  layer (`piloti/register.py::_skills_block`,
   `deep_researcher/agent.py::_skills_block`) and render via the runtime's
   `prompt_block()` / `forced_block()`; `None` renders no section.
 - **L2 — the body.** The model must call the `use_skill` tool to load a
@@ -625,7 +628,7 @@ config): per-agent skill *sources* wired through `SkillsMiddleware` with a
 `FilesystemBackend` over `src/aiq_agent/skills/builtin/` and read-only
 filesystem permission rules (`factory.runtime_skill_filesystem_permissions`).
 `force_skills` is never passed to deep research — the conversation graph drops
-it (`researcher/conversation.py`).
+it (`piloti/conversation.py`).
 
 ## Data model (grid_app, Drizzle)
 
@@ -1218,7 +1221,7 @@ history surfaces, and the run-history link and job-glyph rendering that
   does not list it twice.
 - `tests/aiq_agent/turn/test_payload.py` and
   `tests/aiq_agent/turn/test_payload_parsing.py` — the envelope parsing;
-  `tests/aiq_agent/agents/researcher/` — per-turn skill forcing.
+  `tests/aiq_agent/agents/piloti/` — per-turn skill forcing.
 - BFF vitest, toolbox: `lib/skills/service.spec.ts` (authz, tenant filters,
   snapshot and targeting semantics — pinned against the Python cases — plus the
   `platform standard skills` block, which asserts each of the standard-tier

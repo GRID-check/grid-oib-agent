@@ -36,7 +36,7 @@ def async_job_dispatch() -> str | None:
     ``db`` wins when both are configured: it is the queue row, not the cluster,
     that runs the job. This is THE acceptance condition — ``submit_agent_job``
     refuses exactly when this returns ``None``, and the chat dispatch gate
-    (``researcher.conversation_register``) imports this same function, so the two
+    (``piloti.conversation_register``) imports this same function, so the two
     cannot drift. They once did: the chat gate read only the scheduler address,
     which no db-mode deployment sets, and every deployment that actually had
     workers researched synchronously instead.

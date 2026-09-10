@@ -15,7 +15,7 @@ AGENT_SRC = pathlib.Path(api_seam.__file__).resolve().parents[1]
 #:
 #: The guard walks the WHOLE package and subtracts this tuple, rather than naming the
 #: packages it walks. Listing what is guarded is the shape that fails silently: the
-#: previous version named ``turn`` and ``agents/researcher`` and would have passed a
+#: previous version named ``turn`` and ``agents/piloti`` and would have passed a
 #: new ``aiq_api`` import anywhere in ``memory/``, ``stages/``, ``tools/``, ``cards/``
 #: or ``agents/deep_researcher`` — and it had already once named a directory that no
 #: longer existed, ``rglob``-ing nothing and proving nothing. Inverted, the guarded set

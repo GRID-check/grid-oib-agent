@@ -69,7 +69,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | Where a filed draft's document id is remembered | `src/aiq_agent/tools/documents/draft_store.py` — `FILING_KEYS`, `arecord_filing` | same | — |
 | The signed envelope as the Python tier receives it | `src/aiq_agent/project_context.py` — `GridRequestContext.envelope_header`, `get_request_envelope_from_context` | same | ADR-0054 |
 | Which conversation a version was filed from | `document_versions.origin_conversation_id` (migration `0084`), stamped in `frontends/ui/src/app/api/internal/document-versions/route.ts` from the verified envelope | [`docs/database/schema.md`](../database/schema.md) | ADR-0054 |
-| A reviewer's „Änderungen anfordern“ reaching the next turn of the same conversation | `frontends/ui/src/lib/documents/review-decisions.ts` — `buildReviewDecisionsBlock`; rendered beside `PROPOSAL_DECISIONS` in `src/aiq_agent/agents/researcher/prompts/researcher.j2` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | ADR-0051, ADR-0054 |
+| A reviewer's „Änderungen anfordern“ reaching the next turn of the same conversation | `frontends/ui/src/lib/documents/review-decisions.ts` — `buildReviewDecisionsBlock`; rendered beside `PROPOSAL_DECISIONS` in `src/aiq_agent/agents/piloti/prompts/piloti.j2` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | ADR-0051, ADR-0054 |
 | The same decision becoming a `revision` task when nobody is in a conversation | `frontends/ui/src/lib/documents/lifecycle.ts` — the `openRevisionTask` effect | same | ADR-0051, ADR-0054 |
 | Which version a revision's bytes go into | `frontends/ui/src/lib/documents/revision.ts` — `openDraftForRevision` | same | ADR-0054 |
 | The draft card's filed state and its controls | `frontends/ui/src/features/grid-cards/components/DocumentDraftCard.tsx` | [`cards.md`](cards.md) | ADR-0030 |
@@ -156,15 +156,15 @@ does not exist, so a moved file is caught; a missing row is not.
 
 | Concept | Owning code | Doc of record | Decision |
 |---|---|---|---|
-| The researcher tool loop | `src/aiq_agent/agents/researcher/agent.py` — `ResearcherAgent.run` | [`backend-deep-dive.md`](backend-deep-dive.md) | ADR-0052 |
-| Research budget and the interaction allowance | `src/aiq_agent/agents/researcher/agent.py` — `_INTERACTION_TOOL_ALLOWANCE`; `max_tool_iterations` in `src/aiq_agent/agents/researcher/register.py` | same | ADR-0052 |
-| Forced synthesis at the ceiling | `src/aiq_agent/agents/researcher/agent.py` — `_forced_synthesis`, `_SYNTHESIS_ANCHOR` | same | ADR-0052 |
-| The envelope-enforced LLM call | `src/aiq_agent/agents/researcher/envelope_call.py` — `ainvoke_with_envelope_json_mode` | same | ADR-0052 |
+| Piloti's tool loop | `src/aiq_agent/agents/piloti/agent.py` — `PilotiAgent.run` | [`backend-deep-dive.md`](backend-deep-dive.md) | ADR-0052 |
+| Research budget and the interaction allowance | `src/aiq_agent/agents/piloti/agent.py` — `_INTERACTION_TOOL_ALLOWANCE`; `max_tool_iterations` in `src/aiq_agent/agents/piloti/register.py` | same | ADR-0052 |
+| Forced synthesis at the ceiling | `src/aiq_agent/agents/piloti/agent.py` — `_forced_synthesis`, `_SYNTHESIS_ANCHOR` | same | ADR-0052 |
+| The envelope-enforced LLM call | `src/aiq_agent/agents/piloti/envelope_call.py` — `ainvoke_with_envelope_json_mode` | same | ADR-0052 |
 | Answer envelope, Python | `src/aiq_agent/common/answer_envelope.py` — `extract_answer_envelope`, `gate_answer_meta` | [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md) | ADR-0037 |
 | Answer envelope, TypeScript sanitizer | `frontends/ui/src/lib/conversations/message-answer-meta.ts` — `sanitizeAnswerMeta` | same | ADR-0037 |
 | Answer envelope, shared wire fixture | `tests/fixtures/answer_meta/wire_payload.json` | same | ADR-0037 |
-| Answer repair after verification | `src/aiq_agent/agents/researcher/repair.py` — `repair_answer` | [`citation-system-audit-2026-07.md`](citation-system-audit-2026-07.md) | ADR-0044 (retrieval correctness) |
-| Confidence markers and the overconfidence guard | `src/aiq_agent/agents/researcher/markers.py` | [`quote-verification-calibration-2026-07.md`](quote-verification-calibration-2026-07.md) | ADR-0044 (retrieval correctness) |
+| Answer repair after verification | `src/aiq_agent/agents/piloti/repair.py` — `repair_answer` | [`citation-system-audit-2026-07.md`](citation-system-audit-2026-07.md) | ADR-0044 (retrieval correctness) |
+| Confidence markers and the overconfidence guard | `src/aiq_agent/agents/piloti/markers.py` | [`quote-verification-calibration-2026-07.md`](quote-verification-calibration-2026-07.md) | ADR-0044 (retrieval correctness) |
 | Turn status steps | `src/aiq_agent/common/turn_status.py` — `emit_status` | [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md) | ADR-0009 |
 | Trace lanes in the UI | `frontends/ui/src/features/chat/lib/trace-lanes.ts` — `deriveTraceLanes` | [`docs/design/streaming-chat-answer.md`](../design/streaming-chat-answer.md) | ADR-0026 |
 | Turn dispatch and streaming | `src/aiq_agent/turn/dispatch.py`, `src/aiq_agent/turn/streaming.py` | [`docs/technical-reference/chat-flow.md`](../technical-reference/chat-flow.md) | ADR-0009 |

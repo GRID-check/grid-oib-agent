@@ -158,6 +158,9 @@ that could never be pressed:
 - **Änderungen anfordern** and **Ablehnen**, both of which ask you to type why.
   The reason stays on the version, so „was ist noch offen" is answered by
   reading the file rather than by remembering a conversation.
+- **Piloti überarbeiten lassen**, beside Änderungen anfordern and with the same
+  reason required. Piloti drafts the next version from your comment and submits
+  it, so the file comes back to your Postfach instead of to a colleague's desk.
 - **Veröffentlichen** on a freigegebene Fassung. Approving on Tuesday and
   issuing with the Einreichung on Friday are two acts, so they are two buttons.
 - **Archivieren**, which takes the file out of the listings. The bytes and every

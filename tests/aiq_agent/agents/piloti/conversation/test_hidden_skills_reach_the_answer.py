@@ -1,6 +1,6 @@
-"""``skills_hidden`` crosses from the researcher onto the answer.
+"""``skills_hidden`` crosses from Piloti onto the answer.
 
-The researcher records which of the skills it activated are
+Piloti records which of the skills it activated are
 ``grid-hidden`` (the house voice, the card grammar) on its own state, and the
 frontend mutes exactly those rows in the "Skills used" disclosure. Between
 those two ends is a Python-to-Python hop inside the chat agent — the result
@@ -11,8 +11,8 @@ rendered at full weight in the disclosure, which is the one thing the field
 exists to prevent.
 
 So this pins the HOP. Nothing here stubs the chat agent's graph or the lift:
-a real ``ResearchAgentState`` — the same object the researcher register
-sets ``skills_hidden`` on — is returned by the researcher, run through the
+a real ``ResearchAgentState`` — the same object Piloti's register
+sets ``skills_hidden`` on — is returned by Piloti, run through the
 real ``ConversationGraph``, through the real ``apply_state_extras``,
 and out the real ``response_to_chunks``. What is asserted is the terminal
 chunk, which is where ``test_stream_extras_reach_the_frame`` picks the field up
@@ -26,10 +26,10 @@ import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.researcher.conversation import ConversationGraph
-from aiq_agent.agents.researcher.markers import ESCALATION_MARKER
-from aiq_agent.agents.researcher.models import ConversationState
-from aiq_agent.agents.researcher.models import ResearchAgentState
+from aiq_agent.agents.piloti.conversation import ConversationGraph
+from aiq_agent.agents.piloti.markers import ESCALATION_MARKER
+from aiq_agent.agents.piloti.models import ConversationState
+from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.common import _create_chat_response
 from aiq_agent.turn.response import apply_state_extras
 from aiq_agent.turn.streaming import response_to_chunks
@@ -48,7 +48,7 @@ def _agent(research_fn, deep_fn=None):
 
 
 def _research_returning(answer: str, **fields):
-    """A research node that answers with a REAL researcher state carrying ``fields``."""
+    """A research node that answers with a REAL Piloti state carrying ``fields``."""
 
     async def research(state):
         return ResearchAgentState(
@@ -96,7 +96,7 @@ async def test_the_hidden_subset_rides_the_answer_it_belongs_to():
 
     assert getattr(chunk, "skills_activated", None) == [VOICE, CARDS, VISIBLE]
     assert getattr(chunk, "skills_hidden", None) == [VOICE, CARDS], (
-        "the researcher marked piloti-voice/piloti-cards grid-hidden and the answer "
+        "Piloti marked piloti-voice/piloti-cards grid-hidden and the answer "
         "reached the client without saying so — the disclosure will render the house voice at "
         "full weight, which is exactly the internal vocabulary the field exists to mute"
     )

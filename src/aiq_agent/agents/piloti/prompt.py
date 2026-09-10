@@ -1,6 +1,6 @@
-"""System-prompt assembly for the researcher.
+"""System-prompt assembly for Piloti.
 
-The 43 KB ``researcher.j2`` is read from disk ONCE per process
+The 43 KB ``piloti.j2`` is read from disk ONCE per process
 (:func:`system_prompt_template`) and rendered once per ``run()``: every input
 to the render is fixed for the life of one turn, so ``agent_node`` caches the
 rendered string on the state and the tool loop never renders twice.
@@ -32,12 +32,12 @@ logger = logging.getLogger(__name__)
 #: This agent's directory; the prompts live beside the code that renders them.
 AGENT_DIR = Path(__file__).parent
 PROMPTS_DIR = AGENT_DIR / "prompts"
-PROMPT_NAME = "researcher"
+PROMPT_NAME = "piloti"
 
 
 @functools.cache
 def system_prompt_template() -> str:
-    """The researcher's prompt template, read from disk once per process.
+    """Piloti's prompt template, read from disk once per process.
 
     A missing or unreadable prompt raises ``PromptError`` at the first
     construction, which is boot: production must never run on a stub prompt,

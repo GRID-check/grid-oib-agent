@@ -15,9 +15,9 @@ from unittest.mock import patch
 
 import pytest
 
-from aiq_agent.agents.researcher import ask_user as ask_user_module
-from aiq_agent.agents.researcher.ask_user import AskUserConfig
-from aiq_agent.agents.researcher.ask_user import ask_user
+from aiq_agent.agents.piloti import ask_user as ask_user_module
+from aiq_agent.agents.piloti.ask_user import AskUserConfig
+from aiq_agent.agents.piloti.ask_user import ask_user
 from nat.data_models.interactive import HumanPromptRadio
 from nat.data_models.interactive import HumanResponseRadio
 from nat.data_models.interactive import HumanResponseText
@@ -66,7 +66,7 @@ async def _call(prompt_user_input=None, *, context=None, **kwargs):
         if prompt_user_input is None and context is None:
             return await info.single_fn(payload)
         holder = context or _fake_context(prompt_user_input)
-        with patch("aiq_agent.agents.researcher.ask_user.Context", holder):
+        with patch("aiq_agent.agents.piloti.ask_user.Context", holder):
             return await info.single_fn(payload)
 
 

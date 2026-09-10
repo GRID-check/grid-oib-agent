@@ -16,7 +16,7 @@ where the graph went next:
    and never enters this graph — so the turn continues on the shallow path and
    the user gets the answer they asked for.
 2. **A rejection is remembered for the conversation.** Somebody who has said no
-   to a plan twice is telling us something durable; the researcher's
+   to a plan twice is telling us something durable; Piloti's
    ``[ESCALATE_TO_DEEP]`` marker — since ADR-0052 the only way into the
    clarifier — may not put a third plan in front of them in this thread.
 """
@@ -28,18 +28,18 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 
-from aiq_agent.agents.researcher.conversation import ConversationGraph
-from aiq_agent.agents.researcher.markers import ESCALATION_MARKER
-from aiq_agent.agents.researcher.models import ClarifyResult
-from aiq_agent.agents.researcher.models import ConversationState
-from aiq_agent.agents.researcher.models import ResearchAgentState
+from aiq_agent.agents.piloti.conversation import ConversationGraph
+from aiq_agent.agents.piloti.markers import ESCALATION_MARKER
+from aiq_agent.agents.piloti.models import ClarifyResult
+from aiq_agent.agents.piloti.models import ConversationState
+from aiq_agent.agents.piloti.models import ResearchAgentState
 
 PROCEDURAL_QUESTION = "Wie läuft das Baubewilligungsverfahren in Wien ab?"
 SHALLOW_ANSWER = "Das Verfahren läuft in fünf Schritten ab [1]."
 
 
 def _research_result(messages, *, escalating: bool = False):
-    """A researcher result: the real state, asking for deep research or not."""
+    """A Piloti result: the real state, asking for deep research or not."""
     answer = SHALLOW_ANSWER + (f"\n{ESCALATION_MARKER}" if escalating else "")
     return ResearchAgentState(
         messages=list(messages) + [AIMessage(content=answer)],
@@ -57,7 +57,7 @@ def _is_fresh_question(messages) -> bool:
 def parts():
     """Call trackers plus the agent functions the graph is built from.
 
-    The researcher asks for deep research on every fresh question, so every
+    Piloti asks for deep research on every fresh question, so every
     turn reaches the clarifier unless something suppresses the deep route —
     which is the thing under test. Asked again after a rejection (its own
     partial answer is now the latest message) it answers plainly, the way the
@@ -126,7 +126,7 @@ class TestRejectionDegradesToAnAnswer:
         )
 
     @pytest.mark.asyncio
-    async def test_the_researcher_receives_the_original_question(self, parts):
+    async def test_piloti_receives_the_original_question(self, parts):
         """Not a paraphrase and not the plan: the words the user actually typed."""
         calls, _research, deep, clarifier = parts
         seen: dict[str, object] = {}
@@ -259,7 +259,7 @@ class TestRejectionIsRemembered:
 
     @pytest.mark.asyncio
     async def test_a_later_escalating_turn_in_the_same_thread_stays_shallow(self, parts):
-        """Turn 2 of the same conversation: the researcher still asks for
+        """Turn 2 of the same conversation: Piloti still asks for
         deep research, and the user still does not get a plan."""
         calls, research, deep, clarifier = parts
         agent = _build(research, deep, clarifier)
@@ -306,7 +306,7 @@ class TestRejectionIsRemembered:
 
     @pytest.mark.asyncio
     async def test_escalation_is_suppressed_after_a_rejection(self, parts):
-        """The researcher's own ``[ESCALATE_TO_DEEP]`` marker cannot re-open
+        """Piloti's own ``[ESCALATE_TO_DEEP]`` marker cannot re-open
         the clarifier — on the rejection turn that would be a cycle
         (clarifier -> shallow -> clarifier), and on any later turn it would be
         the third plan the user has refused to look at.

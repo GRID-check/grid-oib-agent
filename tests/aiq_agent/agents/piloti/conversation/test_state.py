@@ -3,7 +3,7 @@
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 
-from aiq_agent.agents.researcher.models import ConversationState
+from aiq_agent.agents.piloti.models import ConversationState
 
 
 class TestConversationState:

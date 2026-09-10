@@ -6,7 +6,7 @@ needs to disambiguate had exactly one move: write the question as prose and end 
 turn. That is how "Welches IFC-Modell meinst du: AC20-Institute-Var-2.ifc oder
 Ifc2x3_SampleCastle.ifc?" reaches the user as two filenames to retype.
 
-This tool gives the researcher that same channel instead: it goes
+This tool gives Piloti that same channel instead: it goes
 through ``user_interaction_manager.prompt_user_input``, blocks until the answer
 arrives, and hands it back as the tool result, so the agent finishes the SAME
 turn with the answer in hand.

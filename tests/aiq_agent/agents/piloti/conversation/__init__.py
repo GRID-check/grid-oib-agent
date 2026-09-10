@@ -1,1 +1,1 @@
-"""Tests for the researcher's conversation graph."""
+"""Tests for Piloti's conversation graph."""

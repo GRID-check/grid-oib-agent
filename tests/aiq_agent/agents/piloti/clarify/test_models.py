@@ -7,10 +7,10 @@ import pytest
 from langchain_core.messages import HumanMessage
 from pydantic import ValidationError
 
-from aiq_agent.agents.researcher.models import ClarificationResponse
-from aiq_agent.agents.researcher.models import ClarifyRequest
-from aiq_agent.agents.researcher.models import ClarifyResult
-from aiq_agent.agents.researcher.models import PlanResponse
+from aiq_agent.agents.piloti.models import ClarificationResponse
+from aiq_agent.agents.piloti.models import ClarifyRequest
+from aiq_agent.agents.piloti.models import ClarifyResult
+from aiq_agent.agents.piloti.models import PlanResponse
 from aiq_agent.common import strict_json_response_format
 
 
@@ -173,7 +173,7 @@ class TestClarifyRequest:
         assert request.project_context is None
         assert request.available_documents is None
 
-    def test_the_context_the_researcher_answered_on_travels_too(self):
+    def test_the_context_piloti_answered_on_travels_too(self):
         request = ClarifyRequest(
             messages=[],
             data_sources=["web_search"],

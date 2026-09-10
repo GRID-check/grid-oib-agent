@@ -260,7 +260,7 @@ def _verify(content: str, registry: SourceRegistry) -> _Verified:
     """
     verification = verify_citations(content, registry, reference_sources=registry.all_sources())
     logger.debug(
-        "Researcher: citation verification complete — %d valid, %d removed",
+        "Piloti: citation verification complete — %d valid, %d removed",
         len(verification.valid_citations),
         len(verification.removed_citations),
     )
@@ -282,9 +282,9 @@ def _adopt_if_better(verified: _Verified, repaired: Repair, registry: SourceRegi
     candidate_quotes = tuple(verify_quoted_spans(candidate.verified_report, scratch))
     after = len(candidate.removed_citations) + len(candidate_quotes)
     if not (after < verified.failure_count and candidate.valid_citations):
-        logger.info("Researcher: repair pass discarded (%d -> %d failures)", verified.failure_count, after)
+        logger.info("Piloti: repair pass discarded (%d -> %d failures)", verified.failure_count, after)
         return None
-    logger.info("Researcher: repair pass adopted (%d -> %d failures)", verified.failure_count, after)
+    logger.info("Piloti: repair pass adopted (%d -> %d failures)", verified.failure_count, after)
     for source in repaired.sources:
         registry.add(source)
     return _Verified(candidate.verified_report, candidate, candidate_quotes, tuple(repaired.sources))
@@ -363,7 +363,7 @@ def _ground(verified: _Verified, registry: SourceRegistry, *, lookup_attempted: 
     if verified.unverified_quotes:
         content = annotate_unverified_quotes(content, list(verified.unverified_quotes))
         logger.info(
-            "Researcher: %d quoted span(s) not verbatim in any retrieved passage; annotated inline",
+            "Piloti: %d quoted span(s) not verbatim in any retrieved passage; annotated inline",
             len(verified.unverified_quotes),
         )
     common = {
@@ -397,7 +397,7 @@ def _require_retrieval(lookup_attempted: bool, tools: Sequence[BaseTool]) -> Non
     substantive answer with a misleading "search tools failed" message.
     """
     if not lookup_attempted:
-        logger.debug("Researcher: answered without querying any data-source tool; no verification")
+        logger.debug("Piloti: answered without querying any data-source tool; no verification")
         return
     _, available_count, unavailable = validate_tool_availability(
         list(tools), research_type="research", enable_logging=False

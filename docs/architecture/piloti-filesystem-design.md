@@ -515,7 +515,7 @@ tree:
 > summaries, and every chat turn injects the full list into ~5 prompt templates
 > — so per-turn LLM cost grew linearly with the corpus, paid even on chit-chat.
 > Cap it.
-> — `_available_documents_limit`, `agents/researcher/conversation_register.py`
+> — `_available_documents_limit`, `agents/piloti/conversation_register.py`
 
 That cap is 50. So today, at a thousand documents, the agent is shown fifty of
 them, on every turn, whether or not the turn is about files — and
