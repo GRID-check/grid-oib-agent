@@ -34,6 +34,18 @@ vi.mock('@/lib/pdf/markdown-pdf', async (importOriginal) => {
   return { ...actual, renderMarkdownPdf }
 })
 
+/**
+ * The review round the report now opens (ADR-0054, slice 6). Mocked at the
+ * lifecycle rather than at the database, because what this spec is about is
+ * WHICH state a filed report arrives in and who is asked to look at it.
+ */
+vi.mock('./lifecycle', () => ({
+  createDocumentVersion: vi.fn(),
+  transitionDocumentVersion: vi.fn(),
+}))
+vi.mock('./version-repository', () => ({ findOpenVersion: vi.fn() }))
+vi.mock('./repository', () => ({ findDocumentInOrg: vi.fn() }))
+
 vi.mock('@/i18n/server', () => ({
   getTranslations: async () => (key: string) => `t:${key}`,
   getLocale: async () => 'de',
@@ -109,6 +121,9 @@ import { normalizePdfText, readPdf } from '@/test-utils/read-pdf'
 import { MAX_MARKDOWN_PDF_CHARS, MarkdownTooLongError } from '@/lib/pdf/markdown-pdf'
 import { aiProvenanceMarking } from '@/lib/ai-provenance'
 import type { GeneratedRenderContext } from './generated'
+import { createDocumentVersion, transitionDocumentVersion } from './lifecycle'
+import { findDocumentInOrg } from './repository'
+import { findOpenVersion } from './version-repository'
 import { fileResearchReport, splitReportTitle } from './research-report'
 
 const SESSION = { userId: 'user-1', organizationId: 'org-1' } as AuthorizedSession
@@ -152,6 +167,17 @@ beforeEach(() => {
     folderId: 'folder-1',
     alreadyFiled: false,
   })
+  vi.mocked(findOpenVersion).mockResolvedValue(null)
+  vi.mocked(findDocumentInOrg).mockResolvedValue({
+    id: 'doc-1',
+    storageKey: 'org/org-1/project/proj-1/doc/doc-1/brandschutz-2026-08-20.pdf',
+    storageBucket: 'grid-org-1',
+    contentType: 'application/pdf',
+    fileSize: 4096,
+    contentHash: 'sha256:abc',
+  } as never)
+  vi.mocked(createDocumentVersion).mockResolvedValue({ id: 'ver-1' } as never)
+  vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
 
 afterEach(() => {
@@ -568,5 +594,56 @@ describe('fileResearchReport', () => {
     // Not even the project read, which is inside the renderer for the same
     // reason: a filing the service refuses must cost no query.
     expect(findProjectInOrg).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * A report arrives as a DRAFT, and its arrival is a request to look at it.
+ *
+ * Before ADR-0054 a filed report had no editorial state at all: it appeared in
+ * Berichte looking exactly like a document somebody had checked. „Piloti hat für
+ * Sie recherchiert" and „das Büro steht dahinter" are different sentences, and
+ * the Files pane could only say the second.
+ */
+describe('fileResearchReport opens a review round', () => {
+  it('records version 1 as a draft and submits it to the commissioning person', async () => {
+    await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
+
+    expect(vi.mocked(createDocumentVersion).mock.calls[0][1]).toMatchObject({ op: 'create' })
+    expect(transitionDocumentVersion).toHaveBeenCalledWith(SESSION, 'doc-1', 'ver-1', 'submit', {
+      reviewerUserIds: ['user-1'],
+      request: undefined,
+    })
+  })
+
+  it('keeps the producer and the renderer exactly as they were', async () => {
+    await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
+    // The bytes are untouched by this change: it adds a version row and a
+    // submit, and nothing about what a report LOOKS like.
+    expect(fileGeneratedDocument.mock.calls[0][0].producer).toBe('deep_research')
+  })
+
+  it('opens no second round for a report that already has an open version', async () => {
+    // The report GET being opened twice; the first call left the draft.
+    vi.mocked(findOpenVersion).mockResolvedValue({ id: 'ver-1' } as never)
+    await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
+
+    expect(createDocumentVersion).not.toHaveBeenCalled()
+    expect(transitionDocumentVersion).not.toHaveBeenCalled()
+  })
+
+  it('still files the report when the review round cannot be opened', async () => {
+    // The run took minutes and its artifact is what the user waited for.
+    // Failing the whole filing to report a submit problem would trade the
+    // artifact for the notification.
+    vi.mocked(createDocumentVersion).mockRejectedValue(new Error('no reviewers'))
+
+    const filed = await fileResearchReport({
+      session: SESSION,
+      projectId: 'proj-1',
+      runId: 'run_7',
+      report: REPORT,
+    })
+    expect(filed.documentId).toBe('doc-1')
   })
 })

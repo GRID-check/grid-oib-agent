@@ -39,6 +39,7 @@ import { ElevatorRequirementCard } from '../schematics/ElevatorRequirementCard'
 import { ParkingRequirementCard } from '../schematics/ParkingRequirementCard'
 import { DocumentGridCard } from './DocumentGridCard'
 import { DocumentDraftCard } from './DocumentDraftCard'
+import { TaskCreatedCard } from './TaskCreatedCard'
 import { IfcViewerCard } from './IfcViewerCard'
 import { IfcModelPickerCard } from './IfcModelPickerCard'
 import { cardHighlightSpecs } from '@/features/bim/lib/card-highlights'
@@ -613,6 +614,21 @@ export const GridCardItem: FC<GridCardItemProps> = ({
           messageId={messageId}
           cardKey={key}
           decisionsMustPersist={decisionsMustPersist}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'task_created') {
+    return (
+      <FadeIn distance={6}>
+        <TaskCreatedCard
+          taskId={card.task_id}
+          kind={card.kind}
+          title={card.title}
+          goal={card.goal}
+          dueAt={card.due_at}
+          conversationId={card.conversation_id}
         />
       </FadeIn>
     )

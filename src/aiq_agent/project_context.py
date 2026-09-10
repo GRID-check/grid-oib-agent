@@ -84,6 +84,14 @@ TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     # refusal in `tools/documents/filing.py`.
     "file_draft": (PROJECT_ID_HEADER,),
     "submit_draft": (PROJECT_ID_HEADER,),
+    # Delegating work (`tools/tasks/register.py`). A task hangs off a PROJECT —
+    # `tasks.project_id` is NOT NULL and carries the tenant predicate — so a run
+    # without the project header can only refuse. The signed envelope it also
+    # needs is deliberately NOT declared here, for the reason stated above
+    # `file_draft`: this table lists what an entry path must SUPPLY, and an
+    # envelope is a per-turn credential a worker would have to MINT rather than
+    # forward.
+    "create_task": (PROJECT_ID_HEADER,),
 }
 
 # Consolidated signed context envelope (backlog T3-9 follow-up, 2026-07-16).

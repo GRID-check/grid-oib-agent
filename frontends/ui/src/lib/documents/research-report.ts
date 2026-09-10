@@ -49,7 +49,11 @@ import { getOrganizationDisplayName } from '@/lib/organizations/service'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { resolveDocumentBranding } from './branding'
+import { contentDigest } from './content-digest'
 import { fileGeneratedDocument, type FiledGeneratedDocument } from './generated'
+import { createDocumentVersion, transitionDocumentVersion } from './lifecycle'
+import { findDocumentInOrg } from './repository'
+import { findOpenVersion } from './version-repository'
 
 export interface FileResearchReportInput {
   session: AuthorizedSession
@@ -284,6 +288,91 @@ async function loadProfile(projectId: string, organizationId: string): Promise<u
  * with the same job, drifting from the first with nothing to catch it.
  */
 export async function fileResearchReport(
+  input: FileResearchReportInput,
+): Promise<FiledGeneratedDocument> {
+  const filed = await renderAndFileReport(input)
+  await openReviewRound(input, filed)
+  return filed
+}
+
+/**
+ * The report's review round: version 1 as a `draft`, submitted to the person
+ * who commissioned it.
+ *
+ * ## Why a report goes through the same door as a chat draft
+ *
+ * Before ADR-0054 a filed report had no editorial state at all: it appeared in
+ * Berichte looking exactly like a document somebody had checked, and the only
+ * thing saying otherwise was the „KI-generiert — nicht geprüft" block printed
+ * inside the PDF. „Piloti hat für Sie recherchiert" and „das Büro steht dahinter"
+ * are different sentences, and until now the Files pane could only say the
+ * second one.
+ *
+ * So the report is a `draft` and its arrival is a request for somebody to look
+ * at it. One vocabulary for humans and for Piloti was the whole point of the
+ * decision (ADR-0054, option 4 overturned): a reviewer should not have to know
+ * who produced a file to know what state it is in.
+ *
+ * ## What stays exactly as it was
+ *
+ * The producer (`deep_research`), the PDF renderer, the cover sheet, the
+ * marking, the `Berichte` folder and the idempotency key. This adds a version
+ * row and a submit; it changes nothing about the bytes. A publish would index
+ * the report — and `deep_research` is outside the `piloti/` namespace, so
+ * `ingestPublished` refuses it and says so, which is the honest behaviour for a
+ * producer whose output was never meant to be a Fundstelle.
+ *
+ * ## Best effort, and why
+ *
+ * A report that filed but could not open its review round is still a report in
+ * the project — the run took minutes and its artifact is the thing the user
+ * waited for. Failing the whole filing to report a submit problem would trade
+ * the artifact for the notification. An already-filed reference (the report GET
+ * being opened twice) finds its version already there and does nothing.
+ */
+async function openReviewRound(
+  input: FileResearchReportInput,
+  filed: FiledGeneratedDocument,
+): Promise<void> {
+  const { session, request } = input
+  try {
+    const existing = await findOpenVersion(filed.documentId, session.organizationId)
+    if (existing) return
+
+    const document = await findDocumentInOrg(filed.documentId, session.organizationId)
+    if (!document) return
+
+    const version = await createDocumentVersion(session, {
+      document,
+      op: 'create',
+      storageKey: document.storageKey,
+      storageBucket: document.storageBucket,
+      contentType: document.contentType,
+      fileSize: document.fileSize,
+      contentHash: document.contentHash ?? contentDigest(new TextEncoder().encode(input.report)),
+      request,
+    })
+
+    // To the person who commissioned it. `emitInboxItems` drops a row whose
+    // recipient is its own actor, so a report somebody asked for interactively
+    // opens no inbox item at THEM — they are looking at it — while a scheduled
+    // run, submitted in the pinned requester's session, does. Either way the
+    // Files pane shows „in Prüfung", which is the state that had no way to be
+    // true before.
+    await transitionDocumentVersion(session, filed.documentId, version.id, 'submit', {
+      reviewerUserIds: [session.userId],
+      request,
+    })
+  } catch (error) {
+    console.error('[documents] a filed report could not open its review round', {
+      documentId: filed.documentId,
+      cause: error instanceof Error ? error.name : 'unknown',
+    })
+  }
+}
+
+/** Render the PDF and file the item. The half that was here before. */
+async function renderAndFileReport(
   input: FileResearchReportInput,
 ): Promise<FiledGeneratedDocument> {
   const { session, projectId, runId, report, cards, request } = input

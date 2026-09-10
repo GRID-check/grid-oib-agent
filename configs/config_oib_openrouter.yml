@@ -583,6 +583,20 @@ functions:
   submit_draft:
     _type: submit_draft
 
+  # Delegation (src/aiq_agent/tools/tasks). Hands work that outlives this turn
+  # to a `tasks` row (ADR-0051) — the compliance checker, the Einreichcheck
+  # skill, a document to write, a draft to revise — through
+  # `POST /api/internal/tasks`, echoing the same BFF-signed envelope, so the row
+  # is created in the requesting person's pinned session, under their
+  # permissions, and spends their budget.
+  #
+  # Bound on the SHALLOW researcher only, for the two reasons the filing tools
+  # give and one of its own: the envelope is minted per chat turn, so an
+  # unattended run has no identity to delegate as; and a background run
+  # delegating further background runs is a loop with nobody in it.
+  create_task:
+    _type: create_task
+
   # BIM/IFC: deterministic structured queries over the project's uploaded IFC
   # model (ADR-0045). Distinct from knowledge_search in kind, not degree — that
   # tool retrieves text about REGULATIONS, this one runs SQL against THIS
@@ -651,6 +665,7 @@ functions:
       - assign_document
       - file_draft
       - submit_draft
+      - create_task
       - ifc_query
       - ifc_measure
       - ask_user

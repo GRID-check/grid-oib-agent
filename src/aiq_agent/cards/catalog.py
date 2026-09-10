@@ -36,8 +36,10 @@ from pydantic_core import PydanticUndefined
 #     must not be able to fabricate it (`memory_proposal` from `remember`,
 #     `document_grid` from `surface_documents`, `document_draft` from the
 #     working directory's `write_file`/`edit_file`, whose card names a file
-#     that has to exist, `file_operation_proposal` from the five write-side
-#     workspace tools, whose card names files the reader actually has).
+#     that has to exist, `task_created` from `create_task`, whose card names a
+#     task row the BFF has already written, `file_operation_proposal` from the
+#     five write-side workspace tools, whose card names files the reader
+#     actually has).
 #   * RETIRED — the content moved off the card path entirely and the card only
 #     survives so that stored ones keep rendering. `follow_ups` was the first:
 #     the post-answer `follow_ups` STAGE now computes the questions after the
@@ -53,7 +55,18 @@ from pydantic_core import PydanticUndefined
 # (`shared/cards/schemas.ts`) reject every stored `follow_ups` card, so every
 # historical thread would lose its chips and log a warning per card.
 SYSTEM_CARD_TYPES = frozenset(
-    {"memory_proposal", "document_grid", "document_draft", "file_operation_proposal", "follow_ups"}
+    {
+        "memory_proposal",
+        "document_grid",
+        "document_draft",
+        # `task_created` from `create_task`: the card is proof that a task ROW
+        # exists, and a model that could fabricate one could announce delegated
+        # work nobody queued — which is exactly the sentence the tool was added
+        # to stop the model writing on its own.
+        "task_created",
+        "file_operation_proposal",
+        "follow_ups",
+    }
 )
 
 # Card types that stopped being cards — the RHETORICAL shapes, the ones almost

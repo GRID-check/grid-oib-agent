@@ -72,6 +72,12 @@ vi.mock('@/lib/inbox/service', () => ({
   resolveInboxItemsFor: vi.fn(),
 }))
 vi.mock('@/lib/assignments/repository', () => ({ listAssignmentsForResources: vi.fn() }))
+/**
+ * The revision effect's one outward call. Reached through a dynamic import in
+ * `lifecycle.ts` (the cycle break), which `vi.mock` intercepts exactly as it
+ * does a static one.
+ */
+vi.mock('@/lib/tasks/delegation', () => ({ delegateTask: vi.fn() }))
 vi.mock('@/lib/storage/bucket', () => ({
   ensureTenantBucketChecked: vi.fn().mockResolvedValue('grid-org-1'),
   resolveDocumentBucket: () => 'grid-org-1',
@@ -91,6 +97,7 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import { publishToUsers } from '@/lib/events/bus'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import { listAssignmentsForResources } from '@/lib/assignments/repository'
+import { delegateTask } from '@/lib/tasks/delegation'
 import {
   compareAndSwapVersionState,
   findDocumentVersion,
@@ -155,6 +162,7 @@ function version(overrides: Partial<DocumentVersion> = {}): DocumentVersion {
     publishedAt: null,
     reviewComment: null,
     createdBy: 'user_author',
+    originConversationId: null,
     createdAt: new Date('2026-09-01T00:00:00Z'),
     updatedAt: new Date('2026-09-01T00:00:00Z'),
     ...overrides,
@@ -831,5 +839,95 @@ describe('archiveDocument', () => {
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ metadata: expect.objectContaining({ chunksPurged: false }) }),
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// „Änderungen anfordern" reaches the agent — twice, and never both ways at once
+// ---------------------------------------------------------------------------
+
+/**
+ * The `openRevisionTask` effect (ADR-0051, slice 6).
+ *
+ * The rule under test is a CONDITION, not a button: a version filed from a live
+ * conversation reaches that conversation as a `REVIEW_DECISIONS v1` block and
+ * opens no task, because the person is already there and the next sentence is
+ * about to ask for the change. A version with nobody typing — a scheduled
+ * report, an earlier revision's own output — needs the row or the comment
+ * reaches nothing at all.
+ */
+describe('request_changes and the revision task', () => {
+  const refuse = async (version: DocumentVersion, input: Record<string, unknown> = {}) => {
+    vi.mocked(getAccessibleDocument).mockResolvedValue(document)
+    vi.mocked(findDocumentVersion).mockResolvedValue(version)
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue({
+      ...version,
+      state: 'changes_requested',
+      reviewComment: (input.comment as string) ?? 'Die Fluchtweglänge stimmt nicht',
+    })
+    return transitionDocumentVersion(session, 'doc_1', 'ver_1', 'request_changes', {
+      comment: 'Die Fluchtweglänge stimmt nicht',
+      ...input,
+    })
+  }
+
+  beforeEach(() => {
+    vi.mocked(listAssignmentsForResources).mockResolvedValue([])
+    vi.mocked(delegateTask).mockResolvedValue({ id: 'task-1' } as never)
+  })
+
+  it('opens no task when the version came out of a live conversation', async () => {
+    await refuse(version({ originConversationId: 'conv-1', createdBy: 'user_author' }))
+    // The next turn of THAT conversation reads the comment instead; a task here
+    // would queue a run for work somebody is about to ask for in one sentence.
+    expect(delegateTask).not.toHaveBeenCalled()
+  })
+
+  it('opens a revision task when the version had no conversation behind it', async () => {
+    await refuse(version({ originConversationId: null, createdBy: 'user_author' }))
+
+    expect(delegateTask).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(delegateTask).mock.calls[0][1]).toMatchObject({
+      projectId: 'proj_1',
+      kind: 'revision',
+      goal: 'Die Fluchtweglänge stimmt nicht',
+      subject: {
+        documentId: 'doc_1',
+        versionId: 'ver_1',
+        comment: 'Die Fluchtweglänge stimmt nicht',
+      },
+      // The re-filing carries the permissions the original filing carried.
+      requester: { userId: 'user_author', email: null },
+    })
+  })
+
+  it('opens one for a conversation-born version when the reviewer asked outright', async () => {
+    // „Piloti überarbeiten lassen": the reviewer has said they do not want to
+    // wait for somebody to type the next message.
+    await refuse(version({ originConversationId: 'conv-1', createdBy: 'user_author' }), {
+      delegateRevision: true,
+    })
+    expect(delegateTask).toHaveBeenCalledTimes(1)
+  })
+
+  it('still records the decision when the task cannot be opened', async () => {
+    // A queue that will not take the run is not a reason to tell a
+    // Ziviltechniker that their „Änderungen anfordern" did not go through.
+    vi.mocked(delegateTask).mockRejectedValue(new Error('queue is down'))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const refused = await refuse(version({ originConversationId: null }))
+    expect(refused.state).toBe('changes_requested')
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'document.version.changes_requested' }),
+    )
+  })
+
+  it('is the only transition that carries the effect', () => {
+    // A property of the TABLE, so a future op cannot pick it up by accident.
+    const carrying = DOCUMENT_VERSION_TRANSITIONS.filter((row) =>
+      (row.effects as readonly string[]).includes('openRevisionTask'),
+    )
+    expect(carrying.map((row) => row.op)).toEqual(['request_changes'])
   })
 })

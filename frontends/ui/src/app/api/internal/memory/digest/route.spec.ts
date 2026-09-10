@@ -14,14 +14,19 @@ vi.mock('@/lib/projects/memory-service', () => ({
   resolveProjectOrganization: vi.fn(),
 }))
 
+vi.mock('@/lib/documents/review-decisions', () => ({ buildReviewDecisionsBlock: vi.fn() }))
 vi.mock('@/lib/projects/proposal-decisions', () => ({
   buildProposalDecisionsBlock: vi.fn(async () => null),
-  composeMemoryContext: (digest: string | null, decisions: string | null) =>
-    [digest, decisions].filter(Boolean).join('\n\n') || null,
+  // The real function's shape, three blocks on one channel — kept in step with
+  // `composeMemoryContext` rather than reimplemented differently, so a spec
+  // asserting on the joined string is asserting the same join the route makes.
+  composeMemoryContext: (digest: string | null, decisions: string | null, reviewDecisions: string | null = null) =>
+    [digest, decisions, reviewDecisions].filter(Boolean).join('\n\n') || null,
 }))
 
 import { buildProjectMemoryDigest, resolveProjectOrganization } from '@/lib/projects/memory-service'
 import { buildProposalDecisionsBlock } from '@/lib/projects/proposal-decisions'
+import { buildReviewDecisionsBlock } from '@/lib/documents/review-decisions'
 import { GET } from './route'
 
 const DEV_DEFAULT_TOKEN = 'grid-internal-dev-token'
@@ -174,5 +179,47 @@ describe('the decisions the project made about earlier proposals', () => {
       digest: 'PROJECT_MEMORY v1\n- [decision | high | user_confirmed] "x"\n\nPROPOSAL_DECISIONS v1\n- [abgelehnt | Profil | 2026-09-01] "y"',
     })
     expect(buildProposalDecisionsBlock).toHaveBeenCalledWith(PROJECT_ID, ORG_ID)
+  })
+})
+
+describe('what a person decided about the drafts this conversation filed', () => {
+  it('rides the same digest, scoped to the conversation the caller names', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(resolveProjectOrganization).mockResolvedValue(ORG_ID)
+    vi.mocked(buildProjectMemoryDigest).mockResolvedValue(null)
+    vi.mocked(buildProposalDecisionsBlock).mockResolvedValue(null)
+    vi.mocked(buildReviewDecisionsBlock).mockResolvedValue(
+      'REVIEW_DECISIONS v1\n- [Änderungen angefordert | Befund | v2] "Die Länge stimmt nicht"',
+    )
+
+    const response = await GET(makeRequest(`?projectId=${PROJECT_ID}&conversationId=s_conv_1`, REAL_TOKEN))
+
+    expect(await response.json()).toEqual({
+      digest: 'REVIEW_DECISIONS v1\n- [Änderungen angefordert | Befund | v2] "Die Länge stimmt nicht"',
+    })
+    expect(buildReviewDecisionsBlock).toHaveBeenCalledWith('s_conv_1', ORG_ID)
+  })
+
+  it('is not asked for at all when the caller has no conversation', async () => {
+    // The WS handshake and a background run: the digest and the proposal
+    // decisions are exactly what they were before this block existed.
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(resolveProjectOrganization).mockResolvedValue(ORG_ID)
+    vi.mocked(buildProjectMemoryDigest).mockResolvedValue(null)
+    vi.mocked(buildProposalDecisionsBlock).mockResolvedValue(null)
+
+    await GET(makeRequest(`?projectId=${PROJECT_ID}`, REAL_TOKEN))
+    expect(buildReviewDecisionsBlock).not.toHaveBeenCalled()
+  })
+
+  it('costs the turn nothing when the scan breaks', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(resolveProjectOrganization).mockResolvedValue(ORG_ID)
+    vi.mocked(buildProjectMemoryDigest).mockResolvedValue('PROJECT_MEMORY v1\n- x')
+    vi.mocked(buildProposalDecisionsBlock).mockResolvedValue(null)
+    vi.mocked(buildReviewDecisionsBlock).mockRejectedValue(new Error('db down'))
+
+    const response = await GET(makeRequest(`?projectId=${PROJECT_ID}&conversationId=s_conv_1`, REAL_TOKEN))
+    expect(await response.json()).toEqual({ digest: 'PROJECT_MEMORY v1\n- x' })
   })
 })

@@ -1,0 +1,20 @@
+---
+features:
+  - >
+    Piloti nimmt jetzt Arbeit an, die länger dauert als eine Antwort: „Mach den
+    Einreichcheck bis Freitag" legt einen Auftrag an, der danach selbständig
+    läuft und sich meldet, wenn er fertig ist. Der Auftrag steht mit Ihrem Namen
+    und Ihren Rechten da — Sie sehen als Karte im Gespräch, was angenommen wurde
+    und bis wann.
+  - >
+    Geben Sie einen Entwurf mit „Änderungen anfordern" zurück, liest Piloti Ihre
+    Begründung im nächsten Zug derselben Unterhaltung wörtlich mit und
+    überarbeitet den Entwurf daraufhin — es entsteht die nächste Fassung
+    desselben Dokuments, kein zweites. Bei Entwürfen ohne laufendes Gespräch,
+    etwa einem nächtlichen Bericht, legt Piloti dafür selbst einen Auftrag an.
+upgrade:
+  - >
+    Ein fertiger Recherchebericht wird ab sofort als ENTWURF im Projekt
+    abgelegt und Ihnen zur Freigabe vorgelegt, statt sofort wie eine geprüfte
+    Datei dazustehen. Inhalt, Deckblatt und Ablageort ändern sich nicht — nur
+    der Zustand, den die Dateiablage anzeigt.

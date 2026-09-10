@@ -106,6 +106,26 @@ beforeEach(() => {
   })
 })
 
+describe('the origin conversation', () => {
+  it('is stamped from the VERIFIED envelope and never from the body', async () => {
+    // The `ref` the caller mints STARTS with a conversation id, and reading it
+    // off that string is precisely what this route exists not to do: the ref is
+    // the client's, the identity and the origin are not.
+    await call({
+      op: 'create',
+      projectId: PROJECT,
+      ref: 's_someone_elses-aktenvermerk',
+      title: 'Aktenvermerk',
+      content: '# Aktenvermerk',
+    })
+
+    expect(vi.mocked(fileAgentDocumentDraft).mock.calls[0][0]).toMatchObject({
+      ref: 's_someone_elses-aktenvermerk',
+      originConversationId: 's_conv_1',
+    })
+  })
+})
+
 describe('the op set is closed by the transition table, not by this file', () => {
   it('admits only ops whose every transition is reachable by a machine', () => {
     const source = readFileSync(fileURLToPath(new URL('./route.ts', import.meta.url)), 'utf8')

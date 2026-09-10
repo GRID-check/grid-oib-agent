@@ -114,6 +114,17 @@ export interface FileAgentDocumentDraftInput {
   request?: Request
   /** False for the agent's internal route — see `TransitionInput.actingHuman`. */
   actingHuman?: boolean
+  /**
+   * The conversation this filing came out of, from the VERIFIED envelope
+   * (migration 0084). Recorded on the version so a reviewer's decision reaches
+   * the next turn of THAT conversation rather than a task nobody is waiting on.
+   *
+   * Deliberately not derived from {@link FileAgentDocumentDraftInput.ref}, even
+   * though the reference starts with the conversation id: the ref is the
+   * CALLER's string and a value this tier authorizes nothing on, while the
+   * origin is a fact the route read out of a signature.
+   */
+  originConversationId?: string | null
 }
 
 export interface FiledAgentDocumentDraft {
@@ -191,6 +202,7 @@ export async function fileAgentDocumentDraft(
     contentHash: document.contentHash ?? contentDigest(new TextEncoder().encode(input.content)),
     request: input.request,
     actingHuman: input.actingHuman,
+    originConversationId: input.originConversationId,
   })
   return { documentId: document.id, version, alreadyFiled: false }
 }

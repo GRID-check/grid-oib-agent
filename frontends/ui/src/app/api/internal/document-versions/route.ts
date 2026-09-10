@@ -50,14 +50,9 @@
  */
 
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
-import { ForbiddenError, UnauthorizedError } from '@/lib/api/errors'
+import { requirePinnedSession, requireVerifiedContext } from '@/lib/api/internal-envelope'
 import { withTenant } from '@/lib/db/tenant-context'
-import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
-import {
-  GRID_HEADER_NAMES,
-  verifyGridRequestContextEnvelope,
-  type VerifiedGridRequestContext,
-} from '@/lib/request-context'
+import type { VerifiedGridRequestContext } from '@/lib/request-context'
 import { fileAgentDocumentDraft } from '@/lib/documents/agent-document'
 import {
   replaceVersionContent,
@@ -70,36 +65,15 @@ import {
 } from '@/lib/documents/lifecycle-types'
 import type { AuthorizedSession } from '@/lib/auth/types'
 
-/** The verified envelope, or a 401. Never says which check failed. */
-function requireVerifiedContext(request: Request): VerifiedGridRequestContext {
-  const context = verifyGridRequestContextEnvelope(
-    request.headers.get(GRID_HEADER_NAMES.REQUEST_CONTEXT),
-    request.headers.get(GRID_HEADER_NAMES.REQUEST_CONTEXT_SIG),
-    process.env.GRID_INTERNAL_API_TOKEN,
-  )
-  if (!context) throw new UnauthorizedError('Missing or invalid request context envelope')
-  return context
-}
-
-/** The person the envelope names, as a session, or a 403. */
-async function requirePinnedSession(
-  context: VerifiedGridRequestContext,
-): Promise<AuthorizedSession> {
-  const session = await resolvePinnedRequesterSession({
-    userId: context.userId,
-    email: null,
-    organizationId: context.organizationId,
-  })
-  // Left the organization, or holds no role in it today. The agent must not
-  // borrow a permission the person no longer has.
-  if (!session) throw new ForbiddenError('The requesting user is no longer a member here')
-  return session
-}
+// The identity pair lives in `lib/api/internal-envelope.ts` since this route
+// stopped being the only one that needs it (`POST /api/internal/tasks`). Same
+// two checks in the same order, same threat model — read that module's header.
 
 async function runOp(
   session: AuthorizedSession,
   body: InternalDocumentVersionRequest,
   request: Request,
+  context: VerifiedGridRequestContext,
 ) {
   if (body.op === 'create') {
     const filed = await fileAgentDocumentDraft({
@@ -110,6 +84,11 @@ async function runOp(
       content: body.content,
       request,
       actingHuman: false,
+      // From the VERIFIED envelope and never from the body (migration 0084).
+      // The reference the caller minted STARTS with a conversation id, and
+      // reading it off that string is precisely the thing this route exists not
+      // to do: the ref is the client's, the identity and the origin are not.
+      originConversationId: context.conversationId,
     })
     return {
       documentId: filed.documentId,
@@ -150,7 +129,7 @@ export const POST = internalApiRoute(
     // `fromPayload` below names where it comes from so a reviewer can check the
     // claim, and the claim is a signed one.
     return withTenant({ organizationId: context.organizationId }, () =>
-      runOp(session, body, request),
+      runOp(session, body, request, context),
     )
   },
   {

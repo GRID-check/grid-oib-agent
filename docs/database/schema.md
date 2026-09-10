@@ -282,8 +282,8 @@ shape; `project_id` is NULL for the Archiv and session shelves, where MATCH
 SIMPLE skips the check), `version_number`, `state`, `storage_key`,
 `storage_bucket`, `content_type`, `file_size`, `content_hash`,
 `submitted_by`/`_at`, `reviewed_by`/`_at`, `approved_by`/`_at`,
-`published_by`/`_at`, `review_comment`, `created_by`, `created_at`,
-`updated_at`.
+`published_by`/`_at`, `review_comment`, `created_by`,
+`origin_conversation_id` (migration `0084`), `created_at`, `updated_at`.
 
 **Constraints — the ratchet, not decoration:**
 
@@ -313,8 +313,75 @@ The consequence is stated rather than hidden: superseded versions stay charged
 against the organization's storage quota, because they exist. A per-organization
 retention policy is a later row on a later table.
 
+**Where a version came from (migration `0084`):** `origin_conversation_id` is
+the chat conversation a version was filed from, written at the internal filing
+route out of the VERIFIED request-context envelope and never off a request body
+(ADR-0054 §4), so it is a fact this tier asserted. NULL for a human upload, a
+scheduled deep-research report, and every version forked from the Files pane.
+`text` with no foreign key, as `job_runs.conversation_id` is: the honest
+constraint would be the composite `(conversation_id, organization_id)`, which is
+worth its cost on a row that decides access and not on one that decides prose.
+
+It is PROVENANCE, never authorization — nothing reads it to decide who may act —
+and it decides exactly two things, both of them what happens after a reviewer
+presses „Änderungen anfordern":
+
+- with an origin, the next turn of THAT conversation is told, verbatim, as a
+  `REVIEW_DECISIONS v1` block on the memory channel
+  (`lib/documents/review-decisions.ts`);
+- without one, there is nobody typing, so the lifecycle's `openRevisionTask`
+  effect opens a `revision` task instead (ADR-0051).
+
+`idx_document_versions_origin_conversation (origin_conversation_id, reviewed_at DESC)`
+is partial on `origin_conversation_id IS NOT NULL` and lives only in the
+migration, like the two unique indexes above.
+
 **RLS:** tenant table, secured the way `tasks` is, widened by a NULL arm for the
 two shelves with no project. Listed in `rls-coverage.spec.ts`
+`BOUNDARY_MIGRATIONS`. Migration `0084` adds a column and does NOT move the
+boundary, so it is deliberately not in that list.
+
+---
+
+## tasks (migration 0075, ADR-0051)
+
+The durable unit of delegated work: one row per attempt, with the requester
+pinned, the plan frozen, and review as an axis of its own.
+
+**Columns:** `id`, `organization_id`, `project_id`, `kind`, `title`, `plan`
+(jsonb), `requester_user_id` + `requester_email`, `status`, `error`,
+`budget_usd`, `deadline_at`, `job_id` + `job_run_id` + `backend_job_id`,
+`conversation_id`, `filed_document_id` + `filing_status` + `filing_detail`,
+`review` + `review_reason` + `reviewed_by` + `reviewed_at`, `created_at`,
+`started_at`, `finished_at`, `updated_at`.
+
+**`kind` has no CHECK, deliberately** (see migration `0075`'s own header), which
+is why the vocabulary lives in one place — `TASK_KINDS` in
+`lib/db/schema/tasks.ts` — rather than in a column and a tuple that can disagree.
+It holds six members: `deep-research` and `chat` are `jobs.output` and describe
+how a JOB delivers its result; `compliance_check`, `einreichcheck`, `document`
+and `revision` are what a person DELEGATES (`DELEGATABLE_TASK_KINDS`, derived as
+the complement rather than listed again). `status`, `review` and `filing_status`
+DO carry CHECKs naming their members.
+
+**`plan` is the frozen statement of what was asked:** `prompt` (as submitted,
+skill body included), `skill` (the snapshot, `{}` for a plain prompt),
+`dataSources`, and — for a delegated task — `goal`, the requester's own sentence,
+plus `subject` for a `revision`: the `{documentId, versionId, comment}` a
+reviewer sent back. On the plan rather than in three columns, because it is part
+of what was asked and it exists for exactly one kind.
+
+**A delegated task has no `job_runs` row.** `job_runs.schedule_id` is NOT NULL
+and its RLS predicate requires the row to name a `jobs` row (migration `0043`),
+so giving every „@Piloti prüf das" a hidden job row would have put a
+scheduled-job entry in the project's Aufträge list for a sentence somebody typed
+once. The task row IS the record: `uniq_tasks_backend_job_id` is what the
+worker's outcome callback looks it up by, and
+`POST /api/internal/jobs/[jobId]/outcome` tries the run first and falls back to
+the task.
+
+**RLS:** the organization AND the project's organization, so a row cannot be
+planted under another tenant's project. Listed in `rls-coverage.spec.ts`
 `BOUNDARY_MIGRATIONS`.
 
 ---

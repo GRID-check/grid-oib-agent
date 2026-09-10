@@ -100,6 +100,11 @@ def render_system_prompt(
         # that is unambiguous — `create_folder` also exists as a word in the
         # working directory's vocabulary, `move_document` does not.
         tidying_enabled=any(tool.get("name") == "move_document" for tool in tools_info),
+        # And for the <delegieren> block. `create_task` refuses without a project
+        # and without a signed envelope, so a deployment that does not bind it —
+        # and every unattended run, which has no envelope — must not be told that
+        # handing work over is something this turn can do.
+        delegating_enabled=any(tool.get("name") == "create_task" for tool in tools_info),
         user_info=state.user_info,
         current_datetime=datetime.now().strftime("%Y-%m-%d"),
         available_documents=documents,

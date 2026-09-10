@@ -149,6 +149,11 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   // line interactive. See `DocumentDraftCard` for why filing cannot happen from
   // the browser.
   document_draft: 'interactive',
+  // Reports a task row the BFF has ALREADY created — `create_task` returns the
+  // id this card carries. There is nothing to accept: the only controls a
+  // decision could drive would repeat the delegation or cancel it, and
+  // cancelling delegated work belongs to the task surface, not to a chat card.
+  task_created: 'presentational',
   building_section: 'presentational',
   stair_diagram: 'presentational',
   dimension_diagram: 'presentational',

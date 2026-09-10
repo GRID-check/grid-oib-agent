@@ -411,6 +411,23 @@ export const chat = {
       published: 'Published',
       error: 'Sending for approval failed. Please try again from the Files pane.',
     },
+    // Work Piloti has taken on and will finish after this conversation
+    // (ADR-0051). The card offers nothing: the row exists by the time it
+    // renders. „running" is therefore the most important word on it — the
+    // answer beside it must not read as though the work were done.
+    taskCreated: {
+      eyebrow: 'Task',
+      running: 'running',
+      due: 'by {date}',
+      open: 'Open conversation',
+      // The four kinds, in the words somebody would use to ask for them.
+      kind: {
+        complianceCheck: 'Compliance check',
+        einreichcheck: 'Submission check',
+        document: 'Document',
+        revision: 'Revision',
+      },
+    },
     // The workspace change Piloti PROPOSED. Nothing has happened until the
     // reader accepts: the agent has no way to write a document row at all, so
     // the card is the whole of what the backend did. Accepting runs the same
@@ -888,6 +905,7 @@ export const chat = {
           // reader: one puts something down, the other asks somebody.
           draftFiled: 'Filing the draft in the project …',
           draftSubmitted: 'Sending the draft for approval …',
+          taskCreated: 'Creating the task …',
         },
         // The product's trust proposition said out loud: what is checked is not
         // "the citations" in the abstract but every one of them, against what

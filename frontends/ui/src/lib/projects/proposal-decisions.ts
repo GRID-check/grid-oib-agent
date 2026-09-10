@@ -158,8 +158,26 @@ export async function buildProposalDecisionsBlock(
   )
 }
 
-/** The memory digest and the decisions block, as one header value. */
-export function composeMemoryContext(digest: string | null, decisions: string | null): string | null {
-  const parts = [digest, decisions].filter((part): part is string => Boolean(part && part.trim()))
+/**
+ * The memory channel, as one header value: the digest, what the project decided
+ * about the agent's own proposals, and what a reviewer decided about the drafts
+ * this conversation filed (`lib/documents/review-decisions.ts`).
+ *
+ * Three blocks on one channel rather than three headers, for the reason the
+ * second one is here at all: `x-grid-project-memory` already reaches every
+ * surface memory reaches — the WS upgrade, the live per-turn digest fetch and a
+ * background run — and a new header would have to be added to each of them and
+ * to the envelope's TS/Python twins. Each block is bounded on its own and each
+ * is null when it has nothing to say, so a turn with no decisions carries
+ * exactly what it carried before.
+ */
+export function composeMemoryContext(
+  digest: string | null,
+  decisions: string | null,
+  reviewDecisions: string | null = null,
+): string | null {
+  const parts = [digest, decisions, reviewDecisions].filter((part): part is string =>
+    Boolean(part && part.trim()),
+  )
   return parts.length > 0 ? parts.join('\n\n') : null
 }

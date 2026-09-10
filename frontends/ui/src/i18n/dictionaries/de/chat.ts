@@ -402,6 +402,23 @@ export const chat: typeof en.chat = {
       published: 'Veröffentlicht',
       error: 'Das Einreichen hat nicht geklappt. Bitte in der Dateiablage erneut versuchen.',
     },
+    // Ein Auftrag, den Piloti nach diesem Gespräch selbständig erledigt
+    // (ADR-0051). Die Karte bietet nichts an: die Zeile existiert schon, wenn
+    // sie erscheint. „läuft" ist deshalb der wichtigste Text auf ihr — die
+    // Antwort daneben darf nicht so klingen, als sei die Arbeit getan.
+    taskCreated: {
+      eyebrow: 'Auftrag',
+      running: 'läuft',
+      due: 'bis {date}',
+      open: 'Unterhaltung öffnen',
+      // Die vier Arten, in den Worten, in denen die Nutzerin sie beauftragt hat.
+      kind: {
+        complianceCheck: 'Normprüfung',
+        einreichcheck: 'Einreichcheck',
+        document: 'Dokument',
+        revision: 'Überarbeitung',
+      },
+    },
     // Die Änderung an der Ablage, die Piloti VORGESCHLAGEN hat. Bis zum
     // Annehmen ist nichts geschehen: Der Agent kann gar keine Dokumentzeile
     // schreiben, die Karte ist also alles, was hinten passiert ist. Das
@@ -873,6 +890,7 @@ export const chat: typeof en.chat = {
           // Dinge sind: das eine legt etwas hin, das andere bittet jemanden.
           draftFiled: 'Entwurf wird im Projekt abgelegt …',
           draftSubmitted: 'Entwurf wird zur Freigabe eingereicht …',
+          taskCreated: 'Auftrag wird angelegt …',
         },
         // Das Vertrauensversprechen des Produkts, laut ausgesprochen: geprüft
         // wird nicht „irgendetwas an den Belegen“, sondern jede Fundstelle

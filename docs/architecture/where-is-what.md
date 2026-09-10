@@ -68,6 +68,10 @@ does not exist, so a moved file is caught; a missing row is not.
 | The agent's one call to the lifecycle API (echoes the signed envelope, never signs) | `src/aiq_agent/tools/documents/filing.py` — `post_document_version` | same | ADR-0055 |
 | Where a filed draft's document id is remembered | `src/aiq_agent/tools/documents/draft_store.py` — `FILING_KEYS`, `arecord_filing` | same | — |
 | The signed envelope as the Python tier receives it | `src/aiq_agent/project_context.py` — `GridRequestContext.envelope_header`, `get_request_envelope_from_context` | same | ADR-0054 |
+| Which conversation a version was filed from | `document_versions.origin_conversation_id` (migration `0084`), stamped in `frontends/ui/src/app/api/internal/document-versions/route.ts` from the verified envelope | [`docs/database/schema.md`](../database/schema.md) | ADR-0054 |
+| A reviewer's „Änderungen anfordern“ reaching the next turn of the same conversation | `frontends/ui/src/lib/documents/review-decisions.ts` — `buildReviewDecisionsBlock`; rendered beside `PROPOSAL_DECISIONS` in `src/aiq_agent/agents/researcher/prompts/researcher.j2` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | ADR-0051, ADR-0054 |
+| The same decision becoming a `revision` task when nobody is in a conversation | `frontends/ui/src/lib/documents/lifecycle.ts` — the `openRevisionTask` effect | same | ADR-0051, ADR-0054 |
+| Which version a revision's bytes go into | `frontends/ui/src/lib/documents/revision.ts` — `openDraftForRevision` | same | ADR-0054 |
 | The draft card's filed state and its controls | `frontends/ui/src/features/grid-cards/components/DocumentDraftCard.tsx` | [`cards.md`](cards.md) | ADR-0030 |
 
 ## Shelves, session files, storage
@@ -122,6 +126,12 @@ does not exist, so a moved file is caught; a missing row is not.
 | Concept | Owning code | Doc of record | Decision |
 |---|---|---|---|
 | Tasks | `frontends/ui/src/lib/tasks/service.ts` — `createTaskForRun`, `reviewTask` | [`docs/roadmap/agentic-workspace-architecture.md`](../roadmap/agentic-workspace-architecture.md) | ADR-0051 |
+| Delegating work from a chat turn, and what each kind runs on | `frontends/ui/src/lib/tasks/delegation.ts` — `delegateTask`, `TASK_ENGINES` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | ADR-0051, ADR-0055 |
+| The route a machine delegates through (verified envelope, pinned requester, op `create` only) | `frontends/ui/src/app/api/internal/tasks/route.ts`; `frontends/ui/src/lib/tasks/wire.ts` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0051, ADR-0055 |
+| The `create_task` tool | `src/aiq_agent/tools/tasks/register.py`; its one call in `src/aiq_agent/tools/tasks/client.py` | same | ADR-0051 |
+| The identity pair every internal route with an acting person uses | `frontends/ui/src/lib/api/internal-envelope.ts` — `requireVerifiedContext`, `requirePinnedSession` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0054, ADR-0055 |
+| What a finished task leaves behind, by kind | `frontends/ui/src/lib/tasks/service.ts` — `fileResultFor`, `FILES_ITS_RESULT` | [`docs/roadmap/agentic-workspace-architecture.md`](../roadmap/agentic-workspace-architecture.md) | ADR-0051 |
+| Closing a delegated task that has no `job_runs` row | `frontends/ui/src/lib/tasks/service.ts` — `recordTaskOutcome`; the fallback in `frontends/ui/src/app/api/internal/jobs/[jobId]/outcome/route.ts` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0051 |
 | Jobs and runs | `frontends/ui/src/lib/jobs/service.ts`, `frontends/ui/src/lib/db/schema/jobs.ts` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0021, ADR-0023 |
 | Schedules | `frontends/ui/src/lib/jobs/schedule.ts` | same | ADR-0023 |
 | Worker outcome route | `frontends/ui/src/app/api/internal/jobs/[jobId]/outcome/route.ts` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0021, ADR-0051 |

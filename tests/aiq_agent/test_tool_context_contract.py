@@ -47,6 +47,12 @@ def test_the_worker_supplies_what_every_bound_tool_needs(config: dict, agent: st
     assert missing == {}, f"{agent} binds tools the job worker cannot serve: {missing}"
 
 
+def test_the_delegation_tool_declares_its_project_scope():
+    """A task hangs off a project (`tasks.project_id` is NOT NULL and carries the
+    tenant predicate), so a run without the project header can only refuse."""
+    assert set(TOOL_CONTEXT_REQUIREMENTS["create_task"]) == {PROJECT_ID_HEADER}
+
+
 def test_the_memory_tool_declares_its_project_scope():
     """The one requirement that has already bitten, stated as data."""
     assert set(TOOL_CONTEXT_REQUIREMENTS["project_memory_remember"]) == {PROJECT_ID_HEADER, ORGANIZATION_ID_HEADER}

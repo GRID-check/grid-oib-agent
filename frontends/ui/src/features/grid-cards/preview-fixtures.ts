@@ -490,6 +490,18 @@ const RAW_FIXTURES: CardInput[] = [
     version_state: 'draft',
   },
   {
+    // Delegation, in the shape it is usually met in: a deadline the person named
+    // and a thread the run is writing into, because those are the two facts the
+    // card can offer beyond „angelegt".
+    type: 'task_created',
+    task_id: '00000000-0000-4000-8000-0000000000f1',
+    kind: 'einreichcheck',
+    title: 'Einreichcheck: Bauansuchen Haus A',
+    goal: 'Mach den Einreichcheck für das Bauansuchen bis Freitag',
+    due_at: '2026-09-18T23:59:59.999Z',
+    conversation_id: 's_00000000_0000_4000_8000_0000000000f2',
+  },
+  {
     // The state the card is usually met in: a tidying turn that proposed more
     // than one move, so the batch and the „from → to" row both have to render.
     type: 'file_operation_proposal',

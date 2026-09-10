@@ -2266,6 +2266,53 @@ class DocumentDraftCard(CardModel):
         return self
 
 
+# ── Task created (system-emitted, informational) ─────────────────────────────
+# Pushed by `create_task` (`tools/tasks/register.py`) and by nothing else. A
+# delegated task is a ROW the BFF has already created by the time the card
+# exists, so this card REPORTS rather than proposes: there is nothing to accept,
+# and a control here would offer to do a second time what the tool just did.
+
+#: The kinds a person may delegate. Mirrored (not imported) from
+#: `DELEGATABLE_TASK_KINDS` in `frontends/ui/src/lib/db/schema/tasks.ts` — the
+#: same parse-independently rule `DocumentVersionState` follows one screen up,
+#: for the same reason: the contract crosses a language boundary, and a shared
+#: schema between the two would be a build step neither tier wants.
+TaskKind = Literal["compliance_check", "einreichcheck", "document", "revision"]
+
+
+class TaskCreatedCard(CardModel):
+    """Work Piloti has taken on, as a row somebody can come back to.
+
+    System-emitted by ``create_task``. What it exists to prevent is the answer
+    „ich mache den Einreichcheck bis Freitag" with nothing behind it: the card is
+    proof there is a row, and the row is what carries the requester's permission,
+    the deadline and — when a person judges the result — the decision that reaches
+    the next attempt (ADR-0051).
+
+    Informational, not interactive. The task is already queued when this renders,
+    so there is no Accept: a control would either repeat the delegation or cancel
+    it, and cancelling delegated work is a Files-and-tasks surface decision, not
+    a chat one.
+
+    ``conversation_id`` is the thread the run writes into, so the card can link a
+    reader to the work rather than only announce it. Absent when the run's
+    conversation could not be created, which is the same degraded shape a
+    scheduled job has had since jobs got conversations at all.
+    """
+
+    type: Literal["task_created"] = "task_created"
+    task_id: str = Field(min_length=1, description="The task row's id")
+    kind: TaskKind = Field(description="What kind of work was delegated")
+    title: str = Field(min_length=1, max_length=200, description="What the task is called in the inbox and the list")
+    goal: str = Field(min_length=1, max_length=500, description="What was asked, in the requester's own words")
+    due_at: str | None = Field(
+        default=None, description="ISO instant the work is wanted by, or absent when none was named"
+    )
+    conversation_id: str | None = Field(
+        default=None, description="The conversation the run writes into; absent when it could not be created"
+    )
+
+
 # ── File-operation proposal (system-emitted, interactive) ────────────────────
 # ONE card type for five verbs, discriminated by `operation`, because the
 # alternative is five cards that differ in one field and share every line of
@@ -2695,6 +2742,7 @@ GridCard = (
     | MemoryProposalCard
     | DocumentGridCard
     | DocumentDraftCard
+    | TaskCreatedCard
     | FileOperationProposalCard
     | IfcViewerCard
     | IfcComplianceCard
@@ -2752,6 +2800,7 @@ __all__ = [
     "ProjectProfilePatchPreviewItem",
     "RequirementChecklistCard",
     "SummaryCard",
+    "TaskCreatedCard",
     "TypedColumn",
     "TypedTableCard",
     "VerdictHeaderCard",

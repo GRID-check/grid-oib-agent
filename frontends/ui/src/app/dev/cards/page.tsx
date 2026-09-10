@@ -986,6 +986,27 @@ function Gallery() {
         />
       </Section>
 
+      {/* Delegation: work Piloti took on, with the deadline the person named
+          and a link to the thread the run writes into. Presentational on
+          purpose — the row exists by the time the card renders, so there is
+          nothing to accept (see `TaskCreatedCard`'s header). */}
+      <Section id="task_created">
+        <GridCards
+          cards={[
+            {
+              type: 'task_created',
+              task_id: '00000000-0000-4000-8000-0000000000f1',
+              kind: 'einreichcheck',
+              title: 'Einreichcheck: Bauansuchen Haus A',
+              goal: 'Mach den Einreichcheck für das Bauansuchen bis Freitag',
+              due_at: '2026-09-18T23:59:59.999Z',
+              conversation_id: 's_00000000_0000_4000_8000_0000000000f2',
+            },
+          ] as GridCard[]}
+          projectId={null}
+        />
+      </Section>
+
       {/* The two INTERACTIVE cards (ADR-0030) go through the GridCards
           dispatcher rather than being rendered directly, so the gallery
           exercises the same `cardKey` wiring the chat uses. With no owning

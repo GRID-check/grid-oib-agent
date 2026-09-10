@@ -131,6 +131,24 @@ export const DOCUMENT_VERSION_EFFECTS = [
    * `publish`, which is where the no-ingest rule would quietly stop being true.
    */
   'ingestPublished',
+  /**
+   * Open a `revision` task when the version that was sent back has nobody in a
+   * conversation to hear about it (ADR-0051, §5 of the design of record).
+   *
+   * The two halves of "request changes reaches the agent" are deliberately not
+   * one mechanism. A version filed from a live chat carries
+   * `origin_conversation_id` (migration 0084), and the next turn of THAT
+   * conversation reads the comment as a `REVIEW_DECISIONS v1` block — the person
+   * is already there, and a task would be a second queue for work somebody is
+   * about to ask for in the next sentence. A version with no origin — a
+   * scheduled deep-research report, an earlier revision's own output — has
+   * nobody typing, so the comment needs a row to live on or it reaches nothing.
+   *
+   * The reviewer can also ask for the task outright („Piloti überarbeiten
+   * lassen"), which is `TransitionInput.delegateRevision` and is the only thing
+   * that overrides the rule above.
+   */
+  'openRevisionTask',
 ] as const
 export type DocumentVersionEffect = (typeof DOCUMENT_VERSION_EFFECTS)[number]
 
@@ -315,7 +333,7 @@ export const DOCUMENT_VERSION_TRANSITIONS = [
     permission: ['project:edit', 'project:documents:write'],
     requires: { comment: true },
     auditAction: 'document.version.changes_requested',
-    effects: ['resolveReviewInbox', 'audit', 'eventHint'],
+    effects: ['resolveReviewInbox', 'openRevisionTask', 'audit', 'eventHint'],
   },
   {
     from: 'in_review',
@@ -416,8 +434,24 @@ export const submitRequestSchema = z
 /** `POST …/[versionId]/approve` */
 export const approveRequestSchema = z.object({ comment: reviewCommentSchema.optional() }).strict()
 
-/** `POST …/[versionId]/changes` and `…/reject` — both require words. */
-export const refuseRequestSchema = z.object({ comment: reviewCommentSchema }).strict()
+/**
+ * `POST …/[versionId]/changes` and `…/reject` — both require words.
+ *
+ * `delegateRevision` is the reviewer's third action on the changes route:
+ * „Änderungen anfordern" leaves the work with whoever wrote it, and „Piloti
+ * überarbeiten lassen" hands it back to Piloti as a `revision` task. It is the
+ * same transition either way — the version still becomes `changes_requested`
+ * and the comment is still required — so it is a field on the request rather
+ * than a fourth op, which would have needed a row of the transition table
+ * identical to the one above it in every column that matters.
+ *
+ * It only ever ADDS a task. A version filed from a live conversation opens one
+ * when this is set and otherwise reaches that conversation as a block; a version
+ * with no origin opens one either way.
+ */
+export const refuseRequestSchema = z
+  .object({ comment: reviewCommentSchema, delegateRevision: z.boolean().optional() })
+  .strict()
 
 /** `POST /api/documents/[id]/archive` */
 export const archiveRequestSchema = z.object({}).strict()

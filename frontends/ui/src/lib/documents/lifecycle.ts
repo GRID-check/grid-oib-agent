@@ -68,6 +68,7 @@ import {
 import {
   compareAndSwapVersionState,
   findDocumentVersion,
+  findDocumentVersionInOrg,
   listDocumentVersionSummaries,
   findOpenVersion,
   findPublishedVersion,
@@ -111,6 +112,17 @@ export interface TransitionInput {
    * the ten human routes depend on remembering to pass it.
    */
   actingHuman?: boolean
+  /**
+   * „Piloti überarbeiten lassen" — the reviewer's third action on
+   * `request_changes`.
+   *
+   * Without it, a version filed from a live conversation reaches that
+   * conversation as a `REVIEW_DECISIONS v1` block and no task is opened; with
+   * it, a `revision` task is opened as well, because the reviewer has said they
+   * do not want to wait for somebody to type the next message. A version with no
+   * origin conversation opens one either way — see the `openRevisionTask` effect.
+   */
+  delegateRevision?: boolean
 }
 
 /** The context every effect receives. Read-only; effects do not chain. */
@@ -344,6 +356,72 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
       console.warn(`[documents] ingest refused the published version ${version.id}`)
     }
   },
+
+  /**
+   * Hand a sent-back version to Piloti as a `revision` task — when there is
+   * nobody in a conversation to hand it to instead.
+   *
+   * ## Why this is a condition and not a second button
+   *
+   * „Request changes reaches the agent twice" is the design's own phrasing, and
+   * the two are not alternatives to pick between: a version filed from a live
+   * chat already has a reader and a thread, and the next turn there carries the
+   * comment verbatim (`./review-decisions.ts`). Opening a task for that case as
+   * well would queue a run for work the person is about to ask for in their next
+   * sentence, spend their budget on it, and put a second draft beside the one
+   * the conversation is holding. So the origin decides, and the reviewer can
+   * override it — `delegateRevision` is the one thing that opens a task for a
+   * conversation-born version.
+   *
+   * ## Why it cannot fail the transition
+   *
+   * The reviewer's decision is recorded the moment the compare-and-swap lands;
+   * everything here is what happens NEXT. A queue that will not take the run, a
+   * requester who has left the organization, a project whose skills feature is
+   * off — none of those is a reason to tell a Ziviltechniker that their
+   * „Änderungen anfordern" did not go through. The failure is logged and the
+   * comment still stands on the row, which is where the Files pane reads it.
+   */
+  openRevisionTask: async ({ session, document, version, input }) => {
+    const delegated = input.delegateRevision === true
+    if (version.originConversationId && !delegated) return
+    // A document with no project has no task table to hang off: the org-wide
+    // Archiv and a conversation's private attachments are both project-less, and
+    // `tasks.project_id` is NOT NULL for the tenant predicate's sake.
+    if (!document.projectId) return
+
+    try {
+      // Cycle-broken like the ingest dispatch above: `lib/tasks/delegation`
+      // imports the jobs service, which imports the tasks service, which imports
+      // THIS module for the filing it does at completion.
+      const { delegateTask } = await import('@/lib/tasks/delegation')
+      // Read in the REVIEWER's session, which has just been checked against this
+      // document — the run itself has no session and the worker holds no
+      // envelope, so the bytes have to be fetched by whoever is standing here.
+      const source = await readVersionContent(session, document.id, version.id).catch(() => null)
+      await delegateTask(session, {
+        projectId: document.projectId,
+        kind: 'revision',
+        goal: input.comment?.trim() ?? '',
+        subject: {
+          documentId: document.id,
+          versionId: version.id,
+          comment: input.comment?.trim() ?? '',
+        },
+        sourceText: source,
+        // The permissions the RE-FILING has to carry are the ones the original
+        // filing carried: whoever wrote this draft. The reviewer authorizes the
+        // delegation — it is their decision — and does not lend their own
+        // permissions to the work.
+        requester: { userId: version.createdBy, email: null },
+      })
+    } catch (error) {
+      console.error(
+        `[documents] could not open a revision task for version ${version.id}`,
+        error,
+      )
+    }
+  },
 }
 
 /**
@@ -575,6 +653,14 @@ export interface CreateVersionInput {
   contentHash: string | null
   request?: Request
   actingHuman?: boolean
+  /**
+   * The chat conversation this version was filed from (migration 0084).
+   *
+   * Supplied only by the agent's internal route, out of the VERIFIED envelope.
+   * It is why a reviewer's „Änderungen anfordern" can reach the next turn of
+   * that conversation instead of opening a task nobody asked for.
+   */
+  originConversationId?: string | null
 }
 
 /**
@@ -613,6 +699,7 @@ export async function createDocumentVersion(
     fileSize: input.fileSize,
     contentHash: input.contentHash,
     createdBy: session.userId,
+    originConversationId: input.originConversationId ?? null,
     // A published version needs an approver, and for an upload the person who
     // uploaded it IS the assertion — the CHECK is satisfied honestly rather
     // than worked around. A draft carries none of this.
@@ -873,6 +960,61 @@ export async function readVersionContent(
   const body = await object.Body?.transformToString('utf8')
   if (body === undefined) throw new NotFoundError('Version content not available')
   return body
+}
+
+/**
+ * One version's bytes and its identity, for a SERVICE caller that holds only a
+ * version id (`GET /api/internal/document-versions/[versionId]/content`).
+ *
+ * Not an authorization bypass and not a second read path: it is the same object
+ * fetch {@link readVersionContent} runs, with the organization — which the
+ * caller states and the internal route puts in the tenant slot — as the whole
+ * of the predicate instead of a session. A version id from another tenant finds
+ * no row, so it answers 404 exactly as a made-up id does.
+ *
+ * Why the state travels back with the text: the Python tier writes the bytes
+ * into the conversation's working directory and stamps a filing record on them
+ * so a later `file_draft` on that path UPDATES this document's open version
+ * rather than creating a second item, and the `update` op needs both the state
+ * (is it still replaceable) and the content hash (If-Match).
+ */
+export async function readVersionForService(
+  versionId: string,
+  organizationId: string,
+): Promise<{
+  documentId: string
+  versionId: string
+  versionNumber: number
+  state: DocumentVersionState
+  contentHash: string | null
+  contentType: string | null
+  filename: string
+  displayName: string
+  content: string
+}> {
+  const version = await findDocumentVersionInOrg(versionId, organizationId)
+  if (!version) throw new NotFoundError('Version not found')
+  const document = await findDocumentInOrg(version.documentId, organizationId)
+  if (!document) throw new NotFoundError('Version not found')
+  const object = await s3Client.send(
+    new GetObjectCommand({
+      Bucket: resolveDocumentBucket(version.storageBucket),
+      Key: version.storageKey,
+    }),
+  )
+  const content = await object.Body?.transformToString('utf8')
+  if (content === undefined) throw new NotFoundError('Version content not available')
+  return {
+    documentId: version.documentId,
+    versionId: version.id,
+    versionNumber: version.versionNumber,
+    state: version.state,
+    contentHash: version.contentHash,
+    contentType: version.contentType,
+    filename: document.filename,
+    displayName: documentDisplayName(document),
+    content,
+  }
 }
 
 /**

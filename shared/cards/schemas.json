@@ -4410,6 +4410,82 @@
       "title": "SurfacedDocument",
       "type": "object"
     },
+    "TaskCreatedCard": {
+      "description": "Work Piloti has taken on, as a row somebody can come back to.\n\nSystem-emitted by ``create_task``. What it exists to prevent is the answer\n\u201eich mache den Einreichcheck bis Freitag\" with nothing behind it: the card is\nproof there is a row, and the row is what carries the requester's permission,\nthe deadline and \u2014 when a person judges the result \u2014 the decision that reaches\nthe next attempt (ADR-0051).\n\nInformational, not interactive. The task is already queued when this renders,\nso there is no Accept: a control would either repeat the delegation or cancel\nit, and cancelling delegated work is a Files-and-tasks surface decision, not\na chat one.\n\n``conversation_id`` is the thread the run writes into, so the card can link a\nreader to the work rather than only announce it. Absent when the run's\nconversation could not be created, which is the same degraded shape a\nscheduled job has had since jobs got conversations at all.",
+      "properties": {
+        "conversation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The conversation the run writes into; absent when it could not be created",
+          "title": "Conversation Id"
+        },
+        "due_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ISO instant the work is wanted by, or absent when none was named",
+          "title": "Due At"
+        },
+        "goal": {
+          "description": "What was asked, in the requester's own words",
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Goal",
+          "type": "string"
+        },
+        "kind": {
+          "description": "What kind of work was delegated",
+          "enum": [
+            "compliance_check",
+            "einreichcheck",
+            "document",
+            "revision"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "The task row's id",
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "title": {
+          "description": "What the task is called in the inbox and the list",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "task_created",
+          "default": "task_created",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "kind",
+        "title",
+        "goal"
+      ],
+      "title": "TaskCreatedCard",
+      "type": "object"
+    },
     "ThermalEnvelopeCard": {
       "description": "A thermal-envelope (W\u00e4rmeschutz) schematic: U-values per building part.\n\nEmit for U-Wert / W\u00e4rmeschutz questions (OIB 6). Draws a simple building\ncross-section with each envelope component highlighted by status, and one\nlimit bar per component reading its U-value against the maximum permitted\n(lower is better). Fills the OIB 6 energy-efficiency domain.",
       "properties": {
@@ -4672,6 +4748,7 @@
       "setback_plan": "#/$defs/SetbackPlanCard",
       "stair_diagram": "#/$defs/StairDiagramCard",
       "summary": "#/$defs/SummaryCard",
+      "task_created": "#/$defs/TaskCreatedCard",
       "thermal_envelope": "#/$defs/ThermalEnvelopeCard",
       "typed_table": "#/$defs/TypedTableCard",
       "verdict_header": "#/$defs/VerdictHeaderCard"
@@ -4786,6 +4863,9 @@
     },
     {
       "$ref": "#/$defs/DocumentDraftCard"
+    },
+    {
+      "$ref": "#/$defs/TaskCreatedCard"
     },
     {
       "$ref": "#/$defs/FileOperationProposalCard"

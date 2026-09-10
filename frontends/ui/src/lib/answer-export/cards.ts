@@ -173,6 +173,11 @@ export const CARD_EXPORT: Record<GridCard['type'], ExportKind> = {
   // carries no file names at all (the renderer resolves them from the live
   // model list), so on paper it is a heading asking which model you meant.
   ifc_model_picker: 'chrome',
+  // The app telling the reader „Piloti kümmert sich darum". A Behörde reading a
+  // Bauakt would find a line announcing work that had not happened yet, which is
+  // the opposite of a finding — and by the time the file is exported the task
+  // has either produced something (which is its own document) or has not.
+  task_created: 'chrome',
   // The two interactive cards (ADR-0030). Both ASK — "Remember this?", "Update
   // the project brief?" — and the answer lives in `metadata.cardInteractions`,
   // which the export never reads. So the document cannot say whether the user

@@ -98,6 +98,10 @@ aiq_files = "aiq_agent.tools.files.register"
 # directly by the researcher's register and are not NAT functions at all, so
 # this entry point covers exactly the two that call the BFF.
 aiq_documents = "aiq_agent.tools.documents.register"
+# Delegation (`create_task`). Its own entry point rather than a member of
+# `aiq_documents`: the two call different BFF routes with different contracts,
+# and a deployment that turns one off must be able to keep the other.
+aiq_tasks = "aiq_agent.tools.tasks.register"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "sources/**/tests"]

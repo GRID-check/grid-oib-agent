@@ -3526,8 +3526,14 @@ class TestRepairRetrievalsRunTogether:
 # ---------------------------------------------------------------------------
 
 
-def _render_researcher_prompt(*, drafting_enabled: bool = False, tidying_enabled: bool = False) -> str:
-    """The default prompt, rendered with the working directory / the file verbs on or off."""
+def _render_researcher_prompt(
+    *,
+    drafting_enabled: bool = False,
+    tidying_enabled: bool = False,
+    delegating_enabled: bool = False,
+) -> str:
+    """The default prompt, rendered with the working directory / the file verbs /
+    delegation on or off."""
     from pathlib import Path
 
     from aiq_agent.agents.researcher import agent as researcher_agent
@@ -3547,6 +3553,7 @@ def _render_researcher_prompt(*, drafting_enabled: bool = False, tidying_enabled
         parcel_note=None,
         drafting_enabled=drafting_enabled,
         tidying_enabled=tidying_enabled,
+        delegating_enabled=delegating_enabled,
     )
 
 
@@ -3628,6 +3635,66 @@ class TestTheWorkingDirectoryBlock:
         assert "<entwuerfe>" not in without
 
 
+def _delegieren_block() -> str:
+    return _render_researcher_prompt(delegating_enabled=True).split("<delegieren>")[1].split("</delegieren>")[0]
+
+
+class TestTheDelegationBlock:
+    """What the prompt says about handing work over, and whether it says it at all."""
+
+    def test_a_turn_without_the_tool_is_never_told_to_delegate(self):
+        """`create_task` refuses without a project AND without a signed envelope."""
+        assert "<delegieren>" not in _render_researcher_prompt(delegating_enabled=False)
+
+    def test_it_names_the_tool_and_the_four_kinds(self):
+        block = _delegieren_block()
+        assert "`create_task`" in block
+        for kind in ("compliance_check", "einreichcheck", "document", "revision"):
+            assert f"`{kind}`" in block
+
+    def test_it_names_the_requests_a_person_actually_makes(self):
+        """So the model recognises the handoff instead of judging every long task one."""
+        block = _delegieren_block()
+        assert "Einreichcheck bis Freitag" in block
+        assert "@Piloti prüf das" in block
+
+    def test_the_deadline_is_a_date_and_not_a_phrase(self):
+        """A string nothing can compare is a deadline the scheduler never enforces."""
+        block = _delegieren_block()
+        assert "`JJJJ-MM-TT`" in block
+        assert "keinen Text eintragen" in block
+
+    def test_the_answer_must_not_claim_the_work_is_done(self):
+        """The sentence this whole tool exists to stop."""
+        block = _delegieren_block()
+        assert "EINEM Satz" in block
+        assert "Sage nie, die Arbeit sei erledigt" in block
+
+    def test_delegating_is_not_a_way_out_of_answering(self):
+        assert "keine Art, einer Recherche auszuweichen" in _delegieren_block()
+
+    def test_nothing_is_delegated_unasked(self):
+        assert "Von selbst wird kein Auftrag angelegt" in _delegieren_block()
+
+    def test_the_block_follows_the_tools_and_not_a_second_switch(self):
+        from aiq_agent.agents.researcher.prompt import render_system_prompt
+        from aiq_agent.agents.researcher.prompt import system_prompt_template
+
+        state = ResearchAgentState(messages=[HumanMessage(content="Mach den Einreichcheck bis Freitag")])
+        with_tool = render_system_prompt(
+            system_prompt_template(),
+            state,
+            [{"name": "create_task", "description": "Legt einen Auftrag an"}],
+        )
+        without = render_system_prompt(
+            system_prompt_template(),
+            state,
+            [{"name": "web_search_tool", "description": "Search"}],
+        )
+        assert "<delegieren>" in with_tool
+        assert "<delegieren>" not in without
+
+
 class TestTheWorkingDirectoryBudget:
     """The file verbs are an OUTPUT channel, budgeted like cards and memory."""
 
@@ -3641,6 +3708,17 @@ class TestTheWorkingDirectoryBudget:
         from aiq_agent.agents.researcher.agent import _INTERACTION_TOOL_BASENAMES
 
         assert {"file_draft", "submit_draft"} <= _INTERACTION_TOOL_BASENAMES
+
+    def test_delegating_is_an_interaction_tool_too(self):
+        """A turn that delegates decided not to research; it must not cost research budget."""
+        from aiq_agent.agents.researcher.agent import _INTERACTION_TOOL_BASENAMES
+
+        assert "create_task" in _INTERACTION_TOOL_BASENAMES
+
+    def test_a_delegating_turn_fits_inside_the_allowance(self):
+        """The shape delegation actually has: one call, one card, one sentence."""
+        calls = [{"name": "create_task", "args": {}}, {"name": "emit_card", "args": {}}]
+        assert _count_interaction_calls(calls) <= _INTERACTION_TOOL_ALLOWANCE
 
     def test_a_write_then_file_turn_fits_inside_the_allowance(self):
         """The shape filing actually has: one draft written, then handed over."""

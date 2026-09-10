@@ -86,7 +86,8 @@ _shelf_label = shelf_label
 # file operation on a card (`move_document`, `rename_document`,
 # `create_folder`, `set_doc_class`, `assign_document` — ``tools/files``) plus the
 # working directory's two doors into the project (`file_draft`, `submit_draft` —
-# ``tools/documents/register.py``). Each
+# ``tools/documents/register.py``) plus delegation (`create_task` —
+# ``tools/tasks/register.py``). Each
 # is an OUTPUT channel of the answer rather than a
 # way of learning something, so their calls are budgeted apart from research
 # (see ``_INTERACTION_TOOL_ALLOWANCE``). Matched on the tool's base name so an
@@ -107,6 +108,7 @@ _INTERACTION_TOOL_BASENAMES = frozenset(
         "assign_document",
         "file_draft",
         "submit_draft",
+        "create_task",
     }
 )
 
@@ -130,6 +132,13 @@ _INTERACTION_TOOL_BASENAMES = frozenset(
 # emits three cards. The two shapes are alternatives, so their ceilings are
 # not additive; raising the number for a turn that never happens would only
 # buy a runaway loop more room.
+#
+# `create_task` adds NOTHING, and the calibration is the clearest of the three:
+# a turn that DELEGATES is a turn that decided not to do the work now, so it
+# emits one card and one sentence and stops. There is no shape in which
+# delegating happens alongside a full drafting turn — the two are alternatives,
+# and a ceiling raised for a turn that never happens only buys a runaway loop
+# more room.
 #
 # `file_draft` and `submit_draft` add NOTHING either, for the same calibration
 # read one step further along. They are the END of a drafting turn, not a shape

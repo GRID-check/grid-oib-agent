@@ -16,6 +16,14 @@ vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
 vi.mock('@/lib/auth/pinned-session', () => ({ resolvePinnedRequesterSession: vi.fn() }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 vi.mock('@/lib/documents/research-report', () => ({ fileResearchReport: vi.fn() }))
+vi.mock('@/lib/documents/agent-document', () => ({ fileAgentDocumentDraft: vi.fn() }))
+vi.mock('@/lib/documents/lifecycle', () => ({
+  replaceVersionContent: vi.fn(),
+  transitionDocumentVersion: vi.fn(),
+}))
+vi.mock('@/lib/documents/revision', () => ({ openDraftForRevision: vi.fn() }))
+vi.mock('@/lib/documents/repository', () => ({ findDocumentInOrg: vi.fn() }))
+vi.mock('@/lib/inbox/service', () => ({ emitInboxItems: vi.fn() }))
 
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
@@ -23,13 +31,19 @@ import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type { Job, JobRun, Task } from '@/lib/db/schema'
+import { fileAgentDocumentDraft } from '@/lib/documents/agent-document'
+import { replaceVersionContent, transitionDocumentVersion } from '@/lib/documents/lifecycle'
+import { findDocumentInOrg } from '@/lib/documents/repository'
 import { fileResearchReport } from '@/lib/documents/research-report'
+import { openDraftForRevision } from '@/lib/documents/revision'
+import { emitInboxItems } from '@/lib/inbox/service'
 import * as repository from './repository'
 import {
   completeTaskForRun,
   createTaskForRun,
   PREVIOUS_DECISIONS_HEADER,
   previousDecisionsBlock,
+  recordTaskOutcome,
   reviewTask,
 } from './service'
 
@@ -289,5 +303,175 @@ describe('previousDecisionsBlock', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
     expect(await previousDecisionsBlock(job)).toBe('')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The delegated kinds (ADR-0051, slice 6)
+// ---------------------------------------------------------------------------
+
+/**
+ * A task delegated from chat: no job, no run, its own backend job id.
+ *
+ * It also re-seeds the `updateTask` double, because `completeTaskForRun` files
+ * from the row the database HANDS BACK rather than from the one it was given —
+ * the shared double in `beforeEach` starts from the deep-research fixture, and a
+ * test that did not re-seed it would be asserting about that task's kind.
+ */
+const delegated = (overrides: Partial<Task> = {}): Task => {
+  const row = {
+    ...task,
+    kind: 'document',
+    title: 'Dokument: Aktenvermerk Fluchtweg',
+    conversationId: 's_conv_2',
+    plan: { prompt: 'Schreibe …', skill: {}, dataSources: null, goal: 'Schreib den Aktenvermerk' },
+    ...overrides,
+  } as Task
+  let current = row
+  vi.mocked(repository.updateTask).mockImplementation(async (_id, _org, patch) => {
+    current = { ...current, ...patch } as Task
+    return current
+  })
+  return row
+}
+
+describe('completeTaskForRun, by kind', () => {
+  it('files a `document` task as a new draft and submits it to the requester', async () => {
+    vi.mocked(fileAgentDocumentDraft).mockResolvedValue({
+      documentId: 'doc-7',
+      version: { id: 'ver-1' } as never,
+      alreadyFiled: false,
+    })
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ filename: 'aktenvermerk-2026-09-10.md' } as never)
+
+    const { filed } = await completeTaskForRun(delegated(), { status: 'success', report: '# Aktenvermerk' })
+
+    // The task's own id as the reference, so a retried outcome updates the
+    // document the first one made rather than filing a second.
+    expect(vi.mocked(fileAgentDocumentDraft).mock.calls[0][0]).toMatchObject({
+      projectId: 'proj-1',
+      ref: 'task-task-1',
+      content: '# Aktenvermerk',
+      actingHuman: false,
+    })
+    expect(transitionDocumentVersion).toHaveBeenCalledWith(expect.anything(), 'doc-7', 'ver-1', 'submit', {
+      reviewerUserIds: ['user_owner'],
+    })
+    expect(filed).toEqual({ documentId: 'doc-7', filename: 'aktenvermerk-2026-09-10.md' })
+  })
+
+  it('does not submit a `document` task twice when the reference was already filed', async () => {
+    vi.mocked(fileAgentDocumentDraft).mockResolvedValue({
+      documentId: 'doc-7',
+      version: { id: 'ver-1' } as never,
+      alreadyFiled: true,
+    })
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ filename: 'aktenvermerk-2026-09-10.md' } as never)
+
+    await completeTaskForRun(delegated(), { status: 'success', report: '# Aktenvermerk' })
+    expect(transitionDocumentVersion).not.toHaveBeenCalled()
+  })
+
+  it('writes a `revision` task over the open draft of the SAME document and submits it back', async () => {
+    vi.mocked(openDraftForRevision).mockResolvedValue({
+      version: { id: 'ver-2', contentHash: 'sha256:abc' } as never,
+      filename: 'befund.md',
+      reviewers: ['user_reviewer'],
+    })
+    vi.mocked(replaceVersionContent).mockResolvedValue({ id: 'ver-2' } as never)
+
+    const revision = delegated({
+      kind: 'revision',
+      plan: {
+        prompt: 'Überarbeite …',
+        skill: {},
+        dataSources: null,
+        goal: 'Die Fluchtweglänge stimmt nicht',
+        subject: { documentId: 'doc-3', versionId: 'ver-1', comment: 'Die Fluchtweglänge stimmt nicht' },
+      },
+    } as Partial<Task>)
+
+    const { filed } = await completeTaskForRun(revision, { status: 'success', report: '# Befund, überarbeitet' })
+
+    // The If-Match is the hash the LIFECYCLE reported, never one computed here:
+    // a self-computed hash agrees with itself and overwrites a reviewer.
+    expect(vi.mocked(replaceVersionContent).mock.calls[0].slice(1)).toEqual([
+      'doc-3',
+      'ver-2',
+      '# Befund, überarbeitet',
+      'sha256:abc',
+    ])
+    // Back to the person who asked for the changes: they are the one waiting.
+    expect(transitionDocumentVersion).toHaveBeenCalledWith(
+      expect.anything(),
+      'doc-3',
+      'ver-2',
+      'submit',
+      { reviewerUserIds: ['user_reviewer'] },
+    )
+    // The SAME document, never a second one.
+    expect(filed).toEqual({ documentId: 'doc-3', filename: 'befund.md' })
+    expect(fileAgentDocumentDraft).not.toHaveBeenCalled()
+  })
+
+  it('records a revision task with no subject as a failed filing rather than throwing', async () => {
+    const broken = delegated({ kind: 'revision' })
+    const { task: closed } = await completeTaskForRun(broken, { status: 'success', report: '# x' })
+    expect(closed.filingStatus).toBe('failed')
+  })
+
+  it('files nothing for a `compliance_check` or an `einreichcheck`', async () => {
+    // Their result IS the conversation the run wrote into; filing the prose as
+    // a second document would put a copy of the thread in Berichte.
+    for (const kind of ['compliance_check', 'einreichcheck'] as const) {
+      vi.clearAllMocks()
+      const { filed } = await completeTaskForRun(delegated({ kind }), { status: 'success', report: '# Ergebnis' })
+      expect(filed).toBeNull()
+      expect(fileAgentDocumentDraft).not.toHaveBeenCalled()
+      expect(fileResearchReport).not.toHaveBeenCalled()
+    }
+  })
+})
+
+describe('recordTaskOutcome', () => {
+  it('closes the task and tells the requester, with the task and the thread on the row', async () => {
+    vi.mocked(emitInboxItems).mockResolvedValue(1)
+    vi.mocked(fileAgentDocumentDraft).mockResolvedValue({
+      documentId: 'doc-7',
+      version: { id: 'ver-1' } as never,
+      alreadyFiled: false,
+    })
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ filename: 'aktenvermerk.md' } as never)
+
+    const { notified, filed } = await recordTaskOutcome(delegated(), { status: 'success', report: '# x' })
+
+    expect(notified).toBe(true)
+    expect(filed).toEqual({ documentId: 'doc-7', filename: 'aktenvermerk.md' })
+    const [[emission]] = vi.mocked(emitInboxItems).mock.calls
+    expect(emission[0]).toMatchObject({
+      recipientUserId: 'user_owner',
+      type: 'job.completed',
+      resourceType: 'project',
+      resourceId: 'proj-1',
+      // The work was Piloti's, and a row whose actor is its recipient is
+      // dropped — which a task somebody delegated to themselves always would be.
+      actorUserId: null,
+    })
+    expect(emission[0].payload).toMatchObject({
+      taskId: 'task-1',
+      conversationId: 's_conv_2',
+      filedDocumentId: 'doc-7',
+      jobId: null,
+      runId: null,
+    })
+  })
+
+  it('tells the requester about a failure too, and files nothing', async () => {
+    vi.mocked(emitInboxItems).mockResolvedValue(1)
+    await recordTaskOutcome(delegated(), { status: 'failure', error: 'Budget exhausted' })
+
+    const [[emission]] = vi.mocked(emitInboxItems).mock.calls
+    expect(emission[0].type).toBe('job.failed')
+    expect(fileAgentDocumentDraft).not.toHaveBeenCalled()
   })
 })

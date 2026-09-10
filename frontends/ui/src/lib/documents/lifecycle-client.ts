@@ -100,10 +100,16 @@ export interface DocumentLifecycleClient {
     reviewerUserIds?: readonly string[],
   ): Promise<DocumentVersionView>
   approve(documentId: string, versionId: string, comment?: string): Promise<DocumentVersionView>
+  /**
+   * `delegateRevision` is the reviewer's third action: the version moves to
+   * `changes_requested` either way, and with it set Piloti is additionally asked
+   * to produce the next draft (`openRevisionTask`).
+   */
   requestChanges(
     documentId: string,
     versionId: string,
     comment: string,
+    delegateRevision?: boolean,
   ): Promise<DocumentVersionView>
   reject(documentId: string, versionId: string, comment: string): Promise<DocumentVersionView>
   publish(documentId: string, versionId: string): Promise<DocumentVersionView>
@@ -155,8 +161,16 @@ export function createDocumentLifecycleClient(
         one,
       ),
 
-    requestChanges: (documentId, versionId, comment) =>
-      request(run, `${version(documentId, versionId)}/changes`, json({ comment }), one),
+    requestChanges: (documentId, versionId, comment, delegateRevision) =>
+      request(
+        run,
+        `${version(documentId, versionId)}/changes`,
+        // Omitted rather than sent as `false`: the schema is `.strict()` and an
+        // absent optional is the same decision as a false one, so the wire stays
+        // exactly what it was for every caller that does not use the third action.
+        json(delegateRevision ? { comment, delegateRevision: true } : { comment }),
+        one,
+      ),
 
     reject: (documentId, versionId, comment) =>
       request(run, `${version(documentId, versionId)}/reject`, json({ comment }), one),

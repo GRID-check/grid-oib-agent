@@ -45,7 +45,8 @@
  * PUBLISHED version per document — live only in migration 0082 with their
  * `COMMENT ON INDEX`, because drizzle's index builder can express neither a
  * predicate over a value list nor the comment. Same arrangement as
- * `documents_conversation_idx`.
+ * `documents_conversation_idx`. `idx_document_versions_origin_conversation`
+ * (migration 0084) is partial too and lives there for the same reason.
  */
 
 import { relations, sql } from 'drizzle-orm'
@@ -116,6 +117,26 @@ export const documentVersions = pgTable(
     /** The reviewer's words. Required by a CHECK for the two refusing states. */
     reviewComment: text('review_comment'),
     createdBy: text('created_by').notNull(),
+    /**
+     * The chat conversation this version was filed from (migration 0084).
+     *
+     * Written from the VERIFIED request-context envelope at the internal filing
+     * route and never off a request body, so it is a fact this tier asserted
+     * (ADR-0054 §4). NULL for a human upload, a scheduled run, and any version
+     * forked from the Files pane.
+     *
+     * PROVENANCE, never authorization. It decides two things and nothing else:
+     * what the next turn of that conversation is told when a reviewer sends the
+     * version back (`REVIEW_DECISIONS v1`), and whether a refused version needs
+     * a `revision` task instead — a conversation gets the block, unattended
+     * work gets the row.
+     *
+     * `text` with no foreign key, as `job_runs.conversation_id` is: the honest
+     * constraint would be the composite `(conversation_id, organization_id)`,
+     * which is worth its cost on a row that decides access and not on one that
+     * decides prose.
+     */
+    originConversationId: text('origin_conversation_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
