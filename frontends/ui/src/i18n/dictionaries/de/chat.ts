@@ -816,6 +816,13 @@ export const chat: typeof en.chat = {
       skill: 'Skill: {name}',
       // Das blanke `use_skill`-Frame ohne erkennbaren Skill dahinter.
       skillUnnamed: 'Skill',
+      model: 'Gebäudemodell',
+      measure: 'Messung',
+      drawing: 'Plan',
+      documents: 'Dateien',
+      note: 'Notiz',
+      card: 'Karte',
+      compliance: 'Normprüfung',
     },
     // Lesbare Namen für die Knoten und Werkzeuge, die das Backend meldet — für
     // das Technik-Panel (Opt-in). Auf der Leitung stehen interne Ids

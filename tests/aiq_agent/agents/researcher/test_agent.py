@@ -2634,6 +2634,7 @@ class TestADirectReplyMayStillEmitACard:
         assert "ceiling" in rules.lower() or "budget" in rules.lower()
         assert "Punkt" in rules or "punkt" in rules.lower()
         assert "Herleitung checkpoint" in rules
+        assert "files that fetch returned" in rules
         stimme = rendered.split("<stimme>")[1].split("</stimme>")[0]
         assert "Folgerung der Herleitung" in stimme
 

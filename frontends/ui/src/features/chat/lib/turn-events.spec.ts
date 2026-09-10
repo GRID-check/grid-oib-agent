@@ -487,6 +487,18 @@ describe('a stored step renders from its hoisted event', () => {
     expect(turnEventLiveText(withStale, tDe)).toBe('Sucht im RIS …')
   })
 
+  test('tools on a retrieval round are hoisted with the checkpoint', () => {
+    const live = event('status:retrieval:0', {
+      kind: 'status',
+      channel: 'live',
+      slot: 'retrieval:0',
+      key: 'status.retrieval.plain',
+      values: { corpus: 'ifc' },
+      tools: ['ifc_measure', 'knowledge_search'],
+    })
+    expect(turnEventOf(live)?.tools).toEqual(['ifc_measure', 'knowledge_search'])
+  })
+
   test('a checkpoint reason is hoisted and never interpolated into the live line', () => {
     const live = event('status:retrieval:1', {
       kind: 'status',

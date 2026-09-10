@@ -835,6 +835,13 @@ export const chat = {
       skill: 'Skill: {name}',
       // The bare `use_skill` frame with no identifiable skill behind it.
       skillUnnamed: 'Skill',
+      model: 'Building model',
+      measure: 'Measurement',
+      drawing: 'Drawing',
+      documents: 'Files',
+      note: 'Note',
+      card: 'Card',
+      compliance: 'Compliance check',
     },
     // Reader-facing names for the nodes and tools the backend emits, used by
     // the opt-in technical panel. The names on the wire are internal ids

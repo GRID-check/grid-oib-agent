@@ -16,6 +16,7 @@ const t = ((key: string) => key) as unknown as Translator
 const card = (id: string): CitedDocument => ({
   id,
   title: id,
+  fileName: `${id}.pdf`,
   kind: 'baurecht',
   tint: 'law',
   loci: [{ key: 'whole', isCited: true }],
@@ -23,7 +24,12 @@ const card = (id: string): CitedDocument => ({
 
 const base: ReasoningFlowProps = { steps: [], userQuestion: 'Frage?' }
 
-const retrievalStep = (index: number, query: string, reason?: string): ThinkingStep => ({
+const retrievalStep = (
+  index: number,
+  query: string,
+  reason?: string,
+  tools: string[] = ['knowledge_search']
+): ThinkingStep => ({
   id: `r${index}`,
   userMessageId: 'u1',
   category: 'agents',
@@ -35,10 +41,31 @@ const retrievalStep = (index: number, query: string, reason?: string): ThinkingS
     slot: `retrieval:${index}`,
     key: 'status.retrieval.withQuery',
     values: { corpus: 'knowledge', query },
+    tools,
     ...(reason ? { reason } : {}),
   }),
   timestamp: new Date(),
   isComplete: true,
+})
+
+const toolHit = (id: string, file: string): ThinkingStep => ({
+  id: `t-${id}`,
+  userMessageId: 'u1',
+  category: 'tools',
+  functionName: 'knowledge_search',
+  displayName: 'knowledge_search',
+  content: '',
+  timestamp: new Date(),
+  isComplete: true,
+  traceLanes: [
+    {
+      key: 'baurecht_oib',
+      label: 'OIB-Richtlinie',
+      hitCount: 1,
+      sources: [{ name: `${file}.pdf` }],
+      signal: 'law',
+    },
+  ],
 })
 
 /** A desktop chat column; a phone viewport. */
@@ -53,8 +80,9 @@ const framingHandles = (g: ReturnType<typeof buildGraph>): string[] =>
 const targetHandles = (g: ReturnType<typeof buildGraph>, id: string): string[] =>
   ((g.nodes.find((n) => n.id === id)!.data as { targets: Array<{ id: string }> }).targets).map((h) => h.id)
 
+const isColumnId = (id: string) => /(^|-)col-\d+$/.test(id)
 const columnToColumnEdges = (g: ReturnType<typeof buildGraph>) =>
-  g.edges.filter((e) => e.source.startsWith('col-') && e.target.startsWith('col-'))
+  g.edges.filter((e) => isColumnId(e.source) && isColumnId(e.target))
 
 /** Cards each column node carries, left→right. */
 const columnCards = (g: ReturnType<typeof buildGraph>): string[][] =>
@@ -160,23 +188,68 @@ describe('buildGraph — parallel wiring (P1-4)', () => {
       planFan(DESKTOP_W, 2),
       cards
     )
+    // No tool hits: both files hang off the last fetch, not off framing.
     expect(g.nodes.map((n) => n.id)).toEqual([
       'framing',
       'round-0',
       'round-1',
-      'col-0',
-      'col-1',
+      'r1-col-0',
+      'r1-col-1',
       'findings',
     ])
     expect(g.edges).toContainEqual(expect.objectContaining({ source: 'framing', target: 'round-0' }))
     expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-0', target: 'round-1' }))
-    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'col-0' }))
-    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'col-1' }))
-    expect(g.edges.filter((e) => e.source === 'framing' && e.target.startsWith('col-'))).toHaveLength(
-      0
-    )
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'r1-col-0' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'r1-col-1' }))
+    expect(g.edges.filter((e) => e.source === 'framing' && e.target.includes('col-'))).toHaveLength(0)
     expect(columnToColumnEdges(g)).toHaveLength(0)
-    expect(g.rows).toEqual([['framing'], ['round-0'], ['round-1'], ['col-0', 'col-1'], ['findings']])
+    expect(g.rows).toEqual([
+      ['framing'],
+      ['round-0'],
+      ['round-1'],
+      ['r1-col-0', 'r1-col-1'],
+      ['findings'],
+    ])
+  })
+
+  test('each checkpoint hangs the files THAT fetch returned', () => {
+    const steps = [
+      retrievalStep(0, 'OIB 2'),
+      toolHit('oib', 'a'),
+      retrievalStep(1, 'Grundriss', 'Die Richtlinie staffelt nach GK — der Plan fehlt.'),
+      toolHit('plan', 'b'),
+    ]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+    expect(columnCards(g)).toEqual([['a'], ['b']])
+    expect(g.nodes.map((n) => n.id)).toEqual([
+      'framing',
+      'round-0',
+      'r0-col-0',
+      'round-1',
+      'r1-col-0',
+      'findings',
+    ])
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-0', target: 'r0-col-0' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'r0-col-0', target: 'round-1' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'r1-col-0' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'r1-col-0', target: 'findings' }))
+    const round0 = g.nodes.find((n) => n.id === 'round-0')!.data as { actions: string[] }
+    const round1 = g.nodes.find((n) => n.id === 'round-1')!.data as { text: string; actions: string[] }
+    expect(round0.actions).toEqual(['thinking.stepName.corpus'])
+    expect(round1.text).toContain('der Plan fehlt')
+    expect(g.rows).toEqual([
+      ['framing'],
+      ['round-0'],
+      ['r0-col-0'],
+      ['round-1'],
+      ['r1-col-0'],
+      ['findings'],
+    ])
   })
 
   test('the spine speaks the checkpoint, never the search query (PF-12)', () => {

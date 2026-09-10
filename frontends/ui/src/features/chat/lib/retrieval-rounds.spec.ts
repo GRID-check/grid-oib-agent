@@ -2,8 +2,9 @@
  * @vitest-environment node
  */
 import { describe, test, expect } from 'vitest'
-import { retrievalRounds } from './retrieval-rounds'
+import { documentsForRound, retrievalRounds, unassignedDocuments } from './retrieval-rounds'
 import type { ThinkingStep } from '../types'
+import type { CitedDocument } from './citations/model'
 
 const step = (overrides: Partial<ThinkingStep> = {}): ThinkingStep => ({
   id: 's',
@@ -42,6 +43,8 @@ describe('retrievalRounds', () => {
         index: 0,
         key: 'status.retrieval.withQuery',
         values: { corpus: 'knowledge', query: 'Fluchtweg GK4' },
+        tools: [],
+        sourceNames: [],
       },
     ])
   })
@@ -86,6 +89,8 @@ describe('retrievalRounds', () => {
         index: 0,
         key: 'status.retrieval.withQuery',
         values: { corpus: 'knowledge', query: 'Geländerhöhe' },
+        tools: [],
+        sourceNames: [],
       },
     ])
   })
@@ -108,7 +113,91 @@ describe('retrievalRounds', () => {
         key: 'status.retrieval.withQuery',
         values: { corpus: 'knowledge', query: 'Überhang Dachrand' },
         reason: 'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.',
+        tools: [],
+        sourceNames: [],
       },
     ])
+  })
+
+  test('tool results after a retrieval belong to that fetch, not the next', () => {
+    const hit = (id: string, file: string): ThinkingStep =>
+      step({
+        id,
+        functionName: 'knowledge_search',
+        category: 'tools',
+        traceLanes: [
+          {
+            key: 'baurecht_oib',
+            label: 'OIB-Richtlinie',
+            hitCount: 1,
+            sources: [{ name: file }],
+            signal: 'law',
+          },
+        ],
+      })
+    const rounds = retrievalRounds([
+      retrieval(0, 'OIB 2'),
+      hit('t0', 'oib-rl_2.pdf'),
+      retrieval(1, 'Grundriss'),
+      hit('t1', 'EG_Grundriss.pdf'),
+    ])
+    expect(rounds[0]?.sourceNames).toEqual(['oib-rl_2.pdf'])
+    expect(rounds[1]?.sourceNames).toEqual(['EG_Grundriss.pdf'])
+  })
+
+  test('tools on the retrieval event survive prune', () => {
+    const pruned = step({
+      id: 'p',
+      functionName: 'status:retrieval:0',
+      content: '',
+      turnEvent: {
+        key: 'status.retrieval.plain',
+        values: { corpus: 'ifc' },
+        tools: ['ifc_measure', 'knowledge_search'],
+      },
+    })
+    expect(retrievalRounds([pruned])[0]?.tools).toEqual(['ifc_measure', 'knowledge_search'])
+  })
+})
+
+describe('documentsForRound', () => {
+  const doc = (id: string, fileName: string): CitedDocument => ({
+    id,
+    title: id,
+    fileName,
+    kind: 'baurecht',
+    tint: 'law',
+    loci: [{ key: 'whole', isCited: true }],
+  })
+
+  test('a file belongs to the fetch that returned it', () => {
+    const oib = doc('oib', 'oib-rl_2.pdf')
+    const plan = doc('plan', 'EG_Grundriss.pdf')
+    const round0: ReturnType<typeof retrievalRounds>[number] = {
+      index: 0,
+      key: 'status.retrieval.withQuery',
+      tools: ['knowledge_search'],
+      sourceNames: ['oib-rl_2.pdf'],
+    }
+    const round1: ReturnType<typeof retrievalRounds>[number] = {
+      index: 1,
+      key: 'status.retrieval.withQuery',
+      tools: ['knowledge_search'],
+      sourceNames: ['EG_Grundriss.pdf'],
+    }
+    expect(documentsForRound(round0, [oib, plan]).map((c) => c.id)).toEqual(['oib'])
+    expect(documentsForRound(round1, [oib, plan]).map((c) => c.id)).toEqual(['plan'])
+    expect(unassignedDocuments([round0, round1], [oib, plan])).toEqual([])
+  })
+
+  test('a citation with no retrieval step is unassigned, not dropped', () => {
+    const extra = doc('extra', 'Notiz.pdf')
+    const round: ReturnType<typeof retrievalRounds>[number] = {
+      index: 0,
+      key: 'status.retrieval.plain',
+      tools: [],
+      sourceNames: ['oib-rl_2.pdf'],
+    }
+    expect(unassignedDocuments([round], [extra]).map((c) => c.id)).toEqual(['extra'])
   })
 })

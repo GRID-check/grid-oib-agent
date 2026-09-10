@@ -105,10 +105,12 @@ export const turnEventOf = (step: TurnEventStep): StoredTurnEvent | undefined =>
     const key = payload.key?.trim()
     if (!key) continue
     const reason = payload.reason?.trim()
+    const tools = payload.tools?.map((name) => name.trim()).filter(Boolean)
     return {
       key,
       ...(payload.values ? { values: payload.values } : {}),
       ...(reason ? { reason } : {}),
+      ...(tools && tools.length > 0 ? { tools } : {}),
     }
   }
   return step.turnEvent

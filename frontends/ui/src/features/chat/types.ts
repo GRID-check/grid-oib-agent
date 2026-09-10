@@ -586,6 +586,8 @@ export interface StoredTurnEvent {
    * Thought; the graph then keeps the layer without inventing a caption.
    */
   reason?: string
+  /** Tool basenames this round actually called. Architect-facing labels come from the dictionary. */
+  tools?: string[]
 }
 
 /** Conversation/Session */

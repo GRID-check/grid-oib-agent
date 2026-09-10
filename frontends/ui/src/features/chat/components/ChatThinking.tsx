@@ -4,9 +4,10 @@
  * Collapsed: status + "Herleitung · n Schritte", plus "· m Quellen" when the
  * answer actually rests on any.
  * Expanded: the connected reasoning-chain (`ReasoningChain`) — the framing node,
- * a spine of checkpoints when the turn searched more than once, the parallel
- * Quellen fan-out, the assessment node, and (when a live HITL choice exists)
- * the next-steps branches, plus the technical NAT-step tail.
+ * a spine of checkpoints when the turn searched more than once (each with the
+ * tools it called and the files THAT fetch returned), the findings node, and
+ * (when a live HITL choice exists) the next-steps branches, plus the technical
+ * NAT-step tail.
  * Every node binds to real streamed data or is hidden; nothing is fabricated.
  */
 

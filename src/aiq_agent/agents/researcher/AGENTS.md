@@ -9,8 +9,8 @@ The persona is a member of the planning office, not a compliance checker.
 Questions are about the work. Grounding is the project files, the office
 archive, and the regulation corpus — whichever the question needs. A ruling
 is one envelope `kind`, not the default. A second retrieval is a checkpoint
-on the Herleitung (what it concluded, what it still needed), not a mutated
-search caption.
+on the Herleitung: what it concluded, the tools it called, and the files
+that fetch returned — not a mutated search caption.
 
 ## The seams
 
