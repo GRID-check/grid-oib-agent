@@ -23,6 +23,23 @@ const card = (id: string): CitedDocument => ({
 
 const base: ReasoningFlowProps = { steps: [], userQuestion: 'Frage?' }
 
+const retrievalStep = (index: number, query: string): ThinkingStep => ({
+  id: `r${index}`,
+  userMessageId: 'u1',
+  category: 'agents',
+  functionName: `status:retrieval:${index}`,
+  displayName: `status:retrieval:${index}`,
+  content: JSON.stringify({
+    kind: 'status',
+    channel: 'live',
+    slot: `retrieval:${index}`,
+    key: 'status.retrieval.withQuery',
+    values: { corpus: 'knowledge', query },
+  }),
+  timestamp: new Date(),
+  isComplete: true,
+})
+
 /** A desktop chat column; a phone viewport. */
 const DESKTOP_W = 680
 const PHONE_W = 340
@@ -118,6 +135,47 @@ describe('buildGraph — parallel wiring (P1-4)', () => {
     }
     // The bug was framing→src1→src2→…: there must be NO column→column edge.
     expect(columnToColumnEdges(g)).toHaveLength(0)
+  })
+
+  test('one retrieval round keeps the old fan — no round nodes', () => {
+    const steps = [retrievalStep(0, 'Fluchtweg GK4')]
+    const cards = [card('a'), card('b')]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      cards
+    )
+    expect(g.nodes.filter((n) => n.type === 'round')).toHaveLength(0)
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'framing', target: 'col-0' }))
+  })
+
+  test('two retrieval rounds become a spine, then the fan', () => {
+    const steps = [retrievalStep(0, 'OIB 3 Pkt. 3.4.2'), retrievalStep(1, 'Überhang Dachrand')]
+    const cards = [card('a'), card('b')]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      cards
+    )
+    expect(g.nodes.map((n) => n.id)).toEqual([
+      'framing',
+      'round-0',
+      'round-1',
+      'col-0',
+      'col-1',
+      'findings',
+    ])
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'framing', target: 'round-0' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-0', target: 'round-1' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'col-0' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'col-1' }))
+    expect(g.edges.filter((e) => e.source === 'framing' && e.target.startsWith('col-'))).toHaveLength(
+      0
+    )
+    expect(columnToColumnEdges(g)).toHaveLength(0)
+    expect(g.rows).toEqual([['framing'], ['round-0'], ['round-1'], ['col-0', 'col-1'], ['findings']])
   })
 
   test('stacked columns keep exactly two straight edges each — nothing pierces a card', () => {

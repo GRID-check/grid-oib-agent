@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import {
+  ANSWER_KINDS,
   ANSWER_META_VERSION,
   VERDICT_VALUE_MAX_CHARS,
   sanitizeAnswerMeta,
@@ -78,5 +79,39 @@ describe('sanitizeAnswerMeta', () => {
   test('a legacy payload without a stamp reads as version 1', () => {
     const meta = sanitizeAnswerMeta({ verdict: fixture.verdict })
     expect(meta?.v).toBe(ANSWER_META_VERSION)
+  })
+
+  test('kind=ruling keeps the verdict', () => {
+    expect(
+      sanitizeAnswerMeta({ v: 1, kind: 'ruling', verdict: fixture.verdict }),
+    ).toEqual({ v: 1, kind: 'ruling', verdict: fixture.verdict })
+  })
+
+  test('walkthrough, direct and handoff drop the verdict even if present', () => {
+    for (const kind of ANSWER_KINDS.filter((k) => k !== 'ruling')) {
+      expect(sanitizeAnswerMeta({ v: 1, kind, verdict: fixture.verdict })).toEqual({
+        v: 1,
+        kind,
+      })
+    }
+  })
+
+  test('legacy: no kind keeps the verdict', () => {
+    const meta = sanitizeAnswerMeta({ v: 1, verdict: fixture.verdict })
+    expect(meta?.kind).toBeUndefined()
+    expect(meta?.verdict).toEqual(fixture.verdict)
+  })
+
+  test('an unknown kind is dropped without killing a legacy verdict', () => {
+    const meta = sanitizeAnswerMeta({ v: 1, kind: 'essay', verdict: fixture.verdict })
+    expect(meta?.kind).toBeUndefined()
+    expect(meta?.verdict).toEqual(fixture.verdict)
+  })
+
+  test('kind alone is a usable payload', () => {
+    expect(sanitizeAnswerMeta({ v: 1, kind: 'walkthrough' })).toEqual({
+      v: 1,
+      kind: 'walkthrough',
+    })
   })
 })

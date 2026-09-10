@@ -1,7 +1,9 @@
 /**
  * ReasoningFlow — the Herleitung rendered as a real node graph (@xyflow/react).
  *
- * Framing → the parallel Quellen fan-out → assessment → (live HITL) branches,
+ * Framing → (retrieval rounds, when there were two or more) → the parallel
+ * Quellen fan-out → assessment → (live HITL) branches. One retrieval stays
+ * the old fan. A second search is a new layer on the spine, not a mutated caption.
  * derived from the SAME streamed props the old ReasoningChain used, so the graph
  * grows as a turn streams in. The canvas is non-interactive (no pan/zoom/drag)
  * and renders at 1:1 — its height comes from MEASURED node heights (no fitView,
@@ -142,6 +144,8 @@ import {
   type DeepResearchCutoff,
 } from '../../lib/turn-events'
 import { stepNameLabel } from '../../lib/executed-steps'
+import { retrievalRounds } from '../../lib/retrieval-rounds'
+import { renderTurnEventKey } from '@/adapters/api/step-event-schemas'
 import type { ChoicePrompt } from './citations'
 
 /** Hidden connection handle (edges anchor to it; the dot itself is invisible). */
@@ -269,6 +273,12 @@ type FindingsData = {
   source: HandleSpec
 }
 type BranchesData = { prompt: ChoicePrompt; onRespond: (id: string, choice: string) => void; sub: string; targets: HandleSpec[] }
+type RoundData = {
+  label: string
+  text: string
+  targets: HandleSpec[]
+  sources: HandleSpec[]
+}
 
 // ── node components ───────────────────────────────────────────────────────────
 const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
@@ -280,6 +290,19 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
     </Eyebrow>
     <p className="mt-1 text-sm leading-relaxed text-foreground">{data.question}</p>
     {data.escalation && <p className="mt-1.5 text-xs leading-relaxed text-warning">{data.escalation}</p>}
+    {data.sources.map((h) => (
+      <Handle key={h.id} id={h.id} type="source" position={Position.Bottom} style={{ ...H, left: h.left }} />
+    ))}
+  </div>
+)
+
+const RoundFlowNode: FC<NodeProps<Node<RoundData>>> = ({ data }) => (
+  <div className="w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs">
+    {data.targets.map((h) => (
+      <Handle key={h.id} id={h.id} type="target" position={Position.Top} style={{ ...H, left: h.left }} />
+    ))}
+    <Eyebrow>{data.label}</Eyebrow>
+    {data.text ? <p className="mt-1 text-sm leading-relaxed text-foreground">{data.text}</p> : null}
     {data.sources.map((h) => (
       <Handle key={h.id} id={h.id} type="source" position={Position.Bottom} style={{ ...H, left: h.left }} />
     ))}
@@ -442,6 +465,7 @@ const BranchesFlowNode: FC<NodeProps<Node<BranchesData>>> = ({ data }) => (
 
 const nodeTypes = {
   framing: FramingFlowNode,
+  round: RoundFlowNode,
   sourceColumn: SourceColumnFlowNode,
   findings: FindingsFlowNode,
   branches: BranchesFlowNode,
@@ -876,7 +900,32 @@ export function buildGraph(
   const nodes: Node[] = []
   const edges: Edge[] = []
 
+  // One retrieval stays the old fan. Two or more are a spine: each round is a
+  // layer the live line had already replaced. Sources still fan once, after
+  // the last round — we cannot yet hang a card on the round that fetched it.
+  const rounds = retrievalRounds(props.steps)
+  const spine = rounds.length >= 2
+  const roundIds = spine ? rounds.map((_, i) => `round-${i}`) : []
+
   nodes.push({ id: 'framing', type: 'framing', position: { x: 0, y: 0 }, data: framingData as Record<string, unknown> })
+  if (spine) {
+    rounds.forEach((round, i) => {
+      const text =
+        renderTurnEventKey(round.key, round.values, (k, vars) => t(k, vars as never)) ?? ''
+      const roundData: RoundData = {
+        label: t('thinking.node.roundTab', { n: i + 1 }),
+        text,
+        targets: [CENTRE_TOP],
+        sources: [CENTRE_BOTTOM],
+      }
+      nodes.push({
+        id: roundIds[i]!,
+        type: 'round',
+        position: { x: 0, y: 0 },
+        data: roundData as unknown as Record<string, unknown>,
+      })
+    })
+  }
   columns.forEach((indices, i) => {
     const columnData: SourceColumnData = {
       cards: indices.map((idx) => cards[idx]!),
@@ -904,20 +953,28 @@ export function buildGraph(
     nodes.push({ id: 'branches', type: 'branches', position: { x: 0, y: 0 }, data: branchesData as Record<string, unknown> })
   }
 
-  // Wiring: framing fans out to every column, every column converges on the
-  // assessment/branches node (parallel, never a chain). All of it through the
-  // single centred anchor on each banner, so the split and the merge are real.
+  // Wiring: a single retrieval still fans framing → columns → assessment
+  // (parallel, never a source-to-source chain). Two or more retrievals put
+  // round banners on a spine first; the fan hangs off the last round.
+  const fanFrom = roundIds.at(-1) ?? 'framing'
+  if (spine) {
+    edges.push(edge('framing', 'c-bottom', roundIds[0]!, 'c-top'))
+    for (let i = 1; i < roundIds.length; i += 1) {
+      edges.push(edge(roundIds[i - 1]!, 'c-bottom', roundIds[i]!, 'c-top'))
+    }
+  }
   if (hasSources) {
-    columnIds.forEach((cid) => edges.push(edge('framing', 'c-bottom', cid, 'in', 'split')))
+    columnIds.forEach((cid) => edges.push(edge(fanFrom, 'c-bottom', cid, 'in', 'split')))
     if (convergeId) columnIds.forEach((cid) => edges.push(edge(cid, 'out', convergeId, 'c-top', 'merge')))
   } else if (convergeId) {
-    edges.push(edge('framing', 'c-bottom', convergeId, 'c-top'))
+    edges.push(edge(fanFrom, 'c-bottom', convergeId, 'c-top'))
   }
   if (findingsData && branchesData) edges.push(edge('findings', 'out', 'branches', 'c-top'))
 
   // Row groups for the measured stacking pass — every column shares one row, so
   // the assessment clears the TALLEST column.
   const rows: string[][] = [['framing']]
+  for (const id of roundIds) rows.push([id])
   if (hasSources) rows.push(columnIds)
   if (findingsData) rows.push(['findings'])
   if (branchesData) rows.push(['branches'])

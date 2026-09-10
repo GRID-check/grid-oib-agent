@@ -2560,7 +2560,7 @@ class TestADirectReplyMayStillEmitACard:
         # The carve-out is for a turn that ANSWERS something. A decline has no
         # content, so nothing here is loosened for it.
         contract = self._render().split("<output_contract>")[1].split("</output_contract>")[0]
-        off_topic = contract.split("An off-topic decline")[1].split("A researched answer")[0]
+        off_topic = contract.split("An off-topic decline")[1].split("A walkthrough")[0]
         assert "no tool calls" in off_topic
 
     def test_the_direct_reply_shape_names_the_card_rule_and_its_limit(self):
@@ -2580,6 +2580,58 @@ class TestADirectReplyMayStillEmitACard:
     def test_the_cards_block_says_out_loud_that_it_is_always_on(self):
         cards = self._render().split("\n<cards>\n")[1].split("\n</cards>\n")[0]
         assert "on for EVERY turn" in cards
+
+    def test_the_contract_names_the_four_kinds_and_earns_a_ruling(self):
+        """A workspace turn is not a researched Bescheid by default.
+
+        The envelope already has ``direct | walkthrough | ruling | handoff``.
+        The prompt has to name those kinds and keep ``verdict`` behind a
+        copyable legal value, or every file walkthrough inherits the gavel.
+        """
+        contract = self._render().split("<output_contract>")[1].split("</output_contract>")[0]
+        for kind in ("direct", "walkthrough", "ruling", "handoff"):
+            assert kind in contract
+        assert "copyable legal value" in contract
+        walkthrough = contract.split("A walkthrough")[1].split("A ruling")[0]
+        assert "`verdict`" in walkthrough or "verdict" in walkthrough
+        assert "no `verdict`" in walkthrough or "No `verdict`" in walkthrough or "not emit" in walkthrough.lower()
+
+    def test_walkthrough_examples_exist_and_carry_no_verdict(self):
+        rendered = self._render()
+        assert 'type="walkthrough"' in rendered
+        # Two workspace moves the old contract had no shape for.
+        lowered = rendered.lower()
+        assert "zusammen" in lowered or "summar" in lowered
+        assert "ordn" in lowered or "organis" in lowered
+        # Each walkthrough example is a fenced envelope; none of them may
+        # grow a verdict, or the model copies the gavel onto a filing turn.
+        chunks = rendered.split('type="walkthrough"')
+        assert len(chunks) >= 3, "need two walkthrough examples"
+        for chunk in chunks[1:]:
+            example = chunk.split("</example>", 1)[0]
+            assert '"verdict"' not in example
+
+    def test_the_identity_example_does_not_reduce_the_job_to_oib_questions(self):
+        rendered = self._render()
+        identity = rendered.split('type="direct_reply"')[1].split("</example>", 1)[0]
+        assert "Piloti" in identity
+        assert "Ich beantworte Fragen zu OIB" not in identity
+        assert "OIB-Richtlinien, österreichischem Baurecht" not in identity
+
+    def test_the_research_budget_is_a_ceiling_not_a_two_call_cap(self):
+        """The runtime already loops; the old cap told the model not to.
+
+        A conclusion that names a file, Punkt or measure not yet opened
+        must fetch it. The numeric budget is the ceiling.
+        """
+        rendered = self._render()
+        assert "Grid OIB Research Agent" not in rendered
+        assert "at most 2 calls" not in rendered
+        assert "not every question is a legal question" in rendered
+        assert "commit to it; re-plan only" not in rendered
+        rules = rendered.split("<research_rules>")[1].split("</research_rules>")[0]
+        assert "ceiling" in rules.lower() or "budget" in rules.lower()
+        assert "Punkt" in rules or "punkt" in rules.lower()
 
 
 class TestKnowledgeInventoryIsNotCitable:

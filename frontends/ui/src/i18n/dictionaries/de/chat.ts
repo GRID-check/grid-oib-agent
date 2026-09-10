@@ -128,9 +128,11 @@ export const chat: typeof en.chat = {
     input: 'Eingabe',
     result: 'Ergebnis',
     // Rollen-Tab für eine konversationelle / klärende Antwort (routing_decision
-    // = 'meta': Begrüßungen, Fähigkeits- und Rückfragen) — deutlich abgesetzt
-    // von einem inhaltlichen Baurecht-'Ergebnis'.
+    // = 'meta' oder answer_meta.kind = 'direct': Begrüßungen, Fähigkeits- und
+    // Rückfragen) — deutlich abgesetzt von einem inhaltlichen Baurecht-'Ergebnis'.
     note: 'Hinweis',
+    // Walkthrough: eine geführte Antwort ohne Urteil — nicht das Ergebnis-Dokument.
+    answer: 'Antwort',
   },
   answerSources: {
     label: 'Belegt durch',
@@ -890,6 +892,9 @@ export const chat: typeof en.chat = {
       framingTab: 'Einordnung',
       framingTitle: 'Frage verstanden',
       framingQuestion: 'Sie fragen: „{question}“',
+      // A second (or later) retrieval round on the Herleitung spine — the
+      // live line replaced this sentence; the graph keeps it as its own node.
+      roundTab: 'Suche {n}',
       contextLabel: 'Kontext',
       sourcesTab: 'Quellen',
       sourcesTitle: 'Geprüfte Quellen',

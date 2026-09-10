@@ -39,6 +39,10 @@ const MAX_REFERENCE_CHARS = 120
 export const CALLOUT_KINDS = ['hinweis', 'achtung', 'frist', 'tipp'] as const
 export type AnswerCalloutKind = (typeof CALLOUT_KINDS)[number]
 
+/** Exclusive answer shapes. A verdict is kept only for `ruling`. */
+export const ANSWER_KINDS = ['direct', 'walkthrough', 'ruling', 'handoff'] as const
+export type AnswerKind = (typeof ANSWER_KINDS)[number]
+
 /** The Fundstelle a verdict rests on; the card `NormReference` shape. */
 export interface AnswerMetaReference {
   document: string
@@ -71,6 +75,11 @@ export interface AnswerMetaCallout {
  */
 export interface AnswerMeta {
   v: number
+  /**
+   * Exclusive shape. A verdict is kept only for `ruling`; an absent kind is
+   * the legacy envelope and a present verdict still survives.
+   */
+  kind?: AnswerKind
   /** The whole answer in 1–2 sentences — the standfirst above the prose. */
   summary?: string
   verdict?: AnswerMetaVerdict
@@ -125,6 +134,12 @@ function sanitizeTakeaways(input: unknown): AnswerMetaTakeaway[] | undefined {
   return items.length >= 2 ? items : undefined
 }
 
+function sanitizeKind(input: unknown): AnswerKind | undefined {
+  if (typeof input !== 'string') return undefined
+  const kind = input.trim()
+  return (ANSWER_KINDS as readonly string[]).includes(kind) ? (kind as AnswerKind) : undefined
+}
+
 function sanitizeCallout(input: unknown): AnswerMetaCallout | undefined {
   if (!isRecord(input)) return undefined
   const kind = typeof input.kind === 'string' ? input.kind : ''
@@ -156,13 +171,17 @@ export function sanitizeAnswerMeta(input: unknown): AnswerMeta | null {
   // limit it was never a standfirst, so it is dropped whole, not truncated.
   const rawSummary = typeof input.summary === 'string' ? input.summary.trim() : ''
   const summary = rawSummary && rawSummary.length <= SUMMARY_MAX_CHARS ? rawSummary : undefined
-  const verdict = sanitizeVerdict(input.verdict)
+  const kind = sanitizeKind(input.kind)
+  // Exclusive kinds: a present non-ruling kind drops the verdict. An absent
+  // kind is the legacy envelope — the verdict may still survive.
+  const verdict = kind && kind !== 'ruling' ? undefined : sanitizeVerdict(input.verdict)
   const takeaways = sanitizeTakeaways(input.takeaways)
   const callout = sanitizeCallout(input.callout)
-  if (!summary && !verdict && !takeaways && !callout) return null
+  if (!kind && !summary && !verdict && !takeaways && !callout) return null
 
   const version = typeof input.v === 'number' && Number.isFinite(input.v) ? input.v : ANSWER_META_VERSION
   const meta: AnswerMeta = { v: version }
+  if (kind) meta.kind = kind
   if (summary) meta.summary = summary
   if (verdict) meta.verdict = verdict
   if (takeaways) meta.takeaways = takeaways

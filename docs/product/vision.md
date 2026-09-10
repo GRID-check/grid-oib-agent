@@ -1,11 +1,17 @@
 # Product Vision
 
-## What Grid is
+## What Piloti is
 
-Grid is a **B2B research assistant for Austrian building regulations and law**. A team
-working on a building project asks questions like *"Was regelt die OIB‑Richtlinie 6?"* or
-*"Gilt diese Anforderung auch für mein Projekt?"* and gets back a citation‑backed answer
-with optional structured response cards (Summary, Legal Basis; extensible).
+Piloti is the workspace in which a planning office runs a building project.
+Piloti the agent is a member of that office. Chat is how you talk to it.
+Tasks are how you hand it work. Every normative claim is grounded in a
+passage retrieved this turn from the project, the office archive, or the
+Austrian building-regulation corpus. Piloti does not replace the
+Entwurfsverfasser or the Behörde.
+
+Not every answer is a ruling. A copyable legal value earns a ruling;
+summarising a plan or organising drawings does not. Acting — a report, a
+check, a filing — is a task.
 
 ## Who it is for
 
@@ -16,19 +22,21 @@ with optional structured response cards (Summary, Legal Basis; extensible).
 
 ## Core value proposition
 
-- **Save research time.** Turn a regulation question into a cited answer in seconds.
-- **Reduce risk.** Answers are grounded in the actual OIB‑Richtlinien (today) and later in
-  RIS/Bundesrecht, with citations.
-- **Work as a team.** Projects group people, documents, and conversations together so
+- **A place to work.** Files, the model, the office archive, and chat live on
+  the project — not in a sidebar Q&A.
+- **Grounded answers.** Claims resolve to a passage from this project's files,
+  the office archive, or the Austrian building‑regulation corpus — whichever
+  the question actually needs. Not every question is a legal question.
+- **Work as a team.** Projects group people, documents, and conversations so
   knowledge is shared, not trapped in individual browser sessions.
 
 ## What makes it different from a generic chatbot
 
-- Domain‑specific: built for Austrian building regulations, starting with OIB‑Richtlinien.
-- Citation‑first: every answer must be traceable to source documents.
-- Structured output: cards give a predictable, machine‑readable layer on top of free‑text
-  answers.
-- B2B multi‑tenant: organisations, projects, and role‑based access are first‑class concepts.
+- An architect's workspace, not a statute chatbot: questions are about the work.
+- Grounded: a claim is traceable to a retrieved document on one of the three
+  shelves, or it is not presented as fact.
+- Structured output: cards sit on the answer when the shape earns them.
+- B2B multi‑tenant: organisations, projects, and role‑based access are first‑class.
 
 ## Scope today
 
@@ -40,16 +48,18 @@ with optional structured response cards (Summary, Legal Basis; extensible).
 
 ## Long‑term direction
 
-Grid becomes the single place where a construction team researches, cites, and applies
-Austrian building regulations. The assistant starts with OIB, expands to RIS and related
-law, and eventually integrates with project‑specific document workflows (plans,
-certificates, approvals).
+Piloti becomes the workspace in which a planning office runs a building project,
+and the agent a member of that office who can be handed work. Grounding in the
+project, the archive, and the regulation corpus stays; acting (reports, checks,
+filings) is tasks.
 
 ## Product principles
 
 1. **Grounded answers first.** If we cannot cite it, we do not present it as fact.
-2. **Project‑scoped by default.** Knowledge lives in projects, not individual chats.
-3. **No dead ends.** Conversations and documents persist server‑side; users can pick up
+2. **Not every answer is a ruling.** A ruling is earned only when there is a copyable
+   legal value. Acting is tasks.
+3. **Project‑scoped by default.** Knowledge lives in projects, not individual chats.
+4. **No dead ends.** Conversations and documents persist server‑side; users can pick up
    where they left off across devices.
-4. **Enterprise‑ready identity.** Outsource identity to WorkOS so Grid can grow into
+5. **Enterprise‑ready identity.** Outsource identity to WorkOS so Grid can grow into
    SSO/SCIM without re‑architecture.

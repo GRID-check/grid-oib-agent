@@ -139,9 +139,12 @@ export const chat = {
     input: 'Input',
     result: 'Result',
     // Role tab for a conversational / clarifying reply (routing_decision =
-    // 'meta': greetings, capability questions, clarifying Rückfragen) — marks
-    // it visibly apart from a substantive Baurecht 'Result'.
+    // 'meta' or answer_meta.kind = 'direct': greetings, capability questions,
+    // clarifying Rückfragen) — marks it visibly apart from a substantive
+    // Baurecht 'Result'.
     note: 'Note',
+    // Walkthrough: a guided answer without a ruling — not the Result document.
+    answer: 'Answer',
   },
   // "Belegt durch" provenance chip row under answers that carry source data.
   answerSources: {
@@ -895,6 +898,9 @@ export const chat = {
       framingTab: 'Framing',
       framingTitle: 'Question understood',
       framingQuestion: 'You asked: “{question}”',
+      // A second (or later) retrieval round on the Herleitung spine — the
+      // live line replaced this sentence; the graph keeps it as its own node.
+      roundTab: 'Search {n}',
       contextLabel: 'Context',
       sourcesTab: 'Sources',
       sourcesTitle: 'Sources examined',
