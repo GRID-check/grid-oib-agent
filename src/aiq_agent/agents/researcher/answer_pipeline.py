@@ -33,6 +33,7 @@ from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import UnverifiedQuote
+from aiq_agent.common.citation_verification import agent_authored_document_names
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import source_origin_token
@@ -424,17 +425,27 @@ def _renumbered(cited: tuple[CitedSource, ...], renumber_map: dict[int, int] | N
     )
 
 
-def _gated_meta(extracted: _Extracted, content: str) -> dict[str, Any] | None:
+def _gated_meta(extracted: _Extracted, content: str, registry: SourceRegistry) -> dict[str, Any] | None:
     """The structured trailer, gated once the text is final.
 
     Skipped on an escalating turn: this answer is about to be
     superseded by deep research, and a verdict attached to a discarded answer
     would decorate the job-submission stub. The takeaway gate judges the
     PROSE, not the sources apparatus.
+
+    The registry is the turn's captured sources, and the gate needs exactly one
+    fact out of it: which of the documents cited here PILOTI wrote. A verdict
+    is the one place an answer names a Fundstelle for a value the reader
+    copies, so it is the one place an approved office document must not be able
+    to stand in for the OIB.
     """
     if extracted.meta is None or extracted.escalation_requested:
         return None
-    return gate_answer_meta(extracted.meta, prose_chars=len(prose_without_references(content)))
+    return gate_answer_meta(
+        extracted.meta,
+        prose_chars=len(prose_without_references(content)),
+        agent_authored_documents=agent_authored_document_names(registry),
+    )
 
 
 def _normative_claim_uncited(content: str, grounding: _Grounding) -> bool:
@@ -479,7 +490,7 @@ async def finalize_answer(
 
     sanitized = sanitize_report(grounding.content)
     content = sanitized.sanitized_report
-    meta = _gated_meta(extracted, content)
+    meta = _gated_meta(extracted, content, registry)
     content = resolve_callout_marker(content, has_callout=bool(meta and "callout" in meta))
     final_messages = list(messages)
     final_messages[index] = messages[index].model_copy(update={"content": content})

@@ -130,3 +130,13 @@ def test_knowledge_search_description_is_the_evidence_tool() -> None:
     assert "WHEN TO CALL" in desc
     assert "WHEN NOT TO CALL" in desc
     assert "Citation" in desc
+
+
+def test_the_description_says_what_a_piloti_document_may_be_cited_for() -> None:
+    """The tool description is the prompt for the tool, and this is the one
+    sentence that separates "the office decided this" from "the OIB requires
+    this" for a document the office approved but Piloti wrote."""
+    desc = _KNOWLEDGE_SEARCH_DESCRIPTION
+    assert "Piloti-Dokument" in desc
+    assert "never a source for a normative value" in desc
+    assert "what the office decided" in desc and "what the OIB requires" in desc

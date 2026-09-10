@@ -38,6 +38,9 @@ from pydantic import BaseModel
 from pydantic import Field
 from pydantic import ValidationError
 
+from aiq_agent.common.source_kinds import AGENT_AUTHORED_LANE
+from aiq_agent.common.source_kinds import AGENT_AUTHORED_LANE_LABEL
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_NORMS_DIR = "configs/norms"
@@ -776,6 +779,9 @@ _LANE_LABELS: dict[str, str] = {
     **{key: label for key, label in _RANK_LANES.values()},
     "baurecht_ris": "Rechtsquelle (RIS)",
     "baurecht_basis": "Basisdokument",
+    # Reachable only through stated PROVENANCE (``authored_by: agent``), never
+    # through a doc_class — see :data:`~aiq_agent.common.source_kinds.AGENT_AUTHORED_LANE`.
+    AGENT_AUTHORED_LANE: AGENT_AUTHORED_LANE_LABEL,
 }
 
 
@@ -948,6 +954,7 @@ def lane_for_hit(
     collection: str | None = None,
     registry: NormRegistry | None = None,
     shelf: object = None,
+    authored_by: str | None = None,
 ) -> tuple[str, str]:
     """(stratum_key, human label) for a retrieval/citation hit — display tagging only.
 
@@ -965,11 +972,23 @@ def lane_for_hit(
 
     ``shelf`` is the shelf the caller knows the hit came from; without it the
     collection id is read the legacy way (ADR-0047).
+
+    ``authored_by`` is the stated PROVENANCE of the document
+    (``common/provenance.py``), and it outranks everything else here — the
+    doc_class included. A published Piloti document is filed on the project or
+    the Archiv shelf like any other document, so every rule below would place
+    it as Projektwissen or Büroarchiv and lose the one fact a reader must not
+    miss; and a doc_class stamped on it by ingest would place it in the norm
+    hierarchy, in law blue, under the ``"Baurecht"`` label fallback. Who wrote
+    a document is not a guess any of those signals can overturn.
     """
+    from aiq_agent.common.provenance import is_agent_author
     from aiq_agent.common.source_kinds import Shelf
     from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
     from aiq_agent.common.source_kinds import parse_shelf
 
+    if is_agent_author(authored_by):
+        return (AGENT_AUTHORED_LANE, AGENT_AUTHORED_LANE_LABEL)
     known_shelf = parse_shelf(shelf) or legacy_shelf_for_collection_name(collection)
     users_shelf = known_shelf in (Shelf.ARCHIV, Shelf.PROJECT, Shelf.SESSION)
     if doc_class:
@@ -1014,6 +1033,7 @@ def lane_for_knowledge_hit(
     collection: str | None = None,
     registry: NormRegistry | None = None,
     shelf: object = None,
+    authored_by: str | None = None,
 ) -> tuple[str, str]:
     """:func:`lane_for_hit` for a hit that came from the KNOWLEDGE LAYER.
 
@@ -1036,5 +1056,6 @@ def lane_for_knowledge_hit(
         collection=collection,
         registry=registry,
         shelf=shelf,
+        authored_by=authored_by,
     )
     return ("projekt", "Projektwissen") if lane == ("web", "Web") else lane

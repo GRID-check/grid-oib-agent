@@ -11,6 +11,8 @@ import pytest
 
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import source_entry_to_wire
+from aiq_agent.common.source_kinds import AGENT_AUTHORED_LANE
+from aiq_agent.common.source_kinds import AGENT_AUTHORED_LANE_LABEL
 from aiq_agent.common.source_kinds import DEFAULT_SOURCE_KIND
 from aiq_agent.common.source_kinds import SHELF_QUALIFIERS
 from aiq_agent.common.source_kinds import SOURCE_KINDS
@@ -39,6 +41,9 @@ class TestKindForLane:
             ("behoerde", "baurecht"),
             ("norm_extern", "baurecht"),
             ("buero", "buero"),
+            # A published Piloti document is office knowledge — office colour,
+            # its own sub-label inside the kind. Never a kind of its own.
+            ("buero_piloti", "buero"),
             ("projekt", "projekt"),
             ("web", "web"),
         ],
@@ -55,6 +60,25 @@ class TestKindForLane:
 
     def test_case_insensitive(self):
         assert kind_for_lane("BAURECHT_OIB") == "baurecht"
+
+
+class TestAgentAuthoredLane:
+    """The lane is a SUB-LABEL inside ``buero``, and the taxonomy owns both."""
+
+    def test_it_is_a_lane_inside_the_office_kind(self):
+        assert AGENT_AUTHORED_LANE.startswith("buero_")
+        assert kind_for_lane(AGENT_AUTHORED_LANE) == "buero"
+
+    def test_the_lane_has_exactly_one_label_and_the_registry_carries_it(self):
+        from aiq_agent.common.norm_registry import _LANE_LABELS
+
+        assert _LANE_LABELS[AGENT_AUTHORED_LANE] == AGENT_AUTHORED_LANE_LABEL
+
+    def test_the_label_names_no_approver(self):
+        """The approver is appended by whoever renders the line, from the
+        provenance data — the taxonomy is not a sentence with a hole in it."""
+        assert AGENT_AUTHORED_LANE_LABEL == "Piloti-Dokument"
+        assert "{" not in AGENT_AUTHORED_LANE_LABEL
 
 
 class TestSourceKindLookup:

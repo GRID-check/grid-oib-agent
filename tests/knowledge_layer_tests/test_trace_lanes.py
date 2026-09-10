@@ -16,6 +16,7 @@ def _chunk(
     collection: str | None = None,
     shelf: str | None = None,
     doc_class: str | None = None,
+    provenance: dict[str, str] | None = None,
 ):
     metadata: dict[str, str] = {}
     if collection:
@@ -24,6 +25,8 @@ def _chunk(
         metadata["shelf"] = shelf
     if doc_class:
         metadata["doc_class"] = doc_class
+    if provenance:
+        metadata.update(provenance)
     return SimpleNamespace(
         file_name=file_name,
         page_number=page,
@@ -114,3 +117,72 @@ def test_format_results_empty_chunks_skips_trace_block():
     result = SimpleNamespace(success=True, chunks=[], error_message=None)
     text = _format_results(result, "q")
     assert "Trace-Lanes" not in text
+
+
+# ---------------------------------------------------------------------------
+# A document PILOTI wrote, that a person released (docs/architecture/
+# agent-document-provenance.md)
+# ---------------------------------------------------------------------------
+
+_PILOTI = {
+    "authored_by": "agent",
+    "approved_by": "Maria Huber",
+    "approved_at": "2026-09-01",
+    "producer": "piloti-chat",
+}
+
+
+def test_a_published_piloti_document_gets_its_own_lane_inside_the_office_kind():
+    payload = json.loads(
+        _trace_lanes_json(
+            [
+                _chunk(
+                    file_name="Brandschutzkonzept Haus B.md",
+                    page=1,
+                    collection="proj_abc",
+                    shelf="project",
+                    provenance=_PILOTI,
+                )
+            ]
+        )
+    )
+    (lane,) = payload["lanes"]
+    # The shelf says project. Without the provenance rule this lane would be
+    # "projekt"/"Projektwissen" and nothing would say who wrote the document.
+    assert (lane["key"], lane["label"], lane["kind"]) == ("buero_piloti", "Piloti-Dokument", "buero")
+
+
+def test_the_fan_out_carries_the_provenance_as_data_not_as_a_sentence():
+    """So a frontend can render the approver in the reader's own locale."""
+    payload = json.loads(
+        _trace_lanes_json([_chunk(file_name="Konzept.md", page=1, shelf="project", provenance=_PILOTI)])
+    )
+    source = payload["lanes"][0]["sources"][0]
+    assert source["provenance"] == _PILOTI
+    assert source["shelf"] == "project"
+
+
+def test_an_unmarked_hit_carries_no_provenance_key_at_all():
+    payload = json.loads(_trace_lanes_json([_chunk(file_name="Konzept.pdf", page=1, shelf="project")]))
+    assert "provenance" not in payload["lanes"][0]["sources"][0]
+
+
+def test_the_grounding_block_states_who_released_the_document_in_one_line():
+    result = SimpleNamespace(
+        success=True,
+        chunks=[_chunk(file_name="Brandschutzkonzept.md", page=1, shelf="project", provenance=_PILOTI)],
+        error_message=None,
+    )
+    text = _format_results(result, "brandschutz")
+    assert "Herkunft: Piloti-Dokument · freigegeben von Maria Huber am 01.09.2026" in text
+    # One line, and no sentence for the model to copy into an answer.
+    assert "freigegeben" not in text.replace(
+        "Herkunft: Piloti-Dokument · freigegeben von Maria Huber am 01.09.2026", ""
+    )
+
+
+def test_an_unmarked_hit_is_formatted_exactly_as_before():
+    """Every human document in the corpus is this case, and it must not move."""
+    chunk = _chunk(file_name="Konzept.pdf", page=1, shelf="project")
+    text = _format_results(SimpleNamespace(success=True, chunks=[chunk], error_message=None), "q")
+    assert "Herkunft" not in text

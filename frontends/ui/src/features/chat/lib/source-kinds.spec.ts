@@ -3,12 +3,16 @@
  */
 import { describe, test, expect } from 'vitest'
 import {
+  AGENT_AUTHORED_LANE,
+  AGENT_AUTHORED_LANE_LABEL,
   KIND_TO_SIGNAL,
   CITATION_KEY_QUALIFIERS,
   SHELVES,
   asShelf,
   asSourceKind,
   authorityTag,
+  isAgentAuthoredLane,
+  kindForLane,
   scopeForQualifier,
   shelfLabel,
   type Shelf,
@@ -70,6 +74,35 @@ describe('authorityTag', () => {
     // badge would let any upload wear the strongest provenance claim the UI
     // can make.
     expect(authorityTag('baurecht_basis')).toBeNull()
+  })
+})
+
+describe('the agent-authored lane', () => {
+  test('is a sub-label inside the office kind, never a kind of its own', () => {
+    // A published Piloti document IS office knowledge — it paints in the office
+    // colour. What the lane adds is who wrote it.
+    expect(AGENT_AUTHORED_LANE).toBe('buero_piloti')
+    expect(kindForLane(AGENT_AUTHORED_LANE)).toBe('buero')
+    expect(asSourceKind(AGENT_AUTHORED_LANE)).toBeUndefined()
+  })
+
+  test('its label names the document kind and no approver', () => {
+    // Who approved it, and when, arrive as data on the source payload and are
+    // appended by the renderer — the taxonomy is not a sentence with a hole.
+    expect(AGENT_AUTHORED_LANE_LABEL).toBe('Piloti-Dokument')
+    expect(AGENT_AUTHORED_LANE_LABEL).not.toContain('{')
+  })
+
+  test('recognises the lane case- and whitespace-tolerantly', () => {
+    expect(isAgentAuthoredLane('buero_piloti')).toBe(true)
+    expect(isAgentAuthoredLane(' BUERO_PILOTI ')).toBe(true)
+    expect(isAgentAuthoredLane('buero')).toBe(false)
+    expect(isAgentAuthoredLane(null)).toBe(false)
+    expect(isAgentAuthoredLane(undefined)).toBe(false)
+  })
+
+  test('carries no authority tag — it is not a rung of the legal ladder', () => {
+    expect(authorityTag(AGENT_AUTHORED_LANE)).toBeNull()
   })
 })
 

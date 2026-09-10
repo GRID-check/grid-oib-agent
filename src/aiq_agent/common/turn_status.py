@@ -178,6 +178,12 @@ KEY_ACTION_DRAFT_LIST = "status.action.draftList"
 KEY_ACTION_DRAFT_READ = "status.action.draftRead"
 KEY_ACTION_DRAFT_WRITE = "status.action.draftWrite"
 KEY_ACTION_DRAFT_EDIT = "status.action.draftEdit"
+#: A write-side workspace tool proposing a file operation (`tools/files`). ONE
+#: key for all five verbs, unlike the working directory's four: the reader is
+#: about to be shown a card that says exactly which operation on which file, so
+#: a line naming the verb a second time would be the card, worse and earlier.
+#: What the line has to carry is that nothing is being changed yet.
+KEY_ACTION_FILE_PROPOSAL = "status.action.fileProposal"
 
 KEY_CITATIONS = "status.citations"
 #: The turn's one bounded repair: a citation or a quote failed verification,
@@ -206,6 +212,7 @@ ALL_STATUS_KEYS: tuple[str, ...] = (
     "status.action.draftRead",
     "status.action.draftWrite",
     "status.action.draftEdit",
+    "status.action.fileProposal",
     "status.citations",
     "status.repair",
     "status.escalation",
@@ -342,6 +349,11 @@ _ACTION_KEYS = {
     "read_file": KEY_ACTION_DRAFT_READ,
     "write_file": KEY_ACTION_DRAFT_WRITE,
     "edit_file": KEY_ACTION_DRAFT_EDIT,
+    "move_document": KEY_ACTION_FILE_PROPOSAL,
+    "rename_document": KEY_ACTION_FILE_PROPOSAL,
+    "create_folder": KEY_ACTION_FILE_PROPOSAL,
+    "set_doc_class": KEY_ACTION_FILE_PROPOSAL,
+    "assign_document": KEY_ACTION_FILE_PROPOSAL,
 }
 
 #: Argument names a retrieval query hides behind, in preference order.
@@ -702,5 +714,41 @@ def emit_answer_degraded(*, agent: str, reasons: list[str]) -> None:
             "agent": agent,
             "degraded": True,
             "reasons": list(reasons),
+        },
+    )
+
+
+#: Slot for a verdict the envelope gate refused. Its own slot so it never
+#: overwrites another status line, and the step name it produces is
+#: ``status:verdict:dropped``.
+VERDICT_DROPPED_SLOT = "verdict:dropped"
+
+#: Why a verdict was refused. A stable token, not prose: it is counted.
+#: The Fundstelle the model named resolved to a document PILOTI wrote — office
+#: knowledge the office approved, never a source for a normative value.
+VERDICT_DROP_AGENT_AUTHORED = "agent_authored_reference"
+
+
+def emit_verdict_dropped(*, reason: str) -> None:
+    """Record that an answer's headline verdict was refused, and why.
+
+    Technical channel and no ``key``, like :func:`emit_research_truncated`: the
+    reader keeps the whole answer either way — only the masthead is gone — so
+    there is nothing to tell them, while the operator question is real and
+    currently unanswerable. *How often does an answer try to rest a normative
+    value on a document we wrote ourselves?* is the rate that decides whether
+    the prompt-side wording is working, and a gate that drops silently makes it
+    uncountable.
+
+    Args:
+        reason: A stable token, e.g. :data:`VERDICT_DROP_AGENT_AUTHORED`.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{VERDICT_DROPPED_SLOT}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": VERDICT_DROPPED_SLOT,
+            "values": {"reason": reason},
         },
     )

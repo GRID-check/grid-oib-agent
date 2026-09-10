@@ -193,6 +193,30 @@ class TestRetrieval:
         assert payload["key"] == "status.action.draftWrite"
         assert payload["values"] == {}
 
+    def test_the_five_file_verbs_share_one_line(self, steps) -> None:
+        """One key for all five, unlike the working directory's four.
+
+        The card that follows says which operation on which file, in the
+        reader's own words and with the buttons attached. A live line naming
+        the verb again would be the card, worse and one moment earlier — what
+        the line has to carry is that nothing has changed yet.
+        """
+        verbs = ("move_document", "rename_document", "create_folder", "set_doc_class", "assign_document")
+        for index, verb in enumerate(verbs):
+            turn_status.emit_retrieval([{"name": verb, "args": {"document": "plan.pdf"}}], round_index=index)
+        keys = [payload["key"] for payload in _live(steps)]
+        assert keys == ["status.action.fileProposal"] * len(verbs)
+
+    def test_a_file_proposal_is_an_action_and_never_a_retrieval(self, steps) -> None:
+        """Nothing is being read: the file name is a name the reader gave, not a query."""
+        turn_status.emit_retrieval(
+            [{"name": "move_document", "args": {"document": "Brandschutzplan.pdf", "target_folder": "Einreichung"}}],
+            round_index=0,
+        )
+        payload = _live(steps)[0]
+        assert payload["key"] == "status.action.fileProposal"
+        assert payload["values"] == {}
+
     def test_a_tool_we_cannot_name_says_NOTHING(self, steps) -> None:
         """The only thing left to say about it is its internal name.
 
@@ -288,6 +312,10 @@ def _every_live_payload(steps) -> list[dict]:
     turn_status.emit_retrieval([{"name": "read_file", "args": {"file_path": "/entwuerfe/a.md"}}], round_index=5)
     turn_status.emit_retrieval([{"name": "write_file", "args": {"file_path": "/entwuerfe/a.md"}}], round_index=6)
     turn_status.emit_retrieval([{"name": "edit_file", "args": {"file_path": "/entwuerfe/a.md"}}], round_index=7)
+    turn_status.emit_retrieval(
+        [{"name": "move_document", "args": {"document": "plan.pdf", "target_folder": "Einreichung"}}],
+        round_index=8,
+    )
     turn_status.emit_retrieval_requery(query_count=2)
     turn_status.emit_citation_check(source_count=3)
     turn_status.emit_answer_repair(removed_citations=1, unverified_quotes=1)

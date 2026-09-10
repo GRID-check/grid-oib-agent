@@ -111,6 +111,26 @@ SOURCE_KINDS: dict[str, SourceKind] = {
     ),
 }
 
+#: The fine lane of a PUBLISHED, human-approved, agent-authored document, and
+#: the German sub-label it renders as. A ``buero`` kind — office knowledge, in
+#: the office colour — with its own lane inside that kind, because "the office
+#: approved this" and "Piloti wrote it and the office approved it" are different
+#: claims and only the second one needs the reader to be told.
+#:
+#: NOT a ``doc_class``: that vocabulary describes a document's role in the norm
+#: hierarchy and fails open into law blue (see ``common/provenance.py`` for the
+#: full argument). NOT a shelf either — such a document sits on the project or
+#: the Archiv shelf like any other, which is exactly why the lane must beat the
+#: shelf in ``norm_registry.lane_for_hit``: on the project shelf it would
+#: otherwise wear the Projektwissen chip and lose its author.
+#:
+#: The label is the SUB-LABEL only. The approver is appended by whoever renders
+#: it (the grounding block via ``provenance.provenance_label``, the frontend
+#: from the ``provenance`` payload), so the lane table stays a taxonomy rather
+#: than a sentence with a hole in it.
+AGENT_AUTHORED_LANE = "buero_piloti"
+AGENT_AUTHORED_LANE_LABEL = "Piloti-Dokument"
+
 #: The kind a model-derived measurement renders as. Named rather than spelled
 #: out at the call sites so the one place that decides "this is a measurement,
 #: not a retrieved passage" is greppable.

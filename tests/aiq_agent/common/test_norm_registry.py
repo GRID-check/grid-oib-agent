@@ -458,6 +458,54 @@ class TestLaneForHit:
         )
 
 
+class TestLaneForAgentAuthoredHit:
+    """Stated provenance outranks every other signal in the classifier.
+
+    A published Piloti document is filed on the project or the Büroarchiv shelf
+    like any other document, and ingest stamps it with a doc_class like any
+    other document. Both of those are how it would silently lose its author:
+    the shelf would make it Projektwissen, and the doc_class would file it in
+    the norm hierarchy under a label fallback that reads "Baurecht".
+    """
+
+    def test_provenance_gives_the_document_its_own_lane(self):
+        assert nr.lane_for_hit(authored_by="agent") == ("buero_piloti", "Piloti-Dokument")
+
+    def test_it_beats_the_project_shelf(self):
+        """The headline defect: on the project shelf it would wear the
+        Projektwissen chip, and nothing would say Piloti wrote it."""
+        assert nr.lane_for_hit(shelf="project", collection="proj_abc", authored_by="agent") == (
+            "buero_piloti",
+            "Piloti-Dokument",
+        )
+        # Same hit without the provenance — the shelf decides, exactly as before.
+        assert nr.lane_for_hit(shelf="project", collection="proj_abc") == ("projekt", "Projektwissen")
+
+    def test_it_beats_an_explicit_doc_class(self):
+        """doc_class is the first-priority signal for everything else, and its
+        label fallback is "Baurecht" — law blue for a document we wrote."""
+        assert nr.lane_for_hit(doc_class="gesetz", shelf="archiv", authored_by="agent") == (
+            "buero_piloti",
+            "Piloti-Dokument",
+        )
+
+    def test_the_lane_is_office_knowledge_not_law(self):
+        from aiq_agent.common.source_kinds import kind_for_lane
+
+        lane_key, _label = nr.lane_for_hit(authored_by="agent")
+        assert kind_for_lane(lane_key) == "buero"
+
+    def test_the_knowledge_hit_classifier_agrees(self):
+        assert nr.lane_for_knowledge_hit(shelf="project", authored_by="agent") == (
+            "buero_piloti",
+            "Piloti-Dokument",
+        )
+
+    def test_an_unmarked_hit_is_untouched(self):
+        for authored_by in (None, "", "human", "Marianne"):
+            assert nr.lane_for_hit(shelf="archiv", authored_by=authored_by) == ("buero", "Büroarchiv")
+
+
 class TestLaneForKnowledgeHit:
     """A retrieved document is something we hold — it can never be Web."""
 

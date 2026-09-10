@@ -91,6 +91,9 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "RETURNS — numbered passages with Source, Citation (copy this key "
     "verbatim), Dokumentart, Ordner (the folder the file is filed in, when it "
     "has one), page, and the passage. Cite only those keys. "
+    "A hit whose Herkunft line says 'Piloti-Dokument' is office knowledge the "
+    "office has approved, never a source for a normative value: cite it for "
+    "what the office decided, not for what the OIB requires. "
     "An empty result tells you how to retry (narrower query, `file_name`, "
     "`title_contains`); it is not permission to invent a citation."
 )
@@ -1193,6 +1196,13 @@ def _trace_lanes_json(
     would merely repeat the filename (project/Büroarchiv uploads, where the
     filename IS the user-meaningful name).
 
+    A source the publish path marked as agent-authored carries a
+    ``provenance`` object (``authored_by``/``approved_by``/``approved_at``/
+    ``producer``) and lands in its own lane, ``buero_piloti``. That lane is
+    decided by the provenance BEFORE the shelf, so a published Piloti document
+    filed on the project shelf keeps its author instead of joining
+    Projektwissen.
+
     ``resolved`` is the store-authoritative doc_class map from
     :func:`_resolve_doc_classes` and ``resolved_titles`` the stored display-title
     map from :func:`_resolve_display_titles`; when omitted they are computed here
@@ -1203,6 +1213,7 @@ def _trace_lanes_json(
         from collections import OrderedDict
 
         from aiq_agent.common.norm_registry import lane_for_knowledge_hit
+        from aiq_agent.common.provenance import provenance_metadata
         from aiq_agent.common.source_kinds import kind_for_lane
 
         if resolved is None:
@@ -1216,8 +1227,13 @@ def _trace_lanes_json(
             collection = metadata.get("collection")
             shelf = metadata.get("shelf")
             doc_class = _hit_doc_class(chunk, resolved)
+            provenance = _hit_provenance(chunk)
             key, label = lane_for_knowledge_hit(
-                doc_class=doc_class, file_name=chunk.file_name, collection=collection, shelf=shelf
+                doc_class=doc_class,
+                file_name=chunk.file_name,
+                collection=collection,
+                shelf=shelf,
+                authored_by=provenance.authored_by if provenance else None,
             )
             bucket = lanes.get(key)
             if bucket is None:
@@ -1236,7 +1252,7 @@ def _trace_lanes_json(
             sig = (name, detail or "")
             existing = {(s.get("name"), s.get("detail") or "") for s in bucket["sources"]}
             if name and sig not in existing:
-                entry: dict[str, str] = {"name": name}
+                entry: dict[str, object] = {"name": name}
                 title = _hit_display_title(chunk, resolved_titles)
                 if title and title != name:
                     entry["title"] = title
@@ -1244,11 +1260,32 @@ def _trace_lanes_json(
                     entry["detail"] = detail
                 if isinstance(shelf, str) and shelf:
                     entry["shelf"] = shelf
+                if provenance is not None:
+                    # The KEYS, not the German sentence: the fan-out is data,
+                    # and a frontend that wants "freigegeben von …" should build
+                    # it in the reader's own locale from the approver and the
+                    # ISO date rather than parse it back out of prose.
+                    entry["provenance"] = provenance_metadata(provenance)
                 bucket["sources"].append(entry)
         return json.dumps({"lanes": list(lanes.values())}, ensure_ascii=False)
     except Exception:
         logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
         return '{"lanes":[]}'
+
+
+def _hit_provenance(chunk):
+    """The agent provenance stated in a hit's chunk metadata, or ``None``.
+
+    The keys are stamped at ingest by the publish path and read back by
+    ``aiq_agent.common.provenance``; a human-authored document has none, and
+    every line below that depends on this is simply not emitted for it. Chunk
+    metadata is the only carrier — unlike doc_class and the display title there
+    is no store-resolved override, because authorship is decided once, at
+    publish, and cannot be edited afterwards.
+    """
+    from aiq_agent.common.provenance import parse_agent_provenance
+
+    return parse_agent_provenance(chunk.metadata or {})
 
 
 def _chunk_shelf(chunk):
@@ -1382,6 +1419,16 @@ def _format_results(retrieval_result, query: str) -> str:
 
             label = DOCUMENT_CLASS_LABELS.get(doc_class, doc_class)
             lines.append(f"Dokumentart: {doc_class} — {label}")
+        # WHO WROTE IT, for the documents Piloti wrote and a person released.
+        # One line, no sentence: everything here is text the model may copy into
+        # an answer, and „Dieses Dokument wurde freigegeben von …" is a sentence
+        # that would arrive in one. Emitted only for a marked hit, so every
+        # human document's block is unchanged byte for byte.
+        provenance = _hit_provenance(chunk)
+        if provenance is not None:
+            from aiq_agent.common.provenance import provenance_label
+
+            lines.append(f"Herkunft: {provenance_label(provenance)}")
         if chunk.page_number and chunk.page_number > 0:
             lines.append(f"Page: {chunk.page_number}")
         # The Punkt this excerpt belongs to, when the chunker established one. An

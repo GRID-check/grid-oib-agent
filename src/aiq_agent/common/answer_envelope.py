@@ -71,6 +71,10 @@ from pydantic import BaseModel
 from pydantic import Field
 from pydantic import ValidationError
 
+from aiq_agent.common.provenance import normalize_document_name
+from aiq_agent.common.turn_status import VERDICT_DROP_AGENT_AUTHORED
+from aiq_agent.common.turn_status import emit_verdict_dropped
+
 logger = logging.getLogger(__name__)
 
 #: Contract version, stamped as ``v`` on every wire payload. Bump ONLY on a
@@ -123,6 +127,11 @@ _CALLOUT_INLINE_RE = re.compile(r"\[\[callout\]\]")
 TAKEAWAYS_MIN_PROSE_CHARS = 600
 
 TAKEAWAYS_MAX_ITEMS = 5
+
+#: A Fundstelle shorter than this, once normalised, is not a document name a
+#: substring test can judge — „RL 2" would match half the registry. Below the
+#: floor the gate abstains rather than guessing in either direction.
+_MIN_MATCHABLE_NAME_CHARS = 4
 
 
 class _EnvelopeModel(BaseModel):
@@ -257,6 +266,12 @@ class GateContext:
     """Everything a gate may judge an answer by. Extend here, not per gate."""
 
     prose_chars: int
+    #: Normalised names of the AGENT-AUTHORED documents this turn captured
+    #: (``citation_verification.agent_authored_document_names``). Empty on
+    #: every turn that retrieved none, which is nearly all of them — and an
+    #: empty set makes the verdict gate below a no-op, so a caller that cannot
+    #: reach a registry loses nothing it had.
+    agent_authored_documents: frozenset[str] = frozenset()
 
 
 def _gate_summary(meta: AnswerMeta, ctx: GateContext) -> str | None:
@@ -275,6 +290,25 @@ def _gate_summary(meta: AnswerMeta, ctx: GateContext) -> str | None:
     return summary
 
 
+def _names_agent_authored_document(reference: AnswerMetaReference | None, ctx: GateContext) -> bool:
+    """Whether a verdict's Fundstelle names a document PILOTI wrote.
+
+    ``reference.document`` is free text a model produced, so the comparison is
+    on normalised names and matches in BOTH directions: the reference may carry
+    the document plus an annotation („Brandschutzkonzept Haus B (Büroarchiv)"),
+    or be the bare slug of a longer stored title. Deliberately eager — the cost
+    of a false positive is a headline the reader loses while the prose keeps
+    every word of the answer, and the cost of a false negative is a normative
+    value presented as if the OIB required it.
+    """
+    if reference is None or not ctx.agent_authored_documents:
+        return False
+    named = normalize_document_name(reference.document)
+    if len(named) < _MIN_MATCHABLE_NAME_CHARS:
+        return False
+    return any(name in named or named in name for name in ctx.agent_authored_documents)
+
+
 def _gate_verdict(meta: AnswerMeta, ctx: GateContext) -> dict | None:
     if meta.verdict is None:
         return None
@@ -286,6 +320,14 @@ def _gate_verdict(meta: AnswerMeta, ctx: GateContext) -> dict | None:
             len(value),
             VERDICT_VALUE_MAX_CHARS,
         )
+        return None
+    if _names_agent_authored_document(meta.verdict.reference, ctx):
+        logger.info(
+            "answer_meta verdict gated out: its Fundstelle %r is a document Piloti wrote — "
+            "an approved office document is evidence of what the office decided, never of what the OIB requires",
+            meta.verdict.reference.document if meta.verdict.reference else "",
+        )
+        emit_verdict_dropped(reason=VERDICT_DROP_AGENT_AUTHORED)
         return None
     verdict: dict = {"value": value, "subject": subject}
     if meta.verdict.reference is not None:
@@ -473,7 +515,12 @@ def extract_answer_envelope(content: object) -> tuple[object, AnswerMeta | None]
     return content, None
 
 
-def gate_answer_meta(meta: AnswerMeta, *, prose_chars: int) -> dict | None:
+def gate_answer_meta(
+    meta: AnswerMeta,
+    *,
+    prose_chars: int,
+    agent_authored_documents: frozenset[str] = frozenset(),
+) -> dict | None:
     """Run the registry's gates and return the versioned wire payload, or None.
 
     The payload is what rides the answer as its ``answer_meta`` field: the
@@ -481,8 +528,14 @@ def gate_answer_meta(meta: AnswerMeta, *, prose_chars: int) -> dict | None:
     fields absent rather than null. Callers pass ``prose_chars`` as the length
     of the answer's prose WITHOUT the sources section, so the takeaway gate
     judges the answer, not its apparatus.
+
+    ``agent_authored_documents`` is what the turn retrieved that PILOTI wrote
+    (``citation_verification.agent_authored_document_names``); a verdict whose
+    Fundstelle resolves into it is dropped. Defaulted so a caller with no
+    registry — the deep writer's report path, a test — behaves exactly as
+    before.
     """
-    ctx = GateContext(prose_chars=prose_chars)
+    ctx = GateContext(prose_chars=prose_chars, agent_authored_documents=agent_authored_documents)
     payload: dict = {}
     for field in ANATOMY_FIELDS:
         survived = field.gate(meta, ctx)
