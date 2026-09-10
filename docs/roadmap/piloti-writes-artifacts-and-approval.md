@@ -160,19 +160,58 @@ to `transitionDocumentReview`; there is one truth and the task mirrors it.
 
 | Tool | Door | Transition it can cause |
 |---|---|---|
-| `write_document` | `draft` | none: a session-shelf row, no review column involved |
+| `write_file` / `edit_file` (working directory) | `draft` | none: a session-shelf row, no review column involved |
 | `publish_document` | `publish` | `→ pending` |
 | `create_task(kind=revision)` | `publish` | eventually a new `pending` row that supersedes |
 | review actions in the UI | human only | `pending → approved / rejected`, revise |
 
 The model can propose; only a person can approve. That is the door.
 
+### 1.4 The deep researcher has a working directory. Should the researcher?
+
+Yes, a basic one, and it should not be a copy of the deep researcher's. What
+deep research has is two things wearing one name (`deepagents_runtime.py`):
+
+- a Modal **sandbox** for `execute`, which no deployment configures
+  (`deep_research_sandbox` is absent from the production config, so the
+  `execute` tool is hidden); and
+- an in-memory DeepAgents **virtual filesystem** (`StateBackend`, routed at
+  `/shared/`), where sub-agents leave notes and the writer persists
+  `/shared/output.md`. It lives in the LangGraph state and dies with the run;
+  the job runner lifts the report out before that happens.
+
+The researcher does not need the first. A planning office's compute is
+`ifc_measure` and the calculation card, not arbitrary code, and production
+does not run it even for deep research.
+
+The researcher needs the second, with one change: **the disk is the
+conversation**. The session shelf is already a per-conversation store that is
+uploaded through one service, indexed, scoped into retrieval as
+`{shelf: "session"}`, and cleaned up with the conversation. The DeepAgents
+backend protocol is eight methods (`ls`, `read`, `grep`, `glob`, `write`,
+`edit`, `upload_files`, `download_files`). One `SessionShelfBackend` that
+implements them against a small internal BFF route over
+`lib/session-documents/service.ts` gives the researcher `write_file`,
+`read_file` and `edit_file` over its own drafts, and gives `edit_file` the
+replace-on-same-name semantics the shelf already has for re-uploads.
+
+That changes slice 1: `write_document` is not a bespoke tool. It is
+`write_file` on that backend, and the document card is the row the upload
+created. Revision inside a conversation is `edit_file`. The same backend can
+later be mounted at `/shared/` for a deep run, so a report draft persists on
+the task instead of in graph state, but that is not part of the first PR.
+
+What stays separate on purpose: the project shelf is not on this filesystem.
+Project files are read through retrieval with citations and written only
+through the publish door in §1.3. The working directory is where Piloti
+drafts; the project is where a person lets it publish.
+
 ## 2. What exists, and what each slice adds
 
 | Piece | Exists | Adds |
 |---|---|---|
 | Filing | `fileGeneratedDocument`: permissions, flag, quota, audit, byte-level marking; ref kinds `agent_run`, `answer_artifact` | one producer `agent_document`, one internal route |
-| Draft space | session shelf, indexed, cleaned up with the conversation | the tool writes there first |
+| Draft space | session shelf, indexed, cleaned up with the conversation; DeepAgents backend protocol and file tools in deep research | one `SessionShelfBackend`; the researcher's working directory |
 | Review | on `tasks`: `accepted | rejected`, reason, audit | `documents.review`, `superseded_by_id`, two CHECKs, one transition function; task review delegates |
 | Notification | inbox registry with `document.assigned_to_you` as precedent | `document.awaiting_review` |
 | Conversation about a thing | `conversations.subject_resource_{type,id}` (ADR-0047), `document` in `SHAREABLE_RESOURCE_TYPES` | a "Besprechen" entry on the document and on the report card |
@@ -196,22 +235,24 @@ Each slice ships alone, is measured before the next starts, and is one PR.
 
 ### Slice 1: a turn can leave a document (medium)
 
-- Tool `write_document(title, markdown, kind)` in `tools/documents/`. Budget
-  `interaction`, door `draft`. It renders through the export library and files
-  on the **session shelf** via a new internal route
-  `POST /api/internal/conversations/[id]/documents`, which calls the session
-  document service. The turn's citations travel with the document, so the
-  Herleitung attaches to the file as well as the message.
-- The answer envelope gains `artifacts: [{documentId, title, kind}]`. The gate
-  drops an artifact the turn did not actually file.
+- `tools/workdir/`: a `SessionShelfBackend` implementing the DeepAgents
+  backend protocol against a new internal route
+  `/api/internal/conversations/[id]/documents` (list, get bytes, put bytes,
+  delete), which calls the session-document service. Thin NAT functions
+  `write_file`, `read_file`, `edit_file`, `ls` wrap it (the researcher is a
+  custom StateGraph, so the DeepAgents middleware tools are not bound as is).
+  Budget `interaction`, door `draft`. The backend is the reuse; the wrappers
+  are small.
+- The answer envelope gains `artifacts: [{documentId, title}]`. The gate
+  drops an artifact the turn did not actually write.
 - Chat renders a document card (the diagram card is the template) with
   "Öffnen", "Besprechen", "Ins Projekt übernehmen".
-- Prompt: one `<artifacts>` block. A commissioned document is written, not
+- Prompt: one `<workdir>` block. A commissioned document is written, not
   described. The `handoff` kind stays for research; a memo, a checklist, a
-  Flächenaufstellung, a Protokoll are `walkthrough` turns that write.
+  Flächenaufstellung, a Protokoll are `walkthrough` turns that write a file.
 - **Done when** "schreib mir den Aktenvermerk zur Besprechung mit der MA 37"
   produces a file on the session shelf, opened from the chat, and the next turn
-  can say "kürze Punkt 3" and rewrite it.
+  can say "kürze Punkt 3" and `edit_file` rewrites it in place.
 - **Measured by** the share of turns that leave an artifact (audit
   `document.drafted`, counted per project).
 
@@ -294,7 +335,8 @@ path and without a new state.
 
 - **No second filing path.** Every producer calls `fileGeneratedDocument`.
 - **No second review axis.** `documents.review` is the truth; the task mirrors.
-- **No new agent.** The researcher writes documents the way it emits cards.
+- **No new agent, no code sandbox.** The researcher writes files the way deep
+  research already does, on a disk that is the conversation.
 - **No silent publish.** Draft is free; publish is `pending` until a person acts.
 - **No agent document as a norm.** Approved documents are Bürowissen with a
   visible approver, never a Fundstelle for a value.
