@@ -33,6 +33,25 @@ export function documentFilesHref(projectId: string, documentId: string): string
   return `/app/projects/${encodeURIComponent(projectId)}/files?doc=${encodeURIComponent(documentId)}`
 }
 
+/**
+ * The project id inside a document deep link, or `null`.
+ *
+ * The inverse of {@link documentFilesHref}, and it exists for one caller: an
+ * inbox row knows the document a review request is about and where clicking it
+ * lands (`/app/projects/<id>/files?doc=<id>`, built by the sharing registry's
+ * `deepLink`), but not the project — the row is type-agnostic by design and
+ * carries no project field. Reading it back out of the link the row already
+ * holds beats widening the inbox payload for one button.
+ *
+ * `null` for an Archiv document (`/app/archiv?doc=…`), which has no project
+ * chat to open, and for anything that is not a document deep link at all.
+ */
+export function projectIdFromDocumentHref(href: string | null | undefined): string | null {
+  if (!href) return null
+  const match = /^\/app\/projects\/([^/?#]+)\/files(?:[/?#]|$)/.exec(href)
+  return match ? decodeURIComponent(match[1]) : null
+}
+
 export function fileItemFromStatus(body: {
   id: string
   filename: string

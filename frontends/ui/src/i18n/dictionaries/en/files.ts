@@ -590,8 +590,9 @@ export const files = {
     emptyDescription:
       'Another filter brings back every file in this folder.',
     responsible: 'Responsible',
-    ask: 'Ask Piloti',
-    askDisabled: 'Once the file is citable',
+    // One word for one gesture, on all three surfaces: the file pane, the report
+    // card and the inbox row.
+    discuss: 'Discuss',
     askColleague: 'Ask a colleague',
     copyLink: 'Copy link',
     linkCopied: 'Link copied',

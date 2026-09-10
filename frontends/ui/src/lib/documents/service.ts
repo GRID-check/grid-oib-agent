@@ -84,7 +84,7 @@ import { documentDisplayName, validateDocumentName } from './display-name'
 import { deleteBimDerivedObjects, runBimExtraction } from '@/lib/bim/service'
 import { getAccessibleDocument } from './access'
 import { nextVersionNumber, recordUploadedVersion, versionedStorageKey } from './lifecycle'
-import { listDocumentVersionObjects } from './version-repository'
+import { findOpenVersion, listDocumentVersionObjects } from './version-repository'
 import { deleteDocumentObjects } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
 import {
@@ -2085,6 +2085,7 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
   const [reconciled] = await reconcileDocumentStatuses([doc], session.organizationId)
+  const openVersion = await findOpenVersion(reconciled.id, session.organizationId)
 
   return {
     id: reconciled.id,
@@ -2119,6 +2120,17 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     // responsibility — the row's assignees are unaffected and still say
     // `Unvergeben`.
     authoredBy: reconciled.authoredBy,
+    // THE VERSION THE TURN WOULD HAVE TO READ AS BYTES.
+    //
+    // At most one version per document is still being worked on (the partial
+    // unique index behind `findOpenVersion`), and that is precisely the version
+    // retrieval cannot see: only a published version is dispatched to the index
+    // (ADR-0054), so a draft has no chunks and the focus filter falls open to
+    // the whole corpus. This payload is how the composer resolves its subject,
+    // so it is where the two facts the turn needs — WHICH version and what state
+    // it is in — belong. `null` means the live bytes are the published ones and
+    // nothing extra has to travel.
+    openVersion: openVersion ? { id: openVersion.id, state: openVersion.state } : null,
   }
 }
 

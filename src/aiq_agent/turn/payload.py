@@ -90,6 +90,56 @@ def parse_skills(raw: Any) -> list[str] | None:
 
 
 @dataclass(frozen=True)
+class SubjectVersion:
+    """The document version the composer says this turn is about.
+
+    Additive beside the focused FILE NAME, and a different question from it.
+    The name is a retrieval identity — which chunks to prefer — and it is only
+    ever as good as the index: a version nobody has published has no chunks at
+    all, so the focus filter matches nothing and falls open to the whole corpus
+    (``sources/knowledge_layer/src/register.py``). This says WHICH version, by
+    id, and what editorial state it is in, so the turn can read the bytes
+    instead of hoping the index has them.
+
+    Every field is optional and unvalidated here on purpose: it arrives from a
+    client, the BFF re-checks tenancy on the read, and an incomplete triple is
+    simply not a subject version.
+    """
+
+    document_id: str | None = None
+    version_id: str | None = None
+    state: str | None = None
+
+    @property
+    def is_open(self) -> bool:
+        """Whether this names a version retrieval cannot see.
+
+        The open states of the lifecycle (``lifecycle-types.ts``,
+        ``OPEN_DOCUMENT_VERSION_STATES``). ``published`` is deliberately NOT a
+        membership test that could grow a hole: anything not in this set is
+        left to retrieval, which is the behaviour that already works.
+        """
+        return bool(self.document_id) and bool(self.version_id) and self.state in _OPEN_VERSION_STATES
+
+
+#: The version states in which a document is still being worked on and therefore
+#: has no chunks. Mirrors ``OPEN_DOCUMENT_VERSION_STATES`` in
+#: ``frontends/ui/src/lib/documents/lifecycle-types.ts``; there is no shared
+#: schema between the two, exactly as for the source kinds.
+_OPEN_VERSION_STATES = frozenset({"draft", "in_review", "changes_requested"})
+
+
+def _subject_version(payload: dict[str, Any]) -> SubjectVersion:
+    """The subject triple out of one request payload, strings only."""
+
+    def field(name: str) -> str | None:
+        value = payload.get(name)
+        return value.strip() or None if isinstance(value, str) else None
+
+    return SubjectVersion(field("focus_document_id"), field("focus_version_id"), field("focus_version_state"))
+
+
+@dataclass(frozen=True)
 class TurnIntent:
     """What the composer said the turn is about: the focused file, its shelf,
     and the source preset. ``TurnIntent()`` is "no subject" — and it is set on
@@ -99,6 +149,10 @@ class TurnIntent:
     file_name: object = None
     shelf: object = None
     source_preset: object = None
+    #: The subject's open version, when the client named one. Carried beside the
+    #: intent rather than inside it because it reaches nothing retrieval reads:
+    #: it is consumed once, by the turn's subject-document load.
+    subject: SubjectVersion = SubjectVersion()
 
 
 class ParsedQuery(NamedTuple):
@@ -132,7 +186,12 @@ def _extract_query_from_text(text: str) -> ParsedQuery:
         query_text.strip(),
         parse_data_sources(payload.get("data_sources")),
         parse_skills(payload.get("skills")),
-        TurnIntent(payload.get("focus_file_name"), payload.get("focus_shelf"), payload.get("source_preset")),
+        TurnIntent(
+            payload.get("focus_file_name"),
+            payload.get("focus_shelf"),
+            payload.get("source_preset"),
+            _subject_version(payload),
+        ),
     )
 
 
@@ -219,6 +278,10 @@ class TurnInputs(NamedTuple):
     force_skills: list[str] | None
     focus_file_name: str | None
     focus_shelf: str | None
+    #: The subject's open version, or an empty :class:`SubjectVersion`. NOT read
+    #: back from a ContextVar like the two fields above it: nothing in retrieval
+    #: consumes it, so it never becomes turn-wide state.
+    subject: SubjectVersion = SubjectVersion()
 
 
 def extract_turn_inputs(payload: Any) -> TurnInputs:
@@ -229,5 +292,10 @@ def extract_turn_inputs(payload: Any) -> TurnInputs:
     intent = parsed.intent
     set_turn_intent(file_name=intent.file_name, shelf=intent.shelf, source_preset=intent.source_preset)
     return TurnInputs(
-        parsed.query_text, parsed.data_sources, parsed.skills, get_focused_file_name(), get_focused_shelf()
+        parsed.query_text,
+        parsed.data_sources,
+        parsed.skills,
+        get_focused_file_name(),
+        get_focused_shelf(),
+        intent.subject,
     )

@@ -63,6 +63,7 @@ from aiq_agent.turn.response import build_response
 from aiq_agent.turn.response import post_answer_turn_facts
 from aiq_agent.turn.streaming import fold_chunks_to_response
 from aiq_agent.turn.streaming import response_to_chunks
+from aiq_agent.turn.subject_document import load_subject_document
 from nat.builder.builder import Builder
 from nat.builder.context import Context
 from nat.builder.framework_enum import LLMFrameworkEnum
@@ -267,13 +268,21 @@ async def _load_setup(
     thread_id: str,
     resolve_stages: bool,
 ):
-    """The three independent setup I/O paths, overlapped.
+    """The four independent setup I/O paths, overlapped.
 
     Each fails open on its own (:mod:`aiq_agent.turn.context`,
-    :mod:`aiq_agent.turn.inventory`, :mod:`aiq_agent.turn.registries`), so the
-    gather cannot let one dead branch lose the others' results — or the turn.
+    :mod:`aiq_agent.turn.inventory`, :mod:`aiq_agent.turn.registries`,
+    :mod:`aiq_agent.turn.subject_document`), so the gather cannot let one dead
+    branch lose the others' results — or the turn.
+
+    The subject read is a member and not a step in front of the gather for the
+    same reason the others are: it is one HTTP round trip on the
+    time-to-first-byte path, it is independent of every other branch, and a
+    subject that cannot be fetched costs the model one file. Its result is
+    deliberately not returned — the file it writes IS the result, and the model
+    finds it with `ls` exactly as it finds a draft it wrote itself.
     """
-    return await asyncio.gather(
+    context, inventory, session_registry, _subject = await asyncio.gather(
         spanned(
             "setup.project_context",
             load_turn_context(
@@ -282,7 +291,19 @@ async def _load_setup(
         ),
         load_inventory(resolve_scope(header_scope, conversation_id)),
         spanned("setup.session_registry", load_session_registry(thread_id)),
+        spanned(
+            "setup.subject_document",
+            load_subject_document(
+                inputs.subject,
+                # NAT's conversation id, not the thread id: the working directory
+                # is namespaced by the former, and `file_draft` resolves the same
+                # one when it goes looking for the file this write leaves behind.
+                conversation_id=conversation_id,
+                organization_id=request.organization_id,
+            ),
+        ),
     )
+    return context, inventory, session_registry
 
 
 async def _answer_in_registries(

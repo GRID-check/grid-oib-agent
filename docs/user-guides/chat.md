@@ -44,7 +44,7 @@ The whole header is hidden on an empty chat that has not started yet, apart from
 
 The composer is a white card with the message field on top and a control row below, separated by a hairline:
 
-- **Asking about … bar**: when this turn is about a project file (**Piloti dazu fragen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Piloti dazu fragen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroarchiv.
+- **Asking about … bar**: when this turn is about a project file (**Besprechen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Besprechen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroarchiv.
 - **Datengrundlage chip**: shows how many data sources are currently enabled and opens the existing Data Sources panel.
 - **Scope chip**: shows the current project with a lock icon. Retrieval is always scoped to this project; the popover lists a disabled "All projects" option — cross-project search is not available yet.
 - **Deep Research pill**: an on/off *preference*. Piloti escalates to deep research automatically when a question calls for it; the pill records your intent and shows an honest hint — it does not force a deep-research run.
@@ -251,7 +251,7 @@ steps aside, since the request was to see the file), and the **×** on the
 *Asking about …* bar — the one control that ends the question as well as the
 viewer — offers **Undo** in the confirmation that follows it.
 
-**Coming from Files.** *Piloti dazu fragen* carries the document with you: the
+**Coming from Files.** *Besprechen* carries the document with you: the
 viewer you were looking at stays on screen while the conversation loads, and
 hands over to the peek when it arrives. It never blinks out and leaves you
 looking at the file grid mid-move.

@@ -551,7 +551,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // subject bar holds this in an effect. An inline arrow here made the bar's
   // document lookup a function of how often the user typed.
   const handleSubjectResolved = useCallback(
-    ({ title, filename, shelf }: ResolvedSubjectIdentity) => {
+    ({ title, filename, shelf, versionId, versionState }: ResolvedSubjectIdentity) => {
       // Read from the store, not a closure: the lookup is async and the user
       // may have cleared or re-bound the bar while it was in flight.
       const current = useChatStore.getState().composerSubject
@@ -561,6 +561,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         ...(title ? { title } : {}),
         ...(filename ? { filename } : {}),
         ...(shelf ? { shelf } : {}),
+        // Merged on `!== undefined`, not on truthiness: `null` is the lookup
+        // saying this document has no open version, and it has to CLEAR a pair
+        // an earlier subject left behind rather than leave it standing.
+        ...(versionId !== undefined ? { versionId } : {}),
+        ...(versionState !== undefined ? { versionState } : {}),
       })
     },
     [setComposerSubject]

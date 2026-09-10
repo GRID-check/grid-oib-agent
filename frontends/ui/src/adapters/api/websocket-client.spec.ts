@@ -526,6 +526,40 @@ describe('NATWebSocketClient — the ingest-only user_message payload', () => {
     expect(sentPayload(ws)).not.toHaveProperty('include_shelves')
   })
 
+  test('a subject with an unpublished version says which version, and what state it is in', async () => {
+    const { client, ws } = await openClient()
+
+    client.sendMessage('Warum steht in Abschnitt 3 GK 4?', [], {
+      focusFileName: 'piloti/doc-9/befund.md',
+      focusShelf: 'project',
+      focusDocumentId: 'doc-9',
+      focusVersionId: 'ver-9',
+      focusVersionState: 'draft',
+    })
+
+    // Only a published version is indexed, so a draft has no chunks and the
+    // agent's focus filter falls open to the whole corpus. These three keys are
+    // what let the turn read the version's own bytes instead.
+    expect(sentPayload(ws)).toMatchObject({
+      focus_document_id: 'doc-9',
+      focus_version_id: 'ver-9',
+      focus_version_state: 'draft',
+    })
+  })
+
+  test('a subject with nothing unpublished adds no version keys', async () => {
+    const { client, ws } = await openClient()
+
+    client.sendMessage('Fass zusammen', [], {
+      focusFileName: 'plan.pdf',
+      focusShelf: 'project',
+      focusDocumentId: 'doc-1',
+    })
+
+    expect(sentPayload(ws)).not.toHaveProperty('focus_version_id')
+    expect(sentPayload(ws)).not.toHaveProperty('focus_version_state')
+  })
+
   test('an ordinary send is byte-for-byte what it always was — no new keys', async () => {
     const { client, ws } = await openClient()
 

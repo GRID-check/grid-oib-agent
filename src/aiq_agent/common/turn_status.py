@@ -193,6 +193,11 @@ KEY_ACTION_FILE_PROPOSAL = "status.action.fileProposal"
 #: is nothing else on screen to tell a filing from a handover to a reviewer.
 KEY_ACTION_DRAFT_FILED = "status.action.draftFiled"
 KEY_ACTION_DRAFT_SUBMITTED = "status.action.draftSubmitted"
+#: Handing work over (`create_task`). Its own key rather than one of the two
+#: above, because what is happening is not a draft moving: the reader is being
+#: told that this turn will NOT produce the answer, and something outside the
+#: conversation will.
+KEY_ACTION_TASK_CREATED = "status.action.taskCreated"
 
 KEY_CITATIONS = "status.citations"
 #: The turn's one bounded repair: a citation or a quote failed verification,
@@ -367,6 +372,7 @@ _ACTION_KEYS = {
     "assign_document": KEY_ACTION_FILE_PROPOSAL,
     "file_draft": KEY_ACTION_DRAFT_FILED,
     "submit_draft": KEY_ACTION_DRAFT_SUBMITTED,
+    "create_task": KEY_ACTION_TASK_CREATED,
 }
 
 #: Argument names a retrieval query hides behind, in preference order.
@@ -452,6 +458,72 @@ def emit_documents_loading(shelves: list[str] | None = None) -> None:
         f"{KEY_DOCUMENTS_PREFIX}{where}",
         shelves=list(shelves or ()),
     )
+
+
+#: Slot for the subject-document read that runs before the graph starts. Its own
+#: slot rather than ``documents`` because the frontend dedupes thinking steps by
+#: step name, and this event would otherwise replace the shelf line the reader
+#: was just shown.
+SUBJECT_DOCUMENT_SLOT = "documents:subject"
+
+#: Why the subject version could not be read. Stable tokens, because the question
+#: this event exists to answer is an operator's: *how often does a conversation
+#: about an unpublished document fall back to a corpus that cannot see it?*
+SUBJECT_UNREACHABLE = "unreachable"
+SUBJECT_REFUSED = "refused"
+SUBJECT_EMPTY = "empty"
+SUBJECT_NOT_STORED = "not_stored"
+
+
+def emit_subject_document(
+    *,
+    loaded: bool,
+    document_id: str | None = None,
+    version_id: str | None = None,
+    state: str | None = None,
+    path: str | None = None,
+    chars: int | None = None,
+    reason: str | None = None,
+) -> None:
+    """Record that the turn's subject document was (or was not) read as bytes.
+
+    **Technical channel, and therefore no ``key``.** A live key is resolved
+    against ``chat.thinking.turnStatus.*`` in the frontend dictionary, and every
+    key in :data:`ALL_STATUS_KEYS` is asserted to have a German AND an English
+    string there. This event has nothing to add to the reader's live line that
+    „Unterlagen werden geladen" has not already said — the file it names is the
+    one they are looking at — and the operator question it does answer is how
+    often a conversation about an unpublished document silently fell back to a
+    corpus that cannot see it. That is telemetry, which is what the technical
+    channel is for (see the module docstring's "What earns a line").
+
+    Args:
+        loaded: Whether the version's text reached the working directory.
+        document_id: The subject document.
+        version_id: The open version the turn was told about.
+        state: That version's editorial state (``draft``, ``in_review``, …).
+        path: Where it was written, when it was written.
+        chars: How much text was written.
+        reason: One of :data:`SUBJECT_UNREACHABLE`, :data:`SUBJECT_REFUSED`,
+            :data:`SUBJECT_EMPTY`, :data:`SUBJECT_NOT_STORED` — only on a miss.
+    """
+    payload: dict[str, Any] = {
+        "kind": "status",
+        "channel": CHANNEL_TECHNICAL,
+        "slot": SUBJECT_DOCUMENT_SLOT,
+        "loaded": loaded,
+    }
+    for name, value in (
+        ("document_id", document_id),
+        ("version_id", version_id),
+        ("state", state),
+        ("path", path),
+        ("chars", chars),
+        ("reason", reason),
+    ):
+        if value is not None:
+            payload[name] = value
+    push_custom_step(f"{STATUS_STEP_PREFIX}{SUBJECT_DOCUMENT_SLOT}", payload)
 
 
 def emit_retrieval(tool_calls: list[dict[str, Any]] | None, *, round_index: int) -> None:

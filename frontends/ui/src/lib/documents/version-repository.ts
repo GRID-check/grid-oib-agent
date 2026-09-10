@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { and, asc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   documentVersions,
@@ -60,6 +60,33 @@ export async function findDocumentVersion(
       and(
         eq(documentVersions.id, versionId),
         eq(documentVersions.documentId, documentId),
+        eq(documentVersions.organizationId, organizationId),
+      ),
+    )
+    .limit(1)
+  return row ?? null
+}
+
+/**
+ * One version addressed by its OWN id, inside one organization.
+ *
+ * The twin of {@link findDocumentVersion} for a caller that holds the version
+ * id and nothing else — the internal content route, whose Python caller was
+ * TOLD which version the turn's subject is and has no document id to pair with
+ * it. The organization is still in the predicate, so a version id from another
+ * tenant reads as absent rather than as a row.
+ */
+export async function findDocumentVersionInOrg(
+  versionId: string,
+  organizationId: string,
+): Promise<DocumentVersion | null> {
+  const db = getDb()
+  const [row] = await db
+    .select()
+    .from(documentVersions)
+    .where(
+      and(
+        eq(documentVersions.id, versionId),
         eq(documentVersions.organizationId, organizationId),
       ),
     )
@@ -362,4 +389,69 @@ export async function listDocumentVersionObjects(
       ),
     )
     .limit(DOCUMENT_VERSION_LIST_LIMIT)
+}
+
+/**
+ * The versions of a conversation's own drafts that a reviewer sent back.
+ *
+ * Bounded and newest-decision-first, because the block it feeds
+ * (`REVIEW_DECISIONS v1`, `./review-decisions.ts`) rides the memory channel and
+ * shares that channel's character budget. Only the two refusing states, and
+ * only rows that carry words: `document_versions_refusal_has_comment` makes a
+ * commentless refusal unrepresentable, so a null here would be a row written
+ * before that CHECK existed rather than a decision anybody can act on.
+ *
+ * Joined to `documents` for the display name, because the block names the
+ * document a person will look for in the Files pane and a version id is not a
+ * name.
+ */
+export async function listRefusedVersionsForConversation(
+  conversationId: string,
+  organizationId: string,
+  limit: number,
+): Promise<
+  Array<{
+    versionId: string
+    documentId: string
+    versionNumber: number
+    state: DocumentVersionState
+    reviewComment: string
+    reviewedBy: string | null
+    reviewedAt: Date | null
+    displayName: string | null
+    filename: string
+  }>
+> {
+  const db = getDb()
+  const rows = await db
+    .select({
+      versionId: documentVersions.id,
+      documentId: documentVersions.documentId,
+      versionNumber: documentVersions.versionNumber,
+      state: documentVersions.state,
+      reviewComment: documentVersions.reviewComment,
+      reviewedBy: documentVersions.reviewedBy,
+      reviewedAt: documentVersions.reviewedAt,
+      displayName: documents.displayName,
+      filename: documents.filename,
+    })
+    .from(documentVersions)
+    .innerJoin(documents, eq(documents.id, documentVersions.documentId))
+    .where(
+      and(
+        eq(documentVersions.originConversationId, conversationId),
+        eq(documentVersions.organizationId, organizationId),
+        inArray(documentVersions.state, ['changes_requested', 'rejected']),
+        isNotNull(documentVersions.reviewComment),
+      ),
+    )
+    .orderBy(desc(documentVersions.reviewedAt))
+    .limit(limit)
+  return rows.map((row) => ({
+    ...row,
+    // `sql<T>` coercion at the boundary, the house rule: a raw driver row hands
+    // back a string where the annotation promises a Date.
+    reviewedAt: row.reviewedAt ? new Date(row.reviewedAt) : null,
+    reviewComment: row.reviewComment ?? '',
+  }))
 }

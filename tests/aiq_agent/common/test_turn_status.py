@@ -238,6 +238,38 @@ class TestEscalation:
         assert payload["reason"] == "Shallow agent emitted insufficiency marker"
 
 
+class TestTheSubjectDocument:
+    """Read as bytes because retrieval cannot see it — telemetry, not a line."""
+
+    def test_it_never_reaches_the_live_line(self, steps) -> None:
+        turn_status.emit_subject_document(
+            loaded=True, document_id="doc-9", version_id="ver-9", state="draft", path="/entwuerfe/Befund.md", chars=42
+        )
+        payload = _live(steps)[0]
+        assert payload["channel"] == turn_status.CHANNEL_TECHNICAL
+        # No key, therefore no dictionary entry, therefore nothing rendered on
+        # the live line: the reader is already looking at the file it names.
+        assert "key" not in payload
+        assert payload["loaded"] is True
+        assert payload["path"] == "/entwuerfe/Befund.md"
+
+    def test_a_miss_carries_a_stable_reason(self, steps) -> None:
+        turn_status.emit_subject_document(loaded=False, version_id="ver-9", reason=turn_status.SUBJECT_UNREACHABLE)
+        payload = _live(steps)[0]
+        assert payload["loaded"] is False
+        assert payload["reason"] == "unreachable"
+        # Absent facts are ABSENT, never null: an operator counting misses by
+        # reason must not have to tell "no state" from "state: None".
+        assert "state" not in payload
+        assert "path" not in payload
+
+    def test_it_is_its_own_slot(self, steps) -> None:
+        # The frontend dedupes thinking steps by step name. Sharing `documents`
+        # would make this event replace the shelf line the reader was just shown.
+        turn_status.emit_subject_document(loaded=True)
+        assert steps[0][0] == "status:documents:subject"
+
+
 class TestChannels:
     def test_every_status_here_is_addressed_to_the_reader(self, steps) -> None:
         turn_status.emit_documents_loading(["project"])

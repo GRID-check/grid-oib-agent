@@ -17,9 +17,10 @@ import { Button } from '@/components/ui/button'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { downloadAsMarkdown } from '@/utils/download-as-markdown'
 import { useDownloadPdfRoute } from '@/hooks/use-download-pdf'
-import { useIsCurrentSessionBusy } from '@/features/chat'
+import { useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { useTranslations } from '@/i18n'
 import { DocumentLifecyclePanel } from '@/features/documents/components/document-lifecycle-panel'
+import { DiscussDocumentButton } from '@/features/documents/components/discuss-document-button'
 import type { DocumentLifecycleViewer } from '@/features/documents/lib/document-lifecycle'
 
 interface ReportCardProps {
@@ -69,6 +70,11 @@ export const ReportCard: FC<ReportCardProps> = ({
 }) => {
   const t = useTranslations('research')
   const { downloadPdf, isLoading: isPdfLoading } = useDownloadPdfRoute()
+  // The project of the chat this card is sitting in. Read from the store rather
+  // than threaded through `filedDocument`: the card has no project of its own —
+  // it is the conversation's — and a second copy of that fact would be one more
+  // thing to keep in step with the session switch.
+  const projectId = useChatStore((state) => state.projectId)
 
   const hasContent = content.trim().length > 0
   const wordCount = hasContent ? getWordCount(content) : 0
@@ -143,6 +149,27 @@ export const ReportCard: FC<ReportCardProps> = ({
           showVersions={false}
           className="mt-4 shrink-0 border-t pt-3"
         />
+      )}
+
+      {/* „Besprechen" — the other thing a reader does with a report they have
+          just read, and until now the one they had to go and find. It sits with
+          the Freigabe controls rather than in the export row because it is a
+          decision about the CONTENT, not a way of taking the content elsewhere.
+
+          A filed report is a draft nobody has published, so it has no chunks and
+          used to be exactly the document Piloti could not answer about; the turn
+          now reads the subject version's bytes instead. Only when the report was
+          actually filed: without a document there is no subject to bind, and the
+          conversation would be an ordinary project question. */}
+      {filedDocument && projectId && (
+        <div className="mt-3 flex shrink-0 justify-end">
+          <DiscussDocumentButton
+            projectId={projectId}
+            documentId={filedDocument.documentId}
+            variant="outline"
+            withIcon
+          />
+        </div>
       )}
 
       {/* Export Footer */}

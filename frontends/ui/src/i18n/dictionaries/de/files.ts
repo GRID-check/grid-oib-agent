@@ -542,8 +542,11 @@ export const files: typeof en.files = {
     emptyDescription:
       'Ein anderer Filter zeigt Ihnen wieder alle Dateien dieses Ordners.',
     responsible: 'Verantwortlich',
-    ask: 'Piloti dazu fragen',
-    askDisabled: 'Sobald die Datei zitierbar ist',
+    // EIN Wort für eine Geste, an allen drei Stellen: Dateiablage, Berichtskarte
+    // und Posteingang. Vorher hieß derselbe Knopf „Piloti dazu fragen“ und war
+    // ausgerechnet bei Entwürfen ausgegraut — genau den Dokumenten, über die man
+    // sprechen will. Piloti kann jetzt auch eine unveröffentlichte Fassung lesen.
+    discuss: 'Besprechen',
     askColleague: 'Kollegin fragen',
     copyLink: 'Link kopieren',
     linkCopied: 'Link kopiert',

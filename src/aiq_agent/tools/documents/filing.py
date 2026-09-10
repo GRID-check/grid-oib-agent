@@ -5,6 +5,12 @@
 ``grid_app`` (ADR-0003) and this module is a CLIENT of the route the browser's
 own filing goes through (ADR-0055).
 
+Beside the write door, the READ one:
+``GET /api/internal/document-versions/<id>/content`` hands back one version's
+text plus the four facts a filing record is made of. It is the same lifecycle
+API and therefore the same client, and it carries NO envelope, because it acts
+as nobody — see :func:`get_document_version_content`.
+
 ## The tool echoes the envelope; it never signs one
 
 The route carries a static service token and no user, and the agent's principal
@@ -40,6 +46,7 @@ import json
 import logging
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
@@ -50,6 +57,22 @@ logger = logging.getLogger(__name__)
 #: side, derived there from the transition table's `actor` field — approve,
 #: request changes, reject, publish and archive have no machine path at all.
 INTERNAL_DOCUMENT_VERSIONS_PATH = "/api/internal/document-versions"
+
+#: The READ side, and a different door: one version's bytes, by version id.
+#:
+#: No envelope, because nothing here acts as a person — the route writes nothing
+#: and the organization is the whole of its predicate, exactly as
+#: ``/api/internal/document-file`` works for a document's storage key. It lives
+#: in this module rather than a seventh copy of the base-URL read, and beside
+#: the write door so the two halves of the lifecycle client are one file.
+INTERNAL_DOCUMENT_VERSION_CONTENT_PATH = "/api/internal/document-versions/{version_id}/content"
+
+#: Ceiling for the read. Shorter than the filing timeout because this one is on
+#: the TIME-TO-FIRST-BYTE path: it runs in the turn's setup gather, before the
+#: graph starts, and a subject that cannot be fetched costs the model one
+#: document rather than the answer. Five seconds is generous for one object
+#: fetch and short enough that an unreachable BFF does not become a hung chat.
+CONTENT_TIMEOUT_SECONDS = 5
 
 #: Generous next to a memory write and deliberately so: filing renders Markdown,
 #: admits a quota, writes an object to SeaweedFS and opens a version row. A turn
@@ -103,6 +126,46 @@ def _error_code(exc: urllib.error.HTTPError) -> str | None:
     except Exception:  # noqa: BLE001 - body may be empty, unreadable or not JSON
         return None
     return payload.get("code") if isinstance(payload, dict) else None
+
+
+def get_document_version_content(version_id: str, organization_id: str) -> dict[str, Any]:
+    """One version's text and identity from the internal read route.
+
+    Returns the parsed body: ``content`` plus the facts the caller has to stamp
+    onto the working-directory file it writes — ``documentId``, ``versionId``,
+    ``state`` and ``contentHash`` — so a later ``file_draft`` on that path
+    REPLACES this open version instead of filing a second document.
+
+    Raises :class:`FilingError` for every refusal and every transport failure,
+    the same one thing every caller in this module has to catch. Blocking — call
+    it through ``asyncio.to_thread``.
+    """
+    token = os.environ.get("GRID_INTERNAL_API_TOKEN")
+    if not token:
+        raise FilingError("GRID_INTERNAL_API_TOKEN is not configured")
+
+    path = INTERNAL_DOCUMENT_VERSION_CONTENT_PATH.format(version_id=urllib.parse.quote(version_id, safe=""))
+    query = urllib.parse.urlencode({"organizationId": organization_id})
+    request = urllib.request.Request(
+        f"{_internal_base_url()}{path}?{query}",
+        headers={"X-Grid-Internal-Token": token},
+        method="GET",
+    )
+
+    try:
+        with _opener.open(request, timeout=CONTENT_TIMEOUT_SECONDS) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        code = _error_code(exc)
+        logger.warning("Version content refused by the BFF (status=%s code=%s)", exc.code, code)
+        raise FilingError(f"the document API refused the read ({exc.code})", status=exc.code, code=code) from exc
+    except Exception as exc:  # noqa: BLE001 - transport; the caller decides what to do about it
+        logger.warning("Version content could not be read from the BFF", exc_info=True)
+        raise FilingError("the document API could not be reached") from exc
+
+    if not isinstance(body, dict):
+        raise FilingError("the document API answered with something that is not an object")
+    return body
 
 
 def post_document_version(payload: dict[str, Any], envelope: SignedEnvelope) -> dict[str, Any]:

@@ -189,15 +189,29 @@ taken on, that is waiting for a decision, is one query.
 
 ---
 
+## Über ein Dokument sprechen
+
+**Besprechen** steht auf jeder Datei — in der Dateiablage, auf der
+Berichtskarte im Chat und auf der Freigabe-Aufforderung im Posteingang — und
+öffnet ein Gespräch, das genau um dieses Dokument geht. Es funktioniert auch bei
+einem Entwurf, den noch niemand veröffentlicht hat: Piloti liest die Fassung
+dann direkt und beantwortet Fragen wie „warum steht in Abschnitt 3 GK 4?" aus
+dem Text selbst. Aus dem Gespräch heraus lässt sich derselbe Entwurf auch
+ändern und wieder ablegen — es entsteht eine neue Fassung desselben Dokuments,
+kein zweites.
+
+---
+
 ## Why it is not in the knowledge base
 
-Ask Piloti about a generated report and the action is **disabled**, with the
-reason on it:
+**Besprechen** works on a generated report; what it carries is a note saying
+what the conversation cannot do:
 
 > Von Piloti erstellt — nicht in der Wissensbasis
 
-This is a design decision, not a missing feature and not a wait. A report Piloti
-wrote is never indexed, so no searchable passages of it exist anywhere.
+Piloti reads the report itself when you discuss it, and it will never *retrieve*
+it. That is a design decision, not a missing feature and not a wait: a report
+Piloti wrote is never indexed, so no searchable passages of it exist anywhere.
 
 The reason is worth knowing, because it protects you. If a generated report were
 searchable, Piloti could retrieve its own earlier draft and cite it back to you

@@ -121,6 +121,20 @@ export interface SendMessageWireOptions {
    */
   focusShelf?: 'project' | 'archiv' | 'session' | null
   /**
+   * The subject document's id, and — when it has one — the OPEN version the
+   * turn is about plus that version's editorial state.
+   *
+   * Only a published version reaches the retrieval index (ADR-0054), so for a
+   * draft, an in-review or a changes-requested subject there are no chunks to
+   * find and the agent's focus filter falls open to the whole corpus. Told
+   * which version the subject is, the turn reads its bytes into the
+   * conversation's working directory instead. Omitted entirely when the
+   * subject's live bytes are the published ones: then nothing changes.
+   */
+  focusDocumentId?: string | null
+  focusVersionId?: string | null
+  focusVersionState?: string | null
+  /**
    * Composer shortcut chip (`law` / `project` / `office`). Intent only —
    * the backend expands it. A focused file's shelf wins over this.
    * Omitted when no chip is pressed.
@@ -472,6 +486,9 @@ export class NATWebSocketClient {
       ...(options?.skills && options.skills.length > 0 ? { skills: options.skills } : {}),
       ...(options?.focusFileName?.trim() ? { focus_file_name: options.focusFileName.trim() } : {}),
       ...(options?.focusShelf ? { focus_shelf: options.focusShelf } : {}),
+      ...(options?.focusDocumentId ? { focus_document_id: options.focusDocumentId } : {}),
+      ...(options?.focusVersionId ? { focus_version_id: options.focusVersionId } : {}),
+      ...(options?.focusVersionState ? { focus_version_state: options.focusVersionState } : {}),
       ...(options?.sourcePreset ? { source_preset: options.sourcePreset } : {}),
       ...(options?.contextOnly ? { context_only: true } : {}),
       ...(options?.contextOnly && options.authorName ? { author_name: options.authorName } : {}),
