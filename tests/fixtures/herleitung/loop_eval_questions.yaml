@@ -1,0 +1,193 @@
+# Twenty questions a Wiener Planungsbüro actually asks, for the loop eval.
+#
+# WHAT THIS SET IS FOR
+# --------------------
+# The agentic-loop work (docs/roadmap/architect-workspace-voice-and-agentic-loop.md,
+# "Second landing") changed how a turn spends its retrieval: a locator instead of
+# a second search, a checkpoint the model cannot skip, and a first round capped at
+# two searches. Every one of those is a claim about behaviour, and a claim about
+# behaviour that nobody measured is a preference. `scripts/loop_eval.py` runs this
+# set against a reachable backend before and after and prints the deltas.
+#
+# It is NOT a correctness benchmark. The retrieval golden set
+# (frontends/benchmarks/oib_retrieval) measures whether the right passage comes
+# back; this measures the SHAPE of the turn that went looking for it — how many
+# rounds, whether the locator was used, whether the cited Punkt is the one the
+# question is about, whether the budget ran out.
+#
+# THE EXPECTED FIELDS
+# -------------------
+# `family`  The document family the answer must be grounded in. `OIB-RL <n>` for
+#           a Richtlinie (`2.1`/`2.2`/`2.3` are their own documents), `Bauordnung`
+#           for provincial law that lives in RIS, or `null` for a question about
+#           the office's own files, which is here as the control that must NOT
+#           grow a verdict.
+# `punkt`   The Punkt the citation should name, or `null`. Every non-null value is
+#           read off the committed structural index
+#           (frontends/benchmarks/oib_retrieval/fixtures/punkt_index.json), never
+#           remembered: a Punkt number somebody typed from memory scores a correct
+#           answer as wrong, which is worse than not scoring it. A citation to a
+#           CHILD of the listed Punkt counts as a match (`5.1.2` matches `5.1`) —
+#           the question decides the requirement, the corpus decides how deeply it
+#           is numbered.
+#           Bauordnung rows carry no `punkt`: their paragraphs come from RIS, and
+#           nothing committed here can verify one.
+# `kind`    The answer envelope's `kind` the turn should reach: `ruling` only where
+#           there is a copyable legal value, `walkthrough` where the honest answer
+#           is prose, `direct` where nothing is retrieved at all.
+#
+# Adding a question: give it an id nobody else has, and leave `punkt` null unless
+# you looked it up in the index.
+
+questions:
+  - id: fluchtweg-gk4
+    question: >-
+      Wir planen ein Wohnhaus in Gebäudeklasse 4. Wie lang darf der Fluchtweg
+      vom Wohnungseingang bis ins Freie sein?
+    family: OIB-RL 2
+    punkt: "5.1"
+    kind: ruling
+
+  - id: feuerwiderstand-gk5
+    question: >-
+      Welchen Feuerwiderstand brauchen die tragenden Wände in einem Gebäude
+      der Gebäudeklasse 5?
+    family: OIB-RL 2
+    punkt: "2.2"
+    kind: ruling
+
+  - id: rauchwarnmelder-wohnung
+    question: Müssen wir in jeder Wohnung Rauchwarnmelder vorsehen?
+    family: OIB-RL 2
+    punkt: "3.11"
+    kind: ruling
+
+  - id: abstand-nachbargrenze-brandwand
+    question: >-
+      Unser Baukörper steht 1,50 m von der Nachbargrundgrenze entfernt.
+      Brauchen wir dort eine brandabschnittsbildende Wand?
+    family: OIB-RL 2
+    punkt: "4.1"
+    kind: ruling
+
+  - id: fassade-brandschutz
+    question: >-
+      Was ist beim Brandschutz einer hinterlüfteten Holzfassade in
+      Gebäudeklasse 4 zu beachten?
+    family: OIB-RL 2
+    punkt: "3.5"
+    kind: walkthrough
+
+  - id: was-weisst-du-ueber-oib-2
+    question: Was weißt du über die OIB-Richtlinie 2?
+    family: OIB-RL 2
+    punkt: null
+    kind: walkthrough
+
+  - id: tiefgarage-entrauchung
+    question: >-
+      Brauchen wir für die Tiefgarage mit 30 Stellplätzen eine mechanische
+      Entrauchung?
+    family: OIB-RL 2.2
+    punkt: null
+    kind: ruling
+
+  - id: betriebsbau-brandschutz
+    question: >-
+      Wir bauen eine Produktionshalle mit rund 1.800 m² Grundfläche. Welche
+      Brandschutzanforderungen kommen da auf uns zu?
+    family: OIB-RL 2.1
+    punkt: null
+    kind: walkthrough
+
+  - id: hochhaus-ab-22m
+    question: >-
+      Ab welchem Fluchtniveau gilt unser Gebäude als Hochhaus, und was ändert
+      sich dann?
+    family: OIB-RL 2.3
+    punkt: null
+    kind: ruling
+
+  - id: treppenbreite-wohnbau
+    question: >-
+      Welche nutzbare Durchgangsbreite muss die notwendige Treppe in einem
+      Wohngebäude mit zwölf Wohnungen haben?
+    family: OIB-RL 4
+    punkt: "2.4"
+    kind: ruling
+
+  - id: absturzsicherung-gelaender
+    question: >-
+      Ab welcher Absturzhöhe brauchen wir eine Absturzsicherung, und wie hoch
+      muss sie sein?
+    family: OIB-RL 4
+    punkt: "4"
+    kind: ruling
+
+  - id: barrierefrei-wohngebaeude
+    question: >-
+      Was fordert die OIB 4 zur barrierefreien Gestaltung bei einem
+      Wohngebäude mit acht Wohnungen?
+    family: OIB-RL 4
+    punkt: "7.4"
+    kind: walkthrough
+
+  - id: belichtung-aufenthaltsraum
+    question: >-
+      Wie groß muss die Fensterfläche eines Aufenthaltsraums für die
+      Belichtung mindestens sein?
+    family: OIB-RL 3
+    punkt: "9.1"
+    kind: ruling
+
+  - id: feuchtigkeit-erdberuehrt
+    question: >-
+      Wie ist der Schutz vor Feuchtigkeit aus dem Boden bei erdberührten
+      Bauteilen geregelt?
+    family: OIB-RL 3
+    punkt: "6.1"
+    kind: walkthrough
+
+  - id: uwert-aussenwand-neubau
+    question: Welchen U-Wert muss die Außenwand im Neubau einhalten?
+    family: OIB-RL 6
+    punkt: "4.4"
+    kind: ruling
+
+  - id: sommerlicher-waermeschutz
+    question: >-
+      Wie weisen wir den sommerlichen Wärmeschutz für die Südfassade mit
+      großen Verglasungen nach?
+    family: OIB-RL 6
+    punkt: "4.9"
+    kind: walkthrough
+
+  - id: schallschutz-zwischen-wohnungen
+    question: >-
+      Welcher Luftschallschutz ist zwischen zwei Wohnungen im selben Gebäude
+      gefordert?
+    family: OIB-RL 5
+    punkt: "2.3"
+    kind: ruling
+
+  - id: tragwerk-einwirkungen
+    question: >-
+      Welche Einwirkungen müssen wir für das Tragwerk eines Wohnhauses
+      ansetzen, und worauf stützt sich das?
+    family: OIB-RL 1
+    punkt: "2.2"
+    kind: walkthrough
+
+  - id: einreichung-wien-unterlagen
+    question: >-
+      Welche Unterlagen verlangt die Baubehörde in Wien für die Einreichung
+      eines Wohnhauses?
+    family: Bauordnung
+    punkt: null
+    kind: walkthrough
+
+  - id: ordner-brandschutz-listing
+    question: Was liegt eigentlich alles in unserem Ordner Brandschutz?
+    family: null
+    punkt: null
+    kind: direct

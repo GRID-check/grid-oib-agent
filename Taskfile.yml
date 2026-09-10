@@ -430,6 +430,23 @@ tasks:
       # this when AIQ_EMBED_MODEL, data/oib or the golden questions change.
       - '{{.PY}} -m oib_retrieval_eval.record_vector'
 
+  be:eval:loop:
+    desc: 'Agentic-loop shape eval — rounds, locator use, checkpoint source, truncation (NEEDS a running backend with the corpus; set GRID_LOOP_EVAL_URL)'
+    cmds:
+      # Sibling of be:eval:retrieval and unrunnable in CI for the same reason:
+      # the corpus is operator-provided and gitignored, and every question here
+      # costs real model calls. What it measures is the SHAPE of a turn, not
+      # whether the right passage came back — that is be:eval:retrieval's job.
+      #
+      # Two runs and a diff:
+      #   GRID_LOOP_EVAL_URL=… task be:eval:loop -- --out /tmp/before.csv
+      #   …change the loop, redeploy…
+      #   GRID_LOOP_EVAL_URL=… task be:eval:loop -- --out /tmp/after.csv
+      #   task be:eval:loop -- --compare /tmp/before.csv /tmp/after.csv
+      # The compare mode needs no backend at all. Without a URL the run exits 2
+      # saying so rather than writing an empty CSV somebody later compares.
+      - '{{.PY}} scripts/loop_eval.py {{.CLI_ARGS}}'
+
   be:eval:turn-shapes:
     desc: ADR-0052 turn-shape eval against the live researcher model (needs OPENROUTER_API_KEY; skips without it)
     cmds:

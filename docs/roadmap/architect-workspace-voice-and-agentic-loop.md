@@ -4,6 +4,34 @@
 > voice, chrome, docs) and the Herleitung checkpoint (Thought as spine body,
 > never the search query) now live on `research/architect-workspace-voice`.
 > Isolated worktree: `.worktrees/architect-workspace-voice`.
+>
+> **Second landing.** The first one made a second retrieval round *permitted*
+> (§3: the "at most 2 calls" cap and "commit to your approach" are gone).
+> Permitted is not precise, and four changes make it so:
+>
+> 1. **A locator, so the second round is a lookup.** `read_passage(document,
+>    punkt|page)` opens the passage a conclusion named — deterministic, no
+>    reranker, no requery, no LLM — in the same grounding block
+>    `knowledge_search` returns. Before it, the only way to reach a named Punkt
+>    was to search for it again.
+> 2. **A checkpoint the model cannot skip.** Both retrieval tools declare a
+>    `conclusion` argument; `emit_retrieval` prefers it over prose beside the
+>    calls, and `status:checkpoint:N` records which channel it came from
+>    (`argument` / `prose` / `none`). §3's "function calling bypasses explicit
+>    intermediate reasoning" is exactly why prose alone was not enough.
+> 3. **A round-zero fan-out cap.** The first fetch round runs two searches; the
+>    rest are answered with the reason and not charged. §9's warning that
+>    checkpoints must not steal the traced floors' calls, applied to the greedy
+>    parallel batch §3 identified as the real spender.
+> 4. **A before-and-after set.** `tests/fixtures/herleitung/loop_eval_questions.yaml`
+>    plus `scripts/loop_eval.py` (`task be:eval:loop`) measure rounds, locator
+>    use, checkpoint source, cited-Punkt match and truncation. §8's "what done
+>    would look like" as a number rather than a description.
+>
+> What is still open from §5's layer map: the Herleitung is drawn as a spine of
+> checkpoints, but the sources still hang off the round rather than off a
+> checkpoint the reader can fold, and requery/repair are still invisible to the
+> model that would react to them.
 > **Method.** Read the live system prompt, the answer envelope, the shallow ReAct loop, the Herleitung graph, and the production config. Cross-checked against the 2026-09-01 workspace architecture review, ADRs 0051–0052, and current industry writing on agentic RAG, coding agents, legal AI, and AEC clouds.
 
 **What “Harvey for architects” means here.** Harvey is a workspace for lawyers, not a statute chatbot. Piloti is a workspace for architects, not an OIB chatbot. Questions are about the work — files, drawings, the model, how to organise, what to tell a colleague. Answers are *grounded* in whichever of these actually bears: the project’s files, the office archive, and the Austrian building-regulation corpus. Not every question is a legal question. A ruling is only when there is a copyable legal value. Treating “workspace for architects” as “every answer is about law” is the same colocation this report is trying to kill.
