@@ -11,7 +11,33 @@
  * second's, and the conversation charged for both.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { PutObjectCommand } from '@aws-sdk/client-s3'
+import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
+
+/**
+ * `document_versions` is not this suite's subject (ADR-0054). The upload path
+ * records a version through the lifecycle; here that reduces to "it was asked
+ * for", and the version table's own behaviour is `lifecycle.spec.ts`'s.
+ */
+vi.mock('@/lib/documents/version-repository', () => ({
+  DOCUMENT_VERSION_LIST_LIMIT: 200,
+  insertDocumentVersion: vi.fn(async (values: Record<string, unknown>) => ({
+    id: 'version_1',
+    state: 'published',
+    versionNumber: 1,
+    ...values,
+  })),
+  listDocumentVersions: vi.fn().mockResolvedValue([]),
+  findDocumentVersion: vi.fn().mockResolvedValue(null),
+  findPublishedVersion: vi.fn().mockResolvedValue(null),
+  findOpenVersion: vi.fn().mockResolvedValue(null),
+  // 2: the only caller asks for it on the REPLACE path, where the next version
+  // is by definition not the first.
+  nextVersionNumber: vi.fn().mockResolvedValue(2),
+  compareAndSwapVersionState: vi.fn().mockResolvedValue(null),
+  promoteVersionToPublished: vi.fn().mockResolvedValue(null),
+  setDocumentLifecycle: vi.fn(),
+  listDocumentVersionObjects: vi.fn().mockResolvedValue([]),
+}))
 
 vi.mock('server-only', () => ({}))
 
@@ -51,10 +77,12 @@ vi.mock('@/lib/storage/admission', () => ({
 }))
 vi.mock('@/lib/documents/repository', () => ({
   findLiveDocumentByFilename: vi.fn(),
+  // Read back by `recordUploadedVersion` (ADR-0054); see the Archiv suite for
+  // why null is the honest default.
+  findDocumentInOrg: vi.fn().mockResolvedValue(null),
 }))
 vi.mock('@/lib/documents/object-cleanup', () => ({
   deleteDocumentObjects: vi.fn(),
-  discardSupersededObjects: vi.fn(),
 }))
 vi.mock('./cleanup', () => ({ purgeCollectionChunks: vi.fn() }))
 vi.mock('./repository', () => ({
@@ -67,7 +95,6 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { dispatchDocument } from '@/lib/documents/service'
 import { findLiveDocumentByFilename } from '@/lib/documents/repository'
-import { discardSupersededObjects } from '@/lib/documents/object-cleanup'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { uploadSessionDocument } from './service'
 
@@ -119,12 +146,22 @@ describe('uploadSessionDocument, a file already attached under that name', () =>
     expect(vi.mocked(admitReplacementOrDiscard).mock.calls.at(-1)?.[3]).toBe('doc-existing')
   })
 
-  it('writes the new bytes onto the old key, then discards the stale derivatives', async () => {
+  /**
+   * Since ADR-0054 a re-upload is a new VERSION, so it writes to a new key and
+   * the previous bytes stay where the previous version's row says they are. The
+   * old expectation — new bytes on the old key, then discard the derivatives —
+   * described exactly the behaviour that made a version history impossible.
+   */
+  it('writes the new bytes under a v2 key and leaves the previous object alone', async () => {
     await uploadSessionDocument(session, { conversationId: CONVERSATION_ID, file: file() }, new Request('http://x'))
 
     const put = s3Send.mock.calls.find((call) => call[0] instanceof PutObjectCommand)?.[0] as PutObjectCommand
-    expect(put.input.Key).toBe(existing.storageKey)
-    expect(discardSupersededObjects).toHaveBeenCalledWith(existing, existing.storageKey, 'session-documents')
+    expect(put.input.Key).not.toBe(existing.storageKey)
+    expect(put.input.Key).toContain('/v2/')
+    const deleted = s3Send.mock.calls
+      .map((call) => call[0])
+      .filter((command) => command instanceof DeleteObjectCommand)
+    expect(deleted).toEqual([])
   })
 
   it('re-dispatches under the kept id and records the replacement', async () => {
@@ -152,6 +189,5 @@ describe('uploadSessionDocument, a genuinely new file', () => {
       expect.objectContaining({ id: 'doc-fresh', scope: 'session', conversationId: CONVERSATION_ID }),
     )
     expect(admitReplacementOrDiscard).not.toHaveBeenCalled()
-    expect(discardSupersededObjects).not.toHaveBeenCalled()
   })
 })

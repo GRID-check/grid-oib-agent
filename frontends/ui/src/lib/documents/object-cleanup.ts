@@ -178,30 +178,3 @@ export async function deleteDocumentObjects(doc: StoredObjectRef): Promise<Exter
 
   return deleteDerivedObjects(doc)
 }
-
-/**
- * What a re-upload under a kept id owes the object store, done best-effort.
- *
- * The row is already correct by the time this runs, so a leaked object is the
- * wrong reason to fail the request; the failure goes to the operator's log
- * instead. The file is removed only when the new bytes did NOT land on top of
- * it — the key is derived from the id, which is preserved, but a project
- * re-upload into a different folder builds a different path — and the
- * derivatives are removed either way, because they describe the old bytes.
- */
-export async function discardSupersededObjects(
-  superseded: StoredObjectRef,
-  currentStorageKey: string,
-  shelf: string,
-): Promise<void> {
-  const result =
-    superseded.storageKey === currentStorageKey
-      ? await deleteDerivedObjects(superseded)
-      : await deleteDocumentObjects(superseded)
-  if (!result.ok) {
-    console.error(`[${shelf}] failed to remove the superseded objects`, {
-      storageKey: superseded.storageKey,
-      reason: result.reason,
-    })
-  }
-}

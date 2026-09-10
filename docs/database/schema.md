@@ -249,6 +249,74 @@ The three `authored_by` partial indexes above live **only in the migration** —
 - `documents_session_requires_conversation` — the scope partition: a `session` row has a conversation, nothing else does, and a `session` row has no project (migration `0049`)
 - `documents_authorship_requires_provenance` — `authored_by = 'user' OR (authored_by_producer IS NOT NULL AND authored_by_ref IS NOT NULL AND authored_by_ref_kind IS NOT NULL)`. A document no person wrote can always say what wrote it, which one, and what kind of identifier that is; one that cannot is an audit trail in appearance only. The third conjunct is migration `0066`'s: the first two were satisfiable by a row whose reference nobody could resolve, because the column's name asserted a job id over a value that was not one. Written against `<> 'user'` rather than against `agent` so a member added to `DOCUMENT_AUTHORS` arrives already constrained instead of arriving as a hole nothing notices (migration `0063`). One-directional: a `user` row carrying all three is legal.
 
+- `documents_lifecycle_known` — `lifecycle IN ('active', 'archived')` (migration `0082`). A CHECK where `scope` and `status` deliberately have none, because this column gates a LISTING: a third value nothing knows how to render would silently hide documents, and that looks like data loss to the person whose file vanished.
+
+**Version pointer (migration `0082`, ADR-0054):** `published_version_id` names the `document_versions` row whose bytes the storage columns above mirror, through a composite foreign key on `(published_version_id, id)` → `document_versions (id, document_id)` — so a document can only ever point at a version OF ITSELF. `ON DELETE SET NULL`: discarding a version must not take the item with it. The constraint lives only in the migration, because declaring it in drizzle would make `documents.ts` and `document-versions.ts` import each other.
+
+---
+
+## document_versions (migration 0082, ADR-0054)
+
+One row per set of bytes a document has ever had, plus the one fact the item
+could not carry: **whether anybody has asserted the content**.
+
+It is not an agent-only structure. Re-uploading a file under a name a collection
+already holds has replaced the document in place since migration `0074` — the
+same id, so citations, chat subjects and folder placements survive — and then
+threw the previous bytes away. That was versioning without the history. Now:
+
+| Who | What happens |
+|---|---|
+| a person uploads a file | version 1, `published`, born approved (`approved_by = published_by = created_by`) — the person who uploaded it IS the assertion, and no review round is invented |
+| a person re-uploads the same name | version N+1, `published`; version N becomes `superseded` and **keeps its object**, under the `v<n>/` storage prefix it was written to |
+| Piloti files a document | version 1, `draft`, which walks `draft → in_review → approved → published` and can be sent back with `changes_requested` or `rejected` |
+
+`documents.published_version_id` points at the live version and the item's
+`storage_key` / `storage_bucket` / `file_size` / `content_type` / `content_hash`
+mirror it, which is what makes every existing reader — preview, download,
+thumbnail, ingest, the quota ledger — work unchanged.
+
+**Columns:** `id`, `organization_id`, `document_id` + `project_id` (composite FK
+to `documents (id, project_id)`, the `documents_folder_id_project_id_fkey`
+shape; `project_id` is NULL for the Archiv and session shelves, where MATCH
+SIMPLE skips the check), `version_number`, `state`, `storage_key`,
+`storage_bucket`, `content_type`, `file_size`, `content_hash`,
+`submitted_by`/`_at`, `reviewed_by`/`_at`, `approved_by`/`_at`,
+`published_by`/`_at`, `review_comment`, `created_by`, `created_at`,
+`updated_at`.
+
+**Constraints — the ratchet, not decoration:**
+
+- `document_versions_state_known` — `draft | in_review | changes_requested | approved | published | superseded | rejected`, generated from `DOCUMENT_VERSION_STATES` so the tuple and the CHECK cannot drift.
+- `document_versions_review_complete` — `(reviewed_by IS NULL) = (reviewed_at IS NULL)`. Copied from `tasks_review_complete` (migration `0075`): a decision is by somebody, at some time, or it is not a decision.
+- `document_versions_published_is_approved` — `state <> 'published' OR (approved_by IS NOT NULL AND approved_at IS NOT NULL)`. **The publish door.** Only a published version is ever dispatched to the retrieval index, so this makes "indexed ⟹ approved by a person" a row invariant rather than a predicate in a fail-open retrieval path.
+- `document_versions_refusal_has_comment` — `state NOT IN ('changes_requested', 'rejected') OR review_comment IS NOT NULL`. A refusal with nothing in it is a decision the next attempt cannot act on.
+
+**Indexes:** `idx_document_versions_document (document_id, version_number)`,
+`idx_document_versions_organization_id`, and two PARTIAL unique indexes that
+live only in the migration (with `COMMENT ON INDEX`, because the next person to
+meet one meets it as a constraint violation in a log line):
+`uniq_document_versions_open_per_document` — at most one `draft`/`in_review`/
+`changes_requested` version per document, so two chat turns cannot fork one file
+into two live drafts — and `uniq_document_versions_published_per_document`.
+
+The second one is why publishing is ONE transaction
+(`promoteVersionToPublished`): "two published versions of one document" is
+unrepresentable, so the previous version must already have been superseded at
+the instant the new one becomes published, and a supersede that then lost the
+compare-and-swap race would leave the document with no published version at all.
+
+**Bytes:** a superseded version keeps its object. They are purged when the
+document is deleted — `deleteDocument`, `deleteArchivDocument` and
+`deleteSessionDocument` each walk every version — and not when one is replaced.
+The consequence is stated rather than hidden: superseded versions stay charged
+against the organization's storage quota, because they exist. A per-organization
+retention policy is a later row on a later table.
+
+**RLS:** tenant table, secured the way `tasks` is, widened by a NULL arm for the
+two shelves with no project. Listed in `rls-coverage.spec.ts`
+`BOUNDARY_MIGRATIONS`.
+
 ---
 
 ## project_folders
@@ -761,7 +829,7 @@ omits it to collapse.
 | `id` | `uuid` | PK, `defaultRandom()` | |
 | `organization_id` | `text` | NOT NULL | A user in two orgs has two inboxes; counts never mix |
 | `recipient_user_id` | `text` | NOT NULL | WorkOS user this is FOR |
-| `type` | `text` | NOT NULL | `mention.requested` \| `mention.answered` \| `conversation.shared_with_you` \| `conversation.activity` |
+| `type` | `text` | NOT NULL | The item kind. **The list lives in `INBOX_ITEM_TYPES` (`frontends/ui/src/lib/db/schema/inbox.ts`) and is exhaustive over two registries by construction**, so it is not restated here — this row said four types long after there were eight. Today: the four collaboration ones, `storage.quota_warning`, `document.assigned_to_you`, `job.completed` / `job.failed`, and `document.review_requested` (ADR-0054, actionable). |
 | `resource_type` / `resource_id` | `text` | NOT NULL | What it points AT — resolved through the sharing registry |
 | `anchor_id` | `text` | | Exact spot inside the resource (a message id), for a deep link |
 | `actor_user_id` | `text` | | Who caused it; NULL for system items |

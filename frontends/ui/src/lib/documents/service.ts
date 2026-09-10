@@ -26,8 +26,6 @@ import {
 } from '@/lib/s3'
 import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { canManageArchiv } from '@/lib/authz/organizations'
-import { requireResourceAccess } from '@/lib/sharing/access'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
@@ -84,7 +82,10 @@ import {
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
 import { deleteBimDerivedObjects, runBimExtraction } from '@/lib/bim/service'
-import { discardSupersededObjects } from './object-cleanup'
+import { getAccessibleDocument } from './access'
+import { nextVersionNumber, recordUploadedVersion, versionedStorageKey } from './lifecycle'
+import { listDocumentVersionObjects } from './version-repository'
+import { deleteDocumentObjects } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
 import {
   INLINE_PREVIEW_CONTENT_TYPES,
@@ -188,86 +189,6 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
   return `${type}; filename="${asciiFallback}"; filename*=UTF-8''${encodeRfc5987(filename)}`
 }
 
-/**
- * Load a document (org-scoped in SQL) and enforce the access its OWN shelf
- * calls for, so the SAME item routes (download/preview/status/reingest/tags)
- * serve all three shelves:
- *
- *   - `project` → per-project FGA via `requireProjectAccess`.
- *   - `archiv`  → org-wide: any member reads, writes need `org:archiv:manage`.
- *   - `session` → as private as the chat it hangs off: `viewer` to read,
- *     `collaborator` to write, resolved on the conversation (ADR-0032).
- *
- * ## Why this switches on `scope` and not on `projectId`
- *
- * It used to read `doc.scope === 'archiv' || doc.projectId === null`, which was
- * correct while a null project could only mean the Archiv. A session document
- * also has a null project (ADR-0047 Phase 2), so that disjunction would have
- * handed every private chat attachment to the Archiv branch — where any member
- * of the organization may read it. The upload is private; the download would
- * not have been. A `switch` over the scope union is exhaustive, so a fourth
- * shelf cannot fall through to somebody else's rule: it fails to compile.
- *
- * Cross-tenant and no-access lookups both surface as 404. The `intent` maps to
- * `project:view` for reads and `project:documents:write` (accepting the legacy
- * `project:edit` umbrella) for writes — ADR-0038.
- */
-async function getAccessibleDocument(
-  session: AuthorizedSession,
-  documentId: string,
-  intent: 'read' | 'write' = 'read'
-): Promise<Document> {
-  const doc = await findDocumentInOrg(documentId, session.organizationId)
-  if (!doc) throw new NotFoundError()
-
-  switch (doc.scope) {
-    case 'archiv': {
-      // Org-scoped: findDocumentInOrg already confirmed the row belongs to the
-      // caller's org (so any member may read it). Only mutations need the
-      // manage permission.
-      if (intent === 'write' && !canManageArchiv(session)) throw new ForbiddenError()
-      return doc
-    }
-    case 'session': {
-      // A row that contradicts `documents_session_requires_conversation`
-      // (migration 0049) is not something to guess about — it is unattributable,
-      // so it is not found.
-      if (!doc.conversationId) throw new NotFoundError()
-      await requireResourceAccess(
-        session,
-        'conversation',
-        doc.conversationId,
-        intent === 'write' ? 'collaborator' : 'viewer'
-      )
-      return doc
-    }
-    case 'project': {
-      // A `project` row with no project is a corrupt row, not an org-wide one.
-      // The old disjunction quietly re-read it as an Archiv document and handed
-      // it to every member; there is nothing to authorize against, so it is not
-      // found.
-      if (doc.projectId === null) throw new NotFoundError()
-      await requireProjectAccess(
-        session,
-        doc.projectId,
-        intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view'
-      )
-      return doc
-    }
-    default: {
-      // Two jobs. At COMPILE time the `never` annotation is the exhaustiveness
-      // check ADR-0047 decision 3 asks for: add a shelf to `DocumentScope` and
-      // this line stops type-checking until it has a rule here. At RUN time it
-      // catches what the type cannot — `scope` is a plain `text` column, so a
-      // row can hold a value no version of this code knows. There is no
-      // authorization rule to apply to such a row, and defaulting to another
-      // shelf's is how a private document becomes an org-wide one.
-      const unhandledScope: never = doc.scope
-      void unhandledScope
-      throw new NotFoundError()
-    }
-  }
-}
 
 /**
  * Dispatch a document to the backend ingest API and persist the outcome. The
@@ -810,12 +731,23 @@ export async function uploadDocument(
     filename
   )
   const documentId = superseded?.id ?? crypto.randomUUID()
-  const storageKey = buildStorageKey(
-    session.organizationId,
-    projectId,
-    documentId,
-    filename,
-    folderPath
+  /*
+   * A re-upload writes NEW bytes, so it needs a NEW key (ADR-0054).
+   *
+   * The id is deliberately kept — that is what makes citations, chat subjects
+   * and folder assignments survive a corrected plan — but the key used to be
+   * derived from the id alone, so the new bytes landed on top of the old ones
+   * and `discardSupersededObjects` tidied up what was left. That is versioning
+   * without the history. Version 1 keeps today's key exactly, so nothing that
+   * predates this moves; version N lands under `v<n>/`, and the previous
+   * version's row still names an object a reader can open.
+   */
+  const versionNumber = superseded
+    ? await nextVersionNumber(documentId, session.organizationId)
+    : 1
+  const storageKey = versionedStorageKey(
+    buildStorageKey(session.organizationId, projectId, documentId, filename, folderPath),
+    versionNumber
   )
 
   // Create the organization's bucket if this is its first upload (ADR-0043).
@@ -906,12 +838,11 @@ export async function uploadDocument(
       folderId: folderId ?? null,
       createdBy: session.userId,
     })
-    // The old object when the new bytes did not land on top of it (a re-upload
-    // into a DIFFERENT folder builds a different path), and the old thumbnail
-    // and `_bim/` derivatives either way — they describe the bytes that were
-    // just replaced. Best-effort: the row is already correct, and failing the
-    // request over a leaked object would be the wrong trade.
-    await discardSupersededObjects(superseded, storageKey, 'documents')
+    // NOTHING is discarded here any more. The previous bytes are the previous
+    // VERSION's bytes now (ADR-0054), and a superseded version whose object was
+    // deleted is a row in the history that opens nothing. They go when the
+    // document is deleted — `deleteDocument` walks every version — or when a
+    // retention policy that does not exist yet says so.
   } else {
     await admitOrDiscard(storageBucket, storageKey, {
       id: documentId,
@@ -932,6 +863,13 @@ export async function uploadDocument(
       status: 'uploaded',
     })
   }
+
+  // The version, recorded through the SAME transition table the agent's drafts
+  // walk (ADR-0054). Born `published` and born approved: the person who
+  // uploaded it is the assertion, so the `published requires an approver` CHECK
+  // is satisfied honestly rather than worked around, and no review round is
+  // invented for a gesture that never asked for one.
+  await recordUploadedVersion(session, documentId, request)
 
   const { jobId: ingestJobId, status: ingestStatus } = await dispatchDocument({
     organizationId: session.organizationId,
@@ -1542,6 +1480,21 @@ export async function deleteDocument(
   const chunksPurged = purgeRef
     ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
     : null
+
+  /*
+   * Every VERSION's objects, not only the live one (ADR-0054).
+   *
+   * A document used to have one set of bytes, so one delete erased it. With a
+   * history it has several, each under its own `v<n>/` prefix, and a delete that
+   * removed only the published version would leave every superseded one in the
+   * bucket: invisible to the UI, still charged to the organization, and readable
+   * by anyone who can presign a key. Best-effort per version, for the reason the
+   * live-object delete below is: the row delete is the record of intent.
+   */
+  for (const version of await listDocumentVersionObjects(documentId, session.organizationId)) {
+    if (version.storageKey === doc.storageKey) continue
+    await deleteDocumentObjects(version).catch(() => undefined)
+  }
 
   if (doc.storageKey) {
     try {

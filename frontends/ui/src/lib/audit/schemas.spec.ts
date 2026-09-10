@@ -57,6 +57,7 @@ import { describe, expect, it } from 'vitest'
 
 import { AUDIT_ACTIONS, AUDIT_SCHEMAS } from './schemas.mjs'
 import { AUTHORED_REF_KINDS } from '@/lib/documents/document-authors'
+import { DOCUMENT_VERSION_TRANSITIONS } from '@/lib/documents/lifecycle-types'
 
 /** `src/`, from this file's own location rather than from the process cwd. */
 const SOURCE_ROOT = fileURLToPath(new URL('../..', import.meta.url))
@@ -86,8 +87,22 @@ function sourceFiles(directory: string): string[] {
  * rather than a second reading of the registry — which is the whole point, and
  * the reason the test below is no longer a set compared with itself.
  */
-const EMITTED_ACTIONS: ReadonlySet<string> = new Set(
-  sourceFiles(SOURCE_ROOT)
+const EMITTED_ACTIONS: ReadonlySet<string> = new Set([
+  /*
+   * The document lifecycle emits through a TABLE, not a literal (ADR-0054):
+   * `lifecycle.ts` passes `action: transition.auditAction`, and the literals
+   * live one module away in the transition rows. The scan below reads call
+   * sites, so those six actions would look like orphans.
+   *
+   * Reading the table is still evidence about the app rather than a second
+   * reading of the registry — which is the distinction this file's history is
+   * about. `tsc` confines every row's `auditAction` to the same union
+   * `recordAuditEvent` accepts, and the effects registry hands exactly that
+   * field to the emitter, so a row here IS a call site's argument. Adding a
+   * transition with an unregistered action still fails, on the line above.
+   */
+  ...DOCUMENT_VERSION_TRANSITIONS.map((row) => row.auditAction),
+  ...sourceFiles(SOURCE_ROOT)
     .map((path) => readFileSync(path, 'utf8'))
     .filter((text) => text.includes('recordAuditEvent'))
     .flatMap((text) =>
@@ -101,7 +116,7 @@ const EMITTED_ACTIONS: ReadonlySet<string> = new Set(
         ([, expression]) => [...expression.matchAll(/'([a-z_.]+)'/g)].map(([, action]) => action),
       ),
     ),
-)
+])
 
 type AuditAction = keyof typeof AUDIT_SCHEMAS
 

@@ -117,6 +117,8 @@ Consequences, where a reader looks for them.
 | [0051](0051-tasks-are-the-durable-unit-of-delegated-work.md) | A task row is the durable unit of delegated work: pinned requester, lifecycle and review, filing at completion | Accepted |
 | [0052](0052-one-answering-agent-no-intent-router.md) | One answering agent per turn, no intent router in front of it | Accepted |
 | [0053](0053-credits-price-list-and-usd-cost.md) | Tenants see credits, the platform sees USD as charged, and a margin multiplier sits between them | Accepted |
+| [0054](0054-document-versions-and-the-publish-door.md) | A document has versions, and only a person opens the publish door | Accepted |
+| [0055](0055-api-first-workspace-primitives.md) | A workspace primitive is an HTTP route with a typed client, and every consumer is a client of it | Accepted |
 
 > Note: two ADRs were independently numbered 0027, two more 0039, and two more
 > 0047. Each collision is recorded rather than renumbered so existing links

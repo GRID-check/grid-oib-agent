@@ -164,6 +164,11 @@ unread? Then it is correlated.
 [`docs/architecture/adding-a-shareable-resource-type.md`](docs/architecture/adding-a-shareable-resource-type.md)
 holds the register.
 
+**A workspace primitive is one HTTP API with a typed client** (ADR-0055). The
+UI, the agent's tools, tasks and any later integration are equal clients of it;
+no service function is reached from a second path, and no contract is written
+twice. [`docs/adr/0055-api-first-workspace-primitives.md`](docs/adr/0055-api-first-workspace-primitives.md).
+
 ## Scope
 
 Fix errors you meet, including ones that pre-date your change. "It was already

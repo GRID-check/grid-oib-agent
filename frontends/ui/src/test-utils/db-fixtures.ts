@@ -112,6 +112,11 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   originPath: null,
   contentHash: null,
   status: 'completed',
+  // Nothing published, and `active`, which is what a row written before
+  // migration 0082 means and what the backfill then gives it. A test that cares
+  // about the lifecycle sets both explicitly.
+  publishedVersionId: null,
+  lifecycle: 'active',
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-02T00:00:00Z'),
   errorMessage: null,

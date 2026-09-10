@@ -32,6 +32,17 @@ does not exist, so a moved file is caught; a missing row is not.
 | Folders as a materialised path | `frontends/ui/src/lib/db/schema/project-folders.ts` | [`docs/database/schema.md`](../database/schema.md) | ADR-0049 |
 | Roles on a document | `frontends/ui/src/lib/db/schema/document-roles.ts` | [`document-roles.md`](document-roles.md) | ADR-0032 |
 | Diagram filing | `frontends/ui/src/lib/diagrams/filing.ts` | [`diagrams.md`](diagrams.md) | — |
+| Version states and the transition table | `frontends/ui/src/lib/documents/lifecycle-types.ts` — `DOCUMENT_VERSION_TRANSITIONS` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | ADR-0054 |
+| The one place a version changes state | `frontends/ui/src/lib/documents/lifecycle.ts` — `transitionDocumentVersion` | same | ADR-0054, ADR-0055 |
+| Version rows and the atomic publish | `frontends/ui/src/lib/documents/version-repository.ts` — `promoteVersionToPublished` | [`docs/database/schema.md`](../database/schema.md) | ADR-0054 |
+| Version table | `frontends/ui/src/lib/db/schema/document-versions.ts` | [`docs/database/schema.md`](../database/schema.md) | ADR-0054 |
+| The lifecycle's typed client (every consumer is one) | `frontends/ui/src/lib/documents/lifecycle-client.ts` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0055 |
+| The lifecycle contract, for the Python tier | `frontends/ui/src/lib/documents/lifecycle-schema.ts`; artifact at `frontends/ui/tests/fixtures/document-lifecycle.schema.json` | same | ADR-0055 |
+| A Markdown document a chat turn wrote | `frontends/ui/src/lib/documents/agent-document.ts` — `fileAgentDocumentDraft` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | ADR-0054 |
+| Which shelf's permission a document item needs | `frontends/ui/src/lib/documents/access.ts` — `getAccessibleDocument` | [`docs/technical-reference/projects-access-control.md`](../technical-reference/projects-access-control.md) | ADR-0038, ADR-0047 |
+| The chat working directory (per-conversation drafts) | `src/aiq_agent/tools/documents/draft_store.py` — `DraftBackend`, `get_draft_backend` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | — |
+| The four file verbs bound to a chat turn | `src/aiq_agent/tools/documents/tools.py` — `draft_tools_for_turn` | same | — |
+| The card a written draft leaves | `src/aiq_agent/tools/documents/cards.py` — `emit_draft_card`; model in `src/aiq_agent/cards/models.py` — `DocumentDraftCard` | [`cards.md`](cards.md) | ADR-0012 |
 
 ## Shelves, session files, storage
 
@@ -78,6 +89,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | Row-level security | `frontends/ui/src/lib/db/tenant-context.ts`; coverage in `frontends/ui/src/lib/db/rls-coverage.spec.ts` | [`docs/database/row-level-security.md`](../database/row-level-security.md) | ADR-0041 |
 | Session and sign-in | `frontends/ui/src/lib/auth` | [`docs/technical-reference/authentication-flow.md`](../technical-reference/authentication-flow.md) | ADR-0002, ADR-0007 |
 | Pinned requester session (a job acts as the human who scheduled it) | `frontends/ui/src/lib/auth/pinned-session.ts` — `resolvePinnedRequesterSession` | [`usage-budgets.md`](usage-budgets.md) | ADR-0023 |
+| Verifying the signed request envelope in the BFF | `frontends/ui/src/lib/request-context.ts` — `verifyGridRequestContextEnvelope` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0054 |
 
 ## Delegated work
 

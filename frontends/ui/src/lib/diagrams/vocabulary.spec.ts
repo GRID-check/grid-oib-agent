@@ -52,12 +52,21 @@ describe('the diagram source vocabulary', () => {
 })
 
 describe('the producer tuple grew, and grew by two', () => {
-  it('carries the diagram producers beside the first one', () => {
+  it('carries the diagram producers beside the first one, as TWO members', () => {
     // A producer is a KIND OF DELIVERABLE. The SVG and the PDF are two files a
     // reader uses for two different things, and since migration 0065 the
     // producer is half the idempotency key — so one `diagram` member would make
     // a diagram file one artifact or the other and never both.
-    expect([...GENERATED_DOCUMENT_PRODUCERS]).toEqual(['deep_research', 'diagram_svg', 'diagram_pdf'])
+    //
+    // Asserted as membership rather than as the whole tuple. The tuple is
+    // OPEN by design — `agent_document` joined it with ADR-0054 — and a list
+    // pinned here would make every later producer fail a spec about diagrams,
+    // which is a spec failing for a reason it is not about. What this file is
+    // about is that the two diagram members exist separately and that neither
+    // was ever collapsed into one.
+    expect([...GENERATED_DOCUMENT_PRODUCERS]).toContain('diagram_svg')
+    expect([...GENERATED_DOCUMENT_PRODUCERS]).toContain('diagram_pdf')
+    expect([...GENERATED_DOCUMENT_PRODUCERS]).not.toContain('diagram')
   })
 
   it('did not disturb the producer that was already there', () => {

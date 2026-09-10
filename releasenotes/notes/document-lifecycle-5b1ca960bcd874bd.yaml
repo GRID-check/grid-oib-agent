@@ -1,0 +1,40 @@
+---
+features:
+  - >
+    Jede Datei hat jetzt eine Fassungsgeschichte. Wer eine korrigierte Datei
+    unter demselben Namen erneut hochlädt, ersetzt sie wie bisher — die alte
+    Fassung bleibt aber erhalten und lässt sich öffnen, statt gelöscht zu
+    werden. Die Liste der Fassungen zeigt, wer wann welche Fassung eingestellt
+    hat.
+  - >
+    Eine Fassung kann zur Freigabe eingereicht werden. Die geprüfte Person
+    bekommt einen Eintrag im Postfach, kann freigeben, Änderungen anfordern oder
+    ablehnen — die beiden Absagen verlangen eine Begründung, damit die nächste
+    Fassung weiß, worum es geht. Wer eine Fassung eingereicht hat, kann sie
+    nicht selbst freigeben.
+  - >
+    Freigeben und Veröffentlichen sind zwei Schritte. Ein Befund kann am
+    Dienstag freigegeben und am Freitag mit der Einreichung veröffentlicht
+    werden; veröffentlicht ist immer genau eine Fassung, und die vorige gilt
+    ab dann als ersetzt.
+  - >
+    „Zuweisen" bleibt, was es war: wer für eine Datei verantwortlich ist. Die
+    Freigabe ist eine Aussage über den Inhalt, nicht über die Zuständigkeit —
+    eine Datei kann Annas sein und noch nicht freigegeben, und umgekehrt.
+  - >
+    Dokumente lassen sich archivieren. Sie verschwinden aus den Listen, die
+    Dateien und alle Fassungen bleiben erhalten; das ist kein Löschen.
+upgrade:
+  - >
+    Die Datenbankmigration legt für jedes bestehende Dokument eine erste,
+    veröffentlichte Fassung an — auch für die Berichte, die Piloti erstellt hat.
+    Nichts landet dadurch in einer Prüfschlange: was abgelegt ist, gilt
+    weiterhin als abgelegt.
+  - >
+    Ersetzte Fassungen behalten ihre Dateien und zählen deshalb weiter auf das
+    Speicherkontingent der Organisation. Eine Aufbewahrungsregel pro
+    Organisation gibt es noch nicht.
+  - >
+    Sieben neue Audit-Ereignisse müssen vor dem ersten Einsatz in WorkOS
+    registriert werden — `npm run provision:audit-schemas -- --apply`. Ohne das
+    weist WorkOS die Ereignisse ab.

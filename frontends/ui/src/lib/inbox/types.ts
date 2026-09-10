@@ -105,6 +105,11 @@ export const INBOX_TYPE_PRESENTATION: Record<InboxItemType, InboxTypePresentatio
   'document.assigned_to_you': { icon: 'user-plus', i18nKey: 'documentAssigned', tone: 'info' },
   'job.completed': { icon: 'check-circle', i18nKey: 'jobCompleted', tone: 'info' },
   'job.failed': { icon: 'alert-triangle', i18nKey: 'jobFailed', tone: 'warning' },
+  'document.review_requested': {
+    icon: 'check-circle',
+    i18nKey: 'documentReviewRequested',
+    tone: 'request',
+  },
 }
 
 /**

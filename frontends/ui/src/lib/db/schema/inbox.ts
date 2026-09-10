@@ -69,6 +69,19 @@ export const INBOX_ITEM_TYPES = [
    */
   'job.completed',
   'job.failed',
+  /**
+   * Actionable: a version of a document is waiting for your Freigabe
+   * (ADR-0054). The FIRST actionable type outside mentions, and the reason the
+   * frame stayed generic — the row points at the document and anchors on the
+   * version, so a deep link lands on the fassung being judged rather than on the
+   * file's current bytes.
+   *
+   * Resolved by the decision itself (approve, request changes, reject), for
+   * every reviewer who was asked and not only the one who acted: once a decision
+   * is taken the question is settled for everybody, and a row nothing can
+   * resolve sits in a badge for good.
+   */
+  'document.review_requested',
 ] as const
 export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]
 

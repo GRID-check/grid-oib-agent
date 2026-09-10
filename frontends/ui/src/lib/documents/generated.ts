@@ -102,6 +102,18 @@ export const GENERATED_DOCUMENT_PRODUCER_REF_KINDS = {
   /** The chat answer the diagram was drawn in, plus a hash of its source. */
   diagram_svg: 'answer_artifact',
   diagram_pdf: 'answer_artifact',
+  /**
+   * A Markdown document a chat turn wrote (ADR-0054), filed as a `draft`
+   * version rather than as a finished report.
+   *
+   * `answer_artifact` and not `agent_run`: its reference is
+   * `{conversation id}-{slug}`, built so two turns of ONE conversation writing
+   * „Aktenvermerk" land on one document with two versions. There is no backend
+   * job to look up, which is exactly the distinction migration 0066 exists for —
+   * a reference nobody can resolve, written into `AIRunId`, reads like an audit
+   * trail and is not one.
+   */
+  agent_document: 'answer_artifact',
 } as const satisfies Record<string, AuthoredRefKind>
 
 export type GeneratedDocumentProducer = keyof typeof GENERATED_DOCUMENT_PRODUCER_REF_KINDS

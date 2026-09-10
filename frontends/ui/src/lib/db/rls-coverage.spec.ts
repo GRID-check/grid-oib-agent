@@ -64,6 +64,10 @@ const BOUNDARY_MIGRATIONS = [
   // tenant data, so a PLATFORM table: every tenant reads, only the platform
   // role writes.
   '0079_pricing_and_credits.sql',
+  // Adds document_versions — one history for every document plus the publish
+  // door (ADR-0054). Tenant data; the predicate widens `tasks`' shape by a NULL
+  // arm, because the Archiv and session shelves have no project.
+  '0082_document_versions.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

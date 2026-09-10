@@ -15,7 +15,9 @@ import {
   encodeGridTextHeader,
   encodeModelOverridesHeader,
   GRID_HEADER_NAMES,
+  GRID_REQUEST_CONTEXT_MAX_AGE_MS,
   signGridRequestContextEnvelope,
+  verifyGridRequestContextEnvelope,
   type GridRequestContextInput,
 } from './request-context'
 
@@ -256,5 +258,99 @@ describe('buildGridRequestContextWireHeaders', () => {
     expect(wire).toMatchObject(buildGridRequestContextHeaders(input))
     expect(wire[GRID_HEADER_NAMES.REQUEST_CONTEXT]).toBeDefined()
     expect(wire[GRID_HEADER_NAMES.REQUEST_CONTEXT_SIG]).toBeDefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Verifying an envelope (ADR-0054)
+// ---------------------------------------------------------------------------
+
+describe('verifyGridRequestContextEnvelope', () => {
+  const SECRET = 'verify-spec-secret' // pragma: allowlist secret
+  const NOW = 1789430400000
+
+  const mint = (input: Parameters<typeof buildGridRequestContextEnvelope>[0]) =>
+    buildGridRequestContextEnvelope(input, SECRET)
+
+  const valid = () =>
+    mint({
+      organizationId: 'org_1',
+      userId: 'user_1',
+      projectId: 'proj_1',
+      conversationId: 's_conv_1',
+      issuedAt: NOW,
+    })
+
+  it('reads the acting identity out of a well-signed, fresh envelope', () => {
+    const { header, signature } = valid()
+    expect(verifyGridRequestContextEnvelope(header, signature, SECRET, NOW)).toEqual({
+      organizationId: 'org_1',
+      userId: 'user_1',
+      projectId: 'proj_1',
+      conversationId: 's_conv_1',
+      issuedAt: NOW,
+    })
+  })
+
+  it('refuses a tampered signature', () => {
+    const { header, signature } = valid()
+    const flipped = (signature![0] === '0' ? '1' : '0') + signature!.slice(1)
+    expect(verifyGridRequestContextEnvelope(header, flipped, SECRET, NOW)).toBeNull()
+  })
+
+  it('refuses an envelope signed with another secret', () => {
+    const { header, signature } = valid()
+    expect(verifyGridRequestContextEnvelope(header, signature, 'a-different-secret', NOW)).toBeNull()
+  })
+
+  it('refuses an edited payload, because the signature covers it', () => {
+    const { signature } = valid()
+    const tampered = Buffer.from(
+      JSON.stringify({ organizationId: 'org_2', userId: 'user_1', issuedAt: NOW }),
+      'utf8',
+    ).toString('base64url')
+    expect(verifyGridRequestContextEnvelope(tampered, signature, SECRET, NOW)).toBeNull()
+  })
+
+  it('refuses a replay once the window has passed, in both directions', () => {
+    const { header, signature } = valid()
+    // `issuedAt` is INSIDE the signed bytes, so a caller cannot refresh it.
+    expect(
+      verifyGridRequestContextEnvelope(header, signature, SECRET, NOW + GRID_REQUEST_CONTEXT_MAX_AGE_MS + 1),
+    ).toBeNull()
+    expect(
+      verifyGridRequestContextEnvelope(header, signature, SECRET, NOW - GRID_REQUEST_CONTEXT_MAX_AGE_MS - 1),
+    ).toBeNull()
+  })
+
+  it('accepts an envelope at the edge of the window', () => {
+    const { header, signature } = valid()
+    expect(
+      verifyGridRequestContextEnvelope(header, signature, SECRET, NOW + GRID_REQUEST_CONTEXT_MAX_AGE_MS),
+    ).not.toBeNull()
+  })
+
+  it('refuses an envelope with no issuedAt — fail-closed, unlike the Python reader', () => {
+    // The Python side has accepted envelopes without one since before the field
+    // existed and would break every in-flight turn if it stopped. A BFF WRITE
+    // route has no such history and no reason to allow an unbounded replay.
+    const { header, signature } = mint({ organizationId: 'org_1', userId: 'user_1' })
+    expect(verifyGridRequestContextEnvelope(header, signature, SECRET, NOW)).toBeNull()
+  })
+
+  it('refuses an envelope that names nobody, however well signed', () => {
+    const { header, signature } = mint({ collectionScope: ['oib_knowledge'], issuedAt: NOW })
+    expect(verifyGridRequestContextEnvelope(header, signature, SECRET, NOW)).toBeNull()
+  })
+
+  it('refuses when no secret is configured, rather than treating that as permission', () => {
+    const { header, signature } = valid()
+    expect(verifyGridRequestContextEnvelope(header, signature, '', NOW)).toBeNull()
+    expect(verifyGridRequestContextEnvelope(header, null, SECRET, NOW)).toBeNull()
+    expect(verifyGridRequestContextEnvelope(null, signature, SECRET, NOW)).toBeNull()
+  })
+
+  it('refuses a header that is not base64url JSON', () => {
+    expect(verifyGridRequestContextEnvelope('not-json', 'deadbeef', SECRET, NOW)).toBeNull()
   })
 })

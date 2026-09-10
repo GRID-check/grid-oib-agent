@@ -19,7 +19,7 @@ vi.mock('@/lib/bim/service', () => ({
   deleteBimDerivedObjects: (...args: unknown[]) => deleteBimDerivedObjects(...args),
 }))
 
-import { deleteDerivedObjects, discardSupersededObjects } from './object-cleanup'
+import { deleteDerivedObjects } from './object-cleanup'
 
 const doc = {
   storageKey: 'org/org-1/project/proj-1/doc/doc-1/plan.pdf',
@@ -112,28 +112,5 @@ describe('deleteDerivedObjects', () => {
     expect(result.ok).toBe(false)
     expect(result.reason).toMatch(/stored rasters/)
     expect(deleteBimDerivedObjects).not.toHaveBeenCalled()
-  })
-})
-
-describe('discardSupersededObjects', () => {
-  it('keeps the file when the new bytes landed on the same key', async () => {
-    await discardSupersededObjects(doc, doc.storageKey, 'documents')
-
-    expect(deletedKeys()).not.toContain(doc.storageKey)
-    expect(deletedKeys()).toContain('org/org-1/project/proj-1/doc/doc-1/_thumb.jpg')
-    expect(deleteBimDerivedObjects).toHaveBeenCalled()
-  })
-
-  it('removes the file too when the re-upload moved it', async () => {
-    await discardSupersededObjects(doc, 'org/org-1/project/proj-1/plaene/doc/doc-1/plan.pdf', 'documents')
-
-    expect(deletedKeys()).toEqual([doc.storageKey, 'org/org-1/project/proj-1/doc/doc-1/_thumb.jpg'])
-  })
-
-  it('never throws: a leaked object is logged, not a failed upload', async () => {
-    send.mockRejectedValue(new Error('SeaweedFS 500'))
-
-    await expect(discardSupersededObjects(doc, doc.storageKey, 'archiv')).resolves.toBeUndefined()
-    expect(console.error).toHaveBeenCalledWith('[archiv] failed to remove the superseded objects', expect.any(Object))
   })
 })
