@@ -37,6 +37,7 @@ import { EnergyPerformanceCard } from '../schematics/EnergyPerformanceCard'
 import { ElevatorRequirementCard } from '../schematics/ElevatorRequirementCard'
 import { ParkingRequirementCard } from '../schematics/ParkingRequirementCard'
 import { DocumentGridCard } from './DocumentGridCard'
+import { DocumentDraftCard } from './DocumentDraftCard'
 import { IfcViewerCard } from './IfcViewerCard'
 import { IfcModelPickerCard } from './IfcModelPickerCard'
 import { cardHighlightSpecs } from '@/features/bim/lib/card-highlights'
@@ -592,6 +593,19 @@ export const GridCardItem: FC<GridCardItemProps> = ({
           query={card.query}
           documents={(card.documents ?? []) as SurfacedDocument[]}
           projectId={projectId}
+        />
+      </FadeIn>
+    )
+  }
+
+  if (card.type === 'document_draft') {
+    return (
+      <FadeIn distance={6}>
+        <DocumentDraftCard
+          title={card.title}
+          path={card.path}
+          bytes={card.bytes}
+          version={card.version}
         />
       </FadeIn>
     )

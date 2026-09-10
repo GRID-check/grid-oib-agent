@@ -38,6 +38,7 @@ from aiq_agent.project_context import get_organization_id_from_context
 from aiq_agent.skills import SkillResolver
 from aiq_agent.skills import SkillRuntime
 from aiq_agent.skills.events import emit_skills_offered
+from aiq_agent.tools.documents.tools import draft_tools_for_turn
 from nat.builder.builder import Builder
 from nat.builder.framework_enum import LLMFrameworkEnum
 from nat.builder.function_info import FunctionInfo
@@ -313,7 +314,11 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     # the same way it decides whether to search (ADR-0052). A skill's BODY
     # still only travels on a `use_skill` call.
     runtime = await _resolve_skill_runtime(config, state)
-    turn_tools = list(selected_tools) + (list(runtime.build_tools()) if runtime is not None else [])
+    # The conversation's working directory, folded in the same way: four file
+    # verbs over a store namespaced by conversation, or nothing at all when the
+    # turn has no conversation to namespace by (CLI, eval, worker).
+    draft_tools = await draft_tools_for_turn()
+    turn_tools = list(selected_tools) + (list(runtime.build_tools()) if runtime is not None else []) + draft_tools
     turn = TurnConfig(
         llm_provider=await _active_provider(deployment.provider),
         tools=turn_tools,

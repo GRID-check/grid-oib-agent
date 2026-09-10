@@ -3519,3 +3519,251 @@ class TestRepairRetrievalsRunTogether:
         assert peak == 2, "the two repair lookups ran one after the other"
         anchor = llm.ainvoke.await_args.args[0][-1].content
         assert anchor.index("passage for Erste Aussage") < anchor.index("passage for Zweite Aussage")
+
+
+# ---------------------------------------------------------------------------
+# The working directory — the turn that WRITES instead of describing
+# ---------------------------------------------------------------------------
+
+
+def _render_researcher_prompt(*, drafting_enabled: bool) -> str:
+    """The default prompt, rendered with the working directory on or off."""
+    from pathlib import Path
+
+    from aiq_agent.agents.researcher import agent as researcher_agent
+    from aiq_agent.common import load_prompt
+    from aiq_agent.common import render_prompt_template
+
+    prompt = load_prompt(Path(researcher_agent.__file__).parent / "prompts", "researcher")
+    return render_prompt_template(
+        prompt,
+        tools=[],
+        user_info=None,
+        current_datetime="2026-09-10",
+        available_documents=[],
+        project_context=None,
+        ris_catalog=None,
+        norm_doctrine=None,
+        parcel_note=None,
+        drafting_enabled=drafting_enabled,
+    )
+
+
+def _entwuerfe_block() -> str:
+    return _render_researcher_prompt(drafting_enabled=True).split("<entwuerfe>")[1].split("</entwuerfe>")[0]
+
+
+class TestTheWorkingDirectoryBlock:
+    """What the prompt says about drafting, and whether it says it at all."""
+
+    def test_a_turn_without_the_tools_is_never_told_to_write(self):
+        """A prompt describing a tool the model was not given is a promise it cannot keep."""
+        assert "<entwuerfe>" not in _render_researcher_prompt(drafting_enabled=False)
+
+    def test_a_commissioned_document_is_written_not_described(self):
+        block = _entwuerfe_block()
+        assert "`write_file`" in block
+        assert "/entwuerfe/" in block
+        # The five kinds the product commissions, named so the model recognises
+        # the request instead of judging every long answer to be one.
+        for kind in ("Aktenvermerk", "Protokoll", "Checkliste", "Flächenaufstellung", "Konzeptentwurf"):
+            assert kind in block
+        assert "nicht in der Antwort beschrieben" in block
+
+    def test_a_revision_edits_the_file_it_already_wrote(self):
+        block = _entwuerfe_block()
+        assert "`edit_file`" in block
+        assert "kein zweiter Entwurf" in block
+
+    def test_the_answer_still_says_what_happened(self):
+        """One sentence, not the document again: the draft is beside the answer."""
+        assert "EINEM Satz" in _entwuerfe_block()
+
+    def test_the_draft_is_not_a_source(self):
+        """The one thing that must not blur: a draft cannot ground an answer."""
+        assert "keine Fundstelle" in _entwuerfe_block()
+
+    def test_the_block_follows_the_tools_and_not_a_second_switch(self):
+        """The flag is derived from what is bound, by the renderer itself."""
+        from aiq_agent.agents.researcher.prompt import render_system_prompt
+        from aiq_agent.agents.researcher.prompt import system_prompt_template
+
+        state = ResearchAgentState(messages=[HumanMessage(content="Schreib den Aktenvermerk")])
+        with_tools = render_system_prompt(
+            system_prompt_template(),
+            state,
+            [{"name": "write_file", "description": "Schreibt ein NEUES Dokument"}],
+        )
+        without = render_system_prompt(
+            system_prompt_template(),
+            state,
+            [{"name": "web_search_tool", "description": "Search"}],
+        )
+        assert "<entwuerfe>" in with_tools
+        assert "<entwuerfe>" not in without
+
+
+class TestTheWorkingDirectoryBudget:
+    """The file verbs are an OUTPUT channel, budgeted like cards and memory."""
+
+    def test_the_four_verbs_are_interaction_tools(self):
+        from aiq_agent.agents.researcher.agent import _INTERACTION_TOOL_BASENAMES
+
+        assert {"ls", "read_file", "write_file", "edit_file"} <= _INTERACTION_TOOL_BASENAMES
+
+    def test_the_allowance_covers_the_more_expensive_turn_shape(self):
+        """Six for the card and memory channel, three for a revision turn."""
+        assert _INTERACTION_TOOL_ALLOWANCE == 9
+
+    def test_a_revision_turn_fits_inside_the_allowance(self):
+        """`read_file` + two `edit_file`, on top of the six already sanctioned."""
+        calls = [
+            {"name": "describe_card", "args": {}},
+            {"name": "emit_card", "args": {}},
+            {"name": "emit_card", "args": {}},
+            {"name": "emit_card", "args": {}},
+            {"name": "remember", "args": {}},
+            {"name": "emit_card", "args": {}},
+            {"name": "read_file", "args": {}},
+            {"name": "edit_file", "args": {}},
+            {"name": "edit_file", "args": {}},
+        ]
+        assert _count_interaction_calls(calls) == _INTERACTION_TOOL_ALLOWANCE
+
+    def test_the_recursion_limit_still_derives_from_the_allowance(self):
+        """Nothing else moves when the allowance does."""
+        from aiq_agent.agents.researcher.agent import _recursion_limit
+
+        assert _recursion_limit(5) == ((5 + _INTERACTION_TOOL_ALLOWANCE) * 2) + 10
+
+    def test_a_draft_read_back_is_never_a_source(self):
+        """The safety property: nothing in the working directory can be cited.
+
+        ``read_file`` returns text the model wrote itself. Registering it would
+        let a draft ground a legal statement, which is the laundering path the
+        source registry exists to close — and the second gate
+        (``get_source_id_for_tool``) is what actually holds, because the file
+        verbs ARE in the turn's bound tool set.
+        """
+        from aiq_agent.agents.researcher.agent import _capture_sources
+
+        registry = SourceRegistry()
+        for verb in ("ls", "read_file", "write_file", "edit_file"):
+            _capture_sources(verb, "# Aktenvermerk\n\nGebäudeklasse 4", frozenset({verb}), registry)
+        assert list(registry.all_sources()) == []
+
+
+class TestATurnThatWritesADraft:
+    """The whole slice through the compiled graph: two file verbs, one document.
+
+    The LLM is scripted the way the budget tests above script it — one
+    ``AIMessage`` per round — while the tools are the REAL DeepAgents verbs over
+    a real ``InMemoryStore``. What is asserted is the file that exists at the
+    end, the cards the reader is shown, and what the turn was charged for.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _bypass_citation_pipeline(self):
+        with (
+            patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
+            patch("aiq_agent.agents.researcher.answer_pipeline.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.researcher.answer_pipeline.sanitize_report") as mock_sanitize,
+        ):
+            mock_verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
+                verified_report=content, removed_citations=[]
+            )
+            mock_sanitize.side_effect = lambda content: MagicMock(sanitized_report=content)
+            yield
+
+    @pytest.fixture
+    def scripted_llm(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
+        return llm
+
+    @pytest.fixture
+    def provider(self, scripted_llm):
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=scripted_llm)
+        return provider
+
+    @pytest.fixture
+    def cards(self):
+        from aiq_agent.cards.registry import CardRegistry
+        from aiq_agent.cards.registry import reset_card_registry
+        from aiq_agent.cards.registry import set_card_registry
+
+        registry = CardRegistry()
+        token = set_card_registry(registry)
+        try:
+            yield registry
+        finally:
+            reset_card_registry(token)
+
+    @pytest.fixture
+    def working_directory(self):
+        from langgraph.store.memory import InMemoryStore
+
+        from aiq_agent.tools.documents.draft_store import DraftBackend
+        from aiq_agent.tools.documents.tools import draft_tools
+
+        backend = DraftBackend(store=InMemoryStore(), conversation_id="conv-1")
+        return backend, draft_tools(backend)
+
+    @staticmethod
+    def _call(name: str, args: dict, call_id: str) -> AIMessage:
+        return AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": call_id}])
+
+    @pytest.mark.asyncio
+    async def test_write_then_edit_leaves_one_file_and_two_cards(
+        self, provider, scripted_llm, cards, working_directory
+    ):
+        backend, tools = working_directory
+        scripted_llm.ainvoke = AsyncMock(
+            side_effect=[
+                self._call(
+                    "write_file",
+                    {
+                        "file_path": "/entwuerfe/aktenvermerk.md",
+                        "content": "# Aktenvermerk\n\nPunkt 3: Fluchtweg.\n",
+                    },
+                    "1",
+                ),
+                self._call(
+                    "edit_file",
+                    {
+                        "file_path": "/entwuerfe/aktenvermerk.md",
+                        "old_string": "Punkt 3: Fluchtweg.",
+                        "new_string": "Punkt 3: Fluchtweg, gekürzt.",
+                    },
+                    "2",
+                ),
+                AIMessage(content="Der Aktenvermerk ist geschrieben."),
+            ]
+        )
+
+        agent = ResearcherAgent(
+            llm_provider=provider,
+            tools=[web_search_tool, *tools],
+            max_tool_iterations=1,
+        )
+
+        result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Schreib den Aktenvermerk")]))
+
+        stored = backend._get_store().get(("conversation", "conv-1", "drafts"), "/entwuerfe/aktenvermerk.md")
+        assert stored is not None, "the turn left no file"
+        assert stored.value["content"] == "# Aktenvermerk\n\nPunkt 3: Fluchtweg, gekürzt.\n"
+
+        assert [(card["type"], card["version"], card["title"]) for card in cards.snapshot()] == [
+            ("document_draft", 1, "Aktenvermerk"),
+            ("document_draft", 2, "Aktenvermerk"),
+        ]
+
+        # Writing is not researching. On a research budget of ONE the turn
+        # would have been forced into synthesis after the first round if the
+        # file verbs were charged to it — and the edit would never have run.
+        assert result.tool_iterations == 0
+        assert result.interaction_iterations == 2
+        assert result.research_truncated is None

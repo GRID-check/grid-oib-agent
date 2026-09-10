@@ -2194,6 +2194,32 @@ class DocumentGridCard(CardModel):
     documents: list[SurfacedDocument] = Field(min_length=1, description="The surfaced files, best match first")
 
 
+# ── Draft card (system-emitted) ──────────────────────────────────────────────
+# The one thing that says a chat turn WROTE something. Pushed by `write_file`
+# and `edit_file` from the conversation's working directory
+# (`tools/documents/draft_store.py`), never by the model: a draft the reader can
+# open has to be a file that exists, and a fabricated one would name a path
+# nothing wrote.
+
+
+class DocumentDraftCard(CardModel):
+    """A document the agent wrote into this conversation's working directory.
+
+    System-emitted by the working directory's ``write_file`` / ``edit_file``.
+    The draft is NOT a project document: it is not filed, not indexed and not
+    citable until a person takes it into the project. The card's action reads
+    „Ins Projekt übernehmen" and is inert for now — the filing path it will call
+    is the document lifecycle API, and until that is wired the card reports the
+    draft rather than offering to move it.
+    """
+
+    type: Literal["document_draft"] = "document_draft"
+    title: str = Field(min_length=1, description="The document's first heading, or its file name when it has none")
+    path: str = Field(min_length=1, description="Path in the working directory, e.g. '/entwuerfe/aktenvermerk.md'")
+    bytes: int = Field(ge=0, description="Size of the draft as stored, in UTF-8 bytes")
+    version: int = Field(ge=1, description="How often this path has been written or edited in this conversation")
+
+
 # ---------------------------------------------------------------------------
 # IFC/BIM viewer card
 # ---------------------------------------------------------------------------
@@ -2509,6 +2535,7 @@ GridCard = (
     | ParkingRequirementCard
     | MemoryProposalCard
     | DocumentGridCard
+    | DocumentDraftCard
     | IfcViewerCard
     | IfcComplianceCard
     | IfcScheduleCard
@@ -2538,6 +2565,7 @@ __all__ = [
     "DeadlineTimelineCard",
     "DiagramCard",
     "DocumentChecklistCard",
+    "DocumentDraftCard",
     "DocumentGridCard",
     "FollowUp",
     "FollowUpsCard",

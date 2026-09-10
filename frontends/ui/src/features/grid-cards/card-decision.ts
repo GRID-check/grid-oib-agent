@@ -130,6 +130,10 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   // decision, so there is nothing to remember across a reload.
   follow_ups: 'presentational',
   document_grid: 'presentational',
+  // Reports a draft the working directory already holds; „Ins Projekt
+  // übernehmen" is inert in this slice — the slice that wires the filing call
+  // moves this line to 'interactive' and the type into INTERACTIVE_CARD_TYPES.
+  document_draft: 'presentational',
   building_section: 'presentational',
   stair_diagram: 'presentational',
   dimension_diagram: 'presentational',

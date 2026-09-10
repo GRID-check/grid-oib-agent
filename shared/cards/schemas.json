@@ -1586,6 +1586,49 @@
       "title": "DocumentChecklistCard",
       "type": "object"
     },
+    "DocumentDraftCard": {
+      "description": "A document the agent wrote into this conversation's working directory.\n\nSystem-emitted by the working directory's ``write_file`` / ``edit_file``.\nThe draft is NOT a project document: it is not filed, not indexed and not\ncitable until a person takes it into the project. The card's action reads\n\u201eIns Projekt \u00fcbernehmen\" and is inert for now \u2014 the filing path it will call\nis the document lifecycle API, and until that is wired the card reports the\ndraft rather than offering to move it.",
+      "properties": {
+        "bytes": {
+          "description": "Size of the draft as stored, in UTF-8 bytes",
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "path": {
+          "description": "Path in the working directory, e.g. '/entwuerfe/aktenvermerk.md'",
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "title": {
+          "description": "The document's first heading, or its file name when it has none",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "document_draft",
+          "default": "document_draft",
+          "title": "Type",
+          "type": "string"
+        },
+        "version": {
+          "description": "How often this path has been written or edited in this conversation",
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "title",
+        "path",
+        "bytes",
+        "version"
+      ],
+      "title": "DocumentDraftCard",
+      "type": "object"
+    },
     "DocumentGridCard": {
       "description": "Project/B\u00fcroarchiv files the user asked to see.\n\nSystem-emitted by ``surface_documents``. One file or a short browse\nchoice \u2014 same card, the list length is the difference. Never a\ncatalogue. Citations of exactly one project/B\u00fcro file peek without\nthis card (``useCitationPeek``).",
       "properties": {
@@ -4367,6 +4410,7 @@
       "diagram": "#/$defs/DiagramCard",
       "dimension_diagram": "#/$defs/DimensionDiagramCard",
       "document_checklist": "#/$defs/DocumentChecklistCard",
+      "document_draft": "#/$defs/DocumentDraftCard",
       "document_grid": "#/$defs/DocumentGridCard",
       "egress_diagram": "#/$defs/EgressDiagramCard",
       "elevator_requirement": "#/$defs/ElevatorRequirementCard",
@@ -4503,6 +4547,9 @@
     },
     {
       "$ref": "#/$defs/DocumentGridCard"
+    },
+    {
+      "$ref": "#/$defs/DocumentDraftCard"
     },
     {
       "$ref": "#/$defs/IfcViewerCard"

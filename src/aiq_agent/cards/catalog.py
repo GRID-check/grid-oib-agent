@@ -34,7 +34,9 @@ from pydantic_core import PydanticUndefined
 #
 #   * SYSTEM-emitted — a tool on a sanctioned path owns the card and the model
 #     must not be able to fabricate it (`memory_proposal` from `remember`,
-#     `document_grid` from `surface_documents`).
+#     `document_grid` from `surface_documents`, `document_draft` from the
+#     working directory's `write_file`/`edit_file`, whose card names a file
+#     that has to exist).
 #   * RETIRED — the content moved off the card path entirely and the card only
 #     survives so that stored ones keep rendering. `follow_ups` was the first:
 #     the post-answer `follow_ups` STAGE now computes the questions after the
@@ -49,7 +51,7 @@ from pydantic_core import PydanticUndefined
 # dropping the type from the union would make `validateGridCards`
 # (`shared/cards/schemas.ts`) reject every stored `follow_ups` card, so every
 # historical thread would lose its chips and log a warning per card.
-SYSTEM_CARD_TYPES = frozenset({"memory_proposal", "document_grid", "follow_ups"})
+SYSTEM_CARD_TYPES = frozenset({"memory_proposal", "document_grid", "document_draft", "follow_ups"})
 
 # Card types that stopped being cards — the RHETORICAL shapes, the ones almost
 # every answer could carry. A verdict, the takeaways and the single callout are

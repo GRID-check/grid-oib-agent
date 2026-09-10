@@ -381,6 +381,19 @@ export const chat = {
     diagram: {
       eyebrow: 'Diagram',
     },
+    // A document Piloti wrote into this conversation's working directory. Not a
+    // project document: nothing here is filed, indexed or citable until a
+    // person takes it into the project — which is what the (still inert)
+    // action under the card will do.
+    documentDraft: {
+      eyebrow: 'Draft',
+      // How often this path has been written in this conversation. Rendered as
+      // its own token beside the size, so a locale can drop the „v".
+      version: 'v{version}',
+      // The one action, and it does nothing yet — a later slice wires it to the
+      // document lifecycle API.
+      file: 'Add to the project',
+    },
     processMap: {
       eyebrow: 'Procedure',
       current: 'you are here',
@@ -799,6 +812,13 @@ export const chat = {
         action: {
           remember: 'Saving the note …',
           card: 'Building the result card …',
+          // This conversation's working directory: one verb, one line. Never
+          // "searching" — nothing here is read as evidence for an answer; the
+          // document being written is what is being worked on.
+          draftList: 'Reviewing the drafts …',
+          draftRead: 'Reading the draft …',
+          draftWrite: 'Writing the draft …',
+          draftEdit: 'Revising the draft …',
         },
         // The product's trust proposition said out loud: what is checked is not
         // "the citations" in the abstract but every one of them, against what

@@ -169,6 +169,15 @@ KEY_RETRIEVAL_REQUERY = "status.retrieval.requery"
 #: Non-retrieval tools the reader asked for by name.
 KEY_ACTION_REMEMBER = "status.action.remember"
 KEY_ACTION_CARD = "status.action.card"
+#: The conversation's working directory, one key per verb. A file verb is an
+#: ACTION and never a retrieval round: nothing is read into evidence, nothing
+#: can be cited from it, and "Sucht in Ihren Unterlagen" would say the opposite
+#: of what just happened. The reader asked for the document, so the line says
+#: which of the four things is happening to it.
+KEY_ACTION_DRAFT_LIST = "status.action.draftList"
+KEY_ACTION_DRAFT_READ = "status.action.draftRead"
+KEY_ACTION_DRAFT_WRITE = "status.action.draftWrite"
+KEY_ACTION_DRAFT_EDIT = "status.action.draftEdit"
 
 KEY_CITATIONS = "status.citations"
 #: The turn's one bounded repair: a citation or a quote failed verification,
@@ -193,6 +202,10 @@ ALL_STATUS_KEYS: tuple[str, ...] = (
     "status.retrieval.requery",
     "status.action.remember",
     "status.action.card",
+    "status.action.draftList",
+    "status.action.draftRead",
+    "status.action.draftWrite",
+    "status.action.draftEdit",
     "status.citations",
     "status.repair",
     "status.escalation",
@@ -325,6 +338,10 @@ _SEARCH_CORPORA: tuple[tuple[str, str], ...] = (
 _ACTION_KEYS = {
     "remember": KEY_ACTION_REMEMBER,
     "emit_card": KEY_ACTION_CARD,
+    "ls": KEY_ACTION_DRAFT_LIST,
+    "read_file": KEY_ACTION_DRAFT_READ,
+    "write_file": KEY_ACTION_DRAFT_WRITE,
+    "edit_file": KEY_ACTION_DRAFT_EDIT,
 }
 
 #: Argument names a retrieval query hides behind, in preference order.

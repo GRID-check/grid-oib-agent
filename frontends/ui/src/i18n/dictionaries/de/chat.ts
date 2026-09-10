@@ -372,6 +372,19 @@ export const chat: typeof en.chat = {
     diagram: {
       eyebrow: 'Diagramm',
     },
+    // Ein Dokument, das Piloti in den Arbeitsordner dieser Unterhaltung
+    // geschrieben hat. Keine Projektunterlage: nichts davon ist abgelegt,
+    // indexiert oder zitierfähig, bis eine Person es ins Projekt übernimmt —
+    // genau das wird die (noch wirkungslose) Aktion unter der Karte tun.
+    documentDraft: {
+      eyebrow: 'Entwurf',
+      // Wie oft dieser Pfad in dieser Unterhaltung geschrieben wurde. Eigenes
+      // Token neben der Größe, damit eine Sprache das „v" fallen lassen kann.
+      version: 'v{version}',
+      // Die eine Aktion — und sie tut noch nichts; ein späterer Schnitt
+      // verbindet sie mit der Dokument-API.
+      file: 'Ins Projekt übernehmen',
+    },
     processMap: {
       eyebrow: 'Verfahrensablauf',
       current: 'hier stehen Sie',
@@ -779,6 +792,13 @@ export const chat: typeof en.chat = {
         action: {
           remember: 'Notiz wird gespeichert …',
           card: 'Ergebniskarte wird erstellt …',
+          // Der Arbeitsordner dieser Unterhaltung: ein Verb, eine Zeile. Kein
+          // „sucht“ — hier wird nichts gelesen, was eine Antwort belegen
+          // könnte, sondern am Dokument gearbeitet, das gerade entsteht.
+          draftList: 'Entwürfe werden durchgesehen …',
+          draftRead: 'Entwurf wird gelesen …',
+          draftWrite: 'Entwurf wird geschrieben …',
+          draftEdit: 'Entwurf wird überarbeitet …',
         },
         // Das Vertrauensversprechen des Produkts, laut ausgesprochen: geprüft
         // wird nicht „irgendetwas an den Belegen“, sondern jede Fundstelle

@@ -26,6 +26,7 @@ import { DocumentChecklistCard } from '@/features/grid-cards/components/Document
 import { DeadlineTimelineCard } from '@/features/grid-cards/components/DeadlineTimelineCard'
 import { ChangeImpactCard } from '@/features/grid-cards/components/ChangeImpactCard'
 import { DiagramCard } from '@/features/grid-cards/components/DiagramCard'
+import { DocumentDraftCard } from '@/features/grid-cards/components/DocumentDraftCard'
 import { FollowUpsCard } from '@/features/grid-cards/components/FollowUpsCard'
 import { LegalBasisCard } from '@/features/grid-cards/components/LegalBasisCard'
 import { RequirementChecklistCard } from '@/features/grid-cards/components/RequirementChecklistCard'
@@ -956,6 +957,20 @@ function Gallery() {
           ].join('\n')}
           caption="Die Fristen zeigt die Grafik nicht — sie steht für die Reihenfolge der Übergaben."
           reference={{ document: 'Wiener Bauordnung', section: '§§ 60 ff.' }}
+        />
+      </Section>
+
+      {/* A SYSTEM card: the working directory's write_file/edit_file pushes it,
+          so it reports a draft that exists rather than one the model described.
+          „Ins Projekt übernehmen" is drawn disabled — the filing call it will
+          make is a later slice, and a draft that says it is already in the
+          project would be the one wrong claim this card can make. */}
+      <Section id="document_draft">
+        <DocumentDraftCard
+          title="Aktenvermerk – Abweichung Fluchtweglänge"
+          path="/entwuerfe/aktenvermerk-fluchtweg.md"
+          bytes={4820}
+          version={3}
         />
       </Section>
 

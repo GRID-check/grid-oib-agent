@@ -139,6 +139,7 @@ __all__ = [
     "format_tool_unavailability_error",
     "format_user_facing_tool_error",
     "get_all_tool_refs",
+    "get_checkpoint_pool",
     "get_checkpointer",
     "get_or_create_session_registry",
     "get_source_id_for_tool",
@@ -235,6 +236,33 @@ def _build_checkpointer_serde() -> JsonPlusSerializer:
     )
 
 
+def get_checkpoint_pool(dsn: str) -> AsyncConnectionPool:
+    """The process-wide connection pool for the checkpoint database, per DSN.
+
+    ONE pool per DSN, whoever asks: the conversation checkpointer opens it, and
+    the chat working directory's LangGraph store (``tools/documents``) rides the
+    same connections rather than opening a second ceiling's worth against the
+    same database.
+    """
+    pool = _postgres_pools.get(dsn)
+    if pool is not None:
+        return pool
+    # Per-replica connection ceiling for checkpoint reads/writes. The old
+    # hard-coded max_size=3 throttled the chat tier's concurrent turns (every
+    # super-step checks out a connection); make it tunable and default higher
+    # now that the tier scales (ADR-0028).
+    min_size = _pool_int_env("GRID_CHECKPOINT_POOL_MIN_SIZE", 1)
+    max_size = max(min_size, _pool_int_env("GRID_CHECKPOINT_POOL_MAX_SIZE", 10))
+    pool = AsyncConnectionPool(
+        conninfo=dsn,
+        min_size=min_size,
+        max_size=max_size,
+        kwargs={"autocommit": True, "row_factory": dict_row},
+    )
+    _postgres_pools[dsn] = pool
+    return pool
+
+
 async def get_checkpointer(checkpoint_db: str) -> BaseCheckpointSaver:
     """Return a shared checkpointer for the given database/DSN.
 
@@ -259,22 +287,7 @@ async def get_checkpointer(checkpoint_db: str) -> BaseCheckpointSaver:
             return checkpointer
 
         if is_postgres_dsn(checkpoint_db):
-            pool = _postgres_pools.get(checkpoint_db)
-            if pool is None:
-                # Per-replica connection ceiling for checkpoint reads/writes. The
-                # old hard-coded max_size=3 throttled the chat tier's concurrent
-                # turns (every super-step checks out a connection); make it tunable
-                # and default higher now that the tier scales (ADR-0028).
-                min_size = _pool_int_env("GRID_CHECKPOINT_POOL_MIN_SIZE", 1)
-                max_size = max(min_size, _pool_int_env("GRID_CHECKPOINT_POOL_MAX_SIZE", 10))
-                pool = AsyncConnectionPool(
-                    conninfo=checkpoint_db,
-                    min_size=min_size,
-                    max_size=max_size,
-                    kwargs={"autocommit": True, "row_factory": dict_row},
-                )
-                _postgres_pools[checkpoint_db] = pool
-            checkpointer = AsyncPostgresSaver(pool, serde=_build_checkpointer_serde())
+            checkpointer = AsyncPostgresSaver(get_checkpoint_pool(checkpoint_db), serde=_build_checkpointer_serde())
             await checkpointer.setup()
             logger.info("Postgres checkpointer initialized via async pool.")
         else:

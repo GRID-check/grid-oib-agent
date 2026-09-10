@@ -180,6 +180,14 @@ export const CARD_EXPORT: Record<GridCard['type'], ExportKind> = {
   // change to the brief that may never have been applied.
   memory_proposal: 'chrome',
   project_profile_patch: 'chrome',
+  // A draft in THIS conversation's working directory — not filed, not indexed,
+  // not citable, and reachable from nowhere but the thread it was written in.
+  // Its „Ins Projekt übernehmen" is exactly the proposal awaiting a decision the
+  // export cannot report the outcome of: printed under „Befunde“ it would tell a
+  // Behörde that a document exists in the project which nobody has taken in.
+  // The draft's own CONTENT is a document in its own right and travels as one;
+  // what would land here is its path and its byte count.
+  document_draft: 'chrome',
 
   // The drawing whose source the model wrote. Same treatment as a mermaid fence
   // in the prose, deliberately: a reader must not get two different things for

@@ -240,6 +240,12 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
   'status.retrieval.requery': 'thinking.turnStatus.',
   'status.action.remember': 'thinking.turnStatus.',
   'status.action.card': 'thinking.turnStatus.',
+  // The conversation's working directory: one verb per tool, and nothing is
+  // being RETRIEVED — the draft being worked on is the one the turn is writing.
+  'status.action.draftList': 'thinking.turnStatus.',
+  'status.action.draftRead': 'thinking.turnStatus.',
+  'status.action.draftWrite': 'thinking.turnStatus.',
+  'status.action.draftEdit': 'thinking.turnStatus.',
   'status.citations': 'thinking.turnStatus.',
   'status.repair': 'thinking.turnStatus.',
   'status.escalation': 'thinking.turnStatus.',

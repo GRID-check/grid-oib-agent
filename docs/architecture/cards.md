@@ -134,6 +134,7 @@ catalog omits them entirely).
 |---|---|---|
 | `document_grid` | project/Büroarchiv files the user asked to see — the same raised `FileCard` the Files grid uses | the `surface_documents` tool |
 | `memory_proposal` **(interactive)** | a finding to be written to org- or project-scoped memory, for the user to confirm | the `remember` tool |
+| `document_draft` | a document written into this conversation's working directory — title, path, `v{n}` and size, with the Files feature's „Von Piloti erstellt" byline. Its „Ins Projekt übernehmen" is drawn **inert**: filing is a later slice, and until it is wired the card reports the draft rather than offering to move it | the working directory's `write_file` / `edit_file` |
 
 **(interactive)** marks a card whose answer is a commitment and is therefore
 persisted on the message; see

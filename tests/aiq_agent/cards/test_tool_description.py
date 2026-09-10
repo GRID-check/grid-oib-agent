@@ -58,6 +58,10 @@ _EXAMPLE_EXEMPT = {
     # System-emitted (by the surface_documents tool) from a real corpus search;
     # never advertised to the model, so it ships without a worked example.
     "document_grid",
+    # System-emitted (by the working directory's write_file/edit_file) and built
+    # in Python from the file that was just written; the model never authors one,
+    # so an example would teach a shape it must not produce.
+    "document_draft",
 }
 
 

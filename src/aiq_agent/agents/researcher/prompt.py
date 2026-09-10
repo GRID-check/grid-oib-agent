@@ -88,6 +88,11 @@ def render_system_prompt(
     rendered = render_prompt_template(
         template,
         tools=list(tools_info),
+        # The <entwuerfe> block is rendered only for a turn that HAS the working
+        # directory bound (`tools/documents`). A turn without a conversation to
+        # namespace by gets no file verbs, and a prompt telling that model to
+        # write a document would be describing a tool it cannot call.
+        drafting_enabled=any(tool.get("name") == "write_file" for tool in tools_info),
         user_info=state.user_info,
         current_datetime=datetime.now().strftime("%Y-%m-%d"),
         available_documents=documents,

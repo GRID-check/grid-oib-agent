@@ -467,6 +467,15 @@ const RAW_FIXTURES: CardInput[] = [
     confidence: 'high',
   },
   {
+    // The state a draft is usually met in: written more than once, because the
+    // reader asked for a change and the tool edited the same path again.
+    type: 'document_draft',
+    title: 'Aktenvermerk – Abweichung Fluchtweglänge',
+    path: '/entwuerfe/aktenvermerk-fluchtweg.md',
+    bytes: 4820,
+    version: 3,
+  },
+  {
     type: 'building_section',
     title: 'Gebäudeschnitt – Höhenprüfung GK 4',
     storeys: [

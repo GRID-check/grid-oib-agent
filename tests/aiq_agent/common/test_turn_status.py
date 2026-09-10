@@ -167,6 +167,32 @@ class TestRetrieval:
         turn_status.emit_retrieval([{"name": "remember", "args": {"text": "Dachneigung 30°"}}], round_index=0)
         assert _live(steps)[0]["key"] == "status.action.remember"
 
+    def test_each_file_verb_says_which_one_it_was(self, steps) -> None:
+        """One key per verb: „Entwurf wird geschrieben" is not „wird gelesen"."""
+        verbs = {
+            "ls": "status.action.draftList",
+            "read_file": "status.action.draftRead",
+            "write_file": "status.action.draftWrite",
+            "edit_file": "status.action.draftEdit",
+        }
+        for index, (verb, key) in enumerate(verbs.items()):
+            turn_status.emit_retrieval([{"name": verb, "args": {"file_path": "/entwuerfe/a.md"}}], round_index=index)
+        assert [payload["key"] for payload in _live(steps)] == list(verbs.values())
+
+    def test_a_file_verb_is_an_action_and_never_a_retrieval(self, steps) -> None:
+        """Nothing in the working directory is evidence, so nothing there is "searched".
+
+        The line also carries no ``values``: the file path is the model's own
+        invented slug and the query slot belongs to the reader's words.
+        """
+        turn_status.emit_retrieval(
+            [{"name": "write_file", "args": {"file_path": "/entwuerfe/aktenvermerk.md", "content": "# A"}}],
+            round_index=0,
+        )
+        payload = _live(steps)[0]
+        assert payload["key"] == "status.action.draftWrite"
+        assert payload["values"] == {}
+
     def test_a_tool_we_cannot_name_says_NOTHING(self, steps) -> None:
         """The only thing left to say about it is its internal name.
 
@@ -258,6 +284,10 @@ def _every_live_payload(steps) -> list[dict]:
     turn_status.emit_retrieval([{"name": "web_search_tool", "args": {}}], round_index=1)
     turn_status.emit_retrieval([{"name": "remember", "args": {"text": "x"}}], round_index=2)
     turn_status.emit_retrieval([{"name": "emit_card", "args": {"kind": "x"}}], round_index=3)
+    turn_status.emit_retrieval([{"name": "ls", "args": {"path": "/entwuerfe/"}}], round_index=4)
+    turn_status.emit_retrieval([{"name": "read_file", "args": {"file_path": "/entwuerfe/a.md"}}], round_index=5)
+    turn_status.emit_retrieval([{"name": "write_file", "args": {"file_path": "/entwuerfe/a.md"}}], round_index=6)
+    turn_status.emit_retrieval([{"name": "edit_file", "args": {"file_path": "/entwuerfe/a.md"}}], round_index=7)
     turn_status.emit_retrieval_requery(query_count=2)
     turn_status.emit_citation_check(source_count=3)
     turn_status.emit_answer_repair(removed_citations=1, unverified_quotes=1)

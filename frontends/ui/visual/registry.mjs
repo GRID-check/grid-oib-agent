@@ -688,6 +688,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="diagram-card-preview"]:not(:has([data-state="drawing"]))',
   },
   {
+    id: 'document-draft-card',
+    mobile: true,
+    path: '/dev/document-draft-card',
+    description:
+      "The `document_draft` card — what Piloti wrote into this conversation's working directory, reported where it was written. It borrows the FILE idiom (name, path, size, and „Von Piloti erstellt\u201C from the Files feature's own AuthorshipLine) without borrowing the file CARD: a draft is not filed, not indexed and not citable, so anything that read as a row of the Files pane would be the one wrong claim. What the shot is for is the control under it: „Ins Projekt \u00fcbernehmen\u201C is drawn and INERT in this slice, quiet ink in the diagram-filing style rather than a button, and it has to read as unavailable rather than as a control that failed to load \u2014 in both themes, where a 60% opacity on `text-primary` behaves differently. Two panels: the state a draft is usually met in (written three times, so `v3`), and the first write of an empty stub (`v1`, `0 B`), which is inside the schema and is the day a card that only looks right on rich values looks broken.",
+    waitFor: '[data-testid="document-draft-card-preview"]',
+  },
+  {
     id: 'condition-tree',
     mobile: true,
     path: '/dev/condition-tree',

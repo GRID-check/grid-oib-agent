@@ -80,10 +80,15 @@ logger = logging.getLogger(__name__)
 _shelf_label = shelf_label
 
 # Interaction tools: `remember` (durable memory), `emit_card` and
-# `describe_card` (UI cards). Their calls are budgeted apart from research
+# `describe_card` (UI cards), and the four verbs of the conversation's working
+# directory (`ls`, `read_file`, `write_file`, `edit_file` —
+# ``tools/documents``). Each is an OUTPUT channel of the answer rather than a
+# way of learning something, so their calls are budgeted apart from research
 # (see ``_INTERACTION_TOOL_ALLOWANCE``). Matched on the tool's base name so an
 # MCP/group-qualified variant (e.g. ``mcp__remember``) is still recognized.
-_INTERACTION_TOOL_BASENAMES = frozenset({"remember", "emit_card", "describe_card"})
+_INTERACTION_TOOL_BASENAMES = frozenset(
+    {"remember", "emit_card", "describe_card", "ls", "read_file", "write_file", "edit_file"}
+)
 
 # How many interaction calls a turn may make WITHOUT spending research budget.
 # Sized from what the card doctrine sanctions, read at its most generous so the
@@ -92,10 +97,16 @@ _INTERACTION_TOOL_BASENAMES = frozenset({"remember", "emit_card", "describe_card
 # header), one `remember`, and one spare for the retry `emit_card` invites by
 # returning a shape hint on a validation failure. Six.
 #
+# The working directory adds three on top, which is the more expensive of its
+# two turn shapes: writing a first draft costs one `write_file`, while revising
+# one costs a `read_file` and the two `edit_file` calls a "kürze Punkt 3 und
+# ergänze die Frist" turn really makes. Nine.
+#
 # It is a CEILING on the exemption, not a second budget to spend: a call past it
 # is charged to research exactly as before, so the tool loop still terminates on
-# the ceiling no matter what the model does with the card channel.
-_INTERACTION_TOOL_ALLOWANCE = 6
+# the ceiling no matter what the model does with the card channel or the
+# working directory.
+_INTERACTION_TOOL_ALLOWANCE = 9
 
 # Cap on both tool-search caches (query → selection, selection → bound LLM).
 # A shared agent serves many requests, so each map is dropped WHOLE at the cap
@@ -152,8 +163,9 @@ class TurnBinding:
 def _count_interaction_calls(tool_calls: Iterable[Any]) -> int:
     """How many of a round's tool calls are the answer's own output channel.
 
-    Interaction calls (``emit_card``, ``describe_card``, ``remember``) produce
-    the answer's cards and durable memory, not evidence, so they are counted
+    Interaction calls (``emit_card``, ``describe_card``, ``remember`` and the
+    working directory's four file verbs) produce the answer's cards, its
+    durable memory and its drafts, not evidence, so they are counted
     separately from the research budget. Matched on the BASE name, so a
     NAT/MCP-qualified variant counts too. A call whose shape cannot be read
     is counted as research: the conservative direction, it can only shorten a
