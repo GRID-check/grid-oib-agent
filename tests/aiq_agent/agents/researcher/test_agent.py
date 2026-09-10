@@ -2657,6 +2657,10 @@ class TestADirectReplyMayStillEmitACard:
         assert "empty on your first call" in rules.lower()
         # …and a conclusion that names its passage is opened, not searched for.
         assert "`read_passage`" in rules
+        # The one place the prompt states a NUMBER, because the runtime enforces
+        # it: a model that is capped without being told reads the notice as a
+        # failure and retries the search it just lost.
+        assert "first round runs at most two searches" in rules
         stimme = rendered.split("<stimme>")[1].split("</stimme>")[0]
         assert "Folgerung der Herleitung" in stimme
 

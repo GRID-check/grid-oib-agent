@@ -437,6 +437,20 @@ def _search_corpus(base: str) -> str | None:
     return None
 
 
+def is_search_call(call: Any) -> bool:
+    """Does this ONE tool call fetch evidence from a corpus?
+
+    The atom under :func:`is_retrieval_round`, exported because the round-zero
+    fan-out cap counts and drops exactly these: an interaction call
+    (``emit_card``, ``remember``), a skill load or an ``ask_user`` is not a
+    search and must never be the call a cap takes away.
+    """
+    if not isinstance(call, dict):
+        return False
+    base = tool_basename(str(call.get("name") or ""))
+    return bool(base) and base != "use_skill" and _search_corpus(base) is not None
+
+
 def is_retrieval_round(tool_calls: list[dict[str, Any]] | None) -> bool:
     """Would :func:`emit_retrieval` count this batch of calls as a FETCH?
 
@@ -446,13 +460,7 @@ def is_retrieval_round(tool_calls: list[dict[str, Any]] | None) -> bool:
     it twice from different rules is how the stamp and the spine layer would
     drift apart by one.
     """
-    for call in tool_calls or ():
-        if not isinstance(call, dict):
-            continue
-        base = tool_basename(str(call.get("name") or ""))
-        if base and base != "use_skill" and _search_corpus(base) is not None:
-            return True
-    return False
+    return any(is_search_call(call) for call in tool_calls or ())
 
 
 def _locator_line(args: Any) -> tuple[str, dict[str, str]] | None:
@@ -807,6 +815,41 @@ def emit_escalation(reason: str | None = None) -> None:
 #: Slot for the budget-exhaustion record. Its own slot, so it never overwrites
 #: a retrieval line and the frontend's name dedupe keeps it apart.
 BUDGET_SLOT = "budget"
+
+
+#: Slot for the round-zero fan-out cap. Its OWN slot rather than
+#: :data:`BUDGET_SLOT`: this is the budget being PROTECTED, not exhausted, and
+#: collapsing the two under one step name would make the frontend's name dedupe
+#: drop one of them — on exactly the turns that had both.
+FANOUT_SLOT = "budget:fanout"
+
+
+def emit_fanout_capped(*, round_index: int, kept: int, dropped: int) -> None:
+    """Record that a first round asked for more searches than it may run.
+
+    Technical channel, and no ``key``: whether the reader should be told "two
+    of your three searches did not run" is a product decision, and shipping a
+    live key would make it silently. What this is for is the operator question
+    the cap creates — *how often does a first round fan out past two, and does
+    the second round then get its budget?* — which the truncation event alone
+    cannot answer, because a capped turn is precisely one that did NOT truncate.
+
+    Args:
+        round_index: The fetch round the cap applied to (zero, by construction).
+        kept: Search calls executed.
+        dropped: Search calls answered with the explanation instead.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{FANOUT_SLOT}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": FANOUT_SLOT,
+            "round": round_index,
+            "kept": kept,
+            "dropped": dropped,
+        },
+    )
 
 
 def emit_research_truncated(

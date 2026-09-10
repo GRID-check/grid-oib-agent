@@ -50,9 +50,11 @@ from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
+from aiq_agent.common.turn_status import emit_fanout_capped
 from aiq_agent.common.turn_status import emit_research_truncated
 from aiq_agent.common.turn_status import emit_retrieval
 from aiq_agent.common.turn_status import is_retrieval_round
+from aiq_agent.common.turn_status import is_search_call
 from aiq_agent.common.turn_status import retrieval_round_scope
 from aiq_agent.tools.bim.measurement_sources import begin_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import end_measurement_capture
@@ -106,6 +108,37 @@ _INTERACTION_TOOL_ALLOWANCE = 6
 # bind_tools (pure CPU, no network), while an unbounded dict on a long-lived
 # worker costs memory forever.
 _MAX_CACHED_BINDINGS = 32
+
+#: How many SEARCHES the first fetch round may actually run.
+#:
+#: Two, and the derivation is the whole point: before it has read anything, the
+#: model knows only which CORPORA the question could live in — the regulation
+#: index, the reader's own files, the live law, the web — and one search per
+#: plausible corpus is the most that guess can be worth. A third parallel
+#: search on round zero is the same guess said a third time, in different
+#: words, against the same unread evidence.
+#:
+#: What it costs is the thing this branch exists to protect. Calls are charged
+#: when the model EMITS them and never refunded (see ``max_tool_iterations``'s
+#: comment in ``configs/config_oib_openrouter.yml``), so one greedy first batch
+#: of five spends five of seven before a single result has been observed, and
+#: the tighter second round — the one where precision comes from, the one PR
+#: 644 made permitted — is paid for out of what is left. Capping the guess is
+#: what makes the second round affordable.
+#:
+#: It is a cap on SEARCHES only. Interaction calls, ``use_skill`` and
+#: ``ask_user`` are never counted and never dropped (:func:`is_search_call`),
+#: and it applies to round zero alone: once the model has read something, a
+#: fan-out is informed and the budget ceiling is the right bound for it.
+_ROUND_ZERO_SEARCH_LIMIT = 2
+
+#: What the model is told about a call the cap did not run. In German because
+#: it lands in a German turn's transcript beside German tool output, and it has
+#: to read as an instruction rather than as an error: the next move is a
+#: targeted search after reading the hits, not a retry of the same one.
+_FANOUT_DROPPED_MESSAGE = (
+    "Nicht ausgeführt: erste Runde ist auf zwei Suchen begrenzt; nach dem Lesen der Treffer gezielt nachsuchen"
+)
 
 #: Where the turn's binding rides on the LangGraph config (``configurable``),
 #: so the compiled graph is shared across turns and never rebuilt.
@@ -208,6 +241,36 @@ def _tool_call_shape(messages: Sequence[Any], *, limit: int = 24) -> list[str]:
     return shape
 
 
+def _round_zero_overflow(calls: Sequence[Any], executing_round: int | None) -> list[Any]:
+    """The searches of a first round that are past the cap, in call order.
+
+    Empty for every other round, for a round that is not a fetch at all, and
+    for a first round that stayed within the cap — which is most of them.
+
+    Both nodes call this with the SAME calls and the same round number, derived
+    the same way (:func:`is_retrieval_round` / :func:`_executing_retrieval_round`),
+    because the agent node decides what to CHARGE and the tools node decides
+    what to RUN. Two derivations would eventually charge for a call nothing
+    executed, or execute one nothing paid for.
+    """
+    if executing_round != 0:
+        return []
+    searches = [call for call in calls if is_search_call(call)]
+    return searches[_ROUND_ZERO_SEARCH_LIMIT:]
+
+
+def _announced_round(calls: Sequence[Any], state: ResearchAgentState) -> int | None:
+    """The round the AGENT node is about to announce for these calls.
+
+    ``state.retrieval_round`` counts FETCHES, and an action-only round never
+    advanced it — so a turn that wrote a card before searching still has its
+    first search at round zero. ``None`` when this round is not a fetch, which
+    is the same answer :func:`_executing_retrieval_round` gives the tools node
+    for the same calls.
+    """
+    return state.retrieval_round if is_retrieval_round([c for c in calls if isinstance(c, dict)]) else None
+
+
 def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -> tuple[int, int, int]:
     """What this round COSTS: ``(research, interaction, retrieval_round)``.
 
@@ -223,6 +286,23 @@ def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -
     calls = getattr(response, "tool_calls", None) or []
     if not calls:
         return state.tool_iterations, state.interaction_iterations, state.retrieval_round
+    # A first round that fanned out past the cap is charged for what will
+    # actually RUN. Charging the whole batch would leave the cap protecting
+    # nothing: the budget would be spent on calls whose only answer is the
+    # sentence telling the model why they were not made.
+    dropped = _round_zero_overflow(calls, _announced_round(calls, state))
+    if dropped:
+        emit_fanout_capped(round_index=state.retrieval_round, kept=len(calls) - len(dropped), dropped=len(dropped))
+        logger.info(
+            "Round-zero fan-out capped: %d search(es) run, %d answered with the cap notice (limit=%d)",
+            _ROUND_ZERO_SEARCH_LIMIT,
+            len(dropped),
+            _ROUND_ZERO_SEARCH_LIMIT,
+        )
+        # By identity: two parallel calls to one tool can be equal dicts, and
+        # `in` would then drop both of them.
+        overflow = {id(call) for call in dropped}
+        calls = [call for call in calls if id(call) not in overflow]
     interaction_calls = _count_interaction_calls(calls)
     research_calls = len(calls) - interaction_calls
     exempt = min(interaction_calls, max(0, _INTERACTION_TOOL_ALLOWANCE - state.interaction_iterations))
@@ -280,6 +360,38 @@ def _executing_retrieval_round(state: ResearchAgentState) -> int | None:
     # itself did not happen (a test driving the tools node directly). Round 0 is
     # the honest reading of "the first fetch of this run" — never a negative.
     return max(state.retrieval_round - 1, 0)
+
+
+def _last_tool_calls(state: ResearchAgentState) -> list[dict[str, Any]]:
+    """The tool calls the tools node is holding, as dicts."""
+    last = state.messages[-1] if state.messages else None
+    return [call for call in (getattr(last, "tool_calls", None) or []) if isinstance(call, dict)]
+
+
+def _without_dropped_calls(state: ResearchAgentState, dropped: Sequence[Any]) -> ResearchAgentState:
+    """The state the ``ToolNode`` sees: the same round, minus the capped calls.
+
+    A COPY — the state's own AIMessage keeps every call it made, because the
+    transcript the model reads next has to show the calls it asked for beside
+    the answer each of them got.
+    """
+    overflow = {id(call) for call in dropped}
+    last = state.messages[-1]
+    kept = [call for call in (getattr(last, "tool_calls", None) or []) if id(call) not in overflow]
+    trimmed = last.model_copy(update={"tool_calls": kept})
+    return state.model_copy(update={"messages": [*state.messages[:-1], trimmed]})
+
+
+def _cap_notices(dropped: Sequence[Any]) -> list[ToolMessage]:
+    """One ToolMessage per withheld call, saying why and what to do instead."""
+    return [
+        ToolMessage(
+            content=_FANOUT_DROPPED_MESSAGE,
+            name=str(call.get("name") or ""),
+            tool_call_id=str(call.get("id") or ""),
+        )
+        for call in dropped
+    ]
 
 
 def _assistant_checkpoint(response: Any) -> str | None:
@@ -697,10 +809,19 @@ class ResearcherAgent:
 
         The round stamp is set HERE, around the invocation, because this is the
         node the tools actually run in — see :func:`_executing_retrieval_round`.
+
+        The round-zero fan-out cap lands here too: the overflow searches are
+        withheld from the ``ToolNode`` and answered with
+        :data:`_FANOUT_DROPPED_MESSAGE` instead. The AIMessage keeps ALL of its
+        tool calls — a provider rejects a tool result with no matching call, and
+        it would reject the un-answered calls too — so every call still gets
+        exactly one result and the model reads why two of them are a sentence.
         """
         binding = self._turn_binding(config)
-        with retrieval_round_scope(_executing_retrieval_round(state)):
-            result = await binding.tool_node.ainvoke(state)
+        executing_round = _executing_retrieval_round(state)
+        dropped = _round_zero_overflow(_last_tool_calls(state), executing_round)
+        with retrieval_round_scope(executing_round):
+            result = await binding.tool_node.ainvoke(_without_dropped_calls(state, dropped) if dropped else state)
         registry = get_session_registry()
         if registry is None:
             raise RuntimeError("ResearcherAgent graph invoked outside run(): no source registry is bound")
@@ -712,6 +833,10 @@ class ResearcherAgent:
             content = str(message.content)
             measured = measured or tool_result_is_measurement(tool_name, content)
             _capture_sources(tool_name, content, binding.source_tool_names, registry)
+        # AFTER the capture loop, deliberately: the cap notice is not a tool
+        # result and must never be mined for citation keys.
+        if dropped:
+            result = {**result, "messages": [*result.get("messages", []), *_cap_notices(dropped)]}
         if measured:
             return {**result, "answer_measurement_grounded": True}
         return result
