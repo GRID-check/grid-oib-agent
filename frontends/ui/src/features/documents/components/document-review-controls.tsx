@@ -1,11 +1,12 @@
 'use client'
 
 /**
- * Einreichen · Freigeben · Änderungen anfordern · Ablehnen · Veröffentlichen ·
- * Archivieren — the controls a person gets on the version in front of them.
+ * Einreichen · Freigeben · Änderungen anfordern · Piloti überarbeiten lassen ·
+ * Ablehnen · Veröffentlichen · Archivieren — the controls a person gets on the
+ * version in front of them.
  *
  * Presentational on purpose: which controls exist is
- * {@link availableLifecycleActions} (one filter over the transition table), and
+ * {@link availableLifecycleGestures} (one filter over the transition table), and
  * what happens when one is pressed belongs to the panel that owns the versions.
  * This component decides one thing on its own — that a refusal is typed before
  * it is sent — and it decides it from the table too
@@ -24,17 +25,20 @@ import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { DocumentVersionView } from '@/lib/documents/lifecycle-types'
 import {
-  availableLifecycleActions,
+  DELEGATE_REVISION,
+  availableLifecycleGestures,
+  lifecycleRequestFor,
   reviewOpRequiresComment,
-  type DocumentLifecycleAction,
+  type DocumentLifecycleGesture,
   type DocumentLifecycleViewer,
 } from '../lib/document-lifecycle'
 
 /** The i18n leaf per gesture — exhaustive, so a new op has to be worded. */
-const ACTION_LABEL: Record<DocumentLifecycleAction, string> = {
+const ACTION_LABEL: Record<DocumentLifecycleGesture, string> = {
   submit: 'lifecycle.actions.submit',
   approve: 'lifecycle.actions.approve',
   request_changes: 'lifecycle.actions.requestChanges',
+  [DELEGATE_REVISION]: 'lifecycle.actions.delegateRevision',
   reject: 'lifecycle.actions.reject',
   publish: 'lifecycle.actions.publish',
   archive: 'lifecycle.actions.archive',
@@ -45,7 +49,7 @@ const ACTION_LABEL: Record<DocumentLifecycleAction, string> = {
  * rest are outlines. Only ever ONE per state — „Freigeben" and „Ablehnen" are
  * not two equal offers, and two filled buttons side by side would say they are.
  */
-const PRIMARY_ACTION: Partial<Record<DocumentLifecycleAction, true>> = {
+const PRIMARY_ACTION: Partial<Record<DocumentLifecycleGesture, true>> = {
   submit: true,
   approve: true,
   publish: true,
@@ -56,12 +60,13 @@ export interface DocumentReviewControlsProps {
   lifecycle: 'active' | 'archived'
   viewer: DocumentLifecycleViewer
   /** The gesture currently in flight; its control shows as busy. */
-  pending?: DocumentLifecycleAction | null
+  pending?: DocumentLifecycleGesture | null
   /**
    * Run the gesture. `comment` is present exactly for the ops whose transition
-   * row requires it — the panel passes it straight to the typed client.
+   * row requires it — the panel resolves the gesture to an op and passes both
+   * straight to the typed client.
    */
-  onAct: (action: DocumentLifecycleAction, comment?: string) => void
+  onAct: (gesture: DocumentLifecycleGesture, comment?: string) => void
   className?: string
 }
 
@@ -74,19 +79,22 @@ export function DocumentReviewControls({
   className,
 }: DocumentReviewControlsProps): JSX.Element | null {
   const t = useTranslations('files')
-  const [typing, setTyping] = useState<DocumentLifecycleAction | null>(null)
+  const [typing, setTyping] = useState<DocumentLifecycleGesture | null>(null)
   const [comment, setComment] = useState('')
 
-  const actions = availableLifecycleActions(version, lifecycle, viewer)
-  if (actions.length === 0) return null
+  const gestures = availableLifecycleGestures(version, lifecycle, viewer)
+  if (gestures.length === 0) return null
 
-  const start = (action: DocumentLifecycleAction) => {
+  const start = (gesture: DocumentLifecycleGesture) => {
+    // Read off the OP the gesture runs, so „Piloti überarbeiten lassen" inherits
+    // the comment requirement from the row it shares rather than restating it.
+    const { action } = lifecycleRequestFor(gesture)
     if (action !== 'archive' && reviewOpRequiresComment(action)) {
       setComment('')
-      setTyping(action)
+      setTyping(gesture)
       return
     }
-    onAct(action)
+    onAct(gesture)
   }
 
   const send = () => {
@@ -99,19 +107,19 @@ export function DocumentReviewControls({
   return (
     <div className={cn('space-y-2', className)} data-testid="document-review-controls">
       <div className="flex flex-wrap items-center gap-1.5">
-        {actions.map((action) => (
+        {gestures.map((gesture) => (
           <Button
-            key={action}
+            key={gesture}
             type="button"
             size="sm"
-            variant={PRIMARY_ACTION[action] ? 'default' : 'outline'}
+            variant={PRIMARY_ACTION[gesture] ? 'default' : 'outline'}
             className="h-8"
             disabled={pending !== null}
-            aria-busy={pending === action}
-            data-testid={`document-lifecycle-${action}`}
-            onClick={() => start(action)}
+            aria-busy={pending === gesture}
+            data-testid={`document-lifecycle-${gesture}`}
+            onClick={() => start(gesture)}
           >
-            {t(ACTION_LABEL[action])}
+            {t(ACTION_LABEL[gesture])}
           </Button>
         ))}
       </div>
@@ -131,6 +139,14 @@ export function DocumentReviewControls({
                 : 'lifecycle.comment.changesLabel',
             )}
           </label>
+          {/* What pressing this one does BEYOND sending the version back, said
+              where the reviewer is deciding rather than in a tooltip: the label
+              names the gesture, and this names its consequence. */}
+          {typing === DELEGATE_REVISION && (
+            <p className="text-muted-foreground text-xs" data-testid="document-review-delegate-note">
+              {t('lifecycle.comment.delegateNote')}
+            </p>
+          )}
           <Textarea
             id="document-review-comment-input"
             value={comment}

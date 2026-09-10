@@ -696,6 +696,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="document-draft-card-preview"]',
   },
   {
+    id: 'task-created-card',
+    mobile: true,
+    path: '/dev/task-created-card',
+    description:
+      "The `task_created` card \u2014 work Piloti has taken on, in the shapes a delegation arrives in. It offers nothing, because the row exists by the time it renders, so everything the shot is for is in the reporting: \u201El\u00e4uft\u201C beside a kind and a Frist, and the one control being a LINK to the thread the run writes into. Four panels. The usual one, with both facts. The degraded one \u2014 no Frist named, no conversation created \u2014 which must still read as a finished card rather than as one that failed to load, and which draws no link rather than a dead one. A title and a goal that outrun the card, where the judgement is that the title truncates on one line while the goal wraps \u2014 a name survives being cut, the reader's own sentence does not \u2014 and the meta line keeps its shape either way. And the three remaining kinds, because the kind is the only word on the card that changes what the reader thinks was delegated \u2014 including \u00dcberarbeitung, the one that arrives from a Freigabe rather than from a sentence in the chat.",
+    waitFor: '[data-testid="task-created-card-preview"]',
+  },
+  {
     id: 'file-operation-proposal-card',
     mobile: true,
     path: '/dev/file-operation-proposal-card',
@@ -1310,7 +1318,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/document-lifecycle',
     description:
-      'Freigabe und Fassungen, the CMS-like half of Dateien (ADR-0054): the whole badge set in its two neutral registers, a freshly filed Entwurf with the one control it allows, a version In Pr\u00fcfung with Freigeben / \u00c4nderungen anfordern / Ablehnen and the comment box open \u2014 the flow that must not be sendable without words \u2014 and a published document with three versions, who submitted, approved and published each, and the comment that sent version 2 back. No chroma anywhere in it: colour belongs to provenance, and an editorial state is not provenance.',
+      'Freigabe und Fassungen, the CMS-like half of Dateien (ADR-0054): the whole badge set in its two neutral registers, a freshly filed Entwurf with the one control it allows, a version In Pr\u00fcfung with Freigeben / \u00c4nderungen anfordern / Piloti \u00fcberarbeiten lassen / Ablehnen and the comment box open \u2014 the flow that must not be sendable without words \u2014 then the SAME state with the third control pressed instead, which is the one shot that shows what separates the two boxes: one line saying Piloti will write the next version and submit it. Judge that the third button reads as a variant of the second rather than as a fourth decision, and that the five controls still wrap legibly. Last, a published document with three versions, who submitted, approved and published each, and the comment that sent version 2 back. No chroma anywhere in it: colour belongs to provenance, and an editorial state is not provenance.',
     waitFor: '[data-testid="document-lifecycle-preview"]',
   },
 ]

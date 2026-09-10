@@ -42,7 +42,9 @@ import type {
 } from '@/lib/documents/lifecycle-types'
 import type { DocumentAuthor } from '@/lib/db/schema'
 import {
+  lifecycleRequestFor,
   type DocumentLifecycleAction,
+  type DocumentLifecycleGesture,
   type DocumentLifecycleViewer,
 } from '../lib/document-lifecycle'
 import { DocumentReviewControls } from './document-review-controls'
@@ -118,7 +120,7 @@ export function DocumentLifecyclePanel({
   const [listing, setListing] = useState<DocumentVersionListResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
-  const [pending, setPending] = useState<DocumentLifecycleAction | null>(null)
+  const [pending, setPending] = useState<DocumentLifecycleGesture | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -154,11 +156,16 @@ export function DocumentLifecyclePanel({
   )
 
   const act = useCallback(
-    async (action: DocumentLifecycleAction, comment?: string) => {
+    async (gesture: DocumentLifecycleGesture, comment?: string) => {
       if (!listing) return
       const version = newestVersion(listing.versions)
       if (!version) return
       const previous = listing
+      // „Piloti überarbeiten lassen" is the `request_changes` row with one more
+      // field on the request (ADR-0054), so everything below — the optimistic
+      // state, the re-read, the 409 — is the same code path as the button
+      // beside it.
+      const { action, delegateRevision } = lifecycleRequestFor(gesture)
 
       // Optimistic: the row moves now, and goes back if the server refuses.
       setListing(
@@ -171,13 +178,13 @@ export function DocumentLifecyclePanel({
               ),
             },
       )
-      setPending(action)
+      setPending(gesture)
 
       try {
         if (action === 'archive') {
           await client.archive(documentId)
         } else {
-          await runVersionOp(client, action, documentId, version.id, comment)
+          await runVersionOp(client, action, documentId, version.id, comment, delegateRevision)
         }
         // Re-read rather than patch: publish supersedes another version and
         // moves the item's pointer, and a client that reconstructed that from
@@ -235,7 +242,7 @@ export function DocumentLifecyclePanel({
         lifecycle={listing.lifecycle}
         viewer={viewer}
         pending={pending}
-        onAct={(action, comment) => void act(action, comment)}
+        onAct={(gesture, comment) => void act(gesture, comment)}
       />
 
       {showVersions && (
@@ -265,11 +272,18 @@ async function runVersionOp(
   documentId: string,
   versionId: string,
   comment?: string,
+  delegateRevision = false,
 ): Promise<void> {
   const calls: Record<typeof action, () => Promise<DocumentVersionView>> = {
     submit: () => client.submit(documentId, versionId),
     approve: () => client.approve(documentId, versionId, comment),
-    request_changes: () => client.requestChanges(documentId, versionId, comment ?? ''),
+    // The flag is PASSED only when it is true, the same decision the client
+    // makes one tier down about the wire: „Änderungen anfordern" is the call it
+    // always was, and the third control is the only caller that adds anything.
+    request_changes: () =>
+      delegateRevision
+        ? client.requestChanges(documentId, versionId, comment ?? '', true)
+        : client.requestChanges(documentId, versionId, comment ?? ''),
     reject: () => client.reject(documentId, versionId, comment ?? ''),
     publish: () => client.publish(documentId, versionId),
   }

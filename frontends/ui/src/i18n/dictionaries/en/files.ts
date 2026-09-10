@@ -537,6 +537,8 @@ export const files = {
       submit: 'Submit for approval',
       approve: 'Approve',
       requestChanges: 'Request changes',
+      /** The same decision, plus one thing: Piloti writes the next version. */
+      delegateRevision: 'Have Piloti revise it',
       reject: 'Reject',
       publish: 'Publish',
       archive: 'Archive',
@@ -545,6 +547,8 @@ export const files = {
       /** Rejecting needs a reason; asking for changes needs the changes. */
       reasonLabel: 'Reason for rejection',
       changesLabel: 'What needs to change',
+      /** Said where the decision is taken, not in a tooltip. */
+      delegateNote: 'Piloti then drafts the next version and submits it for approval.',
       placeholder: 'The next version reads this.',
       cancel: 'Cancel',
     },

@@ -19,6 +19,21 @@
  * the conversation the run writes into — a real `<a>`, so middle-click and „copy
  * link address" work, exactly as the draft card's „Im Projekt öffnen" does.
  *
+ * ## Where „Unterhaltung öffnen" goes
+ *
+ * `/app/chat?session=<id>`, which is the ONE way this product opens a
+ * conversation by id and the same URL the inbox emits (`lib/sharing/registry`'s
+ * conversation `deepLink`). A conversation lives on its project's chat surface,
+ * and the card does not know the project — the task's run does — so it uses the
+ * container-less form, and `/app/chat` resolves the project for a reader who may
+ * open the thread and lands them on `/app/projects` when they may not.
+ *
+ * It used to be `/chat/<id>`: a path with no route behind it anywhere in the
+ * app, so the one control on the card 404'd. The sharing registry has the
+ * comment that names the same class of mistake one tier down („this used to
+ * invent `?conversation=`, which nothing anywhere parsed"), and the rule both
+ * of them are: a deep link is only ever the string some surface already reads.
+ *
  * ## Why it says „läuft" and not „erledigt"
  *
  * The card states the state, so the answer beside it cannot quietly overstate
@@ -110,7 +125,7 @@ export const TaskCreatedCard: FC<TaskCreatedCardProps> = ({
 
         {conversationId && (
           <a
-            href={`/chat/${conversationId}`}
+            href={`/app/chat?session=${encodeURIComponent(conversationId)}`}
             data-testid="task-created-open"
             className={cn(
               'inline-flex min-h-11 items-center rounded-sm font-medium text-primary',

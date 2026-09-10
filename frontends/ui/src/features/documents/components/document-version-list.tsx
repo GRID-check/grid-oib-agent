@@ -119,7 +119,12 @@ export function DocumentVersionList({
               data-version={version.versionNumber}
               data-state={version.state}
             >
-              <div className="flex min-w-0 items-center gap-2">
+              {/* WRAPS. „Mit 2 vergleichen" is the longest label in the panel
+                  and the row is two buttons wide, which at a phone's 390px ran
+                  the second one out past the card and gave the whole page a
+                  horizontal scrollbar. Wrapping puts the pair on their own line
+                  there and changes nothing where the row already fits. */}
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className="text-foreground shrink-0 text-xs font-medium tabular-nums">
                   {t('lifecycle.versions.number', { number: version.versionNumber })}
                 </span>

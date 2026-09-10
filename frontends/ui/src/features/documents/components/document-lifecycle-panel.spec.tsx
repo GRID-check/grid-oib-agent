@@ -158,6 +158,48 @@ describe('DocumentLifecyclePanel — a refusal carries words', () => {
     )
   })
 
+  it('offers „Piloti überarbeiten lassen" wherever Änderungen anfordern is offered', async () => {
+    // Same transition, so same condition: there is no second permission and no
+    // fourth op — the button beside it either both appear or neither does.
+    const client = fakeClient({
+      listVersions: () => Promise.resolve(listing([makeVersion(1, 'in_review')])),
+    })
+    render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
+
+    expect(await screen.findByRole('button', { name: 'Request changes' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Have Piloti revise it' })).toBeInTheDocument()
+  })
+
+  it('will not delegate the revision until something is typed either', async () => {
+    const requestChanges = vi.fn().mockResolvedValue(makeVersion(1, 'changes_requested'))
+    const client = fakeClient({
+      listVersions: () => Promise.resolve(listing([makeVersion(1, 'in_review')])),
+      requestChanges,
+    })
+    render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Have Piloti revise it' }))
+    // What the extra button DOES, said where the reviewer is deciding.
+    expect(screen.getByTestId('document-review-delegate-note')).toBeInTheDocument()
+    const send = screen.getByTestId('document-review-comment-send')
+    expect(send).toBeDisabled()
+    expect(requestChanges).not.toHaveBeenCalled()
+
+    await userEvent.type(screen.getByRole('textbox'), 'Bitte Tabelle 3 neu rechnen.')
+    await userEvent.click(send)
+
+    // The same route as „Änderungen anfordern", with the one field that asks
+    // Piloti to write the next draft (ADR-0054).
+    await waitFor(() =>
+      expect(requestChanges).toHaveBeenCalledWith(
+        'doc_1',
+        'ver_1',
+        'Bitte Tabelle 3 neu rechnen.',
+        true,
+      ),
+    )
+  })
+
   it('sends Freigeben without asking for a comment', async () => {
     const approve = vi.fn().mockResolvedValue(makeVersion(1, 'approved'))
     const client = fakeClient({

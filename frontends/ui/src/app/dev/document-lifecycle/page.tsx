@@ -10,10 +10,15 @@
  *     not provenance.
  *  2. `Entwurf`: what Piloti's freshly filed report looks like, with the one
  *     control that state allows (Zur Freigabe einreichen).
- *  3. `In Prüfung` with the three decisions, and the reviewer's comment box
+ *  3. `In Prüfung` with the four decisions, and the reviewer's comment box
  *     opened — the state the screenshot exists for, because „Änderungen
  *     anfordern" without words is the flow that must not be possible.
- *  4. `Veröffentlicht` with a version list: three versions, who submitted,
+ *  4. The same state with „Piloti überarbeiten lassen" pressed instead: the
+ *     same box, the same comment requirement, plus the line saying what the
+ *     third control does beyond sending the version back. It is here as its own
+ *     block because the two boxes differ by exactly that one line, and a shot
+ *     of only one of them cannot show it.
+ *  5. `Veröffentlicht` with a version list: three versions, who submitted,
  *     approved and published each, and the comment that sent version 2 back.
  *
  * The panel takes its client as a PROP, so this page hands each block a
@@ -92,17 +97,22 @@ const DRAFT = fixtureClient({
   versions: [version(1, 'draft')],
 })
 
-const IN_REVIEW = fixtureClient({
-  documentId: 'doc_2',
-  lifecycle: 'active',
-  publishedVersionId: null,
-  versions: [
-    version(1, 'in_review', {
-      submittedBy: AUTHOR,
-      submittedAt: '2026-09-03T10:15:00.000Z',
-    }),
-  ],
-})
+function inReviewFixture(documentId: string): DocumentLifecycleClient {
+  return fixtureClient({
+    documentId,
+    lifecycle: 'active',
+    publishedVersionId: null,
+    versions: [
+      version(1, 'in_review', {
+        submittedBy: AUTHOR,
+        submittedAt: '2026-09-03T10:15:00.000Z',
+      }),
+    ],
+  })
+}
+
+const IN_REVIEW = inReviewFixture('doc_2')
+const DELEGATED = inReviewFixture('doc_4')
 
 const PUBLISHED = fixtureClient({
   documentId: 'doc_3',
@@ -157,31 +167,45 @@ export default function DocumentLifecycleDevPage(): JSX.Element {
 }
 
 /**
- * Press „Änderungen anfordern" once, and keep pressing until the textarea is
+ * Press one control per block, and keep pressing until that block's textarea is
  * really there.
  *
  * The harness captures a page at rest, so a state a reader has to click for is
  * driven by the preview itself — and `reactStrictMode` mounts every effect
  * twice, so a plain click would open the box and close it again. Module-scope
- * flag plus a poll that stops when the DOM REPORTS the state, exactly as
- * `/dev/citation-interaction` does.
+ * SET (a flag could not tell the two blocks apart) plus a poll that stops when
+ * each block's own DOM REPORTS the state, exactly as `/dev/citation-interaction`
+ * does.
+ *
+ * Scoped per block rather than per testid: two panels on this page are in
+ * review, so `document.querySelector` alone would press the same button twice
+ * and leave the second block at rest.
  */
-let commentOpened = false
+const opened = new Set<string>()
 
-function useOpenCommentBox(): void {
+/** Which control each block presses, by the block's own `data-preview-block`. */
+const DRIVEN_BLOCKS: readonly (readonly [block: string, testId: string])[] = [
+  ['in-review', 'document-lifecycle-request_changes'],
+  ['delegate', 'document-lifecycle-delegate_revision'],
+]
+
+function useOpenCommentBoxes(): void {
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
   useEffect(() => {
-    if (commentOpened) return
     timer.current = setInterval(() => {
-      if (document.querySelector('[data-testid="document-review-comment"]')) {
-        commentOpened = true
-        if (timer.current) clearInterval(timer.current)
-        return
+      for (const [block, testId] of DRIVEN_BLOCKS) {
+        if (opened.has(block)) continue
+        const scope = document.querySelector(`[data-preview-block="${block}"]`)
+        if (!scope) continue
+        if (scope.querySelector('[data-testid="document-review-comment"]')) {
+          opened.add(block)
+          continue
+        }
+        scope.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)?.click()
       }
-      const button = document.querySelectorAll<HTMLButtonElement>(
-        '[data-testid="document-lifecycle-request_changes"]',
-      )[0]
-      button?.click()
+      if (opened.size === DRIVEN_BLOCKS.length && timer.current) {
+        clearInterval(timer.current)
+      }
     }, 120)
     return () => {
       if (timer.current) clearInterval(timer.current)
@@ -190,7 +214,7 @@ function useOpenCommentBox(): void {
 }
 
 function DocumentLifecycleFixtures(): JSX.Element {
-  useOpenCommentBox()
+  useOpenCommentBoxes()
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-10 p-6" data-testid="document-lifecycle-preview">
@@ -227,13 +251,28 @@ function DocumentLifecycleFixtures(): JSX.Element {
 
       <section className="space-y-3">
         <h2 className="text-muted-foreground text-sm font-medium">In Prüfung</h2>
-        <div className="rounded-xl border p-4">
+        <div className="rounded-xl border p-4" data-preview-block="in-review">
           <DocumentLifecyclePanel
             documentId="doc_2"
             authoredBy="agent"
             viewer={REVIEWER_VIEWER}
             names={NAMES}
             client={IN_REVIEW}
+          />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-muted-foreground text-sm font-medium">
+          Zurückgeben — und Piloti überarbeiten lassen
+        </h2>
+        <div className="rounded-xl border p-4" data-preview-block="delegate">
+          <DocumentLifecyclePanel
+            documentId="doc_4"
+            authoredBy="agent"
+            viewer={REVIEWER_VIEWER}
+            names={NAMES}
+            client={DELEGATED}
           />
         </div>
       </section>

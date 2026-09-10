@@ -150,6 +150,58 @@ export function availableLifecycleActions(
 }
 
 /**
+ * „Piloti überarbeiten lassen" — the reviewer's third decision, and NOT a
+ * fourth op.
+ *
+ * The version moves to `changes_requested` either way and the comment is
+ * required either way; what this adds is `delegateRevision` on the request, so
+ * Piloti is additionally asked to write the next draft and submit it
+ * (`openRevisionTask`, ADR-0054). `lifecycle-types.ts` argues why that is a
+ * FIELD rather than an op — a fourth row of the transition table would be
+ * identical to `request_changes` in every column that decides anything — and
+ * this module has to hold the same line, because a second op invented here
+ * would be exactly the second table the file header forbids.
+ *
+ * So the surface draws one more BUTTON than there are ops, and the mapping back
+ * to an op is {@link lifecycleRequestFor}, one function, in one place.
+ */
+export const DELEGATE_REVISION = 'delegate_revision'
+
+/** What a review surface draws: every action, plus the one that is not an op. */
+export type DocumentLifecycleGesture = DocumentLifecycleAction | typeof DELEGATE_REVISION
+
+/** What a gesture SENDS: an op, and whether it hands the revision to Piloti. */
+export interface DocumentLifecycleRequest {
+  action: DocumentLifecycleAction
+  delegateRevision: boolean
+}
+
+/** The gesture, resolved to the request the typed client takes. */
+export function lifecycleRequestFor(gesture: DocumentLifecycleGesture): DocumentLifecycleRequest {
+  return gesture === DELEGATE_REVISION
+    ? { action: 'request_changes', delegateRevision: true }
+    : { action: gesture, delegateRevision: false }
+}
+
+/**
+ * The gestures to draw, in the order the buttons stand.
+ *
+ * „Piloti überarbeiten lassen" sits immediately BESIDE „Änderungen anfordern"
+ * and appears under exactly the same condition — it is the same transition, so
+ * a reader who may not send a version back may not delegate its revision
+ * either, and there is no second permission to read.
+ */
+export function availableLifecycleGestures(
+  version: Pick<DocumentVersionView, 'state' | 'submittedBy'> | null,
+  lifecycle: 'active' | 'archived',
+  viewer: DocumentLifecycleViewer,
+): DocumentLifecycleGesture[] {
+  return availableLifecycleActions(version, lifecycle, viewer).flatMap((action) =>
+    action === 'request_changes' ? [action, DELEGATE_REVISION] : [action],
+  )
+}
+
+/**
  * What the badge says about a document as a whole.
  *
  * `archived` is not a version state (ADR-0054: „archiviert" is a statement about

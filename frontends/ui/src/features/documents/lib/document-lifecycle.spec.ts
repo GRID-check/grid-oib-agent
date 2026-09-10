@@ -14,10 +14,13 @@ import {
   type DocumentVersionState,
 } from '@/lib/documents/lifecycle-types'
 import {
+  DELEGATE_REVISION,
   availableLifecycleActions,
+  availableLifecycleGestures,
   availableReviewOps,
   canArchiveDocument,
   documentBadgeState,
+  lifecycleRequestFor,
   reviewOpRequiresComment,
   showsVersionStateBadge,
 } from './document-lifecycle'
@@ -140,6 +143,49 @@ describe('reviewOpRequiresComment', () => {
     expect(reviewOpRequiresComment('approve')).toBe(false)
     expect(reviewOpRequiresComment('submit')).toBe(false)
     expect(reviewOpRequiresComment('publish')).toBe(false)
+  })
+})
+
+describe('„Piloti überarbeiten lassen" is a field, not a fourth op', () => {
+  it('stands beside Änderungen anfordern, and only there', () => {
+    const gestures = availableLifecycleGestures(version('in_review'), 'active', editor)
+    expect(gestures.indexOf(DELEGATE_REVISION)).toBe(gestures.indexOf('request_changes') + 1)
+  })
+
+  it('is absent wherever the row that carries it is', () => {
+    // A reader who may not send this version back may not delegate its revision
+    // either: there is one permission, because there is one transition.
+    expect(availableLifecycleGestures(version('in_review'), 'active', viewer)).toEqual([])
+    expect(availableLifecycleGestures(version('published'), 'active', editor)).not.toContain(
+      DELEGATE_REVISION,
+    )
+  })
+
+  it('resolves to the request_changes op with the flag set', () => {
+    expect(lifecycleRequestFor(DELEGATE_REVISION)).toEqual({
+      action: 'request_changes',
+      delegateRevision: true,
+    })
+    expect(lifecycleRequestFor('request_changes')).toEqual({
+      action: 'request_changes',
+      delegateRevision: false,
+    })
+  })
+
+  it('adds no gesture beyond that one, for any state', () => {
+    for (const state of [
+      'draft',
+      'in_review',
+      'changes_requested',
+      'approved',
+      'published',
+      'superseded',
+      'rejected',
+    ] as const) {
+      const actions = availableLifecycleActions(version(state), 'active', editor)
+      const gestures = availableLifecycleGestures(version(state), 'active', editor)
+      expect(gestures.filter((gesture) => gesture !== DELEGATE_REVISION)).toEqual(actions)
+    }
   })
 })
 

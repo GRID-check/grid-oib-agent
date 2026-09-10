@@ -497,6 +497,10 @@ export const files: typeof en.files = {
       submit: 'Zur Freigabe einreichen',
       approve: 'Freigeben',
       requestChanges: 'Änderungen anfordern',
+      // Dieselbe Entscheidung wie „Änderungen anfordern“, mit einem Zusatz:
+      // Piloti übernimmt die Überarbeitung. Deshalb steht der Knopf daneben und
+      // verlangt dieselbe Begründung.
+      delegateRevision: 'Piloti überarbeiten lassen',
       reject: 'Ablehnen',
       publish: 'Veröffentlichen',
       archive: 'Archivieren',
@@ -504,6 +508,8 @@ export const files: typeof en.files = {
     comment: {
       reasonLabel: 'Grund der Ablehnung',
       changesLabel: 'Was geändert werden soll',
+      delegateNote:
+        'Piloti schreibt daraufhin die nächste Fassung und legt sie zur Freigabe vor.',
       placeholder: 'Die nächste Fassung liest das hier.',
       cancel: 'Abbrechen',
     },

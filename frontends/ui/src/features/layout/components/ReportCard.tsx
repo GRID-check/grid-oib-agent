@@ -36,7 +36,8 @@ interface ReportCardProps {
    * The document this report was FILED as, when it was filed (ADR-0054).
    *
    * Present, the card carries the same review controls the file's own pane does
-   * — Einreichen, Freigeben, Änderungen anfordern, Ablehnen, Veröffentlichen —
+   * — Einreichen, Freigeben, Änderungen anfordern, Piloti überarbeiten lassen,
+   * Ablehnen, Veröffentlichen —
    * because the reader deciding about a report is looking at the report, and
    * making them find it in Dateien first is the extra step that gets skipped.
    * Absent (a run that filed nothing, a chat outside a project) there is nothing
