@@ -146,7 +146,7 @@ import {
   type DeepResearchCutoff,
 } from '../../lib/turn-events'
 import { stepNameLabel } from '../../lib/executed-steps'
-import { documentsForRound, retrievalRounds, unassignedDocuments } from '../../lib/retrieval-rounds'
+import { documentsForRound, retrievalRounds } from '../../lib/retrieval-rounds'
 import type { ChoicePrompt } from './citations'
 
 /** Hidden connection handle (edges anchor to it; the dot itself is invisible). */
@@ -943,13 +943,9 @@ export function buildGraph(
     return out
   }
 
-  const leftover = spine ? unassignedDocuments(rounds, cards) : []
   const fans = spine
     ? rounds.map((round, i) => {
-        const roundCards = [
-          ...documentsForRound(round, cards),
-          ...(i === rounds.length - 1 ? leftover : []),
-        ]
+        const roundCards = documentsForRound(round, cards)
         const packed = planFan(layout.contentW, roundCards.length)
         return { roundCards, packed, ids: packed.columns.map((_, c) => `r${i}-col-${c}`) }
       })

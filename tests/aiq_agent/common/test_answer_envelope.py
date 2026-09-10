@@ -193,6 +193,11 @@ class TestGating:
         payload = self._gate({"kind": "walkthrough", "verdict": _VERDICT})
         assert payload == {"v": ENVELOPE_VERSION, "kind": "walkthrough"}
 
+    def test_direct_and_handoff_drop_verdict(self):
+        for kind in ("direct", "handoff"):
+            payload = self._gate({"kind": kind, "verdict": _VERDICT})
+            assert payload == {"v": ENVELOPE_VERSION, "kind": kind}
+
     def test_ruling_keeps_verdict(self):
         payload = self._gate({"kind": "ruling", "verdict": _VERDICT})
         assert payload == {
@@ -207,14 +212,16 @@ class TestGating:
         assert "kind" not in payload
         assert payload["verdict"]["value"] == "REI 60"
 
-    def test_unknown_kind_is_coerced_away_without_killing_a_legacy_verdict(self):
+    def test_unknown_kind_is_a_walkthrough_and_drops_the_verdict(self):
+        """Garbage is not legacy. Legacy is ABSENT kind.
+
+        Exclusive kinds used to fail open to a ruling the moment the model
+        missed the token (``Walkthrough``, ``essay``, ``Durchgang``).
+        """
         meta = AnswerMeta.model_validate({"kind": "essay", "verdict": _VERDICT})
-        assert meta.kind is None
-        assert meta.verdict is not None
+        assert meta.kind == "walkthrough"
         payload = gate_answer_meta(meta, prose_chars=1_000)
-        assert payload is not None
-        assert "kind" not in payload
-        assert payload["verdict"]["value"] == "REI 60"
+        assert payload == {"v": ENVELOPE_VERSION, "kind": "walkthrough"}
 
 
 class TestControlFields:
@@ -336,6 +343,8 @@ class TestStrictResponseFormat:
         confidence = schema["properties"]["confidence"]["anyOf"][0]
         assert confidence["properties"]["level"]["enum"] == ["low", "medium", "high"]
         assert "kind=ruling" in schema["properties"]["kind"]["description"]
+        kind = schema["properties"]["kind"]["anyOf"][0]
+        assert kind["enum"] == ["direct", "walkthrough", "ruling", "handoff"]
 
     def test_an_enforced_reply_parses_through_the_same_validator(self):
         """Strict mode spells absence as null; extraction must not care."""

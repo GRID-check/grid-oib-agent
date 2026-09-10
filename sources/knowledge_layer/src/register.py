@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 from contextlib import suppress
+from typing import Any
 from typing import Literal
 
 from pydantic import Field
@@ -1239,7 +1240,7 @@ def _trace_lanes_json(
             sig = (name, detail or "")
             existing = {(s.get("name"), s.get("detail") or "") for s in bucket["sources"]}
             if name and sig not in existing:
-                entry: dict[str, str] = {"name": name}
+                entry: dict[str, Any] = {"name": name}
                 title = _hit_display_title(chunk, resolved_titles)
                 if title and title != name:
                     entry["title"] = title
@@ -1247,6 +1248,14 @@ def _trace_lanes_json(
                     entry["detail"] = detail
                 if isinstance(shelf, str) and shelf:
                     entry["shelf"] = shelf
+                try:
+                    from aiq_agent.common.turn_status import current_retrieval_round
+
+                    rnd = current_retrieval_round()
+                except Exception:  # noqa: BLE001 — a missing round stamp must not drop the hit
+                    rnd = None
+                if rnd is not None:
+                    entry["round"] = rnd
                 bucket["sources"].append(entry)
         return json.dumps({"lanes": list(lanes.values())}, ensure_ascii=False)
     except Exception:

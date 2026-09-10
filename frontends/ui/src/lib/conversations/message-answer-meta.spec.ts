@@ -102,10 +102,9 @@ describe('sanitizeAnswerMeta', () => {
     expect(meta?.verdict).toEqual(fixture.verdict)
   })
 
-  test('an unknown kind is dropped without killing a legacy verdict', () => {
+  test('an unknown kind is a walkthrough and drops the verdict', () => {
     const meta = sanitizeAnswerMeta({ v: 1, kind: 'essay', verdict: fixture.verdict })
-    expect(meta?.kind).toBeUndefined()
-    expect(meta?.verdict).toEqual(fixture.verdict)
+    expect(meta).toEqual({ v: 1, kind: 'walkthrough' })
   })
 
   test('kind alone is a usable payload', () => {

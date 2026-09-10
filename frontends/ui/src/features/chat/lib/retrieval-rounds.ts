@@ -10,9 +10,12 @@
  * because of that, and the files that fetch actually returned. The query in
  * `values` stays on the live line; the graph never draws it (PF-12).
  *
- * Files belong to a round by stream order: tool results that arrive after
- * `status:retrieval:N` and before `status:retrieval:N+1` are that fetch.
- * Requery (`status:retrieval:requery`) is not a round.
+ * Files belong to a round by the `round` stamp the backend puts on each
+ * Trace-Lanes hit. The store merges every `knowledge_search` completion onto
+ * one step keyed by function name, so stream order cannot tell two fetches
+ * apart — both payloads land on the same step after `status:retrieval:1`.
+ * Unstamped hits (web/RIS URL scan, older payloads) still fall back to
+ * stream order. Requery (`status:retrieval:requery`) is not a round.
  */
 
 import { isStatusStepName, turnEventOf, type TurnEventStep } from './turn-events'
@@ -21,7 +24,7 @@ import { normalizeFileName, type CitedDocument } from './citations/model'
 
 /** A thinking step as the round walker needs it — payload or already-hoisted lanes. */
 export type RoundStep = TurnEventStep & {
-  traceLanes?: Array<{ sources: Array<{ name?: string }> }>
+  traceLanes?: Array<{ sources: Array<{ name?: string; round?: number }> }>
 }
 
 export interface RetrievalRound {
@@ -48,9 +51,11 @@ const retrievalIndex = (functionName: string): number | null => {
   return Number.isFinite(index) ? index : null
 }
 
-const sourceNamesOf = (step: RoundStep): string[] => {
+type SourceHit = { name: string; round?: number }
+
+const sourceHitsOf = (step: RoundStep): SourceHit[] => {
   if (isStatusStepName(step.functionName || '')) return []
-  const names: string[] = []
+  const hits: SourceHit[] = []
   const lanes =
     step.traceLanes && step.traceLanes.length > 0
       ? step.traceLanes
@@ -58,10 +63,25 @@ const sourceNamesOf = (step: RoundStep): string[] => {
   for (const lane of lanes) {
     for (const source of lane.sources) {
       const name = source.name?.trim()
-      if (name) names.push(name)
+      if (!name) continue
+      hits.push(
+        typeof source.round === 'number' && Number.isFinite(source.round)
+          ? { name, round: source.round }
+          : { name }
+      )
     }
   }
-  return names
+  return hits
+}
+
+const appendNames = (round: RetrievalRound, names: string[]): void => {
+  if (names.length === 0) return
+  const seen = new Set(round.sourceNames.map((n) => n.toLowerCase()))
+  for (const name of names) {
+    if (seen.has(name.toLowerCase())) continue
+    seen.add(name.toLowerCase())
+    round.sourceNames.push(name)
+  }
 }
 
 /** Ordered retrieval rounds that actually spoke (live key + values). */
@@ -71,7 +91,8 @@ export const retrievalRounds = (steps: RoundStep[]): RetrievalRound[] => {
     const index = retrievalIndex(step.functionName || '')
     if (index === null) continue
     const event = turnEventOf(step)
-    const key = event?.key?.trim()
+    if (!event) continue
+    const key = event.key?.trim()
     if (!key) continue
     const existing = byIndex.get(index)
     const tools = event.tools ?? existing?.tools ?? []
@@ -85,6 +106,15 @@ export const retrievalRounds = (steps: RoundStep[]): RetrievalRound[] => {
     })
   }
 
+  for (const step of steps) {
+    for (const hit of sourceHitsOf(step)) {
+      if (hit.round === undefined) continue
+      const round = byIndex.get(hit.round)
+      if (!round) continue
+      appendNames(round, [hit.name])
+    }
+  }
+
   let current: number | undefined
   for (const step of steps) {
     const index = retrievalIndex(step.functionName || '')
@@ -95,14 +125,12 @@ export const retrievalRounds = (steps: RoundStep[]): RetrievalRound[] => {
     if (current === undefined) continue
     const round = byIndex.get(current)
     if (!round) continue
-    const names = sourceNamesOf(step)
-    if (names.length === 0) continue
-    const seen = new Set(round.sourceNames.map((n) => n.toLowerCase()))
-    for (const name of names) {
-      if (seen.has(name.toLowerCase())) continue
-      seen.add(name.toLowerCase())
-      round.sourceNames.push(name)
-    }
+    appendNames(
+      round,
+      sourceHitsOf(step)
+        .filter((hit) => hit.round === undefined)
+        .map((hit) => hit.name)
+    )
   }
 
   return [...byIndex.values()].sort((a, b) => a.index - b.index)
@@ -122,8 +150,8 @@ export const documentsForRound = (round: RetrievalRound, cards: CitedDocument[])
 }
 
 /**
- * Cards no round claimed. They still have to appear — a citation without a
- * retrieval step must not vanish — so they hang off the last fetch.
+ * Cards no round claimed. They stay in the citation model ("Belegt durch");
+ * the spine does not pretend the last fetch returned them.
  */
 export const unassignedDocuments = (rounds: RetrievalRound[], cards: CitedDocument[]): CitedDocument[] => {
   const claimed = new Set(

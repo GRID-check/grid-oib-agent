@@ -525,7 +525,14 @@ export interface ThinkingTraceLane {
   key: string
   label: string
   hitCount: number
-  sources: Array<{ name: string; title?: string; detail?: string; shelf?: Shelf }>
+  sources: Array<{
+    name: string
+    title?: string
+    detail?: string
+    shelf?: Shelf
+    /** Retrieval round that produced this hit. Lets the spine split a merged tool step. */
+    round?: number
+  }>
   /**
    * Canonical coarse source kind (ADR-0026), as classified by the backend.
    * Optional: lanes persisted before the `## Trace-Lanes` block carried it have

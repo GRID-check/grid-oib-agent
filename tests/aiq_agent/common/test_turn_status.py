@@ -25,6 +25,13 @@ from aiq_agent.skills.events import ALL_SKILL_KEYS
 from nat.builder.context import ContextState
 
 
+@pytest.fixture(autouse=True)
+def _reset_retrieval_round():
+    """ContextVars leak across tests in one process; a stamp must not outlive the case."""
+    yield
+    turn_status._retrieval_round.set(None)
+
+
 @pytest.fixture
 def context_state():
     """The singleton ContextState with a clean span stack and a private stream."""
@@ -166,6 +173,20 @@ class TestRetrieval:
     def test_an_interaction_tool_says_what_it_does(self, steps) -> None:
         turn_status.emit_retrieval([{"name": "remember", "args": {"text": "Dachneigung 30°"}}], round_index=0)
         assert _live(steps)[0]["key"] == "status.action.remember"
+
+    def test_remember_does_not_steal_the_next_search_slot(self, steps) -> None:
+        """``status:retrieval:N`` is the spine. remember used to occupy it."""
+        assert turn_status.emit_retrieval([{"name": "remember", "args": {"text": "x"}}], round_index=0) is False
+        assert (
+            turn_status.emit_retrieval(
+                [{"name": "knowledge_search_tool", "args": {"query": "q"}}],
+                round_index=0,
+            )
+            is True
+        )
+        names = [name for name, event_type, _ in steps if event_type.endswith("START")]
+        assert names == ["status:action:remember", "status:retrieval:0"]
+        assert turn_status.current_retrieval_round() == 0
 
     def test_a_conclusion_travels_as_reason_not_as_a_value(self, steps) -> None:
         """The Herleitung checkpoint is the model's own words.

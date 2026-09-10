@@ -137,7 +137,10 @@ function sanitizeTakeaways(input: unknown): AnswerMetaTakeaway[] | undefined {
 function sanitizeKind(input: unknown): AnswerKind | undefined {
   if (typeof input !== 'string') return undefined
   const kind = input.trim()
-  return (ANSWER_KINDS as readonly string[]).includes(kind) ? (kind as AnswerKind) : undefined
+  if (!kind) return undefined
+  // Unknown is not legacy. Legacy is ABSENT kind. Garbage that kept the
+  // gavel made exclusive kinds fail open to a ruling.
+  return (ANSWER_KINDS as readonly string[]).includes(kind) ? (kind as AnswerKind) : 'walkthrough'
 }
 
 function sanitizeCallout(input: unknown): AnswerMetaCallout | undefined {

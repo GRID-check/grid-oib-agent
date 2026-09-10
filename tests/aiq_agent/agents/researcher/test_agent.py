@@ -2612,6 +2612,21 @@ class TestADirectReplyMayStillEmitACard:
             example = chunk.split("</example>", 1)[0]
             assert '"verdict"' not in example
 
+    def test_the_research_example_is_a_walkthrough_not_a_topic_gavel(self):
+        """An overview question taught ``kind=ruling`` / ``value: Brandschutz``.
+
+        Brandschutz is a topic, not a copyable legal value. The model copies
+        the example.
+        """
+        rendered = self._render()
+        research = rendered.split('type="research"')[1].split("</example>", 1)[0]
+        assert '"kind": "walkthrough"' in research
+        assert '"verdict"' not in research
+        ruling = rendered.split('type="ruling"')[1].split("</example>", 1)[0]
+        assert '"kind": "ruling"' in ruling
+        assert '"value": "REI 60"' in ruling
+        assert '"value": "Brandschutz"' not in rendered
+
     def test_the_identity_example_does_not_reduce_the_job_to_oib_questions(self):
         rendered = self._render()
         identity = rendered.split('type="direct_reply"')[1].split("</example>", 1)[0]

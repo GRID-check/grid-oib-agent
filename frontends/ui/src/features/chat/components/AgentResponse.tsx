@@ -267,7 +267,7 @@ function answerRoleTab(
   routingDecision: AgentResponseProps['routingDecision'],
   hasVerdict: boolean,
 ): 'note' | 'answer' | 'result' {
-  if (kind === 'direct') return 'note'
+  if (kind === 'direct' || kind === 'handoff') return 'note'
   if (kind === 'walkthrough') return 'answer'
   if (kind === 'ruling' || (!kind && hasVerdict)) return 'result'
   if (routingDecision === 'meta') return 'note'

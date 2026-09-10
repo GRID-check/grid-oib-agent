@@ -48,7 +48,7 @@ const retrievalStep = (
   isComplete: true,
 })
 
-const toolHit = (id: string, file: string): ThinkingStep => ({
+const toolHit = (id: string, file: string, round?: number): ThinkingStep => ({
   id: `t-${id}`,
   userMessageId: 'u1',
   category: 'tools',
@@ -62,7 +62,7 @@ const toolHit = (id: string, file: string): ThinkingStep => ({
       key: 'baurecht_oib',
       label: 'OIB-Richtlinie',
       hitCount: 1,
-      sources: [{ name: `${file}.pdf` }],
+      sources: [{ name: `${file}.pdf`, round }],
       signal: 'law',
     },
   ],
@@ -188,28 +188,16 @@ describe('buildGraph — parallel wiring (P1-4)', () => {
       planFan(DESKTOP_W, 2),
       cards
     )
-    // No tool hits: both files hang off the last fetch, not off framing.
-    expect(g.nodes.map((n) => n.id)).toEqual([
-      'framing',
-      'round-0',
-      'round-1',
-      'r1-col-0',
-      'r1-col-1',
-      'findings',
-    ])
+    // No tool hits claimed either fetch. Cards stay in "Belegt durch"; the
+    // spine does not pretend the last search returned them.
+    expect(g.nodes.map((n) => n.id)).toEqual(['framing', 'round-0', 'round-1', 'findings'])
     expect(g.edges).toContainEqual(expect.objectContaining({ source: 'framing', target: 'round-0' }))
     expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-0', target: 'round-1' }))
-    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'r1-col-0' }))
-    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'r1-col-1' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'findings' }))
+    expect(g.nodes.filter((n) => n.type === 'sourceColumn')).toHaveLength(0)
     expect(g.edges.filter((e) => e.source === 'framing' && e.target.includes('col-'))).toHaveLength(0)
     expect(columnToColumnEdges(g)).toHaveLength(0)
-    expect(g.rows).toEqual([
-      ['framing'],
-      ['round-0'],
-      ['round-1'],
-      ['r1-col-0', 'r1-col-1'],
-      ['findings'],
-    ])
+    expect(g.rows).toEqual([['framing'], ['round-0'], ['round-1'], ['findings']])
   })
 
   test('each checkpoint hangs the files THAT fetch returned', () => {
@@ -250,6 +238,46 @@ describe('buildGraph — parallel wiring (P1-4)', () => {
       ['r1-col-0'],
       ['findings'],
     ])
+  })
+
+  test('a merged knowledge_search step still hangs each fetch\'s files on its checkpoint', () => {
+    const merged: ThinkingStep = {
+      id: 'merged',
+      userMessageId: 'u1',
+      category: 'tools',
+      functionName: 'knowledge_search',
+      displayName: 'knowledge_search',
+      content: '',
+      timestamp: new Date(),
+      isComplete: true,
+      traceLanes: [
+        {
+          key: 'baurecht_oib',
+          label: 'OIB-Richtlinie',
+          hitCount: 1,
+          sources: [{ name: 'a.pdf', round: 0 }],
+          signal: 'law',
+        },
+        {
+          key: 'projekt',
+          label: 'Projektwissen',
+          hitCount: 1,
+          sources: [{ name: 'b.pdf', round: 1 }],
+          signal: 'project',
+        },
+      ],
+    }
+    const g = buildGraph(
+      {
+        ...base,
+        steps: [retrievalStep(0, 'OIB 2'), retrievalStep(1, 'Grundriss'), merged],
+        answerConfidence: 'high',
+      },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+    expect(columnCards(g)).toEqual([['a'], ['b']])
   })
 
   test('the spine speaks the checkpoint, never the search query (PF-12)', () => {

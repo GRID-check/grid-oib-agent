@@ -785,6 +785,19 @@ describe('AgentResponse', () => {
       expect(screen.getByText('Result')).toBeInTheDocument()
       expect(screen.queryByText('Answer')).not.toBeInTheDocument()
     })
+
+    test('kind=handoff wears the "Note" tab, not "Result"', () => {
+      render(
+        <AgentResponse
+          content="Dafür starte ich eine Tiefenrecherche."
+          routingDecision="shallow"
+          answerMeta={{ v: 1, kind: 'handoff' }}
+        />
+      )
+
+      expect(screen.getByText('Note')).toBeInTheDocument()
+      expect(screen.queryByText('Result')).not.toBeInTheDocument()
+    })
   })
 
   describe('lede typesetting', () => {

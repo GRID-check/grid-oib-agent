@@ -44,11 +44,11 @@ provider (the reference config uses OpenAI GPT-5.6 Luna via OpenRouter).
 
 ```mermaid
 flowchart TB
-    Architect["👤 Architect / Org member<br/>asks OIB questions, uploads plans"]
+    Architect["👤 Architect / Org member<br/>works in a project, talks to Piloti"]
     Admin["👤 Org admin<br/>manages projects, members, memory"]
 
     subgraph GRID["GRID"]
-        SYS["Multi-agent compliance assistant"]
+        SYS["Workspace for planning offices"]
     end
 
     WorkOS["WorkOS<br/>AuthKit SSO + FGA authorization"]

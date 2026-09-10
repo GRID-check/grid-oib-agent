@@ -26,7 +26,7 @@ export const research: typeof en.research = {
     },
     loggedOutTitle: 'Piloti wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:
-      'Melden Sie sich an, um projektbezogene OIB-Recherche, das Einlesen Ihrer Dokumente und Zugriffsrechte für Mitglieder freizuschalten.',
+      'Melden Sie sich an, um den Projekt-Arbeitsbereich freizuschalten: Ihre Unterlagen, das Büroarchiv und den Vorschriftenkorpus.',
     signInSso: 'Mit SSO anmelden',
     welcomeTitle: 'Wie kann Piloti bei Ihrem Projekt helfen?',
   },
@@ -227,9 +227,9 @@ export const research: typeof en.research = {
     subjectCleared: 'Frage bezieht sich nicht mehr auf diese Datei.',
     subjectClearedUndo: 'Rückgängig',
     aiDisclosure:
-      'Piloti ist ein KI-System — Antworten können falsch sein; prüfen Sie sie anhand der zitierten Richtlinie.',
+      'Piloti ist ein KI-System — Antworten können falsch sein; prüfen Sie sie anhand der zitierten Unterlagen.',
     placeholderDefault: 'Datenquellen prüfen und eine Recherchefrage stellen...',
-    signInToStart: 'Melden Sie sich an, um mit der Recherche zu beginnen',
+    signInToStart: 'Melden Sie sich an, um zu beginnen',
     researchCompletedNewSession:
       'Recherche abgeschlossen. Erstellen Sie für weitere Fragen eine neue Sitzung.',
     researchFailedFollowUp:

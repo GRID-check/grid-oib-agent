@@ -42,6 +42,12 @@ export interface TraceSourceHit {
    * only ever reached from the fan-out has no citation payload to carry it.
    */
   shelf?: Shelf
+  /**
+   * Which retrieval round produced this hit. Stamped by the backend so a
+   * second `knowledge_search` that the store merges onto one step still
+   * belongs to the fetch that returned it.
+   */
+  round?: number
 }
 
 /** Lane bucket on the wire (`## Trace-Lanes`) and in storage prune. */
@@ -68,7 +74,13 @@ interface TraceLanesPayload {
     /** Coarse source kind from `source_kinds.kind_for_lane` (ADR-0026). */
     kind?: string
     hitCount?: number
-    sources?: Array<{ name?: string; title?: string; detail?: string; shelf?: string }>
+    sources?: Array<{
+      name?: string
+      title?: string
+      detail?: string
+      shelf?: string
+      round?: number
+    }>
   }>
 }
 
@@ -194,7 +206,9 @@ export const parseTraceLanesBlock = (payload: string): TraceLaneCard[] | null =>
             const detail = (s.detail || '').trim() || undefined
             const title = (s.title || '').trim() || undefined
             const shelf = asShelf(s.shelf)
-            return { name, title, detail, shelf }
+            const round =
+              typeof s.round === 'number' && Number.isFinite(s.round) ? s.round : undefined
+            return { name, title, detail, shelf, round }
           })
           .filter((s): s is TraceSourceHit => s != null)
         const hitCount =
@@ -300,9 +314,11 @@ const mergeCards = (into: Map<string, TraceLaneCard>, cards: TraceLaneCard[]) =>
  * by a second call of the same tool is one hit told twice. Both halves are
  * compared case- and whitespace-insensitively because they arrive as free text
  * from several producers (a corpus filename, a hostname, "p.12", a full URL).
+ * The retrieval round is part of identity so two fetches of the same page
+ * stay two hits after the store merges them onto one step.
  */
 const traceSourceIdentity = (source: TraceSourceHit): string =>
-  `${source.name.trim().toLowerCase()} ${(source.detail || '').trim().toLowerCase()}`
+  `${source.name.trim().toLowerCase()} ${(source.detail || '').trim().toLowerCase()} ${source.round ?? ''}`
 
 /**
  * Union two sets of lane cards, keeping every hit either side knows about.
@@ -346,10 +362,15 @@ export const mergeTraceLaneCards = (
         bucket.hits.set(id, source)
         continue
       }
-      // A later report may carry the backend `display_title` an earlier one
-      // lacked. Merging may only ever add facts about a hit, never drop them,
-      // so the title is taken whenever the kept hit has none.
-      if (!kept.title && source.title) bucket.hits.set(id, { ...kept, title: source.title })
+      // A later report may carry the backend `display_title` or round stamp
+      // an earlier one lacked. Merging may only ever add facts about a hit,
+      // never drop them.
+      let next = kept
+      if (!kept.title && source.title) next = { ...next, title: source.title }
+      if (kept.round === undefined && source.round !== undefined) {
+        next = { ...next, round: source.round }
+      }
+      if (next !== kept) bucket.hits.set(id, next)
     }
   }
   return Array.from(buckets.values()).map(({ card, hits, claimed }) => ({

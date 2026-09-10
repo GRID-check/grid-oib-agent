@@ -206,8 +206,8 @@ def _tool_call_shape(messages: Sequence[Any], *, limit: int = 24) -> list[str]:
     return shape
 
 
-def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -> tuple[int, int]:
-    """What this round COSTS, and to which budget: ``(research, interaction)`` totals.
+def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -> tuple[int, int, int]:
+    """What this round COSTS: ``(research, interaction, retrieval_round)``.
 
     ``max_tool_iterations`` is the RESEARCH budget, but every call used to be
     charged to it, ``emit_card`` and ``describe_card`` included. Those are
@@ -220,7 +220,7 @@ def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -
     """
     calls = getattr(response, "tool_calls", None) or []
     if not calls:
-        return state.tool_iterations, state.interaction_iterations
+        return state.tool_iterations, state.interaction_iterations, state.retrieval_round
     interaction_calls = _count_interaction_calls(calls)
     research_calls = len(calls) - interaction_calls
     exempt = min(interaction_calls, max(0, _INTERACTION_TOOL_ALLOWANCE - state.interaction_iterations))
@@ -241,8 +241,13 @@ def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -
     # The same fact, said to the USER instead of the log: one line per ROUND.
     # The Thought (if the model wrote one) rides as ``reason`` so the
     # Herleitung can draw a checkpoint instead of the search query.
-    emit_retrieval(calls, round_index=state.tool_iterations, conclusion=_assistant_checkpoint(response))
-    return research, interaction
+    searched = emit_retrieval(
+        calls,
+        round_index=state.retrieval_round,
+        conclusion=_assistant_checkpoint(response),
+    )
+    retrieval_round = state.retrieval_round + (1 if searched else 0)
+    return research, interaction, retrieval_round
 
 
 def _assistant_checkpoint(response: Any) -> str | None:
@@ -586,11 +591,12 @@ class ResearcherAgent:
             response = await ainvoke_with_envelope_json_mode(llm_with_tools, messages)
         else:
             response = await llm_with_tools.ainvoke(messages)
-        research, interaction = _charge_tool_calls(response, state, binding.ceiling)
+        research, interaction, retrieval_round = _charge_tool_calls(response, state, binding.ceiling)
         return {
             "messages": [response],
             "tool_iterations": research,
             "interaction_iterations": interaction,
+            "retrieval_round": retrieval_round,
             "cached_system_prompt": system_prompt,
         }
 

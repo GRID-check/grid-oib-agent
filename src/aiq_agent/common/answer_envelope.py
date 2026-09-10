@@ -221,10 +221,11 @@ class AnswerMeta(_EnvelopeModel):
 
     ``kind`` is exclusive: a verdict is kept only for ``ruling``. An absent
     kind is the legacy envelope and keeps today's behaviour. Unknown values
-    are coerced to None rather than failing the envelope.
+    are coerced to ``walkthrough`` (no verdict) rather than failing open
+    to a ruling.
     """
 
-    kind: str | None = Field(
+    kind: AnswerKind | None = Field(
         default=None,
         description=(
             'exclusive answer shape: "direct" | "walkthrough" | "ruling" | "handoff"; verdict is only for kind=ruling'
@@ -257,7 +258,11 @@ class AnswerMeta(_EnvelopeModel):
         if not isinstance(value, str):
             return None
         kind = value.strip()
-        return kind if kind in ANSWER_KINDS else None
+        if not kind:
+            return None
+        # Unknown is not legacy. Legacy is ABSENT kind. Garbage that kept the
+        # gavel made exclusive kinds fail open to a ruling.
+        return kind if kind in ANSWER_KINDS else "walkthrough"
 
     @property
     def empty(self) -> bool:

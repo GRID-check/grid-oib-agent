@@ -120,7 +120,7 @@ describe('retrievalRounds', () => {
   })
 
   test('tool results after a retrieval belong to that fetch, not the next', () => {
-    const hit = (id: string, file: string): ThinkingStep =>
+    const hit = (id: string, file: string, round?: number): ThinkingStep =>
       step({
         id,
         functionName: 'knowledge_search',
@@ -130,7 +130,7 @@ describe('retrievalRounds', () => {
             key: 'baurecht_oib',
             label: 'OIB-Richtlinie',
             hitCount: 1,
-            sources: [{ name: file }],
+            sources: [{ name: file, round }],
             signal: 'law',
           },
         ],
@@ -141,6 +141,36 @@ describe('retrievalRounds', () => {
       retrieval(1, 'Grundriss'),
       hit('t1', 'EG_Grundriss.pdf'),
     ])
+    expect(rounds[0]?.sourceNames).toEqual(['oib-rl_2.pdf'])
+    expect(rounds[1]?.sourceNames).toEqual(['EG_Grundriss.pdf'])
+  })
+
+  test('a merged knowledge_search step still splits files by stamped round', () => {
+    // Production keys completions by functionName. Two fetches become one
+    // step whose lanes are the union; stream order would dump both onto
+    // round 0 (or both onto the last fetch). The round stamp is the join.
+    const merged = step({
+      id: 'merged',
+      functionName: 'knowledge_search',
+      category: 'tools',
+      traceLanes: [
+        {
+          key: 'baurecht_oib',
+          label: 'OIB-Richtlinie',
+          hitCount: 1,
+          sources: [{ name: 'oib-rl_2.pdf', round: 0 }],
+          signal: 'law',
+        },
+        {
+          key: 'projekt',
+          label: 'Projektwissen',
+          hitCount: 1,
+          sources: [{ name: 'EG_Grundriss.pdf', round: 1 }],
+          signal: 'project',
+        },
+      ],
+    })
+    const rounds = retrievalRounds([retrieval(0, 'OIB 2'), retrieval(1, 'Grundriss'), merged])
     expect(rounds[0]?.sourceNames).toEqual(['oib-rl_2.pdf'])
     expect(rounds[1]?.sourceNames).toEqual(['EG_Grundriss.pdf'])
   })
