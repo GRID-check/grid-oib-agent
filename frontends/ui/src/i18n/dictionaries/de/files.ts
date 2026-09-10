@@ -483,6 +483,9 @@ export const files: typeof en.files = {
     title: 'Freigabe und Fassungen',
     badgeTitle: 'Stand der Fassung: {state}',
     filter: 'Freigabe ausstehend',
+    // Der einzige Filter, der ERWEITERT: Archivierte Dateien stehen gar nicht
+    // erst in der Liste. Deshalb „auch“ und nicht „nur“.
+    archivedFilter: 'Archivierte auch zeigen',
     states: {
       draft: 'Entwurf',
       inReview: 'In Prüfung',
@@ -504,6 +507,12 @@ export const files: typeof en.files = {
       reject: 'Ablehnen',
       publish: 'Veröffentlichen',
       archive: 'Archivieren',
+    },
+    // Wer die Fassung freigeben soll. „Alle Bearbeiter“ ist der Normalfall und
+    // deshalb die Vorauswahl: Eine unvergebene Fassung geht an alle, die sie
+    // freigeben dürfen — wer zuerst hinsieht, entscheidet.
+    reviewer: {
+      every: 'Alle Bearbeiter',
     },
     comment: {
       reasonLabel: 'Grund der Ablehnung',

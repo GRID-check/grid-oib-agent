@@ -82,9 +82,9 @@ _shelf_label = shelf_label
 # Interaction tools: `remember` (durable memory), `emit_card` and
 # `describe_card` (UI cards), the four verbs of the conversation's working
 # directory (`ls`, `read_file`, `write_file`, `edit_file` —
-# ``tools/documents``) and the five write-side workspace tools that propose a
+# ``tools/documents``) and the four write-side workspace tools that propose a
 # file operation on a card (`move_document`, `rename_document`,
-# `create_folder`, `set_doc_class`, `assign_document` — ``tools/files``) plus the
+# `create_folder`, `assign_document` — ``tools/files``) plus the
 # working directory's two doors into the project (`file_draft`, `submit_draft` —
 # ``tools/documents/register.py``) plus delegation (`create_task` —
 # ``tools/tasks/register.py``). Each
@@ -104,7 +104,6 @@ _INTERACTION_TOOL_BASENAMES = frozenset(
         "move_document",
         "rename_document",
         "create_folder",
-        "set_doc_class",
         "assign_document",
         "file_draft",
         "submit_draft",

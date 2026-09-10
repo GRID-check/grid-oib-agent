@@ -11,7 +11,6 @@ import {
   asShelf,
   asSourceKind,
   authorityTag,
-  isAgentAuthoredLane,
   kindForLane,
   scopeForQualifier,
   shelfLabel,
@@ -91,14 +90,6 @@ describe('the agent-authored lane', () => {
     // appended by the renderer — the taxonomy is not a sentence with a hole.
     expect(AGENT_AUTHORED_LANE_LABEL).toBe('Piloti-Dokument')
     expect(AGENT_AUTHORED_LANE_LABEL).not.toContain('{')
-  })
-
-  test('recognises the lane case- and whitespace-tolerantly', () => {
-    expect(isAgentAuthoredLane('buero_piloti')).toBe(true)
-    expect(isAgentAuthoredLane(' BUERO_PILOTI ')).toBe(true)
-    expect(isAgentAuthoredLane('buero')).toBe(false)
-    expect(isAgentAuthoredLane(null)).toBe(false)
-    expect(isAgentAuthoredLane(undefined)).toBe(false)
   })
 
   test('carries no authority tag — it is not a rung of the legal ladder', () => {

@@ -439,7 +439,6 @@ export const chat = {
         move: 'Move',
         rename: 'Rename',
         create_folder: 'New folder',
-        set_doc_class: 'Document type',
         assign: 'Assign',
       },
       // The project root has a path of nothing; it needs a name a person uses.
@@ -452,7 +451,6 @@ export const chat = {
         move: '{count, plural, one {File moved.} other {# files moved.}}',
         rename: '{count, plural, one {File renamed.} other {# files renamed.}}',
         create_folder: '{count, plural, one {Folder created.} other {# folders created.}}',
-        set_doc_class: '{count, plural, one {Document type set.} other {Document type set on # files.}}',
         assign: '{count, plural, one {File assigned.} other {# files assigned.}}',
       },
       // Some of it landed and some did not. WHICH is not stored (a decision is
@@ -461,11 +459,10 @@ export const chat = {
       partial: 'Applied in part. Some entries could not be applied — check the file list.',
       dismissed: 'Discarded. Nothing was changed.',
       error: 'Could not be applied.',
-      // An operation with no route behind it yet. The proposal still reads; the
-      // control does not appear, and this says why rather than failing on click.
+      // The one case where the card has nothing to run. The proposal still
+      // reads; the control does not appear, and this says why rather than
+      // failing on click.
       unavailable: {
-        noProjectDocClassRoute:
-          'The document type can currently only be set on the platform knowledge base, not on project files.',
         noProject:
           'This chat is not attached to a project, so there is no file store to change.',
       },
@@ -934,6 +931,13 @@ export const chat = {
       corpus: 'OIB knowledge',
       assistant: 'Assistant',
       reading: 'Reading',
+      /** The conversation's working directory: write, read, edit, list — one word. */
+      draft: 'Draft',
+      /** The draft leaves the working directory: filed, or submitted for approval. */
+      filing: 'Filing',
+      task: 'Task',
+      /** The file actions PROPOSE and write nothing (ADR-0003). */
+      fileProposal: 'File proposal',
       // One chip per skill the turn actually applied. `{name}` is resolved by
       // the single label authority (features/skills/lib/skill-activity).
       skill: 'Skill: {name}',

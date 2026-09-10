@@ -153,6 +153,6 @@ async def _file(monkeypatch: pytest.MonkeyPatch, responses: list[dict], calls: l
     return await filing_tools.run_file_draft(DRAFT, title)
 
 
-async def _submit(monkeypatch: pytest.MonkeyPatch, responses: list[dict], calls: list) -> str:
+async def _submit(monkeypatch: pytest.MonkeyPatch, responses: list[dict], calls: list, reviewer: str = "") -> str:
     monkeypatch.setattr(filing_tools, "post_document_version", _responder(responses, calls))
-    return await filing_tools.run_submit_draft(DRAFT)
+    return await filing_tools.run_submit_draft(DRAFT, reviewer)

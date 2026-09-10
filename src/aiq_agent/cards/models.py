@@ -2314,9 +2314,9 @@ class TaskCreatedCard(CardModel):
 
 
 # ── File-operation proposal (system-emitted, interactive) ────────────────────
-# ONE card type for five verbs, discriminated by `operation`, because the
-# alternative is five cards that differ in one field and share every line of
-# their chrome, their decision lifecycle and their i18n. The five write-side
+# ONE card type for four verbs, discriminated by `operation`, because the
+# alternative is four cards that differ in one field and share every line of
+# their chrome, their decision lifecycle and their i18n. The four write-side
 # workspace tools (`tools/files/`) each emit this card and NEVER perform the
 # operation: the Python tier holds no path into `grid_app` (ADR-0003), so
 # accepting it is what executes — through the same routes the Files pane uses,
@@ -2332,9 +2332,14 @@ class TaskCreatedCard(CardModel):
 #: before answering, and „alles verschieben" is not a proposal, it is a job.
 MAX_FILE_OPERATIONS = 8
 
-#: The five verbs. Each names the tool that emits it (`move_document`,
-#: `rename_document`, `create_folder`, `set_doc_class`, `assign_document`).
-FileOperationKind = Literal["move", "rename", "create_folder", "set_doc_class", "assign"]
+#: The four verbs. Each names the tool that emits it (`move_document`,
+#: `rename_document`, `create_folder`, `assign_document`).
+#:
+#: A fifth, `set_doc_class`, was here and is gone. A project document has no
+#: doc_class route for an Accept to run, so the card drew the proposal and no
+#: control — a decision the reader could read and could not take. It comes back
+#: with the route, not before it.
+FileOperationKind = Literal["move", "rename", "create_folder", "assign"]
 
 
 class FileOperationItem(CardModel):
@@ -2356,7 +2361,7 @@ class FileOperationItem(CardModel):
 
     document: str | None = Field(
         default=None,
-        description="File name exactly as the inventory lists it (move, rename, set_doc_class, assign)",
+        description="File name exactly as the inventory lists it (move, rename, assign)",
     )
     source: Literal["projekt", "buero"] | None = Field(
         default=None,
@@ -2364,7 +2369,7 @@ class FileOperationItem(CardModel):
     )
     current: str | None = Field(
         default=None,
-        description="What this is TODAY (current folder, name or Dokumentart) — for the before/after line",
+        description="What this is TODAY (current folder or name) — for the before/after line",
     )
     target_folder: str | None = Field(
         default=None,
@@ -2376,7 +2381,6 @@ class FileOperationItem(CardModel):
         default=None,
         description="create_folder: the parent folder PATH, or an empty string for the project root",
     )
-    doc_class: str | None = Field(default=None, description="set_doc_class: a key from the closed doc_class vocabulary")
     member: str | None = Field(
         default=None,
         description="assign: the person as the user named them; the reader's session resolves it against the project",
@@ -2386,7 +2390,7 @@ class FileOperationItem(CardModel):
 class FileOperationProposalCard(CardModel):
     """A workspace change the agent PROPOSES and the reader executes.
 
-    System-emitted by the five tools under ``src/aiq_agent/tools/files/``. Every
+    System-emitted by the four tools under ``src/aiq_agent/tools/files/``. Every
     one of them is a write, none of them writes: the card is the proposal, the
     reader's Accept runs it through the existing document/folder/assignment
     routes in their own session, and the tool's own result text says plainly
@@ -2408,7 +2412,7 @@ class FileOperationProposalCard(CardModel):
         """Every entry must carry what its verb needs, and nothing it does not.
 
         The card is built in Python, so this is not a guard against a model —
-        it is the guard against a TOOL that grows a sixth caller and forgets a
+        it is the guard against a TOOL that grows a fifth caller and forgets a
         field. A row missing its target renders as a proposal to do nothing,
         which the reader would accept.
         """
@@ -2416,7 +2420,6 @@ class FileOperationProposalCard(CardModel):
             "move": ("document", "target_folder"),
             "rename": ("document", "new_display_name"),
             "create_folder": ("folder_name",),
-            "set_doc_class": ("document", "doc_class"),
             "assign": ("document", "member"),
         }[self.operation]
         for index, item in enumerate(self.operations):

@@ -18,8 +18,15 @@
  * submitted it. A disabled button is a promise that something could unlock it.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
@@ -55,6 +62,15 @@ const PRIMARY_ACTION: Partial<Record<DocumentLifecycleGesture, true>> = {
   publish: true,
 }
 
+/** One person the version may be sent to — `GET …/versions/reviewers`. */
+export interface ReviewerOption {
+  userId: string
+  name: string
+}
+
+/** „alle Bearbeiter": the value the picker holds when nobody is singled out. */
+const EVERY_EDITOR = '__every_editor__'
+
 export interface DocumentReviewControlsProps {
   version: Pick<DocumentVersionView, 'id' | 'state' | 'submittedBy'> | null
   lifecycle: 'active' | 'archived'
@@ -64,9 +80,19 @@ export interface DocumentReviewControlsProps {
   /**
    * Run the gesture. `comment` is present exactly for the ops whose transition
    * row requires it — the panel resolves the gesture to an op and passes both
-   * straight to the typed client.
+   * straight to the typed client. `reviewerUserIds` is present only for
+   * `submit`, and only when the reader singled somebody out.
    */
-  onAct: (gesture: DocumentLifecycleGesture, comment?: string) => void
+  onAct: (
+    gesture: DocumentLifecycleGesture,
+    options?: { comment?: string; reviewerUserIds?: readonly string[] },
+  ) => void
+  /**
+   * Who may be asked. Loaded by the panel that owns the document, because this
+   * component is presentational and because the list is worth exactly one
+   * request per document rather than one per render.
+   */
+  reviewers?: readonly ReviewerOption[]
   className?: string
 }
 
@@ -76,11 +102,17 @@ export function DocumentReviewControls({
   viewer,
   pending = null,
   onAct,
+  reviewers = [],
   className,
 }: DocumentReviewControlsProps): JSX.Element | null {
   const t = useTranslations('files')
   const [typing, setTyping] = useState<DocumentLifecycleGesture | null>(null)
   const [comment, setComment] = useState('')
+  const [reviewer, setReviewer] = useState<string>(EVERY_EDITOR)
+
+  // A version that moved on is a different question; a name picked for the last
+  // one must not ride along into the next round.
+  useEffect(() => setReviewer(EVERY_EDITOR), [version?.id])
 
   const gestures = availableLifecycleGestures(version, lifecycle, viewer)
   if (gestures.length === 0) return null
@@ -94,18 +126,49 @@ export function DocumentReviewControls({
       setTyping(gesture)
       return
     }
-    onAct(gesture)
+    onAct(gesture, gesture === 'submit' ? { reviewerUserIds: namedReviewer() } : undefined)
   }
+
+  // `undefined` and not `[]`: „niemanden benannt" is what makes the fallback
+  // chain run (assignees, then every editor), and an empty array means the
+  // same thing one layer down — but only one of the two says so at the call
+  // site.
+  const namedReviewer = (): readonly string[] | undefined =>
+    reviewer === EVERY_EDITOR ? undefined : [reviewer]
 
   const send = () => {
     if (!typing || comment.trim() === '') return
-    onAct(typing, comment.trim())
+    onAct(typing, { comment: comment.trim() })
     setTyping(null)
     setComment('')
   }
 
+  const offersSubmit = gestures.includes('submit')
+
   return (
     <div className={cn('space-y-2', className)} data-testid="document-review-controls">
+      {/* Optional, and its default is the honest one: an unassigned draft goes
+          to everybody who may release it, because the round is open and
+          whoever gets there first answers it. Singling somebody out is the
+          exception („leg das der Anna vor"), so it is a picker beside the
+          button and not a step in front of it. Absent when there is nobody to
+          choose between — a one-person project picks itself. */}
+      {offersSubmit && reviewers.length > 0 && (
+        <Select value={reviewer} onValueChange={setReviewer}>
+          <SelectTrigger className="h-8 w-full" data-testid="document-review-reviewer">
+            <SelectValue placeholder={t('lifecycle.reviewer.every')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={EVERY_EDITOR}>{t('lifecycle.reviewer.every')}</SelectItem>
+            {reviewers.map((person) => (
+              <SelectItem key={person.userId} value={person.userId}>
+                {person.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+
       <div className="flex flex-wrap items-center gap-1.5">
         {gestures.map((gesture) => (
           <Button

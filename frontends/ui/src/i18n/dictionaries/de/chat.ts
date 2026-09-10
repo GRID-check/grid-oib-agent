@@ -431,7 +431,6 @@ export const chat: typeof en.chat = {
         move: 'Verschieben',
         rename: 'Umbenennen',
         create_folder: 'Neuer Ordner',
-        set_doc_class: 'Dokumentart',
         assign: 'Zuweisen',
       },
       // Die oberste Ebene hat keinen Pfad, aber einen Namen, den Menschen sagen.
@@ -444,8 +443,6 @@ export const chat: typeof en.chat = {
         move: '{count, plural, one {Datei verschoben.} other {# Dateien verschoben.}}',
         rename: '{count, plural, one {Datei umbenannt.} other {# Dateien umbenannt.}}',
         create_folder: '{count, plural, one {Ordner angelegt.} other {# Ordner angelegt.}}',
-        set_doc_class:
-          '{count, plural, one {Dokumentart gesetzt.} other {Dokumentart für # Dateien gesetzt.}}',
         assign: '{count, plural, one {Datei zugewiesen.} other {# Dateien zugewiesen.}}',
       },
       // Teils übernommen, teils nicht. WELCHE, wird nicht gespeichert (eine
@@ -456,12 +453,10 @@ export const chat: typeof en.chat = {
         'Teilweise übernommen. Einige Einträge konnten nicht ausgeführt werden — sehen Sie in der Dateiablage nach.',
       dismissed: 'Verworfen. Es wurde nichts geändert.',
       error: 'Konnte nicht übernommen werden.',
-      // Ein Vorgang, hinter dem es noch keine Route gibt. Der Vorschlag bleibt
-      // lesbar, die Schaltfläche erscheint nicht, und hier steht warum — statt
-      // beim Klick zu scheitern.
+      // Der eine Fall, in dem die Karte nichts auszuführen hat. Der Vorschlag
+      // bleibt lesbar, die Schaltfläche erscheint nicht, und hier steht warum —
+      // statt beim Klick zu scheitern.
       unavailable: {
-        noProjectDocClassRoute:
-          'Die Dokumentart lässt sich derzeit nur im Basiswissen der Plattform setzen, nicht an Projektunterlagen.',
         noProject:
           'Diese Unterhaltung gehört zu keinem Projekt, es gibt hier also keine Ablage zu ändern.',
       },
@@ -920,6 +915,16 @@ export const chat: typeof en.chat = {
       corpus: 'OIB-Wissen',
       assistant: 'Assistent',
       reading: 'Lesen',
+      // Das Arbeitsverzeichnis der Unterhaltung: schreiben, lesen, ändern,
+      // auflisten — ein Wort für alle vier. Was Lesende interessiert, ist dass
+      // an einem Entwurf gearbeitet wurde, nicht wie oft.
+      draft: 'Entwurf',
+      // Der Entwurf verlässt das Arbeitsverzeichnis: als Projektdokument
+      // abgelegt oder zur Freigabe eingereicht.
+      filing: 'Ablage',
+      task: 'Auftrag',
+      // Die Dateiaktionen SCHLAGEN vor und schreiben nichts (ADR-0003).
+      fileProposal: 'Ablagevorschlag',
       // Ein Chip pro Skill, den dieser Turn tatsächlich angewendet hat.
       // `{name}` liefert die einzige Label-Instanz
       // (features/skills/lib/skill-activity).

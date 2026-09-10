@@ -613,6 +613,11 @@ describe('fileResearchReport opens a review round', () => {
     expect(transitionDocumentVersion).toHaveBeenCalledWith(SESSION, 'doc-1', 'ver-1', 'submit', {
       reviewerUserIds: ['user-1'],
       request: undefined,
+      // The RUN made this gesture in the commissioning human's session
+      // (migration 0085). Without it `submitted_by` reads as that person having
+      // asserted the report themselves, and the not-the-submitter guard then
+      // refuses the one person who asked for it the right to release it.
+      actingHuman: false,
     })
   })
 

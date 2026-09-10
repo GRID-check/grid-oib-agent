@@ -60,12 +60,12 @@ def store(monkeypatch: pytest.MonkeyPatch) -> InMemoryStore:
 
 
 @pytest.fixture
-def reads(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+def reads(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
     """Every internal read the loader makes, with the body it gets back."""
-    seen: list[tuple[str, str]] = []
+    seen: list[tuple[str, str, str]] = []
 
-    def _read(version_id: str, organization_id: str) -> dict[str, Any]:
-        seen.append((version_id, organization_id))
+    def _read(version_id: str, organization_id: str, conversation_id: str) -> dict[str, Any]:
+        seen.append((version_id, organization_id, conversation_id))
         return dict(BODY)
 
     monkeypatch.setattr(subject_document, "get_document_version_content", _read)
@@ -90,7 +90,7 @@ class TestAnUnpublishedSubject:
         path = await _load(OPEN)
 
         assert path == "/entwuerfe/Befund Fluchtwege.md"
-        assert reads == [("ver-9", ORGANIZATION)]
+        assert reads == [("ver-9", ORGANIZATION, CONVERSATION)]
         assert _stored(store, path)["content"] == TEXT
 
     async def test_it_is_named_after_the_documents_LABEL_not_its_filename(self, store, reads) -> None:
@@ -201,8 +201,8 @@ class TestWhenTheBytesDoNotArrive:
     async def test_a_refusal_is_logged_and_the_turn_continues(
         self, store, monkeypatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        def _refuse(version_id: str, organization_id: str) -> dict[str, Any]:
-            raise FilingError("the document API refused the read (404)", status=404)
+        def _refuse(version_id: str, organization_id: str, conversation_id: str) -> dict[str, Any]:
+            raise FilingError("the document API refused the read (403)", status=403)
 
         monkeypatch.setattr(subject_document, "get_document_version_content", _refuse)
         with caplog.at_level(logging.WARNING):
@@ -212,7 +212,7 @@ class TestWhenTheBytesDoNotArrive:
     async def test_an_unreachable_bff_is_logged_and_the_turn_continues(
         self, store, monkeypatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        def _unreachable(version_id: str, organization_id: str) -> dict[str, Any]:
+        def _unreachable(version_id: str, organization_id: str, conversation_id: str) -> dict[str, Any]:
             raise FilingError("the document API could not be reached")
 
         monkeypatch.setattr(subject_document, "get_document_version_content", _unreachable)
@@ -225,7 +225,7 @@ class TestWhenTheBytesDoNotArrive:
         assert _stored(store, "/entwuerfe/Befund Fluchtwege.md") is None
 
     async def test_an_unexpected_failure_never_reaches_the_turn(self, store, monkeypatch) -> None:
-        def _explode(version_id: str, organization_id: str) -> dict[str, Any]:
+        def _explode(version_id: str, organization_id: str, conversation_id: str) -> dict[str, Any]:
             raise RuntimeError("boom")
 
         monkeypatch.setattr(subject_document, "get_document_version_content", _explode)
@@ -247,6 +247,42 @@ class TestWhenTheBytesDoNotArrive:
             is None
         )
         assert reads == []
+
+
+class TestTheReadIsScopedToTheConversation:
+    """The version id is the only thing a client picks; the conversation is the rest.
+
+    The BFF's read route now requires ``conversationId`` too and refuses unless
+    the version is that conversation's subject. A loader that sent only the
+    organization would be asking the route to trust an id — and would, from the
+    day the route started enforcing it, load nothing at all while every turn
+    logged a refusal.
+    """
+
+    async def test_the_conversation_travels_with_the_read(self, store, reads) -> None:
+        await _load(OPEN)
+
+        assert reads == [("ver-9", ORGANIZATION, CONVERSATION)]
+
+    async def test_a_version_that_is_not_the_subject_is_not_a_fault(
+        self, store, monkeypatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # 404 means the BFF does not consider this version the conversation's
+        # subject: a reopened conversation, a subject that moved on. There is
+        # nothing to load, the turn is an ordinary one, and nothing is written.
+        def _absent(version_id: str, organization_id: str, conversation_id: str) -> dict[str, Any]:
+            raise FilingError("the document API refused the read (404)", status=404)
+
+        monkeypatch.setattr(subject_document, "get_document_version_content", _absent)
+        with caplog.at_level(logging.INFO):
+            assert await _load(OPEN) is None
+
+        assert _stored(store, "/entwuerfe/Befund Fluchtwege.md") is None
+        absent = [record for record in caplog.records if "ver-9" in record.getMessage()]
+        assert absent, "the miss is recorded"
+        # Logged at INFO, where every other miss is a WARNING: a turn about a
+        # document that is no longer the subject is not an incident.
+        assert [record.levelno for record in absent] == [logging.INFO]
 
 
 class TestTheNameItBuilds:

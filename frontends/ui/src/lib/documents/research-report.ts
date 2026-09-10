@@ -362,6 +362,12 @@ async function openReviewRound(
     await transitionDocumentVersion(session, filed.documentId, version.id, 'submit', {
       reviewerUserIds: [session.userId],
       request,
+      // The RUN made this gesture, in the commissioning human's session
+      // (migration 0085). Without saying so, `submitted_by` reads as that
+      // person having asserted the report themselves — and the
+      // not-the-submitter guard then refused the one person who asked for it
+      // the right to release it.
+      actingHuman: false,
     })
   } catch (error) {
     console.error('[documents] a filed report could not open its review round', {

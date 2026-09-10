@@ -179,7 +179,7 @@ KEY_ACTION_DRAFT_READ = "status.action.draftRead"
 KEY_ACTION_DRAFT_WRITE = "status.action.draftWrite"
 KEY_ACTION_DRAFT_EDIT = "status.action.draftEdit"
 #: A write-side workspace tool proposing a file operation (`tools/files`). ONE
-#: key for all five verbs, unlike the working directory's four: the reader is
+#: key for all four verbs, unlike the working directory's own four: the reader is
 #: about to be shown a card that says exactly which operation on which file, so
 #: a line naming the verb a second time would be the card, worse and earlier.
 #: What the line has to carry is that nothing is being changed yet.
@@ -368,7 +368,6 @@ _ACTION_KEYS = {
     "move_document": KEY_ACTION_FILE_PROPOSAL,
     "rename_document": KEY_ACTION_FILE_PROPOSAL,
     "create_folder": KEY_ACTION_FILE_PROPOSAL,
-    "set_doc_class": KEY_ACTION_FILE_PROPOSAL,
     "assign_document": KEY_ACTION_FILE_PROPOSAL,
     "file_draft": KEY_ACTION_DRAFT_FILED,
     "submit_draft": KEY_ACTION_DRAFT_SUBMITTED,
@@ -474,6 +473,14 @@ SUBJECT_REFUSED = "refused"
 SUBJECT_EMPTY = "empty"
 SUBJECT_NOT_STORED = "not_stored"
 
+#: The read route said the version is not this conversation's subject (``404``).
+#: Its own token, and not :data:`SUBJECT_REFUSED`, because it is not a fault: a
+#: reopened conversation, a subject that moved on, a version the reader is no
+#: longer looking at. It answers a different operator question — how often the
+#: composer and the BFF disagree about what the turn is about — and it is the one
+#: miss that is logged at ``INFO`` rather than ``WARNING``.
+SUBJECT_ABSENT = "absent"
+
 
 def emit_subject_document(
     *,
@@ -505,7 +512,8 @@ def emit_subject_document(
         path: Where it was written, when it was written.
         chars: How much text was written.
         reason: One of :data:`SUBJECT_UNREACHABLE`, :data:`SUBJECT_REFUSED`,
-            :data:`SUBJECT_EMPTY`, :data:`SUBJECT_NOT_STORED` — only on a miss.
+            :data:`SUBJECT_ABSENT`, :data:`SUBJECT_EMPTY`,
+            :data:`SUBJECT_NOT_STORED` — only on a miss.
     """
     payload: dict[str, Any] = {
         "kind": "status",
@@ -812,6 +820,13 @@ VERDICT_DROPPED_SLOT = "verdict:dropped"
 #: The Fundstelle the model named resolved to a document PILOTI wrote — office
 #: knowledge the office approved, never a source for a normative value.
 VERDICT_DROP_AGENT_AUTHORED = "agent_authored_reference"
+
+#: The verdict named NO Fundstelle at all on a turn that retrieved something
+#: PILOTI wrote. The agent-authored gate above can only judge a reference it
+#: was given, so without this token the cheapest way past it is to omit the
+#: reference — and an unattributed headline on such a turn is the same claim,
+#: with the evidence that would have failed it left out.
+VERDICT_DROP_UNREFERENCED_WITH_AGENT_SOURCE = "unreferenced_with_agent_source"
 
 
 def emit_verdict_dropped(*, reason: str) -> None:

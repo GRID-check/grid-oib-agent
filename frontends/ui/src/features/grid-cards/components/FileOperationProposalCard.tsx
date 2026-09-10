@@ -3,11 +3,11 @@
 /**
  * FileOperationProposalCard — the workspace change the agent proposed.
  *
- * One component for five verbs, switching on `operation`, because the five
+ * One component for four verbs, switching on `operation`, because the four
  * differ in exactly one line: what each row of the proposal SAYS. Everything
  * else — the proposal shell, the pending/accepted/dismissed lifecycle, the
- * persisted decision, the partial-failure report — is the same object five
- * times over, and five components would be five places to fix the sixth bug.
+ * persisted decision, the partial-failure report — is the same object four
+ * times over, and four components would be four places to fix the fifth bug.
  *
  * System-emitted (`aiq_agent/tools/files/`): the model cannot author one, so
  * every file named here is a file the tool resolved against the reader's own
@@ -31,12 +31,10 @@ import { Button } from '@/components/ui/button'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 import { useChatStore } from '@/features/chat/store'
-import { DOC_CLASS_LABELS, resolveDocClass } from '@/lib/knowledge/doc-class'
 import { useCardDecision } from '../hooks/use-card-decision'
 import {
   applyFileOperations,
   operationLabel,
-  UNAVAILABLE_OPERATIONS,
   type FileOperationItem,
   type FileOperationKind,
   type FileOperationResult,
@@ -86,18 +84,10 @@ function OperationRow({
       ? folderText(item.target_folder, root)
       : operation === 'rename'
         ? (item.new_display_name ?? '')
-        : operation === 'set_doc_class'
-          ? // The KEY is what travels (`gesetz`); what the reader is deciding
-            // about is the Dokumentart, and they know it by its label. The
-            // mirror is the one the Dokumentart editor already renders from.
-            DOC_CLASS_LABELS[resolveDocClass(item.doc_class)]
-          : operation === 'assign'
-            ? (item.member ?? '')
-            : folderText(item.parent_folder, root)
-  const from =
-    operation === 'move' || operation === 'set_doc_class'
-      ? folderText(item.current, operation === 'move' ? root : '')
-      : ''
+        : operation === 'assign'
+          ? (item.member ?? '')
+          : folderText(item.parent_folder, root)
+  const from = operation === 'move' ? folderText(item.current, root) : ''
 
   return (
     <li className="card-caption flex flex-wrap items-baseline gap-x-2 text-foreground">
@@ -143,10 +133,12 @@ export function FileOperationProposalCard({
   const [error, setError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Why this card cannot be applied here, if it cannot. Both cases are STATED
-  // rather than drawn as an absence: a card that shows a proposal and offers
-  // nothing, with no line saying why, reads as one that failed to load.
-  const unavailable = UNAVAILABLE_OPERATIONS[operation] ?? (projectId ? undefined : 'noProject')
+  // Why this card cannot be applied here, if it cannot. STATED rather than
+  // drawn as an absence: a card that shows a proposal and offers nothing, with
+  // no line saying why, reads as one that failed to load. One case is left —
+  // every route behind this card is project-scoped, and a chat can have no
+  // project.
+  const unavailable = projectId ? undefined : ('noProject' as const)
   const failed = results?.filter((result) => !result.ok) ?? []
 
   const accept = async () => {
@@ -221,8 +213,7 @@ export function FileOperationProposalCard({
 
       {note && <p className="card-caption text-muted-foreground">{note}</p>}
 
-      {/* The operation nobody can run yet. The proposal still READS — what the
-          agent concluded about the document is worth knowing — and the reason
+      {/* A chat with no project. The proposal still READS, and the reason
           stands where the buttons would be, so the card is unavailable rather
           than broken. */}
       {unavailable && (

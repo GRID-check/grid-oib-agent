@@ -193,15 +193,15 @@ class TestRetrieval:
         assert payload["key"] == "status.action.draftWrite"
         assert payload["values"] == {}
 
-    def test_the_five_file_verbs_share_one_line(self, steps) -> None:
-        """One key for all five, unlike the working directory's four.
+    def test_the_four_file_verbs_share_one_line(self, steps) -> None:
+        """One key for all four, unlike the working directory's own four.
 
         The card that follows says which operation on which file, in the
         reader's own words and with the buttons attached. A live line naming
         the verb again would be the card, worse and one moment earlier — what
         the line has to carry is that nothing has changed yet.
         """
-        verbs = ("move_document", "rename_document", "create_folder", "set_doc_class", "assign_document")
+        verbs = ("move_document", "rename_document", "create_folder", "assign_document")
         for index, verb in enumerate(verbs):
             turn_status.emit_retrieval([{"name": verb, "args": {"document": "plan.pdf"}}], round_index=index)
         keys = [payload["key"] for payload in _live(steps)]

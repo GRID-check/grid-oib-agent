@@ -29,6 +29,64 @@ export async function insertDocumentVersion(values: NewDocumentVersion): Promise
   return row
 }
 
+/**
+ * Insert a version that is born `published` — supersede, insert, move the
+ * pointer, in ONE transaction.
+ *
+ * ## Why this is not an insert followed by {@link promoteVersionToPublished}
+ *
+ * It was, and a re-upload could not work. `uniq_document_versions_published_per_document`
+ * is a plain partial unique index and therefore NOT deferrable: it is checked
+ * per statement, so the INSERT of version N+1 as `published` is refused while
+ * version N is still `published`. The supersede has to come FIRST, and it has
+ * to be in the same transaction as the insert — a supersede that committed on
+ * its own and then hit a failing insert would leave a document with no
+ * published version at all.
+ *
+ * The previous version's BYTES ARE NOT TOUCHED. A superseded version is
+ * history; objects go when the document is deleted.
+ */
+export async function insertPublishedVersion(
+  values: NewDocumentVersion,
+): Promise<{ version: DocumentVersion; superseded: DocumentVersion[] }> {
+  const db = getDb()
+  return db.transaction(async (tx) => {
+    const superseded = await tx
+      .update(documentVersions)
+      .set({ state: 'superseded', updatedAt: new Date() })
+      .where(
+        and(
+          eq(documentVersions.documentId, values.documentId),
+          eq(documentVersions.organizationId, values.organizationId),
+          eq(documentVersions.state, 'published'),
+        ),
+      )
+      .returning()
+
+    const [version] = await tx.insert(documentVersions).values(values).returning()
+
+    await tx
+      .update(documents)
+      .set({
+        publishedVersionId: version.id,
+        storageKey: version.storageKey,
+        storageBucket: version.storageBucket,
+        contentType: version.contentType,
+        fileSize: version.fileSize,
+        contentHash: version.contentHash,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(documents.id, values.documentId),
+          eq(documents.organizationId, values.organizationId),
+        ),
+      )
+
+    return { version, superseded }
+  })
+}
+
 export async function listDocumentVersions(
   documentId: string,
   organizationId: string,
@@ -270,9 +328,10 @@ export async function compareAndSwapVersionState(
  * The previous version's BYTES ARE NOT TOUCHED. A superseded version is history;
  * objects go when the document is deleted.
  *
- * `expected === null` is a version that was INSERTED as published a moment ago
- * (a human upload): there is no state to swap from, only the supersede and the
- * pointer move.
+ * A version that is born published — a human upload — does not come through
+ * here at all: there is no state to swap from, and the INSERT itself has to be
+ * inside the transaction that supersedes its predecessor. That is
+ * {@link insertPublishedVersion}.
  *
  * Returns `null` when the compare-and-swap matched nothing — the caller turns
  * that into a `ConflictError`.
@@ -281,7 +340,7 @@ export async function promoteVersionToPublished(
   versionId: string,
   documentId: string,
   organizationId: string,
-  expected: DocumentVersionState | null,
+  expected: DocumentVersionState,
   patch: Partial<Omit<NewDocumentVersion, 'id' | 'organizationId' | 'documentId'>> = {},
 ): Promise<{ version: DocumentVersion; superseded: DocumentVersion[] } | null> {
   const db = getDb()
@@ -299,28 +358,17 @@ export async function promoteVersionToPublished(
       )
       .returning()
 
-    const [swapped] = expected
-      ? await tx
-          .update(documentVersions)
-          .set({ ...patch, updatedAt: new Date() })
-          .where(
-            and(
-              eq(documentVersions.id, versionId),
-              eq(documentVersions.organizationId, organizationId),
-              eq(documentVersions.state, expected),
-            ),
-          )
-          .returning()
-      : await tx
-          .select()
-          .from(documentVersions)
-          .where(
-            and(
-              eq(documentVersions.id, versionId),
-              eq(documentVersions.organizationId, organizationId),
-            ),
-          )
-          .limit(1)
+    const [swapped] = await tx
+      .update(documentVersions)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(
+        and(
+          eq(documentVersions.id, versionId),
+          eq(documentVersions.organizationId, organizationId),
+          eq(documentVersions.state, expected),
+        ),
+      )
+      .returning()
 
     if (!swapped) {
       // Roll the supersede back with the failed swap: a document that lost its
@@ -346,6 +394,35 @@ export async function promoteVersionToPublished(
     return { version: swapped, superseded }
   })
   return outcome ?? null
+}
+
+/**
+ * Copy one version's storage columns onto the item that owns it.
+ *
+ * The item's columns MIRROR the bytes a reader gets when they open the
+ * document, and two things read them that a version row cannot answer for: the
+ * download path, and the storage ledger — `sum(documents.file_size)` is the
+ * hot half of the quota. So a version whose bytes were replaced in place has to
+ * write them back here, or the organization is charged the size the file had
+ * when it was created, forever.
+ *
+ * Only the version the item actually mirrors may call this
+ * ({@link versionMirrorsItem} in `./version-content`): copying a forked draft's
+ * bytes onto the item would make the download serve something nobody published.
+ */
+export async function mirrorVersionOntoDocument(
+  documentId: string,
+  organizationId: string,
+  next: Pick<
+    DocumentVersion,
+    'storageKey' | 'storageBucket' | 'contentType' | 'fileSize' | 'contentHash'
+  >,
+): Promise<void> {
+  const db = getDb()
+  await db
+    .update(documents)
+    .set({ ...next, updatedAt: new Date() })
+    .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId)))
 }
 
 /** Move an item into or out of the working set. */

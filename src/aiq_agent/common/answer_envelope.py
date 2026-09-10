@@ -73,6 +73,7 @@ from pydantic import ValidationError
 
 from aiq_agent.common.provenance import normalize_document_name
 from aiq_agent.common.turn_status import VERDICT_DROP_AGENT_AUTHORED
+from aiq_agent.common.turn_status import VERDICT_DROP_UNREFERENCED_WITH_AGENT_SOURCE
 from aiq_agent.common.turn_status import emit_verdict_dropped
 
 logger = logging.getLogger(__name__)
@@ -290,6 +291,29 @@ def _gate_summary(meta: AnswerMeta, ctx: GateContext) -> str | None:
     return summary
 
 
+def _verdict_drop_reason(verdict: AnswerMetaVerdict, ctx: GateContext) -> str | None:
+    """Why this verdict may not stand as the answer's headline, or ``None``.
+
+    Two refusals, and the second exists because the first could be walked
+    around. A verdict whose Fundstelle names a document PILOTI wrote is dropped
+    — an approved office document is evidence of what the OFFICE decided, never
+    of what the OIB requires. A verdict with NO Fundstelle cannot be judged that
+    way at all, so on a turn that retrieved agent-authored material the gate
+    fell open: omitting the reference was the cheapest route to the same
+    headline, resting on the same document, with the evidence left out.
+
+    So the absent reference is refused too, and only on such a turn. When
+    nothing agent-authored was retrieved there is nothing for the headline to
+    launder, and a verdict the model chose not to attribute — „Nicht geregelt"
+    is the common one — keeps standing exactly as before.
+    """
+    if _names_agent_authored_document(verdict.reference, ctx):
+        return VERDICT_DROP_AGENT_AUTHORED
+    if verdict.reference is None and ctx.agent_authored_documents:
+        return VERDICT_DROP_UNREFERENCED_WITH_AGENT_SOURCE
+    return None
+
+
 def _names_agent_authored_document(reference: AnswerMetaReference | None, ctx: GateContext) -> bool:
     """Whether a verdict's Fundstelle names a document PILOTI wrote.
 
@@ -321,13 +345,16 @@ def _gate_verdict(meta: AnswerMeta, ctx: GateContext) -> dict | None:
             VERDICT_VALUE_MAX_CHARS,
         )
         return None
-    if _names_agent_authored_document(meta.verdict.reference, ctx):
+    drop = _verdict_drop_reason(meta.verdict, ctx)
+    if drop is not None:
         logger.info(
-            "answer_meta verdict gated out: its Fundstelle %r is a document Piloti wrote — "
+            "answer_meta verdict gated out (%s): Fundstelle %r against %d agent-authored document(s) — "
             "an approved office document is evidence of what the office decided, never of what the OIB requires",
-            meta.verdict.reference.document if meta.verdict.reference else "",
+            drop,
+            meta.verdict.reference.document if meta.verdict.reference else None,
+            len(ctx.agent_authored_documents),
         )
-        emit_verdict_dropped(reason=VERDICT_DROP_AGENT_AUTHORED)
+        emit_verdict_dropped(reason=drop)
         return None
     verdict: dict = {"value": value, "subject": subject}
     if meta.verdict.reference is not None:
@@ -531,7 +558,9 @@ def gate_answer_meta(
 
     ``agent_authored_documents`` is what the turn retrieved that PILOTI wrote
     (``citation_verification.agent_authored_document_names``); a verdict whose
-    Fundstelle resolves into it is dropped. Defaulted so a caller with no
+    Fundstelle resolves into it is dropped, and so is a verdict that names no
+    Fundstelle at all — see :func:`_verdict_drop_reason` for why the second
+    refusal is not the first one being over-eager. Defaulted so a caller with no
     registry — the deep writer's report path, a test — behaves exactly as
     before.
     """

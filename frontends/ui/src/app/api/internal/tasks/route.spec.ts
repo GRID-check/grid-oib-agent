@@ -58,12 +58,19 @@ const task = {
   deadlineAt: new Date('2026-09-18T23:59:59.999Z'),
 }
 
-function envelopeHeaders(overrides: { issuedAt?: number; userId?: string; organizationId?: string } = {}) {
+function envelopeHeaders(
+  overrides: {
+    issuedAt?: number
+    userId?: string
+    organizationId?: string
+    projectId?: string | null
+  } = {},
+) {
   const { header, signature } = buildGridRequestContextEnvelope(
     {
       organizationId: overrides.organizationId ?? 'org_1',
       userId: overrides.userId ?? 'user_requester',
-      projectId: PROJECT,
+      ...(overrides.projectId === null ? {} : { projectId: overrides.projectId ?? PROJECT }),
       conversationId: 's_conv_1',
       issuedAt: overrides.issuedAt ?? Date.now(),
     },
@@ -198,5 +205,33 @@ describe('parseTaskDue', () => {
     // nothing enforces yet.
     expect(parseTaskDue('bis Freitag')).toBeNull()
     expect(parseTaskDue(undefined)).toBeNull()
+  })
+})
+
+describe('the project the body names must be the project the envelope names', () => {
+  it('queues the work when both agree', async () => {
+    expect((await call(CREATE)).status).toBe(201)
+  })
+
+  it('refuses a body pointed at a DIFFERENT project, and queues nothing', async () => {
+    // A task queues a run that FILES as this person and spends their budget, so
+    // a replayed envelope pointed at a second project would be work nobody
+    // asked for, attributed to somebody who did not ask for it.
+    const other = '99999999-9999-4999-8999-999999999999'
+    const response = await call({ ...CREATE, projectId: other })
+
+    expect(response.status).toBe(400)
+    expect(delegateTask).not.toHaveBeenCalled()
+  })
+
+  it('constrains nothing when the envelope names no project', async () => {
+    const other = '99999999-9999-4999-8999-999999999999'
+    const response = await call(
+      { ...CREATE, projectId: other },
+      envelopeHeaders({ projectId: null }),
+    )
+
+    expect(response.status).toBe(201)
+    expect(vi.mocked(delegateTask).mock.calls[0][1]).toMatchObject({ projectId: other })
   })
 })

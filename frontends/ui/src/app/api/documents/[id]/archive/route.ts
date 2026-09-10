@@ -8,7 +8,7 @@
  */
 
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
-import { archiveDocument } from '@/lib/documents/lifecycle'
+import { archiveDocument } from '@/lib/documents/version-content'
 import { archiveRequestSchema } from '@/lib/documents/lifecycle-types'
 
 type Params = { id: string }

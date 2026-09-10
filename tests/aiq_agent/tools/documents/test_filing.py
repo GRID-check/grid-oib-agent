@@ -12,6 +12,9 @@ The doubles live in ``conftest.py``; so does every helper below the fixtures.
 
 from __future__ import annotations
 
+from urllib.parse import parse_qs
+from urllib.parse import urlsplit
+
 from aiq_agent.tools.documents import filing
 from aiq_agent.tools.documents import register as filing_tools
 from aiq_agent.tools.documents.draft_store import FILED_DOCUMENT_KEY
@@ -182,6 +185,31 @@ class TestFilingTheSameDraftTwice:
         assert [payload["op"] for payload, _ in calls] == ["create", "update"]
         assert calls[1][0]["ifMatch"] == "h1"
 
+    async def test_a_lost_mapping_onto_a_SUBMITTED_version_is_refused_not_announced(
+        self, _one_store, monkeypatch, calls
+    ) -> None:
+        """`alreadyFiled` plus a state nobody may replace: nothing was written.
+
+        The working directory lost its mapping (a restart, a retried turn), so
+        the tool takes the `create` branch — and the reference resolves onto a
+        version already `in_review`, which no machine may replace. Reporting
+        „Im Projekt abgelegt" here would tell the reader their revision is in
+        the project while the reviewer still holds the old bytes.
+        """
+        await _write(_one_store)
+        message = await _file(
+            monkeypatch,
+            [{"documentId": "doc-1", "alreadyFiled": True, "version": _version("ver-1", "in_review", "h1")}],
+            calls,
+        )
+
+        assert "zur Freigabe" in message
+        assert "abgelegt" not in message.split("Fehler:")[-1].split(".")[0]
+        # One call, and it was the create that came back already filed. No
+        # update was attempted, and nothing claims a version was written.
+        assert [payload["op"] for payload, _ in calls] == ["create"]
+        assert FILED_DOCUMENT_KEY not in _stored(_one_store)
+
     async def test_a_draft_already_in_review_is_not_replaced(self, _one_store, monkeypatch, calls) -> None:
         await _write(_one_store)
         await _file(monkeypatch, [{"documentId": "doc-1", "version": _version("ver-1", "in_review", "h1")}], calls)
@@ -213,8 +241,79 @@ class TestSubmitting:
         }
         assert signed.header == ENVELOPE_HEADER
         assert "Freigabe" in message
+        # Nobody was named, so the route submits to the project's editors — and
+        # the sentence says so, because „wartet auf eine Person" leaves the
+        # reader wondering which one.
+        assert "an die Bearbeiter des Projekts" in message
         assert "ENTWURF" in message
         assert _stored(_one_store)[FILED_STATE_KEY] == "in_review"
+
+    async def test_a_named_reviewer_travels_as_a_NAME(self, _one_store, monkeypatch, calls) -> None:
+        """This tier has no member roster; the BFF resolves the name.
+
+        The same shape `assign_document` uses, and for the same reason: a
+        reviewer resolved here would be a person this process guessed.
+        """
+        await _write(_one_store)
+        await _file(monkeypatch, [{"documentId": "doc-1", "version": _version("ver-1", "draft", "h1")}], calls)
+
+        calls.clear()
+        message = await _submit(
+            monkeypatch,
+            [{"documentId": "doc-1", "version": _version("ver-1", "in_review", "h1")}],
+            calls,
+            reviewer="  Anna   Berger ",
+        )
+
+        payload, _ = calls[0]
+        assert payload["reviewer"] == "Anna Berger"
+        assert payload["reviewerUserIds"] == []
+        assert "an Anna Berger" in message
+
+    async def test_no_reviewer_puts_no_field_on_the_wire(self, _one_store, monkeypatch, calls) -> None:
+        await _write(_one_store)
+        await _file(monkeypatch, [{"documentId": "doc-1", "version": _version("ver-1", "draft", "h1")}], calls)
+
+        calls.clear()
+        await _submit(monkeypatch, [{"documentId": "doc-1", "version": _version("ver-1", "in_review", "h1")}], calls)
+
+        assert "reviewer" not in calls[0][0]
+
+    async def test_a_person_the_project_does_not_have_is_a_refusal_in_those_words(
+        self, _one_store, monkeypatch, calls
+    ) -> None:
+        """The BFF resolves the name and answers 400. The generic filing error
+        would send the model hunting for a filing problem instead of asking the
+        reader who they meant."""
+        await _write(_one_store)
+        await _file(monkeypatch, [{"documentId": "doc-1", "version": _version("ver-1", "draft", "h1")}], calls)
+
+        def _refuse(payload, signed):  # noqa: ANN001, ARG001
+            raise filing.FilingError("the document API refused the call (400)", status=400, code="UNKNOWN_REVIEWER")
+
+        monkeypatch.setattr(filing_tools, "post_document_version", _refuse)
+        message = await filing_tools.run_submit_draft(DRAFT, "Anna Berger")
+
+        assert "Ich kenne keine Person namens „Anna Berger“" in message
+        assert "Es wurde nichts eingereicht" in message
+        assert "Bearbeiter des Projekts" in message
+        assert _stored(_one_store)[FILED_STATE_KEY] == "draft"
+
+    async def test_a_400_without_a_named_reviewer_keeps_the_filing_wording(
+        self, _one_store, monkeypatch, calls
+    ) -> None:
+        """The reviewer refusal is scoped to the argument that can produce it."""
+        await _write(_one_store)
+        await _file(monkeypatch, [{"documentId": "doc-1", "version": _version("ver-1", "draft", "h1")}], calls)
+
+        def _refuse(payload, signed):  # noqa: ANN001, ARG001
+            raise filing.FilingError("the document API refused the call (400)", status=400)
+
+        monkeypatch.setattr(filing_tools, "post_document_version", _refuse)
+        message = await filing_tools.run_submit_draft(DRAFT)
+
+        assert "Ich kenne keine Person" not in message
+        assert "Arbeitsordner" in message
 
     async def test_an_unfiled_draft_cannot_be_submitted(self, _one_store, monkeypatch, calls) -> None:
         await _write(_one_store)
@@ -306,3 +405,42 @@ class TestTheCard:
         calls.clear()
         await _submit(monkeypatch, [{"documentId": "doc-1", "version": _version("ver-1", "in_review", "h1")}], calls)
         assert _draft_cards(registry)[-1]["version_state"] == "in_review"
+
+
+class TestTheReadRouteIsScopedToTheConversation:
+    """``GET .../content`` carries BOTH predicates, and the transport is the real one.
+
+    A version id is the only thing a client picks. The organization alone would
+    let one reach any version in the tenant, so the BFF additionally requires the
+    conversation and refuses unless the version is that conversation's subject —
+    which is worth nothing if the parameter never leaves this side.
+    """
+
+    def test_both_scopes_reach_the_url(self, monkeypatch) -> None:
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "internal-token")
+        seen: list[str] = []
+
+        class _Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_exc) -> bool:
+                return False
+
+            def read(self) -> bytes:
+                return b'{"content": "x", "documentId": "doc-9"}'
+
+        class _Opener:
+            def open(self, request, timeout=None):  # noqa: ANN001, ARG002
+                seen.append(request.full_url)
+                return _Response()
+
+        monkeypatch.setattr(filing, "_opener", _Opener())
+        body = filing.get_document_version_content("ver 9", "org_1", "conv-1")
+
+        assert body["documentId"] == "doc-9"
+        assert len(seen) == 1
+        query = parse_qs(urlsplit(seen[0]).query)
+        assert query["organizationId"] == ["org_1"]
+        assert query["conversationId"] == ["conv-1"]
+        assert "/document-versions/ver%209/content" in seen[0]

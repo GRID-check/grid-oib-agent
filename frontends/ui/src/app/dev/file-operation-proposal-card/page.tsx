@@ -12,11 +12,7 @@
  *     rather than as a missing value.
  *  2. **A single rename.** The other end of the range: one row, one target, no
  *     „from" folder. A card that only composes at three rows composes at none.
- *  3. **The operation nobody can run yet.** `set_doc_class` has no
- *     project-scoped route behind it (the Dokumentart is settable only on the
- *     platform corpus), so the buttons are ABSENT and the reason stands where
- *     they would be. What the shot is for: it must read as unavailable, not as
- *     a card that failed to finish loading.
+ *
  * The two SETTLED states (applied, applied in part) are deliberately not here.
  * Each is one sentence inside `ProposalShell`, whose accepted and dismissed
  * tones are already screenshotted through `memory_proposal` in the gallery —
@@ -111,24 +107,6 @@ export default function FileOperationProposalCardPreview() {
           />
         </Panel>
 
-        <Panel
-          title="Vorgang ohne Route"
-          note="Die Dokumentart lässt sich an Projektunterlagen (noch) nicht setzen. Der Vorschlag bleibt lesbar, die Schaltflächen fehlen, und der Grund steht dort, wo sie stünden — unbenutzbar, nicht kaputt."
-        >
-          <FileOperationProposalCard
-            title="Dokumentart setzen"
-            operation="set_doc_class"
-            operations={[
-              {
-                document: 'Bauordnung Wien – Auszug.pdf',
-                source: 'buero',
-                current: 'Sonstiges Basisdokument',
-                doc_class: 'gesetz',
-              },
-            ]}
-            cardKey="file_operation_proposal-2"
-          />
-        </Panel>
       </div>
     </I18nProvider>
   )

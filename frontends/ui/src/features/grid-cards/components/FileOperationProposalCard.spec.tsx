@@ -134,13 +134,6 @@ describe('FileOperationProposalCard — what it shows', () => {
   it.each([
     ['rename', { document: 'a.pdf', source: 'projekt' as const, new_display_name: 'Grundriss Erdgeschoss' }, 'Grundriss Erdgeschoss'],
     ['create_folder', { folder_name: 'Fotos', parent_folder: 'Einreichung' }, 'Fotos'],
-    // The label, not the key: `gesetz` is what travels, „Gesetz / Bauordnung"
-    // is what the reader is deciding about.
-    [
-      'set_doc_class',
-      { document: 'a.pdf', source: 'projekt' as const, doc_class: 'gesetz' },
-      'Gesetz / Bauordnung',
-    ],
     ['assign', { document: 'a.pdf', source: 'projekt' as const, member: 'Anna Berger' }, 'Anna Berger'],
   ])('renders the %s operation in its own words', (operation, item, expected) => {
     render(
@@ -154,23 +147,11 @@ describe('FileOperationProposalCard — what it shows', () => {
     expect(screen.getByText(expected)).toBeInTheDocument()
   })
 
-  it('offers nothing for an operation with no route behind it', () => {
-    render(
-      <FileOperationProposalCard
-        title="Dokumentart"
-        operation="set_doc_class"
-        operations={[{ document: 'a.pdf', source: 'projekt', doc_class: 'gesetz' }]}
-        cardKey="file_operation_proposal-0"
-      />,
-    )
-    // The proposal still reads — and says why it cannot be applied.
-    expect(screen.getByTestId('file-operation-unavailable')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Apply' })).toBeNull()
-  })
-
   it('offers nothing without a project, because every route behind it is project-scoped', () => {
     mockProjectId = null
     render(<FileOperationProposalCard {...moveCard} cardKey="file_operation_proposal-0" />)
+    // The proposal still reads — and says why it cannot be applied.
+    expect(screen.getByTestId('file-operation-unavailable')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Apply' })).toBeNull()
   })
 })

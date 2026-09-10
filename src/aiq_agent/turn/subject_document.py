@@ -49,8 +49,16 @@ It does not touch a PUBLISHED subject. That version has chunks, the focus filter
 works, and a copy in the working directory would be a second, stale answer to
 "what does this document say" sitting one ``ls`` away from the real one.
 
+It also reads nothing the reader was not already looking at. The read route is
+scoped by BOTH the organization and the CONVERSATION, and refuses with ``404``
+unless the version is that conversation's subject — so a version id, the one
+thing a client picks, cannot on its own reach a document. That ``404`` is not a
+fault: it means there is no subject to load, and the turn proceeds as an
+ordinary one.
+
 It fails open, in every direction: no subject, no conversation, no organization,
-an unreachable BFF, a refusal, empty bytes, a full working directory — each
+a version that is not this conversation's subject, an unreachable BFF, a
+refusal, empty bytes, a full working directory — each
 costs the model one document and never the turn. That is the contract every unit
 in this package works under (``AGENTS.md``), and it is why this runs inside the
 setup ``asyncio.gather`` rather than in front of it.
@@ -64,6 +72,7 @@ import unicodedata
 
 from aiq_agent.cards.registry import reset_card_registry
 from aiq_agent.cards.registry import set_card_registry
+from aiq_agent.common.turn_status import SUBJECT_ABSENT
 from aiq_agent.common.turn_status import SUBJECT_EMPTY
 from aiq_agent.common.turn_status import SUBJECT_NOT_STORED
 from aiq_agent.common.turn_status import SUBJECT_REFUSED
@@ -71,11 +80,9 @@ from aiq_agent.common.turn_status import SUBJECT_UNREACHABLE
 from aiq_agent.common.turn_status import emit_subject_document
 from aiq_agent.tools.documents.draft_store import DRAFT_ROOT
 from aiq_agent.tools.documents.draft_store import FILED_DOCUMENT_KEY
-from aiq_agent.tools.documents.draft_store import FILED_HASH_KEY
-from aiq_agent.tools.documents.draft_store import FILED_STATE_KEY
-from aiq_agent.tools.documents.draft_store import FILED_VERSION_KEY
 from aiq_agent.tools.documents.draft_store import DraftBackend
 from aiq_agent.tools.documents.draft_store import DraftUsage
+from aiq_agent.tools.documents.draft_store import filing_record
 from aiq_agent.tools.documents.draft_store import get_draft_backend
 from aiq_agent.tools.documents.filing import FilingError
 from aiq_agent.tools.documents.filing import get_document_version_content
@@ -122,27 +129,22 @@ def draft_path(display_name: str) -> str:
     return f"{DRAFT_ROOT}{(name or 'dokument')[:MAX_NAME_CHARS]}.md"
 
 
-def filing_record(body: dict) -> dict[str, str]:
-    """The four filing keys, read out of the read route's answer.
+async def _fetch(version_id: str, organization_id: str, conversation_id: str) -> dict | None:
+    """The version's body, or ``None`` with the miss already recorded.
 
-    The same shape ``file_draft`` writes after a successful ``create`` — one
-    record, one reader — so the tool's ``update`` branch finds exactly what it
-    finds after a filing of its own: which document, which open version, and the
-    content hash to send as ``If-Match``.
+    Both scopes travel. The route refuses unless the version is THIS
+    conversation's subject, and a ``404`` is therefore not a fault: the composer
+    named a version the BFF no longer considers the subject, so there is nothing
+    to load and the turn is an ordinary one. Logged at ``INFO`` for that reason,
+    where every other miss is a ``WARNING``.
     """
-    return {
-        FILED_DOCUMENT_KEY: str(body.get("documentId") or ""),
-        FILED_VERSION_KEY: str(body.get("versionId") or ""),
-        FILED_HASH_KEY: str(body.get("contentHash") or ""),
-        FILED_STATE_KEY: str(body.get("state") or ""),
-    }
-
-
-async def _fetch(version_id: str, organization_id: str) -> dict | None:
-    """The version's body, or ``None`` with the miss already recorded."""
     try:
-        return await asyncio.to_thread(get_document_version_content, version_id, organization_id)
+        return await asyncio.to_thread(get_document_version_content, version_id, organization_id, conversation_id)
     except FilingError as refused:
+        if refused.status == 404:
+            logger.info("Subject version %s is not this conversation's subject; the turn continues", version_id)
+            emit_subject_document(loaded=False, version_id=version_id, reason=SUBJECT_ABSENT)
+            return None
         reason = SUBJECT_REFUSED if refused.status is not None else SUBJECT_UNREACHABLE
         logger.warning("Subject version %s could not be read: %s", version_id, refused)
         emit_subject_document(loaded=False, version_id=version_id, reason=reason)
@@ -250,7 +252,7 @@ async def _load_subject_document(
         return None
 
     assert subject.version_id is not None  # noqa: S101 - `is_open` is the check; this is for the type
-    body = await _fetch(subject.version_id, organization_id)
+    body = await _fetch(subject.version_id, organization_id, conversation_id)
     if body is None:
         return None
 

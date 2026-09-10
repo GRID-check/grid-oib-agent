@@ -38,7 +38,7 @@ from pydantic_core import PydanticUndefined
 #     working directory's `write_file`/`edit_file`, whose card names a file
 #     that has to exist, `task_created` from `create_task`, whose card names a
 #     task row the BFF has already written, `file_operation_proposal` from the
-#     five write-side workspace tools, whose card names files the reader
+#     four write-side workspace tools, whose card names files the reader
 #     actually has).
 #   * RETIRED — the content moved off the card path entirely and the card only
 #     survives so that stored ones keep rendering. `follow_ups` was the first:

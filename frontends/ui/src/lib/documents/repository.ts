@@ -20,6 +20,7 @@ import {
   projectFolders,
   type Document,
   type DocumentAuthor,
+  type DocumentLifecycle,
   type ResourceVisibility,
 } from '@/lib/db/schema'
 
@@ -58,6 +59,15 @@ export interface DocumentListRow {
    * up.
    */
   publishedVersionId: string | null
+  /**
+   * Whether the item is in the working set (ADR-0054).
+   *
+   * On the LIST row because the one surface that asks for archived documents
+   * shows them MIXED with the active ones — a listing that could not say which
+   * is which would be a pane where „archiviert" is invisible again, one layer
+   * further in.
+   */
+  lifecycle: DocumentLifecycle
   collectionName: string
   folderId: string | null
   /**
@@ -100,11 +110,31 @@ export interface DocumentListRow {
  * case — the one any surface actually asks for — is a point query in the
  * listing's own sort order.
  */
+export interface ListProjectDocumentsOptions {
+  limit?: number
+  authoredBy?: DocumentAuthor
+  /**
+   * Show the documents somebody archived as well (ADR-0054).
+   *
+   * Default false, and that default is the point of the column: „archiviert"
+   * is a statement that the file has left the working set, and a file that is
+   * still in every listing has not left it. The archive gesture already purges
+   * the chunks so the agent stops citing it; the listing was the other half and
+   * it was missing, which made the whole act read as a no-op with an audit
+   * event.
+   *
+   * An OPTION rather than a second query, because the surface that shows them
+   * (the Files filter's „Archiviert" chip) needs the same projection, the same
+   * cap and the same assignment hydration as the default one — a second query
+   * would be a second definition of what a document listing is.
+   */
+  includeArchived?: boolean
+}
+
 export async function listProjectDocuments(
   projectId: string,
   organizationId: string,
-  limit = DOCUMENT_LIST_LIMIT,
-  authoredBy?: DocumentAuthor,
+  { limit = DOCUMENT_LIST_LIMIT, authoredBy, includeArchived = false }: ListProjectDocumentsOptions = {},
 ): Promise<DocumentListRow[]> {
   const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), DOCUMENT_LIST_LIMIT)
   const db = getDb()
@@ -119,6 +149,7 @@ export async function listProjectDocuments(
         status: documents.status,
         authoredBy: documents.authoredBy,
         publishedVersionId: documents.publishedVersionId,
+        lifecycle: documents.lifecycle,
         collectionName: documents.collectionName,
         folderId: documents.folderId,
         originPath: documents.originPath,
@@ -143,6 +174,7 @@ export async function listProjectDocuments(
           // project documents; that is now what it asks for.
           eq(documents.scope, 'project'),
           ...(authoredBy ? [eq(documents.authoredBy, authoredBy)] : []),
+          ...(includeArchived ? [] : [eq(documents.lifecycle, 'active')]),
         ),
       )
       .orderBy(desc(documents.createdAt))

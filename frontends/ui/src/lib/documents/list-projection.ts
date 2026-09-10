@@ -50,6 +50,10 @@ export function toDocumentWireRow(
   return {
     versionState: summary?.state ?? null,
     versionCount: summary?.versionCount ?? null,
+    // The item's own state, beside the version's. A listing that asked for
+    // archived rows and could not say which they are would put „archiviert"
+    // out of sight again one layer further in.
+    lifecycle: row.lifecycle,
     id: row.id,
     filename: row.filename,
     displayName: row.displayName,

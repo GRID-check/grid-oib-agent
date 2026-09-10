@@ -12,13 +12,38 @@
  * is O(objects) and would also count thumbnails and any orphan the purger has
  * not reached. The two can drift — bytes written outside the document service
  * have no row — which is exactly why writes go through the service.
+ *
+ * ## A document has more than one set of bytes (ADR-0054)
+ *
+ * Since migration 0082 the item row describes the LIVE bytes and every other
+ * version keeps its own object: a re-upload supersedes rather than deletes, and
+ * a draft that has been written to has a `v<n>/` key of its own. Migration
+ * 0082's header states the consequence out loud — "superseded versions stay
+ * charged against the organization's storage quota" — and for a while that was
+ * a claim the code did not honour, because usage summed `documents.file_size`
+ * alone. An office that re-uploads a plan set weekly accumulated invisible,
+ * unbilled bytes with no listing that showed them.
+ *
+ * {@link versionOverheadBytes} is the second half of the ledger, and its
+ * predicate is what makes it exact rather than approximately right: a version
+ * counts when its object is not the ITEM's object. That excludes the published
+ * version (whose bytes the item mirrors) and, crucially, a freshly forked draft
+ * — which deliberately SHARES the published version's key until its content is
+ * replaced, so that it costs nothing until it is actually written. Two rows
+ * naming one object are one charge.
  */
 
 import 'server-only'
 import { and, eq, ne, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withPlatformAccess } from '@/lib/db/tenant-context'
-import { documents, DOCUMENT_SCOPES, type DocumentScope, type NewDocument } from '@/lib/db/schema'
+import {
+  documents,
+  documentVersions,
+  DOCUMENT_SCOPES,
+  type DocumentScope,
+  type NewDocument,
+} from '@/lib/db/schema'
 
 /** Bytes and document count for one scope. */
 export interface StorageScopeUsage {
@@ -54,22 +79,29 @@ export async function aggregateStorageUsage(
 ): Promise<StorageUsageByScope> {
   const db = getDb()
 
-  const rows = await db
-    .select({
-      scope: documents.scope,
-      bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint`,
-      documents: sql<string>`count(*)::bigint`,
-    })
-    .from(documents)
-    .where(eq(documents.organizationId, organizationId))
-    .groupBy(documents.scope)
+  const [rows, overhead] = await Promise.all([
+    db
+      .select({
+        scope: documents.scope,
+        bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint`,
+        documents: sql<string>`count(*)::bigint`,
+      })
+      .from(documents)
+      .where(eq(documents.organizationId, organizationId))
+      .groupBy(documents.scope),
+    // The other half of the ledger (see the module header). Bytes, never
+    // documents: a superseded version is not a second file in the Files pane,
+    // and counting it as one would make the breakdown disagree with the list a
+    // reader is looking at while they read it.
+    versionOverheadByScope(organizationId),
+  ])
 
   const usage = Object.fromEntries(
     [...DOCUMENT_SCOPES, 'total' as const].map((scope) => [scope, emptyScope()]),
   ) as StorageUsageByScope
 
   for (const row of rows) {
-    const bytes = Number(row.bytes) || 0
+    const bytes = (Number(row.bytes) || 0) + (overhead.get(row.scope) ?? 0)
     const count = Number(row.documents) || 0
     // Always counted toward the total, whatever the scope reads. It used to
     // FOLD an unrecognised scope into `project` — which for `session` would
@@ -97,13 +129,74 @@ export async function aggregateStorageUsage(
  * breakdown or the document counts.
  */
 export async function sumStorageBytes(organizationId: string): Promise<number> {
-  const db = getDb()
+  const [items, versions] = await Promise.all([
+    sumItemBytes(organizationId),
+    versionOverheadBytes(organizationId),
+  ])
+  return items + versions
+}
 
+/** The live bytes: one per document, mirrored from its published version. */
+async function sumItemBytes(organizationId: string): Promise<number> {
+  const db = getDb()
   const [row] = await db
     .select({ bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint` })
     .from(documents)
     .where(eq(documents.organizationId, organizationId))
+  return Number(row?.bytes) || 0
+}
 
+/**
+ * The bytes of every version whose object is NOT the item's own — superseded
+ * versions, drafts that have been written to, rejected ones, and anything
+ * `approved` but not yet published.
+ *
+ * The join is to `documents` rather than to `documents.published_version_id`
+ * alone because the pointer is only half the question. A draft forked from the
+ * published version shares that version's storage key on purpose (see
+ * `forkDraftVersion`): it is a second ROW over one OBJECT, and charging it
+ * would bill an office twice for a file nobody has changed yet. Comparing the
+ * keys answers both cases with one predicate — the item's object is counted
+ * once, on the item, and every other object is counted once, here.
+ *
+ * `sum()` yields NULL for an org with no versions and postgres-js hands back
+ * `bigint` as a STRING; both are coerced here, per the raw-`sql` rule in
+ * AGENTS.md.
+ */
+export async function versionOverheadByScope(
+  organizationId: string,
+): Promise<Map<string, number>> {
+  const db = getDb()
+  const rows = await db
+    .select({
+      scope: documents.scope,
+      bytes: sql<string>`coalesce(sum(${documentVersions.fileSize}), 0)::bigint`,
+    })
+    .from(documentVersions)
+    .innerJoin(documents, eq(documents.id, documentVersions.documentId))
+    .where(
+      and(
+        eq(documentVersions.organizationId, organizationId),
+        ne(documentVersions.storageKey, documents.storageKey),
+      ),
+    )
+    .groupBy(documents.scope)
+  return new Map(rows.map((row) => [row.scope, Number(row.bytes) || 0]))
+}
+
+/** The same total, unsliced — the quota's hot path does not need the breakdown. */
+export async function versionOverheadBytes(organizationId: string): Promise<number> {
+  const db = getDb()
+  const [row] = await db
+    .select({ bytes: sql<string>`coalesce(sum(${documentVersions.fileSize}), 0)::bigint` })
+    .from(documentVersions)
+    .innerJoin(documents, eq(documents.id, documentVersions.documentId))
+    .where(
+      and(
+        eq(documentVersions.organizationId, organizationId),
+        ne(documentVersions.storageKey, documents.storageKey),
+      ),
+    )
   return Number(row?.bytes) || 0
 }
 
@@ -188,6 +281,26 @@ export async function aggregateStorageUsageByOrganization(): Promise<
  * refused before the bytes move.
  */
 /**
+ * The version overhead as a subquery, for the two admitting transactions.
+ *
+ * Inlined into their `SELECT` rather than run as a second statement so the
+ * whole usage read stays one round trip inside the advisory lock. Same
+ * predicate as {@link versionOverheadBytes}: a version counts when its object is
+ * not the item's own. Without it the hard ceiling would measure a different
+ * number than the ledger the reader is shown, and an office could push past its
+ * quota one superseded plan set at a time.
+ */
+function versionOverheadSql(organizationId: string) {
+  return sql<string>`(
+    SELECT coalesce(sum(v.file_size), 0)::bigint
+    FROM document_versions v
+    JOIN documents d ON d.id = v.document_id
+    WHERE v.organization_id = ${organizationId}
+      AND v.storage_key <> d.storage_key
+  )`
+}
+
+/**
  * Point an existing document row at new bytes, under the same quota lock.
  *
  * The sibling of {@link insertDocumentWithinQuota}, for a re-upload of a
@@ -224,13 +337,16 @@ export async function replaceDocumentWithinQuota(
 
     if (quotaBytes !== null) {
       const [row] = await tx
-        .select({ bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint` })
+        .select({
+          bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint`,
+          versionBytes: versionOverheadSql(organizationId),
+        })
         .from(documents)
         .where(
           and(eq(documents.organizationId, organizationId), ne(documents.id, documentId)),
         )
 
-      const usedBytes = Number(row?.bytes) || 0
+      const usedBytes = (Number(row?.bytes) || 0) + (Number(row?.versionBytes) || 0)
       if (usedBytes + next.fileSize > quotaBytes) {
         return { ok: false as const, usedBytes }
       }
@@ -277,11 +393,14 @@ export async function insertDocumentWithinQuota(
 
     if (quotaBytes !== null) {
       const [row] = await tx
-        .select({ bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint` })
+        .select({
+          bytes: sql<string>`coalesce(sum(${documents.fileSize}), 0)::bigint`,
+          versionBytes: versionOverheadSql(values.organizationId),
+        })
         .from(documents)
         .where(eq(documents.organizationId, values.organizationId))
 
-      const usedBytes = Number(row?.bytes) || 0
+      const usedBytes = (Number(row?.bytes) || 0) + (Number(row?.versionBytes) || 0)
       if (usedBytes + incoming > quotaBytes) {
         // Returned rather than thrown: the caller has an object to clean up, and
         // a refusal is an expected outcome here, not an error condition. The

@@ -1,10 +1,9 @@
 """Resolving what the reader said to what the turn can see.
 
-The five write-side tools take NAMES — a file name, a folder path, a
-Dokumentart, a person — because that is what the conversation contains. None
-of them may guess: a proposal card that names a file the reader does not have
-is a decision they cannot make, and one that names the WRONG file is worse
-than no card at all.
+The four write-side tools take NAMES — a file name, a folder path, a person —
+because that is what the conversation contains. None of them may guess: a
+proposal card that names a file the reader does not have is a decision they
+cannot make, and one that names the WRONG file is worse than no card at all.
 
 So everything here resolves against what the turn ALREADY knows and refuses
 otherwise, with a message written for the model to act on rather than an
@@ -17,8 +16,6 @@ exception:
 * folders come from the ``folder_path`` those rows carry (ADR-0049 puts the
   materialised path on the row, so no join is needed) plus every ancestor of
   one, which is the whole folder tree the turn can see;
-* the Dokumentart vocabulary is the closed one in
-  :mod:`aiq_agent.knowledge.document_classification`;
 * a PERSON is the exception and is deliberately not resolved here at all. The
   turn carries no member roster — the project brief has no members block and
   no header carries one — so this tier has nothing to check a name against.
@@ -42,8 +39,6 @@ from typing import Literal
 
 from aiq_agent.common.source_kinds import Shelf
 from aiq_agent.common.source_kinds import parse_shelf
-from aiq_agent.knowledge.document_classification import DOCUMENT_CLASS_LABELS
-from aiq_agent.knowledge.document_classification import DOCUMENT_CLASSES
 from aiq_agent.knowledge.inventory import get_turn_documents
 
 #: The two shelves a workspace operation can touch. `base` is the platform
@@ -75,12 +70,11 @@ def _attr(row: Any, name: str) -> Any:
 class Refusal:
     """Why a name could not be resolved, in the words the model gets back.
 
-    A distinct type rather than a bare string, because two of the three
-    resolvers succeed WITH a string — a folder path and a doc_class key are
-    both ``str`` — and ``str | str`` is not a signature anyone can read. The
-    tools return ``refusal.message`` unchanged: it is written for the model to
-    act on (ask for the exact name, offer what exists), so rewording it at the
-    call site would only make it vaguer.
+    A distinct type rather than a bare string, because a resolver can succeed
+    WITH a string — a folder path is one — and ``str | str`` is not a signature
+    anyone can read. The tools return ``refusal.message`` unchanged: it is
+    written for the model to act on (ask for the exact name, offer what
+    exists), so rewording it at the call site would only make it vaguer.
     """
 
     message: str
@@ -94,7 +88,6 @@ class ResolvedDocument:
     source: DocumentSource
     #: The folder it sits in today, ``""`` for the project root.
     folder_path: str
-    doc_class: str | None
 
 
 def _rows() -> list[ResolvedDocument]:
@@ -110,7 +103,6 @@ def _rows() -> list[ResolvedDocument]:
                 file_name=file_name,
                 source=source,
                 folder_path=_nfc(str(_attr(row, "folder_path") or "")),
-                doc_class=(str(_attr(row, "doc_class")) if _attr(row, "doc_class") else None),
             )
         )
     return out
@@ -220,24 +212,3 @@ def resolve_folder(path: str) -> str | Refusal:
         f"Nicht gefunden: Es gibt keinen Ordner „{_nfc(path)}“. Vorhanden sind: {listed}. Nenne einen davon "
         "oder schlage den neuen Ordner erst mit `create_folder` vor."
     )
-
-
-def resolve_doc_class(value: str) -> str | Refusal:
-    """A key from the closed Dokumentart vocabulary, or a message naming it.
-
-    Accepts the key and the German label, because the model reads the label in
-    the inventory and the key in this tool's description, and the two are the
-    same fact. Everything else is refused with the whole vocabulary in the
-    message: it is nine values, so naming them costs less than a second turn.
-    """
-    wanted = _key(value)
-    for key, label in DOCUMENT_CLASS_LABELS.items():
-        if wanted in (_key(key), _key(label)):
-            return key
-    listed = ", ".join(f"`{key}`" for key in DOCUMENT_CLASSES)
-    return Refusal(f"Unbekannte Dokumentart „{_nfc(value)}“. Erlaubt sind genau: {listed}.")
-
-
-def doc_class_label(key: str) -> str:
-    """The German label for a doc_class key, for the card's before/after line."""
-    return DOCUMENT_CLASS_LABELS.get(key, key)

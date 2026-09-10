@@ -47,7 +47,7 @@ import {
   type DocumentLifecycleGesture,
   type DocumentLifecycleViewer,
 } from '../lib/document-lifecycle'
-import { DocumentReviewControls } from './document-review-controls'
+import { DocumentReviewControls, type ReviewerOption } from './document-review-controls'
 import { DocumentVersionList } from './document-version-list'
 import { DocumentVersionStateBadge } from './document-version-badge'
 
@@ -141,6 +141,23 @@ export function DocumentLifecyclePanel({
     void load()
   }, [load])
 
+  // Who this version may be sent to. One request per document, and a failure is
+  // silent on purpose: without the list the picker is simply absent and the
+  // submission goes to every editor, which is what it would have done anyway.
+  const [reviewers, setReviewers] = useState<readonly ReviewerOption[]>([])
+  useEffect(() => {
+    let live = true
+    void fetch(`/api/documents/${encodeURIComponent(documentId)}/versions/reviewers`)
+      .then((response) => (response.ok ? response.json() : { candidates: [] }))
+      .then((body: { candidates?: ReviewerOption[] }) => {
+        if (live) setReviewers(body.candidates ?? [])
+      })
+      .catch(() => undefined)
+    return () => {
+      live = false
+    }
+  }, [documentId])
+
   const announce = useCallback(
     (next: DocumentVersionListResponse) => {
       const newest = newestVersion(next.versions)
@@ -156,7 +173,11 @@ export function DocumentLifecyclePanel({
   )
 
   const act = useCallback(
-    async (gesture: DocumentLifecycleGesture, comment?: string) => {
+    async (
+      gesture: DocumentLifecycleGesture,
+      options: { comment?: string; reviewerUserIds?: readonly string[] } = {},
+    ) => {
+      const { comment, reviewerUserIds } = options
       if (!listing) return
       const version = newestVersion(listing.versions)
       if (!version) return
@@ -184,7 +205,15 @@ export function DocumentLifecyclePanel({
         if (action === 'archive') {
           await client.archive(documentId)
         } else {
-          await runVersionOp(client, action, documentId, version.id, comment, delegateRevision)
+          await runVersionOp(
+            client,
+            action,
+            documentId,
+            version.id,
+            comment,
+            delegateRevision,
+            reviewerUserIds,
+          )
         }
         // Re-read rather than patch: publish supersedes another version and
         // moves the item's pointer, and a client that reconstructed that from
@@ -242,7 +271,8 @@ export function DocumentLifecyclePanel({
         lifecycle={listing.lifecycle}
         viewer={viewer}
         pending={pending}
-        onAct={(gesture, comment) => void act(gesture, comment)}
+        onAct={(gesture, options) => void act(gesture, options)}
+        reviewers={reviewers}
       />
 
       {showVersions && (
@@ -273,9 +303,13 @@ async function runVersionOp(
   versionId: string,
   comment?: string,
   delegateRevision = false,
+  reviewerUserIds?: readonly string[],
 ): Promise<void> {
   const calls: Record<typeof action, () => Promise<DocumentVersionView>> = {
-    submit: () => client.submit(documentId, versionId),
+    // `undefined` when nobody was singled out, which is the picker's default:
+    // the fallback chain (`lib/documents/reviewers.ts`) asks whoever is on the
+    // hook and then every editor in the project.
+    submit: () => client.submit(documentId, versionId, reviewerUserIds),
     approve: () => client.approve(documentId, versionId, comment),
     // The flag is PASSED only when it is true, the same decision the client
     // makes one tier down about the wire: „Änderungen anfordern" is the call it

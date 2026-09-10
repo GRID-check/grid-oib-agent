@@ -31,6 +31,7 @@ vi.mock('./version-repository', () => ({
   findOpenVersion: vi.fn(),
   findPublishedVersion: vi.fn(),
   insertDocumentVersion: vi.fn(),
+  insertPublishedVersion: vi.fn(),
   listDocumentVersions: vi.fn(),
   nextVersionNumber: vi.fn().mockResolvedValue(2),
   compareAndSwapVersionState: vi.fn(),
@@ -71,16 +72,41 @@ vi.mock('@/lib/inbox/service', () => ({
   emitInboxItems: vi.fn(),
   resolveInboxItemsFor: vi.fn(),
 }))
-vi.mock('@/lib/assignments/repository', () => ({ listAssignmentsForResources: vi.fn() }))
+/**
+ * The reviewer chain, doubled at ITS seam rather than at the directory and FGA
+ * calls underneath it. `reviewers.spec.ts` owns the chain; what this suite is
+ * about is that the transition ASKS it before the swap and carries the answer
+ * into the effects.
+ */
+vi.mock('./reviewers', () => ({
+  listReviewCandidates: vi.fn(),
+  resolveReviewers: vi.fn(),
+}))
 /**
  * The revision effect's one outward call. Reached through a dynamic import in
  * `lifecycle.ts` (the cycle break), which `vi.mock` intercepts exactly as it
  * does a static one.
  */
 vi.mock('@/lib/tasks/delegation', () => ({ delegateTask: vi.fn() }))
-vi.mock('@/lib/storage/bucket', () => ({
-  ensureTenantBucketChecked: vi.fn().mockResolvedValue('grid-org-1'),
-  resolveDocumentBucket: () => 'grid-org-1',
+/**
+ * The BYTE half of the lifecycle, doubled at its own seam.
+ *
+ * `version-content.spec.ts` owns what those functions do — the render, the
+ * marking re-check, the quota admission, the mirror. What this suite is about
+ * is the ORDER the transition puts them in, so the doubles record it and the
+ * real object store, quota and S3 client stay out of a suite about states.
+ */
+vi.mock('./version-content', () => ({
+  BACKEND_PURGE_TIMEOUT_MS: 10_000,
+  admitVersionBytes: vi.fn(),
+  readVersionContent: vi.fn().mockResolvedValue('# Aktenvermerk'),
+  renderVersionBytes: vi.fn(),
+  resolveVersionBucket: vi.fn().mockResolvedValue('grid-org-1'),
+  storeVersionBytes: vi.fn(),
+  versionStorageKey: (document: { storageKey: string }, versionNumber: number) =>
+    versionNumber <= 1
+      ? document.storageKey
+      : document.storageKey.replace(/\/([^/]+)$/, `/v${versionNumber}/$1`),
 }))
 vi.mock('@/lib/s3', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/s3')>()),
@@ -96,7 +122,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { publishToUsers } from '@/lib/events/bus'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
-import { listAssignmentsForResources } from '@/lib/assignments/repository'
+import { listReviewCandidates, resolveReviewers } from './reviewers'
 import { delegateTask } from '@/lib/tasks/delegation'
 import {
   compareAndSwapVersionState,
@@ -104,16 +130,19 @@ import {
   findOpenVersion,
   findPublishedVersion,
   insertDocumentVersion,
+  insertPublishedVersion,
   promoteVersionToPublished,
-  setDocumentLifecycle,
 } from './version-repository'
 import {
-  archiveDocument,
+  admitVersionBytes,
+  renderVersionBytes,
+  storeVersionBytes,
+} from './version-content'
+import {
   createDocumentVersion,
   forkDraftVersion,
   replaceVersionContent,
   transitionDocumentVersion,
-  versionedStorageKey,
 } from './lifecycle'
 import {
   AGENT_REACHABLE_OPS,
@@ -163,6 +192,7 @@ function version(overrides: Partial<DocumentVersion> = {}): DocumentVersion {
     reviewComment: null,
     createdBy: 'user_author',
     originConversationId: null,
+    submittedByActor: 'human',
     createdAt: new Date('2026-09-01T00:00:00Z'),
     updatedAt: new Date('2026-09-01T00:00:00Z'),
     ...overrides,
@@ -198,9 +228,24 @@ beforeEach(() => {
     ]),
   )
   vi.mocked(getAccessibleDocument).mockResolvedValue(document)
-  vi.mocked(listAssignmentsForResources).mockResolvedValue([])
+  vi.mocked(listReviewCandidates).mockResolvedValue([
+    { userId: 'user_other', name: 'Anna Berger', email: null },
+  ])
+  vi.mocked(resolveReviewers).mockImplementation(async (_session, _document, named) => ({
+    reviewers: named && named.length > 0 ? [...named] : ['user_anna'],
+    selfReview: false,
+  }))
   vi.mocked(findPublishedVersion).mockResolvedValue(null)
   vi.mocked(findOpenVersion).mockResolvedValue(null)
+  // `clearMocks` clears CALLS, not implementations, so a rejection set in one
+  // test would leak into every later one.
+  vi.mocked(admitVersionBytes).mockReset()
+  vi.mocked(storeVersionBytes).mockReset()
+  vi.mocked(renderVersionBytes).mockResolvedValue({
+    bytes: Buffer.from('# Aktenvermerk', 'utf8'),
+    contentType: 'text/markdown',
+    contentHash: `sha256:${'a'.repeat(64)}`,
+  })
 })
 
 describe('the transition table is coherent', () => {
@@ -248,10 +293,38 @@ describe('the transition table is coherent', () => {
     }
   })
 
+  it('marks the two submit rows as opening a round that has to reach somebody', () => {
+    for (const row of DOCUMENT_VERSION_TRANSITIONS.filter((entry) => entry.op === 'submit')) {
+      expect(row.requires.reviewer, `${row.from}:submit must resolve reviewers`).toBe(true)
+    }
+    // And nothing else does: resolving reviewers costs a directory read and an
+    // FGA check per member, and a row that does not open a round must not pay
+    // for one. Read through the interface, not through the literal type —
+    // `satisfies` keeps the members literal, and an optional field is absent on
+    // the rows that do not carry it.
+    const rows: readonly DocumentVersionTransition[] = DOCUMENT_VERSION_TRANSITIONS
+    const carrying = rows.filter((row) => row.requires.reviewer)
+    expect(new Set(carrying.map((row) => row.op))).toEqual(new Set(['submit']))
+  })
+
   it('requires a comment on both refusals and on neither approval', () => {
     expect(findDocumentVersionTransition('in_review', 'request_changes')?.requires.comment).toBe(true)
     expect(findDocumentVersionTransition('in_review', 'reject')?.requires.comment).toBe(true)
     expect(findDocumentVersionTransition('in_review', 'approve')?.requires.comment).toBeUndefined()
+  })
+
+  it('makes „darf freigeben“ project:edit and nothing else', () => {
+    // The permission list is an ANY-OF, so every member of it is a WIDENING.
+    // `project:documents:write` sat beside `project:edit` on the three review
+    // decisions, which handed the office's assertion about a
+    // Brandschutzkonzept to any role that may upload a file.
+    for (const op of ['approve', 'request_changes', 'reject'] as const) {
+      for (const row of DOCUMENT_VERSION_TRANSITIONS.filter((entry) => entry.op === op)) {
+        expect([...row.permission], `${op} is reachable with more than project:edit`).toEqual([
+          'project:edit',
+        ])
+      }
+    }
   })
 
   it('asks for `project:documents:generate` exactly where a machine may write', () => {
@@ -284,10 +357,44 @@ describe('transitionDocumentVersion — guards', () => {
   })
 
   it('refuses the submitter approving their own version', async () => {
-    vi.mocked(findDocumentVersion).mockResolvedValue(version({ submittedBy: session.userId }))
+    vi.mocked(findDocumentVersion).mockResolvedValue(
+      version({ submittedBy: session.userId, submittedByActor: 'human' }),
+    )
     await expect(
       transitionDocumentVersion(session, 'doc_1', 'ver_1', 'approve'),
     ).rejects.toMatchObject({ status: 403 })
+  })
+
+  it('lets the commissioner approve a version a RUN submitted in their session', async () => {
+    // `submitted_by` on an agent filing is the commissioning human, not the
+    // author (migration 0085). Reading it as "they asserted this themselves"
+    // refused the one person who had asked for the report the right to release
+    // it.
+    vi.mocked(findDocumentVersion).mockResolvedValue(
+      version({ submittedBy: session.userId, submittedByActor: 'agent' }),
+    )
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'approved' }))
+
+    await expect(
+      transitionDocumentVersion(session, 'doc_1', 'ver_1', 'approve'),
+    ).resolves.toMatchObject({ state: 'approved' })
+  })
+
+  it('waives the guard for a sole editor, and says so on the trail', async () => {
+    // A one-person project has nobody else. „Freigabe" by the only person who
+    // could ever give it is still a decision; it is simply not a second pair of
+    // eyes, and that is what the audit event now records.
+    vi.mocked(listReviewCandidates).mockResolvedValue([])
+    vi.mocked(findDocumentVersion).mockResolvedValue(
+      version({ submittedBy: session.userId, submittedByActor: 'human' }),
+    )
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'approved' }))
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'approve')
+
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: expect.objectContaining({ selfReview: true }) }),
+    )
   })
 
   it('refuses a refusal with no words', async () => {
@@ -295,6 +402,36 @@ describe('transitionDocumentVersion — guards', () => {
     await expect(
       transitionDocumentVersion(session, 'doc_1', 'ver_1', 'reject', { comment: '   ' }),
     ).rejects.toMatchObject({ status: 422 })
+  })
+
+  it.each([[undefined], [null], ['']])(
+    'treats a version with NO stored digest as having no If-Match to satisfy (%s)',
+    async (ifMatch) => {
+      // `content_hash` is nullable — a row backfilled by 0082 from a document
+      // that predates 0078 carries null — and NO STRING equals null. The guard
+      // was therefore unsatisfiable from one side and unreachable from the
+      // other: the task outcome path sent `contentHash ?? ''` and got a 409 on
+      // every revision of such a document, while `undefined` slipped past by
+      // accident because `undefined ?? null` happens to be null. "Nothing to
+      // match" is now the row's answer rather than a coincidence of coalescing.
+      vi.mocked(findDocumentVersion).mockResolvedValue(
+        version({ state: 'draft', contentHash: null }),
+      )
+      vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'draft' }))
+
+      await expect(
+        replaceVersionContent(session, 'doc_1', 'ver_1', 'neu', ifMatch),
+      ).resolves.toMatchObject({ state: 'draft' })
+    },
+  )
+
+  it('still refuses a stale digest when the row HAS one', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(
+      version({ state: 'draft', contentHash: 'sha256:abc' }),
+    )
+    await expect(
+      replaceVersionContent(session, 'doc_1', 'ver_1', 'neu', 'sha256:stale'),
+    ).rejects.toMatchObject({ status: 409 })
   })
 
   it('reports a lost compare-and-swap as a conflict rather than a lost update', async () => {
@@ -357,26 +494,82 @@ describe('transitionDocumentVersion — effects', () => {
     })
   })
 
-  it('falls back to the document’s assignees when no reviewer is named', async () => {
+  it('falls back to the reviewer chain when no reviewer is named', async () => {
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
     vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'in_review' }))
-    vi.mocked(listAssignmentsForResources).mockResolvedValue([
-      { resourceType: 'document', resourceId: 'doc_1', subjectUserId: 'user_anna', assignedBy: 'x', createdAt: new Date() },
-    ])
 
     await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', {})
 
     expect(vi.mocked(emitInboxItems).mock.calls[0][0][0].recipientUserId).toBe('user_anna')
   })
 
-  it('refuses a submission that would reach nobody', async () => {
-    // „Unvergeben" plus no named reviewer is genuinely nobody, and a submission
-    // nobody sees is indistinguishable from one that worked.
+  it('resolves the round BEFORE the swap, not inside the effect', async () => {
+    // The version was left durably `in_review` with nobody told about it when
+    // the resolution ran after the state had moved — and every exit from that
+    // state is a decision one of the people who were never told would have to
+    // make.
+    const order: string[] = []
+    vi.mocked(resolveReviewers).mockImplementation(async () => {
+      order.push('resolve')
+      return { reviewers: ['user_anna'], selfReview: false }
+    })
+    vi.mocked(compareAndSwapVersionState).mockImplementation(async () => {
+      order.push('swap')
+      return version({ state: 'in_review' })
+    })
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', {})
+
+    expect(order[0]).toBe('resolve')
+    expect(order).toContain('swap')
+  })
+
+  it('submits an Unvergeben draft rather than refusing it', async () => {
+    // A Piloti draft is unassigned by construction (ADR-0047), and the draft
+    // card, the panel and `submit_draft` all submit without naming anybody.
+    // Refusing that made the lifecycle unreachable for the documents it exists
+    // for.
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
     vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'in_review' }))
+
     await expect(
       transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', {}),
-    ).rejects.toMatchObject({ status: 422 })
+    ).resolves.toMatchObject({ state: 'in_review' })
+  })
+
+  it('records the sole-editor waiver on the audit event', async () => {
+    vi.mocked(resolveReviewers).mockResolvedValue({
+      reviewers: [session.userId],
+      selfReview: true,
+    })
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'in_review' }))
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', {})
+
+    // „freigegeben" and „freigegeben, weil es niemanden sonst gibt" are
+    // different facts about the same signature.
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ metadata: expect.objectContaining({ selfReview: true }) }),
+    )
+  })
+
+  it('stamps whose HAND submitted, from the same flag the publish door reads', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'in_review' }))
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', {
+      reviewerUserIds: ['user_a'],
+      actingHuman: false,
+    })
+
+    expect(compareAndSwapVersionState).toHaveBeenCalledWith(
+      'ver_1',
+      'org_1',
+      'draft',
+      expect.objectContaining({ submittedBy: session.userId, submittedByActor: 'agent' }),
+    )
   })
 
   it('resolves the round for every reviewer, not only the one who decided', async () => {
@@ -643,16 +836,8 @@ describe('ingestPublished — what publishing a Piloti document does to the inde
 })
 
 describe('createDocumentVersion — a human upload', () => {
-  it('is born published AND born approved, so the CHECK is satisfied honestly', async () => {
-    vi.mocked(insertDocumentVersion).mockImplementation(async (values) =>
-      version({ ...(values as Partial<DocumentVersion>), id: 'ver_new' }),
-    )
-    vi.mocked(promoteVersionToPublished).mockResolvedValue({
-      version: version({ id: 'ver_new', state: 'published' }),
-      superseded: [],
-    })
-
-    await createDocumentVersion(session, {
+  const upload = () =>
+    createDocumentVersion(session, {
       document,
       op: 'upload',
       storageKey: 'k',
@@ -662,14 +847,37 @@ describe('createDocumentVersion — a human upload', () => {
       contentHash: 'sha256:x',
     })
 
-    expect(insertDocumentVersion).toHaveBeenCalledWith(
+  it('is born published AND born approved, so the CHECK is satisfied honestly', async () => {
+    vi.mocked(insertPublishedVersion).mockImplementation(async (values) => ({
+      version: version({ ...(values as Partial<DocumentVersion>), id: 'ver_new' }),
+      superseded: [],
+    }))
+
+    await upload()
+
+    expect(insertPublishedVersion).toHaveBeenCalledWith(
       expect.objectContaining({
         state: 'published',
         approvedBy: session.userId,
         publishedBy: session.userId,
       }),
     )
-    expect(promoteVersionToPublished).toHaveBeenCalledWith('ver_new', 'doc_1', 'org_1', null)
+  })
+
+  it('inserts the published row INSIDE the supersede transaction, never beside it', async () => {
+    // `uniq_document_versions_published_per_document` is a plain partial unique
+    // index — checked per statement, not deferred — so an insert of version N+1
+    // as `published` is refused while version N still is. Every re-upload went
+    // through that path.
+    vi.mocked(insertPublishedVersion).mockResolvedValue({
+      version: version({ id: 'ver_new', state: 'published' }),
+      superseded: [version({ id: 'ver_0', state: 'superseded' })],
+    })
+
+    await upload()
+
+    expect(insertDocumentVersion).not.toHaveBeenCalled()
+    expect(promoteVersionToPublished).not.toHaveBeenCalled()
   })
 
   it('refuses an upload claimed by a machine caller', async () => {
@@ -742,6 +950,68 @@ describe('replaceVersionContent', () => {
     )
   })
 
+  it('renders through the producer, admits the bytes, swaps, and only THEN writes', async () => {
+    // Four steps and the order is the whole of it: writing before the swap
+    // meant a caller that LOST the race had already overwritten the winner's
+    // object, because both were aiming at the same key.
+    const order: string[] = []
+    vi.mocked(renderVersionBytes).mockImplementation(async () => {
+      order.push('render')
+      return {
+        bytes: Buffer.from('# gerendert', 'utf8'),
+        contentType: 'text/markdown',
+        contentHash: 'sha256:neu',
+      }
+    })
+    vi.mocked(admitVersionBytes).mockImplementation(async () => {
+      order.push('admit')
+    })
+    vi.mocked(compareAndSwapVersionState).mockImplementation(async () => {
+      order.push('swap')
+      return version({ state: 'draft' })
+    })
+    vi.mocked(storeVersionBytes).mockImplementation(async () => {
+      order.push('store')
+    })
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
+
+    await replaceVersionContent(session, 'doc_1', 'ver_1', '# Aktenvermerk', 'sha256:abc')
+
+    expect(order).toEqual(['render', 'admit', 'swap', 'store'])
+    // The RENDERED bytes are what the row records, never the caller's body.
+    expect(compareAndSwapVersionState).toHaveBeenCalledWith(
+      'ver_1',
+      'org_1',
+      'draft',
+      expect.objectContaining({ contentHash: 'sha256:neu', fileSize: 11 }),
+    )
+  })
+
+  it('writes nothing and swaps nothing when the quota refuses the delta', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
+    vi.mocked(admitVersionBytes).mockRejectedValue(new Error('no room'))
+
+    await expect(
+      replaceVersionContent(session, 'doc_1', 'ver_1', 'sehr lang', 'sha256:abc'),
+    ).rejects.toThrow(/no room/)
+    expect(compareAndSwapVersionState).not.toHaveBeenCalled()
+    expect(storeVersionBytes).not.toHaveBeenCalled()
+  })
+
+  it('carries the machine flag into the guards, so the door is one field', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'draft' }))
+
+    await replaceVersionContent(session, 'doc_1', 'ver_1', 'neu', 'sha256:abc', {
+      actingHuman: false,
+    })
+
+    // `update` is an `either` row, so nothing is refused today — which is
+    // exactly why the flag has to arrive: the door is the `actor` field, and a
+    // caller that lies about who it is bypasses it the moment a row changes.
+    expect(compareAndSwapVersionState).toHaveBeenCalled()
+  })
+
   it('clears the reviewer’s words, because they were about the bytes just replaced', async () => {
     vi.mocked(findDocumentVersion).mockResolvedValue(
       version({ state: 'changes_requested', reviewComment: 'GK stimmt nicht' }),
@@ -755,89 +1025,6 @@ describe('replaceVersionContent', () => {
       'org_1',
       'changes_requested',
       expect.objectContaining({ state: 'draft', reviewComment: null }),
-    )
-  })
-})
-
-describe('versionedStorageKey', () => {
-  it('leaves version 1 exactly where it is, so nothing that predates 0082 moves', () => {
-    expect(versionedStorageKey('org/o/project/p/doc/d/plan.pdf', 1)).toBe(
-      'org/o/project/p/doc/d/plan.pdf',
-    )
-  })
-
-  it('gives every later version a prefix of its own', () => {
-    expect(versionedStorageKey('org/o/project/p/Plaene/doc/d/plan.pdf', 3)).toBe(
-      'org/o/project/p/Plaene/doc/d/v3/plan.pdf',
-    )
-  })
-})
-
-describe('archiveDocument', () => {
-  it('leaves the listings without deleting anything, and audits', async () => {
-    const result = await archiveDocument(session, 'doc_1')
-    expect(result).toEqual({ documentId: 'doc_1', lifecycle: 'archived' })
-    expect(setDocumentLifecycle).toHaveBeenCalledWith('doc_1', 'org_1', 'archived')
-    expect(recordAuditEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'document.archived', targetId: 'doc_1' }),
-    )
-  })
-
-  it('takes the passages with it, so an archived document stops answering', async () => {
-    await archiveDocument(session, 'doc_1')
-
-    // The docstring said this before the code did. „Archiviert" is a statement
-    // that the file has left the working set, and a file that keeps coming back
-    // as a retrieval hit has not left it.
-    expect(purgeIngestedChunks).toHaveBeenCalledWith(
-      'http://backend:8000',
-      expect.objectContaining({ filename: 'plan.pdf' }),
-      expect.any(Number),
-    )
-    expect(recordAuditEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ metadata: expect.objectContaining({ chunksPurged: true }) }),
-    )
-  })
-
-  it('purges a published Piloti document’s passages too', async () => {
-    vi.mocked(getAccessibleDocument).mockResolvedValue(agentDocument)
-
-    await archiveDocument(session, 'doc_1')
-
-    expect(purgeIngestedChunks).toHaveBeenCalledWith(
-      'http://backend:8000',
-      expect.objectContaining({ filename: 'piloti/doc_1/aktenvermerk-2026-09-01.md' }),
-      expect.any(Number),
-    )
-  })
-
-  it('purges nothing for an agent draft, which owns no passages to purge', async () => {
-    // Nothing was ever published, so `collectionFileRef` answers `null` — and
-    // asking the backend to forget `piloti/doc_1/…` would be a call about a
-    // name that has never been ingested.
-    vi.mocked(getAccessibleDocument).mockResolvedValue(
-      makeDocument({ ...agentDocument, publishedVersionId: null }),
-    )
-
-    await archiveDocument(session, 'doc_1')
-
-    expect(purgeIngestedChunks).not.toHaveBeenCalled()
-    expect(recordAuditEvent).toHaveBeenCalledWith(
-      // `null` is "this row owns no chunks" and must not read as "the backend
-      // refused", which is what `false` means.
-      expect.objectContaining({ metadata: expect.objectContaining({ chunksPurged: null }) }),
-    )
-  })
-
-  it('archives even when the backend refuses, and says so on the trail', async () => {
-    vi.mocked(purgeIngestedChunks).mockResolvedValue(false)
-
-    const result = await archiveDocument(session, 'doc_1')
-
-    expect(result.lifecycle).toBe('archived')
-    expect(setDocumentLifecycle).toHaveBeenCalledWith('doc_1', 'org_1', 'archived')
-    expect(recordAuditEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ metadata: expect.objectContaining({ chunksPurged: false }) }),
     )
   })
 })
@@ -872,7 +1059,6 @@ describe('request_changes and the revision task', () => {
   }
 
   beforeEach(() => {
-    vi.mocked(listAssignmentsForResources).mockResolvedValue([])
     vi.mocked(delegateTask).mockResolvedValue({ id: 'task-1' } as never)
   })
 

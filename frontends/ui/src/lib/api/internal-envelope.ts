@@ -32,7 +32,7 @@ import 'server-only'
  * | an envelope naming somebody who has left | a 403 — the pinned session is resolved from WorkOS TODAY |
  */
 
-import { ForbiddenError, UnauthorizedError } from '@/lib/api/errors'
+import { BadRequestError, ForbiddenError, UnauthorizedError } from '@/lib/api/errors'
 import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import {
@@ -50,6 +50,34 @@ export function requireVerifiedContext(request: Request): VerifiedGridRequestCon
   )
   if (!context) throw new UnauthorizedError('Missing or invalid request context envelope')
   return context
+}
+
+/**
+ * Refuse a body that names a different project than the signed envelope does.
+ *
+ * The envelope is the only thing on an internal request that anybody VERIFIED,
+ * and it already carries the project the turn is running in. The body's
+ * `projectId` is the caller's — it decides which project the work lands in, and
+ * it was being taken on trust while a signed contradiction of it sat one field
+ * away. A captured envelope could therefore be replayed against any project in
+ * the same organization the requester can write to, which is more than the turn
+ * it was minted for ever had.
+ *
+ * An envelope with NO project is a turn that is not in one (the org-wide Archiv,
+ * a projectless chat); it constrains nothing, and the body's own project is
+ * then gated by `requireProjectAccess` in the service exactly as before. A
+ * mismatch is a 400 and not a 403: the request is self-contradictory, and
+ * saying so does not tell the caller anything about the project it named.
+ */
+export function requireEnvelopeProject(
+  context: VerifiedGridRequestContext,
+  projectId: string,
+): void {
+  if (!context.projectId) return
+  if (context.projectId === projectId) return
+  throw new BadRequestError('projectId does not match the request context envelope', {
+    projectId,
+  })
 }
 
 /**

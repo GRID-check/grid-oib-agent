@@ -34,7 +34,11 @@ import 'server-only'
  * `revision` task instead. See the `openRevisionTask` effect in `./lifecycle`.
  */
 
-import { formatBoundedDigest, type DigestLineItem } from '@/lib/knowledge/digest-format'
+import {
+  DIGEST_BLOCK_MAX_CHARS,
+  formatBoundedDigest,
+  type DigestLineItem,
+} from '@/lib/knowledge/digest-format'
 import { resolvePeople } from '@/lib/sharing/directory'
 import { listRefusedVersionsForConversation } from './version-repository'
 
@@ -48,9 +52,6 @@ export const REVIEW_DECISIONS_HEADER = 'REVIEW_DECISIONS v1'
  * has moved on.
  */
 export const MAX_REVIEW_DECISIONS = 5
-
-/** Same order of size as one memory digest, so the three share the channel. */
-const MAX_CHARS = 900
 
 /** The verdict word the model reads. The two refusing states differ in finality. */
 const VERDICT: Record<string, string> = {
@@ -102,5 +103,5 @@ export async function buildReviewDecisionsBlock(
     }
   })
 
-  return formatBoundedDigest(REVIEW_DECISIONS_HEADER, items, MAX_CHARS)
+  return formatBoundedDigest(REVIEW_DECISIONS_HEADER, items, DIGEST_BLOCK_MAX_CHARS)
 }

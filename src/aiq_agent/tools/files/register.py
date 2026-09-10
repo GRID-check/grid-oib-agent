@@ -1,7 +1,7 @@
-"""The five write-side workspace tools. Every one of them proposes.
+"""The four write-side workspace tools. Every one of them proposes.
 
-``move_document``, ``rename_document``, ``create_folder``, ``set_doc_class``
-and ``assign_document``. Each resolves its arguments against what the turn can
+``move_document``, ``rename_document``, ``create_folder`` and
+``assign_document``. Each resolves its arguments against what the turn can
 already see (``resolve.py``), emits one ``file_operation_proposal`` card, and
 returns text that says in its first words that NOTHING has been changed.
 
@@ -15,7 +15,7 @@ of a user who never saw what was about to happen.
 
 The descriptions and the results are GERMAN, like the working directory's four
 verbs and unlike ``remember``: every argument these tools take is a name the
-user typed in German — a file, a folder, a Dokumentart, a colleague — and the
+user typed in German — a file, a folder, a colleague — and the
 refusals are written to be turned straight into the sentence the model says
 back („welche der beiden Dateien meinst du?").
 """
@@ -25,13 +25,10 @@ from __future__ import annotations
 import logging
 
 from aiq_agent import project_context
-from aiq_agent.knowledge.document_classification import DOCUMENT_CLASSES
 from aiq_agent.tools.files.cards import propose_file_operation
 from aiq_agent.tools.files.resolve import Refusal
 from aiq_agent.tools.files.resolve import ResolvedDocument
-from aiq_agent.tools.files.resolve import doc_class_label
 from aiq_agent.tools.files.resolve import known_folders
-from aiq_agent.tools.files.resolve import resolve_doc_class
 from aiq_agent.tools.files.resolve import resolve_document
 from aiq_agent.tools.files.resolve import resolve_folder
 from nat.builder.builder import Builder
@@ -226,49 +223,6 @@ async def create_folder(tool_config: CreateFolderConfig, builder: Builder):
         return f"Vorgeschlagen: neuer Ordner „{full}“. {_PROPOSED}"
 
     yield FunctionInfo.from_fn(_create, description=_CREATE_FOLDER_DESCRIPTION)
-
-
-# ── set_doc_class ────────────────────────────────────────────────────────────
-
-_SET_DOC_CLASS_DESCRIPTION = (
-    "SCHLÄGT VOR, die Dokumentart einer Datei zu setzen — die Einordnung in die Normenhierarchie, die "
-    "jede Vermutung aus dem Dateinamen schlägt. Setzt nichts: Die Nutzerin entscheidet auf der Karte. "
-    "`doc_class` ist genau einer dieser Werte: " + ", ".join(f"`{key}`" for key in DOCUMENT_CLASSES) + ". "
-    "Nur vorschlagen, wenn der Inhalt die Einordnung belegt — eine geratene Dokumentart ist schlimmer "
-    "als keine, weil sie als menschlich gesetzt gilt."
-)
-
-
-class SetDocClassConfig(FunctionBaseConfig, name="set_doc_class"):
-    """Configuration for the ``set_doc_class`` proposal tool."""
-
-
-@register_function(config_type=SetDocClassConfig)
-async def set_doc_class(tool_config: SetDocClassConfig, builder: Builder):
-    async def _set_class(document: str, doc_class: str) -> str:
-        """Propose a Dokumentart for one document."""
-        if (refused := _project_or_error()) is not None:
-            return refused
-        resolved = _document(document)
-        if isinstance(resolved, str):
-            return resolved
-        key = resolve_doc_class(doc_class)
-        if isinstance(key, Refusal):
-            return key.message
-        if key == resolved.doc_class:
-            return f"`{resolved.file_name}` ist bereits als „{doc_class_label(key)}“ eingeordnet. Kein Vorschlag nötig."
-
-        item = {
-            "document": resolved.file_name,
-            "source": resolved.source,
-            "current": doc_class_label(resolved.doc_class) if resolved.doc_class else None,
-            "doc_class": key,
-        }
-        if not propose_file_operation(operation="set_doc_class", title="Dokumentart setzen", item=item):
-            return _NO_CARD
-        return f"Vorgeschlagen: `{resolved.file_name}` → „{doc_class_label(key)}“. {_PROPOSED}"
-
-    yield FunctionInfo.from_fn(_set_class, description=_SET_DOC_CLASS_DESCRIPTION)
 
 
 # ── assign_document ──────────────────────────────────────────────────────────

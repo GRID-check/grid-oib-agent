@@ -523,6 +523,8 @@ export const files = {
     badgeTitle: 'Version status: {state}',
     /** The filter chip, beside By Piloti. */
     filter: 'Awaiting approval',
+    /** The one filter that WIDENS: archived files are not in the listing at all. */
+    archivedFilter: 'Also show archived',
     states: {
       draft: 'Draft',
       inReview: 'In review',
@@ -542,6 +544,10 @@ export const files = {
       reject: 'Reject',
       publish: 'Publish',
       archive: 'Archive',
+    },
+    /** Who should release the version. Everyone who may is the default. */
+    reviewer: {
+      every: 'All editors',
     },
     comment: {
       /** Rejecting needs a reason; asking for changes needs the changes. */

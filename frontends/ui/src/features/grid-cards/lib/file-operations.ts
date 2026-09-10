@@ -48,23 +48,6 @@ export type FileOperationKind = ProposalCard['operation']
  */
 export type FileOperationItem = Partial<ProposalCard['operations'][number]>
 
-/**
- * Why an operation cannot be offered at all, as a translation key suffix under
- * `chat.cards.fileOperationProposal.unavailable.*`.
- *
- * `set_doc_class` is the one member today. The Dokumentart is settable only on
- * the PLATFORM corpus (`PATCH /api/platform/knowledge/documents/[fileName]/doc-class`,
- * platform-owner permission, keyed by file name), and a project document has
- * no such route — so accepting would have nothing to call. The card still
- * SHOWS the proposal, because what the agent read out of the document is worth
- * knowing, and the control is drawn disabled with the reason beside it rather
- * than pretending to work. The day a project-scoped route exists, this entry
- * is deleted and `EXECUTORS.set_doc_class` stops throwing.
- */
-export const UNAVAILABLE_OPERATIONS: Partial<Record<FileOperationKind, string>> = {
-  set_doc_class: 'noProjectDocClassRoute',
-}
-
 /** One operation's outcome, in the order the card listed them. */
 export interface FileOperationResult {
   /** What was attempted, for the row the card prints. */
@@ -159,14 +142,6 @@ const EXECUTORS: Record<FileOperationKind, Executor> = {
       parentId,
     })
     if (!res.ok) throw new Error(`create folder ${res.status}`)
-  },
-
-  // Deliberately unreachable while `UNAVAILABLE_OPERATIONS` names it: the card
-  // draws no control for an unavailable operation. The throw is the second
-  // gate, so a caller that gets past the first one fails loudly instead of
-  // reporting a change nobody made.
-  set_doc_class: async () => {
-    throw new Error('Die Dokumentart lässt sich für Projektunterlagen derzeit nicht setzen')
   },
 
   assign: async (item, { projectId }) => {

@@ -21,6 +21,8 @@ export const nav: typeof en.nav = {
     automation: 'Automatisierung',
     skills: 'Skills',
     jobs: 'Jobs',
+    // Der dritte Automation-Tab: an Piloti übergebene Arbeit (ADR-0051).
+    tasks: 'Aufgaben',
     archiv: 'Archiv',
     settings: 'Einstellungen',
     // Der Intake-Assistent, im Produkt „Einrichtung" (nur ⌘K-Palette).

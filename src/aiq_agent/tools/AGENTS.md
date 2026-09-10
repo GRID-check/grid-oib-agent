@@ -58,9 +58,9 @@ versions rather than two documents.
 
 ## A write-side tool PROPOSES; acceptance executes in the user's session
 
-The same invariant, stated as the rule the next tool has to follow. The five
+The same invariant, stated as the rule the next tool has to follow. The four
 verbs under `files/` — `move_document`, `rename_document`, `create_folder`,
-`set_doc_class`, `assign_document` — all change the user's workspace, and not
+`assign_document` — all change the user's workspace, and not
 one of them changes anything. Each resolves its arguments against what the turn
 can already see, emits ONE `file_operation_proposal` card, and returns text
 whose first words are that nothing has happened.
@@ -74,7 +74,7 @@ the audit trail and the feature gates are the ones that were already there —
 which is ADR-0055 read from this side: one HTTP surface per primitive, and this
 tier is a client of it like everybody else, never a second implementation.
 
-Three consequences worth knowing before writing the sixth verb:
+Three consequences worth knowing before writing the fifth verb:
 
 - **Nothing is resolved that the turn cannot see.** A document is matched
   against the turn's inventory rows (`knowledge/inventory.get_turn_documents`),
@@ -90,12 +90,14 @@ Three consequences worth knowing before writing the sixth verb:
   card (`files/cards.py`) up to `MAX_FILE_OPERATIONS`; accepting applies them in
   order and reports each one, so a batch where the third fails says three
   landed and one did not.
-- **A verb with no route behind it says so.** `set_doc_class` is that verb
-  today: the Dokumentart is settable only on the platform corpus, and a project
-  document has no such route. The card shows the proposal and draws no control,
-  with the reason where the buttons would be
-  (`grid-cards/lib/file-operations.UNAVAILABLE_OPERATIONS`). Inventing a route
-  would put the write back on this side of the door.
+- **A verb with no route behind it does not ship.** `set_doc_class` was the
+  fifth verb and is gone: the Dokumentart is settable only on the platform
+  corpus, a project document has no such route, and the card therefore drew the
+  proposal and no control — a decision the reader could read and could not take.
+  A proposal nobody can accept is not a smaller feature than one they can, it is
+  a different and worse thing, so the verb waits for the project-scoped route
+  rather than shipping ahead of it. Inventing a route on this side would put the
+  write back behind the door the whole module exists to keep shut.
 
 ## Obligations
 
@@ -107,4 +109,5 @@ Three consequences worth knowing before writing the sixth verb:
 | Add a tool under here | `@register_function` plus its own `nat.plugins` entry point, like every other tool ([`src/aiq_agent/AGENTS.md`](../AGENTS.md)) | NAT never discovers it |
 | Add a verb that WRITES | Make it propose: a `file_operation_proposal` card and a result saying nothing changed. Then its basename in `_INTERACTION_TOOL_BASENAMES`, its action key in `common/turn_status.py`, its row in `TOOL_CONTEXT_REQUIREMENTS`, and its executor in `grid-cards/lib/file-operations.ts` | Nothing local — which is the point. A tool that wrote directly would pass every test and bypass `requireProjectAccess`, the audit trail and the reader's consent in one call |
 | Call the BFF from a tool that acts as a PERSON | Echo `GridRequestContext.envelope_header` / `envelope_signature` unchanged. Never build or sign an envelope here, and never read the acting user off the unsigned `x-grid-user-id` header | Nothing local, and everything downstream: the internal token is the signing secret, so a self-signed envelope is a tool choosing whose permissions it runs under |
+| Delete a conversation's working directory | Go through `DELETE /v1/drafts/{conversation_id}` (`frontends/aiq_api/routes/drafts.py`), which sweeps the store namespace. Nothing else may reach into `("conversation", id, "drafts")` | Nothing local. The drafts outlive the conversation as bytes under a key that names nothing |
 | Change the shape of a lifecycle request or response | Nothing by hand — the contract is `frontends/ui/tests/fixtures/document-lifecycle.schema.json`, generated from the BFF's zod (ADR-0055). There is no Pydantic twin | `tests/aiq_agent/tools/documents/test_wire_contract.py`, which validates the payloads the tool really builds against that file |

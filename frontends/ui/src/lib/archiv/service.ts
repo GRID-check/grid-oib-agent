@@ -49,8 +49,8 @@ import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
 import {
   nextVersionNumber,
   recordUploadedVersion,
-  versionedStorageKey,
 } from '@/lib/documents/lifecycle'
+import { versionedStorageKey } from '@/lib/documents/version-content'
 import { listDocumentVersionObjects } from '@/lib/documents/version-repository'
 import type { DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'

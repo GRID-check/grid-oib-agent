@@ -226,11 +226,38 @@ class TestAVerdictNeverRestsOnADocumentPilotiWrote:
         assert payload is not None
         assert payload["verdict"]["reference"] == {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b"}
 
-    def test_a_verdict_with_no_reference_is_untouched(self):
-        """Nothing was claimed as the Fundstelle, so there is nothing to refuse."""
-        payload = self._gate(None)
+    def test_a_verdict_with_no_reference_survives_an_ordinary_turn(self):
+        """Nothing agent-authored was retrieved, so there is nothing to launder.
+
+        „Nicht geregelt" is the common unattributed verdict and it must keep
+        standing: on a turn whose registry holds no Piloti document, an absent
+        Fundstelle is an absent Fundstelle and nothing more.
+        """
+        payload = self._gate(None, documents=frozenset())
         assert payload is not None
         assert payload["verdict"] == _VERDICT
+
+    def test_a_verdict_with_no_reference_is_dropped_when_piloti_wrote_a_source(self):
+        """THE HOLE. The gate above can only judge a reference it was given, so
+        omitting it was the cheapest way to the same headline resting on the
+        same document — with the evidence that would have failed it left out."""
+        assert self._gate(None) is None
+
+    def test_the_unreferenced_drop_is_counted_under_its_own_reason(self, monkeypatch):
+        pushed: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            "aiq_agent.common.turn_status.push_custom_step",
+            lambda name, payload: pushed.append((name, payload)),
+        )
+        assert self._gate(None) is None
+        assert [payload["values"]["reason"] for _, payload in pushed] == ["unreferenced_with_agent_source"]
+
+    def test_a_norm_reference_still_survives_a_turn_with_an_agent_document(self):
+        """The three cases are distinct: a norm Fundstelle is kept even when the
+        turn also retrieved something Piloti wrote."""
+        payload = self._gate({"document": "OIB-Richtlinie 2", "section": "Tabelle 1b"})
+        assert payload is not None
+        assert payload["verdict"]["reference"]["document"] == "OIB-Richtlinie 2"
 
     def test_a_turn_that_retrieved_no_agent_document_gates_nothing(self):
         """The common case, and the one that must cost nothing."""

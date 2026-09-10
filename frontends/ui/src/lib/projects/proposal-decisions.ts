@@ -17,15 +17,17 @@
 
 import 'server-only'
 import { listRecentMessagesWithCardDecisions } from '@/lib/conversations/repository'
-import { formatBoundedDigest, type DigestLineItem } from '@/lib/knowledge/digest-format'
+import {
+  DIGEST_BLOCK_MAX_CHARS,
+  formatBoundedDigest,
+  type DigestLineItem,
+} from '@/lib/knowledge/digest-format'
 
 export const PROPOSAL_DECISIONS_HEADER = 'PROPOSAL_DECISIONS v1'
 /** Messages scanned, newest first. Decisions are rare, so this reaches back far. */
 const MESSAGE_SCAN_LIMIT = 40
 /** Decisions kept, newest first. The next turn needs the recent ones, not the history. */
 const MAX_DECISIONS = 10
-/** Same order of size as one memory digest, so the two share the header budget. */
-const MAX_CHARS = 900
 
 type Decision =
   | 'accepted'
@@ -154,7 +156,7 @@ export async function buildProposalDecisionsBlock(
   return formatBoundedDigest(
     PROPOSAL_DECISIONS_HEADER,
     decided.map((entry) => entry.item),
-    MAX_CHARS,
+    DIGEST_BLOCK_MAX_CHARS,
   )
 }
 

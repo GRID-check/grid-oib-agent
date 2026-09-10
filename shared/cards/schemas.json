@@ -2062,21 +2062,8 @@
             }
           ],
           "default": null,
-          "description": "What this is TODAY (current folder, name or Dokumentart) \u2014 for the before/after line",
+          "description": "What this is TODAY (current folder or name) \u2014 for the before/after line",
           "title": "Current"
-        },
-        "doc_class": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "set_doc_class: a key from the closed doc_class vocabulary",
-          "title": "Doc Class"
         },
         "document": {
           "anyOf": [
@@ -2088,7 +2075,7 @@
             }
           ],
           "default": null,
-          "description": "File name exactly as the inventory lists it (move, rename, set_doc_class, assign)",
+          "description": "File name exactly as the inventory lists it (move, rename, assign)",
           "title": "Document"
         },
         "folder_name": {
@@ -2178,7 +2165,7 @@
       "type": "object"
     },
     "FileOperationProposalCard": {
-      "description": "A workspace change the agent PROPOSES and the reader executes.\n\nSystem-emitted by the five tools under ``src/aiq_agent/tools/files/``. Every\none of them is a write, none of them writes: the card is the proposal, the\nreader's Accept runs it through the existing document/folder/assignment\nroutes in their own session, and the tool's own result text says plainly\nthat nothing has changed yet.",
+      "description": "A workspace change the agent PROPOSES and the reader executes.\n\nSystem-emitted by the four tools under ``src/aiq_agent/tools/files/``. Every\none of them is a write, none of them writes: the card is the proposal, the\nreader's Accept runs it through the existing document/folder/assignment\nroutes in their own session, and the tool's own result text says plainly\nthat nothing has changed yet.",
       "properties": {
         "note": {
           "anyOf": [
@@ -2199,7 +2186,6 @@
             "move",
             "rename",
             "create_folder",
-            "set_doc_class",
             "assign"
           ],
           "title": "Operation",

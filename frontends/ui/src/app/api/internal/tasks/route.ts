@@ -31,7 +31,11 @@
  */
 
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
-import { requirePinnedSession, requireVerifiedContext } from '@/lib/api/internal-envelope'
+import {
+  requireEnvelopeProject,
+  requirePinnedSession,
+  requireVerifiedContext,
+} from '@/lib/api/internal-envelope'
 import { withTenant } from '@/lib/db/tenant-context'
 import { delegateTask } from '@/lib/tasks/delegation'
 import { internalTaskRequestSchema, parseTaskDue } from '@/lib/tasks/wire'
@@ -42,6 +46,11 @@ export const POST = internalApiRoute(
     const context = requireVerifiedContext(request)
     const body = await parseJsonBody(request, internalTaskRequestSchema)
     const session = await requirePinnedSession(context)
+    // Same rule as the document route: a body may not name a project the signed
+    // envelope contradicts. A task queues a run that files as this person, so a
+    // replayed envelope pointed at a second project would be work nobody asked
+    // for, attributed to somebody who did not ask for it.
+    requireEnvelopeProject(context, body.projectId)
     const dueAt = parseTaskDue(body.due)
 
     // The tenant slot comes from the VERIFIED envelope and never from the body,

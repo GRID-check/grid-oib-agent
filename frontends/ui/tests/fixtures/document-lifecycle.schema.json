@@ -92,6 +92,11 @@
                 "minLength": 1
               },
               "maxItems": 20
+            },
+            "reviewer": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           },
           "required": [

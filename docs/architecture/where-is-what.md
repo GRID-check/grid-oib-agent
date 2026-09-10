@@ -34,6 +34,11 @@ does not exist, so a moved file is caught; a missing row is not.
 | Diagram filing | `frontends/ui/src/lib/diagrams/filing.ts` | [`diagrams.md`](diagrams.md) | — |
 | Version states and the transition table | `frontends/ui/src/lib/documents/lifecycle-types.ts` — `DOCUMENT_VERSION_TRANSITIONS` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | ADR-0054 |
 | The one place a version changes state | `frontends/ui/src/lib/documents/lifecycle.ts` — `transitionDocumentVersion` | same | ADR-0054, ADR-0055 |
+| A version's BYTES: storage keys, the producer re-render, the marking re-check, the quota admission, the reads | `frontends/ui/src/lib/documents/version-content.ts` | same | ADR-0054 |
+| Who a version may be sent to for release, and what a one-person project does | `frontends/ui/src/lib/documents/reviewers.ts` — `resolveReviewers`, `listReviewCandidates` | same | ADR-0054 |
+| Whether an archived document is in a listing | `frontends/ui/src/lib/documents/repository.ts` — `listProjectDocuments`'s `includeArchived` | same | ADR-0054 |
+| What a superseded version costs the organization | `frontends/ui/src/lib/storage/repository.ts` — `versionOverheadBytes` | [`../database/schema.md`](../database/schema.md) | ADR-0054, ADR-0042 |
+| Where a project's delegated work is shown | `frontends/ui/src/features/tasks/components/task-list.tsx`, the Aufgaben tab of `frontends/ui/src/features/automation/components/automation-panel.tsx` | same | ADR-0051 |
 | Version rows and the atomic publish | `frontends/ui/src/lib/documents/version-repository.ts` — `promoteVersionToPublished` | [`docs/database/schema.md`](../database/schema.md) | ADR-0054 |
 | Version table | `frontends/ui/src/lib/db/schema/document-versions.ts` | [`docs/database/schema.md`](../database/schema.md) | ADR-0054 |
 | The lifecycle's typed client (every consumer is one) | `frontends/ui/src/lib/documents/lifecycle-client.ts` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0055 |
@@ -60,7 +65,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | A version's bytes for „Öffnen" | `frontends/ui/src/app/api/documents/[id]/versions/[versionId]/content/route.ts` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0055 |
 | The piloti filename namespace for indexed agent documents | `frontends/ui/src/lib/documents/agent-namespace.ts` — `agentDocumentFilename`, `isAgentDocumentFilename` | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0054 |
 | Indexing a published version, with provenance | `frontends/ui/src/lib/documents/lifecycle.ts` — the `ingestPublished` effect | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0054 |
-| Chunk purge on supersede and archive | `frontends/ui/src/lib/documents/lifecycle.ts` — `purgeSupersededChunks`, `archiveDocument` | [`deletion-pipeline.md`](deletion-pipeline.md) | ADR-0054, ADR-0011 |
+| Chunk purge on supersede and archive | `frontends/ui/src/lib/documents/lifecycle.ts` — `purgeSupersededChunks`; `frontends/ui/src/lib/documents/version-content.ts` — `archiveDocument` | [`deletion-pipeline.md`](deletion-pipeline.md) | ADR-0054, ADR-0011 |
 | The provenance wire on `/v1/ingest` | `frontends/aiq_api/src/aiq_api/routes/ingest.py`; `frontends/aiq_api/src/aiq_api/models/requests.py` — `IngestRequest` | [`docs/api/python-endpoints.md`](../api/python-endpoints.md) | ADR-0054 |
 | Provenance on chunks and on the metadata row | `sources/knowledge_layer/src/llamaindex/adapter.py`; `src/aiq_agent/knowledge/factory.py` — `set_document_provenance` | [`docs/technical-reference/document-ingestion.md`](../technical-reference/document-ingestion.md) | ADR-0054 |
 | What every file Piloti produces says about itself (header line, prose, footer, logo slot) and the platform-default / organization-override resolver | `frontends/ui/src/lib/documents/branding.ts` — `resolveDocumentBranding` | [`docs/user-guides/agent-authored-reports.md`](../user-guides/agent-authored-reports.md) | ADR-0054 |

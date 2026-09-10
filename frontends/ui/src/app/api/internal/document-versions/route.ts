@@ -50,10 +50,17 @@
  */
 
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
-import { requirePinnedSession, requireVerifiedContext } from '@/lib/api/internal-envelope'
+import {
+  requireEnvelopeProject,
+  requirePinnedSession,
+  requireVerifiedContext,
+} from '@/lib/api/internal-envelope'
 import { withTenant } from '@/lib/db/tenant-context'
 import type { VerifiedGridRequestContext } from '@/lib/request-context'
+import { BadRequestError } from '@/lib/api/errors'
 import { fileAgentDocumentDraft } from '@/lib/documents/agent-document'
+import { getAccessibleDocument } from '@/lib/documents/access'
+import { listReviewCandidates, matchReviewCandidate } from '@/lib/documents/reviewers'
 import {
   replaceVersionContent,
   toDocumentVersionView,
@@ -76,6 +83,11 @@ async function runOp(
   context: VerifiedGridRequestContext,
 ) {
   if (body.op === 'create') {
+    // The project the body names has to be the project the signed envelope
+    // names, when the envelope names one. Everything else on this route already
+    // comes from the signature; `projectId` was the one field a captured
+    // envelope could still be pointed somewhere else.
+    requireEnvelopeProject(context, body.projectId)
     const filed = await fileAgentDocumentDraft({
       session,
       projectId: body.projectId,
@@ -104,7 +116,11 @@ async function runOp(
       body.versionId,
       body.content,
       body.ifMatch,
-      request,
+      // The machine door, restated on the path that does not go through
+      // `transitionDocumentVersion`: `update` is an `either` row, so this
+      // changes nothing today — and the day somebody makes it `human` it is
+      // the flag, not a second list, that refuses the agent.
+      { request, actingHuman: false },
     )
     return { documentId: body.documentId, version: toDocumentVersionView(version) }
   }
@@ -114,9 +130,45 @@ async function runOp(
     body.documentId,
     body.versionId,
     'submit',
-    { reviewerUserIds: body.reviewerUserIds, request, actingHuman: false },
+    {
+      reviewerUserIds: await resolveNamedReviewers(session, body),
+      request,
+      actingHuman: false,
+    },
   )
   return { documentId: body.documentId, version: toDocumentVersionView(version) }
+}
+
+/**
+ * The reviewers a `submit` should open a round for, with the agent's NAME
+ * resolved to a user id.
+ *
+ * Ids the caller sent win, because they can only have come from a surface that
+ * had them. A name is resolved here and nowhere else: the model holds no user
+ * ids, the project's own editors are the set it may name from, and a name the
+ * project cannot identify is a 400 whose message the tool prints back — the
+ * alternative is a submission that silently reaches the wrong person, or the
+ * whole project, because a spelling was off.
+ *
+ * The read is in the PINNED requester's session, so the candidate list is the
+ * one that person could see themselves.
+ */
+async function resolveNamedReviewers(
+  session: AuthorizedSession,
+  body: Extract<InternalDocumentVersionRequest, { op: 'submit' }>,
+): Promise<readonly string[]> {
+  if (body.reviewerUserIds.length > 0) return body.reviewerUserIds
+  if (!body.reviewer) return []
+  const document = await getAccessibleDocument(session, body.documentId, 'write')
+  const candidates = await listReviewCandidates(session, document)
+  const match = matchReviewCandidate(candidates, body.reviewer)
+  if (match.ok) return [match.userId]
+  throw new BadRequestError(
+    match.reason === 'unknown'
+      ? `Niemand in diesem Projekt heißt „${body.reviewer}“. Ohne Namen geht der Entwurf an alle Bearbeiter.`
+      : `„${body.reviewer}“ ist in diesem Projekt mehrfach vergeben — bitte die E-Mail-Adresse angeben.`,
+    { reviewer: body.reviewer },
+  )
 }
 
 export const POST = internalApiRoute(

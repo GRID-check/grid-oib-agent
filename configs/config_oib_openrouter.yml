@@ -560,9 +560,7 @@ functions:
     _type: rename_document
   create_folder:
     _type: create_folder
-  # set_doc_class is deliberately NOT bound: a project document has no doc_class
-  # route to accept the proposal into (only the platform corpus has one), and a
-  # proposal nobody can apply is worse than none. Bind it when that route exists.
+  # No doc_class verb here: proposals wait for a project-scoped doc_class route.
   assign_document:
     _type: assign_document
 

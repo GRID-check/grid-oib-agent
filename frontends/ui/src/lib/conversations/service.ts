@@ -40,6 +40,7 @@ import type {
   ResourceVisibility,
 } from '@/lib/db/schema'
 import { purgeConversationCollaboration } from '@/lib/collaboration/cleanup'
+import { discardConversationDrafts } from './working-directory'
 import { purgeSessionDocuments } from '@/lib/session-documents/cleanup'
 import { publishToUsers } from '@/lib/events/bus'
 import { inboxGroupKey } from '@/lib/inbox/registry'
@@ -555,6 +556,13 @@ export async function deleteConversation(
   // them explicitly or they orphan (spec SH-13, IB-15) — harmless for access, but
   // they leave permanently redacted rows in people's inboxes.
   await purgeConversationCollaboration(conversationId)
+
+  // The drafts the turns of this chat wrote into the agent service's own store
+  // (ADR-0003 puts it on the other side of a boundary no cascade reaches).
+  // Best-effort and last: the conversation is already gone, and a working
+  // directory is addressable by the conversation id alone, so a failure here
+  // costs a sweep rather than an orphan nothing can name.
+  await discardConversationDrafts(conversationId)
 }
 
 /**

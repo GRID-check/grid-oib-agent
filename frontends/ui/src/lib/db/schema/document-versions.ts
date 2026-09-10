@@ -62,7 +62,9 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core'
 import {
+  DOCUMENT_SUBMIT_ACTORS,
   DOCUMENT_VERSION_STATES,
+  type DocumentSubmitActor,
   type DocumentVersionState,
 } from '@/lib/documents/lifecycle-types'
 import { documents } from './documents'
@@ -72,6 +74,7 @@ import { documents } from './documents'
 // outside the schema so a route handler can validate against it without
 // importing drizzle — `server-component-db-access.spec.ts` fails on that.
 export { DOCUMENT_VERSION_STATES, type DocumentVersionState }
+export { DOCUMENT_SUBMIT_ACTORS, type DocumentSubmitActor }
 
 /** The states as a SQL list, so the CHECK and the tuple cannot drift. */
 const STATE_LIST = sql.raw(DOCUMENT_VERSION_STATES.map((state) => `'${state}'`).join(', '))
@@ -107,6 +110,26 @@ export const documentVersions = pgTable(
     /** `sha256:<hex>` — the `If-Match` value a content replace must carry. */
     contentHash: text('content_hash'),
     submittedBy: text('submitted_by'),
+    /**
+     * Whose HAND submitted this version, as opposed to whose AUTHORITY it
+     * carried (migration 0085).
+     *
+     * `submitted_by` is the person the submission was made AS — permissions,
+     * the audit actor and the inbox all read it, and none of them changes. This
+     * says whether a person or a run made the gesture, written from
+     * `TransitionInput.actingHuman` at the submit transition so a caller cannot
+     * tell the publish door one thing and this column another.
+     *
+     * The one reader is the not-the-submitter guard on `approve`. „Der
+     * Einreichende darf nicht freigeben" is about a person asserting their own
+     * work; a report Piloti filed in the commissioning human's session is not
+     * their own work, and refusing them the Freigabe left an office with a
+     * Befund nobody could release.
+     */
+    submittedByActor: text('submitted_by_actor')
+      .$type<DocumentSubmitActor>()
+      .notNull()
+      .default('human'),
     submittedAt: timestamp('submitted_at', { withTimezone: true }),
     reviewedBy: text('reviewed_by'),
     reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
@@ -157,6 +180,11 @@ export const documentVersions = pgTable(
       foreignColumns: [documents.id, documents.projectId],
     }).onDelete('cascade'),
     stateKnown: check('document_versions_state_known', sql`${table.state} IN (${STATE_LIST})`),
+    /** Two hands, and no third: see the column (migration 0085). */
+    submitActorKnown: check(
+      'document_versions_submitted_by_actor_known',
+      sql`${table.submittedByActor} IN ('human', 'agent')`
+    ),
     /** A review is by somebody, at some time — both or neither (`tasks_review_complete`). */
     reviewComplete: check(
       'document_versions_review_complete',

@@ -45,7 +45,11 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import type { DocumentAuthor } from '@/lib/db/schema'
-import type { DocumentLifecyclePermission, DocumentVersionState } from '@/lib/documents/lifecycle-types'
+import type {
+  DocumentLifecycle,
+  DocumentLifecyclePermission,
+  DocumentVersionState,
+} from '@/lib/documents/lifecycle-types'
 
 interface ProjectFileWorkspaceProps {
   projectId: string
@@ -200,6 +204,15 @@ export interface FileItem {
    */
   versionState?: DocumentVersionState | null
   versionCount?: number | null
+  /**
+   * Whether the ITEM is still in the working set (ADR-0054).
+   *
+   * Absent everywhere the listing has no reason to say — the default listing
+   * carries active rows only, so „was fehlt hier" is answered by the filter and
+   * not by a field on every row. It is present, and `archived`, exactly when
+   * the reader asked for archived documents and is looking at a mixed list.
+   */
+  lifecycle?: DocumentLifecycle | null
 }
 
 export interface FileAssignee {
@@ -368,6 +381,10 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    */
   const [filters, setFilters] = useState<FileFilters>(NO_FILE_FILTERS)
   const agentAuthoredOnly = filters.agentAuthoredOnly
+  // Same shape and the same reason as `agentAuthoredOnly`: the listing itself
+  // is what excludes an archived document, so this is a refetch and not a
+  // predicate (ADR-0054).
+  const includeArchived = filters.includeArchived
 
   /**
    * Ordering, lifted out of the detail view.
@@ -391,6 +408,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     setFilesError(false)
     const params = new URLSearchParams({ projectId })
     if (agentAuthoredOnly) params.set('authoredBy', 'agent')
+    if (includeArchived) params.set('includeArchived', 'true')
     return fetch(`/api/documents?${params}`)
       .then((r) => {
         if (!r.ok) throw new Error(`Failed to load documents (${r.status})`)
@@ -414,7 +432,7 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         // otherwise leave it spinning forever with nobody left to clear it.
         if (!quiet) setIsLoadingFiles(false)
       })
-  }, [projectId, agentAuthoredOnly])
+  }, [projectId, agentAuthoredOnly, includeArchived])
 
   // The query lives here rather than in the browser pane: the field sits in the
   // page header (beside the view toggles and Upload) while the results it
@@ -549,9 +567,9 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
    * The filter menu applied to the whole corpus — and therefore the search
    * scope too, so a narrowed listing stays narrowed when you search it.
    *
-   * `agentAuthoredOnly` is deliberately absent: it is a query parameter on the
-   * listing endpoint (see `loadFiles`), so `files` has already been narrowed by
-   * it before this runs.
+   * `agentAuthoredOnly` and `includeArchived` are deliberately absent: both are
+   * query parameters on the listing endpoint (see `loadFiles`), so `files` has
+   * already been narrowed — or widened — before this runs.
    */
   const filteredFiles = useMemo(
     () => applyFileFilters(files, filters, { canCollaborate: !!canCollaborate, currentUserId }),

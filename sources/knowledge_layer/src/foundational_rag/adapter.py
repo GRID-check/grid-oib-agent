@@ -623,7 +623,6 @@ class FoundationalRagRetriever(BaseRetriever):
             return False
 
 
-@register_ingestor("foundational_rag")
 def _provenance_from_config(config: dict) -> dict[str, str]:
     """The provenance keys a job config carries, or an empty dict.
 
@@ -638,6 +637,7 @@ def _provenance_from_config(config: dict) -> dict[str, str]:
     return provenance_metadata(provenance) if provenance else {}
 
 
+@register_ingestor("foundational_rag")
 class FoundationalRagIngestor(TTLCleanupMixin, BaseIngestor):
     """
     Ingestor adapter that calls hosted NVIDIA RAG Blueprint endpoints.

@@ -12,11 +12,8 @@
  */
 
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'
-import {
-  readVersionContent,
-  replaceVersionContent,
-  toDocumentVersionView,
-} from '@/lib/documents/lifecycle'
+import { replaceVersionContent, toDocumentVersionView } from '@/lib/documents/lifecycle'
+import { readVersionContent } from '@/lib/documents/version-content'
 import { replaceContentRequestSchema } from '@/lib/documents/lifecycle-types'
 
 type Params = { id: string; versionId: string }
@@ -58,7 +55,7 @@ export const PUT = apiRoute<Params>(
       params.versionId,
       content,
       ifMatch,
-      request
+      { request },
     )
     return { version: toDocumentVersionView(version) }
   },

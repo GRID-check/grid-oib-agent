@@ -64,12 +64,14 @@ const session = {
   featureFlags: null,
 }
 
-function envelopeHeaders(overrides: { issuedAt?: number; userId?: string } = {}) {
+function envelopeHeaders(
+  overrides: { issuedAt?: number; userId?: string; projectId?: string | null } = {},
+) {
   const { header, signature } = buildGridRequestContextEnvelope(
     {
       organizationId: 'org_1',
       userId: overrides.userId ?? 'user_requester',
-      projectId: PROJECT,
+      ...(overrides.projectId === null ? {} : { projectId: overrides.projectId ?? PROJECT }),
       conversationId: 's_conv_1',
       issuedAt: overrides.issuedAt ?? Date.now(),
     },
@@ -123,6 +125,43 @@ describe('the origin conversation', () => {
       ref: 's_someone_elses-aktenvermerk',
       originConversationId: 's_conv_1',
     })
+  })
+})
+
+describe('the project the body names must be the project the envelope names', () => {
+  const draft = (projectId: string) => ({
+    op: 'create' as const,
+    projectId,
+    ref: 's_conv_1-aktenvermerk',
+    title: 'Aktenvermerk',
+    content: '# Aktenvermerk',
+  })
+
+  it('files into the project both agree on', async () => {
+    expect((await call(draft(PROJECT))).status).toBe(201)
+  })
+
+  it('refuses a body pointed at a DIFFERENT project, with a 400 and no filing', async () => {
+    // Every other field of the acting context comes from the signature.
+    // `projectId` was the one a captured envelope could still be pointed at a
+    // second project the requester happens to be able to write to — which is
+    // more than the turn it was minted for ever had.
+    const other = '99999999-9999-4999-8999-999999999999'
+    const response = await call(draft(other))
+
+    expect(response.status).toBe(400)
+    expect(fileAgentDocumentDraft).not.toHaveBeenCalled()
+  })
+
+  it('constrains nothing when the envelope names no project', async () => {
+    // A turn that is not in a project — the org-wide Archiv, a projectless
+    // chat. The body's own project is then gated by `requireProjectAccess` in
+    // the service exactly as before.
+    const other = '99999999-9999-4999-8999-999999999999'
+    const response = await call(draft(other), envelopeHeaders({ projectId: null }))
+
+    expect(response.status).toBe(201)
+    expect(vi.mocked(fileAgentDocumentDraft).mock.calls[0][0]).toMatchObject({ projectId: other })
   })
 })
 
@@ -235,7 +274,11 @@ describe('the ops it does serve', () => {
       VERSION,
       'korrigiert',
       'sha256:abc',
-      expect.any(Request),
+      // A run is not a person: `update` is an `either` row so nothing is
+      // refused today, and that is exactly why the flag has to be right — the
+      // door is the `actor` field, and a caller that lies about who it is
+      // bypasses it the moment a row changes.
+      { request: expect.any(Request), actingHuman: false },
     )
   })
 

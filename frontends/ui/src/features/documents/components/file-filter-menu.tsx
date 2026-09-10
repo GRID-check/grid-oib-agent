@@ -236,6 +236,18 @@ export function FileFilterMenu({
             }
             label={t('lifecycle.filter')}
           />
+          {/* The one control here that WIDENS. An archived document is not in
+              the listing at all — `lifecycle = 'active'` is in the query — so
+              this is the only way back to one, and it says „auch" rather than
+              „nur" so nobody reads it as a narrowing. */}
+          <CheckRow
+            id="file-filter-include-archived"
+            checked={filters.includeArchived}
+            onChange={() =>
+              onFiltersChange({ ...filters, includeArchived: !filters.includeArchived })
+            }
+            label={t('lifecycle.archivedFilter')}
+          />
         </FilterSection>
 
         <Separator />

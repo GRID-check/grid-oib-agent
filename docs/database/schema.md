@@ -283,7 +283,8 @@ SIMPLE skips the check), `version_number`, `state`, `storage_key`,
 `storage_bucket`, `content_type`, `file_size`, `content_hash`,
 `submitted_by`/`_at`, `reviewed_by`/`_at`, `approved_by`/`_at`,
 `published_by`/`_at`, `review_comment`, `created_by`,
-`origin_conversation_id` (migration `0084`), `created_at`, `updated_at`.
+`origin_conversation_id` (migration `0084`), `submitted_by_actor` (migration
+`0085`), `created_at`, `updated_at`.
 
 **Constraints — the ratchet, not decoration:**
 
@@ -291,6 +292,7 @@ SIMPLE skips the check), `version_number`, `state`, `storage_key`,
 - `document_versions_review_complete` — `(reviewed_by IS NULL) = (reviewed_at IS NULL)`. Copied from `tasks_review_complete` (migration `0075`): a decision is by somebody, at some time, or it is not a decision.
 - `document_versions_published_is_approved` — `state <> 'published' OR (approved_by IS NOT NULL AND approved_at IS NOT NULL)`. **The publish door.** Only a published version is ever dispatched to the retrieval index, so this makes "indexed ⟹ approved by a person" a row invariant rather than a predicate in a fail-open retrieval path.
 - `document_versions_refusal_has_comment` — `state NOT IN ('changes_requested', 'rejected') OR review_comment IS NOT NULL`. A refusal with nothing in it is a decision the next attempt cannot act on.
+- `document_versions_submitted_by_actor_known` — `human | agent` (migration `0085`).
 
 **Indexes:** `idx_document_versions_document (document_id, version_number)`,
 `idx_document_versions_organization_id`, and two PARTIAL unique indexes that
@@ -300,11 +302,20 @@ meet one meets it as a constraint violation in a log line):
 `changes_requested` version per document, so two chat turns cannot fork one file
 into two live drafts — and `uniq_document_versions_published_per_document`.
 
-The second one is why publishing is ONE transaction
-(`promoteVersionToPublished`): "two published versions of one document" is
-unrepresentable, so the previous version must already have been superseded at
-the instant the new one becomes published, and a supersede that then lost the
-compare-and-swap race would leave the document with no published version at all.
+The second one is why publishing is ONE transaction: "two published versions of
+one document" is unrepresentable, so the previous version must already have been
+superseded at the instant the new one becomes published, and a supersede that
+then lost the compare-and-swap race would leave the document with no published
+version at all.
+
+There are two such transactions, and the second one was missing at first.
+`promoteVersionToPublished` moves an EXISTING version to `published`. A version
+that is BORN published — every human upload — cannot use it: the row has to be
+INSERTED as `published`, and the index is a plain partial unique index, checked
+per statement rather than deferred, so that insert is refused while the previous
+version is still published. The insert therefore lives inside the same
+transaction as the supersede (`insertPublishedVersion`), supersede first. Before
+that, **every re-upload of a document failed** on the constraint.
 
 **Bytes:** a superseded version keeps its object. They are purged when the
 document is deleted — `deleteDocument`, `deleteArchivDocument` and
@@ -312,6 +323,28 @@ document is deleted — `deleteDocument`, `deleteArchivDocument` and
 The consequence is stated rather than hidden: superseded versions stay charged
 against the organization's storage quota, because they exist. A per-organization
 retention policy is a later row on a later table.
+
+**And the ledger says so.** That sentence was a claim the code did not honour
+for a while: usage summed `documents.file_size` alone, which is the LIVE bytes,
+so every superseded version and every written-to draft was invisible to the
+quota it was supposed to be charged against. `lib/storage/repository.ts` now adds
+`versionOverheadBytes` — every `document_versions` row whose `storage_key` is not
+its item's `storage_key` — to `sumStorageBytes`, to the per-scope breakdown, and
+to both admitting transactions, so the ceiling and the number a reader is shown
+measure the same thing. The predicate compares KEYS rather than ids on purpose:
+a draft forked from the published version deliberately shares that version's
+object until its content is replaced, and two rows over one object are one
+charge.
+
+**Whose hand submitted (migration `0085`):** `submitted_by_actor` (`human` |
+`agent`, default `human`) is written from `TransitionInput.actingHuman` at the
+submit transition. `submitted_by` stays whose AUTHORITY the submission carried —
+permissions, the audit actor and the inbox all read it. The distinction has one
+reader: the not-the-submitter guard on `approve`. „Der Einreichende darf nicht
+freigeben" is about a person asserting their own work, and a report Piloti filed
+in the commissioning human's session is not their own work — reading
+`submitted_by` alone refused the one person who had asked for the report the
+right to release it.
 
 **Where a version came from (migration `0084`):** `origin_conversation_id` is
 the chat conversation a version was filed from, written at the internal filing

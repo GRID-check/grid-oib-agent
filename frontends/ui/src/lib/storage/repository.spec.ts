@@ -11,7 +11,7 @@ vi.mock('server-only', () => ({}))
  * A mock that only checked "an insert happened" would pass on a version of this
  * function with no lock at all, which is the version that was already shipped.
  */
-function fakeDb(usedBytes: number) {
+function fakeDb(usedBytes: number, versionBytes = 0) {
   const statements: string[] = []
   const inserted: unknown[] = []
   const updated: unknown[] = []
@@ -25,7 +25,9 @@ function fakeDb(usedBytes: number) {
       from: vi.fn(() => ({
         where: vi.fn(async () => {
           statements.push('SELECT sum')
-          return [{ bytes: String(usedBytes) }]
+          // `versionBytes` rides in the SAME select (a correlated subquery), so
+          // the whole usage read stays one round trip inside the lock.
+          return [{ bytes: String(usedBytes), versionBytes: String(versionBytes) }]
         }),
       })),
     })),
@@ -67,6 +69,57 @@ import type { NewDocument } from '@/lib/db/schema'
 
 const row = (fileSize: number): NewDocument =>
   ({ id: 'doc-1', organizationId: 'org-1', fileSize }) as unknown as NewDocument
+
+const next = (fileSize: number) => ({
+  storageKey: 'k',
+  storageBucket: 'b',
+  fileSize,
+  contentType: 'application/pdf',
+  contentHash: 'sha256:beef',
+  folderId: null,
+  createdBy: 'user-1',
+})
+
+/**
+ * The other half of the ledger (ADR-0054, correction 3).
+ *
+ * Migration 0082's header says superseded versions stay charged against the
+ * organization's quota. For a while that was a claim the code did not honour:
+ * usage summed `documents.file_size`, which is the LIVE bytes, so every
+ * superseded version and every written-to draft was invisible to the ceiling it
+ * was supposed to be measured against. An office that re-uploads a plan set
+ * weekly accumulated bytes nothing counted.
+ */
+describe('the version overhead is part of the ceiling', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('counts a superseded version against the quota', async () => {
+    const fake = fakeDb(5_000, 4_500)
+    getDb.mockReturnValue(fake.db)
+
+    // 5_000 live + 4_500 superseded = 9_500; a 1_000-byte upload crosses 10_000.
+    await expect(insertDocumentWithinQuota(row(1_000), 10_000)).resolves.toEqual({
+      ok: false,
+      usedBytes: 9_500,
+    })
+    expect(fake.inserted).toHaveLength(0)
+  })
+
+  it('admits the same upload when there is no version overhead', async () => {
+    const fake = fakeDb(5_000, 0)
+    getDb.mockReturnValue(fake.db)
+    await expect(insertDocumentWithinQuota(row(1_000), 10_000)).resolves.toEqual({ ok: true })
+  })
+
+  it('counts it on the REPLACE path too, minus the row being replaced', async () => {
+    const fake = fakeDb(2_000, 6_000)
+    getDb.mockReturnValue(fake.db)
+
+    await expect(
+      replaceDocumentWithinQuota('org-1', 'doc-1', next(3_000), 10_000),
+    ).resolves.toEqual({ ok: false, usedBytes: 8_000 })
+  })
+})
 
 describe('insertDocumentWithinQuota', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -159,16 +212,6 @@ describe('insertDocumentWithinQuota', () => {
  * "no storage space left", which is the worst kind of wrong answer.
  */
 describe('replaceDocumentWithinQuota', () => {
-  const next = (fileSize: number) => ({
-    storageKey: 'k',
-    storageBucket: 'b',
-    fileSize,
-    contentType: 'application/pdf',
-    contentHash: 'sha256:beef',
-    folderId: null,
-    createdBy: 'user-1',
-  })
-
   beforeEach(() => vi.clearAllMocks())
 
   it('takes the same per-organization lock BEFORE reading the sum', async () => {

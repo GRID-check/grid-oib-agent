@@ -356,6 +356,9 @@ describe('completeTaskForRun, by kind', () => {
     })
     expect(transitionDocumentVersion).toHaveBeenCalledWith(expect.anything(), 'doc-7', 'ver-1', 'submit', {
       reviewerUserIds: ['user_owner'],
+      // The run's own submission, like the filing one line up. The flag is what
+      // the publish door reads and what migration 0085 records.
+      actingHuman: false,
     })
     expect(filed).toEqual({ documentId: 'doc-7', filename: 'aktenvermerk-2026-09-10.md' })
   })
@@ -400,6 +403,8 @@ describe('completeTaskForRun, by kind', () => {
       'ver-2',
       '# Befund, überarbeitet',
       'sha256:abc',
+      // A run is not a person, on both halves of the filing.
+      { actingHuman: false },
     ])
     // Back to the person who asked for the changes: they are the one waiting.
     expect(transitionDocumentVersion).toHaveBeenCalledWith(
@@ -407,7 +412,7 @@ describe('completeTaskForRun, by kind', () => {
       'doc-3',
       'ver-2',
       'submit',
-      { reviewerUserIds: ['user_reviewer'] },
+      { reviewerUserIds: ['user_reviewer'], actingHuman: false },
     )
     // The SAME document, never a second one.
     expect(filed).toEqual({ documentId: 'doc-3', filename: 'befund.md' })

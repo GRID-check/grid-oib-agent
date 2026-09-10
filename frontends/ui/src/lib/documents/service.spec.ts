@@ -14,6 +14,12 @@ vi.mock('./version-repository', () => ({
     versionNumber: 1,
     ...values,
   })),
+  // The born-published insert: supersede, insert and pointer in one
+  // transaction, because the unique index is not deferrable (migration 0082).
+  insertPublishedVersion: vi.fn(async (values: Record<string, unknown>) => ({
+    version: { id: 'version_1', state: 'published', versionNumber: 1, ...values },
+    superseded: [],
+  })),
   listDocumentVersions: vi.fn().mockResolvedValue([]),
   findDocumentVersion: vi.fn().mockResolvedValue(null),
   findPublishedVersion: vi.fn().mockResolvedValue(null),
@@ -475,8 +481,28 @@ describe('listDocuments', () => {
     expect(listProjectDocuments).toHaveBeenCalledWith(
       'proj-1',
       session.organizationId,
-      undefined,
-      'agent'
+      expect.objectContaining({ authoredBy: 'agent' })
+    )
+  })
+
+  it('leaves archived documents out of the default listing', async () => {
+    // „Archiviert" purged the chunks and wrote `documents.lifecycle`, and no
+    // listing read that column — so the file stayed exactly where it was in the
+    // Files pane and the whole gesture was an audit event nobody could see.
+    await listDocuments(session, 'proj-1')
+    expect(listProjectDocuments).toHaveBeenCalledWith(
+      'proj-1',
+      session.organizationId,
+      expect.objectContaining({ includeArchived: undefined })
+    )
+  })
+
+  it('widens to the archived ones when the caller asks', async () => {
+    await listDocuments(session, 'proj-1', { includeArchived: true })
+    expect(listProjectDocuments).toHaveBeenCalledWith(
+      'proj-1',
+      session.organizationId,
+      expect.objectContaining({ includeArchived: true })
     )
   })
 
@@ -489,8 +515,7 @@ describe('listDocuments', () => {
     expect(listProjectDocuments).toHaveBeenCalledWith(
       'proj-1',
       session.organizationId,
-      undefined,
-      undefined
+      expect.objectContaining({ authoredBy: undefined })
     )
   })
 
@@ -505,6 +530,7 @@ describe('listDocuments', () => {
         id: 'doc-1',
         filename: 'plan.pdf',
         displayName: null,
+        lifecycle: 'active',
         publishedVersionId: null,
         originPath: null,
         contentHash: null,
@@ -1465,6 +1491,7 @@ describe('the authorship gate on the (collection, filename) join', () => {
           id: 'doc-agent',
           filename: collidingName,
           displayName: null,
+          lifecycle: 'active',
           // Nothing published: an agent DRAFT, which is what a row filed by
           // `fileGeneratedDocument` is until somebody releases a version of it.
           publishedVersionId: null,

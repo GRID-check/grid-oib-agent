@@ -94,10 +94,10 @@ aiq_bim = "aiq_agent.tools.bim.register"
 # independently loadable — and `ifc_query` keeps working on a deployment where
 # the spatial engine (ifcopenshell, shapely) is not installed at all.
 aiq_bim_measure = "aiq_agent.tools.bim.measure_register"
-# The five write-side workspace tools (move/rename/create_folder/set_doc_class/
-# assign). One entry point for all five: they share their resolver and their
-# card, have no optional dependency between them, and a deployment that loads
-# one loads the reason for the other four.
+# The four write-side workspace tools (move/rename/create_folder/assign). One
+# entry point for all four: they share their resolver and their card, have no
+# optional dependency between them, and a deployment that loads one loads the
+# reason for the other three.
 aiq_files = "aiq_agent.tools.files.register"
 # The working directory's two doors into the project (`file_draft`,
 # `submit_draft`). Its OTHER four verbs are stock DeepAgents tools bound

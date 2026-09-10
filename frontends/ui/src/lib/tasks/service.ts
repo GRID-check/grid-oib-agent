@@ -33,6 +33,9 @@ import {
 import { findDocumentInOrg } from '@/lib/documents/repository'
 import { openDraftForRevision } from '@/lib/documents/revision'
 import { fileResearchReport } from '@/lib/documents/research-report'
+import { resolvePeople } from '@/lib/sharing/directory'
+import type { TaskWireRow } from '@/features/tasks/lib/task-view'
+import { toTaskWireRow } from './list-projection'
 import * as repository from './repository'
 import type { ReviewTaskInput } from './types'
 
@@ -259,12 +262,21 @@ async function fileResultFor(
       report,
       // The hash the lifecycle just reported for THIS version. Computing one
       // here would agree with itself and overwrite whatever a person had put
-      // in the draft in the meantime.
-      draft.version.contentHash ?? '',
+      // in the draft in the meantime. `undefined` and not `''` when the row
+      // carries no digest: „nothing to match" is a state `assertGuards` knows,
+      // and an empty string was a value it could only ever refuse.
+      draft.version.contentHash ?? undefined,
+      // A run is not a person, on both halves of the filing. `update` and
+      // `submit` are `either` rows so nothing is refused today — and that is
+      // exactly why the flag has to be right: the door is the `actor` field,
+      // and a caller that lies about who it is bypasses it the moment a row
+      // changes.
+      { actingHuman: false },
     )
     await transitionDocumentVersion(session, subject.documentId, replaced.id, 'submit', {
       // Back to the person who asked for the changes: they are the one waiting.
       reviewerUserIds: draft.reviewers,
+      actingHuman: false,
     })
     return { documentId: subject.documentId, filename: draft.filename }
   }
@@ -282,6 +294,8 @@ async function fileResultFor(
   if (!filed.alreadyFiled) {
     await transitionDocumentVersion(session, filed.documentId, filed.version.id, 'submit', {
       reviewerUserIds: [task.requesterUserId],
+      // The run's own submission, like the filing one line up.
+      actingHuman: false,
     })
   }
   const document = await findDocumentInOrg(filed.documentId, session.organizationId)
@@ -347,6 +361,30 @@ export async function recordTaskOutcome(
 export async function listTasks(session: AuthorizedSession, projectId: string): Promise<Task[]> {
   await requireProjectAccess(session, projectId, 'project:view')
   return repository.listTasksInProject(projectId, session.organizationId)
+}
+
+/**
+ * The same listing, projected for the wire and with the requesters NAMED.
+ *
+ * The name resolution is here and not in the browser because the roster
+ * endpoint is `project:members:manage`: a `project:view` member reading their
+ * own project's task list would have got a 403 for a byline. `resolvePeople` is
+ * the one place this tier turns a user id into a name, so the Aufgaben list and
+ * the share roster cannot disagree about what somebody is called.
+ */
+export async function listTaskViews(
+  session: AuthorizedSession,
+  projectId: string,
+): Promise<TaskWireRow[]> {
+  const tasks = await listTasks(session, projectId)
+  if (tasks.length === 0) return []
+  const people = await resolvePeople(
+    session.organizationId,
+    [...new Set(tasks.map((task) => task.requesterUserId))],
+  )
+  return tasks.map((task) =>
+    toTaskWireRow(task, people.get(task.requesterUserId)?.name ?? null),
+  )
 }
 
 /**

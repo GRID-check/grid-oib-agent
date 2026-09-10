@@ -28,6 +28,19 @@ const open = () => userEvent.click(screen.getByTestId('file-filter-menu-trigger'
  * cannot, so the count on the trigger carries it instead — which makes the
  * badge load-bearing rather than decoration, and is why it is tested first.
  */
+describe('the archived filter', () => {
+  test('offers a way back to a file somebody archived', async () => {
+    // Archiving takes the file out of the listing (`lifecycle = 'active'` is in
+    // the query), so this checkbox is the ONLY way back to one.
+    const { onFiltersChange } = renderMenu()
+    await open()
+    await userEvent.click(screen.getByLabelText(/archiv/i))
+    expect(onFiltersChange).toHaveBeenCalledWith(
+      expect.objectContaining({ includeArchived: true }),
+    )
+  })
+})
+
 describe('FileFilterMenu', () => {
   test('shows no count while nothing is filtered', () => {
     renderMenu()

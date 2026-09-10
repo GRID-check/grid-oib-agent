@@ -176,10 +176,18 @@ export interface DocumentVersionTransition {
    */
   readonly actor: 'human' | 'either'
   /**
-   * Any ONE of these is enough (`requireProjectAccess`'s any-of list). The
-   * umbrella `project:edit` rides along wherever the narrow permission is a
-   * post-ADR-0038 split, so a custom role provisioned before the split keeps
-   * working.
+   * Any ONE of these is enough (`requireProjectAccess`'s any-of list), so the
+   * list is a WIDENING and every member of it has to be a permission that
+   * genuinely authorizes this op.
+   *
+   * The umbrella `project:edit` rides along wherever the narrow permission is a
+   * post-ADR-0038 split of it, so a custom role provisioned before the split
+   * keeps working. The reverse does NOT hold, and the three review decisions
+   * are where it was written backwards: `approve`, `request_changes` and
+   * `reject` listed `project:documents:write` beside `project:edit`, which
+   * handed the office's assertion about a Brandschutzkonzept to any role that
+   * may upload a file. „Darf Dateien ablegen" is not „darf freigeben"; those
+   * rows name `project:edit` alone.
    */
   readonly permission: readonly DocumentLifecyclePermission[]
   /**
@@ -196,6 +204,18 @@ export interface DocumentVersionTransition {
     readonly notSubmitter?: true
     /** The request must carry `ifMatch` equal to the stored `contentHash`. */
     readonly ifMatch?: true
+    /**
+     * This transition opens a review round, so it must reach somebody.
+     *
+     * Resolved BEFORE the compare-and-swap (`assertReviewGuards`), not inside
+     * the `openReviewInbox` effect where it used to live: an effect runs after
+     * the state has moved, so the refusal it raised on an empty result left the
+     * version durably `in_review` with nobody told about it and no exit that is
+     * not a decision one of those untold people would have to make. The chain
+     * in `./reviewers` is total now, so nothing is refused — but the resolution
+     * happens where a future link that CAN refuse would refuse in time.
+     */
+    readonly reviewer?: true
   }
   readonly auditAction: DocumentLifecycleAuditAction
   /**
@@ -299,7 +319,7 @@ export const DOCUMENT_VERSION_TRANSITIONS = [
     op: 'submit',
     actor: 'either',
     permission: ['project:edit', 'project:documents:write'],
-    requires: {},
+    requires: { reviewer: true },
     auditAction: 'document.version.submitted',
     effects: ['openReviewInbox', 'audit', 'eventHint'],
   },
@@ -309,7 +329,7 @@ export const DOCUMENT_VERSION_TRANSITIONS = [
     op: 'submit',
     actor: 'either',
     permission: ['project:edit', 'project:documents:write'],
-    requires: {},
+    requires: { reviewer: true },
     auditAction: 'document.version.submitted',
     effects: ['openReviewInbox', 'audit', 'eventHint'],
   },
@@ -318,7 +338,7 @@ export const DOCUMENT_VERSION_TRANSITIONS = [
     to: 'approved',
     op: 'approve',
     actor: 'human',
-    permission: ['project:edit', 'project:documents:write'],
+    permission: ['project:edit'],
     // Not the submitter, because approval is the office asserting the content
     // and an assertion nobody but the author has read is not one.
     requires: { notSubmitter: true },
@@ -330,7 +350,7 @@ export const DOCUMENT_VERSION_TRANSITIONS = [
     to: 'changes_requested',
     op: 'request_changes',
     actor: 'human',
-    permission: ['project:edit', 'project:documents:write'],
+    permission: ['project:edit'],
     requires: { comment: true },
     auditAction: 'document.version.changes_requested',
     effects: ['resolveReviewInbox', 'openRevisionTask', 'audit', 'eventHint'],
@@ -340,7 +360,7 @@ export const DOCUMENT_VERSION_TRANSITIONS = [
     to: 'rejected',
     op: 'reject',
     actor: 'human',
-    permission: ['project:edit', 'project:documents:write'],
+    permission: ['project:edit'],
     requires: { comment: true },
     auditAction: 'document.version.rejected',
     effects: ['resolveReviewInbox', 'audit', 'eventHint'],
@@ -383,6 +403,17 @@ export const AGENT_REACHABLE_OPS: readonly DocumentVersionOp[] = DOCUMENT_VERSIO
   const rows = transitionsForOp(op)
   return rows.length > 0 && rows.every((row) => row.actor === 'either')
 })
+
+/**
+ * Whose HAND made a submission (migration 0085).
+ *
+ * Not whose authority — that is `submitted_by`, and it is a person either way.
+ * The distinction exists for exactly one guard: „der Einreichende darf nicht
+ * freigeben" is about a person asserting their own work, and a report Piloti
+ * filed in the commissioning human's session is not their own work.
+ */
+export const DOCUMENT_SUBMIT_ACTORS = ['human', 'agent'] as const
+export type DocumentSubmitActor = (typeof DOCUMENT_SUBMIT_ACTORS)[number]
 
 /** Whether a document is listed by default, or has left the working set. */
 export const DOCUMENT_LIFECYCLES = ['active', 'archived'] as const
@@ -491,6 +522,20 @@ export const internalDocumentVersionRequestSchema = z.discriminatedUnion('op', [
       documentId: z.string().uuid(),
       versionId: z.string().uuid(),
       reviewerUserIds: z.array(z.string().min(1)).max(20).default([]),
+      /**
+       * A reviewer the user NAMED, as they said them („leg das der Anna vor").
+       *
+       * A display name or an e-mail address, never a user id: the model has no
+       * user ids and should not be given any. The route resolves it against the
+       * project's own editors and refuses a name that project cannot identify,
+       * so an unresolvable person is an error the tool shows rather than a
+       * round opened for the wrong colleague.
+       *
+       * Absent is the ordinary case, and it is not „nobody": the fallback chain
+       * in `lib/documents/reviewers.ts` asks whoever is on the hook, then every
+       * editor in the project.
+       */
+      reviewer: z.string().trim().min(1).max(200).optional(),
     })
     .strict(),
 ])

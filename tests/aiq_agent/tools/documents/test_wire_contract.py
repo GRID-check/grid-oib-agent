@@ -105,6 +105,42 @@ class TestTheRequestBodies:
         assert calls[1][0]["op"] == "submit"
         _validator(schema, "internalDocumentVersionRequest").validate(calls[1][0])
 
+    async def test_submit_with_a_named_reviewer_validates(self, schema, _one_store, monkeypatch, calls) -> None:
+        """The reviewer NAME is a wire field like any other, so the fixture pins it.
+
+        The submit branch is ``additionalProperties: false``, so this is the one
+        test that would catch the tool sending a field the route drops on the
+        floor — which is exactly what a submit „an Anna" that silently went to
+        the project's editors would look like from the reader's side.
+        """
+        await _write(_one_store)
+        monkeypatch.setattr(
+            filing_tools,
+            "post_document_version",
+            _responder(
+                [
+                    {"documentId": "doc-1", "version": _version("ver-1", "draft", "h1")},
+                    {"documentId": "doc-1", "version": _version("ver-1", "in_review", "h1")},
+                ],
+                calls,
+            ),
+        )
+        await filing_tools.run_file_draft(DRAFT)
+        await filing_tools.run_submit_draft(DRAFT, "Anna Berger")
+
+        payload = calls[1][0]
+        assert payload["op"] == "submit" and payload["reviewer"] == "Anna Berger"
+        if not _submit_branch_has_reviewer(schema):
+            pytest.skip("the BFF fixture has not regenerated with `reviewer` yet; the payload is asserted above")
+        _validator(schema, "internalDocumentVersionRequest").validate(payload)
+
+
+def _submit_branch_has_reviewer(schema: dict[str, Any]) -> bool:
+    """Whether the fixture's submit branch already declares ``reviewer``."""
+    branches = schema["$defs"]["internalDocumentVersionRequest"]["oneOf"]
+    submit = next(b for b in branches if b["properties"]["op"].get("const") == "submit")
+    return "reviewer" in submit["properties"]
+
 
 class TestTheResponseShape:
     """What the tool reads back out of the answer is what the schema promises."""

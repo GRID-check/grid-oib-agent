@@ -312,7 +312,8 @@ directory and cannot file; the tool says so.
   focus-file filter fails open to the whole corpus when no chunk matches
   (`register.py:769-781`).
 - **The agent can tidy.** `move_document`, `rename_document`,
-  `create_folder`, `set_doc_class`, `assign_document` as draft-door tools
+  `create_folder`, `assign_document` as draft-door tools (`set_doc_class` waits for
+  a project-scoped doc_class route; a proposal nobody can apply does not ship)
   that render proposal cards; accepting executes through the existing
   services in the user's session.
 

@@ -22,12 +22,24 @@ const listDocumentsQuerySchema = z.object({
    * with the tuple, which is the point of the tuple.
    */
   authoredBy: z.enum(DOCUMENT_AUTHORS).optional(),
+  /**
+   * Include the documents somebody archived (ADR-0054).
+   *
+   * Absent means active only, which is what „archiviert" has to mean or the
+   * gesture does nothing a reader can see. `'true'` and not a bare presence
+   * check, so the parameter reads the same way in a log line as it does in the
+   * URL the Files pane builds.
+   */
+  includeArchived: z.literal('true').optional(),
 })
 
 export const GET = apiRoute(
   async ({ session, request }) => {
-    const { projectId, authoredBy } = parseQuery(request, listDocumentsQuerySchema)
-    const documents = await listDocuments(session, projectId, { authoredBy })
+    const { projectId, authoredBy, includeArchived } = parseQuery(request, listDocumentsQuerySchema)
+    const documents = await listDocuments(session, projectId, {
+      authoredBy,
+      includeArchived: includeArchived === 'true',
+    })
     // The editorial state rides ALONG with the listing rather than being asked
     // for per card: the badge is on every tile, and the Files workspace re-reads
     // this route on every filter change and settling poll. A listing that

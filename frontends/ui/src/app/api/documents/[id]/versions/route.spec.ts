@@ -31,21 +31,23 @@ vi.mock('@/lib/documents/lifecycle', () => ({
   forkDraftVersion: vi.fn(),
   replaceVersionContent: vi.fn(),
   transitionDocumentVersion: vi.fn(),
+  toDocumentVersionView: (value: unknown) => value,
+}))
+// The byte half of the lifecycle lives next door (`version-content`).
+vi.mock('@/lib/documents/version-content', () => ({
   archiveDocument: vi.fn(),
   readVersionContent: vi.fn(),
-  toDocumentVersionView: (value: unknown) => value,
 }))
 
 import { ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import {
-  archiveDocument,
   forkDraftVersion,
   getDocumentVersionView,
   listDocumentVersionViews,
-  readVersionContent,
   replaceVersionContent,
   transitionDocumentVersion,
 } from '@/lib/documents/lifecycle'
+import { archiveDocument, readVersionContent } from '@/lib/documents/version-content'
 import { createDocumentLifecycleClient, DocumentLifecycleError } from '@/lib/documents/lifecycle-client'
 import type { DocumentVersionView } from '@/lib/documents/lifecycle-types'
 
@@ -173,7 +175,7 @@ describe('PUT …/content', () => {
       'ver_1',
       '# Aktenvermerk',
       'sha256:abc',
-      expect.any(Request),
+      { request: expect.any(Request) },
     )
   })
 

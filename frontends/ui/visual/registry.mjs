@@ -704,11 +704,19 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="task-created-card-preview"]',
   },
   {
+    id: 'task-list',
+    mobile: true,
+    path: '/dev/task-list',
+    description:
+      "The Aufgaben list \u2014 a project's delegated work (ADR-0051), which had a durable row, an inbox item and a review verb and no surface at all until now. Three panels. (1) A MIXED list, which is what a project looks like after a fortnight of using Piloti: something running, something accepted, something sent back with the reviewer's own words under it, and one failure carrying the worker's sanitized error. Judge that the kind chip, the title, the status and the review stay on one line as the title grows, that the review reason reads as belonging to the row above it, and that the two links at the foot (\u201eDokument\u201c, \u201eChat\u201c) read as places to go rather than as decoration \u2014 they are the one thing a list of finished work has to answer. (2) The empty state, which must read as an invitation rather than as a list that failed to load. (3) The failure state, which is that same distinction from the other side: \u201eNoch nichts \u00fcbergeben\u201c over a failed request is the one lie this surface could tell that somebody would act on.",
+    waitFor: '[data-testid="task-list-preview"]',
+  },
+  {
     id: 'file-operation-proposal-card',
     mobile: true,
     path: '/dev/file-operation-proposal-card',
     description:
-      "The `file_operation_proposal` card \u2014 the workspace change Piloti proposed and did not make. The agent has no way to write a document row at all, so until this card is accepted nothing has happened; accepting runs the same routes the Files pane runs, in the reader's own session. Three panels, and what the shot is for is different in each. (1) A BATCH of three moves, because that is the shape a tidying turn produces \u2014 judge that the „von \u2192 nach\u201C rows stay legible when a file name is long, that the arrow does not wrap away from its target, and that „Oberste Ebene\u201C reads as a place rather than as a missing value. (2) A single rename, the other end of the range: one row, no „von\u201C. (3) `set_doc_class`, the operation with no project-scoped route behind it: the buttons are ABSENT and the reason stands where they would be, and it has to read as unavailable rather than as a card that failed to finish loading \u2014 in both themes. The settled states are not here; they are one sentence inside `ProposalShell`, already shot through `memory_proposal` in the gallery.",
+      "The `file_operation_proposal` card \u2014 the workspace change Piloti proposed and did not make. The agent has no way to write a document row at all, so until this card is accepted nothing has happened; accepting runs the same routes the Files pane runs, in the reader's own session. Two panels, and what the shot is for is different in each. (1) A BATCH of three moves, because that is the shape a tidying turn produces \u2014 judge that the „von \u2192 nach\u201C rows stay legible when a file name is long, that the arrow does not wrap away from its target, and that „Oberste Ebene\u201C reads as a place rather than as a missing value. (2) A single rename, the other end of the range: one row, no „von\u201C. The settled states are not here; they are one sentence inside `ProposalShell`, already shot through `memory_proposal` in the gallery.",
     waitFor: '[data-testid="file-operation-proposal-card-preview"]',
   },
   {

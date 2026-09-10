@@ -157,6 +157,33 @@ def filing_from_value(value: dict) -> dict[str, str]:
     return {key: value[key] for key in FILING_KEYS if isinstance(value.get(key), str) and value[key]}
 
 
+def filing_record(body: dict) -> dict[str, str]:
+    """The four :data:`FILING_KEYS`, read out of ANY lifecycle-API answer.
+
+    The BFF spells one version two ways, and both are correct. The write route
+    (``POST /api/internal/document-versions``) nests it —
+    ``{"documentId", "version": {"id", "contentHash", "state"}}`` — while the
+    read route (``GET .../<id>/content``) is flat, because it answers about one
+    version and has no envelope to hang it in: ``{"documentId", "versionId",
+    "contentHash", "state"}``.
+
+    Both produce the SAME record, and it lives here rather than beside either
+    caller because the record is the store's: it is what ``file_draft`` reads
+    back to decide whether the next filing REPLACES an open version or creates
+    a second document. Two readers of one shape drift silently — each one looks
+    locally correct, and the failure is a duplicate document, discovered by a
+    person.
+    """
+    version = body.get("version")
+    version = version if isinstance(version, dict) else {}
+    return {
+        FILED_DOCUMENT_KEY: str(body.get("documentId") or version.get("documentId") or ""),
+        FILED_VERSION_KEY: str(body.get("versionId") or version.get("id") or ""),
+        FILED_HASH_KEY: str(body.get("contentHash") or version.get("contentHash") or ""),
+        FILED_STATE_KEY: str(body.get("state") or version.get("state") or ""),
+    }
+
+
 def usage_from_items(items: list[Item], file_path: str) -> DraftUsage:
     """Total the namespace and pick out the target path's current state."""
     total = 0
@@ -425,6 +452,41 @@ async def get_draft_store(dsn: str | None = None) -> BaseStore:
 async def get_draft_backend(conversation_id: str, dsn: str | None = None) -> DraftBackend:
     """The working directory of ONE conversation, on the process-wide store."""
     return DraftBackend(store=await get_draft_store(dsn), conversation_id=conversation_id)
+
+
+async def delete_conversation_drafts(conversation_id: str, dsn: str | None = None) -> int:
+    """Drop one conversation's whole working directory. Returns how many files went.
+
+    **Why the working directory needs deleting at all.** Everything else a
+    conversation owns lives in ``grid_app`` and goes when the conversation row
+    does. These drafts do not: they sit in the LangGraph store under
+    :func:`draft_namespace`, keyed by a conversation id that no longer names
+    anything, where nothing will ever read them and nothing will ever total
+    their bytes against a quota. The BFF's conversation deletion calls the route
+    that calls this, so the two halves of a conversation end together.
+
+    The store has no "delete this namespace" verb — deletion is per key — so the
+    keys are listed and removed one at a time. Each pass searches from the
+    start, because the previous pass shortened the namespace and an offset would
+    then step over rows; ``seen`` is what makes that terminate rather than a
+    page count, so a key the store declines to delete ends the sweep instead of
+    looping on it forever.
+
+    Idempotent, and silent about a namespace that was already empty: a
+    conversation whose drafts are gone (or that never wrote one) returns ``0``.
+    """
+    store = await get_draft_store(dsn)
+    namespace = draft_namespace(conversation_id)
+    seen: set[str] = set()
+    while True:
+        page = await store.asearch(namespace, limit=_PAGE_SIZE)
+        keys = [item.key for item in page if item.key not in seen]
+        if not keys:
+            logger.info("Working directory of conversation %s dropped: %d file(s)", conversation_id, len(seen))
+            return len(seen)
+        seen.update(keys)
+        for key in keys:
+            await store.adelete(namespace, key)
 
 
 def reset_draft_stores() -> None:

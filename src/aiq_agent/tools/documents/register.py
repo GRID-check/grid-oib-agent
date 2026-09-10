@@ -15,10 +15,12 @@ half-finished Aktenvermerk to a Ziviltechniker. Two verbs make the model choose
 the verb, which is the choice it is actually being asked to make. The same
 reasoning made ``remember`` its own tool rather than a flag on the answer.
 
-There is deliberately no ``note`` on ``submit_draft``. The wire carries
-``reviewerUserIds`` and nothing else (``internalDocumentVersionRequestSchema``),
-so a note argument would be a parameter the API discards — a lie in the
-signature, and the model would put the substance of its handover into it.
+There is deliberately no ``note`` on ``submit_draft``. The wire carries the
+version, ``reviewerUserIds`` and a ``reviewer`` NAME
+(``internalDocumentVersionRequestSchema``) and nothing else, so a note argument
+would be a parameter the API discards — a lie in the signature, and the model
+would put the substance of its handover into it. ``reviewer`` is the one
+argument that was added, and only because the route grew somewhere to put it.
 
 What this module may NOT do is in ``src/aiq_agent/tools/AGENTS.md``: it echoes
 the BFF-signed envelope and never signs, and the BFF decides identity and
@@ -47,6 +49,7 @@ from .draft_store import FILED_STATE_KEY
 from .draft_store import FILED_VERSION_KEY
 from .draft_store import DraftBackend
 from .draft_store import DraftUsage
+from .draft_store import filing_record
 from .draft_store import get_draft_backend
 from .filing import FilingError
 from .filing import SignedEnvelope
@@ -59,6 +62,12 @@ logger = logging.getLogger(__name__)
 #: as a 400 after the reader has been told the document is being filed.
 MAX_TITLE_CHARS = 200
 MAX_REF_CHARS = 200
+
+#: Bound on the reviewer name this tier puts on the wire. Not a BFF ceiling —
+#: the BFF resolves the name against the project's members and a name no person
+#: has is refused there — but a display name is a display name, and a model that
+#: pastes half a paragraph into the argument should not have it forwarded.
+MAX_REVIEWER_CHARS = 200
 
 #: The states an open version may be replaced in — the `update` rows of the
 #: transition table, mirrored so the refusal is worded for the model here instead
@@ -90,6 +99,15 @@ _NO_ENVELOPE = (
 _NO_CONVERSATION = (
     "Fehler: Dieser Lauf gehört zu keiner Unterhaltung, es gibt also keinen Arbeitsordner. "
     "Es wurde nichts abgelegt. Nicht erneut versuchen."
+)
+
+#: The one refusal both filing paths reach. An open version outside
+#: :data:`REPLACEABLE_STATES` — ``in_review``, ``approved`` — may not be
+#: replaced by a machine: a reviewer is looking at those bytes, and the
+#: transition table gives the agent no way to take them back.
+_ALREADY_SUBMITTED = (
+    "Fehler: Dieser Entwurf liegt bereits zur Freigabe vor und kann nicht mehr geändert werden. "
+    "Sage der Nutzerin, dass eine Person ihn zuerst zurückgeben oder freigeben muss."
 )
 
 
@@ -161,22 +179,21 @@ async def _draft(path: str) -> tuple[DraftBackend, DraftUsage]:
     return backend, usage
 
 
-def _version_fields(body: dict[str, Any]) -> dict[str, str]:
-    """The filing record, read out of the route's answer."""
-    version = body.get("version") or {}
-    return {
-        FILED_DOCUMENT_KEY: str(body.get("documentId") or version.get("documentId") or ""),
-        FILED_VERSION_KEY: str(version.get("id") or ""),
-        FILED_HASH_KEY: str(version.get("contentHash") or ""),
-        FILED_STATE_KEY: str(version.get("state") or ""),
-    }
+async def _post(payload: dict[str, Any], envelope: SignedEnvelope, *, bad_request: str | None = None) -> dict[str, Any]:
+    """The blocking call, off the event loop, with the refusal already worded.
 
-
-async def _post(payload: dict[str, Any], envelope: SignedEnvelope) -> dict[str, Any]:
-    """The blocking call, off the event loop, with the refusal already worded."""
+    ``bad_request`` is the sentence a ``400`` gets instead of the generic one.
+    It exists for exactly one caller: a submit that NAMED a reviewer, where the
+    only validation the BFF can fail is resolving that name against the
+    project's members. The generic wording („Fehler beim Ablegen") would send
+    the model looking for a filing problem the reader could not act on, when
+    what happened is that nobody in the project is called that.
+    """
     try:
         return await asyncio.to_thread(post_document_version, payload, envelope)
     except FilingError as exc:
+        if bad_request is not None and exc.status == 400:
+            raise _Refused(bad_request) from exc
         raise _Refused(
             f"Fehler beim Ablegen: {exc}. Es wurde nichts abgelegt; sage der Nutzerin, dass der "
             "Entwurf im Arbeitsordner liegt."
@@ -195,15 +212,22 @@ async def _create(path: str, usage: DraftUsage, title: str, envelope: SignedEnve
         },
         envelope,
     )
-    filing = _version_fields(body)
+    filing = filing_record(body)
     # The reference was already filed — a retried turn, or a working directory
     # that lost its mapping (a restart with an in-memory store). The item comes
     # back and NO version was written, so the bytes standing in the project are
     # the OLD ones; saying "filed" here would be true and misleading. Replace
     # them, using the hash the route just told us.
-    if body.get("alreadyFiled") and filing[FILED_STATE_KEY] in REPLACEABLE_STATES:
-        return await _update(usage, filing, envelope)
-    return filing
+    if not body.get("alreadyFiled"):
+        return filing
+    if filing[FILED_STATE_KEY] not in REPLACEABLE_STATES:
+        # And where the standing version may NOT be replaced, the same sentence
+        # `_refile` says. Returning the record here would end the turn on „Im
+        # Projekt abgelegt" for a call that wrote nothing at all: the reader is
+        # told their revision is in the project, the reviewer is still holding
+        # the old bytes, and neither of them finds out.
+        raise _Refused(_ALREADY_SUBMITTED)
+    return await _update(usage, filing, envelope)
 
 
 async def _update(usage: DraftUsage, filing: dict[str, str], envelope: SignedEnvelope) -> dict[str, str]:
@@ -221,7 +245,7 @@ async def _update(usage: DraftUsage, filing: dict[str, str], envelope: SignedEnv
         },
         envelope,
     )
-    return _version_fields(body)
+    return filing_record(body)
 
 
 def _project_or_refuse() -> str:
@@ -252,10 +276,7 @@ class FileDraftConfig(FunctionBaseConfig, name="file_draft"):
 async def _refile(usage: DraftUsage, envelope: SignedEnvelope) -> dict[str, str]:
     """A path this conversation has filed before: replace the open version's bytes."""
     if usage.filing.get(FILED_STATE_KEY, "") not in REPLACEABLE_STATES:
-        raise _Refused(
-            "Fehler: Dieser Entwurf liegt bereits zur Freigabe vor und kann nicht mehr geändert werden. "
-            "Sage der Nutzerin, dass eine Person ihn zuerst zurückgeben oder freigeben muss."
-        )
+        raise _Refused(_ALREADY_SUBMITTED)
     return await _update(usage, usage.filing, envelope)
 
 
@@ -301,7 +322,12 @@ async def file_draft(tool_config: FileDraftConfig, builder: Builder):
 _SUBMIT_DRAFT_DESCRIPTION = (
     "Reicht einen bereits im Projekt abgelegten Entwurf ZUR FREIGABE ein: Er geht in die Prüfung und "
     "erscheint im Posteingang der Prüfenden. `path` ist derselbe Pfad im Arbeitsordner wie bei "
-    "`file_draft`. Nur aufrufen, wenn die Nutzerin um Freigabe, Prüfung oder Weitergabe bittet — "
+    "`file_draft`. `reviewer` ist optional: die Person, die prüfen soll, genau so genannt, wie die "
+    "Nutzerin sie genannt hat (Name oder E-Mail) — DIESE Ausführung kennt die Projektmitglieder nicht "
+    "und prüft den Namen nicht; aufgelöst wird er beim Einreichen gegen die Mitglieder des Projekts. "
+    "Deshalb nur ausfüllen, wenn die Nutzerin die Person selbst genannt hat, und den Namen unverändert "
+    "übernehmen. Ohne `reviewer` geht der Entwurf an die Bearbeiter des Projekts. "
+    "Nur aufrufen, wenn die Nutzerin um Freigabe, Prüfung oder Weitergabe bittet — "
     "das Einreichen kostet eine Person Aufmerksamkeit und der Entwurf lässt sich danach nicht mehr "
     "ändern. Ist der Entwurf noch nicht abgelegt, zuerst `file_draft`. Auch nach dem Einreichen ist "
     "das Dokument NICHT freigegeben: Es wartet auf die Freigabe durch eine Person."
@@ -312,37 +338,67 @@ class SubmitDraftConfig(FunctionBaseConfig, name="submit_draft"):
     """Configuration for the ``submit_draft`` tool."""
 
 
-async def _submit(path: str) -> str:
+def _submit_payload(filing: dict[str, str], reviewer: str) -> dict[str, Any]:
+    """The submit body: the version, and at most the NAME of a person.
+
+    ``reviewerUserIds`` stays empty and ``reviewer`` carries the name as the
+    user said it, because this tier has no member roster — the same reason
+    `assign_document` forwards a name instead of resolving one. The BFF matches
+    it against the project's members; a name nobody has comes back 400 and never
+    as a guess. Without one the route submits to the project's EDITORS, which is
+    what the tool's own sentence has to say.
+    """
+    payload: dict[str, Any] = {
+        "op": "submit",
+        "documentId": filing[FILED_DOCUMENT_KEY],
+        "versionId": filing[FILED_VERSION_KEY],
+        "reviewerUserIds": [],
+    }
+    if reviewer:
+        payload["reviewer"] = reviewer
+    return payload
+
+
+def _unknown_reviewer(reviewer: str) -> str:
+    return (
+        f"Ich kenne keine Person namens „{reviewer}“ in diesem Projekt. Es wurde nichts eingereicht. "
+        "Frage die Nutzerin nach dem genauen Namen oder der E-Mail-Adresse, oder reiche ohne Namen ein "
+        "— dann geht der Entwurf an die Bearbeiter des Projekts."
+    )
+
+
+async def _submit(path: str, reviewer: str = "") -> str:
     """The whole of ``submit_draft``, with every refusal raised where it is found."""
     _project_or_refuse()
     envelope = _envelope()
     backend, usage = await _draft(path)
     filing = _submittable(usage)
+    named = " ".join((reviewer or "").split())[:MAX_REVIEWER_CHARS]
     body = await _post(
-        {
-            "op": "submit",
-            "documentId": filing[FILED_DOCUMENT_KEY],
-            "versionId": filing[FILED_VERSION_KEY],
-            # Nobody named. The route falls back to the project's reviewers; this
-            # tier holds no member roster, and a guessed reviewer is the same
-            # mistake `assign_document` refuses to make.
-            "reviewerUserIds": [],
-        },
+        _submit_payload(filing, named),
         envelope,
+        bad_request=_unknown_reviewer(named) if named else None,
     )
-    updated = _version_fields(body)
+    updated = filing_record(body)
     await backend.arecord_filing(path, updated)
     emit_draft_card(path=path, content=usage.content or "", version=usage.version or 1, filing=updated)
+    whom = f"an {named}" if named else "an die Bearbeiter des Projekts"
     return (
-        f"Zur Freigabe eingereicht: „{draft_title(path, usage.content or '')}“ wartet jetzt auf die "
-        f"Prüfung durch eine Person. {_STILL_A_DRAFT}"
+        f"Zur Freigabe {whom} eingereicht: „{draft_title(path, usage.content or '')}“ wartet jetzt auf "
+        f"die Prüfung durch eine Person. {_STILL_A_DRAFT}"
     )
 
 
-async def run_submit_draft(path: str) -> str:
-    """Submit one already-filed draft for review. See :func:`run_file_draft`."""
+async def run_submit_draft(path: str, reviewer: str = "") -> str:
+    """Submit one already-filed draft for review, to a named person or to the project's editors.
+
+    ``reviewer`` is a display name or an email exactly as the user said it. It
+    is never resolved here — see :func:`_submit_payload` — and an empty one
+    means the BFF submits to the project's editors. See :func:`run_file_draft`
+    for why this is module-level.
+    """
     try:
-        return await _submit(path)
+        return await _submit(path, reviewer)
     except _Refused as refused:
         return refused.message
 

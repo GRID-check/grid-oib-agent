@@ -1,4 +1,4 @@
-"""The five write-side workspace tools: what they resolve, and what they refuse.
+"""The four write-side workspace tools: what they resolve, and what they refuse.
 
 Every test here drives the inner function NAT yields, with the turn's inventory
 and a card registry bound the way a real turn binds them. Two properties are
@@ -26,12 +26,10 @@ from aiq_agent.tools.files.register import AssignDocumentConfig
 from aiq_agent.tools.files.register import CreateFolderConfig
 from aiq_agent.tools.files.register import MoveDocumentConfig
 from aiq_agent.tools.files.register import RenameDocumentConfig
-from aiq_agent.tools.files.register import SetDocClassConfig
 from aiq_agent.tools.files.register import assign_document
 from aiq_agent.tools.files.register import create_folder
 from aiq_agent.tools.files.register import move_document
 from aiq_agent.tools.files.register import rename_document
-from aiq_agent.tools.files.register import set_doc_class
 
 INVENTORY = [
     AvailableDocument(
@@ -39,7 +37,6 @@ INVENTORY = [
         shelf="project",
         collection="proj_1",
         folder_path="Nachweise",
-        doc_class=None,
     ),
     AvailableDocument(
         file_name="Grundriss EG.pdf",
@@ -129,15 +126,6 @@ class TestResolution:
         refused = resolve.resolve_folder("Fotos")
         assert isinstance(refused, resolve.Refusal)
         assert "Einreichung" in refused.message and "create_folder" in refused.message
-
-    def test_a_dokumentart_is_taken_by_key_or_by_label(self):
-        assert resolve.resolve_doc_class("gesetz") == "gesetz"
-        assert resolve.resolve_doc_class("OIB-Leitfaden") == "oib_leitfaden"
-
-    def test_an_invented_dokumentart_comes_back_with_the_whole_vocabulary(self):
-        refused = resolve.resolve_doc_class("Brandschutznachweis")
-        assert isinstance(refused, resolve.Refusal)
-        assert "`oib_richtlinie`" in refused.message and "`sonstiges`" in refused.message
 
 
 # ── The tools: a card, and a result that cannot be read as success ───────────
@@ -229,20 +217,6 @@ class TestProposalsNeverWrite:
         result = await _call(create_folder, CreateFolderConfig(), name="Pläne", parent="Einreichung")
         assert registry.snapshot() == []
         assert "gibt es bereits" in result
-
-    async def test_a_dokumentart_is_validated_before_the_card(self, registry):
-        result = await _call(set_doc_class, SetDocClassConfig(), document="Musterbescheid.pdf", doc_class="Bescheid")
-        assert registry.snapshot() == []
-        assert "Erlaubt sind genau" in result
-
-    async def test_a_valid_dokumentart_reaches_the_card_as_its_key(self, registry):
-        await _call(set_doc_class, SetDocClassConfig(), document="Musterbescheid.pdf", doc_class="gesetz")
-        (card,) = registry.snapshot()
-        assert card["operations"][0] == {
-            "document": "Musterbescheid.pdf",
-            "source": "buero",
-            "doc_class": "gesetz",
-        }
 
     async def test_an_assignment_carries_the_person_as_the_user_named_them(self, registry):
         """This tier has no member roster; the reader's session resolves it."""

@@ -1,6 +1,6 @@
 """The ``file_operation_proposal`` card: one card per verb, per turn.
 
-Pushed by the five write-side tools the way ``remember`` pushes
+Pushed by the four write-side tools the way ``remember`` pushes
 ``memory_proposal`` — the model cannot emit this type at all
 (``SYSTEM_CARD_TYPES``), so a card that says „diese vier Dateien verschieben"
 names four files the turn actually resolved.

@@ -94,6 +94,21 @@ export interface FileFilters {
    * round trip for a field the browser is holding.
    */
   reviewPendingOnly: boolean
+  /**
+   * Show the documents somebody archived, beside the active ones.
+   *
+   * Answered by the SERVER like `agentAuthoredOnly` and for the same reason,
+   * one step stronger: an archived document is not IN the default listing at
+   * all (`lifecycle = 'active'` is in the query, ADR-0054), so no amount of
+   * predicate here could bring it back. The workspace refetches with
+   * `?includeArchived=true`.
+   *
+   * It WIDENS where every other filter narrows, and that asymmetry is
+   * deliberate: „archiviert" is a statement that the file has left the working
+   * set, so the working set is the default and asking for the rest is the
+   * gesture.
+   */
+  includeArchived: boolean
   /** Empty means every kind — an empty set is "no constraint", never "nothing". */
   kinds: readonly DocumentKind[]
   /** Empty means every status, for the same reason. */
@@ -104,6 +119,7 @@ export const NO_FILE_FILTERS: FileFilters = {
   assignment: 'all',
   agentAuthoredOnly: false,
   reviewPendingOnly: false,
+  includeArchived: false,
   kinds: [],
   statuses: [],
 }
@@ -122,6 +138,7 @@ export function activeFilterCount(filters: FileFilters, canCollaborate: boolean)
   if (canCollaborate && filters.assignment !== 'all') count += 1
   if (filters.agentAuthoredOnly) count += 1
   if (filters.reviewPendingOnly) count += 1
+  if (filters.includeArchived) count += 1
   if (filters.kinds.length > 0) count += 1
   if (filters.statuses.length > 0) count += 1
   return count

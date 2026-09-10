@@ -6,11 +6,12 @@
  * see.
  *
  * What is asserted here is the boundary, not the happy path. The route is
- * addressed by a version id alone — no collection name, no session — so the
- * organization the caller states is the ONLY thing standing between this and a
- * cross-tenant read. It is therefore driven through the real
- * `readVersionForService`, with the repository and the object store as the
- * doubles: mocking the service instead would assert the mock's predicate.
+ * addressed by a version id alone — no collection name, no session — so what
+ * the caller STATES is the whole of the address, and a service token is not a
+ * person. The predicate is therefore two things and not one: the organization,
+ * and the CONVERSATION whose subject this version must be. It is driven through
+ * the real `readVersionForService`, with the repository and the object store as
+ * the doubles: mocking the service instead would assert the mock's predicate.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -39,6 +40,8 @@ vi.mock('@/lib/documents/repository', () => ({
   findFolderPathInProject: vi.fn(),
 }))
 
+vi.mock('@/lib/conversations/repository', () => ({ findConversationInOrg: vi.fn() }))
+
 const send = vi.fn()
 vi.mock('@/lib/s3', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/s3')>()),
@@ -52,15 +55,21 @@ vi.mock('@/lib/db/tenant-context', async (importOriginal) => ({
 
 import { findDocumentVersionInOrg } from '@/lib/documents/version-repository'
 import { findDocumentInOrg } from '@/lib/documents/repository'
+import { findConversationInOrg } from '@/lib/conversations/repository'
 import { withTenant } from '@/lib/db/tenant-context'
 import { GET } from './route'
 
 const VERSION = '22222222-2222-4222-8222-222222222222'
 const DOCUMENT = '11111111-1111-4111-8111-111111111111'
 
+const CONVERSATION = 'conv_1'
+
 const params = { params: Promise.resolve({ versionId: VERSION }) }
 
-const request = (query = '?organizationId=org_1', token: string | null = 'test-token'): Request =>
+const request = (
+  query = `?organizationId=org_1&conversationId=${CONVERSATION}`,
+  token: string | null = 'test-token',
+): Request =>
   new Request(`http://localhost/api/internal/document-versions/${VERSION}/content${query}`, {
     headers: token ? { 'x-grid-internal-token': token } : {},
   })
@@ -88,6 +97,11 @@ function versionExistsInOrg1(): void {
     id === DOCUMENT && organizationId === 'org_1' ? (document as never) : null
   )
   send.mockResolvedValue({ Body: { transformToString: async () => '# Befund\n\nAbschnitt 3: GK 4.\n' } })
+  vi.mocked(findConversationInOrg).mockImplementation(async (id: string, organizationId: string) =>
+    id === CONVERSATION && organizationId === 'org_1'
+      ? ({ subjectResourceType: 'document', subjectResourceId: DOCUMENT } as never)
+      : null
+  )
 }
 
 describe('GET /api/internal/document-versions/[versionId]/content', () => {
@@ -120,9 +134,49 @@ describe('GET /api/internal/document-versions/[versionId]/content', () => {
       expect(findDocumentVersionInOrg).not.toHaveBeenCalled()
     })
 
+    it('400s without a conversation, which is the other half of the address', async () => {
+      // The organization is something the caller states, and a version id is a
+      // uuid it supplies — so on its own it let anything holding the internal
+      // token read any version's bytes in any tenant.
+      expect((await GET(request('?organizationId=org_1'), params)).status).toBe(400)
+      expect(findDocumentVersionInOrg).not.toHaveBeenCalled()
+    })
+
+    it('404s when the conversation is about a DIFFERENT document', async () => {
+      versionExistsInOrg1()
+      vi.mocked(findConversationInOrg).mockResolvedValue({
+        subjectResourceType: 'document',
+        subjectResourceId: 'some-other-document',
+      } as never)
+
+      const res = await GET(request(), params)
+      expect(res.status).toBe(404)
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('404s for an ordinary chat, which is about nothing', async () => {
+      versionExistsInOrg1()
+      vi.mocked(findConversationInOrg).mockResolvedValue({
+        subjectResourceType: null,
+        subjectResourceId: null,
+      } as never)
+
+      expect((await GET(request(), params)).status).toBe(404)
+    })
+
+    it('404s for a conversation in another tenant', async () => {
+      versionExistsInOrg1()
+      expect(
+        (await GET(request(`?organizationId=org_1&conversationId=conv_elsewhere`), params)).status,
+      ).toBe(404)
+    })
+
     it('404s a version id belonging to another organization', async () => {
       versionExistsInOrg1()
-      const res = await GET(request('?organizationId=org_2'), params)
+      const res = await GET(
+        request(`?organizationId=org_2&conversationId=${CONVERSATION}`),
+        params,
+      )
 
       expect(res.status).toBe(404)
       // Indistinguishable from an id that never existed: the answer must not
@@ -133,7 +187,7 @@ describe('GET /api/internal/document-versions/[versionId]/content', () => {
 
     it('opens the tenant slot from the organization it was given', async () => {
       versionExistsInOrg1()
-      await GET(request('?organizationId=org_1'), params)
+      await GET(request(), params)
       expect(vi.mocked(withTenant).mock.calls[0][0]).toEqual({ organizationId: 'org_1' })
     })
 

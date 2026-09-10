@@ -9,7 +9,8 @@
 
 import { apiRoute } from '@/lib/api/handler'
 import { BadRequestError } from '@/lib/api/errors'
-import { getDocumentVersionView, readVersionContent } from '@/lib/documents/lifecycle'
+import { getDocumentVersionView } from '@/lib/documents/lifecycle'
+import { readVersionContent } from '@/lib/documents/version-content'
 
 type Params = { id: string }
 

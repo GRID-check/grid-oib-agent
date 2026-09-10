@@ -7,21 +7,16 @@
  * — and it reaches the lifecycle through `createDocumentVersion` like every
  * other entry into the version table.
  *
- * ## Why the marking is written into the text
+ * ## The marking is written into the text
  *
- * A `.docx` carries the marking as a typed OOXML property and a `.pdf` in its
- * Info dictionary. **Markdown has no metadata at all.** There is no header, no
- * side-car and no place to hang a property that survives being pasted into a
- * Word document, mailed, or attached to an Einreichung — so the marking has to
- * be part of the prose, or it is not in the file.
- *
- * `fileGeneratedDocument` checks exactly that (`markingIsInBytes`), against the
- * bytes rather than against the object that described them, because two of the
- * three earlier producers shipped unmarked while passing every test there was.
- * A Markdown renderer that emitted the marking as an HTML comment would satisfy
- * the check and lose it on the first "paste as plain text"; a fenced block at
- * the END of the document survives that, and is the last thing a reader sees
- * before deciding whether to forward it.
+ * Markdown has no metadata, so the marking is part of the prose or it is not in
+ * the file — `./agent-document-markdown` holds the renderer and the argument.
+ * `fileGeneratedDocument` checks the BYTES (`markingIsInBytes`) rather than the
+ * object that described them, because two of the three earlier producers
+ * shipped unmarked while passing every test there was. The UPDATE path re-runs
+ * the same render and the same check (`./version-content`): a revision that
+ * wrote the model's raw Markdown would strip the marking off a file that
+ * already carried it.
  *
  * ## Why the draft is not indexed, and cannot be
  *
@@ -33,70 +28,24 @@
 import 'server-only'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { NotFoundError } from '@/lib/api/errors'
-import type { AiProvenanceMarking } from '@/lib/ai-provenance'
 import type { DocumentVersion } from '@/lib/db/schema'
 import { getOrganizationDisplayName } from '@/lib/organizations/service'
-import { resolveDocumentBranding, type DocumentBranding } from './branding'
+import { AGENT_DOCUMENT_MEDIA_TYPE, renderAgentDocumentMarkdown } from './agent-document-markdown'
+import { resolveDocumentBranding } from './branding'
 import { contentDigest } from './content-digest'
-import { fileGeneratedDocument, type GeneratedRendering } from './generated'
+import { fileGeneratedDocument } from './generated'
 import { createDocumentVersion } from './lifecycle'
 import { findDocumentInOrg } from './repository'
 import { findOpenVersion } from './version-repository'
 
-/** The stored content type. Markdown, because the next turn edits it as text. */
-export const AGENT_DOCUMENT_MEDIA_TYPE = 'text/markdown'
-
 /**
- * The bytes of an agent-written document: the model's Markdown, wrapped in what
- * every file Piloti produces has to say about itself, plus the marking, as
- * text.
- *
- * Exported and pure so a test can assert on the STRING — the seam already
- * asserts the marking is in the bytes, and this is where a reader checks that
- * the branding and the marking are in a place a person will actually see.
- *
- * ## Where each piece goes, and why it is not all in one place
- *
- * ONE line above the title and a block below it, rather than a single block at
- * either end.
- *
- * The line is chrome: „Erstellt mit Piloti für …" is the Markdown equivalent of
- * the PDF's running header, it identifies the file at a glance in a preview
- * pane, and one line does not turn the document into an appendix to its own
- * front matter.
- *
- * The block is the disclaimer, and it stays at the FOOT for the reason this
- * renderer already gave about the marking: the first line of a filed document
- * is its title, and three sentences of liability above it turn every preview
- * and every paste into a disclaimer with a document underneath. It is also the
- * last thing a reader sees before deciding whether to forward the file, which
- * is the moment it is about.
- *
- * `branding` is a parameter and not an import, so this function stays pure and
- * so the resolution — which reads an organization's override — happens once, at
- * the filing seam, rather than inside a renderer that would then have to be
- * async to do it.
+ * The renderer and its media type live in `./agent-document-markdown`, pure and
+ * on their own, because the UPDATE path renders through them too and reaching
+ * them from there would close an import cycle (see that module's header). They
+ * are re-exported here because this is the producer they belong to, and every
+ * existing caller — the spec, the filing seam below — names this module.
  */
-export function renderAgentDocumentMarkdown(
-  body: string,
-  marking: AiProvenanceMarking,
-  branding: DocumentBranding,
-): GeneratedRendering {
-  const footer = [
-    `**${branding.productName} — ${branding.tagline}**`,
-    branding.prose,
-    branding.disclaimer,
-    branding.footerLine,
-  ].join('\n\n')
-  const text =
-    `${branding.headerLine}\n\n${body.trim()}\n\n---\n\n${footer}\n\n` +
-    `<!-- ${branding.aiGeneratorName} -->\n\n\`\`\`\n${marking}\n\`\`\`\n`
-  return {
-    bytes: new TextEncoder().encode(text),
-    contentType: AGENT_DOCUMENT_MEDIA_TYPE,
-    marking,
-  }
-}
+export { AGENT_DOCUMENT_MEDIA_TYPE, renderAgentDocumentMarkdown }
 
 export interface FileAgentDocumentDraftInput {
   /** The commissioning human, or the pinned requester the envelope named. */

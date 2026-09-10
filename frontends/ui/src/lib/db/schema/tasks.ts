@@ -25,6 +25,14 @@
 import { relations, sql } from 'drizzle-orm'
 import { check, index, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import type { SkillSnapshot } from '@/lib/skills/types'
+import {
+  TASK_KINDS,
+  TASK_REVIEWS,
+  TASK_STATUSES,
+  type TaskKind,
+  type TaskReview,
+  type TaskStatus,
+} from '@/lib/tasks/task-vocabulary'
 import { projects } from './projects'
 import { jobRuns, jobs } from './jobs'
 
@@ -50,15 +58,7 @@ import { jobRuns, jobs } from './jobs'
  *     `request_changes` transition when nobody is in a conversation to hear the
  *     `REVIEW_DECISIONS` block, or when the reviewer asked for it outright.
  */
-export const TASK_KINDS = [
-  'deep-research',
-  'chat',
-  'compliance_check',
-  'einreichcheck',
-  'document',
-  'revision',
-] as const
-export type TaskKind = (typeof TASK_KINDS)[number]
+export { TASK_KINDS, type TaskKind }
 
 /**
  * The kinds a person may ask for by delegating — `create_task` from chat, and
@@ -82,12 +82,7 @@ export type DelegatableTaskKind = (typeof DELEGATABLE_TASK_KINDS)[number]
  * terminal states are the worker's own outcome vocabulary, unchanged, so the
  * row says what the run store said before it forgot.
  */
-export const TASK_STATUSES = ['queued', 'running', 'succeeded', 'failed', 'interrupted'] as const
-export type TaskStatus = (typeof TASK_STATUSES)[number]
-
-/** How a person judged the result. Null until somebody did. */
-export const TASK_REVIEWS = ['accepted', 'rejected'] as const
-export type TaskReview = (typeof TASK_REVIEWS)[number]
+export { TASK_STATUSES, type TaskStatus, TASK_REVIEWS, type TaskReview }
 
 /**
  * Whether the result was filed into the project, as the requester.

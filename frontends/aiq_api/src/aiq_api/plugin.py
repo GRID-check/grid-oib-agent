@@ -50,6 +50,7 @@ from .routes.config_info import add_config_info_routes
 from .routes.consistency_check import add_consistency_check_routes
 from .routes.document_search import add_document_search_routes
 from .routes.documents import add_document_routes
+from .routes.drafts import add_draft_routes
 from .routes.feedback_digest import add_feedback_digest_routes
 from .routes.generate_conversation_title import add_generate_conversation_title_routes
 from .routes.generate_summary import add_generate_summary_routes
@@ -241,6 +242,11 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         # as the agent's own ris_fetch_document.
         add_ris_routes(knowledge_router)
         add_maintenance_routes(knowledge_router)
+        # The working directory's cleanup door. Internal-token only, like the
+        # maintenance purges: a conversation's drafts live in the LangGraph
+        # store, which the BFF cannot reach, so its conversation deletion calls
+        # this or the bytes outlive the conversation.
+        add_draft_routes(knowledge_router)
         # Internal skills submit route (Agent Skills, successor of the ADR-0023
         # workflows submit route): same router/middleware treatment as
         # maintenance, so it stays off the external allowlist.

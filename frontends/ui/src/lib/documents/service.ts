@@ -83,7 +83,8 @@ import {
 import { documentDisplayName, validateDocumentName } from './display-name'
 import { deleteBimDerivedObjects, runBimExtraction } from '@/lib/bim/service'
 import { getAccessibleDocument } from './access'
-import { nextVersionNumber, recordUploadedVersion, versionedStorageKey } from './lifecycle'
+import { nextVersionNumber, recordUploadedVersion } from './lifecycle'
+import { versionedStorageKey } from './version-content'
 import { findOpenVersion, listDocumentVersionObjects } from './version-repository'
 import { deleteDocumentObjects } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
@@ -371,18 +372,18 @@ export async function listDocuments(
    * and filtering after the fact would read the whole project's corpus — plus
    * reconcile and assignment-hydrate every row of it — to return a handful.
    */
-  options: { authoredBy?: DocumentAuthor } = {}
+  options: { authoredBy?: DocumentAuthor; includeArchived?: boolean } = {}
 ): Promise<ListedDocument[]> {
   await requireProjectAccess(session, projectId, 'project:view')
 
-  const rows = await listProjectDocuments(
-    projectId,
-    session.organizationId,
-    // `undefined` takes the repository's own default rather than restating it
-    // here, where a second copy of the cap could drift from the real one.
-    undefined,
-    options.authoredBy
-  )
+  // `limit` is deliberately not passed: the repository's own default is the
+  // cap, and a second copy of it here could drift from the real one.
+  const rows = await listProjectDocuments(projectId, session.organizationId, {
+    authoredBy: options.authoredBy,
+    // Archived documents have LEFT the working set, so they are absent unless
+    // the caller says otherwise (ADR-0054).
+    includeArchived: options.includeArchived,
+  })
 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
@@ -1342,7 +1343,7 @@ export async function reindexProject(
   // would report a project-wide reindex as partially FAILED for rows that were
   // never eligible. The dispatcher is the invariant; this is the caller not
   // asking a question it already knows the answer to.
-  const rows = await listProjectDocuments(projectId, session.organizationId, undefined, 'user')
+  const rows = await listProjectDocuments(projectId, session.organizationId, { authoredBy: 'user' })
   const result: ReindexProjectResult = { projectId, queued: 0, skipped: 0, failed: [] }
 
   const redispatch = async (row: DocumentListRow): Promise<void> => {

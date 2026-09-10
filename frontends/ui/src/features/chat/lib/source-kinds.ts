@@ -73,10 +73,6 @@ export const KIND_TO_SIGNAL: Record<SourceKind, SourceSignal> = {
 export const AGENT_AUTHORED_LANE = 'buero_piloti'
 export const AGENT_AUTHORED_LANE_LABEL = 'Piloti-Dokument'
 
-/** Whether a lane key names a document Piloti wrote (see above). */
-export const isAgentAuthoredLane = (lane: string | null | undefined): boolean =>
-  (lane ?? '').trim().toLowerCase() === AGENT_AUTHORED_LANE
-
 // Fine lane family → coarse kind (mirror of backend `source_kinds.kind_for_lane`).
 // The Herleitung fan-out and the chips MUST share this so they never disagree
 // (e.g. external norms are `baurecht`, not `web`).

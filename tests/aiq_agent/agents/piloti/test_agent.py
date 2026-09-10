@@ -3604,6 +3604,19 @@ class TestTheWorkingDirectoryBlock:
         assert "bereits abgelegten Entwurf" in block
         assert "ausdrücklichen Wunsch" in block
 
+    def test_a_named_person_is_passed_through_and_never_guessed(self):
+        """`reviewer` is a name this tier does not resolve, so the prompt has to
+        say both halves: pass the name the user said, and invent nothing."""
+        block = _entwuerfe_block()
+        assert "`reviewer`" in block
+        assert "unverändert" in block
+        assert "nicht raten" in block
+
+    def test_a_submit_with_nobody_named_says_where_it_went(self):
+        """Without a reviewer the BFF submits to the project's EDITORS. An answer
+        that only says „wartet auf eine Person" leaves the reader guessing which."""
+        assert "an die Bearbeiter des Projekts" in _entwuerfe_block()
+
     def test_nothing_filed_may_be_called_approved(self):
         """The claim that would reach a Bauherr: a draft is not a Freigabe."""
         block = _entwuerfe_block()
@@ -4016,19 +4029,25 @@ class TestTheTidyingBlock:
     """What the prompt says about file operations, and whether it says it at all."""
 
     def test_a_turn_without_the_tools_is_never_told_to_tidy(self):
-        """The block names five tools; a turn that has none of them cannot obey it."""
+        """The block names four tools; a turn that has none of them cannot obey it."""
         assert "<aufraeumen>" not in _render_researcher_prompt(tidying_enabled=False)
 
-    def test_all_five_verbs_are_named(self):
+    def test_all_four_verbs_are_named(self):
         block = _aufraeumen_block()
         for verb in (
             "`move_document`",
             "`rename_document`",
             "`create_folder`",
-            "`set_doc_class`",
             "`assign_document`",
         ):
             assert verb in block
+
+    def test_the_block_does_not_offer_a_verb_that_is_not_bound(self):
+        """`set_doc_class` is gone; a prompt still naming it teaches a tool call
+        that fails, and a Dokumentart the reader could never accept."""
+        block = _aufraeumen_block()
+        assert "set_doc_class" not in block
+        assert "Dokumentart" not in block
 
     def test_nothing_may_be_claimed_as_done(self):
         """The one failure this block exists to prevent: „ist verschoben"."""
@@ -4066,18 +4085,18 @@ class TestTheTidyingBlock:
 
 
 class TestTheTidyingBudget:
-    """The five verbs are an OUTPUT channel too — and they cost no extra room."""
+    """The four verbs are an OUTPUT channel too — and they cost no extra room."""
 
-    def test_the_five_verbs_are_interaction_tools(self):
+    def test_the_four_verbs_are_interaction_tools(self):
         from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_BASENAMES
 
         assert {
             "move_document",
             "rename_document",
             "create_folder",
-            "set_doc_class",
             "assign_document",
         } <= _INTERACTION_TOOL_BASENAMES
+        assert "set_doc_class" not in _INTERACTION_TOOL_BASENAMES
 
     def test_the_allowance_did_not_move_for_them(self):
         """A tidying turn proposes one or two operations and writes no draft.

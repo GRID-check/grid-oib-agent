@@ -275,3 +275,147 @@ class TestTheStoreFactory:
         backend = await get_draft_backend("conv-9", "./checkpoints.db")
         assert backend.conversation_id == "conv-9"
         assert backend._get_namespace() == ("conversation", "conv-9", "drafts")
+
+
+class TestTheFilingRecordIsReadOnce:
+    """One reader for both shapes the lifecycle API spells a version in.
+
+    The write route nests the version in an envelope; the read route is flat,
+    because it answers about one version and has nothing to hang it in. Two
+    private readers of one record drift silently — each looks locally correct —
+    and the failure is a second document, found by a person.
+    """
+
+    WRITE_ROUTE_BODY = {
+        "documentId": "doc-1",
+        "alreadyFiled": False,
+        "version": {"id": "ver-1", "documentId": "doc-1", "state": "draft", "contentHash": "h1"},
+    }
+    READ_ROUTE_BODY = {
+        "documentId": "doc-1",
+        "versionId": "ver-1",
+        "state": "draft",
+        "contentHash": "h1",
+        "content": "# Befund\n",
+    }
+
+    def test_the_two_shapes_produce_the_same_record(self) -> None:
+        assert draft_store.filing_record(self.WRITE_ROUTE_BODY) == draft_store.filing_record(self.READ_ROUTE_BODY)
+
+    def test_every_filing_key_is_filled(self) -> None:
+        record = draft_store.filing_record(self.WRITE_ROUTE_BODY)
+        assert record == {
+            draft_store.FILED_DOCUMENT_KEY: "doc-1",
+            draft_store.FILED_VERSION_KEY: "ver-1",
+            draft_store.FILED_HASH_KEY: "h1",
+            draft_store.FILED_STATE_KEY: "draft",
+        }
+
+    def test_the_document_id_may_arrive_on_either_level(self) -> None:
+        nested_only = {"version": {"id": "ver-1", "documentId": "doc-1", "state": "draft", "contentHash": "h1"}}
+        assert draft_store.filing_record(nested_only)[draft_store.FILED_DOCUMENT_KEY] == "doc-1"
+
+    def test_a_body_with_nothing_in_it_yields_empty_strings_not_a_crash(self) -> None:
+        assert draft_store.filing_record({}) == dict.fromkeys(draft_store.FILING_KEYS, "")
+        # `version: null` is what the route sends when no version was written.
+        assert draft_store.filing_record({"version": None}) == dict.fromkeys(draft_store.FILING_KEYS, "")
+
+    def test_both_callers_read_the_record_through_this_one_function(self) -> None:
+        # The point of the lift: neither the filing tool nor the subject loader
+        # keeps a spelling of its own.
+        from aiq_agent.tools.documents import register as filing_tools
+        from aiq_agent.turn import subject_document
+
+        assert filing_tools.filing_record is draft_store.filing_record
+        assert subject_document.filing_record is draft_store.filing_record
+
+
+class TestDroppingAConversationsWorkingDirectory:
+    """``delete_conversation_drafts``: the one verb that removes a namespace.
+
+    A conversation's drafts are the only thing it owns outside ``grid_app``, so
+    without this they outlive the conversation row: bytes under a key that names
+    nothing, which nothing will read and nothing will total against a quota.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _store(self, monkeypatch: pytest.MonkeyPatch) -> InMemoryStore:
+        memory = InMemoryStore()
+
+        async def _get_store(dsn: str | None = None) -> InMemoryStore:
+            return memory
+
+        monkeypatch.setattr(draft_store, "get_draft_store", _get_store)
+        return memory
+
+    async def _write(self, store: InMemoryStore, conversation_id: str, name: str) -> None:
+        backend = DraftBackend(store=store, conversation_id=conversation_id)
+        result = await backend.awrite(f"{DRAFT_ROOT}{name}.md", f"# {name}\n")
+        assert result.error is None
+
+    def _keys(self, store: InMemoryStore, conversation_id: str) -> list[str]:
+        return [item.key for item in store.search(draft_namespace(conversation_id))]
+
+    @pytest.mark.asyncio
+    async def test_every_file_in_the_namespace_goes(self, _store) -> None:
+        await self._write(_store, "conv-a", "befund")
+        await self._write(_store, "conv-a", "aktenvermerk")
+
+        assert await draft_store.delete_conversation_drafts("conv-a") == 2
+        assert self._keys(_store, "conv-a") == []
+
+    @pytest.mark.asyncio
+    async def test_another_conversation_is_untouched(self, _store) -> None:
+        await self._write(_store, "conv-a", "befund")
+        await self._write(_store, "conv-b", "befund")
+
+        await draft_store.delete_conversation_drafts("conv-a")
+
+        assert self._keys(_store, "conv-b") == [f"{DRAFT_ROOT}befund.md"]
+
+    @pytest.mark.asyncio
+    async def test_an_empty_namespace_is_zero_and_not_an_error(self, _store) -> None:
+        assert await draft_store.delete_conversation_drafts("conv-never-wrote") == 0
+
+    @pytest.mark.asyncio
+    async def test_it_is_idempotent(self, _store) -> None:
+        await self._write(_store, "conv-a", "befund")
+
+        assert await draft_store.delete_conversation_drafts("conv-a") == 1
+        assert await draft_store.delete_conversation_drafts("conv-a") == 0
+
+    @pytest.mark.asyncio
+    async def test_a_namespace_larger_than_one_page_is_swept_whole(self, _store, monkeypatch) -> None:
+        # Each pass searches from the start, because the pass before shortened
+        # the namespace and an offset would step over rows.
+        monkeypatch.setattr(draft_store, "_PAGE_SIZE", 2)
+        for index in range(5):
+            await self._write(_store, "conv-a", f"entwurf-{index}")
+
+        assert await draft_store.delete_conversation_drafts("conv-a") == 5
+        assert self._keys(_store, "conv-a") == []
+
+    @pytest.mark.asyncio
+    async def test_a_key_the_store_will_not_drop_ends_the_sweep(self, monkeypatch) -> None:
+        """`seen`, and not a page count, is what makes the loop terminate.
+
+        A store whose ``adelete`` is a no-op would return the same page forever
+        to a sweep that re-searched from the start and trusted the result.
+        """
+        deletes: list[str] = []
+
+        class _Stubborn(InMemoryStore):
+            async def adelete(self, namespace, key) -> None:  # noqa: ANN001 - store signature
+                deletes.append(key)
+
+        stubborn = _Stubborn()
+
+        async def _get_store(dsn: str | None = None) -> InMemoryStore:
+            return stubborn
+
+        monkeypatch.setattr(draft_store, "get_draft_store", _get_store)
+        await self._write(stubborn, "conv-a", "befund")
+
+        assert await draft_store.delete_conversation_drafts("conv-a") == 1
+        assert deletes == [f"{DRAFT_ROOT}befund.md"]
+        assert self._keys(stubborn, "conv-a") == [f"{DRAFT_ROOT}befund.md"]

@@ -188,6 +188,71 @@ is what makes a version list openable. The backend's `unregister_summary` takes
 the document-metadata row with the chunks, so a superseded version's provenance
 does not outlive the passages it described.
 
+### Corrections after review
+
+The build was reviewed against the code and eight things in this record were
+either wrong or not true of what shipped. They are listed here rather than
+silently edited above, because a record that quietly agrees with itself teaches
+nobody what it cost to find them.
+
+1. **A re-upload could not work at all.** "A re-upload writes version N+1 and
+   leaves N standing" was the whole point of the table, and the code inserted
+   the new row as `published` and superseded the old one afterwards.
+   `uniq_document_versions_published_per_document` is a plain partial unique
+   index — checked per statement, never deferred — so the INSERT was refused
+   while version N was still published. The supersede, the insert and the
+   pointer move are now one transaction (`insertPublishedVersion`), supersede
+   first, and the invariant is exercised against a repository that enforces it
+   rather than a double that says yes.
+
+2. **The submit guard ran after the swap.** „Nobody to review this" was raised
+   inside the `openReviewInbox` effect, which runs once the state has already
+   moved: the version was left durably `in_review` with nobody told about it,
+   and every exit from that state is a decision one of those untold people
+   would have to make. Reviewers are resolved before the compare-and-swap now.
+   The resolution itself was also wrong in the direction that mattered most —
+   it fell back to the document's ASSIGNEES, and a document Piloti files is
+   `Unvergeben` by construction, so `submit` was refused on every path the
+   design built it for. The chain is in `lib/documents/reviewers.ts` and its
+   last link is the submitter, as a waiver recorded on the audit event.
+
+3. **The quota claim was not true.** The "Bad, because superseded versions stay
+   charged" consequence below was a statement about a ledger that summed
+   `documents.file_size` — the LIVE bytes — and therefore counted no superseded
+   version and no draft at all. It is true now (`versionOverheadBytes`), on the
+   reported usage and in both admitting transactions.
+
+4. **Archiving did not leave the listings.** „Archiviert" purged the chunks and
+   wrote `documents.lifecycle`, and no listing read that column, so the file
+   stayed exactly where it was in the Files pane. The default listings carry
+   `lifecycle = 'active'` now, with an explicit „Archivierte auch zeigen" filter
+   as the way back.
+
+5. **The three review decisions were reachable with the wrong permission.**
+   `approve`, `request_changes` and `reject` listed `project:documents:write`
+   beside `project:edit`, and the list is an ANY-OF — so any role that may
+   upload a file could release a Brandschutzkonzept. „Darf Dateien ablegen" is
+   not „darf freigeben"; those rows name `project:edit` alone.
+
+6. **The commissioner could not approve their own commissioned report.** The
+   not-the-submitter guard read `submitted_by`, which on an agent filing is the
+   person whose session the run acted in and not the author. Migration `0085`
+   adds `submitted_by_actor`, and the guard applies only to a `human`
+   submission — plus a waiver, recorded, for a project with one editor.
+
+7. **The internal read route was scoped only by an organization the caller
+   states.** A version id is a uuid the caller supplies, so the internal token
+   alone reached any version in any tenant. It now also requires the
+   conversation the turn is running in, and refuses unless that conversation's
+   subject IS the version's document.
+
+8. **An update stripped the AI-provenance marking.** The Python tool sends the
+   model's raw Markdown, and the replace path wrote it verbatim over bytes whose
+   branding and marking the FILING seam had added — so version 2 of an
+   agent-authored document said nothing about its own authorship, which is the
+   one failure `markingIsInBytes` exists to make impossible. The update renders
+   through the producer's renderer and re-checks the bytes.
+
 ### What this amends in ADR-0047
 
 ADR-0047's 2026-08-20 addendum says `Zuweisen` is the promotion gesture and that
@@ -215,8 +280,9 @@ ADR-0047 exists to prevent one level down.
 * Good, because a new state is one row of the transition table, one CHECK edit
   and one i18n key; a new consumer is one effects-registry entry.
 * Bad, because **superseded versions stay charged against the organization's
-  storage quota.** They exist, so the ledger counts them, and an office that
-  re-uploads a plan set weekly will accumulate. A per-organization retention
+  storage quota.** They exist, so the ledger counts them (`versionOverheadBytes`
+  — see correction 3 above, which is what made this sentence true), and an office
+  that re-uploads a plan set weekly will accumulate. A per-organization retention
   policy is the answer and it is a later row on a later table, not an `if` in
   the upload path. Stated here so it is read rather than discovered.
 * Bad, because an upload now emits a second audit event
@@ -259,7 +325,10 @@ wire.
 ## More Information
 
 - The table as data: `frontends/ui/src/lib/documents/lifecycle-types.ts`.
-- The service and the effects registry: `frontends/ui/src/lib/documents/lifecycle.ts`.
+- The service and the effects registry: `frontends/ui/src/lib/documents/lifecycle.ts`;
+  the bytes, the renderer and the archive next door in
+  `frontends/ui/src/lib/documents/version-content.ts`; who may review, in
+  `frontends/ui/src/lib/documents/reviewers.ts`.
 - The design of record:
   [`../roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md).
 - What it amends: [ADR-0047](0047-assignment-is-not-access.md).

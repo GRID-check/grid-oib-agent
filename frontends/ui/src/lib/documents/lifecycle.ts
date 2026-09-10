@@ -26,6 +26,13 @@
  * {@link createDocumentVersion}, never a branch inside it. `lifecycle.spec.ts`
  * asserts the import direction.
  *
+ * ## What lives next door
+ *
+ * `./version-content` holds everything that touches the object store — the
+ * storage keys, the producer's renderer and the marking re-check, the quota
+ * admission, the reads, and `archiveDocument`. This module imports it; it
+ * imports nothing back. That is the seam: states here, bytes there.
+ *
  * ## Effects are a registry, not a switch
  *
  * `EFFECT_REGISTRY` is a `Record<DocumentVersionEffect, …>`, so `tsc` fails
@@ -35,7 +42,6 @@
  */
 
 import 'server-only'
-import { PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
 import { ConflictError, ForbiddenError, NotFoundError, UnprocessableError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -43,18 +49,24 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import { publishToUsers } from '@/lib/events/bus'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import { inboxGroupKey } from '@/lib/inbox/registry'
-import { listAssignmentsForResources } from '@/lib/assignments/repository'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { resolvePeople } from '@/lib/sharing/directory'
-import { bucketAdminS3Client, s3Client } from '@/lib/s3'
-import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
 import type { Document, DocumentVersion } from '@/lib/db/schema'
 import { getAccessibleDocument } from './access'
 import { isAgentDocumentFilename } from './agent-namespace'
 import { collectionFileRef, purgeIngestedChunks } from './collection-file-ref'
-import { contentDigest } from './content-digest'
 import { documentDisplayName } from './display-name'
 import { findDocumentInOrg, findFolderPathInProject } from './repository'
+import { listReviewCandidates, resolveReviewers } from './reviewers'
+import {
+  admitVersionBytes,
+  BACKEND_PURGE_TIMEOUT_MS,
+  readVersionContent,
+  renderVersionBytes,
+  resolveVersionBucket,
+  storeVersionBytes,
+  versionStorageKey,
+} from './version-content'
 import type { AgentDocumentProvenance } from './service'
 import {
   DOCUMENT_VERSION_TRANSITIONS,
@@ -68,29 +80,16 @@ import {
 import {
   compareAndSwapVersionState,
   findDocumentVersion,
-  findDocumentVersionInOrg,
   listDocumentVersionSummaries,
   findOpenVersion,
   findPublishedVersion,
   insertDocumentVersion,
+  insertPublishedVersion,
   listDocumentVersions,
   nextVersionNumber,
   promoteVersionToPublished,
-  setDocumentLifecycle,
   type DocumentVersionSummary,
 } from './version-repository'
-
-/**
- * Ceiling on the chunk purge the publish path runs.
- *
- * Its own constant rather than an import of `documents/service.ts`'s
- * `BACKEND_FETCH_TIMEOUT_MS`, which is module-private there, and the same ten
- * seconds for the same reason: an unreachable backend must not hold a BFF
- * request past Cloudflare's ~100s origin timeout. The purge is best-effort, so
- * exceeding it costs a superseded version's chunks lingering until the
- * platform's vector reconcile, never a failed publish.
- */
-const BACKEND_PURGE_TIMEOUT_MS = 10_000
 
 /** What a transition needs beyond the row it is acting on. */
 export interface TransitionInput {
@@ -123,6 +122,14 @@ export interface TransitionInput {
    * origin conversation opens one either way — see the `openRevisionTask` effect.
    */
   delegateRevision?: boolean
+  /**
+   * Set by {@link assertReviewGuards}, never by a caller.
+   *
+   * `true` when this project has nobody but the submitter who could release the
+   * version, so „der Einreichende darf nicht freigeben" is waived. It reaches
+   * the audit event and nothing else.
+   */
+  selfReview?: boolean
 }
 
 /** The context every effect receives. Read-only; effects do not chain. */
@@ -149,26 +156,6 @@ function reviewGroupKey(documentId: string, versionId: string): string {
   return inboxGroupKey('document.review_requested', 'document', documentId, versionId)
 }
 
-/**
- * Who is asked to review this version.
- *
- * The caller's list, or — when it is empty — whoever is already on the hook for
- * the file (`resource_assignments`, ADR-0047). That fallback is why submitting
- * without naming anybody is not a no-op: „Unvergeben" plus no named reviewer is
- * genuinely nobody, and the caller is told so rather than the submission
- * silently reaching no inbox.
- */
-async function resolveReviewers(context: EffectContext): Promise<string[]> {
-  const named = [...(context.input.reviewerUserIds ?? [])].filter(Boolean)
-  if (named.length > 0) return [...new Set(named)]
-  const assignments = await listAssignmentsForResources(
-    context.session.organizationId,
-    'document',
-    [context.document.id],
-  )
-  return [...new Set(assignments.map((row) => row.subjectUserId))]
-}
-
 const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
   /**
    * The audit event, with the row's own action.
@@ -193,18 +180,35 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
         state: version.state,
         projectId: document.projectId ?? '',
         withComment: Boolean(input.comment?.trim()),
+        // The sole-editor waiver, on the trail rather than only in the code
+        // that granted it: „freigegeben" and „freigegeben, weil es niemanden
+        // sonst gibt" are different facts about the same signature, and an
+        // export that could not tell them apart would be the wrong record of a
+        // professional act.
+        selfReview: input.selfReview === true,
       },
       request: input.request,
     })
   },
 
+  /**
+   * The round is opened for the reviewers {@link assertReviewGuards} already
+   * found — the transition put them in `input.reviewerUserIds` before the
+   * compare-and-swap ran.
+   *
+   * This effect used to do the resolving AND the refusing, and the refusal came
+   * one statement too late: the version was already `in_review`, durably, and
+   * the caller got a 422 saying nobody could review it. The document was then
+   * stuck in a state whose only exits are a person's decisions, with no inbox
+   * item pointing anybody at it. A guard that runs after the swap is not a
+   * guard.
+   */
   openReviewInbox: async (context) => {
-    const reviewers = await resolveReviewers(context)
-    if (reviewers.length === 0) {
-      throw new UnprocessableError(
-        'Nobody to review this version: name a reviewer or assign the document first',
-      )
-    }
+    const { reviewers } = await resolveReviewers(
+      context.session,
+      context.document,
+      context.input.reviewerUserIds,
+    )
     await emitInboxItems(
       reviewers.map((recipientUserId) => ({
         organizationId: context.session.organizationId,
@@ -236,7 +240,11 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
    * park a row in three people's badges that nothing can ever resolve.
    */
   resolveReviewInbox: async (context) => {
-    const reviewers = await resolveReviewers(context)
+    const { reviewers } = await resolveReviewers(
+      context.session,
+      context.document,
+      context.input.reviewerUserIds,
+    )
     const groupKey = reviewGroupKey(context.document.id, context.version.id)
     await resolveInboxItemsFor(
       // The actor too: they may well have been one of the people asked.
@@ -525,19 +533,84 @@ function assertGuards(
   if (transition.requires.comment && !input.comment?.trim()) {
     throw new UnprocessableError('This decision needs a comment', { op: transition.op })
   }
-  if (transition.requires.notSubmitter && version.submittedBy === session.userId) {
-    // Approving your own submission is not a review. The office asserting a
-    // Befund means somebody OTHER than its author read it.
-    throw new ForbiddenError('The submitter cannot approve their own version', {
-      op: transition.op,
-    })
-  }
-  if (transition.requires.ifMatch && (input.ifMatch ?? null) !== version.contentHash) {
+  // A version with NO stored digest has no `If-Match` to satisfy. The column is
+  // nullable — a row backfilled by migration 0082 from a document that predates
+  // `content_hash` (0078) carries null — and comparing against it made the
+  // guard unsatisfiable: no string equals null, so every caller got a 409 and
+  // the only way past was to send a literal `''`, which is what the task
+  // outcome path was reduced to doing. "Nothing to match" is the honest reading
+  // and it is the one a person editing such a document needs.
+  if (
+    transition.requires.ifMatch &&
+    version.contentHash !== null &&
+    (input.ifMatch ?? null) !== version.contentHash
+  ) {
     throw new ConflictError('The version changed since you read it', {
       op: transition.op,
       contentHash: version.contentHash,
     })
   }
+}
+
+/**
+ * The guards that have to ask who else is in the project.
+ *
+ * Kept apart from {@link assertGuards} because these two cost a directory read
+ * and an FGA check each, and because they are the two rules that are ABOUT the
+ * other people in the project rather than about the request.
+ *
+ * ## „Der Einreichende darf nicht freigeben", and its two exceptions
+ *
+ * The rule is that the office asserting a Befund means somebody OTHER than its
+ * author read it. Both exceptions are cases where that sentence is not what the
+ * row says:
+ *
+ *   * **the submission was a machine's** (`submitted_by_actor = 'agent'`,
+ *     migration 0085). `submitted_by` on a version Piloti filed is the
+ *     COMMISSIONING human, whose session the run acted in — not the author. The
+ *     guard read that id and refused the one person who had asked for the
+ *     report the right to release it. Approving it IS the first human reading.
+ *   * **there is nobody else who could** — a one-person project. The waiver is
+ *     recorded on the audit event (`selfReview`) rather than granted silently,
+ *     so the trail distinguishes „freigegeben" from „freigegeben, weil es
+ *     niemanden sonst gibt".
+ *
+ * ## Resolving the round BEFORE the swap
+ *
+ * A row whose `requires.reviewer` is set opens an actionable item for each
+ * person it names, and who those people are used to be decided inside the
+ * `openReviewInbox` effect — which runs AFTER the state has moved. When that
+ * resolution came back empty it threw, and the version was left durably
+ * `in_review` with nobody told about it and no exit that is not a decision one
+ * of those people would have to make. The chain in `./reviewers` is now total
+ * (its last link is the submitter, as a recorded waiver), so there is nothing
+ * left to refuse — but the resolution still happens here, where a future link
+ * that CAN refuse would refuse in time.
+ *
+ * Returns what it resolved, so nothing downstream asks the same question twice.
+ */
+async function assertReviewGuards(
+  session: AuthorizedSession,
+  document: Document,
+  version: DocumentVersion,
+  transition: DocumentVersionTransition,
+  input: TransitionInput,
+): Promise<{ reviewers?: readonly string[]; selfReview: boolean }> {
+  if (transition.requires.notSubmitter && version.submittedBy === session.userId) {
+    if (version.submittedByActor === 'human') {
+      const candidates = await listReviewCandidates(session, document)
+      if (candidates.length > 0) {
+        throw new ForbiddenError('The submitter cannot approve their own version', {
+          op: transition.op,
+        })
+      }
+      return { selfReview: true }
+    }
+  }
+
+  if (!transition.requires.reviewer) return { selfReview: false }
+  const resolved = await resolveReviewers(session, document, input.reviewerUserIds)
+  return { reviewers: resolved.reviewers, selfReview: resolved.selfReview }
 }
 
 /** The columns a transition stamps, by the state it lands in. */
@@ -550,7 +623,15 @@ function stampFor(
   const comment = input.comment?.trim() || null
   switch (to) {
     case 'in_review':
-      return { state: to, submittedBy: session.userId, submittedAt: now }
+      return {
+        state: to,
+        submittedBy: session.userId,
+        // WHOSE HAND, beside whose authority (migration 0085). Taken from the
+        // same flag the publish door reads, so a caller cannot tell the door
+        // one thing and the row another.
+        submittedByActor: input.actingHuman === false ? ('agent' as const) : ('human' as const),
+        submittedAt: now,
+      }
     case 'approved':
       return {
         state: to,
@@ -611,8 +692,16 @@ export async function transitionDocumentVersion(
 
   assertGuards(session, version, transition, input)
   await requireTransitionPermission(session, document, transition)
+  // Before the swap, so a submission that would reach nobody is refused while
+  // the version is still a draft the caller can fix.
+  const review = await assertReviewGuards(session, document, version, transition, input)
+  const effectInput: TransitionInput = {
+    ...input,
+    ...(review.reviewers ? { reviewerUserIds: review.reviewers } : {}),
+    selfReview: review.selfReview,
+  }
 
-  const stamp = stampFor(transition.to, session, input, new Date())
+  const stamp = stampFor(transition.to, session, effectInput, new Date())
   // `promotes` rows go through the transaction that also supersedes the
   // previous published version and moves the item's pointer; see the flag.
   const promoted = transition.promotes
@@ -637,7 +726,7 @@ export async function transitionDocumentVersion(
     version: swapped,
     previous: promoted?.superseded[0] ?? null,
     transition,
-    input,
+    input: effectInput,
   })
   return swapped
 }
@@ -688,7 +777,7 @@ export async function createDocumentVersion(
   await requireTransitionPermission(session, input.document, transition)
 
   const now = new Date()
-  const version = await insertDocumentVersion({
+  const values = {
     organizationId: session.organizationId,
     documentId: input.document.id,
     projectId: input.document.projectId,
@@ -712,16 +801,17 @@ export async function createDocumentVersion(
           publishedAt: now,
         }
       : { state: transition.to }),
-  })
+  }
 
-  const promoted = transition.promotes
-    ? await promoteVersionToPublished(
-        version.id,
-        input.document.id,
-        session.organizationId,
-        null,
-      )
-    : null
+  // A row born `published` cannot be INSERTED and then have its predecessor
+  // superseded: `uniq_document_versions_published_per_document` is a plain
+  // partial unique index, checked per statement rather than deferred, so the
+  // insert is refused while the previous version is still published — which is
+  // every re-upload. The supersede, the insert and the pointer move are
+  // therefore one transaction (`insertPublishedVersion`), and the order inside
+  // it is supersede first.
+  const promoted = transition.promotes ? await insertPublishedVersion(values) : null
+  const version = promoted?.version ?? (await insertDocumentVersion(values))
 
   await runEffects({
     session,
@@ -814,14 +904,35 @@ export async function forkDraftVersion(
  * so the first replace moves it to `v<n>/…` and the published bytes are never
  * written over. A second replace overwrites the draft's own object in place —
  * a draft is not history and its intermediate bytes belong to no version.
+ *
+ * ## The order, which is four steps and not two
+ *
+ *   1. **render**, through the producer's own renderer, and re-check that the
+ *      AI marking is in the bytes. The caller sends the model's raw Markdown;
+ *      the branding and the marking belong to the file, not to the request.
+ *   2. **admit** the byte delta against the organization's quota, before
+ *      anything is written or swapped.
+ *   3. **compare and swap** the row, with the new storage columns on it.
+ *   4. **write the object**, and mirror it onto the item when this version is
+ *      the item's own bytes.
+ *
+ * Steps 3 and 4 are in that order deliberately. Writing first meant a caller
+ * that LOST the race had already overwritten the winner's object, because both
+ * were aiming at the same key — a lost update dressed as a 409. The cost is the
+ * opposite failure, a row naming bytes the object store refused, and that one
+ * is fixed by writing again.
  */
 export async function replaceVersionContent(
   session: AuthorizedSession,
   documentId: string,
   versionId: string,
   content: string,
-  ifMatch: string,
-  request?: Request,
+  ifMatch: string | null | undefined,
+  options: {
+    request?: Request
+    /** False for the agent's internal route and the task outcome path. */
+    actingHuman?: boolean
+  } = {},
 ): Promise<DocumentVersion> {
   const document = await getAccessibleDocument(session, documentId, 'write')
   const version = await findDocumentVersion(versionId, documentId, session.organizationId)
@@ -833,24 +944,14 @@ export async function replaceVersionContent(
       state: version.state,
     })
   }
-  assertGuards(session, version, transition, { ifMatch })
+  assertGuards(session, version, transition, { ifMatch, actingHuman: options.actingHuman })
   await requireTransitionPermission(session, document, transition)
 
-  const bytes = Buffer.from(content, 'utf8')
-  const storageBucket = await ensureTenantBucketChecked(
-    bucketAdminS3Client,
-    session.organizationId,
-  )
-  const storageKey = versionStorageKey(document, version.versionNumber)
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: storageBucket,
-      Key: storageKey,
-      Body: bytes,
-      ContentType: version.contentType ?? 'text/markdown',
-    }),
-  )
+  const rendered = await renderVersionBytes(document, version, content)
+  await admitVersionBytes(session.organizationId, version, rendered.bytes.byteLength)
 
+  const storageBucket = await resolveVersionBucket(session.organizationId)
+  const storageKey = versionStorageKey(document, version.versionNumber)
   const swapped = await compareAndSwapVersionState(
     versionId,
     session.organizationId,
@@ -859,11 +960,14 @@ export async function replaceVersionContent(
       ...stampFor(transition.to, session, {}, new Date()),
       storageKey,
       storageBucket,
-      fileSize: bytes.byteLength,
-      contentHash: contentDigest(bytes),
+      contentType: rendered.contentType,
+      fileSize: rendered.bytes.byteLength,
+      contentHash: rendered.contentHash,
     },
   )
   if (!swapped) throw new ConflictError('The version changed while you were writing')
+
+  await storeVersionBytes(session.organizationId, document, swapped, rendered)
 
   await runEffects({
     session,
@@ -871,40 +975,9 @@ export async function replaceVersionContent(
     version: swapped,
     previous: null,
     transition,
-    input: { request },
+    input: { request: options.request, actingHuman: options.actingHuman },
   })
   return swapped
-}
-
-/**
- * The key a version's OWN bytes live under.
- *
- * Version 1 keeps today's key exactly — `doc/<id>/<filename>` — so nothing that
- * predates versioning moves, and every stored object, thumbnail and `_bim/`
- * derivative stays where its row says it is. Later versions get a `v<n>/`
- * segment of their own, which is what makes "a superseded version keeps its
- * bytes" possible at all: without it the re-upload would write over the object
- * the previous version's row names.
- */
-export function versionStorageKey(document: Document, versionNumber: number): string {
-  return versionedStorageKey(document.storageKey, versionNumber)
-}
-
-/**
- * The same rule, applied to a key that has no row yet.
- *
- * The upload paths build their key before the document exists, so they cannot
- * hand in a `Document`. Pure, so all four shelves — project, Archiv, session and
- * the generated-document filer — get the same answer.
- */
-export function versionedStorageKey(baseStorageKey: string, versionNumber: number): string {
-  if (versionNumber <= 1) return baseStorageKey
-  // Derived from the item's OWN key rather than rebuilt from its parts, so the
-  // folder path, the shelf prefix (`project/`, `archiv/`, `session/`) and the
-  // sanitised filename are whatever this document already uses. Rebuilding them
-  // here would be a second copy of `buildStorageKey`'s three shelf variants,
-  // and the copies would agree until somebody moved a document.
-  return baseStorageKey.replace(/\/([^/]+)$/, `/v${versionNumber}/$1`)
 }
 
 /**
@@ -943,136 +1016,6 @@ export async function recordUploadedVersion(
 
 /** The version number the next upload of this document will be. */
 export { nextVersionNumber }
-
-/** Read one version's bytes back as text — the diff endpoint's other half. */
-export async function readVersionContent(
-  session: AuthorizedSession,
-  documentId: string,
-  versionId: string,
-): Promise<string> {
-  await getAccessibleDocument(session, documentId, 'read')
-  const version = await findDocumentVersion(versionId, documentId, session.organizationId)
-  if (!version) throw new NotFoundError('Version not found')
-  const bucket = resolveDocumentBucket(version.storageBucket)
-  const object = await s3Client.send(
-    new GetObjectCommand({ Bucket: bucket, Key: version.storageKey }),
-  )
-  const body = await object.Body?.transformToString('utf8')
-  if (body === undefined) throw new NotFoundError('Version content not available')
-  return body
-}
-
-/**
- * One version's bytes and its identity, for a SERVICE caller that holds only a
- * version id (`GET /api/internal/document-versions/[versionId]/content`).
- *
- * Not an authorization bypass and not a second read path: it is the same object
- * fetch {@link readVersionContent} runs, with the organization — which the
- * caller states and the internal route puts in the tenant slot — as the whole
- * of the predicate instead of a session. A version id from another tenant finds
- * no row, so it answers 404 exactly as a made-up id does.
- *
- * Why the state travels back with the text: the Python tier writes the bytes
- * into the conversation's working directory and stamps a filing record on them
- * so a later `file_draft` on that path UPDATES this document's open version
- * rather than creating a second item, and the `update` op needs both the state
- * (is it still replaceable) and the content hash (If-Match).
- */
-export async function readVersionForService(
-  versionId: string,
-  organizationId: string,
-): Promise<{
-  documentId: string
-  versionId: string
-  versionNumber: number
-  state: DocumentVersionState
-  contentHash: string | null
-  contentType: string | null
-  filename: string
-  displayName: string
-  content: string
-}> {
-  const version = await findDocumentVersionInOrg(versionId, organizationId)
-  if (!version) throw new NotFoundError('Version not found')
-  const document = await findDocumentInOrg(version.documentId, organizationId)
-  if (!document) throw new NotFoundError('Version not found')
-  const object = await s3Client.send(
-    new GetObjectCommand({
-      Bucket: resolveDocumentBucket(version.storageBucket),
-      Key: version.storageKey,
-    }),
-  )
-  const content = await object.Body?.transformToString('utf8')
-  if (content === undefined) throw new NotFoundError('Version content not available')
-  return {
-    documentId: version.documentId,
-    versionId: version.id,
-    versionNumber: version.versionNumber,
-    state: version.state,
-    contentHash: version.contentHash,
-    contentType: version.contentType,
-    filename: document.filename,
-    displayName: documentDisplayName(document),
-    content,
-  }
-}
-
-/**
- * Take a document out of the working set.
- *
- * An item-level act, not a version state: „archiviert" is a statement about the
- * FILE, and putting it on a version would make it ambiguous which version was
- * archived. The bytes and every version stay — this is not a delete, and there
- * is no soft delete on this table. What goes is the chunks, so an archived
- * document stops answering questions.
- */
-export async function archiveDocument(
-  session: AuthorizedSession,
-  documentId: string,
-  request?: Request,
-): Promise<{ documentId: string; lifecycle: 'archived' }> {
-  const document = await getAccessibleDocument(session, documentId, 'write')
-  if (document.projectId) {
-    await requireProjectAccess(session, document.projectId, [
-      'project:documents:write',
-      'project:edit',
-    ])
-  }
-  await setDocumentLifecycle(documentId, session.organizationId, 'archived')
-  // „Archiviert" is a statement that the file has left the working set, and a
-  // file that keeps answering questions has not left it. The chunks therefore
-  // go, for a human upload as much as for a Piloti document — this docstring
-  // said so before the code did. Purged and not deleted: the row, every
-  // version and every object stay, so the only thing that has to be rebuilt if
-  // somebody ever un-archives is the index.
-  //
-  // Best-effort, and AFTER the lifecycle write: the row is the durable record
-  // of intent, and an unreachable backend must not leave a document that a
-  // person believes is archived still listed as active. `chunksPurged` rides on
-  // the audit event so a `false` is visible where somebody looks, exactly as
-  // `deleteDocument` records it.
-  const purgeRef = collectionFileRef(document)
-  const chunksPurged = purgeRef
-    ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_PURGE_TIMEOUT_MS)
-    : null
-  await recordAuditEvent({
-    organizationId: session.organizationId,
-    actor: { userId: session.userId, email: session.email },
-    action: 'document.archived',
-    targetType: 'document',
-    targetId: documentId,
-    metadata: {
-      projectId: document.projectId ?? '',
-      filename: document.filename.slice(0, 200),
-      collectionName: document.collectionName,
-      // `null` is "this row owns no chunks", which is a different fact from
-      // "the backend refused" and must not read as one.
-      chunksPurged,
-    },
-    request,
-  })
-  return { documentId, lifecycle: 'archived' }
-}
 
 /** One version as the wire carries it. Dates as ISO strings, no storage keys. */
 export function toDocumentVersionView(version: DocumentVersion): DocumentVersionView {

@@ -23,31 +23,44 @@
  * ONLY: nothing here writes a row, so the signed request-context envelope that
  * `POST /api/internal/document-versions` demands is not the door being opened.
  *
- * The organization is the boundary and the caller states it, exactly as
- * `/api/internal/document-file` does — but REQUIRED here rather than optional,
- * because a version id is not addressed through an unguessable collection name.
- * It goes into the tenant slot and into the predicate, so a version id from
- * another tenant finds no row and answers 404, indistinguishable from an id
- * that never existed.
+ * The organization is the boundary and the caller STATES it, exactly as
+ * `/api/internal/document-file` does. That is not enough on its own here, and
+ * the difference is the address: a collection name is unguessable, a version id
+ * is a uuid the caller supplies. Anything holding the internal token could
+ * therefore name any tenant and read any version's bytes.
+ *
+ * So the route also requires the CONVERSATION the turn is running in, and
+ * refuses unless that conversation's subject IS this version's document
+ * (`conversations.subject_resource_type = 'document'`). The subject was written
+ * by a person's own session through the file-native ask, so the pair is exactly
+ * the authority the turn already had. A version from another tenant, a version
+ * this conversation is not about, and an id that never existed all answer the
+ * same 404 — „exists, but not for you" is the sentence that makes an id worth
+ * guessing.
  */
 
 import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
 import { withTenant } from '@/lib/db/tenant-context'
-import { readVersionForService } from '@/lib/documents/lifecycle'
+import { readVersionForService } from '@/lib/documents/version-content'
 
 type Params = { versionId: string }
 
 const querySchema = z.object({
   organizationId: z.string().min(1),
+  /**
+   * The conversation whose subject this version must be. Required, and named
+   * exactly `conversationId` because the Python caller spells it that way.
+   */
+  conversationId: z.string().min(1),
 })
 
 export const GET = internalApiRoute<Params>(
   'document-version-content',
   async ({ request, params }) => {
-    const { organizationId } = parseQuery(request, querySchema)
+    const { organizationId, conversationId } = parseQuery(request, querySchema)
     return withTenant({ organizationId }, async () => {
-      const version = await readVersionForService(params.versionId, organizationId)
+      const version = await readVersionForService(params.versionId, organizationId, conversationId)
       // JSON and not `text/plain`: the caller needs the version's STATE and its
       // content hash beside the bytes — it stamps both onto the working-directory
       // file so a later `file_draft` on that path replaces this open version
@@ -56,6 +69,10 @@ export const GET = internalApiRoute<Params>(
     })
   },
   {
-    tenancy: { fromPayload: '?organizationId — required; a version id carries no scope of its own' },
+    tenancy: {
+      fromPayload:
+        '?organizationId — required; a version id carries no scope of its own. ?conversationId ' +
+        'narrows it further: the version must be that conversation’s subject resource.',
+    },
   },
 )

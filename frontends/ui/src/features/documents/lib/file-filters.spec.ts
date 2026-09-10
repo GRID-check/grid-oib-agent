@@ -75,6 +75,9 @@ describe('activeFilterCount', () => {
 
   test('counts the server-side authorship filter, which the menu does show', () => {
     expect(activeFilterCount({ ...NO_FILE_FILTERS, agentAuthoredOnly: true }, false)).toBe(1)
+    // The one filter that WIDENS still counts: the badge says the listing is
+    // not the default one, whichever direction it was moved in.
+    expect(activeFilterCount({ ...NO_FILE_FILTERS, includeArchived: true }, false)).toBe(1)
   })
 })
 
