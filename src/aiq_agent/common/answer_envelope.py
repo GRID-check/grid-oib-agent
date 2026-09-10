@@ -227,8 +227,7 @@ class AnswerMeta(_EnvelopeModel):
     kind: str | None = Field(
         default=None,
         description=(
-            'exclusive answer shape: "direct" | "walkthrough" | "ruling" | "handoff"; '
-            "verdict is only for kind=ruling"
+            'exclusive answer shape: "direct" | "walkthrough" | "ruling" | "handoff"; verdict is only for kind=ruling'
         ),
     )
     summary: str | None = Field(
