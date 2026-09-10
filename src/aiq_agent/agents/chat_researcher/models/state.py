@@ -86,6 +86,15 @@ class ChatResearcherState(BaseModel):
     # the deliberate way back to deep research.
     deep_research_declined: bool | None = None
     project_context: str | None = None
+    # The office shape of the same per-turn context (ADR-0054): set instead of a
+    # project profile when the turn has an organization and NO project — the
+    # organization's memory plus the Projektregister recall for this question,
+    # rendered as `WORKSPACE_CONTEXT v1`. Its presence is what the prompt
+    # branches on: the project instructions ("this project's files", "patch only
+    # properties of THIS project") must be REPLACED in the Büro, not joined
+    # (spec AG-3), so the project block is guarded on this being absent.
+    # Refreshed per turn like `project_context`, and None on every project turn.
+    workspace_context: str | None = None
     # The bounded PLATFORM_LESSONS digest — anonymized failure patterns
     # distilled from user down-votes across the whole platform
     # (docs/architecture/platform-failure-learning.md). Fetched per turn by the
@@ -125,6 +134,16 @@ class ChatResearcherState(BaseModel):
     # clarifier node from ``ShallowResult.escalation_reason`` or, on the
     # keyword-fallback path, the fixed German notice.
     escalation_reason: str | None = None
+    # True when that escalation is a Portfolio-Recherche (ADR-0054, spec DR-3):
+    # one deep sub-run per project instead of one run. Set by the clarifier node
+    # from the shallow result, for the SAME reason ``escalation_reason`` is —
+    # the clarifier sits on both routes into deep research, and the intent has
+    # to survive a clarifying question asked in between. The deep node reads it
+    # off the state, never off the shallow result, so there is one carrier.
+    escalation_portfolio: bool | None = None
+    # The projects that run should read, as the model named them. None means it
+    # named none, and the run reads every project the caller may read.
+    escalation_portfolio_project_ids: list[str] | None = None
     # Present only when the self-reported confidence was downgraded. Five causes:
     #   "ungrounded"              nothing verified and nothing measured.
     #   "quote_unverified"        a quoted span matched no retrieved passage.

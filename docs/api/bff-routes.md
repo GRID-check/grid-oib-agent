@@ -5,15 +5,20 @@ All BFF (Backend-for-Frontend) routes are under `frontends/ui/src/app/api/`. The
 > **Not exhaustive, and the gap is old.** A walk of `app/api/**/route.ts` on
 > 2026-08-20 found 157 route directories, of which **51 have no entry in this
 > file or in [`collaboration-routes.md`](collaboration-routes.md)** — chiefly the
-> project surfaces (`folders`, `memory`, `overview`, `profile`,
-> `profile/patches`, `intake-definition`, `generate-summary`, `reindex`,
-> `restore`), `documents/{id}/{thumbnail,image}`, the session-attached document
+> project surfaces (`folders`, `overview`, `profile`, `profile/patches`,
+> `intake-definition`, `generate-summary`, `reindex`, `restore`),
+> `documents/{id}/{thumbnail,image}`, the session-attached document
 > shelf (`/api/session/documents/*`), legal holds and `/api/deletions`, the org
-> BYOK/memory/storage routes, several platform-tier routes (norms, storage,
+> BYOK/storage routes, several platform-tier routes (norms, storage,
 > profiler, reasoning efforts, vector reconcile), `citations/format`,
 > `skills/review`, `healthz`, and nine `/api/internal/*` service endpoints. The
 > route file is the source of truth; absence here means undocumented, never
 > non-existent.
+>
+> **Closed since (2026-09-09, ADR-0055):** the project and organization
+> `memory` routes and the two internal memory endpoints (`digest`, `search`)
+> now have entries — see [Memory](#memory-adr-0008-adr-0054-adr-0055) and the
+> internal-endpoints table.
 
 ## Architecture & error contract (ADR-0017)
 
@@ -40,7 +45,15 @@ Security behavior as of the ADR-0017 refactor:
   `Content-Disposition` on presigned URLs.
 - `POST /api/conversations` validates a supplied `projectId` via
   `project:view` FGA; message roles are restricted to
-  `user|assistant|system|tool`.
+  `user|assistant|system|tool`. A conversation with no project is a
+  **workspace** conversation (ADR-0054) and needs the org-tier `org:chat`
+  permission — checked in the request, never inferred from the absence of a
+  project (spec AC-2). A workspace conversation is shared **person by person**
+  (spec AC-7): a grant is refused unless the recipient may `project:view` every
+  project the conversation has mounted, the same rule is re-checked on every
+  read (a reader who has lost one gets a 404, spec AC-9), and blanket
+  `organization` visibility is refused while anything is mounted — there is no
+  "everyone who may view project X".
 - `PUT /api/organization/settings` requires `org:settings:manage`.
 - List endpoints are bounded (projects 500, conversations 200, messages
   1000, documents 500, holds/deletions 200).
@@ -50,7 +63,9 @@ Security behavior as of the ADR-0017 refactor:
 | Method | Path | Auth | Description | Request | Response |
 |--------|------|------|-------------|---------|----------|
 | `GET` | `/api/auth/callback` | No | WorkOS AuthKit callback handler. Delegates to `@workos-inc/authkit-nextjs`'s `handleAuth()`. | Query params from WorkOS OAuth redirect | Redirect to app |
-| `GET` | `/api/auth/websocket-scope` | Varies | Internal endpoint called by `server.js` during WebSocket upgrade. Resolves collection scope, auth headers, and returns base64url-encoded scope + org/user IDs + access token. | `?projectId=&conversationId=` | `{ scope, header, organizationId?, userId?, accessToken? }` |
+| `GET` | `/api/auth/websocket-scope` | Varies | Internal endpoint called by `server.js` during WebSocket upgrade. Resolves collection scope, auth headers, and returns base64url-encoded scope + org/user IDs + access token. | `?projectId=&conversationId=&scope=` (`scope=workspace` forces no project, ADR-0054) | `{ scope, header, organizationId?, userId?, organizationMembershipId?, accessToken? }` |
+
+`organizationMembershipId` is the (user, organization) pair WorkOS FGA keys on — `authorization.check` takes a membership, never a user id. `server.js` dual-writes it as the individual header `X-Grid-Organization-Membership-Id` **and** as the signed envelope's `organizationMembershipId` field (appended LAST in the payload key order, so every pre-existing signed payload stays byte-identical). It exists so a Büro turn's workspace digest can filter the Projektregister to the projects that caller may read without a WorkOS round trip of its own (ADR-0054, spec AC-4). Pinned by `tests/fixtures/grid_request_context.json` in both languages.
 | `GET` | `/api/auth/connection-diagnostics` | Required | Browser-safe reason discovery for a failed chat WebSocket upgrade. The gateway collapses a budget-exhausted upgrade into a bare failed handshake the browser can't read, so the chat client calls this after retries are exhausted to learn whether the cause was budget exhaustion. Read-only; reuses the same budget-check logic (ADR-0015). | `?projectId=` | `{ budgetExhausted, blockedScope, canManageBudgets }` |
 
 Source: `frontends/ui/src/app/api/auth/callback/route.ts`, `frontends/ui/src/app/api/auth/websocket-scope/route.ts`, `frontends/ui/src/app/api/auth/connection-diagnostics/route.ts`
@@ -93,14 +108,17 @@ and the measurements behind it)
 
 | Method | Path | Auth | Description | Request Body / Params | Response |
 |--------|------|------|-------------|-----------------------|----------|
-| `GET` | `/api/conversations` | Required | List all conversations for the current org, ordered by `updatedAt` desc. | — | `[{ id, title, createdAt, updatedAt, ... }]` |
-| `POST` | `/api/conversations` | Required | Create a new conversation. | `{ id, title?, projectId? }` | `{ id, title, ... }` (201) |
+| `GET` | `/api/conversations` | Required | List the conversations the caller may see in the current org, ordered by `updatedAt` desc. `?projectId=` narrows to one project (and needs `project:view` on it); `?scope=workspace` narrows to Büro conversations (ADR-0054) and needs `org:chat`, which the default Member role holds. `?scope=project` is accepted and narrows the other way. An unknown scope is a 400. | — | `[{ id, title, scope, createdAt, updatedAt, ... }]` |
+| `POST` | `/api/conversations` | Required | Create a new conversation. `scope` says which level it belongs to and is **derived from `projectId` when omitted**, so a body that predates the Büro behaves exactly as before. `scope: 'workspace'` requires `org:chat` and no `projectId`; sending both is a **400** (the twin of migration 0081's CHECK, so a self-contradicting body is an error the client can read rather than a 500 from Postgres). A `projectId` still requires `project:chat`/`project:edit` on it. | `{ id, title?, projectId?, scope? }` | `{ id, title, scope, ... }` (201) |
 | `GET` | `/api/conversations/{id}` | Required | Get a single conversation. Verifies org ownership (404 if wrong org). | — | `{ id, title, ... }` |
 | `PATCH` | `/api/conversations/{id}` | Required | Rename a conversation. | `{ title }` | `{ id, title, ... }` |
 | `DELETE` | `/api/conversations/{id}` | Required | Delete a conversation. | — | `204 No Content` |
 | `GET` | `/api/conversations/{id}/messages` | Required | List messages for a conversation, ordered by `createdAt` asc. Verifies org ownership. | — | `[{ id, role, content, metadata, createdAt }]` |
 | `POST` | `/api/conversations/{id}/messages` | Required | Create one or more messages. Accepts a single message or an array. | `{ id, role, content }` or `[{ id, role, content }, ...]` | `[{ id, role, content, ... }]` (201) |
 | `PATCH` | `/api/conversations/{id}/messages/{messageId}` | Required | Record the user's answers to that answer's interactive cards, merged **per card key** into `metadata.cardInteractions` (ADR-0030), so a settled `project_profile_patch` / `memory_proposal` cannot be re-offered after a server rehydrate. `decision` is validated against a closed union, `decidedAt` must be a UTC ISO-8601 instant (`…Z`; offset forms are rejected), keys are ≤64 chars and ≤64 entries; a non-uuid `messageId` is a 400. | `{ cardInteractions: { "<type>-<index>": { decision, decidedAt } } }` | `{ id, role, content, metadata, ... }` |
+| `GET` | `/api/conversations/{id}/mounts` | Required | The projects this Büro conversation reads, plus the cap they are measured against (ADR-0054, spec MT-11, MT-14). `viewer` on the conversation: the mounted set is a property of the CONVERSATION, so everyone who can read the thread sees the same "Im Blick" row and the same provenance for its answers. A conversation that does not exist yet answers `{ mounts: [], cap }` rather than 404 — ids are client-generated and the row appears with the first message. | — | `{ mounts: [{ projectId, projectName, mountedBy, mountedAt }], cap }` |
+| `POST` | `/api/conversations/{id}/mounts` | Required | **Projekt einblenden.** `collaborator` on the conversation **and** `project:chat` on the project — the same permission the project scope builder demands, checked in `lib/workspace/mounts-service.ts`, which is the ONE place either that check or the cap happens (spec MT-2, MT-3, MT-8). Creates the conversation (`scope: 'workspace'`, via `createConversation`, so `org:chat` is checked) when it does not exist yet, which is the `?mount=` deep link's path (MT-16). Idempotent on `(conversation, project)`: a re-mount is **200**, returns the STORED attribution and a fresh grant, and consumes no cap. A project the caller cannot reach at all is a **404**, indistinguishable from absence (MT-4); one they may `project:view` but not chat in is a **403** naming `project:chat` (the one deliberate exception, spec OQ-7). At the cap: **409** `{ error, code: 'WORKSPACE_MOUNT_CAP', cap, mounted: [names] }`, with `cap`/`mounted` at the TOP LEVEL because both the UI and the Python tool read them (MT-9). Mounting into a SHARED conversation re-validates every participant (the creator plus every grant) against `project:view` on the new project and refuses **409** `{ error, code: 'WORKSPACE_MOUNT_WOULD_EXCLUDE', excluded: [names] }` rather than widening the project or evicting somebody (spec AC-8) — same top-level shape, same reason; the acting user is not re-asked (they just proved `project:chat`), and an idempotent re-mount is never re-validated. Mounting into a `scope: 'project'` conversation is a 400. **A Sammlung mounts through this same endpoint** (spec GR-2): send `{ projectSetId }` INSTEAD of `{ projectId }` — naming both, or neither, is a 400. The set expands to the same mount rows through the same service, and everything above still holds per project; what changes is that all three refusals are decided over the WHOLE set before any row is written. The cap is counted ONCE over `existing + new distinct` and its 409 gains a top-level `set` with the Sammlung's name; the exclusion refusal is the union over the new projects, named once each. A member the caller may `project:view` but not `project:chat` in is skipped and NAMED in `skipped` (they already know it exists); a member they may not view at all is absent from the answer entirely — not in `skipped`, not counted — because a Sammlung must not be the door through which somebody learns a project they may not read exists (MT-4, spec AC-3/AC-4). A set answer is a DIFFERENT shape from a single mount's, on purpose: `{ mount, grant }` is what the UI and the Python tool already read, and folding a set into it would make every existing reader parse a case it never asks for. | `{ projectId }` **or** `{ projectSetId }` | project: `{ mount: { projectId, projectName, mountedBy, mountedAt }, grant: { grant, sig } }`; Sammlung: `{ set: { id, name }, mounts: [{ mount, grant, created }], skipped: [{ projectId, projectName, reason: 'forbidden' }] }` (201 when anything was newly mounted / 200 otherwise) |
+| `DELETE` | `/api/conversations/{id}/mounts/{projectId}` | Required | Unmount one project (spec MT-13). `collaborator` on the conversation and **no** project permission — narrowing a thread's scope is contributing to it, so a member who has lost `project:chat` can still clean up. `204` whether or not a row was there: the caller asked for "this conversation no longer reads that project", which is true either way, so the endpoint is no oracle for guessed project ids. Answers already given are untouched — a mount decides what the NEXT turn may read. | — | `204 No Content` |
 
 Two further per-conversation routes belong to the collaboration feature and are
 documented with the rest of it in
@@ -108,9 +126,79 @@ documented with the rest of it in
 (composing presence) and `GET /api/conversations/{id}/live` (watch a turn stream in).
 Both are gated on the collaboration flag.
 
+**The mount grant.** A `POST …/mounts` answer carries
+`grant: { grant, sig }` beside the mount: `grant` is
+`base64url(JSON.stringify({ v: 1, collection, shelf: 'project', projectId,
+projectName, conversationId, organizationId, exp }))` and `sig` is
+`hex(HMAC-SHA256(payloadJson, GRID_INTERNAL_API_TOKEN))` — the same secret and
+the same MAC the request-context envelope uses, so this adds no trust boundary
+(`lib/workspace/grant.ts`; the Python verifier is
+`aiq_agent/knowledge/mounts.py`). `exp` is epoch **seconds**, minted fresh on
+every answer at now + 15 minutes. It exists because a turn's retrieval scope is
+fixed at the WebSocket upgrade and `open_project` happens after that: the grant
+is how the BFF's naming authority (ADR-0006) reaches the middle of a turn, and
+it widens THAT turn only. From the next upgrade on, the persisted mount arrives
+through the ordinary scope header, re-authorized (spec MT-6, MT-7). A grant
+whose signature, version, shelf, expiry, organisation or conversation does not
+match is refused and widens nothing.
+
 All conversation routes access the PostgreSQL database directly (not proxied to Python). They enforce org-level scoping by filtering on `conversations.organizationId`. `messages` has no organization column, so message routes resolve the conversation org-scoped first and 404 on a mismatch.
 
-Source: `frontends/ui/src/app/api/conversations/route.ts`, `frontends/ui/src/app/api/conversations/[id]/route.ts`, `frontends/ui/src/app/api/conversations/[id]/messages/route.ts`, `frontends/ui/src/app/api/conversations/[id]/messages/[messageId]/route.ts`
+Source: `frontends/ui/src/app/api/conversations/route.ts`, `frontends/ui/src/app/api/conversations/[id]/route.ts`, `frontends/ui/src/app/api/conversations/[id]/messages/route.ts`, `frontends/ui/src/app/api/conversations/[id]/messages/[messageId]/route.ts`, `frontends/ui/src/app/api/conversations/[id]/mounts/route.ts`, `frontends/ui/src/app/api/conversations/[id]/mounts/[projectId]/route.ts` (services: `frontends/ui/src/lib/workspace/mounts-service.ts`, `frontends/ui/src/lib/workspace/project-sets-service.ts`)
+
+## Sammlungen — named sets of projects (ADR-0054, spec GR-2)
+
+A **Sammlung** is a named, reusable set of projects — a Bezirk, a client, a year
+— that the Büro mounts as one unit. It is an addressing convenience over
+`conversation_mounts`, never a second kind of scope: mounting one writes the same
+mount rows the same five clicks would have written, and it is mounted through
+`POST /api/conversations/{id}/mounts` with a `projectSetId` (above), not through
+a route here. These routes only name, describe and edit the set.
+
+**Three permissions, and they are not one.** A Sammlung is a LABEL over projects
+and grants nobody access to any of them, so:
+
+- `org:chat` to see the Sammlungen and to create one. Every member holds it by
+  default; somebody who may not open the Büro has no use for a set of projects
+  to open it with.
+- **its creator, or `org:projects:administer`**, to rename, describe, add to,
+  remove from or delete one. Personal shorthand should not need an
+  administrator, and the office's shared vocabulary should not be editable by
+  whoever happens to open it. The administrator half is a PERMISSION, never the
+  role slug `admin` (ADR-0038).
+- `project:view` on the project, to put it in a set at all — otherwise a
+  Sammlung would be a way to publish a project's name to people who may not see
+  the project.
+
+**What a caller sees of a set is computed per caller, never stored.** Every read
+runs the membership through the same `filterReadableProjects` the projects grid
+and the register recall use, so a member of a firm-wide "Bezirk 3" sees the
+projects they are on and learns nothing about the rest. `projectCount` is
+therefore the READABLE count — which is also how many the Büro would mount, so a
+client measuring it against the mount cap is measuring the right thing.
+
+The wire shapes:
+
+- `ProjectSetSummary` = `{ id, name, description, createdBy, createdAt, updatedAt, projectCount, editable }`
+  (`createdAt`/`updatedAt` are ISO-8601 instants; `editable` says whether THIS
+  caller may change it).
+- `ProjectSetDetail` = `ProjectSetSummary & { projects: [{ id, name }] }`.
+
+| Method | Path | Auth | Description | Request Body / Params | Response |
+|--------|------|------|-------------|-----------------------|----------|
+| `GET` | `/api/workspace/project-sets` | Required | Every Sammlung of the organization, by name, each with the caller's own `projectCount`. One member query and one readability pass over the DISTINCT projects, so a page of sets does not cost one pass per set. | — | `{ sets: ProjectSetSummary[] }` |
+| `POST` | `/api/workspace/project-sets` | Required | Name a Sammlung. `org:chat`. The name is trimmed, must be non-blank and at most 120 characters; a blank description is stored as `null`. Names are unique per organization **case-insensitively** (`uniq_project_sets_org_name`), and a duplicate is a **409** naming it — caught from the unique violation rather than pre-checked, because "does this name exist?" followed by an insert is two statements two people can interleave. | `{ name, description? }` | `{ set: ProjectSetDetail }` (201) |
+| `GET` | `/api/workspace/project-sets/{id}` | Required | One Sammlung with the members this caller may view. A set in another organization is a **404**. | — | `{ set: ProjectSetDetail }` |
+| `PATCH` | `/api/workspace/project-sets/{id}` | Required | Rename or re-describe. Creator or `org:projects:administer`, else **403** — deliberately not a 404, because every member of the organization can already see this set, so a 404 would be a lie that costs them the reason. A body changing neither is a **400**; `description: null` clears it. | `{ name?, description? }` | `{ set: ProjectSetDetail }` |
+| `DELETE` | `/api/workspace/project-sets/{id}` | Required | Delete it. Its memberships go by cascade and **nothing else moves**: a conversation that mounted this set holds ordinary mount rows, so deleting the name must not change what a thread reads. | — | `204 No Content` |
+| `POST` | `/api/workspace/project-sets/{id}/projects` | Required | Add projects. Creator or `org:projects:administer` on the set, **and `project:view` on every id** — checked before anything is written, and the whole call is refused if any fails. All-or-nothing, because a half-applied add leaves the caller believing the set holds seven projects when it holds five. The refusal is a **404 naming nothing**: adding ids to your own Sammlung must not be a way to discover which project ids this organization holds (MT-4's reasoning). Idempotent per project; the batch is de-duplicated and bounded at 100. | `{ projectIds: [uuid, ...] }` | `{ set: ProjectSetDetail }` |
+| `DELETE` | `/api/workspace/project-sets/{id}/projects` | Required | Remove projects. Creator or `org:projects:administer`, and **no project permission at all** — narrowing a set edits the label, not the project, so a member who has since lost `project:view` on something in their own set can still take it out. Same direction `DELETE …/mounts/{projectId}` takes. Idempotent, and says nothing about whether a membership was there. | `{ projectIds: [uuid, ...] }` | `{ set: ProjectSetDetail }` |
+
+Source: `frontends/ui/src/app/api/workspace/project-sets/route.ts`,
+`frontends/ui/src/app/api/workspace/project-sets/[id]/route.ts`,
+`frontends/ui/src/app/api/workspace/project-sets/[id]/projects/route.ts`
+(service: `frontends/ui/src/lib/workspace/project-sets-service.ts`;
+tables: [`project_sets`, `project_set_members`](../database/schema.md))
 
 ## Projects
 
@@ -133,6 +221,35 @@ Source: `frontends/ui/src/app/api/conversations/route.ts`, `frontends/ui/src/app
 
 Source: `frontends/ui/src/app/api/projects/route.ts`, `frontends/ui/src/app/api/projects/[id]/route.ts`, `frontends/ui/src/app/api/projects/[id]/diagrams/route.ts` (services: `frontends/ui/src/lib/diagrams/`), `frontends/ui/src/app/api/projects/[id]/members/route.ts`, `frontends/ui/src/app/api/projects/[id]/members/[assignmentId]/route.ts`, `frontends/ui/src/app/api/projects/[id]/consistency-check/route.ts` (service: `frontends/ui/src/lib/project-profile/profile-service.ts`)
 Source: `frontends/ui/src/app/api/projects/route.ts`, `frontends/ui/src/app/api/projects/[id]/route.ts`, `frontends/ui/src/app/api/projects/[id]/members/route.ts`, `frontends/ui/src/app/api/projects/[id]/members/[assignmentId]/route.ts`, `frontends/ui/src/app/api/projects/[id]/consistency-check/route.ts`, `frontends/ui/src/app/api/projects/[id]/folders/route.ts`, `frontends/ui/src/app/api/projects/[id]/folders/[folderId]/route.ts` (services: `frontends/ui/src/lib/project-profile/profile-service.ts`, `frontends/ui/src/lib/projects/folder-service.ts`)
+
+## Memory (ADR-0008, ADR-0054, ADR-0055)
+
+The store the agent reads on every turn. Two scopes: `project` items belong to
+one project, `organization` items are shared by every project in the tenant
+(`project_id` NULL, never cross-organization). Project items are addressed under
+the project; organization items go through `/api/organization/memory`, which is
+the one place an org-wide note is written or changed from a session.
+
+Since ADR-0055 a list carries **retired** notes as well as live ones, flagged by
+the `status` they already had, with both ends of a supersession resolved
+(`supersedes`, `supersededBy`). A correction was previously invisible: the write
+path recorded `supersedes_id`, nothing read it, and the replaced note simply
+vanished from the panel — so it could be neither seen nor undone. `dismissed`
+and `proposed` still need `includeArchived=true`.
+
+| Method | Path | Auth | Description | Request Body | Response |
+|--------|------|------|-------------|-------------|----------|
+| `GET` | `/api/projects/{id}/memory?includeArchived=&conversationId=` | Required | The project's notes plus the org-wide notes that apply to every project, pinned first then most recently updated. Checks `project:view`. `conversationId` narrows to what one turn recorded (the "Piloti hat sich gemerkt" chip). Each item carries `supersedes?: { id, content }` and, while its replacement is still live, `supersededBy?: { id, content }`. | — | `{ items: [{ id, scope, kind, content, status, confidence, verification, pinned, supersedesId, supersedes?, supersededBy?, ... }] }` |
+| `POST` | `/api/projects/{id}/memory` | Required | Add a note by hand. `provenance_type='user'`, `verification='user_confirmed'` by definition. Checks `project:memory:write` (or the `project:edit` umbrella). | `{ kind, content, confidence?, pinned? }` | `{ item }` (201) |
+| `PATCH` | `/api/projects/{id}/memory/{itemId}` | Required | Edit one note (content, kind, status, confidence, verification, pinned). Same permission as the create. | `{ … }` (non-empty) | `{ item }` |
+| `DELETE` | `/api/projects/{id}/memory/{itemId}` | Required | Remove one note. Same permission. | — | `204 No Content` |
+| `POST` | `/api/projects/{id}/memory/{itemId}/restore` | Required | **New (ADR-0055).** Undo a supersession: reinstate the retired note and retire the one that replaced it, in ONE transaction so the store never holds both or neither. Same permission as editing memory, because it is one — it changes which of two contradictory findings the agent carries — and audited as `project.memory.restored`. `404` when there is no such item in this project; `409` when there is nothing to undo (the note is not retired, or nothing live claims to have replaced it, or another writer moved the pair first) — a bare 404 would report those as "no such note". The `supersedes_id` link is deliberately NOT rewritten: it records what happened, and the reader takes the direction from the statuses, which is what makes a restore reversible and idempotent. | — | `{ restoredId, retiredId }` |
+| `GET` | `/api/organization/memory?includeArchived=` | Required | The organization's own notes, keyed by `session.organizationId`. Deliberately not admin-gated: any member may read. Same reader view and the same supersession fields as the project list. | — | `{ items: [...] }` |
+| `POST` | `/api/organization/memory` | Required | Add an org-wide note from a session. Any member; this is also where the `memory_proposal` card lands what the agent was refused. | `{ kind, content, confidence?, pinned? }` | `{ item }` (201) |
+| `PATCH` / `DELETE` | `/api/organization/memory/{itemId}` | Required | Edit or remove one org-wide note, scoped in SQL by `session.organizationId`. | `{ … }` / — | `{ item }` / `204` |
+| `POST` | `/api/organization/memory/{itemId}/restore` | Required | **New (ADR-0055).** The org twin of the project restore, on the same terms. It exists because the project memory panel lists org-wide notes alongside the project's own, and a correction visible there with no way to reverse it would be the same dead end one surface along. | — | `{ restoredId, retiredId }` |
+
+Source: `frontends/ui/src/app/api/projects/[id]/memory/`, `frontends/ui/src/app/api/organization/memory/` (services: `frontends/ui/src/lib/projects/memory-service.ts`, `frontends/ui/src/lib/projects/memory-repository.ts`)
 
 ## Documents
 
@@ -424,7 +541,9 @@ Sources: `frontends/ui/src/app/api/organization/{model-config,budgets,usage,audi
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/api/internal/memory` | `x-grid-internal-token` | Backend `remember`/reflection memory writes (single-writer bridge). Optional `supersedesContent` — the verbatim text of an entry the finding makes obsolete, quoted from the digest the agent was shown: it is resolved to an active item in the same scope, which is then marked `superseded` and linked via `supersedes_id`. Unresolvable quotes are ignored and human-curated entries (pinned / `user_confirmed` / user-authored) are never retired this way, so the write always lands; the response's `supersededId` reports which entry (if any) was actually retired. |
+| `POST` | `/api/internal/memory` | `x-grid-internal-token` | Backend `remember`/reflection memory writes (single-writer bridge). An **organization-scoped** write (`scope: 'organization'`, the Büro's `remember`) needs two further gates and refuses both with **403 `ORG_MEMORY_DISABLED`**. The **acting user's** `org:memory:write` is asked FIRST and asked always — resolved from the `organizationMembershipId` the turn's envelope carries, never from the service token, which says nothing about whose turn it is (spec AG-8; Admin holds the permission, Member does not) — and only then the deployment off-switch `GRID_ALLOW_AGENT_ORG_MEMORY`. That order is the fix ADR-0055 required: the off-switch defaults to off, so behind it every permission denial in every ordinary deployment reached the user as "this feature is switched off", which tells someone who could be granted the right that there is nothing to grant. The two refusals now carry different **messages** — one names the missing permission, the other names the deployment — and the same **code**, on purpose: the tool degrades either into a proposal card the user can accept in their own session (spec AG-9). `userId`/`organizationMembershipId` are optional in the body — a missing one refuses the org write rather than failing to parse — and a project-scoped write asks neither. Optional `supersedesContent` — the verbatim text of an entry the finding makes obsolete, quoted from the digest the agent was shown: it is resolved to an active item in the same scope, which is then marked `superseded` and linked via `supersedes_id`. Unresolvable quotes are ignored and human-curated entries (pinned / `user_confirmed` / user-authored) are never retired this way, so the write always lands; the response's `supersededId` reports which entry (if any) was actually retired, and `supersededContent` carries that entry's own words beside it — the route has the row in hand to retire it, and the transcript notice ADR-0055 requires renders both notes, so sending only the id would push a read of a row somebody already held onto a post-answer stage. Both are `null` together when nothing was retired. |
+| `GET` | `/api/internal/memory/digest?projectId=&organizationId=&query=` | `x-grid-internal-token` | The per-turn READ path for the core memory digest. The `x-grid-project-memory` header is frozen for the life of a WebSocket connection, so memory written mid-session would not reach the agent until a reconnect; the backend calls this at the start of each turn for the CURRENT digest. `query` is this turn's question and makes recall relevance-ranked rather than recency-ordered; without it the digest is pinned-then-recent. Tenancy: `?organizationId`, else RESOLVED from the project row under a narrow platform scope, and the read then happens inside that tenant — an internal token is not a licence to read every tenant. An unknown project answers with the empty shape, not a 404. **Since ADR-0055 it also reports what it carried**: `carried` names exactly the notes that reached the digest TEXT (built from the render, not from the selection — the 1800-character budget can still drop a tail, and a list built from the selection would name notes the model never saw), `omitted` is the very number the digest text discloses to the model, and `total` is the active notes in scope. The digest string itself is unchanged. | — | `{ digest: string \| null, carried: [{ id, kind, content }] (≤20, content ≤120 chars), omitted: number, total: number }` |
+| `GET` | `/api/internal/memory/search?organizationId=&projectId=&q=&limit=` | `x-grid-internal-token` | **New (ADR-0055).** The `search_memory` tool's half of the seam — the read path the store never had. The digest is a working set of at most twenty notes, so a project with two hundred findings had a hundred and eighty no question could reach; this is the way past it. It runs the SAME candidate statement, the SAME scope rule and the SAME hybrid ranking (`lib/projects/memory-repository.ts`, `lib/knowledge/recall-scoring.ts`) the digest uses, so "ask for one of the omitted notes" resolves against the store the digest was describing rather than a second opinion about relevance. **Scope rule, non-negotiable:** with `projectId` the result is that project's notes plus the organization's; without one it is organization-scoped notes ONLY; never another project's, and the project branch is pinned to the organization so a foreign project id matches nothing. `q` is required and non-empty (`400` otherwise — an unbounded read wearing a search's clothes is how a cap gets bypassed by accident); `limit` defaults to 8 and clamps to 20. Pins do not jump the queue here: somebody asked a question, so a pin wins on relevance like any other note. An organization this deployment has never heard of gets the empty result rather than a 404. Reading for a question reinforces (`last_referenced_at`, `recall_count`), exactly as the digest's query-driven build does. | — | `{ items: [{ id, kind, content, confidence, verification, pinned, scope, updatedAt, score }], total, returned }` |
 | `POST` | `/api/internal/usage` | `x-grid-internal-token` | Backend cost tracker's LLM usage-event batches into the `llm_usage_events` ledger. Org-less (anonymous) events are skipped. |
 | `POST` | `/api/internal/citation-events` | `x-grid-internal-token` | Backend citation-health emitter's per-turn batches into the `citation_events` ledger (`src/aiq_agent/common/citation_events.py`). One row per `(turnId, kind)`; conflicts are ignored so a retried flush cannot double-count. |
 | `POST` | `/api/internal/skills/fire` | `x-grid-internal-token` | Scheduler-fired job run (`{ scheduleId }` — the pre-jobs spelling of a `jobs.id`, kept because the scheduler container and the BFF deploy separately). Re-checks `enabled` + the org's skills gate, then submits through the shared fire path (ADR-0046). |
@@ -433,6 +552,9 @@ Sources: `frontends/ui/src/app/api/organization/{model-config,budgets,usage,audi
 | `GET` | `/api/internal/document-file?collection=&filename=[&imageIndex=]` | `x-grid-internal-token` | **New 2026-08-03.** Just-in-time storage-key resolution for the backend's `view_knowledge_image` tool (ADR-0039): maps the `(collection, filename)` pair the backend carries to the SeaweedFS `storage_key` in the `documents` table. Returns `{ storageKey, storageBucket, contentType }` (404 when unknown); the backend fetches the bytes itself via boto3. With `imageIndex` (integer ≥ 0) it returns the key of the `_img/<index>.jpg` raster the ingest pipeline stored beside the document, built from the row's own storage key by `buildImageStorageKey` — the backend never names a derived key, only a bounded integer, so a derived read cannot leave the owning document's prefix. Collection name is the tenancy boundary (`proj_<uuid>`/`archiv_<orgId>`), so no per-org FGA — read-only metadata. Declares `tenancy: { fromPayload }`; when the backend supplies no `organizationId` (every `proj_` collection) the lookup runs under an explicit platform scope, so row-level security does **not** constrain it — the unguessable collection name is still the only boundary on that path (ADR-0041). |
 | `POST` | `/api/internal/document-image-upload-url` | `x-grid-internal-token` | **New 2026-09-02.** One presigned PUT slot for a raster the ingest pipeline cut out of a PDF (`{ documentId, collection, imageIndex, organizationId? }` → `{ uploadUrl, storageKey }`). The backend holds a read-only object-store credential, so it writes derived objects through this the way it writes the thumbnail — per image rather than pre-issued in the ingest body, because the count is unknown until extraction has run and most documents hold none. The key is `<doc dir>/_img/<index>.jpg` from the row's own storage key; `MAX_STORED_IMAGES_PER_DOCUMENT` (`lib/s3.ts`, 64) is enforced here as a 404 the backend reads as "stop". Row addressed by document id AND collection (both unguessable); `organizationId` narrows the lookup when sent. Deleted with the document by the `_img/` sweep in `lib/documents/object-cleanup.ts`. |
 | `GET` | `/api/internal/retrieval-settings` | `x-grid-internal-token` | **New 2026-07-31.** Just-in-time fleet retrieval-count resolution for backend tools (knowledge retrieval, surface documents, web/RIS search): `common/retrieval_settings.py`'s `get_retrieval_setting()` calls this, TTL-cached in-process (60s positive / 30s negative) and fail-open to the build-time YAML values. Returns `{ settings: {key: value} }` — only the pinned (non-default) keys. |
+| `GET` | `/api/internal/workspace/digest?organizationId=&membershipId=&q=&limit=` | `x-grid-internal-token` | **New (ADR-0054).** A Büro turn's whole context in one round trip: `{ digest: string \| null, projects: [{ id, name, steckbrief, score }] }`. `digest` is the ORGANISATION memory digest (`buildProjectMemoryDigest(undefined, organizationId)`, the same call the memory digest route makes for a project-less caller); `projects` is hybrid recall over the Projektregister, filtered to what `membershipId` may **view** (spec PR-10, PR-16). `limit` defaults to 5, clamps to 10. Cross-tenant token, single-tenant read: the route enters `withTenant(organizationId)` before touching anything. **No `membershipId` → `projects: []` and the digest is still served** — readability is keyed on the membership, so an unattributable caller is shown no project list, but the office half needs no membership at all. An organisation this deployment has never heard of gets `{ digest: null, projects: [] }` rather than a 404: a misconfigured org id should degrade the answer, not break the turn. Register recall additionally fails to an empty list on any error (spec PR-11). |
+| `POST` | `/api/internal/conversations/{id}/mounts` | `x-grid-internal-token` | **New (ADR-0054).** The agent's half of the mounts endpoint — a TWIN of `POST /api/conversations/{id}/mounts`, not a second implementation: the same service, permission, cap, body and grant, because MT-2 exists so that there is exactly one place a mount is authorized. **It authorizes as the USER, never as the service:** the token proves the caller is the backend and says nothing about the person whose turn is running, so `organizationId`, `userId` and `organizationMembershipId` come from the turn's signed context envelope and every check runs against that reconstructed caller (`sessionForInternalMount`, whose role comes from `lib/authz/membership-role.ts`). The membership id is load-bearing — WorkOS FGA keys on it — so a body missing any of the three is a **400** rather than a widened scope. `mountedBy` is the literal `'agent'`: a caller that could claim `'user'` could attribute its own mount to a person. Same 201/200/403/404/409 as the session route, including `WORKSPACE_MOUNT_WOULD_EXCLUDE` (spec AC-8), which the tool turns into a sentence naming who would lose the conversation. It takes a **Sammlung** on the same terms (spec GR-2): `projectSetId` instead of `projectId`, expanded to the same mount rows through the same service, so the agent opening "Bezirk 3" and a person clicking it cannot diverge either — and there is no second place the cap is decided. | `{ projectId }` **or** `{ projectSetId }`, plus `{ organizationId, userId, organizationMembershipId, mountedBy: 'agent' }` → `{ mount, grant }` or `{ set, mounts, skipped }` |
+| `POST` | `/api/internal/workspace/register/reconcile` | `x-grid-internal-token` | **New (ADR-0054).** Rebuilds one bounded batch (50) of missing or stale *Steckbriefe*, across every tenant, and returns `{ claimed, rebuilt, skipped, batchSize }`. Called by the scheduler container's tick (`frontends/ui/scheduler/index.js`), last and never fatal — a register outage costs the Büro slightly stale project fingerprints, never the deployment its scheduled jobs. Idempotent: a rebuild clears `stale_at`, so an extra call claims nothing. MISSING and STALE are one batch on purpose — the backfill for projects that predate the register and the repair of a missed write-through share one code path (spec MG-2, PR-7). Cross-tenant to find the work, then `withTenant` per project to do it. |
 | `POST` | `/api/internal/storage/alerts` | `x-grid-internal-token` | **New 2026-08-07.** Storage-quota alert sweep (ADR-0042), called hourly by the `storage-alerts` CronJob. One grouped cross-tenant aggregate finds each organization's stored bytes; the sweep then re-enters each org with `withTenant` (so the inbox writes stay under row-level security despite the route's `crossTenant` declaration) and raises a `storage.quota_warning` inbox item for every active holder of `org:settings:manage` once usage crosses the configured threshold (`GRID_STORAGE_ALERT_THRESHOLD_PERCENT`, default 80; auto-escalating at 90/100). **Idempotent across sequential calls** — an already-live row suppresses re-emission, which is what makes at-least-once CronJob delivery safe — while a drop below the threshold archives the outstanding rows and re-arms the next crossing. Returns `{ organizationsChecked, alerted, notified, retired, thresholdPercent }`. |
 
 ## User Preferences

@@ -455,6 +455,74 @@ class TestSubmitDeepResearchJob:
         assert _job_arg(job_args, "data_sources") == ["web_search"]
 
     @pytest.mark.asyncio
+    async def test_submit_agent_job_passes_the_portfolio_request(self):
+        """A Portfolio-Recherche reaches the worker as one (ADR-0054, spec DR-4).
+
+        Positionally, on the Dask path — so the flag and the named projects have
+        to sit in ``run_agent_job``'s signature where the submitter puts them.
+        Dropping either would run an ordinary single-scope deep research and
+        report it as a portfolio, which is the one failure this feature cannot
+        afford: the reader would take an answer from one project's corpus as an
+        answer about the office.
+        """
+        from aiq_api.jobs.submit import submit_agent_job
+
+        mock_job_store = MagicMock()
+        mock_job_store.ensure_job_id.return_value = "test-job-id"
+        mock_job_store.submit_job = AsyncMock(return_value=None)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "NAT_DASK_SCHEDULER_ADDRESS": "tcp://localhost:8786",
+                "NAT_JOB_STORE_DB_URL": "sqlite:///./test.db",
+            },
+        ):
+            with patch("nat.front_ends.fastapi.async_jobs.job_store.JobStore", return_value=mock_job_store):
+                with patch("aiq_api.jobs.submit.get_current_principal", return_value=self.principal):
+                    with patch("aiq_api.jobs.submit.create_job_access"):
+                        await submit_agent_job(
+                            agent_type="deep_researcher",
+                            input_text="vergleiche die Brandschutzkonzepte",
+                            owner="test@example.com",
+                            portfolio=True,
+                            project_ids=["p-1", "p-2"],
+                        )
+
+        job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
+        assert _job_arg(job_args, "portfolio") is True
+        assert _job_arg(job_args, "project_ids") == ["p-1", "p-2"]
+
+    @pytest.mark.asyncio
+    async def test_submit_agent_job_defaults_to_no_portfolio(self):
+        """Every caller that predates the field submits the job it always did."""
+        from aiq_api.jobs.submit import submit_agent_job
+
+        mock_job_store = MagicMock()
+        mock_job_store.ensure_job_id.return_value = "test-job-id"
+        mock_job_store.submit_job = AsyncMock(return_value=None)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "NAT_DASK_SCHEDULER_ADDRESS": "tcp://localhost:8786",
+                "NAT_JOB_STORE_DB_URL": "sqlite:///./test.db",
+            },
+        ):
+            with patch("nat.front_ends.fastapi.async_jobs.job_store.JobStore", return_value=mock_job_store):
+                with patch("aiq_api.jobs.submit.get_current_principal", return_value=self.principal):
+                    with patch("aiq_api.jobs.submit.create_job_access"):
+                        await submit_agent_job(
+                            agent_type="deep_researcher",
+                            input_text="test query",
+                            owner="test@example.com",
+                        )
+
+        job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
+        assert _job_arg(job_args, "portfolio") is False
+        assert _job_arg(job_args, "project_ids") is None
+
+    @pytest.mark.asyncio
     async def test_submit_agent_job_passes_user_info_and_clarifier_result(self):
         """user_info and clarifier_result ride along as structured worker args."""
         from aiq_api.jobs.submit import submit_agent_job

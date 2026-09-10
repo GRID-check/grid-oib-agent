@@ -8,7 +8,18 @@
     "`rejected` is the client half only — frames a producer must never emit and a client must therefore drop.",
     "There is nothing for the frame builder to assert about them.",
     "Additive only: a new stage adds a `delivered` entry and a payload shape. The envelope never changes; `v` is",
-    "bumped only on a breaking change to it."
+    "bumped only on a breaking change to it.",
+    "`memory_reflection.ready.payload.proposals` (ADR-0055) are memory_proposal CARDS for which NOTHING was",
+    "written: an organization-scoped finding the BFF refused because the acting user does not hold",
+    "org:memory:write, offered for a person to accept. It is optional — absent, never [], when there are none —",
+    "and it is a separate key from `items` on purpose: a client that rendered a proposal as a written row would",
+    "claim a firm-wide note that does not exist.",
+    "`memory_reflection.ready.payload.items[].supersedes` (ADR-0055) is the note that item RETIRED — the id and",
+    "the retired note's own words, reported by the write path and capped like every other string here. It is",
+    "what makes a correction a STATED event: the transcript renders both halves and offers the undo, instead of",
+    "the replaced note silently vanishing from the memory panel. Present ONLY on an item that actually retired",
+    "one, which is why the first fixture item omits it and the second carries it — absent, never null, and",
+    "never a member of `items`, because it names a RETIRED row and `items` are the rows this turn wrote."
   ],
   "v": 1,
   "type": "grid_stage_message",
@@ -66,7 +77,20 @@
           {
             "id": "1a7c9e02-5b64-4d19-8e3a-0f5b6c7d8e91",
             "kind": "derived_fact",
-            "content": "Das oberste Fluchtniveau des Bauvorhabens beträgt 9,80 m, das Gebäude liegt damit in Gebäudeklasse 4."
+            "content": "Das oberste Fluchtniveau des Bauvorhabens beträgt 9,80 m, das Gebäude liegt damit in Gebäudeklasse 4.",
+            "supersedes": {
+              "id": "4c8e1d73-2a95-4b06-b1f7-3e9d0a2b4c68",
+              "content": "Das oberste Fluchtniveau beträgt 6,50 m, das Gebäude liegt damit in Gebäudeklasse 3."
+            }
+          }
+        ],
+        "proposals": [
+          {
+            "type": "memory_proposal",
+            "title": "Neue Erkenntnis merken",
+            "content": "Das Büro legt Fluchtwegpläne grundsätzlich im Maßstab 1:100 an.",
+            "kind": "preference",
+            "confidence": "medium"
           }
         ]
       },

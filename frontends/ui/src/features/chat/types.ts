@@ -9,11 +9,14 @@ import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
+import type { MemoryContext } from '@/adapters/api/schemas'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { StageFrame } from './stores/messages-store'
+import type { MountsSlice } from './stores/mounts-store'
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
 
 import type { Shelf, SourceKind } from './lib/source-kinds'
+import type { ConversationScope } from './lib/project-scope'
 
 /** Message role types */
 export type MessageRole = 'user' | 'assistant' | 'system'
@@ -179,6 +182,16 @@ export interface AnswerTransparency {
   skillsActivated?: string[]
   /** The grid-hidden subset of skillsActivated — muted in the disclosure, never dropped. */
   skillsHidden?: string[]
+  /**
+   * What this turn READ out of project/organization memory (ADR-0055): the
+   * notes the injected digest was built from, how many were left out, how many
+   * exist, and how many `search_memory` returned. Absent when the turn had no
+   * memory at all.
+   *
+   * READ, never USED — the marker under the answer is worded on that
+   * distinction and must never claim a note shaped the answer.
+   */
+  memoryContext?: MemoryContext
   /**
    * The answer's structured anatomy (verdict / takeaways / callout) — native
    * answer fields, gated backend-side and sanitized at the wire boundary,
@@ -472,6 +485,16 @@ export interface ChatMessage {
   /** The grid-hidden subset of skillsActivated — muted in the disclosure, never dropped. */
   skillsHidden?: string[]
   /**
+   * What this turn READ out of project/organization memory (ADR-0055): the
+   * notes the injected digest was built from, how many were left out, how many
+   * exist, and how many `search_memory` returned. Absent when the turn had no
+   * memory at all.
+   *
+   * READ, never USED — the marker under the answer is worded on that
+   * distinction and must never claim a note shaped the answer.
+   */
+  memoryContext?: MemoryContext
+  /**
    * The answer's structured anatomy (verdict / takeaways / callout) — native
    * answer fields of this message, gated backend-side and sanitized on every
    * write and read (`lib/conversations/message-answer-meta.ts`). Rendered in a
@@ -593,6 +616,15 @@ export interface Conversation {
    */
   projectId?: string | null
   /**
+   * Which surface this session belongs to (ADR-0054): a project chat, or the
+   * organization-level Büro. Mirrors `conversations.scope`.
+   *
+   * Absent on rows created before the column existed. `conversationScope()` in
+   * `lib/project-scope.ts` is the only place that decides what that absence
+   * means — never read this field raw.
+   */
+  scope?: ConversationScope | null
+  /**
    * The job that produced this session, when one did (`conversations.job_id`,
    * migration 0044); null/undefined for every session a person started, which
    * is nearly all of them.
@@ -698,6 +730,18 @@ export interface CitationSource {
    */
   shelf?: Shelf
   /**
+   * WHICH project a `project`-shelf passage belongs to (ADR-0054), as the
+   * knowledge layer stated it beside the shelf.
+   *
+   * In the Büro several mounted projects are readable in one turn, so
+   * "Projektwissen" no longer says whose — the chip reads "Projekt Seestadt ·
+   * Brandschutz.pdf · S. 7" because these two travelled with the passage. Like
+   * the shelf they are DATA and never derived: a `proj_` prefix on the
+   * collection id is exactly the guess ADR-0047 removed.
+   */
+  projectId?: string
+  projectName?: string
+  /**
    * Identity of the DOCUMENT this source is a passage of, as the backend
    * registry groups it (`citation_verification.document_key`). Absent on
    * messages persisted before the wire carried it, where the client derives an
@@ -750,6 +794,14 @@ export interface WireCitationSource {
   kind?: string | null
   /** Shelf the chunk came from: `archiv | project | session | base` (ADR-0047). */
   shelf?: string | null
+  /**
+   * The project a `project`-shelf passage came from (ADR-0054). Two fields
+   * rather than one "Name (id: …)" string, because a project name may itself
+   * contain brackets. Absent for every other shelf, and for output produced
+   * before the fields were threaded.
+   */
+  project_id?: string | null
+  project_name?: string | null
   lane?: string | null
   lane_label?: string | null
   binding_note?: string | null
@@ -915,6 +967,17 @@ export interface ChatState {
   streamingAssistantMessageId: string | null
   /** Active project ID for scoping (set by project chat page) */
   projectId: string | null
+  /**
+   * Which chat surface is mounted (ADR-0054). `'project'` everywhere except the
+   * Büro at `/app/chat`, which sets `'workspace'` on mount and resets it on
+   * unmount.
+   *
+   * It is not derivable from `projectId`: a project chat whose page has not set
+   * its id yet also has none, and the difference decides what the sessions
+   * panel lists, what the WebSocket handshake scopes to, and which rows the
+   * conversation list asks for.
+   */
+  scope: ConversationScope
   /**
    * One-shot draft text queued for the chat composer (InputArea). Set by deep
    * links (`?ask=`) and welcome-screen suggestion chips; consumed exactly once
@@ -1481,6 +1544,16 @@ export interface ChatActions {
   /** Set the active project ID for collection scoping */
   setProjectId: (projectId: string | null) => void
 
+  /**
+   * Switch the mounted chat surface (ADR-0054).
+   *
+   * `'workspace'` also clears the active project — a Büro turn has no project
+   * and must not acquire one from a stale store — and drops a current
+   * conversation the new surface would not list, so a project thread can never
+   * continue under the office's scope.
+   */
+  setScope: (scope: ConversationScope) => void
+
   /** Queue text for the composer to pick up (does NOT auto-send). */
   setComposerPrefill: (text: string, mentions?: DraftMention[], subject?: ComposerSubject) => void
   setComposerSubject: (subject: ComposerSubject | null) => void
@@ -1500,4 +1573,14 @@ export interface ChatActions {
 }
 
 /** Combined chat store type */
-export type ChatStore = ChatState & ChatActions
+/**
+ * The store as every consumer sees it.
+ *
+ * `MountsSlice` is composed in as its OWN type rather than copied into
+ * `ChatState`/`ChatActions` above. The two halves of this file predate the
+ * slice pattern and restate every field a slice declares, which is a fork that
+ * looks locally correct until one side moves; a slice that carries its own
+ * contract cannot drift from itself. Type-only in both directions, so the cycle
+ * with `stores/mounts-store.ts` is erased at build time.
+ */
+export type ChatStore = ChatState & ChatActions & MountsSlice

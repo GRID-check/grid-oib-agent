@@ -13,18 +13,24 @@ import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
 import { withOptionalTenant } from '@/lib/db/tenant-context'
 import { NotFoundError, OrgMemoryDisabledError } from '@/lib/api/errors'
 import {
+  assertAgentMayWriteOrgMemory,
   createProjectMemoryItem,
   createProjectMemoryItemForProject,
   organizationExists,
 } from '@/lib/projects/memory-service'
 import { PROJECT_MEMORY_CONFIDENCES, PROJECT_MEMORY_KINDS } from '@/lib/db/schema'
 
-// Agent-authored org-wide memory is DENIED by default: an org item lands in
-// every project's digest across the tenant, and this service-token endpoint
-// cannot verify the human's org role, so an autonomous or prompt-injected write
-// would be a cross-project poisoning primitive (audit finding S1). Org-wide
-// findings are a deliberate, human-driven action via the org-memory panel.
-// Set GRID_ALLOW_AGENT_ORG_MEMORY=true only if you accept that risk.
+// The DEPLOYMENT half of the org-memory gate, kept as an off-switch BELOW the
+// permission (audit finding S1): an org item lands in every project's digest
+// across the tenant, so an operator who wants no agent-authored org memory at
+// all in this deployment has a lever that does not depend on how WorkOS roles
+// are provisioned.
+//
+// The AUTHORIZATION half is `assertAgentMayWriteOrgMemory`, which resolves the
+// ACTING user from the envelope and asks whether they hold `org:memory:write`
+// (spec AG-8). Both refuse with the same `ORG_MEMORY_DISABLED` code, because to
+// the agent both are "policy says no" and both degrade into the proposal card
+// the user can accept (spec AG-9).
 function agentOrgMemoryAllowed(): boolean {
   return (process.env.GRID_ALLOW_AGENT_ORG_MEMORY ?? '').toLowerCase() === 'true'
 }
@@ -34,6 +40,19 @@ const internalMemorySchema = z
     scope: z.enum(['project', 'organization']).default('project'),
     projectId: z.string().uuid().optional(),
     organizationId: z.string().min(1).optional(),
+    /**
+     * WHO the turn runs for, straight from its signed context envelope. Read
+     * only on the organization-scoped branch, where the write is authorized as
+     * that person rather than as the service token (spec AG-8).
+     *
+     * Optional because a project-scoped write is addressed by a project row and
+     * needs no acting user, and because an envelope that carries no membership
+     * id must REFUSE the org write rather than fail to parse — a 400 would make
+     * the agent report a malformed request where the honest outcome is "you may
+     * not do that here", which it degrades into a proposal card (spec AG-9).
+     */
+    userId: z.string().min(1).optional(),
+    organizationMembershipId: z.string().min(1).optional(),
     kind: z.enum(PROJECT_MEMORY_KINDS),
     content: z.string().trim().min(1).max(2000),
     confidence: z.enum(PROJECT_MEMORY_CONFIDENCES).default('medium'),
@@ -67,6 +86,7 @@ export const POST = internalApiRoute(
       scope,
       projectId,
       organizationId,
+      organizationMembershipId,
       kind,
       content,
       confidence,
@@ -84,14 +104,41 @@ export const POST = internalApiRoute(
       'project-scoped agent memory addressed by project id; the project row names the tenant',
       async () => {
         if (scope === 'organization') {
-          // Default-deny agent-authored org-wide writes (audit finding S1).
+          // THE PERMISSION IS ASKED FIRST, and it is asked ALWAYS (ADR-0055).
+          //
+          // It used to be asked second, behind the deployment off-switch, which
+          // defaults to off — so in every ordinary deployment the refusal that
+          // actually reached a person said the feature was switched off, when
+          // the truth about them was that their role does not hold
+          // `org:memory:write`. A permission denial reported as a service state
+          // is the wrong sentence in both directions: it tells someone who
+          // could be granted the right that there is nothing to grant, and it
+          // tells an administrator who did switch the feature on nothing about
+          // why it still refuses. The message below is a statement about the
+          // acting user, and it is the one a holder of the permission never
+          // sees.
+          //
+          // The code stays ORG_MEMORY_DISABLED for both refusals: the Python
+          // side's proposal-card branch keys on it, and the agent's one honest
+          // answer to either is the same card (spec AG-8, AG-9).
+          await assertAgentMayWriteOrgMemory({
+            organizationId: organizationId as string,
+            organizationMembershipId,
+          })
+          // Then the deployment off-switch, which is an operator's statement
+          // about this deployment and says so. Second because it can only be
+          // reached by someone the permission already allowed, which is exactly
+          // when "the administrator turned this off here" is the true and
+          // complete answer.
           if (!agentOrgMemoryAllowed()) {
             console.warn(
               '[Internal Memory API] Rejected agent org-scoped write (GRID_ALLOW_AGENT_ORG_MEMORY not set)'
             )
             // Distinct ORG_MEMORY_DISABLED code (not a bare FORBIDDEN) so the backend
             // reports the accurate cause instead of mislabeling it a token mismatch.
-            throw new OrgMemoryDisabledError('Agent organization-scoped memory is disabled')
+            throw new OrgMemoryDisabledError(
+              'Agent organization-scoped memory is switched off in this deployment'
+            )
           }
           // Validate the org id against known tenants. There is no organizations
           // table, so "known" means: at least one project belongs to it. This
@@ -106,11 +153,23 @@ export const POST = internalApiRoute(
         // Reported by the service, never derived from the returned row: a duplicate
         // or paraphrase refresh returns an EXISTING item whose `supersedesId` may
         // record a retirement performed by an earlier request.
-        const outcome: { supersededId: string | null } = { supersededId: null }
+        //
+        // The retired entry's own words travel back beside its id, because the
+        // caller renders them (ADR-0055: a supersession is a STATED event in the
+        // transcript, and "Piloti replaced a note" without the two sentences is a
+        // report nobody can check). This is the one moment they cost nothing —
+        // the service has the row loaded — and the one moment they are certainly
+        // right: the caller's `supersedesContent` is a QUOTE that was resolved
+        // fuzzily, and in the polarity case there is no quote at all.
+        const outcome: { supersededId: string | null; supersededContent: string | null } = {
+          supersededId: null,
+          supersededContent: null,
+        }
         const writeOptions = {
           supersedesContent,
-          onSuperseded: (id: string) => {
-            outcome.supersededId = id
+          onSuperseded: (superseded: { id: string; content: string }) => {
+            outcome.supersededId = superseded.id
+            outcome.supersededContent = superseded.content
           },
         }
 
@@ -149,7 +208,10 @@ export const POST = internalApiRoute(
 
         // `supersededId` is null when the quote resolved to nothing, or to an entry
         // the agent may not retire — the caller can then be honest about what it did.
-        return { item, supersededId: outcome.supersededId }
+        // `supersededContent` is null in exactly the same cases and never in any
+        // other: the two are set together or not at all, so a caller may treat a
+        // present id with an absent content as a version skew rather than a fact.
+        return { item, supersededId: outcome.supersededId, supersededContent: outcome.supersededContent }
       }
     )
   },

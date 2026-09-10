@@ -31,6 +31,7 @@ import {
   AgentResponse,
   ErrorBanner,
   DeepResearchBanner,
+  MountNotices,
   UserMessage,
   ChatThinking,
   useElapsedSeconds,
@@ -44,6 +45,9 @@ import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
 // reason the collaboration imports above are: existing specs mock that barrel,
 // and a new export on it would have to be added to every one of those mocks.
 import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
+import { MemoryStageProposals, MemorySupersededNotices } from '@/features/chat/components'
+import { turnMemoryItems, turnMemoryProposals } from '@/features/chat/lib/turn-memory'
+import { WorkspaceEmptyState } from './WorkspaceEmptyState'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import { cn } from '@/lib/utils'
 import { AwaitingBanner } from '@/features/collaboration/components/AwaitingBanner'
@@ -134,6 +138,9 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const getThinkingStepsForMessage = useChatStore((s) => s.getThinkingStepsForMessage)
   const dismissErrorCard = useChatStore((s) => s.dismissErrorCard)
   const retryLastUserMessage = useChatStore((s) => s.retryLastUserMessage)
+  // The project a supersession's restore route belongs to. Read here rather
+  // than threaded per message: it is a property of the CHAT, not of a turn.
+  const projectId = useChatStore((s) => s.projectId)
   const t = useTranslations('research')
   const tCollaboration = useTranslations('collaboration')
   const { user } = useAuth()
@@ -893,6 +900,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             choicePrompt={choicePrompt}
                             onChoiceRespond={handlePromptRespond}
                             escalationReason={agentMsg?.escalationReason}
+                            memoryContext={agentMsg?.memoryContext}
                           />
                         </div>
                       )}
@@ -911,6 +919,31 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       in the THREAD either, the answer no longer streaming, the
                       reader not already typing) is enforced where the frame
                       arrives, in `applyStageFrame`. */}
+                      {/* A correction Piloti made to its own memory, stated
+                      where it happened and undoable from here (ADR-0055). Above
+                      the follow-ups, which stay last: a supersession is about
+                      the answer just given, an offer is about the next one. */}
+                      {message.stages?.memoryReflection && (
+                        <div className="flex w-full flex-col gap-2">
+                          <MemorySupersededNotices
+                            items={turnMemoryItems({ stages: message.stages })}
+                            projectId={projectId}
+                          />
+                          {/* A firm-wide finding the reflection pass proposed.
+                          It arrives on the stage frame because the turn's card
+                          registry is unbound by the time the pass runs, so this
+                          is the only place it can be drawn — `GridCards` reads
+                          `message.cards` and cannot see it. */}
+                          <MemoryStageProposals
+                            proposals={turnMemoryProposals({
+                              stages: message.stages,
+                              cards: message.cards,
+                            })}
+                            messageId={message.id}
+                          />
+                        </div>
+                      )}
+
                       {message.stages?.followUps && (
                         <div className="w-full">
                           <FollowUpsRail items={message.stages.followUps.items} />
@@ -995,6 +1028,17 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                 ) : (
                   <TurnInFlightBanner label={turnInFlightLabel} />
                 ))}
+
+              {/* Every mount this conversation has seen, in the order it
+              happened (`workspace-chat-ui.md` §4). At the foot of the
+              transcript rather than in a toast: a mount is a durable change to
+              what every LATER turn may read, and its undo is something a reader
+              may reach for three turns later. A record belongs in the record.
+
+              Rendered from the SAME mounts state as the chip's count and the
+              "Im Blick" row, so there is no path that widens the scope without
+              all three saying so. */}
+              <MountNotices />
 
               {/* A colleague at a keyboard. Distinct vocabulary from the agent's
               banner above (see TypingPresence), and independent of it: somebody may
@@ -1177,6 +1221,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           degradedReasons={message.degradedReasons}
           skillsActivated={message.skillsActivated}
           skillsHidden={message.skillsHidden}
+          memoryContext={message.memoryContext}
           showReasoning={showReasoning}
           showConfidenceChip={showConfidenceChip}
           messageId={message.id}
@@ -1492,6 +1537,8 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
   const tChat = useTranslations('chat')
   const { user } = useAuth()
   const composerSubject = useChatStore((s) => s.composerSubject)
+  const isWorkspace = useChatStore((s) => s.scope === 'workspace')
+  const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const tFiles = useTranslations('files')
 
   if (!isAuthenticated) {
@@ -1539,6 +1586,17 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
       <h1 className="text-foreground text-center text-[23px] font-semibold tracking-tight">
         {heading}
       </h1>
+
+      {/* The Büro's canvas says what the Büro is. A project chat's does not
+          need to — the rail, the breadcrumb and the chip all name the project
+          — but in the office two of those three are gone, and the surface is
+          new (WS-5). Suppressed the moment the chat is about a file: that file
+          is the subject, and two invitations would compete. */}
+      {isWorkspace && !composerSubject && (
+        <div className="mt-3 w-full max-w-2xl sm:mt-5">
+          <WorkspaceEmptyState onPrompt={(text) => setComposerPrefill(text)} />
+        </div>
+      )}
 
       {/* The chat is about one file: say which. A named file is the state of
           THIS canvas, and it is not recoverable from anything else on

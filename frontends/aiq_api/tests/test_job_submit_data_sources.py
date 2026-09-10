@@ -1,4 +1,10 @@
-"""Tests for async job submit data source targeting."""
+"""Tests for what the async submit route forwards into a job.
+
+Data-source targeting, and — on the same fixture, because it is the same
+question asked of a different field — the Portfolio-Recherche request
+(ADR-0054, spec DR-4): a flag the route drops is a job that silently runs as
+something else.
+"""
 
 from __future__ import annotations
 
@@ -126,6 +132,61 @@ async def test_submit_job_forwards_selected_data_sources(submit_app):
     assert response.json()["job_id"] == "job-1"
     submitted_job.assert_awaited_once()
     assert submitted_job.await_args.kwargs["data_sources"] == ["web_search"]
+
+
+@pytest.mark.asyncio
+async def test_submit_job_forwards_the_portfolio_request(submit_app):
+    """The flag and the named projects reach ``submit_agent_job`` as they were sent."""
+    app, submitted_job, _builder = submit_app
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/jobs/async/submit",
+            json={
+                "agent_type": "deep_researcher",
+                "input": "vergleiche die Brandschutzkonzepte",
+                "portfolio": True,
+                "project_ids": ["p-1", "p-2"],
+            },
+        )
+
+    assert response.status_code == 200
+    assert submitted_job.await_args.kwargs["portfolio"] is True
+    assert submitted_job.await_args.kwargs["project_ids"] == ["p-1", "p-2"]
+
+
+@pytest.mark.asyncio
+async def test_submit_job_without_a_portfolio_request_submits_what_it_always_did(submit_app):
+    app, submitted_job, _builder = submit_app
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/jobs/async/submit",
+            json={"agent_type": "deep_researcher", "input": "query"},
+        )
+
+    assert response.status_code == 200
+    assert submitted_job.await_args.kwargs["portfolio"] is False
+    assert submitted_job.await_args.kwargs["project_ids"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_portfolio_request_is_bounded_at_the_edge(submit_app):
+    """Fifty ids is the request ceiling; the run has its own, lower one."""
+    app, _submitted_job, _builder = submit_app
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/jobs/async/submit",
+            json={
+                "agent_type": "deep_researcher",
+                "input": "query",
+                "portfolio": True,
+                "project_ids": [f"p-{n}" for n in range(51)],
+            },
+        )
+
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio

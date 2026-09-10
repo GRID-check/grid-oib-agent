@@ -172,6 +172,22 @@ export const ORG_PERMISSION_SPECS: readonly PermissionSpec[] = [
     tier: 'org',
   },
   {
+    slug: 'org:chat',
+    name: 'Ask Piloti in the Büro',
+    // WorkOS caps this at 150 characters.
+    description:
+      'Use the organization-level chat (Büro), which reads the base corpus, the Archiv and organization memory. Withhold it to keep chat inside projects.',
+    tier: 'org',
+  },
+  {
+    slug: 'org:memory:write',
+    name: 'Record organization memory',
+    // WorkOS caps this at 150 characters.
+    description:
+      'Let Piloti record findings in organization memory. Held by Admin, not by Member: an org-wide note is a firm-wide statement (ADR-0008, AG-8).',
+    tier: 'org',
+  },
+  {
     slug: 'org:projects:administer',
     name: 'Administer all projects',
     // WorkOS caps this at 150 characters; the reasoning lives in ./permissions.
@@ -429,10 +445,10 @@ export const ROLES: readonly RoleSpec[] = [
     slug: 'member',
     name: 'Member',
     description:
-      'The default user role. May create projects; all other project access comes from project-scoped roles.',
+      'The default user role. May create projects and ask Piloti in the Büro; all other project access comes from project-scoped roles.',
     tier: 'org',
     scope: 'environment',
-    permissions: ['org:projects:create'],
+    permissions: ['org:projects:create', 'org:chat'],
   },
   {
     slug: 'admin',

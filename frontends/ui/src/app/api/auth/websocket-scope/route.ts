@@ -24,7 +24,11 @@
 import { NextResponse } from 'next/server'
 import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { getGridSession } from '@/lib/auth/session'
-import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
+import {
+  buildCollectionScopeFromRequest,
+  type RequestContext,
+  type RequestScope,
+} from '@/lib/collection-scope-request'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { buildProposalDecisionsBlock, composeMemoryContext } from '@/lib/projects/proposal-decisions'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
@@ -34,6 +38,32 @@ import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { getBudgetStatus } from '@/lib/budgets/service'
 import { isAuthzError } from '@/lib/auth-utils'
 import { isAuthRequired } from '@/lib/backend-proxy'
+import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
+import type { GridSession } from '@/lib/auth/types'
+
+/**
+ * The `?scope=` query param, parsed at the one boundary it crosses.
+ *
+ * Absent means `project`, which is what every pre-Büro client sends and what
+ * every pre-Büro branch below then takes. Anything else is a 400 rather than a
+ * silent fall back to `project`: a client that misspells the office scope must
+ * be told, not quietly given a project turn (spec KH-5).
+ */
+function parseRequestScope(raw: string | null): RequestScope | null {
+  if (raw === null || raw === '' || raw === 'project') return 'project'
+  if (raw === 'workspace') return 'workspace'
+  return null
+}
+
+/**
+ * The Büro is behind `workspace-chat`, fail-open while WorkOS flag enforcement
+ * is off exactly like `organization-archiv` (spec WS-15). A session-less caller
+ * — anonymous single-tenant mode — has no flags to read, so it passes only on
+ * that same fail-open path and is refused once enforcement is on.
+ */
+function isWorkspaceChatEnabled(session: Pick<GridSession, 'featureFlags'> | null): boolean {
+  return isFeatureEnabled(session ?? { featureFlags: null }, FEATURE_FLAGS.workspaceChat)
+}
 
 /** Run a best-effort lookup: its failure is logged and read as "absent". */
 async function bestEffort<T>(what: string, load: () => Promise<T>): Promise<T | null> {
@@ -48,8 +78,20 @@ async function bestEffort<T>(what: string, load: () => Promise<T>): Promise<T | 
 export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Response> {
   try {
     const { searchParams } = new URL(req.url)
-    const projectId = searchParams.get('projectId') || undefined
+    const requestScope = parseRequestScope(searchParams.get('scope'))
+    if (requestScope === null) {
+      return NextResponse.json(
+        { error: 'Bad Request', reason: "scope must be 'project' or 'workspace'" },
+        { status: 400 }
+      )
+    }
     const conversationId = searchParams.get('conversationId') || undefined
+    // A Büro upgrade carries no project, and a `projectId` alongside
+    // `scope=workspace` is a contradiction rather than a hint: it is dropped
+    // here, so nothing downstream — the scope builder, the profile loaders, the
+    // budget scope — can be handed a project the office turn never had (KH-5).
+    const projectId =
+      requestScope === 'workspace' ? undefined : searchParams.get('projectId') || undefined
 
     const session = await getGridSession()
 
@@ -57,11 +99,25 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    if (requestScope === 'workspace' && !isWorkspaceChatEnabled(session)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    // Project mode passes exactly the context it always passed; the office turn
+    // states its scope, which is what suppresses the active-project fallback in
+    // the builder.
+    const scopeContext: RequestContext =
+      requestScope === 'workspace'
+        ? { scope: 'workspace', conversationId }
+        : { projectId, conversationId }
+
+    // `projectId` comes back AUTHORIZED: the explicit param once checked, or the
+    // stored implicit project. Every lookup below is scoped to that rather than
+    // to the raw query param. On an office turn it is undefined and stays so —
+    // the workspace branch above is what guarantees the builder never resolves
+    // one.
     const { scope, scopedCollections, headerValue, projectId: authorizedProjectId } =
-      await buildCollectionScopeFromRequest(session, {
-        projectId,
-        conversationId,
-      })
+      await buildCollectionScopeFromRequest(session, scopeContext)
 
     const response: Record<string, unknown> = {
       scope,
@@ -75,6 +131,12 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
     if (session) {
       response.organizationId = session.organizationId
       response.userId = session.userId
+      // The (user, organization) pair WorkOS FGA keys on. `server.js` forwards
+      // it as `x-grid-organization-membership-id` and signs it into the
+      // request-context envelope, which is how the Büro's workspace digest can
+      // filter the Projektregister to the projects THIS caller may read without
+      // a WorkOS round trip of its own (ADR-0054, spec AC-4).
+      response.organizationMembershipId = session.organizationMembershipId
       response.accessToken = session.accessToken
     }
 

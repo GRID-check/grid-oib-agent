@@ -281,6 +281,19 @@ export const projects = {
       user: 'added by you',
       grid: 'noted by Piloti',
     },
+    // A correction stays visible (ADR-0055): the retired note is still there
+    // and says what took its place — and the new one says what it replaced.
+    // Before this, the old one simply vanished.
+    superseded: {
+      replacedBy: 'Replaced by: “{content}”',
+      replacedUnknown: 'Replaced — the new note is no longer in this list.',
+      replaces: 'Replaced: “{content}”',
+      restore: 'Restore the earlier note',
+      restored: 'The earlier note is in force again.',
+      restoreFailed: 'The note could not be restored.',
+      // 409: a statement about the store, not a failed request.
+      restoreStale: 'Something changed here in the meantime — the list is reloaded.',
+    },
     conflict: {
       badge: 'Conflicts with a confirmed note',
       title:

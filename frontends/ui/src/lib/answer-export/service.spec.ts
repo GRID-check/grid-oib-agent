@@ -35,6 +35,12 @@ vi.mock('@/lib/documents/repository', () => ({
 }))
 vi.mock('@/lib/projects/repository', () => ({ findProjectInOrg: vi.fn() }))
 vi.mock('@/lib/sharing/repository', () => ({ findGrantForSubject: vi.fn() }))
+// A project-less conversation's read check consults its mounts (ADR-0054,
+// spec AC-7); nothing in this spec mounts anything, so the answer is "none".
+vi.mock('@/lib/workspace/mounts-repository', () => ({
+  listConversationMounts: vi.fn().mockResolvedValue([]),
+  countConversationMounts: vi.fn().mockResolvedValue(0),
+}))
 
 // The request-scoped locale helpers need a Next.js request context, which a
 // service spec has no business standing up. Bound to the REAL dictionaries so

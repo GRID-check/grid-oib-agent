@@ -111,6 +111,11 @@ export interface AppSidebarProps {
    * nav item.
    */
   canAccessArchiv?: boolean
+  /**
+   * Whether the Büro at `/app/chat` is reachable (`workspace-chat`, ADR-0054).
+   * Gates the rail's "Büro" entry in the cross-project group.
+   */
+  canAccessWorkspaceChat?: boolean
   /** Whether the IFC/BIM model page is enabled (`ifc-models`, ADR-0045). */
   showModels?: boolean
   /** Whether the Agent Skills page is enabled (feature-flagged, default off — ADR-0046). */
@@ -186,6 +191,7 @@ function AppSidebarFrame({
   canViewOrganization = false,
   canManagePlatform = false,
   canAccessArchiv = false,
+  canAccessWorkspaceChat = false,
   showModels = false,
   showSkills = false,
   canAccessInbox,
@@ -217,6 +223,7 @@ function AppSidebarFrame({
     showModels,
     canAccessArchiv,
     canAccessInbox,
+    canAccessWorkspaceChat,
   })
 
   const groups: RailGroupModel[] = projectGroups.map((group) => ({

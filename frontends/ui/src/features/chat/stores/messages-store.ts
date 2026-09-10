@@ -23,6 +23,7 @@ import type { GridCard } from '@/shared/cards/schemas'
 import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-decision'
 import { reconcileCardInteractions } from '@/features/grid-cards/card-decision'
 import { errorConcernsTheThread, getErrorMeta } from '../lib/error-registry'
+import { isOpenProjectStepName, parseMountEvent } from '../lib/mount-events'
 import { mergeTraceLaneCards, parseTraceLanesBlock } from '../lib/trace-lanes'
 import { useLayoutStore } from '@/features/layout/store'
 import { ensureStorageCapacity, checkStorageHealth } from '../lib/storage-manager'
@@ -706,6 +707,10 @@ const buildAgentResponseMessage = (
     ...(opts.transparency?.skillsActivated && opts.transparency.skillsActivated.length > 0
       ? { skillsActivated: opts.transparency.skillsActivated }
       : {}),
+    // Kept whole, and kept even when `carried` is empty: a turn that read the
+    // store and found nothing to carry is a different fact from a turn with no
+    // memory at all, and only the second is an absent field.
+    ...(opts.transparency?.memoryContext ? { memoryContext: opts.transparency.memoryContext } : {}),
   }
 }
 
@@ -1188,6 +1193,17 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
       false,
       'updateThinkingStepByFunctionName'
     )
+
+    // The agent mounted a project mid-turn (ADR-0054). `open_project` states it
+    // in the first line of its own result, and this is the moment that result
+    // exists — so the chip's count, the "Im Blick" row, the tree and the notice
+    // all move together, out of the ONE mounts state, while the answer is still
+    // streaming. Applied on the COMPLETE frame only: a half-streamed JSON line
+    // is not an event, and `applyMountEvent` is idempotent per project anyway.
+    if (isComplete && isOpenProjectStepName(functionName)) {
+      const event = parseMountEvent(content)
+      if (event) get().applyMountEvent(event)
+    }
   },
 
   findThinkingStepByFunctionName: (functionName: string) => {
@@ -1565,6 +1581,7 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
         ...(transparency?.skillsActivated && transparency.skillsActivated.length > 0
           ? { skillsActivated: transparency.skillsActivated }
           : {}),
+        ...(transparency?.memoryContext ? { memoryContext: transparency.memoryContext } : {}),
         isStreaming: false,
       }
     })

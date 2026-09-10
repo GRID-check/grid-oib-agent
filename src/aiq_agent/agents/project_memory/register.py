@@ -19,6 +19,7 @@ import logging
 
 from pydantic import Field
 
+from aiq_agent.agents.project_memory.proposal import emit_memory_proposal_card as _emit_memory_proposal_card
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
@@ -35,37 +36,6 @@ _CARD_SHOWN_RESULT = (
 )
 
 
-def _emit_memory_proposal_card(*, content: str, kind: str, confidence: str) -> bool:
-    """Build and register a ``memory_proposal`` confirmation card.
-
-    Returns True if the card was added to a bound conversation-scoped card
-    registry, False when no card channel is available (so the caller can fall
-    back to an honest error string). Mirrors ``emit_card``'s None handling.
-    """
-    from aiq_agent.cards.models import grid_card_adapter
-    from aiq_agent.cards.registry import get_card_registry
-
-    registry = get_card_registry()
-    if registry is None:
-        return False
-
-    card = {
-        "type": "memory_proposal",
-        "title": "Neue Erkenntnis merken",
-        "content": content,
-        "kind": kind,
-        "confidence": confidence,
-    }
-    try:
-        validated = grid_card_adapter.validate_python(card).model_dump(exclude_none=True)
-    except Exception:
-        logger.exception("Failed to build memory_proposal card")
-        return False
-    registry.add(validated)
-    logger.info("Emitted memory_proposal card (kind=%s) for user-authorized memory write", kind)
-    return True
-
-
 _TOOL_DESCRIPTION = (
     "Record ONE durable finding in long-term memory. Use when the conversation establishes "
     "something worth knowing in future conversations: a decision the client/user made "
@@ -77,6 +47,10 @@ _TOOL_DESCRIPTION = (
     "building-code knowledge, transient conversation details, restatements of the user's "
     "message, or facts already in the project profile. Content must be one concise, "
     "self-contained sentence.\n"
+    "In the Büro — a conversation that belongs to the office and to no project — there is no "
+    "project to record against, so a finding worth keeping is recorded for the whole "
+    "organisation. Record only what really holds across the office; the office may require a "
+    "person to confirm such a note, and you will be told when it does.\n"
     "When this finding CORRECTS something already in the PROJECT_MEMORY shown in your context "
     "— the user changed a project fact, or an earlier note turned out to be wrong — pass the "
     "outdated entry's text VERBATIM as 'supersedes' (without its [kind | confidence | "
@@ -100,7 +74,9 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
     from aiq_agent.knowledge.project_memory import insert_memory_item
     from aiq_agent.project_context import get_conversation_id_from_context
     from aiq_agent.project_context import get_organization_id_from_context
+    from aiq_agent.project_context import get_organization_membership_id_from_context
     from aiq_agent.project_context import get_project_id_from_context
+    from aiq_agent.project_context import get_user_id_from_context
 
     async def _remember(
         kind: str,
@@ -132,18 +108,23 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
 
         if scope == "project" and not project_id:
             if organization_id:
-                # No project in scope but the finding is still worth keeping, so
-                # escalate to org scope. NOTE: in default deployments the frontend
-                # denies agent org-wide writes (ORG_MEMORY_DISABLED, audit finding
-                # S1) unless GRID_ALLOW_AGENT_ORG_MEMORY=true; when that happens the
-                # OrgMemoryDisabledError branch below returns an honest message that
-                # explains it to the user. (Escalation kept intentionally — product
-                # decision deferred.)
+                # THE BÜRO (ADR-0054, spec AG-8). An organisation and no project
+                # is the office, not a project turn with a field missing, and a
+                # finding learned there belongs to the office: it is written
+                # organisation-scoped, with `project_id` null, and authorized by
+                # the BFF as the acting user's `org:memory:write`. Where that
+                # permission is not held — and in a deployment that keeps the
+                # `GRID_ALLOW_AGENT_ORG_MEMORY` off-switch shut — the route
+                # refuses with ORG_MEMORY_DISABLED and the branch below turns the
+                # write into a proposal card the user can accept from their own
+                # session (spec AG-9). That degradation is the wanted default,
+                # not a fallback: it is what makes an ungranted permission a
+                # visible offer instead of a silent write.
                 scope = "organization"
             else:
                 return (
-                    "Error: no project in scope for this conversation — memory can only be "
-                    "recorded in project-scoped chats. Do not retry."
+                    "Error: no project and no organisation in scope for this conversation — there is "
+                    "nowhere to record a finding. Do not retry."
                 )
         if scope == "organization" and not organization_id:
             return "Error: organization unknown for this session — cannot record org-wide memory. Do not retry."
@@ -160,6 +141,13 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
                 content=content,
                 confidence=confidence,
                 conversation_id=conversation_id,
+                # WHO is asking. Read on the organisation branch only, where the
+                # BFF authorizes the write as that person rather than as the
+                # service token (spec AG-8); `insert_memory_item` is where that
+                # rule is applied, so this call site simply states the identity
+                # the turn has.
+                user_id=get_user_id_from_context(),
+                organization_membership_id=get_organization_membership_id_from_context(),
                 # Retires the entry this finding corrects. The frontend resolves
                 # the quote and ignores it when nothing matches or the target is
                 # human-curated, so the write lands either way.
@@ -197,6 +185,12 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
             )
 
         if item_id is None:
+            # The endpoint answered 404: the target it was addressed by does not
+            # exist. Which target that was depends on the scope, and saying
+            # "unknown project" for an office write would send the model looking
+            # for a project this turn never had.
+            if scope == "organization":
+                return "Error: unknown organisation — nothing recorded."
             return "Error: unknown project — nothing recorded."
 
         logger.info("Recorded %s memory item %s (%s)", scope, item_id, kind)

@@ -26,6 +26,7 @@ import { deriveExecutedSteps } from '../lib/executed-steps'
 import { isSkillStepName, isUseSkillStepName } from '@/features/skills/lib/skill-activity'
 import { useElapsedSeconds, formatElapsed } from '../hooks/use-elapsed-seconds'
 import { ReasoningFlow } from './reasoning/ReasoningFlow'
+import type { MemoryContext } from '@/adapters/api/schemas'
 import { type ChoicePrompt } from './reasoning'
 import { buildFileChips } from './reasoning/context'
 
@@ -73,6 +74,11 @@ export interface ChatThinkingProps {
   onChoiceRespond?: (promptId: string, choice: string) => void
   /** Set when this turn escalated shallow→deep — framing-node narration. */
   escalationReason?: string
+  /**
+   * What the turn read out of memory (ADR-0055) — rendered as the Herleitung's
+   * own memory band, after the knowledge levels and apart from them.
+   */
+  memoryContext?: MemoryContext
   /** Render the Herleitung expanded on first mount (e.g. the current turn). */
   defaultOpen?: boolean
   /**
@@ -100,6 +106,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   choicePrompt,
   onChoiceRespond,
   escalationReason,
+  memoryContext,
   defaultOpen = false,
   autoOpen,
 }) => {
@@ -192,6 +199,9 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
     (citations?.length ?? 0) > 0 ||
     Boolean(choicePrompt) ||
     Boolean(escalationReason?.trim()) ||
+    // A turn that read memory has something to show even with no retrieval at
+    // all — which is precisely the turn whose Herleitung used to be empty.
+    Boolean(memoryContext) ||
     userQuestion.trim().length > 0
 
   if (!hasSignal) {
@@ -341,6 +351,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   choicePrompt={choicePrompt}
                   onChoiceRespond={onChoiceRespond}
                   escalationReason={escalationReason}
+                  memoryContext={memoryContext}
                   live={isThinking}
                 />
               </div>

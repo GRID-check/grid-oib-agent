@@ -187,6 +187,31 @@ class TestEscalation:
         assert payload["values"] == {}
         assert payload["reason"] == "Shallow agent emitted insufficiency marker"
 
+    def test_a_portfolio_escalation_says_how_many_projects_before_the_run(self, steps) -> None:
+        """DR-7: the cost is acknowledged in words BEFORE the run starts.
+
+        A different KEY, not a value on the ordinary line: "eine Tiefenrecherche"
+        and "eine Portfolio-Recherche über 6 Projekte" are two sentences, and
+        the frontend owns both. The count is the one number in ``values`` — it
+        reads the same in every language, and without it the line cannot say
+        what the run costs.
+        """
+        turn_status.emit_escalation("Portfolio-Recherche über 6 Projekte", portfolio_project_count=6)
+        payload = _live(steps)[0]
+        assert payload["key"] == "status.escalation.portfolio"
+        assert payload["values"] == {"count": "6"}
+        assert payload["reason"] == "Portfolio-Recherche über 6 Projekte"
+
+    def test_a_portfolio_run_whose_projects_are_not_named_stays_the_ordinary_line(self, steps) -> None:
+        """A portfolio line that cannot say how many would leave the `{count}`
+        slot empty, which is worse than the honest general line: the worker asks
+        the register for the readable set, and until it does there is no number
+        to acknowledge."""
+        turn_status.emit_escalation("Portfolio-Recherche über alle lesbaren Projekte", portfolio_project_count=0)
+        payload = _live(steps)[0]
+        assert payload["key"] == "status.escalation"
+        assert payload["values"] == {}
+
 
 class TestChannels:
     def test_every_status_here_is_addressed_to_the_reader(self, steps) -> None:
@@ -209,6 +234,11 @@ class TestChannels:
 #: product-authored string on the wire has to look like this, because anything
 #: that does not is prose — and prose has a language.
 _ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:[._,][A-Za-z0-9]+)*$")
+
+#: A plain count. The other thing that may sit in a sentence slot: it is the
+#: same figure in every locale, so it is neither prose we wrote nor a name we
+#: chose. Digits only — a formatted number ("1.200") is grammar again.
+_COUNT_RE = re.compile(r"^[0-9]+$")
 
 #: Value names whose content is NOT ours: the reader's own query echoed back,
 #: and the tenant's authored skill title. Both are the same string in every
@@ -262,6 +292,9 @@ def _every_live_payload(steps) -> list[dict]:
     turn_status.emit_citation_check(source_count=3)
     turn_status.emit_answer_repair(removed_citations=1, unverified_quotes=1)
     turn_status.emit_escalation("Shallow agent emitted insufficiency marker")
+    turn_status.emit_escalation("Portfolio-Recherche über 6 Projekte", portfolio_project_count=6)
+    turn_status.emit_memory_search(3)
+    turn_status.emit_memory_superseded(1)
     return _live(steps)
 
 
@@ -284,7 +317,7 @@ class TestNothingEmittedIsLanguageSpecific:
             for name, value in payload["values"].items():
                 if name in _ECHOED_BACK:
                     continue
-                assert _ID_RE.match(value), f"{name}={value!r} in {payload['key']}"
+                assert _ID_RE.match(value) or _COUNT_RE.match(value), f"{name}={value!r} in {payload['key']}"
 
     def test_no_german_survives_anywhere_the_reader_can_see(self, steps) -> None:
         """Applies to the key and to the values — i.e. to the whole sentence.

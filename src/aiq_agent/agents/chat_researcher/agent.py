@@ -123,6 +123,33 @@ def _normalize_citations_removed(value: Any) -> dict[str, Any] | None:
     return {"count": count, "reasons": reasons}
 
 
+def _effective_portfolio(result: Any, *, office: bool) -> tuple[bool, list[str] | None]:
+    """The Portfolio-Recherche the escalation actually gets, from the one it asked for.
+
+    The model asks in its envelope (``portfolio`` plus the ids it could name);
+    this is where the ask meets the rule that only the office may be answered
+    that way (spec DR-5: the one path that reads more projects than the cap is
+    reached deliberately, and never by a turn that has a project already). A
+    request in a project turn is dropped and LOGGED rather than silently
+    ignored: it means the prompt branch and the turn disagree about where the
+    turn is, which is worth seeing.
+
+    Fail-closed on every unrecognised shape — the expensive path is never
+    entered on a field this could not read.
+    """
+    if getattr(result, "answer_portfolio", False) is not True:
+        return False, None
+    ids = getattr(result, "answer_portfolio_project_ids", None)
+    ids = [pid for pid in ids if isinstance(pid, str) and pid.strip()] if isinstance(ids, list) else None
+    if not office:
+        logger.info(
+            "Portfolio-Recherche requested in a project turn; escalating as one ordinary deep run (%d project ids)",
+            len(ids or []),
+        )
+        return False, None
+    return True, ids or None
+
+
 def _finalize_shallow_answer(
     message: BaseMessage,
     citation_grounded: bool,
@@ -142,6 +169,8 @@ def _finalize_shallow_answer(
     answer_meta: dict[str, Any] | None = None,
     source_lookup_attempted: bool = True,
     escalation_reason: str | None = None,
+    portfolio: bool = False,
+    portfolio_project_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build the node update for a successful/insufficient shallow answer.
 
@@ -149,6 +178,9 @@ def _finalize_shallow_answer(
     observed routing (see ``observed_routing``). ``escalation_reason`` is the
     model's own clause from the envelope; without one, the legacy fixed
     string stands in so the frontend's narration still has something to say.
+    ``portfolio``/``portfolio_project_ids`` are the EFFECTIVE Portfolio-Recherche
+    decision — the caller has already applied the office rule — so they are
+    recorded here without a second judgement.
 
     The shallow agent now extracts and strips BOTH control markers inside its
     own ``run()`` and returns the signals as structured state fields. When those
@@ -223,6 +255,8 @@ def _finalize_shallow_answer(
                 confidence="low",
                 escalate_to_deep=True,
                 escalation_reason=escalation_reason or "Shallow agent emitted insufficiency marker",
+                portfolio=portfolio,
+                portfolio_project_ids=portfolio_project_ids,
             ),
             # Escalation supersedes the shallow answer → surface no self-assessment.
             "answer_confidence": None,
@@ -369,6 +403,22 @@ class ChatResearcherAgent:
             return state.shallow_result.escalation_reason
         return None
 
+    @staticmethod
+    def _escalation_portfolio_for(state: ChatResearcherState) -> tuple[bool | None, list[str] | None]:
+        """The Portfolio-Recherche decision this escalation carries, for the state.
+
+        Read off the same entry ``_escalation_reason_for`` reads, and set on the
+        state by the same node, for the same reason: the clarifier sits on both
+        routes into deep research and may ask a question in between, so the
+        intent has to survive that hand-off on the state rather than in the
+        shallow result the deep node has no business re-reading. ``(None, None)``
+        on a direct-deep entry so the fields stay absent.
+        """
+        result = state.shallow_result
+        if result is not None and result.escalate_to_deep and result.portfolio:
+            return True, result.portfolio_project_ids or None
+        return None, None
+
     def _build_graph(self) -> CompiledStateGraph:
         """Build the LangGraph workflow."""
 
@@ -377,6 +427,7 @@ class ChatResearcherAgent:
             # Present only on a shallow→deep escalation entry (absent on direct
             # deep). Carried to the terminal state so the frontend can narrate why.
             escalation_reason = self._escalation_reason_for(state)
+            escalation_portfolio, escalation_portfolio_project_ids = self._escalation_portfolio_for(state)
 
             # Validate deep research tools before proceeding to clarifier
             if self.validate_deep_research_tools_fn:
@@ -437,6 +488,8 @@ class ChatResearcherAgent:
                             "routing_decision": "meta",
                             # A cancellation is not an escalation; never narrate one.
                             "escalation_reason": None,
+                            "escalation_portfolio": None,
+                            "escalation_portfolio_project_ids": None,
                             "shallow_result": None,
                         },
                     )
@@ -450,6 +503,8 @@ class ChatResearcherAgent:
                             "deep_research_declined": True,
                             # A decline is not an escalation; never narrate one.
                             "escalation_reason": None,
+                            "escalation_portfolio": None,
+                            "escalation_portfolio_project_ids": None,
                             "shallow_result": None,
                         },
                     )
@@ -466,6 +521,8 @@ class ChatResearcherAgent:
                         "clarifier_result": clarifier_result,
                         "original_query": original_query,
                         "escalation_reason": escalation_reason,
+                        "escalation_portfolio": escalation_portfolio,
+                        "escalation_portfolio_project_ids": escalation_portfolio_project_ids,
                         "routing_decision": "deep",
                     },
                 )
@@ -474,6 +531,8 @@ class ChatResearcherAgent:
                 update={
                     "original_query": original_query,
                     "escalation_reason": escalation_reason,
+                    "escalation_portfolio": escalation_portfolio,
+                    "escalation_portfolio_project_ids": escalation_portfolio_project_ids,
                     "routing_decision": "deep",
                 },
             )
@@ -502,6 +561,10 @@ class ChatResearcherAgent:
                     available_documents=state.available_documents,
                     in_flight_documents=state.in_flight_documents,
                     project_context=state.project_context,
+                    # The office branch's switch (ADR-0054). Without it here the
+                    # Büro turn renders the project prompt with a workspace
+                    # block inside it, which is the one shape spec AG-3 forbids.
+                    workspace_context=state.workspace_context,
                     platform_lessons=state.platform_lessons,
                     focus_file_name=state.focus_file_name,
                     focus_shelf=state.focus_shelf,
@@ -690,6 +753,15 @@ class ChatResearcherAgent:
             raw_escalation_reason = getattr(result, "answer_escalation_reason", None)
             escalation_reason = raw_escalation_reason if isinstance(raw_escalation_reason, str) else None
 
+            # The Portfolio-Recherche request, and the ONE place the office rule
+            # is applied to it (ADR-0054, spec DR-3/DR-5). Only the Büro has
+            # several projects to read; a project turn already has exactly one,
+            # so iterating it would be the same run with extra steps. The state's
+            # ``workspace_context`` is the office switch — it is set for a turn
+            # with an organization and no project and for no other, and it is the
+            # same switch the prompt branched on when the model asked for this.
+            portfolio, portfolio_project_ids = _effective_portfolio(result, office=bool(state.workspace_context))
+
             if final_ai_message:
                 return _finalize_shallow_answer(
                     final_ai_message,
@@ -709,6 +781,8 @@ class ChatResearcherAgent:
                     answer_meta=answer_meta,
                     source_lookup_attempted=source_lookup_attempted,
                     escalation_reason=escalation_reason,
+                    portfolio=portfolio,
+                    portfolio_project_ids=portfolio_project_ids,
                 )
             if new_messages:
                 return _finalize_shallow_answer(
@@ -729,6 +803,8 @@ class ChatResearcherAgent:
                     answer_meta=answer_meta,
                     source_lookup_attempted=source_lookup_attempted,
                     escalation_reason=escalation_reason,
+                    portfolio=portfolio,
+                    portfolio_project_ids=portfolio_project_ids,
                 )
             return {"messages": [], "shallow_result": None}
 
@@ -828,7 +904,18 @@ class ChatResearcherAgent:
                     try:
                         from aiq_agent.common.turn_status import emit_escalation
 
-                        emit_escalation(state.shallow_result.escalation_reason)
+                        emit_escalation(
+                            state.shallow_result.escalation_reason,
+                            # DR-7: the cost is acknowledged in words BEFORE the
+                            # run. A portfolio escalation says how many projects
+                            # it is about to read, and it says it here, at the
+                            # instant the decision becomes true.
+                            portfolio_project_count=(
+                                len(state.shallow_result.portfolio_project_ids or [])
+                                if state.shallow_result.portfolio
+                                else None
+                            ),
+                        )
                     except Exception:  # noqa: BLE001 — transparency must never take a turn down
                         logger.debug("Escalation status not emitted", exc_info=True)
                     return "deep_research"
@@ -916,6 +1003,8 @@ class ChatResearcherAgent:
                 # onto this turn via the persisted checkpoint.
                 "routing_decision": None,
                 "escalation_reason": None,
+                "escalation_portfolio": None,
+                "escalation_portfolio_project_ids": None,
                 "answer_confidence_capped_reason": None,
                 "answer_confidence_reason": None,
                 "citations_removed": None,
@@ -928,6 +1017,10 @@ class ChatResearcherAgent:
                 "clarifier_result": None,
                 "skip_clarifier": state.skip_clarifier,
                 "project_context": state.project_context,
+                # Refreshed per turn for the same reason, and listed here so a
+                # checkpointed office block never leaks onto a later project
+                # turn of the same conversation.
+                "workspace_context": state.workspace_context,
                 # Refreshed per turn like project_context: the register layer
                 # fetched this turn's digest, and a checkpointed value from an
                 # earlier turn would outlive a curation change.

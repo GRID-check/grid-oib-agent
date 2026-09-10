@@ -1,0 +1,8 @@
+---
+features:
+  - >
+    A deep research run can now cover several projects at once. Piloti reads
+    them one after another, each with its own share of the run's budget, and
+    writes a single report with one section per project and sources you can
+    open. Projects you may not read, and any that could not be read, are named
+    in the report rather than left out silently.

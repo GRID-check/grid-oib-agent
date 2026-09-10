@@ -50,6 +50,14 @@ PROJECT_ID_HEADER = "x-grid-project-id"
 MEMORY_REFLECTION_FEATURE_HEADER = "x-grid-feature-memory-reflection"
 ORGANIZATION_ID_HEADER = "x-grid-organization-id"
 USER_ID_HEADER = "x-grid-user-id"
+# The caller's WorkOS organization MEMBERSHIP, which is a different identity
+# from the user id: `checkResourcePermission` on the BFF keys readability on
+# the membership, not on the user (ADR-0038), so anything asking the BFF "which
+# projects may this caller read" — register recall, the `find_projects` tool —
+# has to send it. Dual-written like every header above: the signed envelope
+# carries `organizationMembershipId` and the gateway also sends this individual
+# header, and the envelope wins when both are present.
+ORGANIZATION_MEMBERSHIP_ID_HEADER = "x-grid-organization-membership-id"
 
 #: What each project-scoped tool needs from the request context to run at all,
 #: keyed by the NAT function TYPE (`_type:` in the config — the stable identity;
@@ -60,8 +68,61 @@ USER_ID_HEADER = "x-grid-user-id"
 #: (`aiq_api.jobs.runner.WORKER_IDENTITY_HEADERS`). `remember` answered "no
 #: project in scope" on every deep-research run for weeks because this
 #: contract lived in two hand-maintained lists that nothing compared.
+#:
+#: A requirement is the MINIMUM every path that runs the tool supplies, never
+#: the union of what each path happens to have. A tool that runs in two shapes
+#: declares what BOTH shapes carry and refuses the rest at its own call site,
+#: where the missing field is decidable; declaring the wider set here would fail
+#: this contract on a path the tool actually serves. Both such tools say so
+#: below.
 TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
-    "project_memory_remember": (PROJECT_ID_HEADER, ORGANIZATION_ID_HEADER),
+    # `remember` runs in two shapes (ADR-0054, spec AG-8). In a PROJECT turn it
+    # writes project memory and needs the project id; in the Büro there is no
+    # project and it writes ORGANISATION memory — scope `organization`,
+    # `project_id` null — authorized by the BFF as the acting user. The
+    # organisation is therefore the only thing both shapes cannot run without,
+    # and it is what this row states. The project id is not dropped from the
+    # contract, only from THIS row: `test_tool_context_contract` asserts
+    # separately that the worker still injects it, because a project run whose
+    # project id went missing would silently escalate every finding to the whole
+    # office instead of failing.
+    "project_memory_remember": (ORGANIZATION_ID_HEADER,),
+    # `search_memory` (ADR-0055), the read half. Same requirement as the write
+    # half and for the same reason: every note belongs to an organisation, and
+    # a search without one has no scope at all — which is the one thing this
+    # tool may never perform. The PROJECT is deliberately not a requirement: an
+    # office turn legitimately has none, and its absence is what tells the BFF
+    # to serve organisation-scoped notes ONLY (contract C1). Declaring it here
+    # would state a requirement the Büro shape cannot meet, and the tool would
+    # still have to decide the branch at its own call site.
+    "project_memory_search": (ORGANIZATION_ID_HEADER,),
+    # The Projektregister search (ADR-0054). The organization is what makes the
+    # question answerable at all — the register never crosses that boundary
+    # (spec PR-17) — so it is the requirement. The MEMBERSHIP header is what
+    # filters the answer to projects this caller may read, and is deliberately
+    # NOT required here: a worker run that has no membership must come back with
+    # no projects, never with the organization's whole register. That is the
+    # fail-closed side, and it lives in the BFF endpoint.
+    "workspace_find_projects": (ORGANIZATION_ID_HEADER,),
+    # Mounting a project (ADR-0054). The BFF authorizes AS THE USER — mounting
+    # is `project:chat` for a person, never for the service — so the USER is a
+    # requirement here where the register search needed only the organization.
+    # The membership id and the conversation id are read from the context too
+    # (the membership is what the BFF's readability check keys on, ADR-0038),
+    # and are deliberately not requirements: a run that has neither must be
+    # refused BY THE ENDPOINT, not silently mounted by a caller that skipped it.
+    "workspace_open_project": (ORGANIZATION_ID_HEADER, USER_ID_HEADER),
+    # The two BIM tools (ADR-0045, ADR-0054 spec AG-10). They address a model
+    # through the BFF's internal BIM routes, which scope every read to ONE
+    # organisation — so the organisation is what neither can run without. The
+    # PROJECT is no longer read off the context alone: since the Büro can hold
+    # several mounted projects and a project chat exactly one, both tools take
+    # an explicit `project_id` argument that must name a project this turn has
+    # in view, defaulting to the turn's own project when it has one
+    # (`agents/bim/register.resolve_tool_project`). Declaring the project id
+    # here would state a requirement the office turn legitimately does not meet.
+    "ifc_query": (ORGANIZATION_ID_HEADER,),
+    "ifc_measure": (ORGANIZATION_ID_HEADER,),
 }
 
 # Consolidated signed context envelope (backlog T3-9 follow-up, 2026-07-16).
@@ -297,6 +358,10 @@ class GridRequestContext:
     """
 
     organization_id: str | None = None
+    #: The caller's membership in :attr:`organization_id` — the identity the
+    #: BFF's per-project readability check keys on. ``None`` outside an
+    #: authenticated org session and on any producer that predates the field.
+    organization_membership_id: str | None = None
     user_id: str | None = None
     project_id: str | None = None
     collection_scope: list[str] | None = None
@@ -338,6 +403,7 @@ class GridRequestContext:
         scope_entries = _as_scope_entries(_read_json_header(COLLECTION_SCOPE_HEADER))
         return cls(
             organization_id=_normalize_raw_id(_read_header(ORGANIZATION_ID_HEADER)),
+            organization_membership_id=_normalize_raw_id(_read_header(ORGANIZATION_MEMBERSHIP_ID_HEADER)),
             user_id=_normalize_raw_id(_read_header(USER_ID_HEADER)),
             project_id=_normalize_raw_id(_read_header(PROJECT_ID_HEADER)),
             collection_scope=_scope_names(scope_entries),
@@ -412,6 +478,7 @@ class GridRequestContext:
         scope_entries = _as_scope_entries(payload.get("collectionScope"))
         return cls(
             organization_id=_normalize_raw_id(payload.get("organizationId")),
+            organization_membership_id=_normalize_raw_id(payload.get("organizationMembershipId")),
             user_id=_normalize_raw_id(payload.get("userId")),
             project_id=_normalize_raw_id(payload.get("projectId")),
             collection_scope=_scope_names(scope_entries),
@@ -479,6 +546,7 @@ class GridRequestContext:
         scope_entries = _as_scope_entries(json_field(COLLECTION_SCOPE_HEADER))
         return cls(
             organization_id=_normalize_raw_id(raw(ORGANIZATION_ID_HEADER)),
+            organization_membership_id=_normalize_raw_id(raw(ORGANIZATION_MEMBERSHIP_ID_HEADER)),
             user_id=_normalize_raw_id(raw(USER_ID_HEADER)),
             project_id=_normalize_raw_id(raw(PROJECT_ID_HEADER)),
             collection_scope=_scope_names(scope_entries),
@@ -551,6 +619,31 @@ def get_organization_id_from_context() -> str | None:
     organization-scoped memory writes. None in anonymous mode.
     """
     return GridRequestContext.from_context().organization_id
+
+
+def get_user_id_from_context() -> str | None:
+    """Read the acting user's id (``X-Grid-User-Id``).
+
+    WHO the turn runs for. Needed wherever the BFF authorizes an internal write
+    AS THAT PERSON rather than as the service token — mounting a project, and an
+    organisation-scoped memory write (ADR-0054, spec AG-8) — never as an
+    attribution field a tool writes into content. ``None`` in anonymous mode and
+    on any producer older than the header.
+    """
+    return GridRequestContext.from_context().user_id
+
+
+def get_organization_membership_id_from_context() -> str | None:
+    """Read the caller's organization membership (``X-Grid-Organization-Membership-Id``).
+
+    The BFF decides what a caller may read per MEMBERSHIP, not per user
+    (`checkResourcePermission`, ADR-0038), so every internal call that asks it
+    to filter by readability — the workspace digest, the `find_projects` tool —
+    passes this along with the organization id. ``None`` when the producer is
+    older than the field or the session is anonymous; the BFF then serves the
+    organization-wide half and no projects, which is the fail-closed side.
+    """
+    return GridRequestContext.from_context().organization_membership_id
 
 
 def get_memory_reflection_enabled_from_context() -> bool:

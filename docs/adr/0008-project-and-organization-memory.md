@@ -57,7 +57,7 @@ organization:
   designed Phase-2 option).
 
 ## Open Questions / Follow-ups
-- Permission-gate org-wide memory writes to admins.
+- ~~Permission-gate org-wide memory writes to admins.~~ Closed 2026-09-08: `org:memory:write` (Admin by default) is checked for the acting user on the internal memory route, ADR-0054 phase 4.
 - Consolidation/dedup gate and optional RAG recall (Phase 2).
 
 ## References

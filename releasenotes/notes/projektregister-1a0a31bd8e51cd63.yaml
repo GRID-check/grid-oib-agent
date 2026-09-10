@@ -1,0 +1,8 @@
+---
+features:
+  - >
+    The Büro now knows which projects your office has. Ask it something like
+    "in which projects did we do timber construction?" and it names them, with
+    each project's key facts from its profile — and never a project you are not
+    allowed to open. It still reads no project's documents, so it says which
+    project to look in rather than what a drawing shows.

@@ -209,6 +209,20 @@ class BudgetGuardCallback(BaseCallbackHandler):
             self._tracker.add_completion_tokens(tokens)
 
 
+def configured_completion_ceiling() -> int:
+    """The run ceiling this deployment configured, or ``0`` when the cap is off.
+
+    The same number :func:`create_budget_guard_callback` defaults to, readable
+    without building a callback — because a Portfolio-Recherche has to DIVIDE it
+    before any guard exists (one share per project, ADR-0015, spec DR-4). Parsing
+    the env var a second time at the call site is how the two would drift into
+    two different ceilings, and a run whose per-project shares add up to a
+    different total than its own cap is the failure nobody would see: it either
+    stops early or never stops.
+    """
+    return _parse_completion_token_ceiling(os.environ.get(GRID_MAX_RUN_COMPLETION_TOKENS_ENV))
+
+
 def create_budget_guard_callback(ceiling: int | None = None) -> BudgetGuardCallback | None:
     """Build a job-scoped ``BudgetGuardCallback``, or ``None`` when the cap is disabled.
 

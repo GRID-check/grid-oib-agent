@@ -68,7 +68,8 @@ from aiq_agent.agents.bim.measurement_evidence import measurement_evidence_line
 from aiq_agent.agents.bim.measurement_sources import MeasuredElement
 from aiq_agent.agents.bim.measurement_sources import MeasurementSource
 from aiq_agent.agents.bim.measurement_sources import record_measurements
-from aiq_agent.agents.bim.register import NO_PROJECT_TEXT
+from aiq_agent.agents.bim.register import PROJECT_ARGUMENT_DESCRIPTION
+from aiq_agent.agents.bim.register import resolve_tool_project
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
@@ -536,6 +537,10 @@ class IfcMeasureInput(BaseModel):
             "'room_inventory' only — which SUSPECTED use to group the rooms by. Inferred from their "
             "names: a proposal for a human to confirm, never a finding."
         ),
+    )
+    project_id: str = Field(
+        default="",
+        description=PROJECT_ARGUMENT_DESCRIPTION,
     )
     model_name: str = Field(
         default="",
@@ -2197,14 +2202,17 @@ async def ifc_measure(tool_config: IfcMeasureConfig, builder: Builder):
         organization_id = get_organization_id_from_context()
         if not organization_id:
             return "Error: organization unknown for this session — the BIM model cannot be read. Do not retry."
-        project_id = get_project_id_from_context()
-        if not project_id:
-            # Same hole as `ifc_query`, same reason: `/api/internal/bim/source`
-            # needs a project to scope the model list to, this tool never sends
-            # a modelId, and the 400 that results reads as a correctable
-            # argument error. Refused here, where the reason is knowable.
+        # WHICH project's model. Same hole as `ifc_query`, same reason and now
+        # the same resolution (`resolve_tool_project`, spec AG-10):
+        # `/api/internal/bim/source` needs a project to scope the model list to,
+        # this tool never sends a modelId, and the 400 that results reads as a
+        # correctable argument error. Decided here, where the reason is
+        # knowable: the turn's own project in a project chat, and in the office
+        # a project the conversation has actually brought into view.
+        project_id, refusal = resolve_tool_project(arguments.project_id, get_project_id_from_context())
+        if refusal is not None:
             _trace(arguments.operation, "", outcome="no_project")
-            return NO_PROJECT_TEXT
+            return refusal
 
         limit = arguments.limit
         built = _build_call(

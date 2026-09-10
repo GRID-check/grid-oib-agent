@@ -2051,9 +2051,14 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    * lifecycle effect did; later project changes are pushed via updateProjectId.
    */
   const buildWsClient = useCallback((conversationId: string): NATWebSocketClient => {
+    const { projectId: activeProjectId, scope } = useChatStore.getState()
     return createNATWebSocketClient({
       conversationId,
-      projectId: useChatStore.getState().projectId || undefined,
+      scope,
+      // In the Büro there is no project to send, and the store's is already
+      // null; naming the scope is what stops the gateway resolving one from a
+      // stale preference (ADR-0054, the workspace branch of the scope builder).
+      projectId: scope === 'workspace' ? undefined : activeProjectId || undefined,
       callbacks: {
         onResponse: (...args) => latestCallbacksRef.current.onResponse?.(...args),
         onStage: (...args) => latestCallbacksRef.current.onStage?.(...args),

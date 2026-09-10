@@ -63,6 +63,23 @@ PHASE_WRITING_STARTED = "writing_started"
 PHASE_CITATION_VERIFICATION_STARTED = "citation_verification_started"
 PHASE_DONE = "done"
 
+#: Portfolio-Recherche (ADR-0054, spec DR-4/DR-7). The four phases above are
+#: derived from callbacks INSIDE one graph run; these three are emitted by the
+#: runner around the loop that runs several, because that loop is the only thing
+#: that knows there is more than one run. They ride the same ``job.phase``
+#: channel on purpose: a portfolio run's per-project phases would otherwise be
+#: indistinguishable from a single run's, and a reader watching a fifty-minute
+#: run would see "research_started" once and then nothing for the other nine
+#: projects (``PhaseProgressCallback`` emits each phase once per job).
+#:
+#: ``portfolio_started`` carries ``count`` and ``projects`` (labels, in reading
+#: order) and is what spec DR-7's "how many projects will be read" is answered
+#: from once the readable set is known; ``portfolio_project_started`` carries
+#: ``project``, ``index`` and ``total``.
+PHASE_PORTFOLIO_STARTED = "portfolio_started"
+PHASE_PORTFOLIO_PROJECT_STARTED = "portfolio_project_started"
+PHASE_PORTFOLIO_SYNTHESIS_STARTED = "portfolio_synthesis_started"
+
 JOB_PHASE_EVENT_TYPE = "job.phase"
 
 

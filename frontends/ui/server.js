@@ -61,6 +61,12 @@ function buildGridRequestContextEnvelopeHeaders(input) {
   // `buildGridRequestContextEnvelopePayload`'s docstring in request-context.ts
   // (the canonical definition this function is pinned to).
   if (input.bundesland) payload.bundesland = input.bundesland
+  // `organizationMembershipId` (ADR-0054): the (user, organization) pair WorkOS
+  // FGA keys on, which the Büro's workspace digest needs to filter the
+  // Projektregister to what this caller may read. Appended LAST in key order
+  // for the same reason `bundesland` was — every pre-existing signed payload
+  // stays byte-identical.
+  if (input.organizationMembershipId) payload.organizationMembershipId = input.organizationMembershipId
 
   const json = JSON.stringify(payload)
   const headers = {
@@ -395,11 +401,15 @@ const normalizeQueryParam = (value) => {
   return value || undefined
 }
 
-const fetchCollectionScopeHeader = (req, projectId, conversationId) => {
+const fetchCollectionScopeHeader = (req, { projectId, conversationId, scope }) => {
   return new Promise((resolve, reject) => {
     const query = new URLSearchParams()
     if (projectId) query.set('projectId', projectId)
     if (conversationId) query.set('conversationId', conversationId)
+    // Forwarded verbatim, unvalidated: the route is the single place that
+    // decides what a scope may be, and answers 400 for anything else (ADR-0054).
+    // Absent = the project turn, which is every pre-Büro client.
+    if (scope) query.set('scope', scope)
 
     const request = http.request(
       {
@@ -477,11 +487,22 @@ let inflightScopeResolutions = 0
 const scopeCache = new Map()
 const scopeInflight = new Map()
 
-const scopeCacheKey = (req, projectId, conversationId) =>
+/**
+ * `scope` is part of the key, not an afterthought: the Büro upgrade and the
+ * project upgrade share a cookie and, in the Büro, carry no projectId at all,
+ * so without it the two collapse onto one entry and whichever raced first would
+ * serve the other a scope built for the wrong surface (ADR-0054, spec KH-5).
+ */
+const scopeCacheKey = (req, { projectId, conversationId, scope }) =>
   crypto
     .createHash('sha256')
     .update(
-      JSON.stringify([req.headers.cookie || '', projectId ?? null, conversationId ?? null])
+      JSON.stringify([
+        req.headers.cookie || '',
+        projectId ?? null,
+        conversationId ?? null,
+        scope ?? null,
+      ])
     )
     .digest('hex')
 
@@ -491,11 +512,11 @@ const scopeCacheKey = (req, projectId, conversationId) =>
  * Returns the same shape as `fetchCollectionScopeHeader`, plus `rejected: true`
  * when the global in-flight ceiling shed this upgrade.
  */
-const resolveCollectionScope = (req, projectId, conversationId) => {
+const resolveCollectionScope = (req, target) => {
   // The memo and the admission ceiling are INDEPENDENT bounds: disabling the
   // memo (TTL <= 0, e.g. to force fresh auth) must not also disable the ceiling.
   const cacheEnabled = WS_SCOPE_CACHE_TTL_MS > 0
-  const key = cacheEnabled ? scopeCacheKey(req, projectId, conversationId) : null
+  const key = cacheEnabled ? scopeCacheKey(req, target) : null
 
   if (cacheEnabled) {
     const cached = scopeCache.get(key)
@@ -513,7 +534,7 @@ const resolveCollectionScope = (req, projectId, conversationId) => {
   }
 
   inflightScopeResolutions += 1
-  const request = fetchCollectionScopeHeader(req, projectId, conversationId)
+  const request = fetchCollectionScopeHeader(req, target)
     .then((result) => {
       // Only successes are memoised — a transient failure must not be sticky.
       if (cacheEnabled && result.ok) {
@@ -611,10 +632,13 @@ const startServer = async () => {
 
       const projectId = normalizeQueryParam(parsedUrl.query.projectId)
       const conversationId = normalizeQueryParam(parsedUrl.query.conversationId)
+      // The surface this upgrade is for: absent (project) or 'workspace', the
+      // Büro (ADR-0054). It rides into the scope resolution AND its memo key.
+      const scope = normalizeQueryParam(parsedUrl.query.scope)
       req.url = '/websocket' + (parsedUrl.search || '')
 
       try {
-        const result = await resolveCollectionScope(req, projectId, conversationId)
+        const result = await resolveCollectionScope(req, { projectId, conversationId, scope })
         if (result.rejected) {
           // Shed rather than queue: the pod protects the connections it already
           // holds, and the client retries on a jittered backoff.
@@ -633,6 +657,13 @@ const startServer = async () => {
           if (result.data?.organizationId) {
             req.headers['x-grid-organization-id'] = result.data.organizationId
             req.headers['x-grid-user-id'] = result.data.userId
+            // The membership, beside the user. Authorization is keyed on it
+            // (see request-context.ts), and the Büro's per-turn register recall
+            // is the first consumer. Dual-written like every field above.
+            if (result.data.organizationMembershipId) {
+              req.headers['x-grid-organization-membership-id'] =
+                result.data.organizationMembershipId
+            }
           }
           if (result.data?.accessToken) {
             req.headers['authorization'] = `Bearer ${result.data.accessToken}`
@@ -724,6 +755,7 @@ const startServer = async () => {
             buildGridRequestContextEnvelopeHeaders({
               organizationId: result.data?.organizationId,
               userId: result.data?.userId,
+              organizationMembershipId: result.data?.organizationMembershipId,
               projectId: result.data?.projectId,
               // Shelf-bearing entries when the resolver supplied them, bare
               // names otherwise. The envelope is the copy `scoping.py` trusts
@@ -739,8 +771,13 @@ const startServer = async () => {
               bundesland: result.data?.bundesland,
             })
           )
-        } else if (result.status === 401 || result.status === 403) {
-          const statusText = result.status === 401 ? 'Unauthorized' : 'Forbidden'
+        } else if (result.status === 400 || result.status === 401 || result.status === 403) {
+          // 400 joins the pass-through so an unusable `?scope=` is answered
+          // truthfully instead of arriving at the client as a 502 the gateway
+          // did not actually suffer.
+          const statusText = { 400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden' }[
+            result.status
+          ]
           try {
             socket.write(`HTTP/1.1 ${result.status} ${statusText}\r\n\r\n`)
           } catch {}

@@ -46,11 +46,120 @@ The composer is a white card with the message field on top and a control row bel
 
 - **Asking about … bar**: when this turn is about a project file (**Piloti dazu fragen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Piloti dazu fragen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroarchiv.
 - **Datengrundlage chip**: shows how many data sources are currently enabled and opens the existing Data Sources panel.
-- **Scope chip**: shows the current project with a lock icon. Retrieval is always scoped to this project; the popover lists a disabled "All projects" option — cross-project search is not available yet.
+- **Scope chip**: names what Piloti may read this turn. In a project chat it shows the project behind a **lock**; in the **Büro** it shows *Büro* behind a building icon, plus a count of the projects in view once there is one ("Büro · 2"). The glyph is the only carrier on a phone, where the label is hidden; the accessible name always spells out the whole state. Retrieval is scoped to whatever the chip names.
+
+  Pressing it opens the **Wissensbasis** — the five knowledge levels, in fixed order, each saying in words whether this turn may read it:
+
+  | Level | In a project chat | In the Büro |
+  |---|---|---|
+  | Basiswissen | immer | immer |
+  | Büroarchiv | immer | immer |
+  | Projektregister | *nicht verfügbar* — it exists only in the Büro | immer (names and Steckbriefe, never documents) |
+  | Projekt | the one project this chat is locked to | the projects you have shown it, with a **×** on each and **+ Projekt einblenden** below |
+  | Diese Unterhaltung | the files you attached here, or *nicht verfügbar* | same |
+
+  A level shown as *ausgeschlossen* names the source preset that excluded it and offers **Voreinstellung zurücksetzen**. A level shown as *nicht verfügbar* is a door that is shut, and always says why. The only two things the tree changes are showing a project and hiding one again — it reports everything else.
+
+  At the foot of a **project** chat's tree: **Im Büro fragen →**, which opens the Büro with this project already in view. (The disabled "All projects" row this replaces is gone; there is now something behind it.)
 - **Deep Research pill**: an on/off *preference*. Piloti escalates to deep research automatically when a question calls for it; the pill records your intent and shows an honest hint — it does not force a deep-research run.
 - **Attach / file counter / send**: unchanged file-upload and send affordances.
 
 Under the composer a **Shortcuts** row offers three source presets — *Baurecht & Richtlinien* (base corpus + RIS), *Projektunterlagen* (this project's files, not the Büroarchiv), and *Büroarchiv* (office archive, not project files). They stay available after the first message. A pressed preset also tells retrieval which knowledge shelves to keep; it is not only an external-source toggle. Any manual change in the Data Sources panel takes you off the preset again. Uploading a file into the chat binds the next send to that file — "Fass den Inhalt zusammen" does not walk the rest of the project or the Archiv.
+
+### Showing the Büro a project
+
+A Büro chat starts with no project's documents. You add one — the word in the UI is *einblenden* — in one of three ways:
+
+- **+ Projekt einblenden** in the Wissensbasis, then pick from the projects you can open.
+- **Piloti does it mid-answer.** When a question needs a project's files, Piloti shows it itself and says so in the transcript: *"Piloti hat Projekt Seestadt Nord eingeblendet."* with **Rückgängig** beside it.
+- **Im Büro fragen →** from a project chat, which arrives with that project in view and says why.
+
+Whichever way it happened, three things say so at once: a chip in the **Im Blick** row above the composer, the count on the scope chip, and a row in the Wissensbasis. Removing a project is the **×** on any of them.
+
+**Rückgängig** does not erase the notice — the project *was* in view, and the transcript is a record of what was read. Citations already written stay for the same reason.
+
+A conversation can hold only so many projects at once. At the limit the add row states the number and offers **Als Deep Research starten**, which is the one path that reads more than the limit allows. A project you cannot open is never offered, and never named.
+
+**Sammlungen.** A set of projects you have named — a Bezirk, a client, a year —
+shows above the project list in **+ Projekt einblenden** and comes into view in
+one press: "Bezirk 3 · 3 Projekte". The number is what *you* can read of it, so
+it is also the number the limit is measured against. Where a Sammlung holds a
+project you may open but not chat in, the rest still comes in and the transcript
+names what did not: *Nicht eingeblendet (kein Chat-Zugriff): Nordbahnhof.* A
+project you cannot open at all is never named and never counted — a Sammlung is
+not a way to learn that a project exists. Each project it brought in gets its own
+**Rückgängig**, because a Sammlung is a gesture and not a lock.
+
+**Sammlungen verwalten**, at the foot of the same picker, is where you name one,
+describe it, add and remove projects, rename it and delete it. A Sammlung grants
+nobody anything: adding a project to it still asks whether you may open that
+project, and showing one to a chat still asks per project. You can change the
+ones you created; an administrator can change any; the rest are shown with their
+projects and no controls, because they are the office's shared vocabulary.
+Deleting one removes the name and its list — the projects stay, and a chat that
+already showed them keeps reading exactly as before.
+
+If the chat is shared, a project that one of the people in it cannot see is
+refused with their names rather than shown past them: *Nicht eingeblendet: Anna
+Meier dürfen dieses Projekt nicht sehen, und diese Unterhaltung ist geteilt.*
+Change who the chat is shared with, or ask without that project. The same rule
+runs the other way when you invite someone: if they cannot read a project this
+chat shows, the invitation is refused and says which project — sharing a chat
+never grants project access.
+
+Answers that only cite Steckbriefe carry a footer under them — *In diese Unterhaltung holen: [Seestadt Nord] einblenden* — so the follow-up question does not mean going back to the tree.
+
+### What Piloti remembers, and what it read of it
+
+The Wissensbasis has a **Gedächtnis** row, between Projekt and Diese
+Unterhaltung: *Was Piloti gelernt hat*. It is `immer` and carries no switch —
+notes are removed in the memory panel, not per turn — and it states what this
+turn actually saw of the store: *3 Notizen von 47 im Blick. 44 weitere Notizen
+sind diesmal nicht mitgelesen worden.* That second number used to be told only
+to the model. **Gedächtnis öffnen** goes to the project's memory panel.
+
+Under an answer, one quiet line says the same thing for that turn: *3 Notizen
+aus dem Gedächtnis im Blick*. Open it and you see the notes, each linking into
+the panel. It is deliberately **not** a citation and never joins the *Belegt
+durch* row — it is grey, and it says so in words: these notes were in context
+while the answer was written, and whether any of them shaped it cannot be said.
+A note is something Piloti wrote down, not a passage anyone can open, so it is
+never dressed as evidence.
+
+**When Piloti corrects itself, it says so.** A note that replaces an earlier one
+produces a line in the transcript with both sentences — what was believed
+before, what is believed now — and **Rückgängig** beside them, which reinstates
+the earlier note and retires the replacement. In the memory panel the retired
+note stays visible, dimmed, saying what took its place; the replacement says
+what it replaced. Nothing about a correction disappears.
+
+**Firm-wide memory is proposed, never written.** When a finding would hold for
+every project in the office, Piloti puts it up as a card rather than saving it:
+org-wide means it is read in every project in the organization, and accepting it
+needs the *Organisationsgedächtnis schreiben* permission (`org:memory:write`).
+Without that permission the card still offers **Nur in diesem Projekt
+speichern** — and if you press the org-wide button anyway, the answer names the
+missing permission rather than pretending the service is down. Where firm-wide
+memory is switched off for the whole installation, it says *that* instead: an
+operator decision is not something to ask your administrator for a permission
+about.
+
+A proposal can also arrive a few seconds after the answer, when Piloti has
+finished thinking it over. It is the same card, in the same place, with the same
+two buttons — a finding proposed after the answer is not a second kind of
+offer — and one found twice is shown once.
+
+### Where an answer came from
+
+In the Büro a citation from a project names it: *Projekt Seestadt Nord · Brandschutz.pdf · S. 7*; a citation from the register names itself first and the project second, *Steckbrief · Seestadt Nord*, because a Steckbrief is a fact about a project rather than a file from inside one. Opening the citation offers **Im Projekt weiterfragen**, which lands in that project's own chat with your question already in the box. In a project chat the project line is left out — you are standing in it.
+
+The **Herleitung** groups what was read by knowledge level, in the same order as the Wissensbasis: Basiswissen → Büroarchiv → Projektregister → Projekt (one group per project) → Diese Unterhaltung → Web. Levels that were not read are shown grey and say *nichts eingeblendet*, rather than being left out — a level missing from the list would be indistinguishable from a level that found nothing.
+
+Under those levels, hairline-separated, sits **Gedächtnis** — and the first
+thing it says is *Kein Beleg*. It states how many notes were in context, out of
+how many exist, and whether Piloti went looking beyond the running excerpt. It
+is a band of its own rather than a seventh level for one reason: a level is a
+shelf whose hits you can open and check, and a note is not.
 
 Documents sit on four nested shelves. Asking **which files** sit where is answered from that shelf only:
 
@@ -60,6 +169,36 @@ Documents sit on four nested shelves. Asking **which files** sit where is answer
 - **This chat** — only the current session.
 
 An empty shelf is empty. A question *about the content* of a file is research and searches that file.
+
+## The Büro
+
+Piloti has a second place to ask: the **Büro** at `/app/chat`, above every
+project. Reach it with **Piloti fragen** in the header above the project list,
+with **Büro** in a project's navigation beside Archiv and Postfach, with `g b`,
+or from ⌘K.
+
+It is the same chat you already know — same composer, same sessions panel, same
+answer with its Herleitung. What differs is what Piloti may read:
+
+- **Basiswissen** (OIB and legal sources) and the **Büroarchiv** are on, exactly
+  as they are in a project.
+- **No project's documents are read.** Not the project you last had open, not
+  any other. A Baurecht question is answered here exactly as it is inside a
+  project — the same sources, the same citations. A question about *your*
+  project is not: nothing from a project's files or memory reaches this chat, so
+  ask that one in the project.
+
+The empty Büro says so and offers three example questions — press one and it
+lands in the composer, ready to edit; nothing is sent until you send it.
+
+Büro chats and project chats keep separate histories. The chat-history panel in
+the Büro is headed **Büro-Chats** and lists only these threads; a project's panel
+lists only that project's. A Büro chat belongs to the organization rather than to
+a project, so deleting a project never deletes it.
+
+Two things are deliberately not here yet: showing a chosen project's documents
+inside a Büro chat, and sharing a Büro chat with a colleague. Both arrive with
+the later phases of this feature; until then a Büro chat is private to you.
 
 ## Invoking a skill (`/name`)
 

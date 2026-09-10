@@ -177,3 +177,116 @@ describe('sanitizeStages', () => {
     expect(sanitizeStages(undefined)).toBeNull()
   })
 })
+
+
+/**
+ * The proposals half of the payload (ADR-0055, C6).
+ *
+ * The bug this closes is not a rendering one: a proposals-only payload — the
+ * ordinary shape of a reflection pass that found one firm-wide thing and wrote
+ * nothing — was discarded WHOLE at this boundary, so the offer reached the
+ * browser and died here.
+ */
+describe('sanitizeMemoryReflectionStage — proposals', () => {
+  const card = (content = 'Fluchtwegpläne im Maßstab 1:100.') => ({
+    type: 'memory_proposal',
+    title: 'Neue Erkenntnis merken',
+    content,
+    kind: 'preference',
+    confidence: 'medium',
+  })
+
+  it('keeps a proposals-only payload, which used to be thrown away entirely', () => {
+    expect(sanitizeMemoryReflectionStage({ items: [], proposals: [card()] })).toEqual({
+      items: [],
+      proposals: [card()],
+    })
+  })
+
+  it('keeps both lists, and keeps them SEPARATE', () => {
+    // A proposal folded into `items` would claim a firm-wide row that does not
+    // exist. The two keys are the contract's own guard against that.
+    const out = sanitizeMemoryReflectionStage({
+      items: [{ id: 'row-1', kind: 'constraint', content: 'Das Projekt liegt in Wien.' }],
+      proposals: [card()],
+    })
+    expect(out?.items).toHaveLength(1)
+    expect(out?.proposals).toHaveLength(1)
+  })
+
+  it('omits `proposals` rather than storing an empty list', () => {
+    const out = sanitizeMemoryReflectionStage({
+      items: [{ id: 'row-1', kind: 'constraint', content: 'Das Projekt liegt in Wien.' }],
+      proposals: [],
+    })
+    expect(out).toEqual({ items: [{ id: 'row-1', kind: 'constraint', content: 'Das Projekt liegt in Wien.' }] })
+    expect(out && 'proposals' in out).toBe(false)
+  })
+
+  it('is not a general card channel — anything but a memory_proposal is dropped', () => {
+    // This key is jsonb on a hot table. A stage that could store any card type
+    // would be an unbounded map of client JSON.
+    expect(
+      sanitizeMemoryReflectionStage({
+        items: [],
+        proposals: [{ type: 'callout', kind: 'achtung', title: 'x', text: 'y' }],
+      }),
+    ).toBeNull()
+  })
+
+  it('still returns null when neither list survives', () => {
+    expect(sanitizeMemoryReflectionStage({ items: [], proposals: [] })).toBeNull()
+    expect(sanitizeMemoryReflectionStage({ proposals: 'nope' })).toBeNull()
+  })
+})
+
+describe('sanitizeMemoryReflectionStage — the note a correction retired', () => {
+  const RETIRED = { id: 'old-1', content: 'OIB-RL 2.1 ist hier nicht anwendbar.' }
+  const CORRECTION = {
+    id: 'new-1',
+    kind: 'derived_fact',
+    content: 'OIB-RL 2.1 ist anwendbar, es handelt sich um eine Betriebsanlage.',
+    supersedes: RETIRED,
+  }
+
+  it('keeps the retired note, which is the whole of what the transcript needs', () => {
+    // The key set here is CLOSED — an undeclared key is dropped on write. This
+    // is the declaration, and until it existed `MemorySupersededNotices` had
+    // nothing to render: the correction showed only in the memory panel, which
+    // is the inversion ADR-0055 exists to fix.
+    expect(sanitizeMemoryReflectionStage({ items: [CORRECTION] })).toEqual({ items: [CORRECTION] })
+  })
+
+  it('leaves the key off an item that replaced nothing', () => {
+    const stage = sanitizeMemoryReflectionStage({
+      items: [{ id: 'a', kind: 'decision', content: 'Flachdach beschlossen.' }],
+    })
+    expect(stage?.items[0]).not.toHaveProperty('supersedes')
+  })
+
+  it('caps the retired words with the item\'s own limit', () => {
+    const stage = sanitizeMemoryReflectionStage({
+      items: [{ ...CORRECTION, supersedes: { id: 'old-1', content: 'x'.repeat(5000) } }],
+    })
+    expect(stage?.items[0].supersedes?.content).toHaveLength(500)
+  })
+
+  it('drops a half-formed supersession and keeps the finding', () => {
+    // Both halves or neither: an id with no words states a correction the
+    // reader cannot check, and words with no id have nothing to undo. The
+    // finding was written either way, so it stays.
+    for (const half of [{ id: 'old-1' }, { content: 'nur Text' }, 'nicht einmal ein Objekt', null]) {
+      const stage = sanitizeMemoryReflectionStage({ items: [{ ...CORRECTION, supersedes: half }] })
+      expect(stage?.items[0]).toEqual({
+        id: CORRECTION.id,
+        kind: CORRECTION.kind,
+        content: CORRECTION.content,
+      })
+    }
+  })
+
+  it('never lets a retired note in as a recorded finding of its own', () => {
+    const stage = sanitizeMemoryReflectionStage({ items: [CORRECTION] })
+    expect(stage?.items.map((item) => item.id)).toEqual(['new-1'])
+  })
+})

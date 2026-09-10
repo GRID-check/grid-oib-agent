@@ -13,8 +13,10 @@
 
 import 'server-only'
 import { and, desc, eq, exists, inArray, isNull, ne, or, sql } from 'drizzle-orm'
+import { BadRequestError } from '@/lib/api/errors'
 import { getDb } from '@/lib/db'
 import { stripJsonNullBytes } from '@/lib/text/jsonb'
+import { countConversationMounts } from '@/lib/workspace/mounts-repository'
 import {
   conversationReads,
   conversations,
@@ -22,6 +24,7 @@ import {
   resourceShares,
   type Conversation,
   type ConversationRead,
+  type ConversationScope,
   type Message,
   type NewMessage,
   type ShareableResourceType,
@@ -98,9 +101,9 @@ function grantNamesCaller(organizationId: string, userId: string) {
 export async function listVisibleConversations(
   organizationId: string,
   userId: string,
-  options: { projectId?: string; limit?: number } = {},
+  options: { projectId?: string; scope?: ConversationScope; limit?: number } = {},
 ): Promise<Conversation[]> {
-  const { projectId, limit = CONVERSATION_LIST_LIMIT } = options
+  const { projectId, scope: scopeFilter, limit = CONVERSATION_LIST_LIMIT } = options
   const db = getDb()
   const orgScope = eq(conversations.organizationId, organizationId)
   const mine = eq(conversations.createdBy, userId)
@@ -129,7 +132,19 @@ export async function listVisibleConversations(
       )
     : and(orgScope, withoutContainer)
 
-  return db.select().from(conversations).where(scope).orderBy(desc(conversations.updatedAt)).limit(limit)
+  // The Büro sessions panel asks for workspace rows and must get NOTHING else
+  // (spec WS-8). Applied as a further AND rather than as a third branch: the
+  // visibility rules above are what a caller may see, and the level is what
+  // they asked for — folding them together is how one of the two ends up
+  // deciding the other.
+  const scoped = scopeFilter ? and(scope, eq(conversations.scope, scopeFilter)) : scope
+
+  return db
+    .select()
+    .from(conversations)
+    .where(scoped)
+    .orderBy(desc(conversations.updatedAt))
+    .limit(limit)
 }
 
 /**
@@ -284,6 +299,34 @@ export async function findConversationTenancy(
 /**
  * Set a conversation's blanket visibility, scoped to the organization in SQL.
  * Returns null when the row does not exist in this org (caller maps to 404).
+ *
+ * ## What a workspace conversation may be widened to
+ *
+ * A Büro thread is not private forever (that was phase 1, spec AC-6) — it is
+ * shared PERSON BY PERSON, because AC-7 permits a recipient only when they may
+ * view every project the thread has mounted, and only a named recipient can be
+ * asked that question. So the two blanket widenings are refused here:
+ *
+ *   - `project`, because a workspace conversation has no project. The value
+ *     would name a container the row does not have, and `resolveResourceAccess`
+ *     would derive access for nobody — a visibility that reads as sharing and
+ *     shares with no one.
+ *   - `organization` **while anything is mounted**, because "everyone in the
+ *     organization" is precisely the audience nobody can check against AC-7:
+ *     there is no "everyone who may view project X". With no mounts a Büro
+ *     thread reads only what every member may read anyway, so the value is
+ *     honest and permitted — the registry withholds it from conversations for
+ *     its own reason (SH-15), and this guard is what makes the day it stops
+ *     doing so safe.
+ *
+ * **The guard stays at the write** rather than moving up beside the
+ * `allowedVisibilities` check in `lib/sharing/service.ts`, as its phase-1
+ * version promised. Two callers reach this function (the sharing descriptor and
+ * `lib/collaboration/cleanup.ts`), and it is the single write path for the
+ * column: a rule stated here cannot be routed around by a third. It is a
+ * data-shaped invariant, the kind a CHECK constraint would hold if the mounted
+ * count were expressible in one — not an authorization decision, which does
+ * belong to the service.
  */
 export async function updateConversationVisibilityInOrg(
   conversationId: string,
@@ -291,6 +334,38 @@ export async function updateConversationVisibilityInOrg(
   visibility: ResourceVisibility,
 ): Promise<Conversation | null> {
   const db = getDb()
+
+  if (visibility !== 'private') {
+    const [existing] = await db
+      .select({ scope: conversations.scope })
+      .from(conversations)
+      .where(
+        and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)),
+      )
+      .limit(1)
+    // A missing row is NOT this guard's business: the caller maps null to 404,
+    // and answering "workspace conversations cannot be shared" for an id that
+    // does not exist would confirm the id (spec AC-9).
+    if (existing?.scope === 'workspace') {
+      if (visibility === 'project') {
+        throw new BadRequestError(
+          'A Büro conversation has no project, so it cannot be shared with one. Invite the ' +
+            'people who may view every mounted project instead (spec AC-7).',
+          { scope: 'workspace', allowed: ['private', 'organization'] },
+        )
+      }
+      const mounted = await countConversationMounts(conversationId, organizationId)
+      if (mounted > 0) {
+        throw new BadRequestError(
+          'This Büro conversation reads mounted projects, so it cannot be opened to the whole ' +
+            'organization: not every member may view every mounted project (spec AC-7). Share ' +
+            'it with named people, or remove the mounts first.',
+          { scope: 'workspace', mounted, allowed: ['private'] },
+        )
+      }
+    }
+  }
+
   const [row] = await db
     .update(conversations)
     .set({ visibility, updatedAt: new Date() })
@@ -318,6 +393,12 @@ export async function insertConversation(values: {
   createdBy: string
   title: string | null
   projectId: string | null
+  /**
+   * Omitted means `project`, the column default — which is correct only when
+   * `projectId` is set, because migration 0081 CHECKs the two against each
+   * other. The service decides this; the repository just carries it.
+   */
+  scope?: ConversationScope
   visibility?: ResourceVisibility
   jobId?: string | null
   subjectResourceType?: ShareableResourceType | null

@@ -175,7 +175,11 @@ paired with icon + label so color is never the only carrier (a11y).
 - **Cross-project scope** ("Alle Projekte einbeziehen") — backend has no
   cross-project retrieval (see `docs/roadmap/cross-project-rag-vision.md`).
   Ship the picker **disabled with an explanatory tooltip** or hide behind the
-  vision work. Do not fake it.
+  vision work. Do not fake it. *Decided 2026-09-08:*
+  [ADR-0054](../adr/0054-workspace-chat-mounts-projects-on-demand.md) gives
+  this its shape — the Büro-Chat at the org level, projects mounted on demand
+  — and the disabled row becomes the action "Im Büro fragen"
+  ([`workspace-chat-ui.md`](workspace-chat-ui.md)).
 - **Detail-library semantics in Archiv** (detail numbers, themes,
   verified-year, source project). The Archiv (ADR-0024) stores documents with
   tags; "Geprüft" needs a review workflow that doesn't exist. Phase it:
@@ -267,6 +271,7 @@ don't churn):
 /app/projects              Home: project grid + Archiv entry card   [OrgTopbar]
 /app/organization          org settings (restyle only)              [OrgTopbar]
 /app/archiv                Archiv, org scope (library restyle)      [OrgTopbar]
+/app/chat                  Büro — org-level chat, no project (flag) [OrgTopbar]
 /app/platform, /app/profile, onboarding, legal   (unchanged)
 /app/projects/[id]/
   chat        ← project landing (root redirects here)               [Sidebar]
@@ -282,7 +287,9 @@ don't churn):
 ```
 
 Sidebar (top→bottom): wordmark · project switcher · Chat / Files / Workflows* /
-Archiv* / History · (spacer) · Settings · user footer. Overview and Members
+Büro* / Archiv* / History · (spacer) · Settings · user footer. Büro, Archiv and
+Postfach are the `org` group's cross-project doorways; the org header carries the
+Büro as the action **Piloti fragen** (ADR-0054). Overview and Members
 leave the nav; their content lives in Settings (route stubs 301 there).
 Project root (`/app/projects/[id]`) redirects to `chat`.
 

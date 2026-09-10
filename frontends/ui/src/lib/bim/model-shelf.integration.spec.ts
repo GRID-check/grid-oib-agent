@@ -81,11 +81,14 @@ describe.skipIf(!url)('listBimModels shelf scoping', () => {
       return Array.from(rows)[0].id
     }
 
+    // `scope` is stated because migration 0081 CHECKs it against `project_id`:
+    // a conversation with no project is a workspace conversation, and calling
+    // itself a project one is a row the database refuses.
     const seedConversation = async (id: string): Promise<string> => {
       await withPlatformAccess('seed a conversation', () =>
         db.execute(sql`
-          INSERT INTO conversations (id, organization_id, created_by)
-          VALUES (${id}, ${ORG}, 'seed')
+          INSERT INTO conversations (id, organization_id, created_by, scope)
+          VALUES (${id}, ${ORG}, 'seed', 'workspace')
         `)
       )
       return id

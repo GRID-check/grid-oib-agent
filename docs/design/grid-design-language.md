@@ -66,7 +66,7 @@ sense of sitting *on* something).
 | `--source-oib(-tint/-text)` | indigo | **Accent inside law** — OIB-Richtlinien & Erläuterungen | "§" (same as law) |
 | `--source-project(-tint/-text)` | green #17914d | Projektwissen (project documents) | doc |
 | `--source-office(-tint/-text)` | gold #c08c28 | Büroarchiv (office archive) | archive box |
-| `--source-auto(-tint/-text)` | gray #83837f | Automatisch / **Lücke** (knowledge gap) | globe / gap |
+| `--source-auto(-tint/-text)` | gray #83837f | Automatisch / **Lücke** (knowledge gap) / **Gedächtnis** (what Piloti read of its notes) | globe / gap / brain |
 | `--status-active(-tint)` | = project green | status "Aktiv" | dot |
 | `--status-done(-tint)` | warm gray | status "Abgeschlossen" | dot |
 | `--signal-error(-tint)` | red #c14a38 | errors only | alert |
@@ -469,6 +469,15 @@ More than one ambient loop on screen. `ease-linear`. `transition-all`.
 - **LegalBasisCard** = the product's proof-of-work. Treat as a first-class quotation: a distinct but quiet card, a thin left accent border in the law signal (`border-l-2 border-l-source-law/40`), the law/Richtlinie + article/§ in a header row (§ refs in `font-mono`), the cited excerpt as an actual blockquote (`border-l` muted, italic optional, readable measure), and a plain-language summary. It should read like an authoritative citation, not a chat bubble.
 - **Citations/sources** — numbered, verifiable, hover-to-preview where possible; every citation chip carries its provenance signal (icon + label + color); source filenames in the file corpus should feel traceable.
 - **Knowledge gaps ("Lücke")** — missing knowledge is rendered honestly as a first-class source entry in the gray `--source-auto` family (gap icon + label + remediation hint), never hidden.
+- **Memory ("Gedächtnis")** — what Piloti has learned is read on every turn and
+  is shown where it is read: a level in the Wissensbasis, a band under the
+  Herleitung's levels, one collapsed line under the answer. It takes
+  `--source-auto` gray and **never** a corpus family or a citation token
+  (ADR-0055): a note is not a passage, nothing about it can be opened or
+  verified, and the moment it wears a provenance color it is claiming to be
+  evidence. Its copy carries the same rule — it states what was **read**, never
+  what was **used**, because the second is a claim neither tier can check. Every
+  memory surface says "kein Beleg" in words, not only in gray.
 - **Deep-research progress** — legible over noisy: a calm task checklist as the primary signal; thinking/tools/files are secondary tabs. Progress should feel like watching a competent analyst work, not a log stream.
 - **Project Brief** (overview) — the architect's owned context; reads like a concise fact sheet the agent works from, with clear "what Piloti still doesn't know" prompts.
 

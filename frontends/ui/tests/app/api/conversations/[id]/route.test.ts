@@ -85,6 +85,9 @@ const conversation = {
   visibility: 'private' as const,
   engagement: null,
   projectId: PROJECT_ID,
+  // A project conversation says so since ADR-0054; the row's `scope` and its
+  // `project_id` are one fact, held together by a CHECK (migration 0081).
+  scope: 'project' as const,
   deletedAt: null,
   jobId: null,
   subjectResourceType: null,

@@ -3309,3 +3309,101 @@ class TestPunktAndScoreReachTheWire:
         bare = SourceEntry(url="https://example.at/x", source_type="web")
         assert "punkt" not in source_entry_to_wire(bare)
         assert "score" not in source_entry_to_wire(bare)
+
+
+class TestProjectIdentityReachesTheWire:
+    """WHICH project a passage came from, from the knowledge block to the wire.
+
+    In the Büro a turn can read five mounted projects (ADR-0054), so a chip that
+    says only "Projektwissen" names nothing a reader can act on. The identity is
+    stated by the knowledge layer's ``Projekt:``/``Projekt-Id:`` lines and must
+    survive the parse, the cross-turn cache and the serializer — the three
+    places the shelf was lost before it travelled as data.
+    """
+
+    BLOCK = (
+        "--- Result 1 ---\n"
+        "Source: Brandschutzkonzept\n"
+        "Collection: proj_seestadt\n"
+        "Shelf: project\n"
+        "Projekt: Seestadt Baufeld D\n"
+        "Projekt-Id: proj-uuid-1\n"
+        "Page: 7\n"
+        "Citation: brandschutz.pdf, p.7\n"
+        "Content Type: text\n"
+        "Relevance Score: 0.87\n"
+        "\n"
+        "Der Fluchtweg ist mit 1,20 m bemessen.\n"
+    )
+
+    def test_both_fields_are_parsed_from_the_block(self):
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        entries = extract_sources_from_tool_result("knowledge_search", self.BLOCK)
+
+        assert len(entries) == 1
+        assert entries[0].project_name == "Seestadt Baufeld D"
+        assert entries[0].project_id == "proj-uuid-1"
+        # The id line must not be read as the name: `Projekt-Id:` is its own
+        # field, not a continuation of `Projekt:`.
+        assert entries[0].shelf == "project"
+
+    def test_a_block_without_them_carries_none(self):
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        block = self.BLOCK.replace("Projekt: Seestadt Baufeld D\nProjekt-Id: proj-uuid-1\n", "")
+        entries = extract_sources_from_tool_result("knowledge_search", block)
+
+        assert entries[0].project_id is None
+        assert entries[0].project_name is None
+
+    def test_the_passage_text_cannot_supply_them(self):
+        """Header fields are read from the HEADER: a scanned plan whose title
+        block prints 'Projekt: …' must not attribute the hit to that project."""
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        block = self.BLOCK.replace("Projekt: Seestadt Baufeld D\nProjekt-Id: proj-uuid-1\n", "").replace(
+            "Der Fluchtweg", "Projekt: Fremdes Bauvorhaben\nDer Fluchtweg"
+        )
+        entries = extract_sources_from_tool_result("knowledge_search", block)
+
+        assert entries[0].project_name is None
+
+    def test_the_wire_carries_both_and_omits_them_when_absent(self):
+        from aiq_agent.common.citation_verification import SourceEntry
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        mounted = SourceEntry(
+            citation_key="brandschutz.pdf, p.7",
+            source_type="knowledge_layer",
+            collection="proj_seestadt",
+            shelf="project",
+            project_id="proj-uuid-1",
+            project_name="Seestadt Baufeld D",
+        )
+        wire = source_entry_to_wire(mounted)
+        assert wire["project_id"] == "proj-uuid-1"
+        assert wire["project_name"] == "Seestadt Baufeld D"
+
+        base = SourceEntry(citation_key="oib_rl2.pdf, p.7", source_type="knowledge_layer", shelf="base")
+        assert "project_id" not in source_entry_to_wire(base)
+        assert "project_name" not in source_entry_to_wire(base)
+
+    def test_they_survive_the_cross_turn_cache_round_trip(self):
+        import dataclasses
+
+        from aiq_agent.common.citation_verification import SourceEntry
+        from aiq_agent.common.citation_verification import _registry_from_cached_entries
+
+        entry = SourceEntry(
+            citation_key="brandschutz.pdf, p.7",
+            source_type="knowledge_layer",
+            collection="proj_seestadt",
+            shelf="project",
+            project_id="proj-uuid-1",
+            project_name="Seestadt Baufeld D",
+        )
+        hydrated = _registry_from_cached_entries([dataclasses.asdict(entry)]).all_sources()
+
+        assert hydrated[0].project_id == "proj-uuid-1"
+        assert hydrated[0].project_name == "Seestadt Baufeld D"

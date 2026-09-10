@@ -25,6 +25,8 @@ const UI_ROOT = path.resolve(__dirname, '../..')
 let upstream: http.Server
 let upstreamPort = 0
 let scopeHits = 0
+/** Every `/api/auth/websocket-scope` URL the gateway asked for, in order. */
+let scopeRequests: string[] = []
 let slowScope = false
 const running: ChildProcess[] = []
 const openSockets = new Set<import('node:stream').Duplex>()
@@ -33,6 +35,7 @@ beforeAll(async () => {
   upstream = http.createServer((req, res) => {
     if ((req.url || '').startsWith('/api/auth/websocket-scope')) {
       scopeHits += 1
+      scopeRequests.push(req.url || '')
       const reply = () => {
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(
@@ -77,6 +80,7 @@ afterAll(async () => {
 afterEach(() => {
   while (running.length) running.pop()?.kill('SIGKILL')
   slowScope = false
+  scopeRequests = []
 })
 
 /** Let the OS pick a free port, then hand it to the gateway. */
@@ -144,12 +148,17 @@ async function waitForLog(needle: string, timeoutMs = 5000): Promise<void> {
   throw new Error(`gateway never logged ${JSON.stringify(needle)}; saw:\n${gatewayOutput}`)
 }
 
-/** Drive one WS upgrade; resolves with the HTTP status (101 on success). */
-function upgrade(port: number, cookie: string): Promise<number> {
+/**
+ * Drive one WS upgrade; resolves with the HTTP status (101 on success).
+ *
+ * `query` is appended to the default `conversationId=conv-1`, so a caller that
+ * passes nothing drives exactly the upgrade every existing case here drives.
+ */
+function upgrade(port: number, cookie: string, query = ''): Promise<number> {
   return new Promise((resolve) => {
     const req = http.request({
       port,
-      path: '/websocket?conversationId=conv-1',
+      path: `/websocket?conversationId=conv-1${query}`,
       headers: {
         Connection: 'Upgrade',
         Upgrade: 'websocket',
@@ -189,6 +198,33 @@ describe('gateway WS-upgrade scope memoisation', () => {
     await upgrade(port, 'session=beta')
 
     expect(scopeHits).toBe(2)
+  })
+
+  it('keys the memo per SCOPE too, so a Büro upgrade cannot be served a project entry', async () => {
+    // ADR-0054: the office upgrade and the project upgrade share a cookie, and
+    // the office one carries no projectId — so `scope` is the only thing telling
+    // the two apart. Without it in the key the second upgrade would be answered
+    // from the first one's entry, which is a scope built for the other surface.
+    const port = await startGateway()
+    scopeHits = 0
+
+    await upgrade(port, 'session=alpha')
+    await upgrade(port, 'session=alpha', '&scope=workspace')
+
+    expect(scopeHits).toBe(2)
+    // And the param reaches the route, which is what makes the two resolutions
+    // different in the first place.
+    expect(scopeRequests[0]).not.toContain('scope=')
+    expect(scopeRequests[1]).toContain('scope=workspace')
+  })
+
+  it('still collapses repeat Büro upgrades onto one resolution', async () => {
+    const port = await startGateway()
+    scopeHits = 0
+
+    for (let i = 0; i < 3; i += 1) await upgrade(port, 'session=alpha', '&scope=workspace')
+
+    expect(scopeHits).toBe(1)
   })
 
   it('pays per upgrade when the memo is disabled', async () => {

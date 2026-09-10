@@ -194,7 +194,7 @@ class Shelf(StrEnum):
     conflating the two is what folded private session attachments into
     "Projektwissen".
 
-    The TypeScript twin declares the same four members
+    The TypeScript twin declares the same five members
     (``frontends/ui/src/features/chat/lib/source-kinds.ts``); neither runtime
     imports the other's — three constants declared twice is looser coupling than
     a generated artifact on the core retrieval path.
@@ -202,6 +202,15 @@ class Shelf(StrEnum):
 
     ARCHIV = "archiv"
     PROJECT = "project"
+    #: The Projektregister (ADR-0054): the office's index of what its projects
+    #: ARE — one Steckbrief per project, carrying name, profile facts and
+    #: inventory. NOT a document shelf: a register hit is navigation and
+    #: structured fact (spec PR-14), never a passage, so nothing about a
+    #: project's file CONTENT may rest on it (PR-15). It sits between the
+    #: Büroarchiv and Projektwissen in the knowledge hierarchy (spec KH-1/KH-2)
+    #: and is a shelf in its own right precisely so a citation can say where a
+    #: fact came from instead of folding it into "Projektwissen".
+    REGISTER = "register"
     SESSION = "session"
     BASE = "base"
 
@@ -209,8 +218,8 @@ class Shelf(StrEnum):
 def parse_shelf(value: object) -> Shelf | None:
     """Narrow a wire value to a :class:`Shelf`; ``None`` when unknown.
 
-    Fails CLOSED: anything that is not one of the four members — a missing
-    field, a stale label, a collection id — is unknown, never ``base``.
+    Fails CLOSED: anything that is not one of the members — a missing field, a
+    stale label, a collection id — is unknown, never ``base``.
     """
     if isinstance(value, Shelf):
         return value
@@ -231,6 +240,7 @@ def parse_shelf(value: object) -> Shelf | None:
 SHELF_QUALIFIERS: dict[Shelf, str] = {
     Shelf.ARCHIV: "Büroarchiv",
     Shelf.PROJECT: "Projektwissen",
+    Shelf.REGISTER: "Projektregister",
     Shelf.SESSION: "Private Sitzung",
     Shelf.BASE: "Basiswissen",
 }
@@ -264,6 +274,8 @@ def shelf_qualifier(shelf: Shelf | str | None) -> str | None:
             return SHELF_QUALIFIERS[Shelf.ARCHIV]
         case Shelf.PROJECT:
             return SHELF_QUALIFIERS[Shelf.PROJECT]
+        case Shelf.REGISTER:
+            return SHELF_QUALIFIERS[Shelf.REGISTER]
         case Shelf.SESSION:
             return SHELF_QUALIFIERS[Shelf.SESSION]
         case Shelf.BASE:

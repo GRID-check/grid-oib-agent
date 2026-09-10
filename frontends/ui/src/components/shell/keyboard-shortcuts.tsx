@@ -65,6 +65,8 @@ export interface KeyboardShortcutsProps {
   canCollaborate?: boolean
   /** Inbox reachability — gates the `g i` jump (ADR-0042, see NavFlags). */
   canAccessInbox?: boolean
+  /** Büro reachability — gates the `g b` jump and the palette command (ADR-0054). */
+  canAccessWorkspaceChat?: boolean
 }
 
 export function KeyboardShortcuts({
@@ -76,6 +78,7 @@ export function KeyboardShortcuts({
   canAccessArchiv = false,
   canCollaborate = false,
   canAccessInbox = false,
+  canAccessWorkspaceChat = false,
 }: KeyboardShortcutsProps) {
   const { enabled } = useShortcutsPreference()
   const router = useRouter()
@@ -93,6 +96,7 @@ export function KeyboardShortcuts({
       canAccessArchiv,
       canCollaborate,
       canAccessInbox,
+      canAccessWorkspaceChat,
     }),
     [
       canViewOrganization,
@@ -102,6 +106,7 @@ export function KeyboardShortcuts({
       canAccessArchiv,
       canCollaborate,
       canAccessInbox,
+      canAccessWorkspaceChat,
     ],
   )
 
@@ -184,6 +189,7 @@ export function KeyboardShortcuts({
         showModels={showModels}
         showSkills={showSkills}
         canAccessArchiv={canAccessArchiv}
+        canAccessWorkspaceChat={canAccessWorkspaceChat}
       />
       <ShortcutsCheatsheet
         open={cheatsheetOpen}
@@ -195,6 +201,7 @@ export function KeyboardShortcuts({
         canAccessArchiv={canAccessArchiv}
         canCollaborate={canCollaborate}
         canAccessInbox={canAccessInbox}
+        canAccessWorkspaceChat={canAccessWorkspaceChat}
       />
     </>
   )

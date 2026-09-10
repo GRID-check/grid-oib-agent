@@ -4,6 +4,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { findConversationTenancy } from '@/lib/conversations/repository'
 import { requireResourceAccess } from '@/lib/sharing/access'
+import { listAuthorizedMounts } from '@/lib/workspace/mounts-service'
 import {
   computeCollectionScope,
   sessionCollectionName,
@@ -15,10 +16,26 @@ import { FEATURE_FLAGS, isFeatureEnabled } from '@/lib/authz/feature-flags'
 import { archivCollectionName } from '@/lib/archiv/collection'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 
+/**
+ * Which surface a turn is asked from (ADR-0054).
+ *
+ * `project` is the chat bound to one project, the only shape that existed
+ * before the Büro. `workspace` is the office turn: it has no project by
+ * construction, not by an absent value, which is the distinction spec §5.2
+ * (WS-7) demands and the reason this is a stated mode rather than
+ * `projectId === undefined`.
+ */
+export type RequestScope = 'project' | 'workspace'
+
 export interface RequestContext {
   projectId?: string
   includeProject?: boolean
   conversationId?: string
+  /**
+   * Defaults to `project`, so every caller that predates the Büro keeps its
+   * behaviour unchanged including the active-project fallback below.
+   */
+  scope?: RequestScope
 }
 
 /**
@@ -151,7 +168,14 @@ export async function buildCollectionScopeFromRequest(
 }> {
   const anonymous = !isAuthRequired()
 
-  const includeProject = context.includeProject !== false
+  // A Büro turn has no project, and MUST NOT acquire one — not from
+  // `context.projectId`, and above all not from the stored `active_project_id`
+  // preference the fallback below consults (spec KH-5, MG-3). The decision is
+  // made HERE, before any of that runs, so the workspace case is a stated mode
+  // rather than the accident of an absent value: with `includeProject` false
+  // there is no preference read, no FGA round-trip, and no `proj_` entry the
+  // rest of this function could produce.
+  const includeProject = context.scope !== 'workspace' && context.includeProject !== false
 
   let projectId = includeProject ? context.projectId : undefined
   const explicitProject = Boolean(projectId)
@@ -192,6 +216,22 @@ export async function buildCollectionScopeFromRequest(
     ? await resolveProjectCollectionName(projectId, session?.organizationId ?? undefined)
     : undefined
 
+  // The office turn's mounted projects (ADR-0054, spec MT-7). Persisted on the
+  // conversation, and RE-AUTHORIZED here: this upgrade is the moment a revoked
+  // `project:chat` narrows the scope, which is the whole revocation story for a
+  // mount. `listAuthorizedMounts` runs one check per project, concurrently, and
+  // fails closed per project — a mount that cannot be re-authorized is dropped
+  // and the rest of the turn proceeds, because the alternative to a narrower
+  // answer here would be no answer at all.
+  //
+  // Only in the workspace branch: a project chat has its one locked project and
+  // mounts nothing, and asking for mounts there would be a query per turn whose
+  // answer is always empty.
+  const mounts =
+    context.scope === 'workspace' && conversationId && session && !anonymous
+      ? await listAuthorizedMounts(session as AuthorizedSession, conversationId)
+      : []
+
   // Inject the org-wide Archiv collection for every authenticated request in an
   // org that has the feature enabled — this is what makes the Archiv "shared
   // across every project" (ADR-0024). Anonymous requests have no org, so none.
@@ -217,19 +257,38 @@ export async function buildCollectionScopeFromRequest(
   if (projectCollection) shelfByCollection.set(projectCollection, 'project')
   if (sessionCollection) shelfByCollection.set(sessionCollection, 'session')
 
+  // WHICH project, for the collections that have one. Keyed by the exact string
+  // that names the collection, so a name this function did not construct has no
+  // identity and therefore carries none (ADR-0047's rule, applied to projects).
+  const projectIdentityByCollection = new Map<string, { projectId: string; projectName: string }>()
+  for (const mount of mounts) {
+    shelfByCollection.set(mount.collectionName, 'project')
+    projectIdentityByCollection.set(mount.collectionName, {
+      projectId: mount.projectId,
+      projectName: mount.projectName,
+    })
+  }
+
   const scope = computeCollectionScope(session, {
     projectId,
     projectCollectionName: projectCollection,
     includeProject,
     conversationId: sessionCollection,
     archivCollectionName: archivCollection,
+    mountedCollectionNames: mounts.map((mount) => mount.collectionName),
     baseCollection,
   } satisfies ScopeContext)
 
   const scopedCollections: ScopedCollection[] = scope.map((collection) => {
     const shelf = shelfByCollection.get(collection)
+    const identity = projectIdentityByCollection.get(collection)
     // No shelf → omit the field. Unknown stays unknown; it is never defaulted.
-    return shelf ? { collection, shelf } : { collection }
+    // Same for the project identity, which only a mounted project has.
+    return {
+      collection,
+      ...(shelf ? { shelf } : {}),
+      ...(identity ?? {}),
+    }
   })
 
   return {

@@ -121,12 +121,22 @@ For each row: set `status='purging'`, run the entity's step list, then set `purg
 6. Delete WorkOS FGA resource (`deleteResourceByExternalId`, `cascadeDelete: true`)
 7. Delete `conversations` rows explicitly, then the `projects` row (cascades `documents`, `project_folders`, project-scoped `project_memory`; org-scoped memory untouched)
 
+**A project purge takes its mount rows and stops there** (ADR-0054, spec MT-15).
+`conversation_mounts` — which projects a Büro conversation reads — cascades from
+`projects` on the composite key, so step 7 removes it with no new step. A
+WORKSPACE conversation is **not** in step 1's "all conversation ids for the
+project" enumeration and must never be added to it: it belongs to the
+organisation, not to any project, and it survives the purge with its answers and
+their citations intact. What changes is only what the next turn may read.
+
 **User (GDPR erasure — Art. 17 requests come from individual data subjects, not orgs/projects):**
 
 The subtlety: content a user authored inside an organization's workspace (messages, uploaded documents, research runs) is generally the *organization's* business data, not the individual's personal data — GDPR does not require destroying the org's records, only removing the person's identifiability. The standard, defensible approach is **delete the account, anonymize the authorship**:
 
 1. Delete `user_preferences` row and any user-keyed rows
-2. Anonymize identifiers in retained data: `messages` authorship, `deletion_queue.requested_by`, `legal_holds.created_by`, `project_memory` attribution → replaced with a stable pseudonym (`deleted-user:<hash>`), so org history remains coherent but unlinkable
+2. Anonymize identifiers in retained data: `messages` authorship, `deletion_queue.requested_by`, `legal_holds.created_by` → replaced with a stable pseudonym (`deleted-user:<hash>`), so org history remains coherent but unlinkable.
+
+   **`project_memory` is no longer on this list, and needs no step of its own.** It carried a `created_by` until migration 0085 (ADR-0055), which dropped it: the column was written on the two user-authored paths and read by nothing, including this procedure, which was never implemented. A note now records what was learned and not who typed it, so there is no attribution to pseudonymise — the stronger position, because an erasure step that is never reached is indistinguishable from one that does not exist. What remains on the row is `source_conversation_id`, which points at a conversation the conversation lifecycle already governs and identifies no person by itself.
 3. Remove the user from WorkOS (memberships, then user object)
 4. Finalize queue row
 

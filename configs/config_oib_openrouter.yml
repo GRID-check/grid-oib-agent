@@ -515,6 +515,27 @@ functions:
   remember:
     _type: project_memory_remember
 
+  # The read half (ADR-0055): reaches the notes the turn-start digest had to
+  # leave out. Scope is the turn's own — the model passes a query and a size,
+  # never a project or an organisation — and the BFF enforces it.
+  search_memory:
+    _type: project_memory_search
+
+  # The Projektregister search (ADR-0054). Answers "which projects do we have
+  # that ..." from the office's Steckbriefe — names, ids and profile facts,
+  # never document content. Refuses (as a string) outside an organisation; the
+  # readable set is decided by the BFF per membership, not here.
+  find_projects:
+    _type: workspace_find_projects
+    max_results: 5
+
+  # Einblenden (ADR-0054): brings one project's corpus into the Büro turn's
+  # collection scope, on a grant the BFF signs after checking the ACTING USER's
+  # `project:chat`. The cap on how many projects one conversation may hold lives
+  # in the mounts service and nowhere else — this tool only reports it.
+  open_project:
+    _type: workspace_open_project
+
   # Rich UI cards: the agent calls emit_card mid-answer when a structured
   # element (legal basis, dimension/stair diagram, summary) adds value. Cards
   # are validated and delivered alongside the written answer.
@@ -601,6 +622,10 @@ functions:
       - ris_fetch_tool
       - ris_catalog_lookup_tool
       - remember
+      # The read half of memory (ADR-0055). Bound beside `remember` because
+      # they are one surface: the injected digest is a working set, and this is
+      # how a turn reaches the rest of the store when a question needs it.
+      - search_memory
       - emit_card
       - describe_card
       - surface_documents
@@ -608,6 +633,13 @@ functions:
       - ifc_measure
       - ask_user
       - compliance_check
+      # The office half of the tool set (ADR-0054): in the Büro the turn has no
+      # project, and finding the right one is the first move, bringing it into
+      # view the second. Harmless in a project chat, where the model has no
+      # reason to reach for either — and where `open_project` is refused by the
+      # office anyway, since a project conversation is not mountable.
+      - find_projects
+      - open_project
     verbose: true
     max_llm_turns: 10
     # A CEILING, NOT A QUOTA — and the number is the floor of the longest chain
@@ -818,6 +850,7 @@ functions:
       - ris_catalog_lookup_tool
       - advanced_web_search_tool
       - remember
+      - search_memory
       - emit_card
       - describe_card
       - surface_documents

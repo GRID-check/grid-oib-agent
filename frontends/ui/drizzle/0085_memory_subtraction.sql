@@ -1,0 +1,57 @@
+-- 0085: take two write-only columns off `project_memory` (ADR-0055).
+--
+-- ## What is going, and why
+--
+-- ADR-0055 spends most of its length ADDING — a search tool, a level in the
+-- Wissensbasis tree, a marker under the answer. The other half of the same
+-- decision is that memory has carried machinery nobody reads, and a store whose
+-- reader cannot tell which fields mean something is a store whose reader
+-- guesses. Two columns are written on every insert and read by nothing:
+--
+-- * `embedded_at` — a third copy of a fact `embedding` and `embedding_model`
+--   already carry between them (0069). "Has a vector" is `embedding IS NOT
+--   NULL`; "is the vector comparable" is `embedding_model = <current
+--   fingerprint>`, which is the only question recall ever asks. A timestamp
+--   answers neither, and the backfill that keeps vectors fresh keys on the
+--   fingerprint, never on the age. `project_register` and `platform_lessons`
+--   keep theirs: the register's CHECK constrains all three together and the
+--   lesson pipeline reports embedding freshness by age, so there the column is
+--   read.
+--
+-- * `created_by` — set from `session.userId` on the two USER-authored paths and
+--   NULL on every agent write, then never selected. Attribution for a memory
+--   note is `provenance_type` (`agent | user | distillation`), which is what
+--   the panel renders and what the design's provenance section is about. A
+--   nullable user id that nothing reads is not attribution; it is a personal
+--   identifier the deletion pipeline (ADR-0011) would have to account for the
+--   day somebody noticed it, for no reader's benefit. Removing it is a smaller
+--   personal-data surface, not only a smaller table.
+--
+-- ## What is deliberately STAYING
+--
+-- `supersedes_id`, which the same audit listed beside these two as
+-- write-only. ADR-0055 is what changes that: the panel now shows a retired
+-- note beside the one that replaced it, and `POST …/memory/{itemId}/restore`
+-- reverses the pair. A column becomes live by acquiring a reader, and this one
+-- just did — which is exactly why it is worth saying out loud in the migration
+-- that drops its neighbours.
+--
+-- `conflicts_with_id` (0076) also stays: it has a reader in the panel.
+--
+-- ## Existing data
+--
+-- Neither column carries anything that is not derivable or already recorded
+-- elsewhere, so there is no guard clause here of the kind 0077 needed:
+-- `embedded_at` is a restatement of `embedding IS NOT NULL`, and `created_by`
+-- duplicates a provenance the row already states. Nothing else in the schema
+-- references either.
+--
+-- ## Locks
+--
+-- `DROP COLUMN` takes an ACCESS EXCLUSIVE lock for the catalogue update only;
+-- Postgres does not rewrite the table, and no index or constraint names either
+-- column.
+
+ALTER TABLE "project_memory"
+  DROP COLUMN IF EXISTS "embedded_at",
+  DROP COLUMN IF EXISTS "created_by";

@@ -281,6 +281,20 @@ export const projects: typeof en.projects = {
       user: 'von Ihnen hinzugefügt',
       grid: 'von Piloti notiert',
     },
+    // Eine Korrektur bleibt sichtbar (ADR-0055): die ausgemusterte Notiz steht
+    // weiter da und sagt, was an ihre Stelle getreten ist — und die neue sagt,
+    // was sie ersetzt hat. Vorher verschwand die alte einfach.
+    superseded: {
+      replacedBy: 'Ersetzt durch: „{content}“',
+      replacedUnknown: 'Ersetzt — die neue Notiz steht nicht mehr in dieser Liste.',
+      replaces: 'Ersetzt: „{content}“',
+      restore: 'Frühere Notiz wiederherstellen',
+      restored: 'Die frühere Notiz gilt wieder.',
+      restoreFailed: 'Die Notiz konnte nicht wiederhergestellt werden.',
+      // 409: eine Aussage über den Speicher, kein Fehlschlag der Anfrage.
+      restoreStale:
+        'Hier hat sich inzwischen etwas geändert — die Liste ist neu geladen.',
+    },
     conflict: {
       badge: 'Widerspricht einer bestätigten Notiz',
       title:

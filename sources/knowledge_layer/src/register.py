@@ -1263,6 +1263,52 @@ def _chunk_shelf(chunk):
     return parse_shelf((chunk.metadata or {}).get("shelf"))
 
 
+def _chunk_project(chunk) -> tuple[str | None, str | None]:
+    """``(project_id, project_name)`` a hit belongs to, as STATED in its metadata.
+
+    ``(None, None)`` for every hit that is not a project's, and for a project
+    hit whose scope entry carried no identity (a project chat, where the one
+    project is the whole scope and the BFF has no second project to tell it
+    apart from). Like the shelf, never recovered from a ``proj_<uuid>``
+    collection id: an unknown project is unknown (ADR-0054).
+    """
+    metadata = chunk.metadata or {}
+    project_id = metadata.get("project_id")
+    project_name = metadata.get("project_name")
+    return (
+        project_id.strip() or None if isinstance(project_id, str) else None,
+        project_name.strip() or None if isinstance(project_name, str) else None,
+    )
+
+
+def _tag_chunks_with_scope(chunks, entry) -> None:
+    """Stamp every hit with the scope entry it came from.
+
+    The collection so the merge does not lose the per-hit stratum (the trace
+    UI's lane labels and ``source_lane`` read it); the SHELF (ADR-0047) and, for
+    a mounted project, WHICH project (ADR-0054) because this is the last point
+    at which either is known for free and nothing downstream may recover them
+    from the collection id. Anything the producer did not state stays absent —
+    absent means unknown, and unknown renders unattributed.
+
+    One function for both retrieves in ``_retrieve_collection`` (the similarity
+    fan-out and the named-file re-retrieve): they tagged separately, and a field
+    added to one and not the other is a hit that renders differently depending
+    on which query found it.
+    """
+    for chunk in chunks:
+        chunk.metadata.setdefault("collection", entry.collection)
+        shelf = getattr(entry, "shelf", None)
+        if shelf is not None:
+            chunk.metadata.setdefault("shelf", str(shelf))
+        project_id = getattr(entry, "project_id", None)
+        if project_id:
+            chunk.metadata.setdefault("project_id", project_id)
+        project_name = getattr(entry, "project_name", None)
+        if project_name:
+            chunk.metadata.setdefault("project_name", project_name)
+
+
 def _ambiguous_file_names(chunks) -> set[str]:
     """Filenames this result set holds on MORE THAN ONE shelf.
 
@@ -1364,6 +1410,19 @@ def _format_results(retrieval_result, query: str) -> str:
         # when unknown — the reader must see the absence, not a default.
         if shelf is not None:
             lines.append(f"Shelf: {shelf}")
+        # WHICH project this passage is from (ADR-0054). In the Büro a turn can
+        # read up to five mounted projects at once, so "Projektwissen" no longer
+        # says whose, and the agent MUST name the project for every claim it
+        # sources from one (spec AG-4). Two lines rather than one "Name (id: …)":
+        # a project name may itself carry brackets, and the id is what the
+        # frontend links on. Absent for a hit whose scope entry carried no
+        # project — absence is "not a mounted project's document", never a
+        # default project.
+        project_id, project_name = _chunk_project(chunk)
+        if project_name:
+            lines.append(f"Projekt: {project_name}")
+        if project_id:
+            lines.append(f"Projekt-Id: {project_id}")
         # WHERE the user filed this document (ADR-0049). Resolved from the
         # metadata store, not from chunk metadata, so a folder rename shows up
         # here immediately. Omitted for a document at the shelf's root — an
@@ -1645,16 +1704,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             result = await retriever.retrieve(
                 query=search_query, collection_name=coll, top_k=candidate_k, filters=coll_filters
             )
-            # Tag each chunk with its collection so the merge does not lose the
-            # per-hit stratum — the trace UI's lane labels and source_lane read it.
-            # The SHELF rides along explicitly (ADR-0047): this is the last point
-            # at which it is known for free, and nothing downstream may recover
-            # it from the collection id. An unstated shelf stays absent — absent
-            # means unknown, and unknown renders unattributed.
-            for chunk in getattr(result, "chunks", []) or []:
-                chunk.metadata.setdefault("collection", coll)
-                if entry.shelf is not None:
-                    chunk.metadata.setdefault("shelf", str(entry.shelf))
+            _tag_chunks_with_scope(getattr(result, "chunks", []) or [], entry)
 
             # Named retrieve: the agent's `file_name=` (explicit) or the
             # visible peek (`focus_file_name`) so similarity is not the only
@@ -1674,10 +1724,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                             top_k=candidate_k,
                             filters={"file_name": {"$eq": focused}},
                         )
-                        for chunk in getattr(named, "chunks", []) or []:
-                            chunk.metadata.setdefault("collection", coll)
-                            if entry.shelf is not None:
-                                chunk.metadata.setdefault("shelf", str(entry.shelf))
+                        _tag_chunks_with_scope(getattr(named, "chunks", []) or [], entry)
                         if getattr(named, "success", False) and named.chunks:
                             result = result.model_copy(
                                 update={"chunks": list(named.chunks) + list(getattr(result, "chunks", []) or [])}

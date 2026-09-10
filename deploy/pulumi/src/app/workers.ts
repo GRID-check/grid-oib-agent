@@ -154,6 +154,7 @@ export function installWorkers(
   scheduler?: k8s.apps.v1.Deployment;
   storageAlerts?: k8s.batch.v1.CronJob;
   vectorReconcile?: k8s.batch.v1.CronJob;
+  registerReconcile?: k8s.batch.v1.CronJob;
 } {
   const workerResources = LIGHT_WORKER_RESOURCES;
   const shutdown = gracefulShutdown(ROLLOUT.lightWorker);
@@ -281,5 +282,23 @@ export function installWorkers(
       })
     : undefined;
 
-  return { purger, scheduler, storageAlerts, vectorReconcile };
+  /**
+   * The Projektregister backfill and repair. Unlike the sweeps above this is
+   * not housekeeping: it is how the Büro learns a project exists (ADR-0054).
+   * Write-through keeps an edited project current and nothing else does, so
+   * without this clock every organization that predates the register stays
+   * invisible to the office and the Büro answers "no matching projects" about
+   * a full portfolio. Hourly, bounded to 50 rebuilds a tick, idempotent — the
+   * route is written to be called on a tick and worked off over several.
+   */
+  const registerReconcile = cfg.registerReconcile.enabled
+    ? internalSweepCronJob(w, cfg, secrets, dependsOn, {
+        name: "register-reconcile",
+        schedule: cfg.registerReconcile.schedule,
+        path: "/api/internal/workspace/register/reconcile",
+        timeoutMs: 600_000,
+      })
+    : undefined;
+
+  return { purger, scheduler, storageAlerts, vectorReconcile, registerReconcile };
 }

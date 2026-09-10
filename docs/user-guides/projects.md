@@ -69,6 +69,27 @@ When you start a chat from a project's "Ask Piloti" (chat) tab, the conversation
 
 Source: `docs/technical-reference/chat-flow.md`, `frontends/ui/src/app/api/chat/route.ts:55`
 
+### Taking a project question to the Büro
+
+A project chat is locked to its project: the scope chip carries a lock and the
+project's name, and nothing else is readable from it. When the question is
+wider than one project — *how did we solve this elsewhere*, *which of our
+projects are GK5* — open the scope chip and press **Im Büro fragen →**.
+
+That opens the Büro chat (`/app/chat`) with this project already **in view**, so
+its documents are readable there alongside the office archive and the project
+register. A notice in the transcript says why it is in view, and the **×** on
+its chip takes it back out.
+
+The way back is the same door in reverse: a citation from a project, opened in
+the Büro, offers **Im Projekt weiterfragen**, which lands in that project's own
+chat with your question carried across.
+
+Which projects a Büro chat may read is entirely up to whoever is asking, and it
+never widens what *they* can see: a project you cannot open is not offered, is
+not named, and cannot be shown by Piloti either. See
+[`chat.md`](chat.md) for the Wissensbasis and the mounting flow.
+
 ## Document management
 
 Upload documents via the **Documents** tab. The upload flow:

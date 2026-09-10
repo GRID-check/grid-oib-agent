@@ -123,6 +123,11 @@ const addWireCitations = (
       // a qualifier on source #1 could beat the real shelf on source #2.
       shelf: citation.shelf,
       shelfFallback: parsed?.shelf,
+      // Which project this passage belongs to, when the shelf is `project`
+      // (ADR-0054). It rides the same payload as the shelf and is threaded the
+      // same way — as data the producer stated, never as an inference.
+      projectId: citation.projectId,
+      projectName: citation.projectName,
       url: isHttpUrl(citation.url) ? citation.url : undefined,
       kind: citation.kind,
       lane: citation.lane,

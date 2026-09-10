@@ -27,7 +27,7 @@ import {
   hasCompletedDeepResearchReport,
   hasExpiredDeepResearchReport,
 } from '@/features/chat/lib/session-activity'
-import { conversationMatchesProject } from '@/features/chat/lib/project-scope'
+import { conversationMatchesScope } from '@/features/chat/lib/project-scope'
 import { useLayoutStore } from '../store'
 import { useSessionUrl } from '@/hooks/use-session-url'
 import { documentDisplayName } from '@/lib/documents/display-name'
@@ -107,6 +107,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
     deepResearchOwnerConversationId,
     currentUserId,
     projectId,
+    scope,
   } = useChatStore(
     useShallow((s) => ({
       currentConversation: s.currentConversation,
@@ -117,6 +118,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
       deepResearchOwnerConversationId: s.deepResearchOwnerConversationId,
       currentUserId: s.currentUserId,
       projectId: s.projectId,
+      scope: s.scope,
     }))
   )
 
@@ -128,6 +130,14 @@ export const MainLayout: FC<MainLayoutProps> = ({
 
   const isResearchPanelOpen = useLayoutStore((s) => s.rightPanel === 'research')
   const isMobile = useIsMobile()
+  const tChat = useTranslations('chat')
+  const isWorkspace = scope === 'workspace'
+
+  // WHERE AM I, in one string, carried by the breadcrumb's first segment and
+  // the composer's scope chip. In the Büro that place is the office itself:
+  // there is no project to name, and the rail that would otherwise say so is
+  // not on screen (`workspace-chat-ui.md` §3).
+  const scopeName = isWorkspace ? tChat('workspace.title') : projectName
   const peekedFile = useFilePreviewStore((s) => s.file)
   const previewHidden = useFilePreviewStore((s) => s.hidden)
   const previewMode = useFilePreviewStore((s) => s.mode)
@@ -189,20 +199,23 @@ export const MainLayout: FC<MainLayoutProps> = ({
 
   const isNavigationBlocked = isStreaming || pendingInteraction !== null
 
-  // Sessions shown in the panel: the current user's sessions in the active
-  // project context. Legacy sessions without a projectId fail open (always
-  // visible) so users never lose sight of pre-scoping history.
+  // Sessions shown in the panel: the current user's sessions on the surface
+  // they are standing on. In a project, legacy sessions without a projectId
+  // fail open (always visible) so users never lose sight of pre-scoping
+  // history; in the Büro the rule is strict (WS-9, see project-scope.ts).
   const userConversations = useMemo(
     () =>
       currentUserId
         ? conversations
-            .filter((c) => c.userId === currentUserId && conversationMatchesProject(c, projectId))
+            .filter(
+              (c) => c.userId === currentUserId && conversationMatchesScope(c, { projectId, scope }),
+            )
             // The store keeps creation order; sort newest-first so date groups
             // and rows in the sessions panel come out most-recently-updated first.
             .slice()
             .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))
         : [],
-    [conversations, currentUserId, projectId]
+    [conversations, currentUserId, projectId, scope]
   )
 
   const sessions = useMemo(
@@ -287,7 +300,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
               chat, not the research panel (which has its own header). */}
           <ChatToolbar
             sessionTitle={currentConversation?.title}
-            projectName={projectName ?? undefined}
+            projectName={scopeName ?? undefined}
             onNewSession={handleNewSession}
             isNewSessionDisabled={isNavigationBlocked}
             isChatStarted={messageCount > 0}
@@ -368,7 +381,8 @@ export const MainLayout: FC<MainLayoutProps> = ({
             <InputArea
               isAuthenticated={isAuthenticated}
               connectionMode="websocket"
-              projectName={projectName ?? undefined}
+              projectName={scopeName ?? undefined}
+              scope={scope}
               // Gates the composer's addressee statement (and the hand-off read
               // behind it). False — the default — is byte-for-byte today's
               // composer (spec NF-8).
@@ -393,7 +407,11 @@ export const MainLayout: FC<MainLayoutProps> = ({
         onDeleteSession={handleDeleteSession}
         onDeleteAllSessions={handleDeleteAllSessions}
         onRenameSession={updateConversationTitle}
-        showDeepResearchSection={showResearchInHistory}
+        scope={scope}
+        // No Deep Research section in the Büro: that section is scoped by a
+        // project's Qdrant collection, which the office has none of until
+        // phase 5 — an empty section here would be a promise, not a state.
+        showDeepResearchSection={showResearchInHistory && !isWorkspace}
         projectId={projectId ?? undefined}
         projectCollection={projectCollection ?? undefined}
       />

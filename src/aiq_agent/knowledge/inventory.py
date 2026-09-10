@@ -35,7 +35,17 @@ _listing_shelf: ContextVar[Shelf | None] = ContextVar("grid_listing_shelf", defa
 _inventory_drops: ContextVar[dict[Shelf | None, int]] = ContextVar("grid_inventory_drops", default={})
 
 # User-facing shelves first; base last so the OIB corpus cannot evict them.
-_USER_SHELF_ORDER: tuple[Shelf, ...] = (Shelf.ARCHIV, Shelf.PROJECT, Shelf.SESSION)
+#
+# ``register`` (ADR-0054) has a place here so that the member has ONE defined
+# position rather than an accidental one, but it will normally contribute
+# nothing: the Projektregister holds Steckbriefe, not files, so no inventory row
+# ever carries that shelf and the group is neither allocated nor rendered. It
+# sits after ``project`` because this tuple is EVICTION PRIORITY under the cap,
+# not the knowledge hierarchy — the display order the user sees (Basiswissen →
+# Büroarchiv → Projektregister → Projektwissen → Diese Unterhaltung, spec KH-1)
+# is the scope tree's, and base is deliberately last here for the eviction
+# reason this module's docstring gives.
+_USER_SHELF_ORDER: tuple[Shelf, ...] = (Shelf.ARCHIV, Shelf.PROJECT, Shelf.REGISTER, Shelf.SESSION)
 _INVENTORY_ORDER: tuple[Shelf, ...] = (*_USER_SHELF_ORDER, Shelf.BASE)
 
 #: How many in-flight filenames the prompt names before it counts the rest.
@@ -52,6 +62,10 @@ _SHELF_BLURBS: dict[Shelf, str] = {
     ),
     Shelf.ARCHIV: ("on every project in this organization — office archive. NOT base/OIB, NOT this project's files."),
     Shelf.PROJECT: ("on every session of this project — this project's files only. NOT the Büroarchiv, NOT base/OIB."),
+    Shelf.REGISTER: (
+        "which projects this office HAS and what they are — Steckbriefe, never file contents. "
+        "No files live here; a project's documents are on Projektwissen."
+    ),
     Shelf.SESSION: ("only this chat — attachments uploaded here. Not visible in other sessions."),
 }
 

@@ -143,6 +143,7 @@ export function ShareDialog({
   currentUserId = null,
 }: ShareDialogProps): JSX.Element | null {
   const t = useTranslations('collaboration')
+  const tChat = useTranslations('chat')
   const tCommon = useTranslations('common')
 
   const { state, loading, loadError, failure, saving, refresh } = sharing
@@ -159,6 +160,16 @@ export function ShareDialog({
 
   const [query, setQuery] = useState('')
   const [pending, setPending] = useState<PendingConfirm | null>(null)
+  /**
+   * Who the last invitation was for.
+   *
+   * The refusal comes back naming the PROJECTS, not the person — the server is
+   * answering "may this subject join", and it already knows who the subject is.
+   * The dialog is the only place that still holds the name, and the Büro
+   * sentence is unreadable without it ("Anna Meier kann Seestadt Nord nicht
+   * lesen"), so the one gesture that can raise this refusal records its subject.
+   */
+  const [invitee, setInvitee] = useState<string | null>(null)
 
   const roleLabel = (role: ResourceRole): string => t(`sharing.roles.${role}`)
 
@@ -167,6 +178,20 @@ export function ShareDialog({
     if (value.reason === SHARING_ERROR_REASONS.rateLimited) return t('sharing.errors.rateLimited')
     if (value.reason === SHARING_ERROR_REASONS.rosterFull) return t('sharing.errors.rosterFull')
     if (value.reason === SHARING_ERROR_REASONS.containerAccessRequired) {
+      // A WORKSPACE conversation refuses for the same reason and with a
+      // different remedy: the blocked project is one of several this Büro
+      // thread happens to read, so "add them to the project first" is
+      // unactionable until it says WHICH project (spec AC-7). The server marks
+      // that case by naming them in `details.projects`; a project conversation
+      // carries a `projectId` and no names, because the reader is standing in
+      // the project already.
+      const blocked = value.projects ?? []
+      if (blocked.length > 0 && invitee) {
+        return tChat('workspace.sharing.blocked', {
+          name: invitee,
+          project: blocked.join(', '),
+        })
+      }
       return t('sharing.errors.containerAccessRequired')
     }
     if (value.reason === SHARING_ERROR_REASONS.organizationMembershipRequired) {
@@ -603,7 +628,10 @@ export function ShareDialog({
                               className="shrink-0 gap-1.5"
                               disabled={saving}
                               aria-label={`${t('sharing.invite.submit')}: ${candidate.person.name}`}
-                              onClick={() => void sharing.grant(candidate.person.userId)}
+                              onClick={() => {
+                                setInvitee(candidate.person.name)
+                                void sharing.grant(candidate.person.userId)
+                              }}
                             >
                               <UserPlus className="size-3.5" aria-hidden />
                               {t('sharing.invite.submit')}

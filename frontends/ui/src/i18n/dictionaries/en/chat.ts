@@ -108,11 +108,8 @@ export const chat = {
     // preference, it does not force a deep-research run.
     deepResearchHint:
       'Preference noted — Piloti escalates to Deep Research automatically when a question calls for it.',
-    scopeAria: 'Search scope: {project}',
     scopeFallback: 'This project',
     scopeCurrent: 'Current project',
-    scopeAll: 'All projects',
-    scopeAllSoon: 'Coming soon — cross-project search is not available yet.',
     // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
     // tiny one-line hint under the composer keeps the active source count legible.
     sourcesActiveMobile: '{count, plural, one {# source} other {# sources}} active',
@@ -125,6 +122,245 @@ export const chat = {
       law: 'Building law & guidelines',
       project: 'Project documents',
       office: 'Office archive',
+    },
+  },
+  /**
+   * The Büro — the organization-level chat at `/app/chat` (ADR-0054).
+   *
+   * "Büro" is the PLACE (chip, breadcrumb, rail entry); "Piloti fragen" is the
+   * action that opens it and lives in `nav.orgHeader`; "Büro-Chat" is the
+   * feature's name in documents and in the history panel's heading.
+   */
+  workspace: {
+    title: 'Office',
+    placeholder: 'Ask Piloti in the office …',
+    chipAria:
+      'Search scope: Office. {count, plural, =0 {No project in view} one {# project in view} other {# projects in view}}. Opens the knowledge base.',
+    empty: {
+      title: 'The office',
+      description:
+        'Here Piloti reads base knowledge, the office archive and the project register. Add a project to have its documents read too.',
+      /**
+       * One example per outcome kind (A law, B register, C compare). Worded as
+       * questions, not promises: B and C reach further than phase 1 answers,
+       * and a canned prompt that claims a capability is worse than none.
+       */
+      examples: {
+        law: 'How long may an escape route be in GK4?',
+        register: 'Which of our projects are GK5 with timber construction?',
+        compare: 'Compare the fire-safety concepts of …',
+      },
+    },
+    chipAriaProject: 'Search scope: {project}. Opens the knowledge base.',
+    /**
+     * The Wissensbasis tree behind the scope chip — the one place, on BOTH
+     * surfaces, that states the knowledge levels in authority order and says
+     * which of them this turn may read (`workspace-chat-ui.md` §4).
+     */
+    tree: {
+      title: 'Knowledge base',
+      levels: {
+        base: 'Base knowledge',
+        archiv: 'Office archive',
+        register: 'Project register',
+        project: 'Project',
+        memory: 'Memory',
+        session: 'This conversation',
+      },
+      hints: {
+        base: 'OIB guidelines and legal sources.',
+        archiv: 'Standards and details from the whole organization.',
+        register: 'Names and profiles only — no documents.',
+        // Memory has its own row since ADR-0055, so this line no longer
+        // promises it: two rows promising one thing is how a hierarchy stops
+        // meaning anything.
+        project: 'Documents of the projects in view.',
+        memory: 'What Piloti has learned.',
+        session: 'Files you attached here.',
+      },
+      /**
+       * `off` and `unavailable` stay different words for the reason
+       * `source-basis-model.ts` gives: an unflippable switch is a lie about
+       * agency, so a door that is shut never wears the word for a choice.
+       */
+      states: {
+        always: 'always',
+        on: 'on',
+        off: 'excluded',
+        unavailable: 'unavailable',
+      },
+      offByPreset: 'Excluded by the „{preset}" preset.',
+      registerOutsideWorkspace: 'Only in the office chat.',
+      sessionEmpty: 'No file in this conversation yet.',
+      projectLocked: 'This chat is fixed to {project}.',
+      noProjects: 'No project in view',
+      mountAdd: '+ Add a project',
+      mountRemove: 'Remove {project}',
+      resetPreset: 'Reset the preset',
+      // "In view" means read, never used. What a note did to an answer is
+      // something nobody knows, the model included (ADR-0055).
+      memoryCounts: '{carried, plural, one {# note} other {# notes}} of {total} in view.',
+      // The same number the digest gives the MODEL, given to the reader too.
+      // Those two diverging is what this whole record is about.
+      memoryOmitted:
+        '{omitted, plural, one {# further note was} other {# further notes were}} not read this time.',
+      memoryOpen: 'Open memory',
+      memoryNoOrganization: 'Nothing remembered for your organization yet.',
+    },
+    // The row above the composer: what this conversation may read right now.
+    mounted: {
+      label: 'In view',
+      aria: 'Projects in view: {names}',
+    },
+    picker: {
+      title: 'Add a project',
+      placeholder: 'Search projects …',
+      mounted: 'in view',
+      empty: 'No matching project.',
+      none: 'There is no further project you can read.',
+      error: 'The project list could not be loaded.',
+      retry: 'Try again',
+    },
+    cap: {
+      notice: 'A conversation cannot read more than {max} projects at once.',
+      // The same limit, but the reader pressed a collection rather than five
+      // projects — so the sentence names what they actually pressed.
+      noticeForSet:
+        '„{set}" no longer fits: a conversation cannot read more than {max} projects at once.',
+      deepResearch: 'Start as Deep Research',
+    },
+    /**
+     * Collections — a named set of projects (a district, a client, a year) that
+     * comes into view as one gesture (spec GR-2). "Sammlung" is the product
+     * word in German; the English dictionary is the developer-facing one.
+     */
+    sets: {
+      label: 'Collections',
+      count: '{count, plural, =0 {No readable project} one {# project} other {# projects}}',
+      // A collection this reader may read nothing of is not an error — it is
+      // empty, and it says so where it would have been pressed.
+      emptyReason: 'No readable project',
+      manage: 'Manage collections',
+      none: 'No collection yet.',
+      noneHint:
+        'A collection bundles projects — a district, a client, a year — and adds them in one gesture.',
+      title: 'Manage collections',
+      description:
+        'A collection is a name over projects. It grants nobody access: every addition still asks per project.',
+      create: 'New collection',
+      createSubmit: 'Create',
+      nameLabel: 'Name',
+      namePlaceholder: 'e.g. District 3',
+      descriptionLabel: 'Description (optional)',
+      descriptionPlaceholder: 'What does this collection stand for?',
+      rename: 'Rename',
+      save: 'Save',
+      edit: 'Edit „{name}"',
+      back: 'Back to the list',
+      delete: 'Delete',
+      deleteConfirm: 'Delete „{name}"?',
+      deleteHint:
+        'The collection goes, the projects stay. Conversations that added it keep reading exactly as before.',
+      readOnly: 'Only whoever created it — or a project administrator — can change it.',
+      projectsLabel: 'Projects in this collection',
+      addLabel: 'Add a project',
+      addPlaceholder: 'Search projects …',
+      addSubmit: 'Add',
+      addEmpty: 'Every project you can read is already in this collection.',
+      remove: 'Remove {project} from this collection',
+      noProjects: 'No project in this collection yet.',
+      errors: {
+        load: 'The collections could not be loaded.',
+        duplicateName: 'A collection with that name already exists.',
+        notEditable: 'You cannot change this collection.',
+        notFound: 'That collection no longer exists.',
+        unavailable: 'That did not work just now.',
+      },
+    },
+    /**
+     * Every mount, by the agent or by the reader, produces three simultaneous
+     * signals — this notice, a chip in "In view", a row in the tree. There is
+     * no code path that mounts without all three.
+     */
+    mount: {
+      byAgent: 'Piloti added project {project}.',
+      byUser: '{project} is in view.',
+      fromProject: '{project} is in view because you came from that project.',
+      undo: 'Undo',
+      undone: '{project} removed again.',
+      failed: '{project} could not be added.',
+      noAccess: 'You cannot read that project.',
+      notFound: 'That project could not be found.',
+      unavailable: 'That project could not be added right now.',
+      /**
+       * Not the cap, and not something removing a project would fix: the
+       * conversation is SHARED with people who may not view this project, so
+       * adding it would answer past them (spec AC-8). Its own sentence, naming
+       * the people — without them there is nothing to act on.
+       */
+      wouldExclude:
+        'Not added: {people} cannot see that project, and this conversation is shared.',
+      wouldExcludeAnyone:
+        'Not added: other people in this conversation cannot see that project.',
+      wouldExcludeHint: 'Change who this conversation is shared with, or ask without that project.',
+      // A Sammlung adds what it may and names the rest. A project the reader
+      // may not see at all never appears here.
+      skipped: 'Not added (no chat access): {names}',
+    },
+    attribution: {
+      project: 'Project {project}',
+      register: 'Project profile',
+      continueInProject: 'Continue in the project',
+    },
+    // The foot of a project chat's tree: the doorway into the office.
+    askInWorkspace: 'Ask in the office →',
+    askInWorkspaceHint: 'Opens the office chat with this project in view.',
+    /**
+     * The Herleitung, grouped by knowledge level rather than by lane. The five
+     * levels are ALWAYS rendered — an absent level reads as absent, never as
+     * missing (`workspace-chat-ui.md` §3, failure mode 1).
+     */
+    herleitung: {
+      levels: {
+        law: 'Base knowledge',
+        office: 'Office archive',
+        register: 'Project register',
+        project: 'Project',
+        conversation: 'This conversation',
+        web: 'Web',
+      },
+      levelEmpty: 'nothing in view',
+      /**
+       * How much a level contributed. Documents, not passages: the fan's own
+       * tally already counts hits, and two numbers for one band on one panel
+       * is a reader working out which is which.
+       */
+      levelCount: '{docs, plural, one {# document} other {# documents}}',
+      // Memory sits BESIDE the levels, never among them: a level is a shelf
+      // that was read and whose evidence can be opened — a note is neither
+      // (ADR-0055).
+      memory: {
+        title: 'Memory',
+        notEvidence: 'Not evidence — notes that were in context while answering.',
+        carried: '{carried, plural, one {# note} other {# notes}} in view',
+        none: 'nothing read',
+        of: 'of {total}',
+        omitted: '{omitted, plural, one {# further note} other {# further notes}} not read',
+        searched:
+          'Searched memory beyond the running digest: {searched, plural, one {# note} other {# notes}}.',
+      },
+    },
+    // The standing control under a register-only answer (§10.3).
+    registerMount: {
+      label: 'Add to this conversation:',
+      action: 'Add',
+    },
+    sharing: {
+      blocked: '{name} cannot read {project}, so this chat cannot be shared with them.',
+    },
+    sessions: {
+      title: 'Office chats',
+      empty: 'No office chat yet. Ask Piloti something that goes beyond one project.',
     },
   },
   // Time-of-day greeting on the empty chat state.
@@ -701,6 +937,23 @@ export const chat = {
     savedProject: 'Saved to this project’s memory.',
     dismissed: 'Not saved.',
     error: 'Could not save the finding',
+    // WHY it is asked at all: the reach. Organization memory is read in every
+    // project in this organization, which is why Piloti proposes it instead of
+    // writing it (ADR-0055, C6).
+    orgReach:
+      'Org-wide means read in every project in this organization. That is why Piloti proposes it rather than writing it itself.',
+    // WHO may accept. A permission statement, never an outage: "temporarily
+    // unavailable" was the wrong answer, because it invites waiting instead of
+    // asking.
+    orgPermission:
+      'Remembering org-wide is for whoever holds “write organization memory” (org:memory:write). Without it, “Save to just this project” stays open.',
+    orgDenied:
+      'You do not hold the permission to remember this org-wide (org:memory:write). An administrator of your organization can grant it — or you can save the finding to this project only.',
+    // The other cause behind the same code: not your permission, but the
+    // installation. Sending someone to ask for a permission that is not the
+    // locked door would be the wrong sentence.
+    orgSwitchedOff:
+      'Org-wide memory is switched off in this installation. That is an operator decision, not your role — the finding can still be saved to this project.',
     kind: {
       decision: 'Decision',
       constraint: 'Constraint',
@@ -808,6 +1061,17 @@ export const chat = {
         // rewrite are tried before the answer ships with its markers.
         repair: 'A citation did not hold up — searching again …',
         escalation: 'A quick lookup is not enough — starting deep research',
+        escalationPortfolio:
+          'A quick lookup is not enough — starting a portfolio search across {count, plural, one {one project} other {# projects}}',
+        // Memory rides along as a digest on EVERY turn; that the agent went
+        // past it is the decision worth a line — and the number is why the
+        // line is its own.
+        memorySearch:
+          'Looked further into memory — read {count, plural, one {# more note} other {# more notes}}',
+        // The quietest change in the system until it got a sentence: a note
+        // replaced an earlier one and nobody was told.
+        memorySuperseded:
+          '{count, plural, one {An earlier note was} other {# earlier notes were}} replaced by a new one',
       },
     },
     // The one skill event a reader sees, keyed on WHO decided. Two sentences
@@ -825,6 +1089,9 @@ export const chat = {
       webSearch: 'Web search',
       ris: 'RIS',
       corpus: 'OIB knowledge',
+      // The store Piloti keeps its project notes in — not the base corpus,
+      // which is why this chip is decided before `corpus`.
+      memory: 'Memory',
       assistant: 'Assistant',
       reading: 'Reading',
       // One chip per skill the turn actually applied. `{name}` is resolved by
@@ -1145,6 +1412,39 @@ export const chat = {
       distillation: 'added after the response',
       inTurn: 'noted during the response',
     },
+    // A correction, said out loud (ADR-0055, C5). Until now replacing a note
+    // was the quietest event in the system: the old one vanished from the
+    // panel, and it could be neither seen nor undone.
+    superseded: {
+      notice: 'Piloti replaced an earlier note.',
+      replaces: 'Now: “{content}”',
+      replaced: 'Before: “{content}”',
+      undo: 'Undo',
+      undone: 'The earlier note is in force again.',
+      undoFailed: 'That could not be undone just now.',
+      // 409: either the earlier note is already back, or someone else moved
+      // the pair in the meantime. Not a failure.
+      undoStale: 'Something changed here in the meantime — memory holds the current state.',
+      // In the memory panel: the retired note stays and says what took its
+      // place, and the replacement says what it replaced.
+      panelRetired: 'Replaced by: “{content}”',
+      panelReplaces: 'Replaced: “{content}”',
+      panelRestore: 'Restore the earlier note',
+      panelRestored: 'Restored.',
+      panelRestoreFailed: 'The note could not be restored.',
+    },
+  },
+  // The marker under the answer: WHAT was read, never what it did.
+  memoryContext: {
+    trigger: '{count, plural, one {# note} other {# notes}} from memory in view',
+    triggerAria:
+      '{count, plural, one {# note was} other {# notes were}} in view while answering — open the list',
+    // The sentence that keeps the marker honest. "Read" can be shown; "used"
+    // cannot — not even by the model about itself.
+    readNotUsed:
+      'These notes were in context while the answer was written. Whether any of them shaped it cannot be said — they are not evidence.',
+    omitted:
+      '{omitted, plural, one {# further note} other {# further notes}} from memory {omitted, plural, one {was} other {were}} not read this time.',
   },
   confidence: {
     label: 'Confidence: {level}',

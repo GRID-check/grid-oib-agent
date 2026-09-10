@@ -68,6 +68,11 @@ export const citationFromWire = (
     // The shelf as the backend stated it (ADR-0047). An unrecognised or missing
     // value stays undefined — unknown, never a default shelf.
     shelf: asShelf(wire.shelf),
+    // WHICH project, beside WHICH shelf (ADR-0054). Taken, never guessed: the
+    // collection id is not consulted here for the same reason it is not
+    // consulted for the shelf.
+    projectId: trimmed(wire.project_id),
+    projectName: trimmed(wire.project_name),
     lane: trimmed(wire.lane),
     laneLabel: trimmed(wire.lane_label),
     bindingNote: trimmed(wire.binding_note),

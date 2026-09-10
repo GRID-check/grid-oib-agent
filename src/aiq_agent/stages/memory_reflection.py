@@ -34,6 +34,7 @@ from typing import Any
 from pydantic import BaseModel
 from pydantic import Field
 
+from aiq_agent.cards.models import MemoryProposalCard
 from aiq_agent.common.model_overrides import AgentGroup
 from aiq_agent.stages.registry import register_stage
 from aiq_agent.stages.spec import GateDecision
@@ -64,6 +65,32 @@ _SKIP_ROUTES = {"meta", "error"}
 REFLECTION_TIMEOUT_S = 45.0
 
 
+class MemorySupersededNote(BaseModel):
+    """The note a recorded finding RETIRED — the correction, said out loud.
+
+    A supersession used to be the quietest event in the system: the replaced
+    note simply vanished from the memory panel, so a reader could see neither
+    that Piloti had corrected itself nor what it had corrected, and had nothing
+    to undo it with. ADR-0055 makes it a STATED event in the transcript, and
+    this is the half of that the wire carries.
+
+    ``content`` and not the id alone, because both sentences are the point: the
+    notice reads „Bisher: …" beside „Neu: …", and a report the reader cannot
+    check is the report that sent them to the panel in the first place. It is
+    reported by the WRITE PATH — the BFF returns the retired row's own words
+    beside its id — and never derived from the quote the model supplied: that
+    quote is resolved fuzzily, and a polarity supersession retires a note the
+    model never quoted at all.
+
+    A RETIRED note, never a live one. It is nested under the item that replaced
+    it and is never a member of ``items``, so nothing downstream can render it
+    as a finding this turn recorded.
+    """
+
+    id: str = Field(description="Id of the retired project_memory row.")
+    content: str = Field(description="The retired note's own words, as the reader is shown them.")
+
+
 class MemoryReflectionItem(BaseModel):
     """One ``project_memory`` row this stage wrote, as the reader sees it.
 
@@ -76,21 +103,44 @@ class MemoryReflectionItem(BaseModel):
     id: str = Field(description="Id of the project_memory row.")
     kind: str = Field(description="decision | constraint | open_question | derived_fact | preference.")
     content: str = Field(description="The finding, verbatim as it was written.")
+    supersedes: MemorySupersededNote | None = Field(
+        default=None,
+        description=(
+            "The note this finding retired, when it retired one. Absent — never null — "
+            "otherwise, the rule this whole envelope follows (§4.1)."
+        ),
+    )
 
 
 class MemoryReflectionPayload(BaseModel):
-    """What the stage produced: the memory items it wrote, in write order.
+    """What the stage produced: what it WROTE, and what it can only PROPOSE.
 
     The DB write stays the source of truth — this payload is a notification of
     what happened, never a transfer of authority. ``grid_app`` stays
     single-writer, and a client may not create, edit or delete an item through
     this channel; it only learns that one exists.
 
+    ``items`` are rows that exist. ``proposals`` are ``memory_proposal`` cards
+    for which NOTHING was written: an organisation-scoped finding the BFF
+    refused because the acting user does not hold ``org:memory:write``, which is
+    the human review ADR-0055 makes the office's writer out of. Two fields and
+    not one flagged list, because the distinction is the whole point — a client
+    that rendered a proposal as a write would claim a firm-wide note that does
+    not exist.
+
+    ``proposals`` is absent rather than empty when there are none, the rule this
+    whole envelope follows (§4.1): an absent key and a null are the same fact and
+    only one of them is the contract.
+
     There is no ``empty`` payload: a turn that established nothing durable is a
-    ``StageEmpty``, so an items list on the wire is never empty.
+    ``StageEmpty``, so neither list on the wire is ever empty.
     """
 
     items: list[MemoryReflectionItem] = Field(description="The project_memory rows written, in write order.")
+    proposals: list[MemoryProposalCard] | None = Field(
+        default=None,
+        description="memory_proposal cards awaiting a person's acceptance. NOTHING was written for these.",
+    )
 
 
 def _gate(facts: TurnFacts) -> GateDecision:
@@ -106,10 +156,15 @@ def _gate(facts: TurnFacts) -> GateDecision:
         # The chat turn is only a stub; the report path reflects on the worker
         # once the report exists.
         return GateDecision.skip("deep_research_job")
-    if not facts.project_id:
-        # The autonomous stage writes project-scoped memory ONLY (audit S1), so
-        # an org-only conversation has nothing it may safely write.
-        return GateDecision.skip("no_project")
+    if not facts.project_id and not facts.organization_id:
+        # Nothing to write to and nothing to propose for. This used to read
+        # `not facts.project_id` and skip every office turn, because the stage
+        # could only write project-scoped memory (audit S1) — the objection
+        # ADR-0054's gate and ADR-0055's proposal card together answered. An
+        # office turn now produces PROPOSALS: nothing is written, and a person
+        # who may set firm-wide memory decides. A turn with neither id is
+        # anonymous and is still the one shape with no target at all.
+        return GateDecision.skip("no_target")
     text = (facts.answer or "").strip()
     if not facts.query or not text:
         return GateDecision.skip("empty_turn")
@@ -144,11 +199,15 @@ def digest_with_turn_writes(memory_digest: str | None, written: tuple[str, ...])
 async def _handler(ctx: StageContext) -> dict[str, Any] | None:
     """One reflection pass. ``None`` when the turn established nothing durable —
     the common, correct outcome, recorded as ``empty`` rather than invented into
-    a payload."""
+    a payload.
+
+    A pass that only PROPOSED is still ``ready``: nothing was written, and the
+    offer is the thing the reader has to see.
+    """
     from aiq_agent.agents.project_memory.reflection import run_memory_reflection
 
     facts = ctx.facts
-    recorded = await run_memory_reflection(
+    outcome = await run_memory_reflection(
         llm=ctx.llm,
         query=facts.query,
         answer=facts.answer,
@@ -156,13 +215,22 @@ async def _handler(ctx: StageContext) -> dict[str, Any] | None:
         organization_id=facts.organization_id,
         conversation_id=facts.conversation_id,
         memory_digest=digest_with_turn_writes(facts.memory_digest, facts.remembered_this_turn),
+        # WHO the answered turn ran for. Read on the organisation branch alone,
+        # where a proposal is authorized as that person rather than as the
+        # service token (ADR-0055, contract C6).
+        user_id=facts.user_id,
+        organization_membership_id=facts.organization_membership_id,
     )
-    if not recorded:
+    if not outcome:
         # `None` is `empty` — the common, correct outcome for a turn that
         # established nothing durable, and a first-class success rather than a
         # failure to invent output.
         return None
-    return {"items": [dict(item) for item in recorded]}
+    payload: dict[str, Any] = {"items": [dict(item) for item in outcome.recorded]}
+    if outcome.proposed:
+        # Absent unless applicable, like every other optional key on this wire.
+        payload["proposals"] = [dict(card) for card in outcome.proposed]
+    return payload
 
 
 MEMORY_REFLECTION = register_stage(

@@ -93,8 +93,31 @@ def test_a_legacy_bare_string_payload_still_reads() -> None:
     assert all(entry.shelf is None for entry in entries)
 
 
+#: Shelves that name no COLLECTION and therefore cannot ride this header.
+#: The Projektregister (ADR-0054) is a table on the BFF, not a vector
+#: collection: a Steckbrief hit is stamped with the ``register`` shelf on the
+#: citation, but there is nothing for the scope header — which authorizes
+#: collections — to carry. Every other shelf must have a fixture case, so the
+#: exemption is a list of one rather than a loosened assertion.
+_SHELVES_THAT_NAME_NO_COLLECTION = {Shelf.REGISTER.value}
+
+
 def test_the_fixture_exercises_every_shelf() -> None:
     """A shelf added to the enum without a fixture case would slip through."""
     covered = {row["shelf"] for case in _cases() for row in case["parsed"] if row["shelf"] is not None}
 
-    assert covered == {shelf.value for shelf in Shelf}
+    assert covered == {shelf.value for shelf in Shelf} - _SHELVES_THAT_NAME_NO_COLLECTION
+
+
+def test_a_register_shelf_never_authorizes_a_collection() -> None:
+    """The register is navigation, not retrieval (spec PR-14/PR-15).
+
+    Nothing may reach a project's documents by putting ``register`` on a scope
+    entry: the shelf parses (it is a real member) and the entry it appears on is
+    still just one collection the BFF named, so this pins the fixture's silence
+    rather than the parser's behaviour — no fixture case carries it, and a
+    producer that started sending one would fail the assertion above.
+    """
+    assert all(row["shelf"] != Shelf.REGISTER.value for case in _cases() for row in case["parsed"]), (
+        "the BFF does not put the Projektregister in the collection scope; a case that does needs ADR-0054 revisited"
+    )

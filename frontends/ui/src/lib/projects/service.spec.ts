@@ -8,12 +8,22 @@ vi.mock('@/lib/workos/client', () => ({
   getWorkOS: () => ({ authorization: { check } }),
 }))
 
+vi.mock('@/lib/authz/projects', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/authz/projects')>()),
+  requireProjectAccess: vi.fn().mockResolvedValue({ role: 'project-admin' }),
+}))
+
+vi.mock('@/lib/workspace/register-service', () => ({
+  markProjectRegisterStale: vi.fn().mockResolvedValue(undefined),
+}))
+
 const listProjectsInOrg = vi.fn()
+const renameProjectInOrg = vi.fn()
 vi.mock('./repository', () => ({
   listProjectsInOrg: (...args: unknown[]) => listProjectsInOrg(...args),
   findProjectInOrg: vi.fn(),
   insertProject: vi.fn(),
-  renameProjectInOrg: vi.fn(),
+  renameProjectInOrg: (...args: unknown[]) => renameProjectInOrg(...args),
   restoreProjectIfPending: vi.fn(),
   setProjectWorkosResourceId: vi.fn(),
   softDeleteProjectAndEnqueue: vi.fn(),
@@ -30,7 +40,8 @@ vi.mock('@/lib/conversations/repository', () => ({
   listConversationIdsForProject: vi.fn(),
 }))
 
-import { getProjectsGridData, listProjects } from './service'
+import { markProjectRegisterStale } from '@/lib/workspace/register-service'
+import { getProjectsGridData, listProjects, updateProjectName } from './service'
 import { makeProject } from '@/test-utils/db-fixtures'
 import type { AuthorizedSession } from '@/lib/auth/types'
 
@@ -186,5 +197,27 @@ describe('getProjectsGridData', () => {
 
     expect(data.viewerActivity).toEqual({})
     expect(data.projects).toHaveLength(3)
+  })
+})
+
+describe('updateProjectName', () => {
+  it('marks the project Steckbrief stale — the office answers with the name', async () => {
+    // The register write-through for a rename (ADR-0054, spec PR-6): without
+    // it the Büro keeps naming a project nobody in the office calls that any
+    // more, and nothing but the nightly reconcile would notice.
+    vi.clearAllMocks()
+    renameProjectInOrg.mockResolvedValue({ ...ALPHA, name: 'Alpha II' })
+
+    await updateProjectName(session(), 'proj_alpha', 'Alpha II')
+
+    expect(markProjectRegisterStale).toHaveBeenCalledWith('proj_alpha', 'org_1')
+  })
+
+  it('stamps nothing when there was no project to rename', async () => {
+    vi.clearAllMocks()
+    renameProjectInOrg.mockResolvedValue(null)
+
+    await expect(updateProjectName(session(), 'proj_gone', 'X')).rejects.toThrow()
+    expect(markProjectRegisterStale).not.toHaveBeenCalled()
   })
 })

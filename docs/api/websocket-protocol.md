@@ -9,7 +9,7 @@ The UI communicates with the AI-Q Python backend via the **NAT WebSocket protoco
 ### URL
 
 ```
-ws://<host>/websocket?projectId=<uuid>&conversationId=<session_id>&conversation_id=<session_id>
+ws://<host>/websocket?projectId=<uuid>&conversationId=<session_id>&conversation_id=<session_id>&scope=<project|workspace>
 ```
 
 - **Client-side (browser):** Connects to the same origin; the UI gateway server proxies to the backend.
@@ -32,6 +32,7 @@ ws://BACKEND_URL/websocket
 | `projectId` | No | UUID scoping the backend Milvus collection |
 | `conversationId` | No | Session ID for conversation continuity (Grid collection scoping) |
 | `conversation_id` | No | Same session ID, snake_case duplicate of `conversationId`. Read by NAT's base `_restore_execution_state` to swap a reconnected socket into a still-running handler (live reattach). The client sends both keys; the backend override tolerates either. See backend-deep-dive §2c. |
+| `scope` | No | Which surface the turn is asked from: `project` (the default when absent — the chat bound to one project) or `workspace` (the Büro-Chat, [ADR-0054](../adr/0054-workspace-chat-mounts-projects-on-demand.md)). A `workspace` upgrade carries **no** `projectId`: the gateway forwards `scope` to `/api/auth/websocket-scope`, which then reads no active-project preference, runs no project access check and returns no `projectId`, so the socket gets `[base, archiv_<org>?, proj_<mounted>*, s_<conversation>?]` — the project entries being the conversation's MOUNTED projects (ADR-0054), re-authorized with `project:chat` on this upgrade and dropped one by one when that check fails. Gated by the `workspace-chat` feature flag (403 when enforcement is on and the org lacks it). Any other value is a 400, which the gateway passes through to the client. |
 
 ---
 
@@ -42,14 +43,14 @@ ws://BACKEND_URL/websocket
 The `server.js` gateway handles WebSocket upgrade requests:
 
 1. **Upgrade interception:** The `server.on('upgrade', ...)` handler checks if `req.url` starts with `/websocket`.
-2. **Scope resolution:** Calls `/api/auth/websocket-scope?projectId=xxx&conversationId=yyy` (internal HTTP request to the same server) to resolve:
-   - `x-grid-collection-scope` header — passes collection scope to backend.
+2. **Scope resolution:** Calls `/api/auth/websocket-scope?projectId=xxx&conversationId=yyy&scope=zzz` (internal HTTP request to the same server; `scope` is forwarded only when the upgrade carried it) to resolve:
+   - `x-grid-collection-scope` header — passes collection scope to backend. Each entry is `{ collection, shelf?, projectId?, projectName? }` (base64url JSON): `shelf` per ADR-0047, and `projectId`/`projectName` on a mounted project's entry only (ADR-0054, spec KH-13), so a citation from a Büro turn can name the project it came from without anyone parsing `proj_<uuid>` back into an identity. The signed envelope carries the same array as `scopedCollections`, and that copy is the authoritative one.
    - `x-grid-organization-id` / `x-grid-user-id` — forwards user context.
    - `x-grid-project-id` / `x-grid-project-context` / `x-grid-project-memory` — project id + injected profile/memory (the latter two base64url-encoded).
    - `x-grid-feature-memory-reflection` (`true`/`false`) — whether the async memory-reflection stage is enabled for the caller (per-org `memory-reflection` WorkOS flag; no env-var fallback). Fail-closed: absent → off.
    - `authorization: Bearer <accessToken>` — forwards backend access token.
 3. **Backend proxy:** Forwards the upgraded socket to `BACKEND_WS_URL + '/websocket'`.
-4. **Auth rejection:** If scope resolution returns 401/403, the gateway writes the HTTP error response and destroys the socket without proxying.
+4. **Auth rejection:** If scope resolution returns 400/401/403, the gateway writes the HTTP error response and destroys the socket without proxying. Every other failure is a 502 (fail closed).
 5. **Cookie forwarding:** Cookies from the original request are forwarded to the backend for AuthKit session validation.
 
 ### Signed context envelope (backlog T3-9, 2026-07-16)

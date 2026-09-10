@@ -63,6 +63,26 @@ describe('interpolate plural blocks', () => {
     expect(interpolate(steps, { count: 0 })).toBe('0 Schritte')
   })
 
+  /**
+   * REGRESSION: an exact `=0` branch used to break the whole block.
+   *
+   * The branch scanner only accepted word labels, so it stopped at `=0`, found
+   * no categories, and resolved the block to the empty string — the scope
+   * chip's accessible name read „Suchbereich: Büro. . Öffnet die Wissensbasis."
+   * with the count silently gone.
+   */
+  const mounted =
+    '{count, plural, =0 {Kein Projekt eingeblendet} one {# Projekt eingeblendet} other {# Projekte eingeblendet}}'
+
+  test('an exact branch wins at its own value', () => {
+    expect(interpolate(mounted, { count: 0 })).toBe('Kein Projekt eingeblendet')
+  })
+
+  test('the categories still answer every other value', () => {
+    expect(interpolate(mounted, { count: 1 })).toBe('1 Projekt eingeblendet')
+    expect(interpolate(mounted, { count: 4 })).toBe('4 Projekte eingeblendet')
+  })
+
   test('resolves a block sitting inside a longer sentence', () => {
     expect(
       interpolate('Piloti hat sich {count, plural, one {# Notiz} other {# Notizen}} gemerkt', {

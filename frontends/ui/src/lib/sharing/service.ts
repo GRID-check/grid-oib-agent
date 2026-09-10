@@ -155,6 +155,10 @@ export interface GrantAccessInput {
  * The container check is the security-critical part: the invitee must ALREADY be
  * able to reach the resource's container. Inviting someone who cannot is refused
  * with an explanation, and never accompanied by a silent container grant.
+ *
+ * A type may add its own precondition on the subject (`assertGrantable`), which
+ * is checked in the same breath: a Büro conversation refuses anyone who may not
+ * view every project it has mounted (spec AC-7).
  */
 export async function grantResourceAccess(
   session: AuthorizedSession,
@@ -191,6 +195,7 @@ export async function grantResourceAccess(
   }
 
   await assertInviteeCanReachContainer(session, resourceType, resourceId, input.subjectUserId)
+  await assertSubjectSatisfiesType(session, resourceType, resourceId, input.subjectUserId)
 
   await upsertGrant({
     organizationId: session.organizationId,
@@ -274,6 +279,25 @@ async function assertInviteeCanReachContainer(
       { reason: SHARING_ERROR_REASONS.containerAccessRequired, projectId: probe.projectId },
     )
   }
+}
+
+/**
+ * Rule 3, when the type has one: a precondition on the SUBJECT that the
+ * container cannot express.
+ *
+ * Separate from the two above because it is the type's rule, not the
+ * substrate's — the registry owns it, this module only makes sure it is asked
+ * (`assertGrantable`, ADR-0032 §1). A workspace conversation uses it for the
+ * mounted-project rule (spec AC-7); a type with no such rule declares no member
+ * and pays nothing.
+ */
+async function assertSubjectSatisfiesType(
+  session: AuthorizedSession,
+  resourceType: ShareableResourceType,
+  resourceId: string,
+  subjectUserId: string,
+): Promise<void> {
+  await describeResource(resourceType).assertGrantable?.(session, resourceId, subjectUserId)
 }
 
 /**

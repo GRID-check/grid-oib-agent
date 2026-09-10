@@ -2,6 +2,7 @@ import type { ComponentType } from 'react'
 import {
   Archive,
   BookOpenCheck,
+  Building2,
   ClipboardList,
   Folder,
   Inbox,
@@ -43,6 +44,7 @@ import {
 
 export type ProjectSectionKey =
   | 'chat'
+  | 'workspaceChat'
   | 'automation'
   | 'files'
   | 'knowledge'
@@ -60,6 +62,8 @@ export interface ProjectSectionFlags {
   showSkills?: boolean
   /** Org-wide Archiv — `organization-archiv` flag (ADR-0024). */
   canAccessArchiv?: boolean
+  /** The Büro at `/app/chat` — `workspace-chat` flag (ADR-0054). */
+  canAccessWorkspaceChat?: boolean
   /** Project knowledge page — feature-flagged, default off. */
   showKnowledge?: boolean
   /** Collaboration surfaces — `collaboration` flag / env opt-in (ADR-0032…0035). */
@@ -167,6 +171,25 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     inPalette: true,
     shortcutKey: 'j',
     group: 'automate',
+  },
+  {
+    // The Büro (ADR-0054) — asking Piloti above any project. Org-scoped route,
+    // so it reads as a cross-project doorway and sits in the `org` group with
+    // its neighbours, ABOVE Archiv and Postfach: it is the group's primary
+    // job-to-be-done, and the two beside it are places you go to look things
+    // up. Labelled "Büro" — the place — because that is what its neighbours are
+    // named as too; "Piloti fragen" is the action and belongs to the org header
+    // (`workspace-chat-ui.md` §10, decision 5).
+    key: 'workspaceChat',
+    segment: null,
+    href: '/app/chat',
+    icon: Building2,
+    i18nKey: 'workspaceChat',
+    gate: 'canAccessWorkspaceChat',
+    inRail: true,
+    inPalette: true,
+    shortcutKey: 'b',
+    group: 'org',
   },
   {
     // The org-wide Archiv (ADR-0024) keeps its org-scoped route; the entry is a

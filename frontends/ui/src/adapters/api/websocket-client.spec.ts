@@ -365,6 +365,40 @@ describe('NATWebSocketClient URL construction', () => {
     expect(ws.url).toBe('ws://localhost/websocket?projectId=proj-1&conversationId=conv-1&conversation_id=conv-1')
   })
 
+  test('a Büro socket carries scope=workspace and no project (ADR-0054)', async () => {
+    const client = new NATWebSocketClient({
+      conversationId: 'conv-1',
+      scope: 'workspace',
+      websocketUrl: 'ws://localhost/websocket',
+      callbacks: {},
+    })
+
+    await client.connect()
+    const ws = MockWebSocket.instances[0]
+
+    expect(ws.url).toBe(
+      'ws://localhost/websocket?scope=workspace&conversationId=conv-1&conversation_id=conv-1',
+    )
+  })
+
+  test('a Büro socket drops a project id it was handed', async () => {
+    // The pairing is exclusive on purpose: a project id on a workspace upgrade
+    // is exactly the silent widening the scope builder refuses, and the client
+    // must not be the thing that reintroduces it.
+    const client = new NATWebSocketClient({
+      conversationId: 'conv-1',
+      scope: 'workspace',
+      projectId: 'proj-1',
+      websocketUrl: 'ws://localhost/websocket',
+      callbacks: {},
+    })
+
+    await client.connect()
+    const ws = MockWebSocket.instances[0]
+
+    expect(ws.url).not.toContain('projectId')
+  })
+
   test('preserves existing query params on websocketUrl', async () => {
     const client = new NATWebSocketClient({
       conversationId: 'conv-1',

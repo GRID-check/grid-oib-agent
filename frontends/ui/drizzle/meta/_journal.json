@@ -568,6 +568,41 @@
       "when": 1789257600006,
       "tag": "0080_own_key_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1789344000006,
+      "tag": "0081_conversation_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1789430400006,
+      "tag": "0082_project_register",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1789516800006,
+      "tag": "0083_conversation_mounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1789603200006,
+      "tag": "0084_project_sets",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1789689600006,
+      "tag": "0085_memory_subtraction",
+      "breakpoints": true
     }
   ]
 }

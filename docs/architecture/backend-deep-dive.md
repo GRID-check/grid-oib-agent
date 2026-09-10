@@ -209,6 +209,18 @@ boundary in `ChatResearcherAgent.run()`:
 - `job_admission_rejected` + `retry_after_seconds` — set in the deep-research
   node's `JobAdmissionError` catch; marks the text as a queue-rejection notice,
   not a research answer.
+- `memory_context` (`{carried, omitted, total, searched}`) — what the turn READ
+  out of long-term memory (ADR-0055). `carried` is exactly the notes the digest
+  put in front of the model (≤20, each ≤120 chars), `omitted` and `total` are the
+  counts the digest text already disclosed to the model and now discloses to the
+  reader, and `searched` is how many notes `search_memory` brought back this
+  turn. Unlike everything above it, it is NOT graph state: the digest half comes
+  off the turn-start context load and the search half off a per-turn `ContextVar`
+  registry (`knowledge/memory_context.py`), so it is attached in `_run` rather
+  than in `_apply_transparency_extras`. Absent when the turn read no memory at
+  all. **It says what was read, never what was used** — whether a note changed
+  the answer is a claim this system cannot verify, so it must never be rendered
+  as a citation or worded as influence.
 
 If you add another structured signal to the chat response, this is where it must
 be lifted, and the frontend Zod schema (`schemas.ts`) must declare it.
@@ -1224,7 +1236,23 @@ The agent reaches the second through the `ifc_query` tool
 (`src/aiq_agent/agents/bim/register.py`), which posts to
 `POST /api/internal/bim/query` with the shared service token — the same
 single-writer separation the `remember` tool uses. Models are addressed by
-project and file name; no UUID travels through a conversation.
+project and file name; no MODEL uuid travels through a conversation.
+
+**Which project (ADR-0054, spec AG-10)**: both model-addressing tools —
+`ifc_query` and `ifc_measure` — take an explicit `project_id` argument, resolved
+by the one function `agents/bim/register.resolve_tool_project`. Empty inside a
+project chat means the conversation's own project. In the **Büro** there is no
+such project and there may be several in view, so the argument is required and
+must name one of them (the turn's signed scope entries plus whatever
+`open_project` mounted mid-turn — `knowledge/mounts.mounted_projects`). The tool
+never picks for the model, not even when exactly one project is in view: a silent
+pick is how one project's Brüstungshöhe gets reported as another's. Refusals name
+the projects that ARE in view, because a bare "no" is answered with the same id
+again, and only the genuinely unfixable case ("no project is in view at all")
+carries "do not retry". The context contract declares the ORGANISATION for both
+tools and not the project (`TOOL_CONTEXT_REQUIREMENTS`): the project is an
+argument now, and declaring it would state a requirement the office turn
+legitimately does not meet.
 
 ### What a large model costs, and where that cost was removed
 
@@ -1453,6 +1481,138 @@ job. The fallback behavior is unchanged, but it is no longer silent: the
 `elif` branch for `deep_research_agent` jobs now logs a one-time WARNING
 (job id, whether the request looked authenticated/project-scoped) at exactly
 the point the re-injection would otherwise be skipped.
+
+**What a run started from the Büro inherits (ADR-0054, spec DR-1/DR-2)**: an
+office turn can mount up to five projects, and the escalation must read exactly
+what the conversation could — including a project the agent mounted in the
+MIDDLE of the turn, after the scope on the state was fixed. So
+`_escalation_collection_scope` (`chat_researcher/register.py`) reads the live
+scope at submit time, which is where `get_scoped_collections_from_context()`
+has already unioned this turn's verified mount grants, and hands it over in the
+RICH entry shape — each collection with its shelf and, for a mounted project,
+its id and name. The worker replays that verbatim as
+`X-Grid-Collection-Scope` (`_collection_scope_header`), so a project passage in
+the report is attributed the way it was in the chat.
+
+No project identity travels beside it: a Büro run has an organisation and no
+project, which is what keeps `remember` unavailable to it — enforced by
+`tests/aiq_agent/test_tool_context_contract.py` against
+`WORKER_IDENTITY_HEADERS`, not by prompt instruction. For the same reason
+`_derive_project_collection` files such a run under no project: several mounted
+projects are not one, and a run that read five of them belongs to the
+organisation. Its turn-start context is the workspace digest, fetched by the
+worker the way the memory digest is (`_resolve_run_context`) and composed into
+`project_context` as the office block, with `workspace_context` on the state as
+the flag that says which shape it is.
+
+**Portfolio-Recherche — one run, one sub-run per project (ADR-0054, spec
+DR-4…DR-8)**: the Büro reads at most `GRID_WORKSPACE_MAX_MOUNTED_PROJECTS`
+projects in a live turn, and this is the one path that reads more. A submit
+carrying `portfolio: true` (with an optional `project_ids` list) makes the
+worker iterate instead of running once:
+`aiq_api.jobs.runner._run_portfolio_job` picks the projects, and for each one
+re-injects `X-Grid-Collection-Scope` narrowed to **base + Archiv + that project**
+before running the ordinary deep-research agent again. There is no portfolio
+agent and no new store; the arithmetic — selection, narrowing, the budget share,
+the report — is pure functions in
+`src/aiq_agent/agents/deep_researcher/portfolio.py`.
+
+Four decisions a reader should not have to reverse-engineer:
+
+- **Who may be read is the workspace digest's answer**, not the mounts twin's.
+  The digest already filters the Projektregister to what this *membership* may
+  read (ADR-0038) and persists nothing; the twin authorizes identically but also
+  writes a mount row and spends the per-conversation cap — the very ceiling a
+  portfolio run exists to exceed. A `project_ids` list is INTERSECTED with that
+  answer, never added to it, and the ids that fall out are named in the report
+  ("nicht verfügbar") rather than dropped. It fails **closed**: a digest that
+  cannot be reached reads nothing.
+- **The budget is divided, not spent first-come.** Each sub-run gets its own
+  `BudgetGuardCallback` for `GRID_MAX_RUN_COMPLETION_TOKENS // n`
+  (ADR-0015, `common.budget_guard.configured_completion_ceiling`), and the
+  run-wide guard is deliberately **not** installed on top: one shared pool gives
+  the first project everything and the last one nothing.
+- **A project that fails is a line in the report, not the end of the run**
+  (DR-8). A sub-run's exception is recorded against that project and the loop
+  continues; only the organisation's USD budget (`BudgetExceededError`) stops it,
+  and the projects after that are marked "wurde nicht mehr gelesen" rather than
+  attempted. Cancellation is re-raised, never swallowed into a per-project note.
+- **The report is one document with one numbering.** Each sub-run numbers its
+  citations from 1, so `renumber_citations` shifts each section's `[N]` markers
+  and its `verified_sources` past the sections before it. The result is returned
+  in the shape a single run returns (`report` + `verified_sources`), so cards,
+  the persisted output, the thread turn and the transparency lift all work on a
+  portfolio run without knowing it was one.
+
+Sub-runs share the job but not its file scope: each gets `job_id`-`p<n>` so one
+project's draft cannot be read by the next, and graph checkpointing is off for a
+portfolio run (one thread id across sub-runs would make project two resume
+project one). Progress rides the existing `job.phase` channel as
+`portfolio_started` (with the project count) / `portfolio_project_started` /
+`portfolio_synthesis_started`. The run reads at most `PORTFOLIO_MAX_PROJECTS`
+projects — IMPORTED from `knowledge.workspace_digest.RECALL_MAX_LIMIT` (10)
+rather than restated, because it is the digest endpoint's own recall ceiling and
+a second copy of it is how a caller ends up asking for more than it can ever
+get. The report says how many of how many were read and never implies it saw the
+whole office.
+
+**How a Büro turn REACHES that path (ADR-0052, spec DR-3/DR-5/DR-7)**: the
+worker has accepted `portfolio: true` since the run above landed, and nothing
+offered it — the office could recognise a question about more projects than fit
+in view and had no way to say so. The offer is the answering agent's, in its
+envelope, because ADR-0052 leaves every "what is this turn" decision with the
+model that has the tools in hand. Five hops, one direction:
+
+1. **The office prompt branch** (`shallow_researcher/prompts/researcher.j2`,
+   the `in_buero` section) names the shape — „vergleiche alle unsere Projekte",
+   a set the user names — and what to do with it: call `find_projects` with a
+   `limit` up to ten to NAME the set first, then hand off in the envelope with
+   `escalate_to_deep: true`, `portfolio: true`, the ids exactly as printed, and
+   an `escalation_reason` that says how many projects. Answering such a question
+   from the subset that happens to be in view, without saying it was a subset,
+   is the failure DR-3 exists to prevent.
+2. **The envelope carries it** — `AnswerMeta.portfolio` (bool) and
+   `AnswerMeta.portfolio_project_ids` (`list[str] | None`) in
+   `common/answer_envelope.py`, rendered into both the prompt's schema block and
+   the strict `response_format`. `null` reads as `false` there: provider-enforced
+   structured output requires every key present, so `null` is the common way a
+   model says "not a portfolio run", and a bare `bool` field would reject the
+   envelope and cost the whole answer anatomy with it. The ids are cleaned and
+   bounded (`workspace_digest.bounded_project_ids`) where the list first enters
+   the system.
+3. **The chat node applies the OFFICE RULE, once**
+   (`chat_researcher/agent._effective_portfolio`). Only a Büro turn — an
+   organisation and no project, which is exactly what `workspace_context` on the
+   state means and exactly the switch the prompt branched on — may be answered
+   this way. A request arriving in a project turn is DROPPED and logged: that
+   turn already has exactly one project, so iterating it is the same run with
+   extra steps, and a disagreement between the prompt branch and the turn is
+   worth seeing. Every unreadable shape fails closed.
+4. **The decision travels on the STATE**, not in the shallow result:
+   `ChatResearcherState.escalation_portfolio` / `…_project_ids`, set by the
+   clarifier node from `ShallowResult`, for the same reason `escalation_reason`
+   is. The clarifier sits on both routes into deep research and may ask a
+   question first; the intent has to survive that hand-off, and the deep node
+   reads one carrier rather than reaching back into a result it has no business
+   re-reading.
+5. **The submitter threads both fields** into `submit_agent_job`
+   (`_build_deep_research_job_submitter`), where `portfolio=False` /
+   `project_ids=None` is exactly the job every other caller has always
+   submitted.
+
+DR-7 — the reader is told what the run costs BEFORE it starts — is met twice,
+and by no wire field of its own. Live, at the instant the decision becomes true,
+`turn_status.emit_escalation(..., portfolio_project_count=n)` switches the
+escalation line to its own key `status.escalation.portfolio` with `count` as its
+one value (the only NUMBER any status payload carries: it reads the same in
+every locale, and a portfolio line that cannot say how many is announced as the
+ordinary escalation it is indistinguishable from). Durably, on the answer, the
+model's own `escalation_reason` clause names the count, and that field is
+already lifted and already declared by the client. A dedicated
+`escalation_portfolio` pair was tried and removed: `NATSystemResponseMessageSchema`
+strips every key it does not declare, so lifting a field before the frontend
+learns it means the field is set, serialised, sent and silently parsed away —
+see `frontends/aiq_api/tests/test_frame_extras_the_client_declares.py`.
 
 **Durable checkpointing (backlog T3-8, 2026-07-16, `5bea711`)**: optional
 LangGraph checkpointing for the deep-research graph, configured via

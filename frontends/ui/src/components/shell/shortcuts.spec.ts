@@ -24,6 +24,9 @@ const ALL: ShortcutFlags = {
   // Separate from `canCollaborate` since ADR-0042: the inbox carries operational
   // alerts as well as collaboration events, so it is reachable on its own gate.
   canAccessInbox: true,
+  // The Büro (`workspace-chat`, ADR-0054) — an org-scoped doorway like the
+  // Archiv, so it is reachable from anywhere rather than only inside a project.
+  canAccessWorkspaceChat: true,
 }
 
 /** The floor — a plain member with no optional feature enabled. */
@@ -59,9 +62,10 @@ describe('jumpTargets', () => {
     expect(minimal).not.toContain('a') // archiv
     expect(minimal).not.toContain('i') // inbox
     expect(minimal).not.toContain('k') // knowledge
+    expect(minimal).not.toContain('b') // büro
 
     const all = jumpTargets(ALL).map((target) => target.key)
-    for (const key of ['o', 'a', 'i', 'k']) expect(all).toContain(key)
+    for (const key of ['o', 'a', 'i', 'k', 'b']) expect(all).toContain(key)
   })
 
   test('the inbox jump follows canAccessInbox, not canCollaborate (ADR-0042)', () => {
@@ -120,6 +124,10 @@ describe('resolveJump', () => {
     expect(resolveJump('o', ALL, null)).toBe('/app/organization')
     expect(resolveJump('a', ALL, null)).toBe('/app/archiv')
     expect(resolveJump('i', ALL, null)).toBe('/app/inbox')
+    // `g b` from inside a project too: the Büro is a place above every project,
+    // not this project's chat under another key.
+    expect(resolveJump('b', ALL, null)).toBe('/app/chat')
+    expect(resolveJump('b', ALL, 'p1')).toBe('/app/chat')
   })
 
   test('unbound and gated-off keys resolve to null', () => {

@@ -10,7 +10,12 @@
  *      container (for a conversation: its project). A grant can raise your role
  *      on one resource; it can NEVER hand you the project. This is the formal
  *      version of "you may only invite people already inside project scope".
- *   3. **Effective role = the STRONGEST of** the visibility-derived role and any
+ *   3. **The type's own read precondition**, when its descriptor declares one
+ *      (`assertReadable`). This is where a rule that outlives the grant lives:
+ *      a Büro conversation is readable only while the reader may view every
+ *      project it has mounted (spec AC-7), and that can stop being true long
+ *      after they were invited.
+ *   4. **Effective role = the STRONGEST of** the visibility-derived role and any
  *      explicit grant. Grants are additive only — there is no per-person deny,
  *      because negative permissions make effective access non-composable.
  *
@@ -111,6 +116,14 @@ export async function resolveResourceAccess(
     const { role } = await requireProjectAccess(session, probe.container.id, 'project:view')
     projectRole = role
   }
+
+  // (2b) The type's own read precondition, when it declares one. Runs BEFORE
+  // any role is computed, because it is not about how much access the caller
+  // has — a rule that can stop holding after a grant was written (a workspace
+  // conversation's mounted projects, spec AC-7) must be able to take the thread
+  // away from its owner as readily as from a viewer. Denial is the same
+  // `NotFoundError` every other denial here is.
+  await descriptor.assertReadable?.(session, resourceId, probe)
 
   // (3) Effective role: the strongest of visibility and grant.
   let role: ResourceRole | null = null

@@ -21,6 +21,7 @@ import {
   type NATIntermediateStepContent,
   type NATErrorContent,
   type NATStageMessage,
+  type MemoryContext,
   NATIncomingMessageSchema,
   NATMessageType,
   NATSchemaType,
@@ -66,6 +67,15 @@ export interface ResponseTransparency {
   truncationReason?: string
   /** Ways the answer came out weaker than a healthy run, as stable tokens. */
   degradedReasons?: string[]
+  /**
+   * What this turn READ out of project/organization memory — the digest's own
+   * selection plus anything `search_memory` returned (ADR-0055).
+   *
+   * It says what was in context, never what shaped the answer: the second is a
+   * claim nothing on either side can verify, and the marker that renders this
+   * is worded accordingly. Absent when the turn had no memory at all.
+   */
+  memoryContext?: MemoryContext
   /** Marks the answer text as a queue-rejection notice, NOT a research answer. */
   jobAdmissionRejected?: boolean
   /** Retry hint (seconds) — only alongside jobAdmissionRejected. */
@@ -225,6 +235,14 @@ export interface NATWebSocketClientOptions {
   conversationId: string
   /** Optional project ID to scope the backend collection */
   projectId?: string
+  /**
+   * Which chat surface opened this socket (ADR-0054). `'workspace'` travels on
+   * the upgrade as `?scope=workspace` and is what tells the gateway to build a
+   * Büro scope — base corpus, Archiv and organization memory, and NO project,
+   * not even one a stale preference could supply. Omitted (the default) the
+   * handshake is byte-identical to today's.
+   */
+  scope?: 'project' | 'workspace'
   /** Callback functions */
   callbacks: NATWebSocketClientCallbacks
   /**
@@ -309,7 +327,11 @@ export class NATWebSocketClient {
     const baseUrl = this.options.websocketUrl || (await getWebSocketUrl())
     const params = new URLSearchParams()
 
-    if (this.options.projectId) {
+    if (this.options.scope === 'workspace') {
+      // Deliberately exclusive with projectId: a Büro turn has no project, and
+      // sending one would be the silent widening the scope builder refuses.
+      params.set('scope', this.options.scope)
+    } else if (this.options.projectId) {
       params.set('projectId', this.options.projectId)
     }
     if (this.options.conversationId) {
@@ -681,6 +703,7 @@ export class NATWebSocketClient {
             degradedReasons: message.degraded_reasons,
             skillsActivated: message.skills_activated,
             skillsHidden: message.skills_hidden,
+            memoryContext: message.memory_context,
             jobAdmissionRejected: message.job_admission_rejected,
             retryAfterSeconds: message.retry_after_seconds,
             answerMeta: sanitizeAnswerMeta(message.answer_meta) ?? undefined,

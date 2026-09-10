@@ -77,6 +77,15 @@ class SourceEntry:
     # producer did not state one — unknown, and never re-derived from the
     # collection id here.
     shelf: str | None = None
+    # WHICH project a `project`-shelf hit belongs to (ADR-0054), stated by the
+    # knowledge layer's ``Projekt:``/``Projekt-Id:`` fields. In the Büro several
+    # mounted projects are readable in one turn, so "Projektwissen" no longer
+    # says whose: the chip reads "Projekt Seestadt · Brandschutz.pdf · S. 7"
+    # because these two travelled with the passage. None for every other shelf
+    # and for output produced before the fields were threaded — and, like the
+    # shelf, never guessed back from the collection id.
+    project_id: str | None = None
+    project_name: str | None = None
     # Explicit per-document classification ("Dokumentart" / doc_class), parsed
     # from the knowledge-layer tool output's `Dokumentart:` field. When present
     # it is the FIRST-priority signal for lane/kind placement, overriding the
@@ -576,6 +585,8 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                             tool_name=item.get("tool_name", ""),
                             collection=item.get("collection"),
                             shelf=item.get("shelf"),
+                            project_id=item.get("project_id"),
+                            project_name=item.get("project_name"),
                             doc_class=item.get("doc_class"),
                             chunk_text=item.get("chunk_text"),
                             rank=item.get("rank"),
@@ -970,6 +981,12 @@ _KL_COLLECTION_RE = re.compile(r"^Collection:\s*(.+)$", re.MULTILINE)
 # The shelf the hit came from, stated by the producer (ADR-0047). Absent from
 # output produced before the shelf travelled — absent means unknown.
 _KL_SHELF_RE = re.compile(r"^Shelf:\s*(.+)$", re.MULTILINE)
+# WHICH project a project-shelf hit belongs to (ADR-0054). Two lines rather than
+# one "Name (id: …)" line, because a project name may itself contain brackets
+# and the id is what the frontend links on. Emitted only for a hit whose scope
+# entry carried them, so absence means "not a mounted project's document".
+_KL_PROJECT_NAME_RE = re.compile(r"^Projekt:\s*(.+)$", re.MULTILINE)
+_KL_PROJECT_ID_RE = re.compile(r"^Projekt-Id:\s*(.+)$", re.MULTILINE)
 # Machine-readable doc_class field emitted by the knowledge layer's
 # `_format_results` (``Dokumentart: <doc_class_key>``). ``Doc-Class:`` is
 # accepted as an alias for robustness.
@@ -1089,6 +1106,8 @@ def _kl_entry(
     title: str | None,
     collection: str | None,
     shelf: str | None = None,
+    project_id: str | None = None,
+    project_name: str | None = None,
     doc_class: str | None,
     chunk_text: str | None,
     tool_name: str,
@@ -1104,6 +1123,8 @@ def _kl_entry(
         tool_name=tool_name,
         collection=collection or None,
         shelf=str(parsed_shelf) if parsed_shelf else None,
+        project_id=(project_id or "").strip() or None,
+        project_name=(project_name or "").strip() or None,
         doc_class=doc_class or None,
         chunk_text=chunk_text or None,
         punkt=(punkt or "").strip() or None,
@@ -1159,6 +1180,8 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
                     title=_first(_KL_SOURCE_RE, header),
                     collection=_first(_KL_COLLECTION_RE, header),
                     shelf=_first(_KL_SHELF_RE, header),
+                    project_id=_first(_KL_PROJECT_ID_RE, header),
+                    project_name=_first(_KL_PROJECT_NAME_RE, header),
                     doc_class=_parse_kl_doc_class(_first(_KL_DOC_CLASS_RE, header)),
                     chunk_text=_kl_block_body(block),
                     tool_name=tool_name,
@@ -1843,6 +1866,14 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
         # frontend labels it instead of prefix-matching the collection id. Absent
         # when unknown — the renderer must leave such a source unattributed.
         "shelf": entry.shelf,
+        # WHICH project this passage is from (ADR-0054), when the scope entry
+        # carried it: in the Büro up to five projects are readable in one turn,
+        # and a chip that says only "Projektwissen" cannot be acted on. Both are
+        # dropped by the None-filter below for every non-project source, so a
+        # renderer reads their absence as "not a project's document" rather than
+        # attributing the passage to a project nobody named.
+        "project_id": entry.project_id,
+        "project_name": entry.project_name,
         "source_type": entry.source_type or None,
         "tool": entry.tool_name or None,
         "url": entry.url,

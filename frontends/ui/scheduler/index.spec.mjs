@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { shouldStart, readConfig, fireOne, INTERNAL_TOKEN_HEADER } from './index.js'
+import { shouldStart, readConfig, fireOne, reconcileRegister, tick, INTERNAL_TOKEN_HEADER } from './index.js'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -144,5 +144,69 @@ describe('fireOne', () => {
     expect(ok).toBe(false)
     expect(warn.mock.calls[0].join(' ')).toContain('sk-skip')
     expect(warn.mock.calls[0].join(' ')).toContain('schedule disabled')
+  })
+})
+
+describe('reconcileRegister (the Projektregister stage)', () => {
+  const config = { frontendUrl: 'http://frontend:3000', internalToken: 'tok' }
+
+  it('posts to the internal reconcile route with the shared token', async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => ({ rebuilt: 3 }) }))
+    expect(await reconcileRegister(config, fetchImpl)).toBe(3)
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('http://frontend:3000/api/internal/workspace/register/reconcile')
+    expect(init.method).toBe('POST')
+    expect(init.headers[INTERNAL_TOKEN_HEADER]).toBe('tok')
+  })
+
+  it('swallows a non-2xx rather than throwing', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const fetchImpl = vi.fn(async () => ({ ok: false, status: 500, text: async () => 'boom' }))
+    await expect(reconcileRegister(config, fetchImpl)).resolves.toBe(0)
+  })
+
+  it('swallows a transport error rather than throwing', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('ECONNREFUSED')
+    })
+    await expect(reconcileRegister(config, fetchImpl)).resolves.toBe(0)
+  })
+})
+
+describe('tick (stage isolation)', () => {
+  // Same fake-sql idiom as db.spec.mjs: a tagged template that answers SELECTs
+  // with the claim rows and everything else with nothing.
+  function makeSql(selectRows) {
+    const tx = (strings) => {
+      const text = strings.join('$').replace(/\s+/g, ' ').trim()
+      return Promise.resolve(/^SELECT/i.test(text) ? selectRows : [])
+    }
+    tx.unsafe = () => Promise.resolve([])
+    return { begin: (cb) => cb(tx) }
+  }
+
+  it('fires the claimed jobs even when the register reconcile fails', async () => {
+    // The whole reason the stage is last and defended: a register outage costs
+    // the Büro a stale Steckbrief, never the deployment its scheduled jobs.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const fired = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      if (String(url).includes('/workspace/register/reconcile')) throw new Error('register down')
+      fired.push(String(url))
+      return { ok: true, json: async () => ({ fired: true }) }
+    })
+
+    const sql = makeSql([{ id: 'job-1', schedule_cron: '0 9 * * *', schedule_timezone: 'UTC' }])
+    const config = {
+      frontendUrl: 'http://frontend:3000',
+      internalToken: 'tok',
+      batch: 20,
+      retentionDays: 90,
+    }
+
+    await expect(tick(sql, config)).resolves.toBe(1)
+    expect(fired).toEqual(['http://frontend:3000/api/internal/skills/fire'])
   })
 })

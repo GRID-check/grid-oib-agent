@@ -54,6 +54,16 @@ class DeepResearchAgentState(BaseModel):
     clarifier_result: str | None = None
     available_documents: list[AvailableDocument] | None = None
     project_context: str | None = None
+    # The office SHAPE of that context: set only for a run started from the Büro
+    # (ADR-0054), where the turn has an organisation and no project. The composed
+    # block itself rides ``project_context`` — the job runner composes it exactly
+    # as the chat path does, so the Normenregister block, the norm doctrine and
+    # the prompts keep reading ONE field — and this one is the flag a reader
+    # branches on, so an office run is never mistaken for a project run whose
+    # profile happens to be missing (spec AG-6). The runner injects it the way it
+    # injects ``project_context``; a field the state did not declare would be
+    # dropped silently, which is how escalation once discarded ``force_skills``.
+    workspace_context: str | None = None
     # The rendered PLATFORM_LESSONS block — anonymized fleet-wide process
     # cautions distilled from user down-votes. Injected like project_context
     # (the chat orchestrator sets it for the in-process path; the async job

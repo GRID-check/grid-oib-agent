@@ -122,11 +122,14 @@ Organization.
 | `org:archiv:manage` | Upload/delete/reingest/retag in the org-wide document Archiv (ADR-0024). Reads are open to any member, so only mutations need it. |
 | `org:skills:manage` | Author, edit, clone and delete skills in the organization toolbox (Agent Skills). Reads are open to any member. |
 | `org:projects:create` | Create projects. Held by **Member** by default; withhold it to make project creation admin-only. |
+| `org:chat` | Ask Piloti in the **Büro**, the organization-level chat (ADR-0054). Held by **Member** by default; withhold it to keep chat inside projects. |
+| `org:memory:write` | Let Piloti record findings in **organization memory** — the Büro's `remember` (ADR-0008's follow-up, ADR-0054). Held by **Admin** and deliberately NOT by Member: an org-wide note is a firm-wide statement. Without it the agent proposes the finding instead of writing it. |
+| `org:projects:administer` | Reach and administer every project in the organization without a per-project role — the org-admin bypass, as a permission a custom role can hold (ADR-0038). |
 | `org:members:manage` | Open the **Access** section: the member directory, the role catalog and the WorkOS Users widget that invites, re-roles and removes people. |
 
-All nine are attached to the environment **Admin** role, which keeps its six
-`widgets:*` permissions. **Member** holds `org:projects:create` only — all other
-project access comes from project-scoped roles.
+All twelve are attached to the environment **Admin** role, which keeps its six
+`widgets:*` permissions. **Member** holds `org:projects:create` and `org:chat` —
+all other project access comes from project-scoped roles.
 
 ### 1a. Project-tier permissions (resource type: Project)
 
@@ -176,7 +179,7 @@ environment-scoped role holds a `platform:*` permission.
 
 | Slug | Scope | Holds |
 |---|---|---|
-| `member` | environment | `org:projects:create` |
+| `member` | environment | `org:projects:create`, `org:chat` — and deliberately NOT `org:memory:write` |
 | `admin` | environment | every `org:*` (including `org:projects:administer`, the org-wide project bypass) + six `widgets:*` |
 | `org-auditor` | environment | `org:audit:view` |
 | `org-billing-admin` | environment | `org:budgets:manage` |

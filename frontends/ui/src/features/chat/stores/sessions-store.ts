@@ -30,7 +30,13 @@ import {
   clearDeepResearchSession,
 } from '../lib/deep-research-session-storage'
 import { hasActiveDeepResearchJob, hasNoUserChatMessages } from '../lib/session-activity'
-import { conversationMatchesProject, isJobConversation } from '../lib/project-scope'
+import {
+  conversationMatchesScope,
+  conversationScope,
+  conversationScopeFromRow,
+  isJobConversation,
+  type ConversationScope,
+} from '../lib/project-scope'
 import { mapServerMessagesToChatMessages } from '../lib/server-message-mapper'
 import { encodeCitations } from '../lib/citations'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
@@ -50,6 +56,14 @@ export type SessionsSlice = {
    * settles back to false with nothing recovered.
    */
   isRecoveryPending: boolean
+
+  /**
+   * Which chat surface is mounted (ADR-0054) — see `ChatState.scope`. Lives in
+   * this slice because everything that reads it is a list rule: what the panel
+   * shows, what "delete all" removes, which rows are fetched.
+   */
+  scope: ConversationScope
+  setScope: (scope: ConversationScope) => void
 
   /**
    * Whether the server conversation list has been ASKED for at least once
@@ -246,16 +260,25 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
 
 // Helper functions
 
-const createNewConversation = (
-  userId: string,
-  projectId: string | null,
-  subject?: { resourceType: 'document'; resourceId: string; title?: string | null } | null,
-): Conversation => ({
+const createNewConversation = ({
+  userId,
+  projectId,
+  scope,
+  subject,
+}: {
+  userId: string
+  projectId: string | null
+  scope: ConversationScope
+  subject?: { resourceType: 'document'; resourceId: string; title?: string | null } | null
+}): Conversation => ({
   id: `s_${uuidv4().replace(/-/g, '_')}`,
   userId,
   // Stamp the active project so the session stays scoped to it (UX-8);
   // null = created outside a project context (visible everywhere).
   projectId,
+  // …and the surface it was started on (ADR-0054), so the panel it belongs to
+  // is a fact about the row rather than an inference from a missing project.
+  scope,
   title: subject?.title ?? '',
   subjectResourceType: subject?.resourceType ?? null,
   subjectResourceId: subject?.resourceId ?? null,
@@ -324,24 +347,32 @@ const hydratingConversationIds = new Set<string>()
 // the check per conversation.
 const ensuredServerConversations = new Map<string, Promise<void>>()
 
-const ensureServerConversation = (conversation: Conversation, fallbackProjectId: string | null): Promise<void> => {
+const ensureServerConversation = (
+  conversation: Conversation,
+  fallback: { projectId: string | null; scope: ConversationScope },
+): Promise<void> => {
   const inFlight = ensuredServerConversations.get(conversation.id)
   if (inFlight) return inFlight
 
   const promise = (async () => {
     const conversationsClient = await getConversationsClient()
-    const existing = await conversationsClient.list()
+    const scope = conversationScope({ ...conversation, scope: conversation.scope ?? fallback.scope })
+    const existing = await conversationsClient.list(
+      scope === 'workspace' ? { scope } : undefined,
+    )
     if (existing.some((c) => c.id === conversation.id)) return
     // Stamp the server row with the session's project so future
-    // project-scoped lists stay accurate.
-    await conversationsClient.create(
-      conversation.id,
-      conversation.title || undefined,
-      conversation.projectId ?? fallbackProjectId,
-      conversation.subjectResourceId
+    // project-scoped lists stay accurate — and with its scope, which is what
+    // the CHECK constraint pairs with the project (a workspace row has none).
+    await conversationsClient.create({
+      id: conversation.id,
+      title: conversation.title || undefined,
+      projectId: scope === 'workspace' ? null : conversation.projectId ?? fallback.projectId,
+      scope,
+      subject: conversation.subjectResourceId
         ? { resourceType: 'document', resourceId: conversation.subjectResourceId }
         : null,
-    )
+    })
   })()
 
   // Drop the cached promise on failure so the next append retries the check.
@@ -397,15 +428,46 @@ export const initialSessionsState = {
   conversations: [] as Conversation[],
   isRecoveryPending: false,
   serverConversationsLoaded: false,
+  // Every surface but the Büro; `WorkspaceChatClient` is the only thing that
+  // sets 'workspace', and it resets this on unmount.
+  scope: 'project' as ConversationScope,
 }
 
 export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", never]], [], SessionsSlice> = (set, get) => ({
   ...initialSessionsState,
 
+  setScope: (scope: ConversationScope) => {
+    const { currentConversation, projectId } = get()
+    // A Büro turn has no project, and taking one from the store would be the
+    // silent widening ADR-0054 exists to remove.
+    const nextProjectId = scope === 'workspace' ? null : projectId
+    // The same guard `setProjectId` runs when a project changes: a thread the
+    // new surface would not list must not stay active under it, or the next
+    // send continues another scope's conversation over this scope's socket.
+    const keepsConversation =
+      currentConversation === null ||
+      conversationMatchesScope(currentConversation, { projectId: nextProjectId, scope })
+
+    set(
+      {
+        scope,
+        projectId: nextProjectId,
+        ...(keepsConversation ? {} : { currentConversation: null }),
+      },
+      false,
+      'setScope',
+    )
+  },
+
   loadServerConversations: async (projectId?: string) => {
     try {
       const conversationsClient = await getConversationsClient()
-      const serverConvs = await conversationsClient.list(projectId)
+      const { scope } = get()
+      const serverConvs = await conversationsClient.list(
+        // In the Büro the project is not merely absent — asking for workspace
+        // rows is what keeps a project's history out of the office panel.
+        scope === 'workspace' ? { scope } : { projectId },
+      )
       if (!serverConvs || serverConvs.length === 0) return
 
       const { conversations, currentUserId } = get()
@@ -431,6 +493,12 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
           // locally stamped projectId for legacy server rows that predate
           // project stamping.
           projectId: serverConv.projectId ?? (idx >= 0 ? merged[idx].projectId : null) ?? null,
+          // The row's own surface (ADR-0054), parsed at this boundary because
+          // the server types it as a plain string. Null for a row that predates
+          // the column — `conversationScope()` reads that absence, and dropping
+          // the field here would put every Büro thread back into every
+          // project's panel through the fail-open rule (WS-9).
+          scope: conversationScopeFromRow(serverConv) ?? (idx >= 0 ? merged[idx].scope : null) ?? null,
           // Titles are generated client-side and may not have reached the
           // server yet — never clobber a local title with an empty one.
           title: serverConv.title ?? (idx >= 0 ? merged[idx].title : '') ?? '',
@@ -525,7 +593,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   },
 
   setCurrentUser: (userId: string | null) => {
-    const { conversations, currentConversation, projectId } = get()
+    const { conversations, currentConversation, projectId, scope } = get()
 
     const shouldClearCurrent =
       currentConversation && (userId === null || currentConversation.userId !== userId)
@@ -536,7 +604,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       ? conversations.filter(
           (c) =>
             c.userId === userId &&
-            conversationMatchesProject(c, projectId) &&
+            conversationMatchesScope(c, { projectId, scope }) &&
             !isJobConversation(c)
         )
       : []
@@ -587,7 +655,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   },
 
   getUserConversations: () => {
-    const { conversations, currentUserId, projectId } = get()
+    const { conversations, currentUserId, projectId, scope } = get()
     if (!currentUserId) return []
     // Scoped to the active project context; legacy sessions without a
     // projectId fail open (see lib/project-scope.ts).
@@ -599,13 +667,13 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     return conversations.filter(
       (c) =>
         c.userId === currentUserId &&
-        conversationMatchesProject(c, projectId) &&
+        conversationMatchesScope(c, { projectId, scope }) &&
         !isJobConversation(c)
     )
   },
 
   createConversation: () => {
-    const { currentUserId, projectId } = get()
+    const { currentUserId, projectId, scope } = get()
     if (!currentUserId) {
       throw new Error('Cannot create conversation without authenticated user')
     }
@@ -613,7 +681,12 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     const defaultEnabledDataSourceIds = getDefaultEnabledDataSourceIds()
     layoutState.setEnabledDataSources(defaultEnabledDataSourceIds)
     const newConversation: Conversation = {
-      ...createNewConversation(currentUserId, projectId ?? null, get().composerSubject),
+      ...createNewConversation({
+        userId: currentUserId,
+        projectId: projectId ?? null,
+        scope,
+        subject: get().composerSubject,
+      }),
       enabledDataSourceIds: defaultEnabledDataSourceIds,
     }
     set(
@@ -693,7 +766,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   },
 
   ensureSession: () => {
-    const { currentConversation, currentUserId, projectId } = get()
+    const { currentConversation, currentUserId, projectId, scope } = get()
 
     if (currentConversation?.id) {
       return currentConversation.id
@@ -718,7 +791,12 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     const defaultEnabledDataSourceIds = getDefaultEnabledDataSourceIds()
     layoutState.setEnabledDataSources(defaultEnabledDataSourceIds)
     const newConversation: Conversation = {
-      ...createNewConversation(currentUserId, projectId ?? null, get().composerSubject),
+      ...createNewConversation({
+        userId: currentUserId,
+        projectId: projectId ?? null,
+        scope,
+        subject: get().composerSubject,
+      }),
       enabledDataSourceIds: defaultEnabledDataSourceIds,
     }
     set(
@@ -769,6 +847,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       currentUserId,
       currentConversation,
       projectId,
+      scope,
       isDeepResearchStreaming,
       deepResearchOwnerConversationId,
       activeDeepResearchMessageId,
@@ -796,7 +875,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     if (
       conversation &&
       conversation.userId === currentUserId &&
-      conversationMatchesProject(conversation, projectId)
+      conversationMatchesScope(conversation, { projectId, scope })
     ) {
       if (
         currentConversation &&
@@ -965,6 +1044,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
       currentUserId,
       currentConversation,
       projectId,
+      scope,
       isDeepResearchStreaming,
       deepResearchJobId,
       composerDrafts,
@@ -983,7 +1063,7 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
     // not to whoever happens to own the job.
     const isInScope = (c: Conversation): boolean =>
       c.userId === currentUserId &&
-      conversationMatchesProject(c, projectId) &&
+      conversationMatchesScope(c, { projectId, scope }) &&
       !isJobConversation(c)
 
     const userConversations = conversations.filter(isInScope)
@@ -1428,24 +1508,24 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
   },
 
   _ensureConversationExists: async () => {
-    const { currentConversation, projectId } = get()
+    const { currentConversation, projectId, scope } = get()
     if (!currentConversation) return
 
     try {
-      await ensureServerConversation(currentConversation, projectId ?? null)
+      await ensureServerConversation(currentConversation, { projectId: projectId ?? null, scope })
     } catch (err) {
       console.warn('[ensureConversationExists] Failed:', err)
     }
   },
 
   _appendMessage: async (message: ChatMessage) => {
-    const { currentConversation, projectId } = get()
+    const { currentConversation, projectId, scope } = get()
     if (!currentConversation) return
 
     try {
       const conversationsClient = await getConversationsClient()
 
-      await ensureServerConversation(currentConversation, projectId ?? null)
+      await ensureServerConversation(currentConversation, { projectId: projectId ?? null, scope })
 
       await conversationsClient.createMessage(currentConversation.id, {
         id: message.id,

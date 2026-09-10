@@ -180,6 +180,11 @@ const session = {
   userId: USER_ID,
   organizationId: ORG_ID,
   email: 'me@grid.test',
+  // An attachment dropped into a project-less chat now creates a WORKSPACE
+  // conversation (ADR-0054), which `createConversation` gates on `org:chat`.
+  // `hasPermission` reads both of these; a session without them throws.
+  role: 'member',
+  permissions: ['org:chat'],
 } as unknown as AuthorizedSession
 
 function file(): File {

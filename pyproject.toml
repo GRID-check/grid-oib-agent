@@ -80,6 +80,16 @@ aiq_deep_researcher = "aiq_agent.agents.deep_researcher.register"
 aiq_clarifier = "aiq_agent.agents.clarifier.register"
 aiq_data_source_registry = "aiq_agent.common.data_source_registry"
 aiq_project_memory = "aiq_agent.agents.project_memory.register"
+# The READ half of memory (ADR-0055): `search_memory` reaches the notes the
+# turn-start digest had to leave out. Its own entry point rather than a line in
+# `project_memory.register`, for the reason every split in this list has one —
+# the write tool and the read tool are separate surfaces with separate context
+# requirements, and a deployment must be able to bind one without the other.
+aiq_project_memory_search = "aiq_agent.agents.project_memory.search"
+# The Büro's own tools (ADR-0054): `find_projects` searches the
+# Projektregister. Its own entry point rather than a line in project_memory's,
+# because it is a different surface with a different context requirement.
+aiq_workspace = "aiq_agent.agents.workspace.register"
 aiq_cards = "aiq_agent.cards.register"
 aiq_compliance_checker = "aiq_agent.agents.compliance_checker.register"
 aiq_bim = "aiq_agent.agents.bim.register"
@@ -98,6 +108,17 @@ addopts = "--import-mode=importlib"
 # `pytest` console script the pre-push hook uses, and an IDE runner — instead of
 # depending on which of those happens to put the repo root on sys.path.
 pythonpath = ["."]
+# Every `sources/<package>/tests/` and `frontends/aiq_api/tests/` is a package
+# named `tests`, and under `--import-mode=importlib` pytest names a conftest by
+# walking up only through directories that hold an `__init__.py` — so each of
+# them resolved to the module name `tests.conftest` and the SECOND one collected
+# in a run aborted it with "Plugin already registered under a different name".
+# That is why `pytest sources -q` (what `sources/AGENTS.md` tells you to run, and
+# what the pre-push hook runs) died at collection while each package passed on
+# its own. Walking up through namespace packages too gives every one of them its
+# real dotted name (`sources.ris_adapter.tests.conftest`), so they cannot collide
+# and any two suites can be run in one invocation.
+consider_namespace_packages = true
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 markers = [

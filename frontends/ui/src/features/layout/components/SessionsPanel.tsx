@@ -67,6 +67,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { PageSheet } from '@/components/ui/page-sheet'
+import type { ConversationScope } from '@/features/chat/lib/project-scope'
 import { AnimatePresence, motion, motionQuick } from '@/components/motion'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
@@ -154,6 +155,13 @@ interface SessionsPanelProps {
   projectId?: string
   /** Qdrant collection scoping the research-runs fetch (FB-10). */
   projectCollection?: string
+  /**
+   * Which chat surface this panel belongs to (ADR-0054). In the Büro the sheet
+   * names itself "Büro-Chats" and its empty state names the office rather than
+   * a project — the rows are the same rows, and what differs is what they are
+   * a history OF (`workspace-chat-ui.md` §4).
+   */
+  scope?: ConversationScope
 }
 
 /**
@@ -171,8 +179,11 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   showDeepResearchSection = false,
   projectId,
   projectCollection,
+  scope = 'project',
 }) {
   const t = useTranslations('research')
+  const tChat = useTranslations('chat')
+  const isWorkspace = scope === 'workspace'
   const tCommon = useTranslations('common')
   const { locale } = useLocale()
   const isMobile = useIsMobile()
@@ -491,7 +502,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
       onOpenChange={(next) => {
         if (!next) handleClose()
       }}
-      title={t('sessionsPanel.title')}
+      title={isWorkspace ? tChat('workspace.sessions.title') : t('sessionsPanel.title')}
       // The sheet states its own size, so "is this all of them?" is answered
       // before it is asked.
       subtitle={
@@ -849,7 +860,11 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                   variant="bare"
                   icon={MessageSquare}
                   title={t('sessionsPanel.noSessions')}
-                  description={t('sessionsPanel.noSessionsDescription')}
+                  description={
+                    isWorkspace
+                      ? tChat('workspace.sessions.empty')
+                      : t('sessionsPanel.noSessionsDescription')
+                  }
                 />
               )}
             </div>

@@ -249,7 +249,7 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 | `GRID_STAGE_FOLLOW_UPS_ENABLED` | No | `true` | Runtime on/off switch for the follow-up-questions stage **when `GRID_ENFORCE_FEATURE_FLAGS` is off** (the default). It shipped `false`, as every new stage does, and defaults ON since slice 4 retired the in-answer `follow_ups` card: this stage is now the only thing that produces follow-up questions, so a `false` default would mean a deployment with none. Costs one LLM call per substantive answer. Frontend service. The backend additionally no-ops when the workflow config sets no `follow_ups_llm` (the capability bit).
 | `GRID_STAGE_MAX_CONCURRENCY` | No | `4` | Maximum post-answer stage handlers running concurrently per backend process, **shared across all stages** (memory reflection and follow-up questions). Stages share the event loop with live chat turns; this bounds their background LLM traffic. Replaces `MEMORY_REFLECTION_MAX_CONCURRENCY`, which the stage primitive superseded — see `docs/architecture/post-answer-stages.md` §7.9. |
 | `GRID_STAGE_MAX_PENDING` | No | `16` | Maximum post-answer stage handlers in flight per backend process, counted across all stages. Beyond the cap a stage is **dropped, not queued**, and records `outcome:"skipped", reason:"pending_cap"` so load-shedding is a number rather than a silent absence. Replaces `MEMORY_REFLECTION_MAX_PENDING`. |
-| `GRID_ALLOW_AGENT_ORG_MEMORY` | No | `false` | When `true`, the internal memory endpoint accepts **agent-authored organization-scoped** writes. Default-deny: org-wide memory reaches every project in the tenant and the service-token endpoint cannot verify the human's org role, so an autonomous/prompt-injected write would poison the tenant (audit finding S1). Leave unset unless you accept that risk; org-wide findings are otherwise a human-only action via the org-memory panel. |
+| `GRID_ALLOW_AGENT_ORG_MEMORY` | No | `false` | The deployment half of the org-memory gate: when `true`, the internal memory endpoint will *consider* **agent-authored organization-scoped** writes. It is no longer the only gate — since ADR-0054 the write also needs the **acting user** to hold `org:memory:write` (Admin by default, not Member), resolved from the membership id the turn's envelope carries, so the endpoint no longer has to answer "which human is this?" with a shrug (audit finding S1). This variable stays as the operator's off-switch **below** that permission: unset, no agent writes org memory in this deployment whatever WorkOS says. Since ADR-0055 the permission is checked FIRST, because this switch defaults to off and behind it every permission denial reached the user as "the service is unavailable" — so "switched off in this deployment" is now only ever said to somebody the permission already allowed, which is when it is the whole answer. Both refusals stay `403 ORG_MEMORY_DISABLED` (the agent degrades either into a proposal card); only the messages differ, one naming the permission and one naming the deployment. |
 
 ---
 
@@ -272,6 +272,21 @@ The org skill toolbox, and project-level **jobs** — a prompt on a timer that m
 | `GRID_SKILLS_CACHE_TTL_SECONDS` | No | `60` | Seconds an organization's resolved skill set (builtin + org, shadowing applied) is cached in the shared Dragonfly/Redis cache (`aiq_agent.skills.resolver`, ADR-0020) before re-resolving via the BFF internal endpoint — cutting per-turn resolution across replicas and restarts. Cache-only/fail-open: a miss or fetch error falls back to the builtin set. `0`/invalid falls back to `60`. Backend (aiq-agent) service. See `docs/architecture/agent-skills.md`. |
 
 The scheduler also reuses `GRID_APP_DATABASE_URL`, `FRONTEND_INTERNAL_URL`, and `GRID_INTERNAL_API_TOKEN`. Scheduled runs go through the same async-job admission control as interactive research (`GRID_MAX_ACTIVE_JOBS[_PER_ORG]`); cap-rejected occurrences are recorded as `skipped` runs and not retried until their next scheduled slot.
+
+---
+
+## Büro-Chat (ADR-0054)
+
+The organization-level chat at `/app/chat`, which reads the base corpus, the
+Archiv and organization memory with no project in scope, and mounts a bounded
+number of projects on demand. The surface itself is gated by the per-org
+`workspace-chat` WorkOS feature flag (fail-open while `GRID_ENFORCE_FEATURE_FLAGS`
+is off, like `organization-archiv`), which is a flag rather than a variable and
+so has no row here. See `docs/design/workspace-chat-spec.md`.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `GRID_WORKSPACE_MAX_MOUNTED_PROJECTS` | No | `5` | How many projects one workspace ("Büro") conversation may mount at once. Enforced in `POST /api/conversations/:id/mounts` and nowhere else; the agent is told the cap in the refusal and offers deep research instead. Read through the single reader in `frontends/ui/src/lib/workspace/config.ts`, which clamps it to `[1, 20]` — below 1 the feature has no mount at all, and above 20 nothing has been measured. An unparseable value falls back to the default rather than clamping, because a typo must not silently become the minimum. A measured number: raise it only after the latency check at the cap passes (ADR-0044, ADR-0054). Frontend service. |
 
 ---
 

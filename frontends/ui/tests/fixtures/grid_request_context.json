@@ -71,6 +71,24 @@
         "X-Grid-Project-Context": "TXVsdGktbGluZQpjb250ZXh0CnZhbHVlIHdpdGggdW5pY29kZTogY2Fmw6k",
         "X-Grid-Feature-Memory-Reflection": "true"
       }
+    },
+    {
+      "name": "workspace_turn_with_membership",
+      "comment": "A Buero (workspace) turn: no project anywhere, an org-wide Archiv on the scope, and the organization MEMBERSHIP id beside the user id. The membership is what WorkOS FGA keys on (authorization.check takes an organizationMembershipId, never a user id), so the workspace digest can filter the Projektregister to the projects this caller may read without a WorkOS round trip of its own (ADR-0054). Dual-written: an individual X-Grid-Organization-Membership-Id header AND the envelope field organizationMembershipId.",
+      "input": {
+        "organizationId": "org_123",
+        "userId": "user_456",
+        "organizationMembershipId": "om_01HQ9WORKSPACE",
+        "collectionScope": ["oib_knowledge", "archiv_org_123", "s_conv_9"],
+        "memoryReflectionEnabled": true
+      },
+      "headers": {
+        "X-Grid-Organization-Id": "org_123",
+        "X-Grid-User-Id": "user_456",
+        "X-Grid-Organization-Membership-Id": "om_01HQ9WORKSPACE",
+        "X-Grid-Collection-Scope": "WyJvaWJfa25vd2xlZGdlIiwiYXJjaGl2X29yZ18xMjMiLCJzX2NvbnZfOSJd",
+        "X-Grid-Feature-Memory-Reflection": "true"
+      }
     }
   ],
   "envelopeCases": [
@@ -140,6 +158,21 @@
       "envelopeJson": "{\"organizationId\":\"org_123\",\"userId\":\"user_456\",\"projectId\":\"proj_789\",\"collectionScope\":[\"oib_knowledge\",\"proj_proj_789\",\"s_conv_1\"],\"projectContext\":\"PROJECT_CONTEXT v1\\n\\nconfirmed:\\n- bundesland=wien\",\"projectMemory\":\"- Prefers concise citations\\n- Based in Germany\",\"modelOverrides\":{\"deep_research\":\"openrouter/anthropic/claude-3.7-sonnet\",\"shallow_research\":\"openrouter/openai/gpt-4o-mini\"},\"budget\":{\"remainingOrgUsd\":42.5,\"remainingUserUsd\":10,\"remainingProjectUsd\":5.25},\"disabledSources\":[\"web_search\"],\"memoryReflectionEnabled\":true,\"bundesland\":\"wien\"}",
       "header": "eyJvcmdhbml6YXRpb25JZCI6Im9yZ18xMjMiLCJ1c2VySWQiOiJ1c2VyXzQ1NiIsInByb2plY3RJZCI6InByb2pfNzg5IiwiY29sbGVjdGlvblNjb3BlIjpbIm9pYl9rbm93bGVkZ2UiLCJwcm9qX3Byb2pfNzg5Iiwic19jb252XzEiXSwicHJvamVjdENvbnRleHQiOiJQUk9KRUNUX0NPTlRFWFQgdjFcblxuY29uZmlybWVkOlxuLSBidW5kZXNsYW5kPXdpZW4iLCJwcm9qZWN0TWVtb3J5IjoiLSBQcmVmZXJzIGNvbmNpc2UgY2l0YXRpb25zXG4tIEJhc2VkIGluIEdlcm1hbnkiLCJtb2RlbE92ZXJyaWRlcyI6eyJkZWVwX3Jlc2VhcmNoIjoib3BlbnJvdXRlci9hbnRocm9waWMvY2xhdWRlLTMuNy1zb25uZXQiLCJzaGFsbG93X3Jlc2VhcmNoIjoib3BlbnJvdXRlci9vcGVuYWkvZ3B0LTRvLW1pbmkifSwiYnVkZ2V0Ijp7InJlbWFpbmluZ09yZ1VzZCI6NDIuNSwicmVtYWluaW5nVXNlclVzZCI6MTAsInJlbWFpbmluZ1Byb2plY3RVc2QiOjUuMjV9LCJkaXNhYmxlZFNvdXJjZXMiOlsid2ViX3NlYXJjaCJdLCJtZW1vcnlSZWZsZWN0aW9uRW5hYmxlZCI6dHJ1ZSwiYnVuZGVzbGFuZCI6IndpZW4ifQ",
       "signature": "c786ba6104bef5300166b6443e53cd9e5b541eae5cc2c80d5e1c9de80c65374d"
+    },
+    {
+      "name": "signed_envelope_workspace_membership",
+      "comment": "The same workspace turn as workspace_turn_with_membership, minted as the signed envelope. organizationMembershipId is appended LAST in the payload key order (after bundesland) so every pre-existing case's signed bytes stay byte-identical; a new envelope field always goes on the end for that reason. Python: GridRequestContext.from_envelope must read organizationMembershipId back out of this header.",
+      "secret": "grid-envelope-fixture-secret",
+      "input": {
+        "organizationId": "org_123",
+        "userId": "user_456",
+        "organizationMembershipId": "om_01HQ9WORKSPACE",
+        "collectionScope": ["oib_knowledge", "archiv_org_123", "s_conv_9"],
+        "memoryReflectionEnabled": true
+      },
+      "envelopeJson": "{\"organizationId\":\"org_123\",\"userId\":\"user_456\",\"collectionScope\":[\"oib_knowledge\",\"archiv_org_123\",\"s_conv_9\"],\"memoryReflectionEnabled\":true,\"organizationMembershipId\":\"om_01HQ9WORKSPACE\"}",
+      "header": "eyJvcmdhbml6YXRpb25JZCI6Im9yZ18xMjMiLCJ1c2VySWQiOiJ1c2VyXzQ1NiIsImNvbGxlY3Rpb25TY29wZSI6WyJvaWJfa25vd2xlZGdlIiwiYXJjaGl2X29yZ18xMjMiLCJzX2NvbnZfOSJdLCJtZW1vcnlSZWZsZWN0aW9uRW5hYmxlZCI6dHJ1ZSwib3JnYW5pemF0aW9uTWVtYmVyc2hpcElkIjoib21fMDFIUTlXT1JLU1BBQ0UifQ",
+      "signature": "cca78721073febdf74e849454540d155beb2dc0275980e0bae8e0d74f2e39d7a"
     }
   ]
 }

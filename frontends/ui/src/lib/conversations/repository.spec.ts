@@ -27,13 +27,32 @@ const captured: CapturedQuery[] = []
 /** What the driver answers the next query with: positional column values, as a real one would. */
 let nextRows: unknown[][] = []
 
+/**
+ * The same, for a statement with a `RETURNING` clause. Kept separate because a
+ * write that reads first — `updateConversationVisibilityInOrg` checks the row's
+ * level before it touches it — issues two statements whose result shapes differ,
+ * and one variable can only answer for one of them.
+ */
+let nextWrittenRows: unknown[][] = []
+
+/**
+ * And a third, for the mounted COUNT the Büro visibility guard reads
+ * (`countConversationMounts`). A workspace widening issues three statements
+ * with three result shapes — scope, count, the update's RETURNING — and one
+ * variable can only answer for one of them.
+ */
+let nextCountRows: unknown[][] = [[0]]
+
 const proxyDb = drizzle(async (sql, params) => {
   captured.push({ sql, params })
+  if (sql.startsWith('update ') || sql.startsWith('insert ')) return { rows: nextWrittenRows }
+  if (sql.includes('"conversation_mounts"')) return { rows: nextCountRows }
   return { rows: nextRows }
 })
 
 vi.mock('@/lib/db', () => ({ getDb: () => proxyDb }))
 
+import { BadRequestError } from '@/lib/api/errors'
 import {
   CONVERSATION_LIST_LIMIT,
   MESSAGE_LIST_LIMIT,
@@ -42,6 +61,7 @@ import {
   lastProjectActivityByUser,
   listMessagesForConversation,
   listVisibleConversations,
+  updateConversationVisibilityInOrg,
   upsertConversationRead,
 } from './repository'
 
@@ -60,9 +80,37 @@ function messageRow(id: string, createdAt: string): unknown[] {
   return [id, 'conv_1', 'org_1', 'user', 'user_me', 'text', null, createdAt]
 }
 
+/** One `conversations` row as the driver hands it over, in declaration order. */
+function conversationRow(overrides: { scope?: string; visibility?: string } = {}): unknown[] {
+  return [
+    'conv_1',
+    'org_1',
+    'user_me',
+    'Brandschutz Stiegenhaus',
+    overrides.visibility ?? 'private',
+    null,
+    '{}',
+    // The row's level and its project are one fact (migration 0081's CHECK), so
+    // the fixture keeps them in step rather than letting a test assert against
+    // a shape the database would refuse.
+    (overrides.scope ?? 'project') === 'project' ? PROJECT_ID : null,
+    overrides.scope ?? 'project',
+    null,
+    null,
+    null,
+    null,
+    '2026-09-08T10:00:00.000Z',
+    '2026-09-08T10:00:00.000Z',
+  ]
+}
+
 beforeEach(() => {
   captured.length = 0
   nextRows = []
+  nextWrittenRows = []
+  // "Nothing mounted" is the default a count answers with; the one test that
+  // widens a Büro thread says so explicitly.
+  nextCountRows = [[1]]
 })
 
 describe('listVisibleConversations — scoped to a project', () => {
@@ -153,6 +201,122 @@ describe('listVisibleConversations — no project scope', () => {
     // And crucially: `project` visibility alone does NOT make the cut here — the
     // same rule the scoped branch now applies to its unstamped rows.
     expect(params).not.toContain('project')
+  })
+})
+
+describe('listVisibleConversations — narrowed to one level of the hierarchy', () => {
+  it('adds the level as a further AND, so it can only remove rows', async () => {
+    await listVisibleConversations('org_1', 'user_me', { scope: 'workspace' })
+
+    const { sql, params } = onlyQuery()
+    // The visibility rules the unscoped branch already applies, unchanged...
+    expect(sql).toContain('"conversations"."organization_id" = $1')
+    expect(sql).toContain('"conversations"."created_by" = $2')
+    // ...plus the level. An AND, never a disjunct: a filter that widened would
+    // be a leak dressed as a convenience.
+    expect(sql).toContain('"conversations"."scope" = $7')
+    expect(params).toContain('workspace')
+  })
+
+  it("never returns a project row to the Büro's sessions panel (spec WS-8)", async () => {
+    await listVisibleConversations('org_1', 'user_me', { scope: 'workspace' })
+
+    const { sql } = onlyQuery()
+    // The equality is what makes it exact. `<>`/`is null` shapes were the old
+    // way of asking this question and both let a project row through when the
+    // column was NULL — which is why the column is NOT NULL.
+    expect(sql).toContain('"conversations"."scope" = ')
+    expect(sql).not.toContain('"conversations"."scope" <>')
+  })
+
+  it('applies no level predicate when none was asked for', async () => {
+    await listVisibleConversations('org_1', 'user_me')
+
+    const { sql } = onlyQuery()
+    expect(sql).not.toContain('"conversations"."scope"')
+  })
+})
+
+describe('updateConversationVisibilityInOrg — what a Büro thread may widen to (spec AC-7)', () => {
+  it('refuses `project` for a workspace conversation — it has no project to share with', async () => {
+    nextRows = [['workspace']]
+
+    const failure = await updateConversationVisibilityInOrg('conv_1', 'org_1', 'project').catch(
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(BadRequestError)
+    // It read the row and then wrote NOTHING — the refusal is the whole point.
+    expect(captured).toHaveLength(1)
+    expect(captured[0].sql).toContain('select')
+  })
+
+  it('refuses `organization` while anything is mounted, and counts to find out', async () => {
+    // Two reads: the scope, then the mounted count. There is no audience that
+    // can be checked against AC-7 for "everyone in the organization".
+    nextRows = [['workspace']]
+
+    const failure = await updateConversationVisibilityInOrg(
+      'conv_1',
+      'org_1',
+      'organization',
+    ).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(BadRequestError)
+    expect((failure as BadRequestError).details).toMatchObject({ scope: 'workspace' })
+    expect(captured).toHaveLength(2)
+    expect(captured[1].sql).toContain('"conversation_mounts"')
+    expect(captured.every((query) => query.sql.startsWith('select'))).toBe(true)
+  })
+
+  it('lets a workspace conversation with NO mounts go organization-wide', async () => {
+    // Nothing mounted, so the thread reads only what every member may read
+    // anyway: the value is honest, and the guard is what makes the day the
+    // registry offers it (SH-15) a safe one.
+    nextRows = [['workspace']]
+    nextCountRows = [[0]]
+    nextWrittenRows = [conversationRow({ scope: 'workspace', visibility: 'organization' })]
+
+    await updateConversationVisibilityInOrg('conv_1', 'org_1', 'organization')
+
+    expect(captured).toHaveLength(3)
+    expect(captured[2].sql).toContain('update "conversations" set')
+    expect(captured[2].params).toContain('organization')
+  })
+
+  it('lets a project conversation be widened exactly as before', async () => {
+    nextRows = [['project']]
+    nextWrittenRows = [conversationRow({ scope: 'project', visibility: 'project' })]
+
+    await updateConversationVisibilityInOrg('conv_1', 'org_1', 'project')
+
+    expect(captured).toHaveLength(2)
+    expect(captured[1].sql).toContain('update "conversations" set')
+    expect(captured[1].params).toContain('project')
+  })
+
+  it('does not read the row at all when the change is a NARROWING to private', async () => {
+    nextRows = [['workspace']]
+    nextWrittenRows = [conversationRow({ scope: 'workspace' })]
+
+    await updateConversationVisibilityInOrg('conv_1', 'org_1', 'private')
+
+    // Narrowing a workspace thread back to private is allowed, so the guard
+    // must not cost a round trip to permit it.
+    expect(captured).toHaveLength(1)
+    expect(captured[0].sql).toContain('update "conversations" set')
+  })
+
+  it('says nothing about a row that does not exist (spec AC-9)', async () => {
+    nextRows = []
+
+    // No row, so no scope, so no refusal to distinguish "not yours" from "not
+    // shareable": the UPDATE runs, matches nothing, and the caller maps the
+    // null to a 404 exactly as it did before this guard existed.
+    await expect(
+      updateConversationVisibilityInOrg('conv_gone', 'org_1', 'organization'),
+    ).resolves.toBeNull()
+    expect(captured).toHaveLength(2)
   })
 })
 

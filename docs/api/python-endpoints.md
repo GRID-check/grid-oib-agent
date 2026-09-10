@@ -110,7 +110,7 @@ These routes are **not registered by custom code** — they are provided by the 
 | Method | Path | Description | Request | Response | Handler |
 |--------|------|-------------|---------|----------|---------|
 | `GET` | `/v1/jobs/async/agents` | List available agent types | — | `{ agents: [{ agent_type, description }] }` | `register_job_routes` in `aiq_api.routes.jobs` |
-| `POST` | `/v1/jobs/async/submit` | Submit a new async job. Admission-controlled: returns `429` (+`Retry-After`) when `GRID_MAX_ACTIVE_JOBS` / `GRID_MAX_ACTIVE_JOBS_PER_ORG` active-job caps are reached. **Fixed 2026-07-16**: this route (`aiq_api.routes.jobs`) now applies org model-config overrides (ADR-0014) — via the forwarded `x-grid-model-overrides`/`X-Grid-Request-Context` header when present, else a just-in-time org-side resolution (`common/model_overrides.py`'s `resolve_org_model_overrides()`) — same as `/v1/internal/skills/submit` below. `REQUIRE_AUTH=true` + a JWT caller additionally requires a valid `X-Grid-Request-Context` envelope on this path (`context_envelope.py`); see `docs/architecture/org-model-configuration.md` and `docs/api/websocket-protocol.md`. | `{ agent_type, input, job_id?, expiry_seconds?, data_sources? }` | `{ job_id, status, agent_type }` | Same |
+| `POST` | `/v1/jobs/async/submit` | Submit a new async job. Admission-controlled: returns `429` (+`Retry-After`) when `GRID_MAX_ACTIVE_JOBS` / `GRID_MAX_ACTIVE_JOBS_PER_ORG` active-job caps are reached. **Fixed 2026-07-16**: this route (`aiq_api.routes.jobs`) now applies org model-config overrides (ADR-0014) — via the forwarded `x-grid-model-overrides`/`X-Grid-Request-Context` header when present, else a just-in-time org-side resolution (`common/model_overrides.py`'s `resolve_org_model_overrides()`) — same as `/v1/internal/skills/submit` below. `REQUIRE_AUTH=true` + a JWT caller additionally requires a valid `X-Grid-Request-Context` envelope on this path (`context_envelope.py`); see `docs/architecture/org-model-configuration.md` and `docs/api/websocket-protocol.md`. | `{ agent_type, input, job_id?, expiry_seconds?, data_sources?, portfolio?, project_ids? }` | `{ job_id, status, agent_type }` | Same |
 | `GET` | `/v1/jobs/async/job/{job_id}` | Get job status | — | `{ job_id, status, agent_type, error?, created_at }` | Same |
 | `GET` | `/v1/jobs/async/job/{job_id}/stream` | SSE event stream (from beginning) | — | SSE stream (`text/event-stream`) | Same |
 | `GET` | `/v1/jobs/async/job/{job_id}/stream/{last_event_id}` | SSE event stream (reconnection) | — | SSE stream | Same |
@@ -128,6 +128,7 @@ These routes are **not registered by custom code** — they are provided by the 
 - **SSE**: PostgreSQL uses `LISTEN/NOTIFY` for sub-10ms event delivery; SQLite falls back to 500ms polling. Supports reconnection via `last_event_id` query param.
 - **Phase progress events** (backlog T4-4, 2026-07-16): for `deep_research_agent` jobs, `PhaseProgressCallback` (`aiq_api.jobs.phase_events`) observes the orchestrator's existing task-dispatch and `run_research_batch` callback events to detect planning/research/writing/citation-verification/done transitions, persisting each as a `job.phase` row (`{"type": "job.phase", "data": {"phase": ..., ...}}`) matching the existing `job.*` lifecycle event shape — no client-side event-type changes needed. The UI status pill consumes `planning_started` / `research_started` / `writing_started` / `citation_verification_started`.
 - **Per-run completion-token budget** (backlog T4-4, 2026-07-16): `GRID_MAX_RUN_COMPLETION_TOKENS` (default `0` = disabled) caps total completion tokens across every LLM call in a job, including concurrent researcher workers, via `BudgetGuardCallback` (`aiq_agent.common.budget_guard`). Exceeding it raises `RunBudgetExceededError`, which fails the job with an explicit "run exceeded the configured completion-token budget of N" message instead of a generic internal error.
+- **Portfolio-Recherche** (ADR-0054, spec DR-4…DR-8): `portfolio: true` on the submit body makes a **deep-research office run** — one with an organisation and no project — read several projects instead of one: one bounded sub-run per project, in sequence, then one cross-project report. `project_ids` (≤50 on the wire, ≤10 actually read) names which; it is intersected with what the acting membership may read, never added to it, and the ids that fall out are named in the report as not read. The flag is honored for nothing else: any other agent, or a run that already has a project, runs exactly as before (a warning says so). Each sub-run gets its own share of `GRID_MAX_RUN_COMPLETION_TOKENS` rather than competing for one pool, a project that errors becomes a line in the report instead of failing the run, and the result reaches the report/cards/thread path in the same `report` + `sources` shape a single run produces. Three extra `job.phase` rows carry progress: `portfolio_started` (with `count` and `projects`), `portfolio_project_started` (`project`, `index`, `total`), `portfolio_synthesis_started`. See `docs/architecture/backend-deep-dive.md` §7.
 - **Ghost job reaper**: Background task marks stale RUNNING jobs as FAILURE after 5 minutes without events.
 - **Event cleanup**: Time-based (expiry config) + coordinated (events for expired jobs in `job_info`). PostgreSQL uses advisory locks for multi-pod safety.
 
@@ -159,6 +160,93 @@ These routes are **not registered by custom code** — they are provided by the 
 | `POST` | `/v1/admin/oib/reingest` | Admin token | Force a rebuild of specific documents' chunks. `sync()` gates on the sha256 of the PDF bytes and is a no-op for an unchanged file; this is the remedy after a change to how chunks are built. Per name, `oib_sync.mark_for_reingest` resolves it through `discover_pdfs` (so an excluded file cannot be revived and a path cannot traverse) and drops its registry hash, which is what makes the job visible as `pending` in `/v1/oib/status`; `ingest_single` then runs on the executor. Queued, not awaited. Unknown names are reported, not fatal. `422` on an empty list. | `{ file_names: [str] }` | `{ status, queued, unknown, message }` | `add_oib_routes` |
 | `PATCH` | `/v1/admin/oib/documents/{file_name}/doc-class` | Admin token | Set a base-corpus document's explicit `doc_class` ("Dokumentart"). Store-authoritative — no re-ingest. `400` off-vocabulary, `404` when no metadata row. | `{ doc_class }` | `{ file_name, doc_class }` | `add_oib_routes` |
 | `PATCH` | `/v1/admin/oib/documents/{file_name}/display-title` | Admin token | Rename a base-corpus document (user-facing `display_title` on citation chips). Store-authoritative — no re-ingest. Empty/null clears the override, restoring the derived default. `404` when no metadata row. | `{ display_title }` | `{ file_name, display_title }` | `add_oib_routes` |
+
+## Outbound: what the agent calls on the BFF
+
+The other direction, and easy to miss because it is not a route this service
+serves: a handful of agent tools reach INTO the Next.js BFF over the compose
+network, authenticated with the shared `GRID_INTERNAL_API_TOKEN` sent as
+`X-Grid-Internal-Token`. The `grid_app` database has exactly one writer (the
+BFF), so anything a tool needs from it arrives this way.
+
+| Tool (NAT `_type`) | Bound as | Calls | Needs from the request context | On failure |
+|---|---|---|---|---|
+| `project_memory_remember` | `remember` | `POST /api/internal/memory` | `x-grid-organization-id` — the only thing BOTH shapes of this tool have. In a project turn `x-grid-project-id` selects the project row; in the Büro there is none, the write goes to ORGANISATION scope (`project_id` null) and additionally sends `x-grid-user-id` + `x-grid-organization-membership-id`, because the route authorizes an org write as the acting user's `org:memory:write` rather than as the service token (ADR-0054, spec AG-8) | Returns an honest error string, or a `memory_proposal` card when the org write is denied by policy — `403 ORG_MEMORY_DISABLED`, which is the one code both the deployment off-switch and an ungranted permission answer with, so the tool has one branch to degrade through (AG-9). Never raises |
+| `project_memory_search` | `search_memory(query, limit=None)` | `GET /api/internal/memory/search` | `x-grid-organization-id` — every note belongs to one, and a search without it has no scope at all. The PROJECT is read off `x-grid-project-id` and sent only when the turn has one: its ABSENCE is what asks for organisation-scoped notes only, so an office turn cannot receive a project's notes. Neither id is a tool argument, and the tool exposes no `scope` — the model chooses the query, never the scope (ADR-0055, contract C1) | Returns an error string. Never raises. Without an organisation it refuses rather than returning an empty list, because "nothing found" would read as a fact about the store |
+| `ifc_query` | `ifc_query` | `POST /api/internal/bim/query` | `x-grid-organization-id`. The PROJECT is an ARGUMENT, not a header: in a project chat `project_id` may be left empty and the turn's own project is used, and in the Büro it is required and must name a project the conversation has brought into view (`agents/bim/register.resolve_tool_project`, spec AG-10) | Returns a refusal string naming the projects that ARE in view — never raises, and never a bare "no", which the model answers with the same id again |
+| `ifc_measure` | `ifc_measure` | `POST /api/internal/bim/source` (then measures locally) | The same two, resolved by the same function, so the two model-addressing tools cannot drift into two rules about which project they read | The same refusals, plus a trace line recording that the call was refused for want of a project (`outcome="no_project"`) |
+| `workspace_find_projects` | `find_projects(query, limit=None)` | `GET /api/internal/workspace/digest` | `x-grid-organization-id`; `x-grid-organization-membership-id` decides which projects are readable | Returns an error string. Never raises. Without an organization it refuses rather than returning an empty list — the Projektregister never crosses the organization boundary (ADR-0054) |
+| `workspace_open_project` | `open_project` | `POST /api/internal/conversations/{id}/mounts` | `x-grid-organization-id`, `x-grid-user-id` (the endpoint authorizes the USER's `project:chat`, never the service), plus the conversation id and `x-grid-organization-membership-id`, which is what WorkOS FGA keys on | Returns a refusal string. Never raises. `403` → no access, `404` → indistinguishable from no access by design (MT-4), `409` → one of two conflicts, told apart by the body's `code`: the mount cap (`WORKSPACE_MOUNT_CAP`, whose `cap` and `mounted` the string names while offering deep research, MT-9) or a mount that would shut a participant of a shared conversation out (`WORKSPACE_MOUNT_WOULD_EXCLUDE`, whose `excluded` names the people, AC-8) |
+
+`open_project`'s result is read by two consumers at once: its FIRST LINE is one
+JSON object (`{event:"mount", status, code?, cap?, excluded?, projectId, projectName?}`)
+that the frontend renders as the mount notice, and everything after the blank
+line is the German prose the model reads. The reply also carries a short-lived
+**grant** — `{grant: base64url(JSON), sig: hex HMAC-SHA256(payload,
+GRID_INTERNAL_API_TOKEN)}` over `{v, collection, shelf:'project', projectId,
+projectName, conversationId, organizationId, exp}` — which
+`knowledge/mounts.py` verifies before the mounted collection joins THIS turn's
+retrieval scope. A grant that does not verify widens nothing and the tool says
+so; from the next connection the mount arrives on the ordinary signed scope
+header, re-authorized by the BFF (ADR-0054, spec MT-6/MT-7).
+
+Two turn-start reads use the same seam without being tools, both blocking calls
+made through `asyncio.to_thread` under `_DIGEST_TIMEOUT_SECONDS` and both
+fail-open (`knowledge/project_memory.py`, `knowledge/workspace_digest.py`):
+`GET /api/internal/memory/digest` re-serves the live memory digest every turn,
+and `GET /api/internal/workspace/digest` serves the office turn its organization
+memory plus the Projektregister recall for the question in one round trip.
+
+Both of those responses also report **what the digest carried**: `carried`
+(exactly the notes in the digest text, ≤20, each ≤120 characters), `omitted`
+(the number the digest text already discloses to the model) and `total`
+(ADR-0055, contract C2). They ride the turn as `MemoryCarry` and become the
+answer frame's `memory_context` — `{carried, omitted, total, searched}` — which
+is what finally tells the READER the omission count the model was always told.
+All three tolerate being absent, so a BFF that has not shipped that half serves
+the digest as before and the frame simply has no `memory_context`. The field
+states what was READ, never what was USED: whether a note changed the answer is
+a claim this system cannot verify, and nothing downstream may present it as one.
+
+`find_projects`' second argument is `limit` (1…`RECALL_MAX_LIMIT` = 10, default
+`max_results` = 5). The model raises it when it has to NAME a set before
+proposing a Portfolio-Recherche — „alle Projekte in Wien" is not answerable from
+the five an ordinary lookup shows (ADR-0054, spec DR-3). One number governs the
+whole chain, and it is `knowledge.workspace_digest.RECALL_MAX_LIMIT`: the
+endpoint's own recall ceiling, the tool's ceiling, and
+`deep_researcher.portfolio.PORTFOLIO_MAX_PROJECTS`, imported rather than
+restated. `clamped_limit(limit, default=…)` holds the request between 1 and that
+ceiling; anything the tool cannot read as a size — absent, zero, negative,
+non-numeric — is the CONFIGURED default and never 1, because "no particular
+number" is what an ordinary lookup already answers, and a single Steckbrief
+returned for „alle Projekte" reads to the model as an office with one project in
+it. The result block states its own bound ("at most N of at most 10"), so a
+best-match list is never mistaken for the office's full project list.
+
+## The answer envelope's control fields
+
+Not an endpoint, but the contract every chat answer is parsed against and the
+thing that decides what `POST /v1/jobs/async/submit` above is called with.
+`common/answer_envelope.py::AnswerMeta` carries the answer's anatomy (`verdict`,
+`takeaways`, `callout`) plus five CONTROL fields that never reach the wire
+payload:
+
+| Field | Type | What it decides |
+|---|---|---|
+| `confidence` | `{level, reason}` | The answer's self-assessment, downgraded by the citation pipeline before it is shown |
+| `escalate_to_deep` | `bool \| null` | Hand this turn to deep research instead of answering it |
+| `escalation_reason` | `string \| null` | The model's own clause saying why — the one narration the frontend renders, and where a portfolio hand-off names its project count |
+| `portfolio` | `bool` (default `false`) | With `escalate_to_deep`, **in the office only**: run it as a Portfolio-Recherche, one deep sub-run per project. Becomes the submit body's `portfolio` |
+| `portfolio_project_ids` | `list[string] \| null` | With `portfolio`: the projects to read, as printed by `find_projects`. `null` means "every project the caller may read". Becomes the submit body's `project_ids` |
+
+`portfolio` reads `null` as `false` on purpose: provider-enforced structured
+output requires every key present, so an explicit `null` is the common way a
+model says "not a portfolio run", and a bare `bool` field would reject the whole
+envelope — taking the answer's anatomy down with it. Whether the request is
+HONOURED is not decided here: `chat_researcher/agent._effective_portfolio`
+applies the office rule (an organisation and no project) once, and a request
+made in a project turn is dropped with a log line. See
+`docs/architecture/backend-deep-dive.md` §7.
 
 ## Health
 

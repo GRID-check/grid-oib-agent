@@ -2,6 +2,7 @@ import { index, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-co
 import { jobs } from './jobs'
 import { projects } from './projects'
 import { type ResourceVisibility, type ShareableResourceType } from './resource-shares'
+import { CONVERSATION_SCOPES, type ConversationScope } from '@/lib/conversations/scopes'
 
 /**
  * Engagement modes (ADR-0036). Deliberately two values, both meaning something a
@@ -11,6 +12,18 @@ import { type ResourceVisibility, type ShareableResourceType } from './resource-
  */
 export const CONVERSATION_ENGAGEMENTS = ['ask', 'mention'] as const
 export type ConversationEngagement = (typeof CONVERSATION_ENGAGEMENTS)[number]
+
+/**
+ * The conversation-level vocabulary (ADR-0054), re-exported so
+ * `@/lib/db/schema` stays the one import site every existing caller already
+ * uses; the declaration itself lives outside the schema so a route can validate
+ * a request body against it without importing the database. Same arrangement,
+ * and the same reason, as `DOCUMENT_AUTHORS` on `documents`.
+ *
+ * Unlike `DocumentScope`, this one is closed by a CHECK (migration 0081): a
+ * third member is a migration, not an edit to the tuple.
+ */
+export { CONVERSATION_SCOPES, type ConversationScope }
 
 export const conversations = pgTable(
   'conversations',
@@ -57,6 +70,18 @@ export const conversations = pgTable(
     tags: text('tags').array().notNull().default([]),
     projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
     /**
+     * The knowledge level this conversation belongs to (ADR-0054), tied to
+     * `project_id` by a CHECK so the two can never disagree: a `project` row
+     * has a project, a `workspace` row has none.
+     *
+     * `project` by default, so every existing writer — the chat surface, the
+     * jobs fire path, the internal service path — keeps inserting exactly what
+     * it inserted before. Migration 0081 backfilled the project-less rows that
+     * already existed to `workspace`, which records what was already true of
+     * them rather than deciding anything new (spec MG-1).
+     */
+    scope: text('scope').$type<ConversationScope>().notNull().default('project'),
+    /**
      * The job that produced this conversation, or NULL when a person started it
      * — which is every conversation that existed before migration 0044 and the
      * great majority of every one that ever will (ADR-0032 §provenance is silent
@@ -96,6 +121,17 @@ export const conversations = pgTable(
   (table) => ({
     orgUpdatedIdx: index('conversations_org_updated_idx').on(table.organizationId, table.updatedAt),
     projectIdx: index('conversations_project_idx').on(table.projectId),
+    /**
+     * The Büro sessions panel: one organisation's workspace rows, newest first
+     * (spec WS-8). `conversations_org_updated_idx` cannot serve it — `scope`
+     * sits between the two columns it indexes, so filtering on it would mean
+     * reading every project conversation in the tenant to discard it.
+     */
+    orgScopeUpdatedIdx: index('conversations_org_scope_updated_idx').on(
+      table.organizationId,
+      table.scope,
+      table.updatedAt.desc()
+    ),
     tagsIdx: index('conversations_tags_idx').using('gin', table.tags),
     /**
      * Redundant on its own — `id` is already the primary key — and required all

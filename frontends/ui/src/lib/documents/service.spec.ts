@@ -12,6 +12,10 @@ vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('@/lib/workspace/register-service', () => ({
+  markProjectRegisterStale: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('@/lib/projects/repository', () => ({
   findProjectInOrg: vi.fn(),
 }))
@@ -87,6 +91,7 @@ import {
   deleteProjectDocument,
   setDocumentDisplayName,
 } from './repository'
+import { markProjectRegisterStale } from '@/lib/workspace/register-service'
 import {
   listDocuments,
   uploadDocument,
@@ -429,6 +434,49 @@ describe('uploadDocument ingest dispatch — backend fetch is time-bounded', () 
       INGEST_DISPATCH_FAILED_MESSAGE
     )
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+})
+
+describe('listDocuments — the register write-through on a terminal ingest state', () => {
+  const row = (status: string): DocumentListRow & DocumentMetadata => ({
+    id: 'doc-1',
+    filename: 'plan.pdf',
+    displayName: null,
+    originPath: null,
+    contentHash: null,
+    fileSize: 1024,
+    contentType: 'application/pdf',
+    status,
+    authoredBy: 'user',
+    collectionName: 'proj_abc',
+    folderId: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-02T00:00:00Z'),
+    errorMessage: null,
+    metadata: null,
+  })
+
+  it('stamps the Steckbrief stale when a row actually settles', async () => {
+    // There is no ingest-completion callback: the status settles the first time
+    // somebody reads the list, so THAT transition is the write-through's hook
+    // (ADR-0054, spec PR-6).
+    vi.mocked(listProjectDocuments).mockResolvedValue([row('pending')])
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([row('completed')])
+
+    await listDocuments(session, 'proj-1')
+
+    expect(markProjectRegisterStale).toHaveBeenCalledWith('proj-1', session.organizationId)
+  })
+
+  it('stamps nothing when a listing changed nothing', async () => {
+    // Otherwise every page view of the Files pane would mark the project stale
+    // and the reconcile would rebuild the whole tenant nightly for no reason.
+    vi.mocked(listProjectDocuments).mockResolvedValue([row('completed')])
+    vi.mocked(reconcileDocumentStatuses).mockResolvedValue([row('completed')])
+
+    await listDocuments(session, 'proj-1')
+
+    expect(markProjectRegisterStale).not.toHaveBeenCalled()
   })
 })
 

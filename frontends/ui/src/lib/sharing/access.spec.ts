@@ -24,12 +24,22 @@ vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn(),
 }))
 
+// The conversation descriptor's own read precondition (spec AC-7): a Büro
+// thread is readable only while the reader may view every project it mounted.
+// Mocked here because these tests are about WHEN the substrate asks, not about
+// what the conversation rule decides — that has its own spec beside it.
+vi.mock('@/lib/workspace/conversation-sharing', () => ({
+  assertMountedProjectsReadable: vi.fn(),
+  assertSubjectMayJoinConversation: vi.fn(),
+}))
+
 import { NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { findConversationTenancy } from '@/lib/conversations/repository'
 import type { ProjectRole } from '@/lib/authz/projects'
 import type { ResourceRole, ResourceVisibility } from '@/lib/db/schema'
+import { assertMountedProjectsReadable } from '@/lib/workspace/conversation-sharing'
 import { isShared, requireResourceAccess, resolveResourceAccess } from './access'
 import { findGrantForSubject } from './repository'
 
@@ -90,6 +100,38 @@ beforeEach(() => {
   stubConversation()
   stubContainer('project-editor')
   stubGrant(null)
+  vi.mocked(assertMountedProjectsReadable).mockResolvedValue(undefined)
+})
+
+describe('resolveResourceAccess — the type’s own read precondition (spec AC-7)', () => {
+  it('denies as NOT FOUND when the descriptor refuses, whatever role would have followed', async () => {
+    // The creator of the thread, who would otherwise be its owner: a rule that
+    // can stop holding after the fact has to be able to take a resource away
+    // from the person who made it (spec AC-9 — the denial is a 404).
+    stubConversation({ projectId: null, createdBy: session.userId })
+    vi.mocked(assertMountedProjectsReadable).mockRejectedValue(new NotFoundError())
+
+    await expect(resolveResourceAccess(session, 'conversation', 'conv_1')).rejects.toBeInstanceOf(
+      NotFoundError,
+    )
+  })
+
+  it('asks it for every conversation read, with the caller’s own session', async () => {
+    stubConversation({ projectId: null })
+
+    await resolveResourceAccess(session, 'conversation', 'conv_1')
+
+    expect(assertMountedProjectsReadable).toHaveBeenCalledWith(session, 'conv_1')
+  })
+
+  it('runs it AFTER the container check, so an unreachable project is still the first answer', async () => {
+    stubContainer('denied')
+
+    await expect(resolveResourceAccess(session, 'conversation', 'conv_1')).rejects.toBeInstanceOf(
+      NotFoundError,
+    )
+    expect(assertMountedProjectsReadable).not.toHaveBeenCalled()
+  })
 })
 
 describe('resolveResourceAccess — the two preconditions no grant can override', () => {

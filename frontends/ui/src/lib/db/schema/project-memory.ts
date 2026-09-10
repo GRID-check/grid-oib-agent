@@ -33,12 +33,14 @@ export const PROJECT_MEMORY_VERIFICATIONS = [
 ] as const
 export type ProjectMemoryVerification = (typeof PROJECT_MEMORY_VERIFICATIONS)[number]
 
-export const PROJECT_MEMORY_PROVENANCES = [
-  'agent',
-  'user',
-  'distillation',
-  'profile_graduation',
-] as const
+/**
+ * Who wrote a note. `profile_graduation` was removed in 0085 (ADR-0055): it was
+ * an enum value for a path that was designed (design §6, decision 7) and never
+ * built, so no writer could ever produce it and every reader had to carry a
+ * branch for a value that does not occur. Bring it back with its writer, not
+ * before.
+ */
+export const PROJECT_MEMORY_PROVENANCES = ['agent', 'user', 'distillation'] as const
 export type ProjectMemoryProvenance = (typeof PROJECT_MEMORY_PROVENANCES)[number]
 
 /**
@@ -80,7 +82,10 @@ export const projectMemory = pgTable(
     conflictsWithId: uuid('conflicts_with_id'),
     salience: real('salience').notNull().default(0.5),
     pinned: boolean('pinned').notNull().default(false),
-    createdBy: text('created_by'),
+    // `created_by` was dropped in 0085: it was written on the two user-authored
+    // paths, read by nothing, and duplicated the attribution `provenanceType`
+    // already states — a nullable user id with no reader is a personal
+    // identifier carried for nobody.
     lastReferencedAt: timestamp('last_referenced_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -97,9 +102,11 @@ export const projectMemory = pgTable(
      * with `lastReferencedAt`, which existed but was never read.
      */
     recallCount: integer('recall_count').notNull().default(0),
+    // `embedded_at` was dropped in 0085: "has a vector" is `embedding IS NOT
+    // NULL` and "is it comparable" is the fingerprint, which is the only
+    // question recall asks. A timestamp answered neither.
     embedding: real('embedding').array(),
     embeddingModel: text('embedding_model'),
-    embeddedAt: timestamp('embedded_at', { withTimezone: true }),
   },
   (table) => ({
     projectIdx: index('idx_project_memory_project_id').on(table.projectId),

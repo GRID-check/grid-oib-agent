@@ -6,11 +6,22 @@ from pathlib import Path
 
 from aiq_agent import project_context as pc
 
+
+def _encode(payload: dict) -> str:
+    """base64url(JSON), the envelope's wire encoding, unpadded as Node writes it."""
+    raw = json.dumps(payload).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
 FIXTURE_PATH = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "grid_request_context.json"
 
 # Camel-case JSON fixture field name -> GridRequestContext attribute name.
 _INPUT_FIELD_MAP = {
     "organizationId": "organization_id",
+    # ADR-0054: readability is decided per MEMBERSHIP, so the envelope carries
+    # one. Listed here so the day the TS side adds a fixture case for it, this
+    # side asserts it without a second edit.
+    "organizationMembershipId": "organization_membership_id",
     "userId": "user_id",
     "projectId": "project_id",
     "collectionScope": "collection_scope",
@@ -202,6 +213,58 @@ class TestGridRequestContextFromContext:
         assert pc.get_memory_digest_from_context() == ctx.project_memory == "memory blob"
         assert pc.get_memory_reflection_enabled_from_context() == ctx.memory_reflection_enabled is True
         assert pc.get_project_context_from_context() == "profile blob\n\nmemory blob"
+
+
+class TestOrganizationMembership:
+    """The identity the BFF filters readable projects by (ADR-0054).
+
+    A different fact from the user id: one person can hold memberships in
+    several organizations, and `checkResourcePermission` keys on the membership.
+    Read the same way `user_id` is — envelope first, individual header as the
+    transition fallback — so a producer that has not learned the field yet
+    degrades to "no membership" (and therefore no projects) rather than to a
+    wrong one.
+    """
+
+    def test_the_envelope_carries_it(self):
+        ctx = pc.GridRequestContext.from_envelope(
+            _encode({"organizationId": "org_1", "organizationMembershipId": "om_9"}),
+            None,
+            None,
+        )
+        assert ctx is not None
+        assert ctx.organization_membership_id == "om_9"
+
+    def test_the_individual_header_carries_it_too(self):
+        ctx = pc.GridRequestContext.from_headers(
+            {"X-Grid-Organization-Id": "org_1", "X-Grid-Organization-Membership-Id": "  om_9  "}
+        )
+        assert ctx.organization_membership_id == "om_9"
+
+    def test_the_envelope_wins_over_the_individual_header(self):
+        """Same precedence as every other dual-written field: an envelope that
+        is present and valid is the whole context, individual headers ignored."""
+        ctx = pc.GridRequestContext.from_headers(
+            {
+                "X-Grid-Organization-Membership-Id": "om_from_header",
+                "X-Grid-Request-Context": _encode(
+                    {"organizationId": "org_1", "organizationMembershipId": "om_from_envelope"}
+                ),
+            }
+        )
+        assert ctx.organization_membership_id == "om_from_envelope"
+
+    def test_absent_is_none_not_a_guess(self):
+        ctx = pc.GridRequestContext.from_headers({"X-Grid-Organization-Id": "org_1", "X-Grid-User-Id": "user_1"})
+        assert ctx.organization_membership_id is None
+
+    def test_the_accessor_delegates(self, monkeypatch):
+        monkeypatch.setattr(
+            pc.GridRequestContext,
+            "from_context",
+            classmethod(lambda cls: cls(organization_id="org_1", organization_membership_id="om_9")),
+        )
+        assert pc.get_organization_membership_id_from_context() == "om_9"
 
 
 class TestGridRequestContextContractFixture:

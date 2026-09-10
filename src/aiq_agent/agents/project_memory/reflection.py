@@ -9,6 +9,17 @@ finding the in-turn tool missed, and writes each qualifying item through the sam
 token-guarded internal endpoint the ``remember`` tool uses (``grid_app`` stays
 single-writer).
 
+**Two outcomes, and only one of them is a write** (ADR-0055, contract C6). A
+PROJECT finding is written. An ORGANISATION finding is put through the same
+write path and expected to be refused — the BFF authorizes an agent org write as
+the acting user's ``org:memory:write`` and refuses it otherwise — and the
+refusal is the point: the finding comes back as a ``memory_proposal`` card that
+rides the stage's own frame, for a person to accept from their own session. This
+module used to force every finding to project scope and said why: firm-wide
+memory poisons every project in the tenant, and there was no write-time
+authorization gate and no human review. ADR-0054 supplied the gate; the card is
+the review.
+
 **Scheduling does not live here.** Reflection is a *post-answer stage*, and how a
 stage is gated, bounded, made concurrent and recorded is the primitive's job, not
 this module's — see ``aiq_agent/stages/memory_reflection.py`` for the
@@ -32,6 +43,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
+from dataclasses import field
 from typing import Any
 from typing import Literal
 
@@ -39,10 +53,12 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 
+from aiq_agent.agents.project_memory.proposal import build_memory_proposal_card
 from aiq_agent.common.json_utils import extract_json
 from aiq_agent.common.llm_factory import strict_json_response_format
 from aiq_agent.knowledge.project_memory import VALID_CONFIDENCES
 from aiq_agent.knowledge.project_memory import VALID_KINDS
+from aiq_agent.knowledge.project_memory import OrgMemoryDisabledError
 from aiq_agent.knowledge.project_memory import insert_memory_item
 from aiq_agent.knowledge.project_memory import looks_like_personal_data
 
@@ -76,6 +92,15 @@ class _ReflectionFinding(BaseModel):
             "adds something new instead of replacing anything."
         )
     )
+    scope: Literal["project", "organization"] = Field(
+        description=(
+            "'project' for a finding about THIS project — the ordinary case, and the default "
+            "whenever you are unsure. 'organization' ONLY for something that holds across the "
+            "whole office and would apply to every project in it. An organization finding is "
+            "not written: it is PROPOSED, and a person with the right to set firm-wide memory "
+            "decides."
+        )
+    )
 
 
 class ReflectionOutput(BaseModel):
@@ -94,6 +119,47 @@ class ReflectionOutput(BaseModel):
 # A reflection turn records a small, curated set — it is a safety net for what
 # the in-turn `remember` tool missed, not a bulk extractor.
 MAX_NEW_ITEMS = 5
+
+#: How many ORGANISATION findings one turn may put in front of a person. Far
+#: tighter than :data:`MAX_NEW_ITEMS`, and not for cost: a proposal asks for a
+#: DECISION whose blast radius is every project in the tenant, and five of those
+#: stacked under one answer is how a proposal surface gets dismissed wholesale
+#: instead of read. Two is "the office learned something here", five is a form.
+MAX_ORG_PROPOSALS = 2
+
+
+@dataclass(frozen=True)
+class ReflectionOutcome:
+    """What one reflection pass did — and the two are not the same act.
+
+    ``recorded`` are ``project_memory`` rows that EXIST: id, kind and content
+    each, because the surface that renders them shows the item's own words and a
+    list of ids would make the browser ask the database for text the writer
+    already had in hand (``docs/architecture/post-answer-stages.md`` §5.1).
+
+    ``proposed`` are validated ``memory_proposal`` CARDS and nothing was written
+    for any of them. They are a separate field rather than rows with a flag
+    precisely so that nothing downstream can render a proposal as a write: the
+    truthfulness rule ADR-0055 sets for the memory marker is the same rule here.
+
+    A recorded row that RETIRED an earlier note also carries ``supersedes``:
+    ``{"id", "content"}`` of the note it replaced, and only when a retirement
+    actually happened. It rides here because the correction is a fact about
+    THIS turn and ADR-0055 makes it a stated event in the transcript — the
+    reader is shown both halves ("Before: …" / "Now: …"), and a reader who has
+    to walk to the memory panel to see that Piloti corrected itself is the
+    inversion the decision exists to fix. It is a nested object and not two
+    flat keys because it is one fact about one other row, and absent — never
+    ``{}`` — when the write replaced nothing.
+    """
+
+    recorded: list[dict[str, Any]] = field(default_factory=list)
+    proposed: list[dict[str, Any]] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        return bool(self.recorded or self.proposed)
+
+
 _MAX_CONTENT_CHARS = 500
 # A supersede quote must stay verbatim to resolve, so it is capped at the write
 # endpoint's `supersedesContent` limit rather than the tighter content cap.
@@ -107,6 +173,27 @@ _MAX_QUERY_CHARS = 2000
 # owned by the BFF, so we don't assume newest-first/last).
 _MAX_DIGEST_CHARS = 6000
 
+
+def _retirement_sink() -> tuple[dict[str, str], Callable[[str, str], None]]:
+    """A place for one write to report the note it retired, and the callback.
+
+    A factory rather than a closure written inside the write loop: the sink
+    must be per-item (a second write must not inherit the first one's
+    correction), and a function defined in a loop that closes over the loop
+    variable is the shape that produces exactly that bug.
+
+    The retired content is capped like every other string in this payload —
+    it rides a jsonb column on a hot table and is rendered in one line.
+    """
+    retired: dict[str, str] = {}
+
+    def note(superseded_id: str, superseded_content: str) -> None:
+        retired["id"] = superseded_id
+        retired["content"] = superseded_content[:_MAX_CONTENT_CHARS]
+
+    return retired, note
+
+
 REFLECTION_SYSTEM_PROMPT = (
     "You are Grid's memory-reflection step. You run in the background AFTER the user "
     "already received their answer, so you never block the reply. Read the just-finished "
@@ -115,9 +202,8 @@ REFLECTION_SYSTEM_PROMPT = (
     "conversations.\n\n"
     "Record a finding ONLY if ALL of these hold:\n"
     "- it is durable — true across future turns, not transient conversation detail;\n"
-    "- it is specific to THIS project — NEVER general building-code knowledge (OIB limits, "
-    "ÖNORM values etc. already live in the corpus) and NEVER a firm-wide policy (this stage "
-    "only records project-scoped findings; org-wide conventions are set by a human, not here);\n"
+    "- it is NEVER general building-code knowledge — OIB limits, ÖNORM values and the like "
+    "already live in the corpus and are not memory;\n"
     "- it is NOT already present in the existing memory shown below (never restate) — this bars "
     "RESTATEMENTS, not CORRECTIONS: a finding that changes what an existing entry says is new;\n"
     "- it captures something the USER established (a decision, constraint, open question, "
@@ -140,23 +226,59 @@ REFLECTION_SYSTEM_PROMPT = (
     "obsolete: a finding that adds detail alongside an entry, or covers a different aspect of "
     "the same topic, must leave `supersedes` as an empty string. Never quote an entry that is "
     "not shown below, and never invent one.\n\n"
+    "SCOPE: PROJECT BY DEFAULT, ORGANISATION BY PROPOSAL. Almost every finding is about THIS "
+    "project and takes scope 'project'; it is recorded straight away. A finding takes scope "
+    "'organization' only when it holds for the WHOLE OFFICE and would apply to every project in "
+    "it — a firm-wide convention, a standing preference for how this office works, a rule the "
+    "office follows regardless of the job. That is a high bar: an organisation note is read into "
+    "every project's memory in the tenant, so getting it wrong is wrong everywhere at once. An "
+    "organisation finding is NOT written by you. It is proposed, and a person who holds the right "
+    "to set firm-wide memory decides whether it is kept. When you are unsure, choose 'project'.\n"
     "kind must be one of: decision, constraint, open_question, derived_fact, preference.\n"
     "confidence is one of: low, medium, high.\n"
     "content must be ONE concise, self-contained sentence about this project.\n"
-    "supersedes is the verbatim content of the entry being replaced, or an empty string.\n\n"
+    "supersedes is the verbatim content of the entry being replaced, or an empty string.\n"
+    "scope is 'project' or 'organization'.\n\n"
     f"Return AT MOST {MAX_NEW_ITEMS} findings. If nothing qualifies, return an empty list — "
     "that is the common and correct outcome. Respond with ONLY a JSON object of the form: "
-    '{"findings": [{"kind": "...", "content": "...", "confidence": "...", "supersedes": "..."}]}'
+    '{"findings": [{"kind": "...", "content": "...", "confidence": "...", "supersedes": "...", '
+    '"scope": "project"}]}'
 )
 
 
-def _build_user_prompt(query: str, answer: str, memory_digest: str | None) -> str:
+#: Appended to the system prompt when the turn ran in the BÜRO — an organisation
+#: and no project (ADR-0054). It is an addendum and not a second prompt because
+#: every rule above it still holds; what changes is WHAT the finding is about and
+#: what happens to it. Without this the model is asked, in a conversation that
+#: has no project, for "a durable finding about THIS PROJECT", and the honest
+#: answer to that question is always the empty list.
+OFFICE_ADDENDUM = (
+    "\n\nTHIS CONVERSATION BELONGS TO THE OFFICE AND TO NO PROJECT. Read every rule above with "
+    "'this project' replaced by 'this office': a finding here is durable knowledge about how the "
+    "office works — a firm-wide convention, a standing preference, a rule they follow regardless "
+    "of the job — and NEVER a fact about one project, because there is no project to attach it "
+    "to. Every finding you return takes scope 'organization'.\n"
+    "The bar is higher here than it is in a project, because an office note is read into every "
+    "project in the firm: getting one wrong is wrong everywhere at once. Nothing you return is "
+    "written. Each finding becomes a PROPOSAL that a person who may set firm-wide memory either "
+    "accepts or discards, so return only what you would be willing to put in front of them, and "
+    f"return at most {MAX_ORG_PROPOSALS}. An empty list is the common and correct outcome."
+)
+
+
+def _system_prompt(*, has_project: bool) -> str:
+    """The reflection instructions for the shape of turn that just finished."""
+    return REFLECTION_SYSTEM_PROMPT if has_project else REFLECTION_SYSTEM_PROMPT + OFFICE_ADDENDUM
+
+
+def _build_user_prompt(query: str, answer: str, memory_digest: str | None, *, has_project: bool = True) -> str:
     """Assemble the reflection prompt from the turn and the existing memory."""
-    existing = memory_digest.strip() if memory_digest else "(no project memory recorded yet)"
+    what = "project" if has_project else "office"
+    existing = memory_digest.strip() if memory_digest else f"(no {what} memory recorded yet)"
     if len(existing) > _MAX_DIGEST_CHARS:
-        existing = existing[:_MAX_DIGEST_CHARS] + "\n… (project memory truncated)"
+        existing = existing[:_MAX_DIGEST_CHARS] + f"\n… ({what} memory truncated)"
     return (
-        "## Existing project memory\n"
+        f"## Existing {what} memory\n"
         f"{existing}\n\n"
         "## User question\n"
         f"{query.strip()[:_MAX_QUERY_CHARS]}\n\n"
@@ -236,19 +358,33 @@ def _sanitize_findings(
     raw: Any,
     *,
     has_project: bool,
+    has_organization: bool = False,
     memory_digest: str | None = None,
 ) -> list[dict[str, str]]:
-    """Validate LLM-proposed findings into insertable **project-scoped** items.
+    """Validate LLM-proposed findings into insertable items.
 
-    The autonomous reflection stage records project-scoped findings ONLY — it
-    never writes ``organization`` scope. Firm-wide memory poisons every project
-    in the tenant and there is no write-time authorization gate or human review,
-    so org-wide writes stay a deliberate, human-driven action (audit finding S1).
+    **Why organization scope is allowed here now.** This function used to force
+    every finding to ``project`` and said so: firm-wide memory poisons every
+    project in the tenant, and there was no write-time authorization gate and no
+    human review, so an org-wide write stayed a deliberate human action (audit
+    finding S1). Both halves of that objection have since been answered.
+    ADR-0054 added the gate — the BFF authorizes an agent org write as the
+    ACTING user's ``org:memory:write`` and refuses it otherwise — and ADR-0055
+    makes the refusal the review: the refused write becomes a ``memory_proposal``
+    card a person accepts from their own session. So the stage may now PROPOSE
+    firm-wide findings, and it still cannot write one: the only thing that
+    changed is that the office has a realistic writer at all, which is the gap
+    ADR-0055 names.
+
+    A project finding is written directly, exactly as before. An organization
+    finding takes the write path and is expected to be refused; the refusal is
+    the mechanism, not an error.
+
     Drops anything malformed, out-of-vocabulary, empty, already present in the
-    digest, matching a PII/secret shape (audit finding S4), or when no project
-    is in scope.
+    digest, matching a PII/secret shape (audit finding S4), or scoped to a
+    target this turn does not have.
     """
-    if not isinstance(raw, list) or not has_project:
+    if not isinstance(raw, list) or not (has_project or has_organization):
         return []
     digest_entries = _digest_entry_contents(memory_digest)
     items: list[dict[str, str]] = []
@@ -293,11 +429,26 @@ def _sanitize_findings(
             importance = 5
         importance = min(10, max(1, importance))
 
+        # Scope, with the conservative fallback in both directions: anything
+        # this turn has no target for becomes the scope it does have, and an
+        # unrecognised value is the project. A finding is never dropped for its
+        # scope alone — the write path decides what an organisation finding may
+        # do, and it is the only thing that can.
+        scope = str(entry.get("scope", "project")).strip().lower()
+        if scope not in {"project", "organization"}:
+            scope = "project"
+        if scope == "organization" and not has_organization:
+            scope = "project"
+        if scope == "project" and not has_project:
+            scope = "organization" if has_organization else "project"
+        if scope == "project" and not has_project:
+            continue
+
         item = {
             "kind": kind,
             "content": content,
             "confidence": confidence,
-            "scope": "project",
+            "scope": scope,
             "salience": str(round(importance / 10.0, 2)),
         }
         if supersedes:
@@ -318,26 +469,30 @@ async def run_memory_reflection(
     organization_id: str | None,
     conversation_id: str | None,
     memory_digest: str | None,
-) -> list[dict[str, str]]:
-    """Run one reflection pass and record any qualifying findings.
+    user_id: str | None = None,
+    organization_membership_id: str | None = None,
+) -> ReflectionOutcome:
+    """Run one reflection pass; record project findings, propose office ones.
 
-    Returns the memory items written — ``id``, ``kind`` and ``content`` each —
-    empty when nothing qualified or on any recoverable failure. Intended to be
-    awaited inside a guarded background task; it never raises for expected
-    failure modes.
+    Returns a :class:`ReflectionOutcome` — empty on both halves when nothing
+    qualified or on any recoverable failure. Intended to be awaited inside a
+    guarded background task; it never raises for expected failure modes.
 
     The return carries what was WRITTEN and not merely how much, because the
     post-answer stage wrapping this call puts it on the wire: the chip that
     tells a reader "Piloti noted this" renders the item's own words, and a list
     of ids would make the browser ask the database for text the writer already
-    had in hand (``docs/architecture/post-answer-stages.md`` §5.1).
+    had in hand (``docs/architecture/post-answer-stages.md`` §5.1). It carries
+    what was PROPOSED for the same reason and in a separate field, because a
+    proposal is not a write and nothing downstream may render it as one.
     """
     from langchain_core.messages import HumanMessage
     from langchain_core.messages import SystemMessage
 
+    has_project = bool(project_id)
     messages = [
-        SystemMessage(content=REFLECTION_SYSTEM_PROMPT),
-        HumanMessage(content=_build_user_prompt(query, answer, memory_digest)),
+        SystemMessage(content=_system_prompt(has_project=has_project)),
+        HumanMessage(content=_build_user_prompt(query, answer, memory_digest, has_project=has_project)),
     ]
     # Request native strict json_schema structured output; the response-healing
     # plugin (forced on OpenRouter LLMs in llm_factory) repairs any fenced/prose
@@ -356,16 +511,28 @@ async def run_memory_reflection(
     findings = parsed.get("findings") if isinstance(parsed, dict) else None
     items = _sanitize_findings(
         findings,
-        has_project=bool(project_id),
+        has_project=has_project,
+        has_organization=bool(organization_id),
         memory_digest=memory_digest,
     )
     if not items:
         logger.info("Memory reflection: no new durable findings for this turn")
-        return []
+        return ReflectionOutcome()
 
-    recorded: list[dict[str, str]] = []
+    recorded: list[dict[str, Any]] = []
+    proposed: list[dict[str, Any]] = []
     for item in items:
-        scope = item["scope"]  # always "project" — org-wide writes are excluded (S1)
+        # Per item, and filled by the write itself: what the model QUOTED is a
+        # guess at the target (the BFF resolves it fuzzily, and the polarity
+        # path retires a note nobody quoted), so the only honest answer to
+        # "which note did this replace" is the one the write path reports.
+        retired, note_retirement = _retirement_sink()
+        # `project` is written; `organization` is PROPOSED (ADR-0055, contract
+        # C6). Both take the same write path, because the BFF is what tells the
+        # two apart: it authorizes an org write as the acting user's
+        # `org:memory:write` and refuses it otherwise, and that refusal is the
+        # human review the stage used to say it was missing.
+        scope = item["scope"]
         try:
             item_id = await asyncio.to_thread(
                 insert_memory_item,
@@ -383,15 +550,53 @@ async def run_memory_reflection(
                 # Retires the entry this finding corrects (frontend resolves the
                 # quote; unresolvable or human-curated targets are left alone).
                 supersedes_content=item.get("supersedes"),
+                # WHO the answered turn ran for. Read on the organisation branch
+                # only, where the write is authorized as that person rather than
+                # as the service token (spec AG-8) — a project write is addressed
+                # by its project row and needs no acting user.
+                user_id=user_id,
+                organization_membership_id=organization_membership_id,
+                # Told, not derived: see `retired` above.
+                on_superseded=note_retirement,
             )
+        except OrgMemoryDisabledError:
+            # The expected outcome of an organisation proposal, not a failure:
+            # the office has not granted this person firm-wide memory (or the
+            # deployment keeps the off-switch shut), so the finding becomes an
+            # offer a person accepts from their own session instead of a write
+            # nobody authorized. The card rides this stage's own FRAME — the
+            # turn's card registry was snapshotted and unbound before the
+            # post-answer stages ran, so it is not a channel this code has.
+            if len(proposed) >= MAX_ORG_PROPOSALS:
+                logger.info("Memory reflection: organisation proposal dropped at the per-turn cap")
+                continue
+            card = build_memory_proposal_card(content=item["content"], kind=item["kind"], confidence=item["confidence"])
+            if card is not None:
+                logger.info("Memory reflection: proposing a %s finding for the whole office", item["kind"])
+                proposed.append(card)
+            continue
         except Exception:
             logger.exception("Memory reflection: failed to record a %s finding", item["kind"])
             continue
         if item_id:
-            recorded.append({"id": item_id, "kind": item["kind"], "content": item["content"]})
-            if item.get("supersedes"):
-                logger.info("Memory reflection: recorded %s item %s as a correction", item["kind"], item_id)
+            row: dict[str, Any] = {"id": item_id, "kind": item["kind"], "content": item["content"]}
+            if retired:
+                # Only a retirement that HAPPENED. The old log fired on the
+                # model's quote, which is not the same event: an unresolvable
+                # or human-curated target leaves the earlier note live, and
+                # saying "corrected" there would state a correction the store
+                # never made.
+                row["supersedes"] = retired
+                logger.info(
+                    "Memory reflection: recorded %s item %s as a correction retiring %s",
+                    item["kind"],
+                    item_id,
+                    retired["id"],
+                )
+            recorded.append(row)
 
     if recorded:
         logger.info("Memory reflection recorded %d new memory item(s)", len(recorded))
-    return recorded
+    if proposed:
+        logger.info("Memory reflection proposed %d organisation finding(s) for acceptance", len(proposed))
+    return ReflectionOutcome(recorded=recorded, proposed=proposed)

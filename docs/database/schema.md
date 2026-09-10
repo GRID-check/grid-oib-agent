@@ -23,6 +23,9 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `messages.ts` | `messages` |
 | `documents.ts` | `documents` |
 | `project-folders.ts` | `project_folders` |
+| `project-register.ts` | `project_register` |
+| `conversation-mounts.ts` | `conversation_mounts` |
+| `project-sets.ts` | `project_sets`, `project_set_members` |
 | `user-preferences.ts` | `user_preferences` |
 | `answer-feedback.ts` | `answer_feedback` |
 | `platform-lessons.ts` | `platform_lessons`, `platform_lesson_reports`, `platform_lesson_events` |
@@ -92,12 +95,13 @@ export const conversations = pgTable('conversations', {
 | `created_by` | `text` | NOT NULL | WorkOS user ID |
 | `title` | `text` | | Auto-generated or user-set title |
 | `project_id` | `uuid` | FK → `projects.id` ON DELETE SET NULL | Scopes knowledge collection |
+| `scope` | `text` | NOT NULL, default `'project'` (migration `0081`) | `project` \| `workspace` (ADR-0054). Which level of the knowledge hierarchy the conversation belongs to: a project chat, or the Büro, which belongs to the **organisation** and has no project. Two CHECKs, both added by 0081: `conversations_scope_known` closes the value to those two members, and `conversations_scope_matches_project` asserts `(scope = 'project') = (project_id IS NOT NULL)` — so the level and the FK cannot disagree. The column exists because the absence of a project used to be the only thing distinguishing an office chat from a project chat whose project was never stamped, and every reader had to guess which it was looking at (spec WS-7, WS-9). **0081 backfilled every project-less row to `'workspace'`**, which records what was already true of them, and RAISEs the row count as a NOTICE so the backfill is a number in the deploy log rather than an assumption (spec MG-1). Unlike `documents.scope`, adding a member here is a migration, not a TypeScript change: the vocabulary is declared in `lib/conversations/scopes.ts` and closed by the CHECK. |
 | `job_id` | `uuid` | FK → `jobs.id` ON DELETE SET NULL (migration `0044`) | **Provenance, not ownership**: the job whose `output='chat'` run was materialised into this thread, or NULL when a person started it (every row before 0044, and the great majority after). `created_by` on a job conversation is still the JOB'S OWNER — a real user id, because the sharing roster, the last-owner invariant, `attributeLegacyAuthor` and audit all read that column as a person — so this column is the only thing that says "nobody typed this". Two behaviours are meant to hang off it: rendering the thread with the job's name and a job glyph instead of the owner's face, and filtering it out of the owner's personal sessions list (a weekly job is 52 threads a year) while it stays openable by URL and from the job's run history. The column and the fire path that writes it exist; those two consumers are follow-up. `SET NULL`, because deleting a job must never delete its output. |
 | `visibility` | `text` | NOT NULL, default `'private'` | `private` \| `project` \| `organization` (ADR-0032). Read on the hot path with the row, so access resolution costs no join. **Migration 0027 backfilled pre-existing rows with a `project_id` to `'project'`** — conversations used to be resolved org-scoped only, so any org member with an id could read any thread; `'project'` keeps access for everyone inside the project and withdraws the accidental org-wide read. Rows with a NULL `project_id` stayed `'private'` (no project membership could describe their audience). |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | Updated on message activity |
 
-**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`); `conversations_job_id_idx` on `(job_id)` **partial**, `WHERE job_id IS NOT NULL` (migration `0044`) — it exists for the foreign key, since an unindexed referencing column makes every `DELETE FROM jobs` seq-scan this table; partial because job-produced conversations are a small minority and Drizzle's builder cannot express a partial index, so it lives only in the migration.
+**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`); `conversations_job_id_idx` on `(job_id)` **partial**, `WHERE job_id IS NOT NULL` (migration `0044`) — it exists for the foreign key, since an unindexed referencing column makes every `DELETE FROM jobs` seq-scan this table; partial because job-produced conversations are a small minority and Drizzle's builder cannot express a partial index, so it lives only in the migration. `conversations_org_scope_updated_idx` on (`organization_id`, `scope`, `updated_at` DESC) (migration `0081`) — the Büro sessions panel, which asks for one organisation's workspace rows newest first (spec WS-8); `conversations_org_updated_idx` cannot serve it, because `scope` sits between its two columns, so the filter would mean reading every project conversation in the tenant only to discard it.
 
 ---
 
@@ -962,3 +966,226 @@ reaches every tenant) and the anonymization boundary.
   `docs/architecture/semantic-notes.md` for why the vector is a column rather
   than a second store, and where that stops being the right call.
   Schema: `frontends/ui/src/lib/db/schema/platform-lessons.ts`.
+
+---
+
+## project_memory (migrations 0008, 0010, 0069, 0076, 0085 — ADR-0008, ADR-0055)
+
+The store the agent reads on every turn: durable, evolving, agent-authored and
+user-curated findings. Itemised rows rather than an append-only blob, so an item
+carries its own provenance, status and confidence and can be superseded, pinned
+or corrected on its own. Design:
+[`../architecture/project-memory-design.md`](../architecture/project-memory-design.md).
+Schema: `frontends/ui/src/lib/db/schema/project-memory.ts`.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `scope` | `text` | `CHECK project_memory_scope_project` | `project` (with `project_id`) or `organization` (`project_id` NULL — shared by every project in the tenant, never across tenants). The CHECK is what makes the pair inseparable. |
+| `project_id` / `organization_id` | `uuid` / `text` | FK cascade / NOT NULL | The tenancy. Every read pins the project branch to the organization as well, so a project id from another tenant matches nothing (`memoryScopeCondition`). |
+| `kind` | `text` | NOT NULL | `decision \| constraint \| open_question \| derived_fact \| preference`. |
+| `status` | `text` | NOT NULL, default `active` | `proposed \| active \| superseded \| dismissed`. `superseded` is a reader-visible state since ADR-0055, not a tombstone. |
+| `confidence` / `verification` / `provenance_type` | `text` | NOT NULL | How sure, how checked, and by whom. `provenance_type` is `agent \| user \| distillation` — 0085 removed `profile_graduation`, an enum value for a path that was designed and never built, so no writer could produce it and every reader carried a branch for a value that does not occur. |
+| `supersedes_id` | `uuid` | nullable, no FK | The note this one retired. **Written since 0008, read since ADR-0055**: the panel shows the retired note beside its replacement and `POST …/memory/{itemId}/restore` reverses the pair. The direction is taken from the two statuses, not from which row holds the pointer — a restore does not rewrite the link, which is what makes it reversible and idempotent. |
+| `conflicts_with_id` | `uuid` | nullable, no FK (0076) | The live, human-curated note this one contradicts and was NOT allowed to retire. Neither FK is enforced on purpose: the other note may be deleted later, and the record that a correction or a conflict happened should survive that. |
+| `salience` / `pinned` / `last_referenced_at` / `recall_count` | `real` / `boolean` / `timestamptz` / `integer` | NOT NULL where defaulted | The recall scorer's inputs (`lib/knowledge/recall-scoring.ts`): importance, the always-carried core, and MemoryBank's reinforcement pair. |
+| `embedding` / `embedding_model` | `real[]` / `text` (0069) | nullable | Row-resident vector plus the fingerprint of the model that produced it. A vector is comparable only within one model, so a fingerprint that no longer matches the deployment's embedder means "not embedded yet", exactly as NULL does. **0085 dropped `embedded_at`**: "has a vector" is `embedding IS NOT NULL` and "is it comparable" is the fingerprint, which is the only question recall ever asks — a timestamp answered neither, and nothing read it. |
+| `created_by` | — | **dropped in 0085** | Set from the session on the two user-authored paths, NULL on every agent write, then never selected. Attribution for a note is `provenance_type`, which is what the panel renders; a nullable user id with no reader is a personal identifier the deletion pipeline (ADR-0011) would have had to account for the day somebody noticed it, for nobody's benefit. |
+
+- Two PARTIAL UNIQUE indexes on a normalised-content expression
+  (`uniq_project_memory_{project,org}_content_active`, migration 0010) enforce
+  "at most one active item per scope-owner + normalised content". They are
+  expression + partial indexes drizzle cannot express, so they live in the
+  migration; `createProjectMemoryItem` treats a `23505` from them as a duplicate
+  and returns the winner.
+- `idx_project_memory_org_scope (organization_id, scope, status)` is the index
+  the digest and `search_memory` both read through.
+- RLS: `SELECT grid_secure_table('project_memory', …)` in migration 0031. No
+  ADR-0055 change touches the table's shape in a way RLS can see — 0085 only
+  removes two columns no policy names.
+
+---
+
+## project_register (migration 0082, ADR-0054)
+
+One *Steckbrief* per project — the **Projektregister** the Büro-Chat reads to
+answer *which* project a question is about, without putting a single project
+document into the retrieval scope. Schema:
+`frontends/ui/src/lib/db/schema/project-register.ts`. Spec: `PR-1…PR-9`.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `project_id` | `uuid` | PRIMARY KEY | One row per project, so the project id is the key. |
+| `organization_id` | `text` | NOT NULL | Denormalised so RLS filters without a join. |
+| `project_name` | `text` | NOT NULL | The name the office answers with; a rename marks the row stale. |
+| `status` | `text` | nullable | Read out of `projects.profile.facts` (the `projektphase` intake answer). **`projects` has no status column**, so NULL is the ordinary state for a project nobody has taken through intake. |
+| `bundesland` | `text` | nullable | The validated intake token; NULL for a value outside the vocabulary. |
+| `steckbrief` | `text` | NOT NULL, `CHECK char_length <= 3000` | The prompt block. The budget is a database invariant rather than a convention the builder is trusted to keep: five of these plus the office memory digest have to fit in one turn's prompt (spec PR-3). |
+| `document_count` | `integer` | NOT NULL, default 0 | The whole corpus, not the twenty lines the block samples. |
+| `last_activity_at` | `timestamptz` | nullable | Newest of the project's documents, conversations, memory and profile write. |
+| `embedding` / `embedding_model` / `embedded_at` | `real[]` / `text` / `timestamptz` | `CHECK` all-three-or-none | Row-resident, exactly as `project_memory` carries one (0069) — no pgvector, no second store (PR-8). A vector is comparable only within one model, so the fingerprint is part of the same fact and the CHECK says so. |
+| `stale_at` | `timestamptz` | nullable | Set by a writer, cleared by the build. |
+| `built_at` / `updated_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+**Composite foreign key:** `(project_id, organization_id)` → `projects (id,
+organization_id)` `ON DELETE CASCADE` — the belt-and-braces `tasks` adopted in
+0075. A Steckbrief cannot be planted under another tenant's project, and a
+project purge takes its row with it, so the deletion pipeline needs no new step.
+
+**Indexes:** `project_register_stale_idx` on (`organization_id`, `stale_at`)
+**PARTIAL** `WHERE stale_at IS NOT NULL` — the reconcile's own query, partial
+because the steady state is "nothing is stale"; `project_register_fts_idx`, a
+GIN index over `to_tsvector('german', steckbrief)` — the lexical half of hybrid
+recall (PR-9). Both are expression/partial indexes drizzle cannot express, so
+they live in migration 0082 with the CHECKs.
+
+**RLS:** secured by 0082 with the two-part predicate `tasks` carries — the row's
+own `organization_id` **and** the tenant of the project it names (spec PR-17,
+AC-5). Covered by `tenant-isolation.integration.spec.ts` and by
+`register-recall.integration.spec.ts`, which is the readability gate on top of
+it: RLS keeps a tenant out, the FGA filter in `lib/workspace/register-service.ts`
+keeps a member out of a project inside their own tenant.
+
+**Every column is derived.** The BFF is the single writer (PR-5):
+`rebuildProjectRegisterRow` reads the four sources and upserts, and the four
+write-through points — a profile save, a memory write, a document reaching a
+terminal ingest state, a rename — only stamp `stale_at`. The bounded reconcile
+(`POST /api/internal/workspace/register/reconcile`, 50 rows a call) rebuilds
+missing and stale rows through one code path, which is also the backfill for
+every project that predates the register (spec MG-2).
+
+---
+
+## conversation_mounts (migration 0083, ADR-0054)
+
+Which projects a **Büro conversation** currently reads. A workspace
+conversation has no project by construction (`conversations.scope =
+'workspace'`, 0081); mounting is how a bounded number of project corpora join
+its retrieval scope, and this table is where that fact lives between two turns.
+Schema: `frontends/ui/src/lib/db/schema/conversation-mounts.ts`. Spec:
+`MT-5, MT-7, MT-13…MT-15`.
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY, default `gen_random_uuid()` | |
+| `conversation_id` | `text` | NOT NULL | Half of the first composite key. |
+| `organization_id` | `text` | NOT NULL | Denormalised so RLS filters without a join, and half of BOTH composite keys — which is what stops the copy from disagreeing with either side. |
+| `project_id` | `uuid` | NOT NULL | The mounted project. |
+| `mounted_by` | `text` | NOT NULL, `CHECK IN ('user','agent')` | A person chose it in the scope tree, or `open_project` mounted it mid-turn. Both go through one endpoint (MT-2), so this column is the only thing that tells them apart afterwards. |
+| `mounted_by_user_id` | `text` | nullable, biconditional CHECK | `("mounted_by" = 'user') = ("mounted_by_user_id" IS NOT NULL)`. A half-filled row is what makes an attribution chip a guess later, and a guess about who widened a conversation's scope is not something to discover in the UI. |
+| `mounted_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+**Two composite foreign keys**, both `ON DELETE CASCADE`: `(conversation_id,
+organization_id)` → `conversations (id, organization_id)` and `(project_id,
+organization_id)` → `projects (id, organization_id)`. A mount tying one tenant's
+conversation to another tenant's project is not merely refused by the policy, it
+has no pair to point at.
+
+**A project purge takes these rows and stops** (spec MT-15): the conversation
+belongs to the organisation and survives ([ADR-0011](../adr/0011-deletion-pipeline.md)),
+so the purge's "all conversation ids for this project" enumeration must never
+learn about this table. See
+[`docs/architecture/deletion-pipeline.md`](../architecture/deletion-pipeline.md).
+
+**Indexes:** `uniq_conversation_mounts` on (`conversation_id`, `project_id`) —
+what makes re-mounting idempotent and stops one project consuming the cap twice
+(the service inserts `ON CONFLICT DO NOTHING` and reads the existing row back);
+`conversation_mounts_project_idx` on (`project_id`) for the cascade's and a
+project surface's direction of travel.
+
+**The cap is not here.** `GRID_WORKSPACE_MAX_MOUNTED_PROJECTS` (default 5) is
+enforced in `lib/workspace/mounts-service.ts` and nowhere else. It is a
+deployment knob, not an invariant of the data: lowering it must not make the
+rows a deployment already has unwritable.
+
+**RLS:** secured by 0083 with the same two-part predicate `project_register`
+carries — the row's own `organization_id` **and** the tenant of the project it
+names (spec AC-5). Covered by `tenant-isolation.integration.spec.ts`, which
+also asserts the purge cascade and the actor biconditional.
+
+---
+
+## project_sets, project_set_members (migration 0084, ADR-0054)
+
+A **Sammlung**: a named, reusable set of projects — a Bezirk, a client, a year —
+mounted into a Büro conversation as one unit. Schema:
+`frontends/ui/src/lib/db/schema/project-sets.ts`. Spec: `GR-2`.
+
+**The set is an addressing convenience, never a second kind of scope.** GR-2
+requires the generalisation to be "one table and no new mechanism", and that is
+what these two are: mounting a Sammlung writes the SAME `conversation_mounts`
+rows a person's five clicks would have written, through the same service, the
+same per-project `project:chat` check and the same cap. A conversation records
+the PROJECTS it mounted, never the set it mounted them from — so a Sammlung that
+gains a project tomorrow does not silently widen a thread that mounted it today.
+
+### project_sets
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `id` | `uuid` | PRIMARY KEY, default `gen_random_uuid()` | |
+| `organization_id` | `text` | NOT NULL | |
+| `name` | `text` | NOT NULL, `CHECK length(btrim(name)) > 0` | Unique per organization, case-insensitively — see the index below. A blank name is a perfectly good unique key and a perfectly useless label, and the one place it surfaces is a refusal sentence naming the set. |
+| `description` | `text` | nullable | One line of context. |
+| `created_by` | `text` | NOT NULL | The WorkOS user. Half of the edit rule: its creator may change it, and so may anyone holding `org:projects:administer`. |
+| `created_at` | `timestamptz` | NOT NULL, default `now()` | |
+| `updated_at` | `timestamptz` | NOT NULL, default `now()` | Stamped by the service on rename/describe. |
+
+`project_sets_id_organization_id_key` UNIQUE on (`id`, `organization_id`) is what
+gives `project_set_members`' composite foreign key a pair to point at — the same
+belt-and-braces `tasks` adopted in 0075.
+
+**Indexes:** `uniq_project_sets_org_name` UNIQUE on
+(`organization_id`, `lower(name)`). Two "Bezirk 3"s differing in case are two
+things nobody can tell apart, and the name is what a cap refusal says out loud.
+An expression index, so it lives in migration 0084 rather than in drizzle.
+
+### project_set_members
+
+| Column | Type | Constraints | Notes |
+|---|---|---|---|
+| `set_id` | `uuid` | NOT NULL, PK half | |
+| `organization_id` | `text` | NOT NULL | Denormalised so RLS filters without a join, and half of BOTH composite keys. |
+| `project_id` | `uuid` | NOT NULL, PK half | |
+| `added_at` | `timestamptz` | NOT NULL, default `now()` | |
+
+PRIMARY KEY (`set_id`, `project_id`) — adding a project twice is the same
+membership, which is what makes `addProjects` idempotent.
+
+**Two composite foreign keys**, both `ON DELETE CASCADE`: `(set_id,
+organization_id)` → `project_sets (id, organization_id)` and `(project_id,
+organization_id)` → `projects (id, organization_id)`. A membership tying one
+tenant's Sammlung to another tenant's project is not merely refused by the
+policy, it has no pair to point at.
+
+**Neither cascade reaches a conversation.** Deleting a Sammlung takes its
+memberships and stops; purging a project takes its memberships and stops. A
+mount made through a set is an ordinary `conversation_mounts` row from the
+moment it is written (spec MT-14), so removing the name a person mounted through
+must not change what a thread reads.
+
+**Indexes:** `project_set_members_project_idx` on (`project_id`) — the purge's
+and a project surface's direction of travel ("which Sammlungen is this project
+in?").
+
+**A join table rather than a `uuid[]` on the set**, for the two reasons an array
+cannot cover: only a real foreign key makes a project purge take its memberships
+(so [the deletion pipeline](../architecture/deletion-pipeline.md) learns nothing
+new), and the project→sets direction is one an array answers with a scan.
+
+**No cap on the membership count.** A Sammlung of forty projects is a legitimate
+thing to own; MOUNTING it is what gets refused, by
+`GRID_WORKSPACE_MAX_MOUNTED_PROJECTS` in `lib/workspace/mounts-service.ts` and
+nowhere else, with a 409 naming the cap **and the set**.
+
+**RLS:** secured by 0084 — `project_sets` on its own `organization_id`,
+`project_set_members` with the same two-part predicate `conversation_mounts`
+carries (the row's own `organization_id` **and** the tenant of the project it
+names). Covered by `tenant-isolation.integration.spec.ts`, which also asserts
+the case-insensitive name index and both cascades.
+
+**Readability is computed per caller, never stored.** RLS keeps another tenant
+out; what a member of THIS tenant may see of a Sammlung is decided in
+`lib/workspace/project-sets-service.ts`, which runs the membership through the
+same `filterReadableProjects` the projects grid and the register recall use. A
+member of a firm-wide "Bezirk 3" sees the projects they are on and learns
+nothing about the rest — not their names, not their ids, not that they exist.

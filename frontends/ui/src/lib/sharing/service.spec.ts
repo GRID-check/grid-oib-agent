@@ -53,6 +53,14 @@ vi.mock('@/lib/inbox/service', () => ({
   markItemsInertForSubject: vi.fn().mockResolvedValue(0),
 }))
 
+// The conversation descriptor's own grant precondition (spec AC-7). Mocked
+// because this file is about the substrate asking it; what it decides for a
+// Büro thread is `lib/workspace/conversation-sharing.spec.ts`.
+vi.mock('@/lib/workspace/conversation-sharing', () => ({
+  assertMountedProjectsReadable: vi.fn(),
+  assertSubjectMayJoinConversation: vi.fn(),
+}))
+
 vi.mock('./access', () => ({
   requireResourceAccess: vi.fn(),
   resolveResourceAccess: vi.fn(),
@@ -83,6 +91,7 @@ import { canUserAccessProject, isUserInOrganization } from '@/lib/authz/project-
 import { findConversationTenancy, updateConversationVisibilityInOrg } from '@/lib/conversations/repository'
 import type { ResourceRole, ResourceVisibility } from '@/lib/db/schema'
 import { publishToUsers } from '@/lib/events/bus'
+import { assertSubjectMayJoinConversation } from '@/lib/workspace/conversation-sharing'
 import { requireResourceAccess, resolveResourceAccess } from './access'
 import { loadOrganizationDirectory } from './directory'
 import { SHARE_LIMIT, consumeLimit } from '@/lib/limits'
@@ -156,6 +165,45 @@ beforeEach(() => {
   vi.mocked(upsertGrant).mockResolvedValue({} as never)
   vi.mocked(deleteGrant).mockResolvedValue(true)
   vi.mocked(updateConversationVisibilityInOrg).mockResolvedValue({} as never)
+  vi.mocked(assertSubjectMayJoinConversation).mockResolvedValue(undefined)
+})
+
+describe('the type’s own grant precondition (spec AC-7, ADR-0032 §1)', () => {
+  it('refuses the invitation the descriptor refuses, and writes nothing', async () => {
+    // The Büro rule: the recipient may not view a project this conversation
+    // mounted. The substrate does not know that — it asks the registry.
+    vi.mocked(assertSubjectMayJoinConversation).mockRejectedValue(
+      new BadRequestError('may not view Seestadt', {
+        reason: 'container-access-required',
+        projects: ['Seestadt'],
+      }),
+    )
+
+    const failure = await grantResourceAccess(session, 'conversation', 'conv_1', {
+      subjectUserId: 'user_colleague',
+      role: 'collaborator',
+    }).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(BadRequestError)
+    expect((failure as BadRequestError).details).toMatchObject({ projects: ['Seestadt'] })
+    expect(upsertGrant).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+    expect(publishToUsers).not.toHaveBeenCalled()
+  })
+
+  it('asks it with the subject, after the container check has passed', async () => {
+    await grantResourceAccess(session, 'conversation', 'conv_1', {
+      subjectUserId: 'user_colleague',
+      role: 'collaborator',
+    })
+
+    expect(assertSubjectMayJoinConversation).toHaveBeenCalledWith(
+      session,
+      'conv_1',
+      'user_colleague',
+    )
+    expect(upsertGrant).toHaveBeenCalled()
+  })
 })
 
 describe('the last-owner invariant (spec SH-11)', () => {

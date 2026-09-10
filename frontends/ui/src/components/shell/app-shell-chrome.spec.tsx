@@ -25,6 +25,7 @@ const baseProps = {
   canManagePlatform: false,
   canAccessArchiv: true,
   canAccessInbox: true,
+  canAccessWorkspaceChat: true,
   showSkills: false,
   showModels: false,
   overlay: null,

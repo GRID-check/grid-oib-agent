@@ -176,6 +176,30 @@ KEY_CITATIONS = "status.citations"
 #: with its markers. Value-less; the counts travel as detail.
 KEY_REPAIR = "status.repair"
 KEY_ESCALATION = "status.escalation"
+#: ``status.escalation.portfolio`` — the escalation is a Portfolio-Recherche
+#: over ``count`` projects (ADR-0054, spec DR-7). Its own key rather than a
+#: value on the line above, because "eine Tiefenrecherche" and "eine
+#: Portfolio-Recherche über 4 Projekte" are two different sentences and the
+#: frontend owns both. ``count`` is the one value in this module that is a
+#: NUMBER: it is the same figure in every language, and the reader has to be
+#: told it before the run starts — that is what makes the cost acknowledged.
+KEY_ESCALATION_PORTFOLIO = "status.escalation.portfolio"
+
+#: ``status.memory.search`` — the agent looked past the injected digest and read
+#: ``count`` more notes out of long-term memory (ADR-0055). Its own key rather
+#: than a ``search_memory`` row in :data:`_ACTION_KEYS`, because the number is
+#: the whole point: "im Gedächtnis gesucht" says nothing a reader could not have
+#: assumed, and "3 weitere Notizen gelesen" is the line that makes the second
+#: path visible. Like the portfolio key above, this one and its sibling need a
+#: FULL dictionary path on the frontend side: ``status.memory`` is not a string
+#: leaf they could nest under.
+KEY_MEMORY_SEARCH = "status.memory.search"
+
+#: ``status.memory.superseded`` — a write RETIRED ``count`` earlier notes. The
+#: quietest event in the system until now: polarity supersession replaced a note
+#: and nothing said so, so a correction the user asked for looked identical to
+#: one that never happened.
+KEY_MEMORY_SUPERSEDED = "status.memory.superseded"
 
 #: EVERY key this module can emit, exhaustively. Two tests hang off it: the
 #: Python one asserts nothing is emitted that is not in here, and the UI one
@@ -196,6 +220,9 @@ ALL_STATUS_KEYS: tuple[str, ...] = (
     "status.citations",
     "status.repair",
     "status.escalation",
+    "status.escalation.portfolio",
+    "status.memory.search",
+    "status.memory.superseded",
 )
 
 
@@ -516,7 +543,7 @@ def emit_answer_repair(*, removed_citations: int, unverified_quotes: int) -> Non
     )
 
 
-def emit_escalation(reason: str | None = None) -> None:
+def emit_escalation(reason: str | None = None, *, portfolio_project_count: int | None = None) -> None:
     """Shallow → deep, announced at the moment the router decides it.
 
     Deep research is minutes, not seconds. A reader who is told the short
@@ -527,9 +554,56 @@ def emit_escalation(reason: str | None = None) -> None:
     ``escalation_reason`` ("Shallow agent emitted insufficiency marker"), which
     names a marker in a message and tells an architect nothing. The internal
     string still travels as the ``reason`` field for the details panel.
+
+    ``portfolio_project_count`` switches the line to the Portfolio-Recherche one
+    and fills its ``{count}`` slot. It takes the count and not a flag on
+    purpose: a portfolio line that cannot say how many projects it is about to
+    read does not meet DR-7, so a run whose projects are not yet enumerable is
+    announced as the ordinary escalation it is indistinguishable from until the
+    worker asks the register.
     """
     reason_text = " ".join(str(reason).split()) if reason else ""
-    emit_status("escalation", KEY_ESCALATION, reason=clip(reason_text, MAX_REASON_CHARS) or None)
+    key = KEY_ESCALATION
+    values: dict[str, Any] | None = None
+    if portfolio_project_count is not None and portfolio_project_count > 0:
+        key = KEY_ESCALATION_PORTFOLIO
+        values = {"count": portfolio_project_count}
+    emit_status("escalation", key, values=values, reason=clip(reason_text, MAX_REASON_CHARS) or None)
+
+
+#: Slot for the two memory lines. One slot for both, because they are the same
+#: moment from the reader's side — the agent went to memory — and the frontend
+#: dedupes on the step name: two slots would let a search line and a correction
+#: line sit in the transcript as two separate activities when only one thing
+#: happened.
+MEMORY_SLOT = "memory"
+
+
+def emit_memory_search(count: int) -> None:
+    """``search_memory`` came back with ``count`` notes (ADR-0055, contract C4).
+
+    Silent at zero. A search that found nothing is not an event a reader needs:
+    it changes nothing they can see, and announcing it would put a line about
+    absent memory under an answer written without any. That the search happened
+    at all is what the Herleitung's tool lane already shows.
+    """
+    count = max(0, int(count or 0))
+    if count <= 0:
+        return
+    emit_status(MEMORY_SLOT, KEY_MEMORY_SEARCH, values={"count": count})
+
+
+def emit_memory_superseded(count: int) -> None:
+    """A write retired ``count`` earlier notes (ADR-0055, contract C4).
+
+    The count is the turn's running total, not this write's own, because the
+    live line replaces rather than accumulates: two corrections in one turn are
+    one line saying two, never two lines each saying one.
+    """
+    count = max(0, int(count or 0))
+    if count <= 0:
+        return
+    emit_status(MEMORY_SLOT, KEY_MEMORY_SUPERSEDED, values={"count": count})
 
 
 #: Slot for the budget-exhaustion record. Its own slot, so it never overwrites

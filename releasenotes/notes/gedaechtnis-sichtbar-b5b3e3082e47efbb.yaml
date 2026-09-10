@@ -1,0 +1,54 @@
+---
+features:
+  - >
+    Die Wissensbasis hat eine neue Zeile: „Gedächtnis — Was Piloti gelernt
+    hat.“ Sie steht zwischen Projekt und Diese Unterhaltung und sagt, wie viel
+    Piloti bei dieser Frage tatsächlich davon gelesen hat: „3 Notizen von 47 im
+    Blick. 44 weitere Notizen sind diesmal nicht mitgelesen worden.“ Die zweite
+    Zahl kannte bisher nur das Modell.
+  - >
+    Unter jeder Antwort steht eine ruhige Zeile: „3 Notizen aus dem Gedächtnis
+    im Blick.“ Aufgeklappt zeigt sie die Notizen, jede mit einem Weg ins
+    Gedächtnis-Panel. Sie ist ausdrücklich kein Beleg und steht nicht bei
+    „Belegt durch“: Die Notizen standen beim Antworten im Kontext — ob eine
+    davon die Antwort geprägt hat, lässt sich nicht sagen, und deshalb steht es
+    auch nicht da.
+  - >
+    Die Herleitung zeigt das Gedächtnis als eigenen Abschnitt unter den
+    Wissensebenen, abgesetzt und mit „Kein Beleg“ als erstem Satz. Hat Piloti
+    über den laufenden Auszug hinaus im Gedächtnis nachgesehen, steht auch das
+    dort — und in der Statuszeile während der Antwort.
+  - >
+    Ersetzt Piloti eine frühere Notiz, sagt es das jetzt im Verlauf: was bisher
+    galt, was jetzt gilt, und „Rückgängig“ daneben. Das war bislang das leiseste
+    Ereignis im System — die alte Notiz verschwand einfach.
+  - >
+    Erkenntnisse, die für das ganze Büro gelten sollen, werden vorgelegt statt
+    geschrieben. Die Karte sagt jetzt, warum gefragt wird — organisationsweit
+    heißt: in jedem Projekt dieser Organisation mitgelesen — und wer annehmen
+    darf: wer das Recht „Organisationsgedächtnis schreiben“ hat.
+upgrade:
+  - >
+    Im Gedächtnis-Panel eines Projekts bleiben ersetzte Notizen jetzt stehen,
+    abgeblendet, mit dem Hinweis, was an ihre Stelle getreten ist — und mit
+    einer Schaltfläche, die die frühere Notiz wiederherstellt. Bisher wurden sie
+    ausgeblendet. Von Ihnen entfernte Notizen bleiben wie bisher unsichtbar.
+fixes:
+  - >
+    Wird ein organisationsweites Merken abgelehnt, weil das Recht dafür fehlt,
+    steht das jetzt so da — mit dem Namen des Rechts und dem Hinweis, dass sich
+    die Erkenntnis stattdessen im Projekt speichern lässt. Vorher las es sich
+    wie eine Störung, auf die man warten könnte.
+  - >
+    Ist organisationsweites Merken dagegen für die ganze Installation
+    abgeschaltet, sagt die Karte genau das — und schickt niemanden mehr los, ein
+    Recht zu erfragen, das gar nicht die verschlossene Tür ist.
+  - >
+    Erkenntnisse, die Piloti erst nach der Antwort vorlegt, erscheinen jetzt
+    auch: als dieselbe Karte an derselben Stelle. Bisher wurden sie zugestellt
+    und von niemandem gesehen. Eine Erkenntnis, die zweimal vorgeschlagen wird,
+    steht weiterhin nur einmal da.
+  - >
+    Lässt sich eine ersetzte Notiz nicht wiederherstellen, weil sie inzwischen
+    schon wieder gilt oder jemand anderes schneller war, steht das jetzt als
+    Auskunft über den aktuellen Stand da statt als Fehlschlag.

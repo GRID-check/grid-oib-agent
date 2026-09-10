@@ -183,5 +183,98 @@ def test_a_single_collection_with_the_cap_disabled_is_plain_top_k() -> None:
     assert _ids(merged) == ["a-0", "a-1", "a-2"]
 
 
+# =============================================================================
+# Fairness at the mount cap (ADR-0054, the Phase-3 gate's keyless half)
+# =============================================================================
+#
+# The Büro reads base + Archiv + up to five mounted projects, and the fusion was
+# tuned for four shelves (ADR-0054's own "do not survive the numbers" argument
+# against fanning out over every project). What the cap needs before it may be
+# raised is evidence that a fifth channel is READ and not merely queried: a
+# project whose hits never reach the slate is a project the answer cannot cite,
+# and nothing else in the system would say so — every retrieval test passes and
+# the answer simply omits it.
+#
+# Measured baseline, seven equal channels of sixteen hits, production `top_k=16`
+# (2026-09-08, recorded in `frontends/benchmarks/oib_retrieval/README.md`):
+# base 3, Archiv 3, each of five projects 2. The latency half of the gate cannot
+# be measured here — it needs a real vector store — and that README says what to
+# run for it.
+
+
+def _equal_channels(collections: list[str], depth: int = 16) -> list[RetrievalResult]:
+    """One result per collection, all equally good, so ONLY fusion decides."""
+    return [
+        _result(
+            [
+                _chunk(f"{collection}-{rank}", 0.80 - rank / 100, rank, f"{collection}_{rank}.pdf", collection)
+                for rank in range(depth)
+            ]
+        )
+        for collection in collections
+    ]
+
+
+def _share(merged) -> dict[str, int]:
+    share: dict[str, int] = {}
+    for chunk in merged.chunks:
+        collection = (chunk.metadata or {}).get("collection")
+        share[collection] = share.get(collection, 0) + 1
+    return share
+
+
+def test_every_mounted_project_reaches_the_slate_at_the_cap() -> None:
+    collections = ["oib_knowledge", "archiv_org"] + [f"proj_{index}" for index in range(1, 6)]
+
+    merged = _merge_results(_equal_channels(collections), query="q", top_k=16, backend_name="llamaindex")
+
+    share = _share(merged)
+    assert set(share) == set(collections), "a mounted project with no hit in the slate cannot be cited"
+    assert share == {
+        "oib_knowledge": 3,
+        "archiv_org": 3,
+        "proj_1": 2,
+        "proj_2": 2,
+        "proj_3": 2,
+        "proj_4": 2,
+        "proj_5": 2,
+    }
+
+
+def test_the_base_first_tie_break_costs_a_project_at_most_one_slot() -> None:
+    """The tie-break gives the base corpus the seat on an exact tie (the merge's
+    documented rule). At the cap that must be a rounding difference, not a
+    ranking: the last-listed project may not be systematically starved."""
+    collections = ["oib_knowledge", "archiv_org"] + [f"proj_{index}" for index in range(1, 6)]
+
+    share = _share(_merge_results(_equal_channels(collections), query="q", top_k=16, backend_name="llamaindex"))
+
+    projects = [share[f"proj_{index}"] for index in range(1, 6)]
+    assert max(projects) - min(projects) <= 1
+    assert min(projects) >= max(share["oib_knowledge"], share["archiv_org"]) - 1
+
+
+def test_a_project_whose_hits_score_far_worse_is_still_read() -> None:
+    """The reason fusion exists (ADR-0047 / the merge's docstring): a project
+    collection sits in a systematically worse distance band than the base
+    corpus, so on raw score its five mounts would be invisible."""
+    strong = _result(
+        [_chunk(f"oib-{rank}", 0.90 - rank / 100, rank, f"oib_{rank}.pdf", "oib_knowledge") for rank in range(16)]
+    )
+    weak = [
+        _result(
+            [
+                _chunk(f"p{index}-{rank}", 0.30 - rank / 100, rank, f"p{index}_{rank}.pdf", f"proj_{index}")
+                for rank in range(16)
+            ]
+        )
+        for index in range(1, 6)
+    ]
+
+    share = _share(_merge_results([strong, *weak], query="q", top_k=16, backend_name="llamaindex"))
+
+    assert all(share.get(f"proj_{index}", 0) >= 2 for index in range(1, 6))
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

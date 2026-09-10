@@ -42,6 +42,7 @@ import {
 } from '@/lib/api/errors'
 import { ALLOWED_TAGS } from './tag-vocabulary'
 import { contentDigest } from './content-digest'
+import { markProjectRegisterStale } from '@/lib/workspace/register-service'
 import { documentStatusFacts } from './document-status'
 import { documentNameKey } from './name-match'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
@@ -407,6 +408,16 @@ export async function listDocuments(
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
   const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
+
+  // A document REACHING a terminal ingest state changes the project's document
+  // inventory, so the Steckbrief that lists it is now wrong (spec PR-6). This
+  // is where that transition actually happens — there is no ingest-completion
+  // callback, the status settles the first time somebody reads the list — so
+  // the write-through hangs off the transition rather than off the read: a
+  // listing where nothing changed stamps nothing.
+  if (reconciled.some((row, index) => row.status !== rows[index]?.status)) {
+    void markProjectRegisterStale(projectId, session.organizationId)
+  }
 
   const listed = reconciled.map(({ metadata: _metadata, ...row }) => row)
 
@@ -1995,6 +2006,12 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
   const [reconciled] = await reconcileDocumentStatuses([doc], session.organizationId)
+
+  // The same transition, reached through the single-document poll the upload
+  // progress bar uses.
+  if (reconciled.status !== doc.status) {
+    void markProjectRegisterStale(doc.projectId, session.organizationId)
+  }
 
   return {
     id: reconciled.id,

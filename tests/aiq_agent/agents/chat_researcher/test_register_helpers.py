@@ -921,6 +921,55 @@ def test_session_collection_name_is_idempotent():
     assert _session_collection_name("s_abc") == "s_abc"
 
 
+class TestApplyMemoryContext:
+    """The crossing from turn-scoped values to the answer's `memory_context`.
+
+    Tested here rather than through the workflow for the reason the function is
+    module-level at all: inline in `_run` it could only be exercised by standing
+    up the whole NAT graph, which is how a field came to be set, declared and
+    read by nobody.
+    """
+
+    def test_a_turn_that_read_no_memory_puts_nothing_on_the_answer(self):
+        from aiq_agent.agents.chat_researcher.register import _apply_memory_context
+        from aiq_agent.knowledge.memory_context import MemoryCarry
+
+        response = _create_chat_response("Antwort", response_id="r", model="m")
+        _apply_memory_context(response, MemoryCarry(), searched=0)
+        _apply_memory_context(response, None, searched=0)
+        # Presence-rendered downstream: an empty shape would put a memory marker
+        # under an answer that never touched memory.
+        assert getattr(response, "memory_context", None) is None
+
+    def test_the_digest_half_and_the_search_half_arrive_as_one_field(self):
+        from aiq_agent.agents.chat_researcher.register import _apply_memory_context
+        from aiq_agent.knowledge.memory_context import MemoryCarry
+        from aiq_agent.knowledge.memory_context import MemoryNote
+
+        response = _create_chat_response("Antwort", response_id="r", model="m")
+        carry = MemoryCarry(carried=(MemoryNote(id="m1", kind="decision", content="Flachdach"),), omitted=4, total=25)
+        _apply_memory_context(response, carry, searched=2)
+        assert response.memory_context == {
+            "carried": [{"id": "m1", "kind": "decision", "content": "Flachdach"}],
+            "omitted": 4,
+            "total": 25,
+            "searched": 2,
+        }
+
+    def test_it_is_carried_onto_the_terminal_chunk(self):
+        """`_STREAM_EXTRA_FIELDS` is the next hop; a field set here and not
+        listed there reaches the websocket handler as nothing at all."""
+        from aiq_agent.agents.chat_researcher.register import _STREAM_EXTRA_FIELDS
+        from aiq_agent.agents.chat_researcher.register import _apply_memory_context
+        from aiq_agent.knowledge.memory_context import MemoryCarry
+
+        assert "memory_context" in _STREAM_EXTRA_FIELDS
+        response = _create_chat_response("Antwort", response_id="r", model="m")
+        _apply_memory_context(response, MemoryCarry(total=3), searched=0)
+        terminal = _response_to_chunks(response, stream=True)[-1]
+        assert terminal.memory_context == {"carried": [], "omitted": 0, "total": 3, "searched": 0}
+
+
 class TestLoadSessionRegistry:
     """The registry hydration is a blocking cache round-trip: it rides a
     thread, and any failure yields a fresh registry — never a failed turn."""
@@ -982,6 +1031,12 @@ def _fake_request_context():
         project_memory=None,
         project_id=None,
         organization_id=None,
+        # Read by the turn's TurnFacts and by cost tracking's identity read.
+        # Absent, `_load_project_context` raises into its fail-open branch, the
+        # ledger flush never runs, and the CLI hard-exit thread then fires after
+        # this test releases its `os._exit` mock — which kills the whole pytest
+        # process with code 0, exactly as the drain comment below warns.
+        organization_membership_id=None,
         memory_reflection_enabled=False,
         user_id="user-test",
         bundesland=None,

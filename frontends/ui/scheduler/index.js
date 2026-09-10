@@ -35,6 +35,9 @@ const LOG = '[job-scheduler]'
 const INTERNAL_TOKEN_HEADER = 'x-grid-internal-token'
 const FIRE_TIMEOUT_MS = 30000
 const FIRE_BODY_SNIPPET = 500
+// The register reconcile embeds up to 50 Steckbriefe per call, so it gets its
+// own, longer budget than a job fire — and still one bounded by the tick.
+const RECONCILE_TIMEOUT_MS = 60000
 
 /**
  * Deployment start gate. The scheduler is a clean no-op unless the skills
@@ -123,6 +126,60 @@ async function fireOne(config, scheduleId, fetchImpl = fetch) {
 }
 
 /**
+ * Rebuild one bounded batch of stale or missing Projektsteckbriefe
+ * (ADR-0054, spec PR-7): POST {frontendUrl}/api/internal/workspace/register/reconcile.
+ *
+ * NEVER FATAL. A register that cannot be reconciled costs the Büro slightly
+ * stale project fingerprints; a reconcile failure that stopped the tick would
+ * cost every scheduled job in the deployment its run. So every outcome here is
+ * logged and swallowed, exactly as `fireOne` treats a failed fire, and the next
+ * tick retries — the work is claimed by `stale_at`, so nothing is lost by
+ * missing a round.
+ */
+async function reconcileRegister(config, fetchImpl = fetch) {
+  const url = `${config.frontendUrl}/api/internal/workspace/register/reconcile`
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), RECONCILE_TIMEOUT_MS)
+  try {
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        [INTERNAL_TOKEN_HEADER]: config.internalToken,
+      },
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      let body = ''
+      try {
+        body = (await res.text()).slice(0, FIRE_BODY_SNIPPET)
+      } catch {
+        /* body unreadable — status is enough to act on */
+      }
+      console.error(`${LOG} register reconcile failed: HTTP ${res.status} ${body}`)
+      return 0
+    }
+    let outcome = null
+    try {
+      outcome = await res.json()
+    } catch {
+      /* non-JSON 200 — nothing to report, the call itself succeeded */
+    }
+    const rebuilt = outcome && typeof outcome.rebuilt === 'number' ? outcome.rebuilt : 0
+    if (rebuilt > 0) console.log(`${LOG} rebuilt ${rebuilt} project Steckbrief(e)`)
+    return rebuilt
+  } catch (error) {
+    console.error(
+      `${LOG} register reconcile errored:`,
+      error && error.message ? error.message : error,
+    )
+    return 0
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
  * One scheduler tick. Claim + advance (atomic), then fire the claimed rows
  * concurrently (batch <= 20), then prune. Every stage is defended so nothing
  * throws out of the tick — a failed claim skips this tick's fires, a failed
@@ -152,6 +209,11 @@ async function tick(sql, config) {
   } catch (error) {
     console.error(`${LOG} run-history prune failed:`, error)
   }
+
+  // The Projektregister's repair stage, last and defended like every other one:
+  // it never throws (see reconcileRegister), so a register outage cannot reach
+  // the fires above or the next tick.
+  await reconcileRegister(config)
 
   return fired
 }
@@ -200,6 +262,7 @@ module.exports = {
   readConfig,
   toPositiveInt,
   fireOne,
+  reconcileRegister,
   tick,
   INTERNAL_TOKEN_HEADER,
 }

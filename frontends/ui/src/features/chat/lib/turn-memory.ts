@@ -60,6 +60,22 @@ export interface TurnMemoryItem {
   /** The finding itself, shown verbatim. */
   content: string
   provenance: TurnMemoryProvenance
+  /**
+   * The note this one RETIRED, when the write was a correction (ADR-0055, C5).
+   *
+   * Optional because most writes replace nothing, not because it is doubtful:
+   * `StoredMemoryItem` in `lib/conversations/message-stages.ts` declares and
+   * sanitises it, so what arrives here is bounded, and an item without it
+   * simply added something new. A stored stage written by an older build
+   * carries no `supersedes` and renders no notice — the behaviour that existed
+   * before, not a new failure.
+   *
+   * The retired note's id and words both, because the notice states both
+   * halves and offers the undo against that id. The memory panel shows the
+   * same correction; this is the half that reaches a reader who never leaves
+   * the transcript, which is the inversion ADR-0055 exists to fix.
+   */
+  supersedes?: { id: string; content: string }
 }
 
 /**
@@ -72,6 +88,85 @@ export interface TurnMemoryItem {
  * its entire job is to tell a reader what is now durable about their project.
  */
 const SAVED: ReadonlySet<string> = new Set(['savedOrg', 'savedProject'])
+
+/**
+ * One `memory_proposal` this turn OFFERED, from either producer.
+ *
+ * A proposal is a question and stays one all the way to the reader: it is never
+ * folded into {@link TurnMemoryItem}, which is the list of things that were
+ * actually written. Rendering an offer as a write would claim a firm-wide note
+ * that nobody made — the failure ADR-0055's own wire contract calls out.
+ */
+export interface TurnMemoryProposal {
+  /** The key its persisted decision is stored under on the message. */
+  key: string
+  card: MemoryProposalCard
+  /**
+   * WHEN the offer was made. The card reads the same either way; this exists
+   * because the two producers are two different promises, exactly as the chip
+   * already labels an in-turn write apart from a post-answer one.
+   */
+  origin: TurnMemoryProvenance
+}
+
+/** The one card type this module deals in. */
+type MemoryProposalCard = Extract<GridCard, { type: 'memory_proposal' }>
+
+/**
+ * Identity of an offer, for the merge below.
+ *
+ * The CONTENT, normalized, because that is what the two producers share: a
+ * finding proposed mid-answer and re-proposed by the reflection pass is one
+ * offer told twice, and the ids are minted independently on each side so they
+ * cannot say so. Same normalization the memory write path uses — case, and
+ * runs of anything that is not a letter or digit.
+ */
+const proposalIdentity = (card: MemoryProposalCard): string =>
+  card.content.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+
+/**
+ * Key for a proposal the post-answer stage made.
+ *
+ * Deliberately outside `cardKey`'s namespace (`<type>-<index>`), because these
+ * are NOT slots in the turn's card array: minting `memory_proposal-3` for one
+ * would collide with the answer's own fourth card the moment the model emits
+ * one, and a decision would then be attributed to a card the reader never saw.
+ * The index is the position within the stage's own list, which is fixed once
+ * the frame has landed.
+ */
+const stageProposalKey = (index: number): string => `stage:memory_proposal-${index}`
+
+/**
+ * Every proposal this turn offered — the answer's own cards first, then the
+ * ones the post-answer reflection added, deduped by content.
+ *
+ * The turn's card WINS a collision: it was on screen first, and it is the one
+ * that already holds the reader's decision. A stage proposal that repeats it is
+ * dropped rather than stacked, so a reader is never asked the same question
+ * twice with two different answers possible.
+ */
+export function turnMemoryProposals({
+  stages,
+  cards,
+}: Pick<TurnMemoryInput, 'stages' | 'cards'>): TurnMemoryProposal[] {
+  const out: TurnMemoryProposal[] = []
+  const seen = new Set<string>()
+
+  for (const [index, card] of (cards ?? []).entries()) {
+    if (!card || card.type !== 'memory_proposal') continue
+    seen.add(proposalIdentity(card))
+    out.push({ key: cardKey(card, index), card, origin: 'inTurn' })
+  }
+
+  for (const [index, card] of (stages?.memoryReflection?.proposals ?? []).entries()) {
+    const identity = proposalIdentity(card)
+    if (seen.has(identity)) continue
+    seen.add(identity)
+    out.push({ key: stageProposalKey(index), card, origin: 'distillation' })
+  }
+
+  return out
+}
 
 interface TurnMemoryInput {
   /** Post-answer stage output on this message. */
@@ -93,17 +188,31 @@ interface TurnMemoryInput {
 export function turnMemoryItems({ stages, cards, cardInteractions }: TurnMemoryInput): TurnMemoryItem[] {
   const items: TurnMemoryItem[] = []
 
-  for (const [index, card] of (cards ?? []).entries()) {
-    // A hole is a card validation rejected (`validateGridCards` keeps wire
-    // positions): nothing to attribute a memory write to.
-    if (!card || card.type !== 'memory_proposal') continue
-    const key = cardKey(card, index)
-    if (!SAVED.has(cardInteractions?.[key]?.decision ?? '')) continue
-    items.push({ id: key, kind: card.kind, content: card.content, provenance: 'inTurn' })
+  // Every offer this turn made, from both producers, so a proposal the
+  // reflection pass added after the answer becomes a recorded finding on the
+  // same terms as one the `remember` tool made during it. A hole in the card
+  // array is a card validation rejected (`validateGridCards` keeps wire
+  // positions) and never reaches here.
+  for (const proposal of turnMemoryProposals({ stages, cards })) {
+    if (!SAVED.has(cardInteractions?.[proposal.key]?.decision ?? '')) continue
+    items.push({
+      id: proposal.key,
+      kind: proposal.card.kind,
+      content: proposal.card.content,
+      provenance: proposal.origin,
+    })
   }
 
   for (const item of stages?.memoryReflection?.items ?? []) {
-    items.push({ ...item, provenance: 'distillation' })
+    items.push({
+      id: item.id,
+      kind: item.kind,
+      content: item.content,
+      provenance: 'distillation',
+      // A correction is a fact about THIS turn, so it travels with the item
+      // rather than being fetched back out of the panel.
+      ...(item.supersedes ? { supersedes: item.supersedes } : {}),
+    })
   }
 
   return items

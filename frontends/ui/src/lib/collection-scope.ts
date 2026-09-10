@@ -4,7 +4,7 @@ import type { GridSession } from './auth/types'
  * The shelf a retrieval collection sits on, carried explicitly on the wire
  * (ADR-0047). Nothing derives it from an `archiv_`/`proj_`/`s_` name prefix.
  *
- * The four members are the WIRE shelf enum, deliberately NOT the same set as
+ * The five members are the WIRE shelf enum, deliberately NOT the same set as
  * `documents.scope` (the DB shelf) or the ADR-0026 display taxonomy. Each
  * runtime owns its own small, total enum (ADR-0047 decision 3); the Python
  * reader declares its own mirror without importing this one.
@@ -13,7 +13,7 @@ import type { GridSession } from './auth/types'
  * so the low-level request-context contract can name the type without taking a
  * dependency on the service-heavy builder that produces it.
  */
-export type CollectionShelf = 'archiv' | 'project' | 'session' | 'base'
+export type CollectionShelf = 'archiv' | 'project' | 'register' | 'session' | 'base'
 
 /**
  * One entry of the `X-Grid-Collection-Scope` payload and of the signed
@@ -27,6 +27,23 @@ export type CollectionShelf = 'archiv' | 'project' | 'session' | 'base'
 export interface ScopedCollection {
   collection: string
   shelf?: CollectionShelf
+  /**
+   * WHICH project this collection belongs to, when it is a project collection
+   * (ADR-0054, spec KH-13).
+   *
+   * The shelf says a chunk came from *a* project; in the Büro that is not
+   * enough, because a turn can read five of them and a citation that cannot
+   * name its project is a citation nobody can act on. Both fields are set at
+   * the one point where they are known for free — the BFF builds the scope, so
+   * it holds the project's id and name already — and travel as DATA the whole
+   * way down, exactly as the shelf does (ADR-0047). Nothing downstream parses
+   * `proj_<uuid>` to recover them.
+   *
+   * Optional because the other four shelves have no project: absent means "not
+   * a project collection", never "we could not tell".
+   */
+  projectId?: string
+  projectName?: string
 }
 
 /**
@@ -62,6 +79,16 @@ export interface ScopeContext {
    * corpus so every project's retrieval also sees the shared Archiv (ADR-0024).
    */
   archivCollectionName?: string
+  /**
+   * The collections of the projects this conversation has MOUNTED (ADR-0054),
+   * already re-authorized by the caller.
+   *
+   * Passed in rather than resolved here, because deciding which mounts survive
+   * is an authorization question and this function is pure. Their position in
+   * the array is the hierarchy's: after the office's own shelves, before the
+   * conversation's private one.
+   */
+  mountedCollectionNames?: readonly string[]
 }
 
 export function computeCollectionScope(
@@ -83,6 +110,10 @@ export function computeCollectionScope(
     if (projectCollectionName) {
       scope.push(projectCollectionName)
     }
+  }
+
+  for (const mounted of context.mountedCollectionNames ?? []) {
+    scope.push(mounted)
   }
 
   if (context.conversationId) {

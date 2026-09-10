@@ -31,9 +31,11 @@ Key configuration:
 ```
 Client WS connect → server.on('upgrade')
   → pathname === '/websocket' ?
-    → fetchCollectionScopeHeader(req, projectId, conversationId)
-      → internal GET /api/auth/websocket-scope?projectId=&conversationId=
-    → if 401/403 → reject socket
+    → resolveCollectionScope(req, { projectId, conversationId, scope })
+      → memo keyed on (cookie, projectId, conversationId, scope)
+      → fetchCollectionScopeHeader(req, { projectId, conversationId, scope })
+        → internal GET /api/auth/websocket-scope?projectId=&conversationId=&scope=
+    → if 400/401/403 → reject socket
     → set headers: x-grid-collection-scope, x-grid-organization-id,
                     x-grid-user-id, authorization
     → backendProxy.ws(req, socket, head, { target: BACKEND_WS_URL })
@@ -46,14 +48,23 @@ The `BACKEND_WS_URL` is derived from `BACKEND_URL` by replacing `http` with `ws`
 
 `frontends/ui/src/app/api/auth/websocket-scope/route.ts`
 
+The gateway memoises this call per process for `GRID_WS_SCOPE_CACHE_TTL_MS`
+(default 10 s), keyed on the hashed session cookie **plus `projectId`,
+`conversationId` and `scope`**. `scope` belongs in the key because a Büro
+upgrade ([ADR-0054](../adr/0054-workspace-chat-mounts-projects-on-demand.md))
+and a project upgrade share a cookie and the Büro one carries no `projectId` —
+without it the two collapse onto one entry and whichever raced first serves the
+other a scope built for the wrong surface.
+
 Called internally (no external route) by `server.js` during WebSocket upgrade. Resolves the collection scope for the backend:
 
-1. Reads `projectId` and `conversationId` from query params
+1. Reads `projectId`, `conversationId` and `scope` from query params. `scope` is `project` (the default when absent) or `workspace`; anything else returns `400`
 2. Calls `getGridSession()` to resolve the WorkOS session (or null in anonymous mode)
 3. If `REQUIRE_AUTH=true` and no session: returns `401`
-4. If project access required: calls `requireProjectAccess()` → returns `403` on failure
-5. Calls `buildCollectionScopeFromRequest(session, { projectId, conversationId })` to build the ordered scope
-6. Returns JSON:
+4. If `scope=workspace` and the `workspace-chat` flag is not held: returns `403` (fail-open while `GRID_ENFORCE_FEATURE_FLAGS` is off)
+5. If project access required: calls `requireProjectAccess()` → returns `403` on failure
+6. Calls `buildCollectionScopeFromRequest(session, { projectId, conversationId })` — or `{ scope: 'workspace', conversationId }`, which drops the project entirely — to build the ordered scope
+7. Returns JSON:
    - `scope`: The resolved scope array
    - `header`: Base64url-encoded `X-Grid-Collection-Scope` header value
    - `organizationId`: Session org ID (if authenticated)

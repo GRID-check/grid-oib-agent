@@ -2,6 +2,7 @@
 
 import asyncio
 import dataclasses
+import json
 
 import pytest
 
@@ -60,6 +61,34 @@ class TestBuildUserPrompt:
         assert "(no project memory recorded yet)" in prompt
 
 
+class TestThePromptKnowsWhichShapeOfTurnItRan:
+    """A project turn and an office turn are asked different questions.
+
+    Lifting the `no_project` skip without this would ask, in a conversation that
+    has no project, for "a durable finding about THIS PROJECT" — a question
+    whose only honest answer is the empty list.
+    """
+
+    def test_a_project_turn_is_asked_exactly_what_it_always_was(self):
+        assert R._system_prompt(has_project=True) == R.REFLECTION_SYSTEM_PROMPT
+
+    def test_an_office_turn_is_told_it_is_the_office_and_that_it_proposes(self):
+        prompt = R._system_prompt(has_project=False)
+        assert prompt.startswith(R.REFLECTION_SYSTEM_PROMPT)
+        assert "BELONGS TO THE OFFICE AND TO NO PROJECT" in prompt
+        # It must not read as a writer: the whole arrangement is that a person
+        # decides (ADR-0055, contract C6).
+        assert "Nothing you return is written" in prompt
+        assert str(R.MAX_ORG_PROPOSALS) in prompt
+
+    def test_the_office_user_prompt_does_not_ask_about_a_project_that_is_not_there(self):
+        office = R._build_user_prompt("q", "a", None, has_project=False)
+        assert "## Existing office memory" in office
+        assert "no office memory recorded yet" in office
+        project = R._build_user_prompt("q", "a", None, has_project=True)
+        assert "## Existing project memory" in project
+
+
 class TestSanitizeFindings:
     def test_drops_invalid_kind_and_empty_content(self):
         raw = [
@@ -71,18 +100,34 @@ class TestSanitizeFindings:
         assert len(items) == 1
         assert items[0]["kind"] == "constraint"
         assert items[0]["confidence"] == "medium"  # defaulted
-        assert items[0]["scope"] == "project"  # forced
+        assert items[0]["scope"] == "project"  # the default when none is asked for
 
-    def test_org_scope_is_forced_to_project(self):
-        # The autonomous stage NEVER writes org-wide memory (audit finding S1);
-        # a model-proposed organization scope is coerced to project.
-        raw = [{"kind": "preference", "content": "Client prefers metric drawings.", "scope": "organization"}]
-        items = R._sanitize_findings(raw, has_project=True)
+    def test_an_organisation_finding_may_now_be_proposed(self):
+        """ADR-0055 contract C6, the half this function used to refuse.
+
+        It coerced every finding to `project` because there was no write-time
+        authorization gate and no human review. ADR-0054 added the gate and the
+        proposal card is the review, so the stage may PROPOSE firm-wide — it
+        still cannot write one, because the BFF decides that.
+        """
+        raw = [{"kind": "preference", "content": "Wir zeichnen in ArchiCAD.", "scope": "organization"}]
+        items = R._sanitize_findings(raw, has_project=True, has_organization=True)
+        assert items and items[0]["scope"] == "organization"
+
+    def test_an_organisation_finding_without_an_organisation_falls_back_to_the_project(self):
+        raw = [{"kind": "preference", "content": "Wir zeichnen in ArchiCAD.", "scope": "organization"}]
+        items = R._sanitize_findings(raw, has_project=True, has_organization=False)
         assert items and items[0]["scope"] == "project"
 
-    def test_dropped_when_no_project_in_scope(self):
+    def test_an_unrecognised_scope_is_the_project(self):
+        raw = [{"kind": "preference", "content": "Anything.", "scope": "galaxy"}]
+        items = R._sanitize_findings(raw, has_project=True, has_organization=True)
+        assert items and items[0]["scope"] == "project"
+
+    def test_dropped_when_no_project_and_no_organisation_in_scope(self):
         raw = [{"kind": "decision", "content": "Anything."}]
         assert R._sanitize_findings(raw, has_project=False) == []
+        assert R._sanitize_findings(raw, has_project=False, has_organization=False) == []
 
     def test_drops_content_already_in_digest(self):
         digest = 'PROJECT_MEMORY v1\n- [decision | high | agent] "Client chose a flat roof"'
@@ -291,7 +336,7 @@ class TestRunMemoryReflection:
             '"confidence": "high", "scope": "project"}]}'
         )
 
-        ids = await R.run_memory_reflection(
+        outcome = await R.run_memory_reflection(
             llm=llm,
             query="Should we do a flat or pitched roof?",
             answer="You decided on a flat roof for the top storey.",
@@ -303,7 +348,10 @@ class TestRunMemoryReflection:
 
         # What it wrote, not merely how much: the id, the kind and the words —
         # the post-answer stage puts these on the wire, and the chip renders them.
-        assert ids == [{"id": "id-1", "kind": "decision", "content": "Client chose a flat roof."}]
+        assert outcome.recorded == [{"id": "id-1", "kind": "decision", "content": "Client chose a flat roof."}]
+        # A project finding is written, never proposed. The two halves of the
+        # outcome are the difference between a row and an offer.
+        assert outcome.proposed == []
         assert recorded[0]["scope"] == "project"
         assert recorded[0]["project_id"] == "proj-1"
         assert recorded[0]["kind"] == "decision"
@@ -331,7 +379,7 @@ class TestRunMemoryReflection:
             '"supersedes": "OIB-RL 2.1 ist nicht anwendbar"}]}'
         )
 
-        ids = await R.run_memory_reflection(
+        outcome = await R.run_memory_reflection(
             llm=llm,
             query="Doch, es ist eine Betriebsanlage.",
             answer="Dann ist OIB-RL 2.1 sehr wohl anwendbar.",
@@ -341,7 +389,7 @@ class TestRunMemoryReflection:
             memory_digest=digest,
         )
 
-        assert [item["id"] for item in ids] == ["id-1"]
+        assert [item["id"] for item in outcome.recorded] == ["id-1"]
         assert recorded[0]["supersedes_content"] == "OIB-RL 2.1 ist nicht anwendbar"
 
     @pytest.mark.asyncio
@@ -389,7 +437,7 @@ class TestRunMemoryReflection:
     async def test_empty_findings_records_nothing(self, monkeypatch):
         monkeypatch.setattr(R, "insert_memory_item", lambda **k: pytest.fail("should not insert on empty findings"))
         llm = _FakeLLM('{"findings": []}')
-        ids = await R.run_memory_reflection(
+        outcome = await R.run_memory_reflection(
             llm=llm,
             query="hi",
             answer="hello",
@@ -398,13 +446,14 @@ class TestRunMemoryReflection:
             conversation_id="c",
             memory_digest=None,
         )
-        assert ids == []
+        assert not outcome
+        assert (outcome.recorded, outcome.proposed) == ([], [])
 
     @pytest.mark.asyncio
     async def test_unparseable_llm_output_is_safe(self, monkeypatch):
         monkeypatch.setattr(R, "insert_memory_item", lambda **k: pytest.fail("should not insert"))
         llm = _FakeLLM("I could not find anything to record, sorry!")
-        ids = await R.run_memory_reflection(
+        outcome = await R.run_memory_reflection(
             llm=llm,
             query="q",
             answer="a",
@@ -413,7 +462,7 @@ class TestRunMemoryReflection:
             conversation_id="c",
             memory_digest=None,
         )
-        assert ids == []
+        assert not outcome
 
     @pytest.mark.asyncio
     async def test_insert_failure_is_swallowed(self, monkeypatch):
@@ -422,7 +471,7 @@ class TestRunMemoryReflection:
 
         monkeypatch.setattr(R, "insert_memory_item", boom)
         llm = _FakeLLM('{"findings": [{"kind": "constraint", "content": "Budget capped at 2M."}]}')
-        ids = await R.run_memory_reflection(
+        outcome = await R.run_memory_reflection(
             llm=llm,
             query="q",
             answer="a",
@@ -431,7 +480,267 @@ class TestRunMemoryReflection:
             conversation_id="c",
             memory_digest=None,
         )
-        assert ids == []  # error swallowed, nothing recorded
+        assert not outcome  # error swallowed, nothing recorded and nothing proposed
+
+
+class TestOrganisationFindingsArriveAsProposals:
+    """ADR-0055 contract C6: the office finally has a realistic writer.
+
+    The stage still writes only project-scoped findings. An organisation finding
+    takes the same write path and is expected to be REFUSED — the BFF authorizes
+    it as the acting user's `org:memory:write` — and that refusal is what turns
+    it into an offer a person accepts from their own session.
+    """
+
+    @pytest.mark.asyncio
+    async def test_an_organisation_finding_is_authorized_as_the_acting_person(self, monkeypatch):
+        recorded = []
+
+        def fake_insert(**kwargs):
+            recorded.append(kwargs)
+            return "id-1"
+
+        monkeypatch.setattr(R, "insert_memory_item", fake_insert)
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "preference", "content": "Wir zeichnen in ArchiCAD.", '
+            '"confidence": "high", "scope": "organization", "supersedes": ""}]}'
+        )
+        await R.run_memory_reflection(
+            llm=llm,
+            query="Womit zeichnen wir?",
+            answer="In ArchiCAD.",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest="(none)",
+            user_id="user-1",
+            organization_membership_id="om-1",
+        )
+        assert recorded[0]["scope"] == "organization"
+        assert recorded[0]["project_id"] is None
+        # WHO it is proposed for. Without it the route has nobody to authorize
+        # the write as, and the finding could only ever be refused.
+        assert recorded[0]["user_id"] == "user-1"
+        assert recorded[0]["organization_membership_id"] == "om-1"
+
+    @pytest.mark.asyncio
+    async def test_a_refused_organisation_write_becomes_a_proposal_card(self, monkeypatch):
+        """The refusal IS the mechanism — a card the reader can accept."""
+        monkeypatch.setattr(
+            R, "insert_memory_item", lambda **kwargs: (_ for _ in ()).throw(R.OrgMemoryDisabledError("no"))
+        )
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "preference", "content": "Wir zeichnen in ArchiCAD.", '
+            '"confidence": "high", "scope": "organization", "supersedes": ""}]}'
+        )
+        outcome = await R.run_memory_reflection(
+            llm=llm,
+            query="Womit zeichnen wir?",
+            answer="In ArchiCAD.",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest="(none)",
+        )
+        # Nothing was written, and the outcome says so by SHAPE: a proposal
+        # travels in its own field, so nothing downstream can render it as a row.
+        assert outcome.recorded == []
+        # And what it hands the stage is the same `memory_proposal` CARD the
+        # in-turn `remember` tool emits, so the client renders it with the
+        # renderer it already has rather than a second shape meaning the same.
+        assert outcome.proposed == [
+            {
+                "type": "memory_proposal",
+                "title": "Neue Erkenntnis merken",
+                "content": "Wir zeichnen in ArchiCAD.",
+                "kind": "preference",
+                "confidence": "high",
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_the_number_of_firm_wide_decisions_one_turn_may_ask_for_is_capped(self, monkeypatch):
+        """A proposal asks for a decision whose blast radius is the whole tenant.
+        Five stacked under one answer is a form, and a form gets dismissed."""
+        monkeypatch.setattr(
+            R, "insert_memory_item", lambda **kwargs: (_ for _ in ()).throw(R.OrgMemoryDisabledError("no"))
+        )
+        findings = ", ".join(
+            json.dumps(
+                {
+                    "kind": "preference",
+                    "content": f"Regel {n} des Büros.",
+                    "confidence": "high",
+                    "scope": "organization",
+                    "supersedes": "",
+                }
+            )
+            for n in range(5)
+        )
+        outcome = await R.run_memory_reflection(
+            llm=_FakeLLM(f'{{"findings": [{findings}]}}'),
+            query="q",
+            answer="a",
+            project_id=None,
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest="(none)",
+        )
+        assert len(outcome.proposed) == R.MAX_ORG_PROPOSALS
+
+    @pytest.mark.asyncio
+    @pytest.mark.asyncio
+    async def test_a_project_finding_is_still_written_directly(self, monkeypatch):
+        """The half that did not change. A project write is addressed by its
+        project row and carries no acting user, because the route does not
+        authorize it by one."""
+        recorded = []
+        monkeypatch.setattr(R, "insert_memory_item", lambda **kw: (recorded.append(kw), "id-1")[1])
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "decision", "content": "Flachdach gewählt.", '
+            '"confidence": "high", "scope": "project", "supersedes": ""}]}'
+        )
+        outcome = await R.run_memory_reflection(
+            llm=llm,
+            query="q",
+            answer="a",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest="(none)",
+        )
+        assert outcome.recorded == [{"id": "id-1", "kind": "decision", "content": "Flachdach gewählt."}]
+        assert outcome.proposed == []
+        assert recorded[0]["scope"] == "project"
+        assert recorded[0]["project_id"] == "proj-1"
+
+
+class TestACorrectionIsCarriedToTheReader:
+    """ADR-0055 C5. A supersession was the quietest event in the system: the
+    replaced note vanished from the panel and the transcript said nothing. The
+    pass now carries what it retired on the row that retired it, so the turn
+    that made the correction is the turn that states it."""
+
+    @staticmethod
+    def _insert_that_retires(retired_id, retired_content):
+        """A write path that reports a retirement, the way the BFF route does."""
+
+        def insert(**kwargs):
+            on_superseded = kwargs.get("on_superseded")
+            if on_superseded is not None:
+                on_superseded(retired_id, retired_content)
+            return "id-new"
+
+        return insert
+
+    @pytest.mark.asyncio
+    async def test_a_recorded_correction_names_the_note_it_retired(self, monkeypatch):
+        monkeypatch.setattr(
+            R,
+            "insert_memory_item",
+            self._insert_that_retires("id-old", "OIB-RL 2.1 ist nicht anwendbar"),
+        )
+        digest = '- [derived_fact | medium | unverified] "OIB-RL 2.1 ist nicht anwendbar"'
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "derived_fact", "content": "OIB-RL 2.1 ist anwendbar, '
+            'es handelt sich um eine Betriebsanlage.", "confidence": "high", '
+            '"supersedes": "OIB-RL 2.1 ist nicht anwendbar"}]}'
+        )
+
+        outcome = await R.run_memory_reflection(
+            llm=llm,
+            query="Doch, es ist eine Betriebsanlage.",
+            answer="Dann ist OIB-RL 2.1 sehr wohl anwendbar.",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest=digest,
+        )
+
+        assert outcome.recorded[0]["supersedes"] == {
+            "id": "id-old",
+            "content": "OIB-RL 2.1 ist nicht anwendbar",
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_retirement_is_the_writes_word_and_not_the_models_quote(self, monkeypatch):
+        """The model quotes what it MEANT to replace; the write path reports what
+        it DID replace. The two differ — the quote is resolved fuzzily, and a
+        polarity supersession retires a note nobody quoted — and only the second
+        may be stated as a fact."""
+        monkeypatch.setattr(R, "insert_memory_item", lambda **k: "id-new")
+        digest = '- [derived_fact | medium | unverified] "OIB-RL 2.1 ist nicht anwendbar"'
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "derived_fact", "content": "OIB-RL 2.1 ist anwendbar.", '
+            '"confidence": "high", "supersedes": "OIB-RL 2.1 ist nicht anwendbar"}]}'
+        )
+
+        outcome = await R.run_memory_reflection(
+            llm=llm,
+            query="q",
+            answer="a",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest=digest,
+        )
+
+        # The quote WAS sent (the write is what resolves it), and nothing was
+        # retired, so the row states no correction.
+        assert "supersedes" not in outcome.recorded[0]
+
+    @pytest.mark.asyncio
+    async def test_one_correction_does_not_bleed_onto_the_next_finding(self, monkeypatch):
+        """Two findings, one correction. The sink is per write, so the second
+        row must not inherit the first row's retired note."""
+        calls = {"n": 0}
+
+        def insert(**kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                kwargs["on_superseded"]("id-old", "Das Dach ist ein Satteldach.")
+            return f"id-{calls['n']}"
+
+        monkeypatch.setattr(R, "insert_memory_item", insert)
+        llm = _FakeLLM(
+            '{"findings": ['
+            '{"kind": "decision", "content": "Das Dach wird ein Flachdach.", "confidence": "high", "supersedes": ""},'
+            '{"kind": "constraint", "content": "Die Attika bleibt unter 1,10 m.", '
+            '"confidence": "high", "supersedes": ""}]}'
+        )
+
+        outcome = await R.run_memory_reflection(
+            llm=llm,
+            query="q",
+            answer="a",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest="(none)",
+        )
+
+        assert outcome.recorded[0]["supersedes"]["id"] == "id-old"
+        assert "supersedes" not in outcome.recorded[1]
+
+    @pytest.mark.asyncio
+    async def test_the_retired_words_are_capped_like_every_other_string_here(self, monkeypatch):
+        monkeypatch.setattr(R, "insert_memory_item", self._insert_that_retires("id-old", "ä" * 900))
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "decision", "content": "Flachdach gewählt.", '
+            '"confidence": "high", "supersedes": ""}]}'
+        )
+
+        outcome = await R.run_memory_reflection(
+            llm=llm,
+            query="q",
+            answer="a",
+            project_id="proj-1",
+            organization_id="org-1",
+            conversation_id="conv-1",
+            memory_digest="(none)",
+        )
+
+        assert len(outcome.recorded[0]["supersedes"]["content"]) == R._MAX_CONTENT_CHARS
 
 
 class TestMemoryReflectionAsAStage:
@@ -477,18 +786,40 @@ class TestMemoryReflectionAsAStage:
         assert outcomes["memory_reflection"].reason == "no_llm"
 
     @pytest.mark.asyncio
-    async def test_no_scope_is_noop(self):
-        outcomes = await self._run(self._facts(project_id=None), _FakeLLM("{}"))
+    async def test_an_anonymous_turn_is_a_noop(self):
+        """Neither a project nor an office: nothing to write to and nobody to
+        propose to. The one shape with no target at all."""
+        outcomes = await self._run(self._facts(project_id=None, organization_id=None), _FakeLLM("{}"))
         assert outcomes["memory_reflection"].status == "skipped"
-        assert outcomes["memory_reflection"].reason == "no_project"
+        assert outcomes["memory_reflection"].reason == "no_target"
 
     @pytest.mark.asyncio
-    async def test_org_only_is_noop(self):
-        # No project in scope -> the project-only autonomous stage has nothing to
-        # write, even when an organization is known (audit finding S1).
-        outcomes = await self._run(self._facts(project_id=None, organization_id="org-1"), _FakeLLM("{}"))
-        assert outcomes["memory_reflection"].status == "skipped"
-        assert outcomes["memory_reflection"].reason == "no_project"
+    async def test_an_office_turn_now_runs_and_proposes(self, monkeypatch):
+        """The gate used to skip every project-less turn, because the stage could
+        only WRITE project memory (audit S1). ADR-0054's gate and ADR-0055's
+        proposal card answered that: an office turn writes nothing and offers a
+        firm-wide finding for a person to accept.
+        """
+        monkeypatch.setattr(R, "insert_memory_item", lambda **k: (_ for _ in ()).throw(R.OrgMemoryDisabledError("no")))
+        llm = _FakeLLM(
+            '{"findings": [{"kind": "preference", "content": "Wir zeichnen in ArchiCAD.", '
+            '"confidence": "high", "supersedes": "", "scope": "organization"}]}'
+        )
+        outcomes = await self._run(self._facts(project_id=None, organization_id="org-1"), llm)
+        outcome = outcomes["memory_reflection"]
+        assert outcome.status == "ready"
+        # Nothing written, and the payload says so by shape: an empty `items`
+        # beside a proposal, never a proposal dressed as a row.
+        assert outcome.payload["items"] == []
+        assert outcome.payload["proposals"] == [
+            {
+                "type": "memory_proposal",
+                "title": "Neue Erkenntnis merken",
+                "content": "Wir zeichnen in ArchiCAD.",
+                "kind": "preference",
+                "confidence": "high",
+            }
+        ]
 
     @pytest.mark.asyncio
     async def test_failing_pass_never_raises(self, monkeypatch):

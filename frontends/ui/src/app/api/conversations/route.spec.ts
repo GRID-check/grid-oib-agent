@@ -19,6 +19,10 @@ vi.mock('@/lib/auth/require-auth', () => ({
   requireAuthorizedSession: vi.fn().mockResolvedValue({
     userId: 'user_1',
     organizationId: 'org_1',
+    // A Member with no explicit claims: `org:chat` reaches this session through
+    // the bounded catalog implication in `hasPermission`, which is what a
+    // tenant whose WorkOS provisioning has not been replayed actually looks
+    // like. If the implication broke, the Büro would 403 here.
     role: 'member',
     permissions: [],
   }),
@@ -31,15 +35,25 @@ vi.mock('@/lib/authz/projects', () => ({
 }))
 
 const captured = vi.hoisted(() => [] as Array<{ sql: string; params: unknown[] }>)
+/**
+ * What the fake driver answers an INSERT ... RETURNING with: one row of column
+ * values in `conversations` declaration order, exactly as postgres hands them
+ * over. Reads keep answering with nothing, which is all the list tests need.
+ *
+ * It has to be a real row rather than `[]`: `createConversation` treats an
+ * empty `returning()` as an id conflict and goes off to resolve the existing
+ * thread, so a create test would end up asserting the CONFLICT path.
+ */
+const insertedRow = vi.hoisted(() => ({ current: [] as unknown[] }))
 vi.mock('@/lib/db', () => {
   const db = drizzle(async (sql, params) => {
     captured.push({ sql, params })
-    return { rows: [] }
+    return { rows: sql.startsWith('insert into "conversations"') ? [insertedRow.current] : [] }
   })
   return { getDb: () => db }
 })
 
-import { GET } from './route'
+import { GET, POST } from './route'
 
 const PROJECT_ID = '3f2504e0-4f89-11d3-9a0c-0305e82c3301'
 
@@ -119,5 +133,110 @@ describe('GET /api/conversations', () => {
     expect(res.status).toBe(400)
     expect(requireProjectAccessMock).not.toHaveBeenCalled()
     expect(captured).toHaveLength(0)
+  })
+
+  it('narrows to the Büro when asked, in SQL, without touching a project', async () => {
+    const res = await GET(new Request('https://grid.example/api/conversations?scope=workspace'))
+
+    expect(res.status).toBe(200)
+    expect(requireProjectAccessMock).not.toHaveBeenCalled()
+
+    const { sql, params } = onlyQuery()
+    expect(sql).toContain('"conversations"."organization_id" = $1')
+    expect(sql).toContain('"conversations"."scope" = ')
+    expect(params).toContain('workspace')
+  })
+
+  it('rejects a level nobody can render with 400', async () => {
+    const res = await GET(new Request('https://grid.example/api/conversations?scope=buero'))
+
+    expect(res.status).toBe(400)
+    expect(captured).toHaveLength(0)
+  })
+})
+
+/**
+ * The create half. `scope='workspace'` with a `projectId` is the request the
+ * database would refuse with migration 0081's CHECK — a 500 the caller could do
+ * nothing with. The `superRefine` turns it into a 400 that says what is wrong,
+ * which is the whole reason for stating an invariant twice.
+ */
+describe('POST /api/conversations', () => {
+  beforeEach(() => {
+    captured.length = 0
+    insertedRow.current = []
+    requireProjectAccessMock.mockReset()
+    requireProjectAccessMock.mockResolvedValue({ role: 'project-editor' })
+  })
+
+  /** One `conversations` row, column values in declaration order. */
+  function row(overrides: { projectId?: string | null; scope?: string } = {}): unknown[] {
+    return [
+      's_1',
+      'org_1',
+      'user_1',
+      null,
+      'private',
+      null,
+      '{}',
+      overrides.projectId ?? null,
+      overrides.scope ?? 'workspace',
+      null,
+      null,
+      null,
+      null,
+      '2026-09-08T10:00:00.000Z',
+      '2026-09-08T10:00:00.000Z',
+    ]
+  }
+
+  function post(body: unknown): Promise<Response> {
+    return POST(
+      new Request('https://grid.example/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    )
+  }
+
+  it('400s a workspace conversation that also names a project', async () => {
+    const res = await post({ id: 's_1', scope: 'workspace', projectId: PROJECT_ID })
+
+    expect(res.status).toBe(400)
+    // Refused at the edge: nothing reached the database to be refused there.
+    expect(captured).toHaveLength(0)
+  })
+
+  it('400s an unknown level rather than storing it', async () => {
+    const res = await post({ id: 's_1', scope: 'buero' })
+
+    expect(res.status).toBe(400)
+    expect(captured).toHaveLength(0)
+  })
+
+  it('creates a workspace conversation with the level stamped on the row', async () => {
+    insertedRow.current = row({ scope: 'workspace' })
+
+    const res = await post({ id: 's_1', scope: 'workspace' })
+
+    expect(res.status).toBe(201)
+    expect(requireProjectAccessMock).not.toHaveBeenCalled()
+    const { sql, params } = onlyQuery()
+    expect(sql).toContain('insert into "conversations"')
+    expect(params).toContain('workspace')
+    expect(params).not.toContain(PROJECT_ID)
+  })
+
+  it('leaves a project conversation on the path it was already on', async () => {
+    insertedRow.current = row({ projectId: PROJECT_ID, scope: 'project' })
+
+    const res = await post({ id: 's_1', projectId: PROJECT_ID })
+
+    expect(res.status).toBe(201)
+    expect(requireProjectAccessMock).toHaveBeenCalled()
+    const { params } = onlyQuery()
+    expect(params).toContain(PROJECT_ID)
+    expect(params).toContain('project')
   })
 })

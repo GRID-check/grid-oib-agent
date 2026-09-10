@@ -257,6 +257,26 @@ export const NATGenerateResponseContentSchema = z.object({
  */
 export const ANSWER_CONFIDENCE_REASON_MAX_CHARS = 300
 
+/**
+ * What one turn READ out of memory (ADR-0055, contract C3).
+ *
+ * `carried` is exactly the notes the injected digest was built from — not a
+ * second query — so the omission count the model was given is the omission
+ * count the reader is given. `searched` counts what `search_memory` returned
+ * this turn and is `0` when the tool was never called.
+ *
+ * Named and exported because three layers read it: the wire schema below, the
+ * store that keeps it on the message, and the marker that renders it.
+ */
+export const MemoryContextSchema = z.object({
+  carried: z.array(z.object({ id: z.string(), kind: z.string(), content: z.string() })),
+  omitted: z.number(),
+  total: z.number(),
+  searched: z.number(),
+})
+
+export type MemoryContext = z.infer<typeof MemoryContextSchema>
+
 /** System Response Message - final or streaming response */
 export const NATSystemResponseMessageSchema = z.object({
   type: z.literal(NATMessageType.SYSTEM_RESPONSE),
@@ -402,6 +422,17 @@ export const NATSystemResponseMessageSchema = z.object({
   job_admission_rejected: z.literal(true).optional().catch(undefined),
   // Retry hint (seconds) — only alongside job_admission_rejected.
   retry_after_seconds: z.number().optional().catch(undefined),
+  // What the turn READ out of memory — never what it used (ADR-0055). The
+  // digest is injected on every turn and `search_memory` may add to it; this
+  // is the same selection the digest text was built from, so the number the
+  // model was told about ("N further notes omitted") is the number the reader
+  // is told too. Absent when the turn had no memory at all.
+  //
+  // `.catch(undefined)` like every other extra: a malformed memory context
+  // degrades to "no marker", never to a lost answer. The nested `carried`
+  // entries are NOT per-entry tolerant, because a half-parsed list of notes is
+  // a marker that undercounts silently — worse than no marker at all.
+  memory_context: MemoryContextSchema.optional().catch(undefined),
   // The answer's structured anatomy (verdict / takeaways / callout), already
   // validated and GATED backend-side (`common/answer_envelope.py`) and
   // sanitized again by `sanitizeAnswerMeta` before it is stored or rendered —
