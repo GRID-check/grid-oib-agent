@@ -39,11 +39,36 @@
       "summary": null,
       "sections": [
         {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "In Platform settings, the model group that used to be called \"Shallow research\" is now called \"Research\". It is the same group and the same agent — the one that answers every chat message and decides for itself when a question needs deep research — so any model you have pinned to it stays pinned. Only the name on the page changed.",
+              "de": "In Platform settings, the model group that used to be called \"Shallow research\" is now called \"Research\". It is the same group and the same agent — the one that answers every chat message and decides for itself when a question needs deep research — so any model you have pinned to it stays pinned. Only the name on the page changed."
+            },
+            {
+              "en": "When Piloti proposes a research plan and you answer in your own words, that answer is now used to revise the plan. Until now anything that read like an objection dropped the plan and returned a quick answer instead, so what you asked for was lost. A plain no still skips the plan and answers directly.",
+              "de": "When Piloti proposes a research plan and you answer in your own words, that answer is now used to revise the plan. Until now anything that read like an objection dropped the plan and returned a quick answer instead, so what you asked for was lost. A plain no still skips the plan and answers directly."
+            }
+          ]
+        },
+        {
           "key": "fixes",
           "notes": [
             {
               "en": "Belege unter einer Antwort erscheinen nicht mehr doppelt. Nannte die Antwort eine Richtlinie im Text anders als in ihrer Quellenliste, legte das dieselbe Quelle zweimal an — einmal mit Vorschau, einmal nur mit Kopieren. Beide Schreibweisen gehören jetzt zu einem Beleg.",
               "de": "Belege unter einer Antwort erscheinen nicht mehr doppelt. Nannte die Antwort eine Richtlinie im Text anders als in ihrer Quellenliste, legte das dieselbe Quelle zweimal an — einmal mit Vorschau, einmal nur mit Kopieren. Beide Schreibweisen gehören jetzt zu einem Beleg."
+            },
+            {
+              "en": "The compliance check now looks for evidence only in your own documents, and derives the requirements only from the Richtlinien. It used to search both in one place, so a requirement could count as documented on the strength of the Richtlinie text that states it. Documents on the office archive shelf still count as evidence.",
+              "de": "The compliance check now looks for evidence only in your own documents, and derives the requirements only from the Richtlinien. It used to search both in one place, so a requirement could count as documented on the strength of the Richtlinie text that states it. Documents on the office archive shelf still count as evidence."
+            },
+            {
+              "en": "Piloti sometimes ended a conversation without noting anything it had learned about the project. Its limit on how much it may note down was counted before duplicates and entries holding personal data were discarded, so a few discarded entries could use up the whole allowance. The limit now counts only what is actually kept.",
+              "de": "Piloti sometimes ended a conversation without noting anything it had learned about the project. Its limit on how much it may note down was counted before duplicates and entries holding personal data were discarded, so a few discarded entries could use up the whole allowance. The limit now counts only what is actually kept."
+            },
+            {
+              "en": "Notes taken automatically after an answer now record how important they are, so the ones that matter appear first in the project memory. Until now they were all filed as equally important.",
+              "de": "Notes taken automatically after an answer now record how important they are, so the ones that matter appear first in the project memory. Until now they were all filed as equally important."
             }
           ]
         },
@@ -53,6 +78,19 @@
             {
               "en": "Document search now runs on a new embedding model. Search indexes built before this change no longer match it and must be rebuilt: delete the search index volume, then re-ingest the base corpus and all project collections. Deployments that pin the embedding model explicitly are not affected.",
               "de": "Document search now runs on a new embedding model. Search indexes built before this change no longer match it and must be rebuilt: delete the search index volume, then re-ingest the base corpus and all project collections. Deployments that pin the embedding model explicitly are not affected."
+            },
+            {
+              "en": "Before deploying to a brand-new volume, make sure the OIB documents are available to the platform. Until they are loaded, Piloti will answer questions about your own project documents but will find nothing in the building regulations.",
+              "de": "Before deploying to a brand-new volume, make sure the OIB documents are available to the platform. Until they are loaded, Piloti will answer questions about your own project documents but will find nothing in the building regulations."
+            }
+          ]
+        },
+        {
+          "key": "other",
+          "notes": [
+            {
+              "en": "The OIB Richtlinien are no longer shipped with the software. A new installation starts with an empty knowledge base, and whoever operates the platform loads the documents once, either through the administration area or by placing them on the server before first start. Existing installations keep the documents they have already indexed and need to do nothing.",
+              "de": "The OIB Richtlinien are no longer shipped with the software. A new installation starts with an empty knowledge base, and whoever operates the platform loads the documents once, either through the administration area or by placing them on the server before first start. Existing installations keep the documents they have already indexed and need to do nothing."
             }
           ]
         }
