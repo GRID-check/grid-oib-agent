@@ -1,0 +1,72 @@
+[
+  {
+    "id": "status:retrieval:0",
+    "category": "agents",
+    "functionName": "status:retrieval:0",
+    "displayName": "status:retrieval:0",
+    "content": "{\"kind\": \"status\", \"channel\": \"live\", \"slot\": \"retrieval:0\", \"key\": \"status.retrieval.withQuery\", \"values\": {\"corpus\": \"knowledge\", \"query\": \"Fluchtweglänge GK4\"}, \"tools\": [\"knowledge_search\"], \"reason\": \"Ich brauche zuerst die Grundregel für Fluchtweglängen.\"}",
+    "isComplete": true
+  },
+  {
+    "id": "status:checkpoint:0",
+    "category": "agents",
+    "functionName": "status:checkpoint:0",
+    "displayName": "status:checkpoint:0",
+    "content": "{\"kind\": \"status\", \"channel\": \"technical\", \"slot\": \"checkpoint:0\", \"round\": 0, \"hasConclusion\": true}",
+    "isComplete": true
+  },
+  {
+    "id": "knowledge_search",
+    "category": "tools",
+    "functionName": "knowledge_search",
+    "displayName": "knowledge_search",
+    "content": "",
+    "isComplete": true,
+    "traceLanes": [
+      {
+        "key": "baurecht_oib",
+        "label": "OIB-Richtlinie",
+        "kind": "baurecht",
+        "hitCount": 1,
+        "sources": [
+          {
+            "name": "OIB-RL_2.pdf",
+            "title": "OIB-Richtlinie 2",
+            "detail": "p.12",
+            "round": 0
+          }
+        ]
+      },
+      {
+        "key": "projekt",
+        "label": "Projektwissen",
+        "kind": "projekt",
+        "hitCount": 1,
+        "sources": [
+          {
+            "name": "Brandschutzkonzept.pdf",
+            "detail": "p.4",
+            "shelf": "project",
+            "round": 1
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "status:retrieval:1",
+    "category": "agents",
+    "functionName": "status:retrieval:1",
+    "displayName": "status:retrieval:1",
+    "content": "{\"kind\": \"status\", \"channel\": \"live\", \"slot\": \"retrieval:1\", \"key\": \"status.retrieval.withQuery\", \"values\": {\"corpus\": \"knowledge\", \"query\": \"Treppenraum Entrauchung\"}, \"tools\": [\"knowledge_search\"], \"reason\": \"Die Grundregel steht; offen ist der Treppenraum.\"}",
+    "isComplete": true
+  },
+  {
+    "id": "status:checkpoint:1",
+    "category": "agents",
+    "functionName": "status:checkpoint:1",
+    "displayName": "status:checkpoint:1",
+    "content": "{\"kind\": \"status\", \"channel\": \"technical\", \"slot\": \"checkpoint:1\", \"round\": 1, \"hasConclusion\": true}",
+    "isComplete": true
+  }
+]

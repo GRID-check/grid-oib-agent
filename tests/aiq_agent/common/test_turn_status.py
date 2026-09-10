@@ -61,7 +61,32 @@ def steps(context_state):
 
 
 def _live(steps) -> list[dict]:
-    return [payload for _name, event_type, payload in steps if event_type.endswith("START")]
+    """The payloads addressed to the READER: live channel only.
+
+    It used to be every START payload, which was the same list until a live
+    emitter grew a technical sibling (``emit_retrieval`` → ``emit_checkpoint``).
+    The language rules below are about what a reader can see, so a technical
+    record — no ``key``, no ``values``, counted and never rendered — is not
+    theirs to judge.
+    """
+    return [
+        payload
+        for _name, event_type, payload in steps
+        if event_type.endswith("START") and payload.get("channel") == turn_status.CHANNEL_LIVE
+    ]
+
+
+def _technical(steps) -> list[dict]:
+    return [
+        payload
+        for _name, event_type, payload in steps
+        if event_type.endswith("START") and payload.get("channel") == turn_status.CHANNEL_TECHNICAL
+    ]
+
+
+def _started(steps, prefix: str) -> list[str]:
+    """Step NAMES that started, narrowed to one ``status:`` family."""
+    return [name for name, event_type, _ in steps if event_type.endswith("START") and name.startswith(prefix)]
 
 
 class TestSpanHygiene:
@@ -160,8 +185,7 @@ class TestRetrieval:
     def test_successive_rounds_do_not_collapse_into_one_step(self, steps) -> None:
         turn_status.emit_retrieval([{"name": "ris_search_tool", "args": {"query": "a"}}], round_index=0)
         turn_status.emit_retrieval([{"name": "ris_search_tool", "args": {"query": "b"}}], round_index=1)
-        names = {name for name, event_type, _ in steps if event_type.endswith("START")}
-        assert names == {"status:retrieval:0", "status:retrieval:1"}
+        assert _started(steps, "status:retrieval") == ["status:retrieval:0", "status:retrieval:1"]
 
     def test_loading_a_skill_is_not_a_retrieval(self, steps) -> None:
         """The skills substrate narrates that itself, with the skill's human title."""
@@ -184,8 +208,14 @@ class TestRetrieval:
             )
             is True
         )
-        names = [name for name, event_type, _ in steps if event_type.endswith("START")]
-        assert names == ["status:action:remember", "status:retrieval:0"]
+        assert _started(steps, "status:action") + _started(steps, "status:retrieval") == [
+            "status:action:remember",
+            "status:retrieval:0",
+        ]
+        # The agent-node set. Harmless and kept, but NOT what stamps a hit: the
+        # tools node runs in its own copied context and sets its own — see
+        # ``turn_status.retrieval_round_scope`` and
+        # ``tests/aiq_agent/agents/researcher/test_retrieval_rounds_spine.py``.
         assert turn_status.current_retrieval_round() == 0
 
     def test_a_conclusion_travels_as_reason_not_as_a_value(self, steps) -> None:
@@ -220,6 +250,71 @@ class TestRetrieval:
         """
         turn_status.emit_retrieval([{"name": "sql_probe_v2", "args": {"q": "x"}}], round_index=0)
         assert steps == []
+
+
+class TestCheckpointIsCountable:
+    """The Herleitung layer is drawn per round; its BODY only sometimes exists.
+
+    The body is the model's own Thought, and tool-calling models often write
+    none. Whether the spine reads as reasoning or as a list of empty headers is
+    therefore a RATE, and before this event nothing could measure it: the
+    conclusion travels as ``reason`` on a live event, so counting its absence
+    meant reading the reader's text out of traces.
+    """
+
+    def test_a_search_round_records_that_its_checkpoint_has_a_body(self, steps) -> None:
+        turn_status.emit_retrieval(
+            [{"name": "knowledge_search_tool", "args": {"query": "Fluchtweg"}}],
+            round_index=0,
+            conclusion="Die Grundregel steht.",
+        )
+        (record,) = _technical(steps)
+        assert record["round"] == 0
+        assert record["hasConclusion"] is True
+        assert _started(steps, "status:checkpoint") == ["status:checkpoint:0"]
+
+    def test_a_round_the_model_wrote_no_thought_for_records_the_absence(self, steps) -> None:
+        turn_status.emit_retrieval([{"name": "knowledge_search_tool", "args": {"query": "q"}}], round_index=1)
+        turn_status.emit_retrieval(
+            [{"name": "knowledge_search_tool", "args": {"query": "q"}}],
+            round_index=2,
+            conclusion="   ",
+        )
+        assert [(r["round"], r["hasConclusion"]) for r in _technical(steps)] == [(1, False), (2, False)]
+
+    def test_it_counts_nothing_the_reader_wrote(self, steps) -> None:
+        """A boolean and an index. Never the sentence, in any language."""
+        turn_status.emit_retrieval(
+            [{"name": "knowledge_search_tool", "args": {"query": "Fluchtweglänge GK4"}}],
+            round_index=0,
+            conclusion="Fluchtweglänge hängt an Nutzung und Geschoss.",
+        )
+        (record,) = _technical(steps)
+        assert set(record) == {"kind", "channel", "slot", "round", "hasConclusion"}
+        assert record["channel"] == turn_status.CHANNEL_TECHNICAL
+        assert "Fluchtweg" not in json.dumps(record, ensure_ascii=False)
+
+    def test_an_action_round_draws_no_checkpoint(self, steps) -> None:
+        """``remember`` / ``emit_card`` are not layers of the spine."""
+        turn_status.emit_retrieval([{"name": "remember", "args": {"text": "x"}}], round_index=0)
+        assert _technical(steps) == []
+
+    def test_successive_rounds_each_leave_their_own_record(self, steps) -> None:
+        """One step name per round, like ``status:retrieval:N`` and for the same
+        reason: two steps sharing a name collapse into one under the frontend's
+        dedupe, and a three-round spine reporting one checkpoint is not a rate."""
+        for index in (0, 1, 2):
+            turn_status.emit_retrieval(
+                [{"name": "knowledge_search_tool", "args": {"query": "q"}}],
+                round_index=index,
+                conclusion="etwas" if index == 1 else None,
+            )
+        assert _started(steps, "status:checkpoint") == [
+            "status:checkpoint:0",
+            "status:checkpoint:1",
+            "status:checkpoint:2",
+        ]
+        assert [r["hasConclusion"] for r in _technical(steps)] == [False, True, False]
 
 
 class TestEscalation:

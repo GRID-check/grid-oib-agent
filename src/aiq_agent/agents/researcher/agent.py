@@ -52,6 +52,8 @@ from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.turn_status import emit_research_truncated
 from aiq_agent.common.turn_status import emit_retrieval
+from aiq_agent.common.turn_status import is_retrieval_round
+from aiq_agent.common.turn_status import retrieval_round_scope
 from aiq_agent.tools.bim.measurement_sources import begin_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import end_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import get_measurement_captures
@@ -248,6 +250,32 @@ def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -
     )
     retrieval_round = state.retrieval_round + (1 if searched else 0)
     return research, interaction, retrieval_round
+
+
+def _executing_retrieval_round(state: ResearchAgentState) -> int | None:
+    """The round the tools node is about to execute, or ``None`` for no round.
+
+    Off by one on purpose, and the reason is worth spelling out. The agent node
+    announces round N with ``state.retrieval_round`` and only THEN advances the
+    counter, so by the time the tools node runs the state already holds N+1 and
+    the calls it is holding belong to N — i.e. ``state.retrieval_round - 1``,
+    but only when that last agent turn was a fetch. An action-only round
+    (``remember`` / ``emit_card``) never advanced the counter and is not a layer
+    of the spine: its results belong to no round, so the stamp is ``None``
+    rather than the previous fetch's number, which would file a card write
+    under the search before it.
+
+    Both halves therefore read the SAME predicate off the SAME calls
+    (:func:`is_retrieval_round`) as the announcement did.
+    """
+    last = state.messages[-1] if state.messages else None
+    calls = [call for call in (getattr(last, "tool_calls", None) or []) if isinstance(call, dict)]
+    if not is_retrieval_round(calls):
+        return None
+    # max(): the graph always runs agent→tools, so 0 here means the announcement
+    # itself did not happen (a test driving the tools node directly). Round 0 is
+    # the honest reading of "the first fetch of this run" — never a negative.
+    return max(state.retrieval_round - 1, 0)
 
 
 def _assistant_checkpoint(response: Any) -> str | None:
@@ -656,9 +684,13 @@ class ResearcherAgent:
         STICKY (OR-ed with what the loop already saw) and recorded BEFORE the
         data-source gate, because ``ifc_measure`` is deliberately not a data
         source: it produces no citable passage.
+
+        The round stamp is set HERE, around the invocation, because this is the
+        node the tools actually run in — see :func:`_executing_retrieval_round`.
         """
         binding = self._turn_binding(config)
-        result = await binding.tool_node.ainvoke(state)
+        with retrieval_round_scope(_executing_retrieval_round(state)):
+            result = await binding.tool_node.ainvoke(state)
         registry = get_session_registry()
         if registry is None:
             raise RuntimeError("ResearcherAgent graph invoked outside run(): no source registry is bound")

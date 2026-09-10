@@ -109,6 +109,8 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
@@ -118,12 +120,38 @@ logger = logging.getLogger(__name__)
 #: just announced. Knowledge-layer Trace-Lanes read this so a hit is stamped
 #: with the fetch that produced it, even after the UI merges two
 #: ``knowledge_search`` completions onto one thinking step.
+#:
+#: **It has to be set where the tool RUNS.** ``emit_retrieval`` sets it too, but
+#: that call happens in the researcher's *agent* node, and LangGraph runs every
+#: node in its own task built with ``copy_context()``: the tools node inherits
+#: the context the RUN started with, never the one the previous node mutated.
+#: For a release every hit was therefore unstamped and the Herleitung fell back
+#: to stream order, which puts both fetches on the first checkpoint. The
+#: authoritative set is ``ResearcherAgent._tools_node`` via
+#: :func:`retrieval_round_scope`, immediately around the ToolNode invocation —
+#: parallel tool calls copy the context when their sibling tasks are created,
+#: so setting it once in the parent covers the whole batch.
 _retrieval_round: ContextVar[int | None] = ContextVar("grid_retrieval_round", default=None)
 
 
 def current_retrieval_round() -> int | None:
     """The fetch slot the running tool result belongs to, or ``None``."""
     return _retrieval_round.get()
+
+
+@contextmanager
+def retrieval_round_scope(round_index: int | None) -> Iterator[None]:
+    """Stamp every hit fetched inside this block with ``round_index``.
+
+    ``None`` is a real value: an action-only round (``remember`` / ``emit_card``)
+    is not a fetch and its results belong to no layer of the spine. Resets on
+    exit, so a round never leaks into the next node or the next turn.
+    """
+    token = _retrieval_round.set(round_index)
+    try:
+        yield
+    finally:
+        _retrieval_round.reset(token)
 
 
 #: Step-name prefix for the status one-liners in this module. The suffix is the
@@ -364,6 +392,24 @@ def _search_corpus(base: str) -> str | None:
     return None
 
 
+def is_retrieval_round(tool_calls: list[dict[str, Any]] | None) -> bool:
+    """Would :func:`emit_retrieval` count this batch of calls as a FETCH?
+
+    The same predicate, exported, because two nodes need the same answer about
+    the same batch: the agent node charges the round and advances the counter,
+    the tools node stamps the hits with the round that counter was on. Deriving
+    it twice from different rules is how the stamp and the spine layer would
+    drift apart by one.
+    """
+    for call in tool_calls or ():
+        if not isinstance(call, dict):
+            continue
+        base = tool_basename(str(call.get("name") or ""))
+        if base and base != "use_skill" and _search_corpus(base) is not None:
+            return True
+    return False
+
+
 def _query_text(args: Any) -> str | None:
     """The retrieval query inside a tool call's arguments, or ``None``.
 
@@ -506,12 +552,52 @@ def emit_retrieval(
             tools=tools,
             reason=reason,
         )
+        # Emitted HERE rather than by the caller so the two can never disagree:
+        # ``hasConclusion`` is exactly "this layer got a body", read off the same
+        # ``reason`` the spine will render.
+        emit_checkpoint(round_index=round_index, has_conclusion=reason is not None)
         return True
     # remember / emit_card are not a retrieval round. Putting them on
     # ``status:retrieval:N`` stole the next search's slot under name-dedupe.
     slot = "action:remember" if key == KEY_ACTION_REMEMBER else "action:card"
     emit_status(slot, key, values=values, tools=tools, reason=reason)
     return False
+
+
+#: Slot prefix for the Herleitung checkpoint record. The round is part of the
+#: STEP NAME, like ``status:retrieval:N`` and for the same reason: two steps
+#: sharing a name collapse into one under the frontend's dedupe, and a spine of
+#: three rounds that reports one checkpoint is not countable.
+CHECKPOINT_SLOT = "checkpoint"
+
+
+def emit_checkpoint(*, round_index: int, has_conclusion: bool) -> None:
+    """Record that a retrieval round drew a Herleitung checkpoint, and whether
+    that checkpoint has a BODY.
+
+    Technical channel, like :func:`emit_research_truncated`, and for the same
+    kind of operator question. The spine draws one layer per round; the body of
+    a layer is the model's own Thought, which exists only when the model wrote
+    prose beside its tool calls — with tool-calling models, often it did not.
+    That rate decides whether the Herleitung reads as reasoning or as a list of
+    empty headers, and nothing could answer it: the conclusion travels as
+    ``reason`` on a LIVE event, so counting its absence meant reading the
+    reader's own text out of traces.
+
+    What is counted here is therefore the BOOLEAN and never the sentence:
+    ``round`` says which layer, ``hasConclusion`` whether it has a body.
+    Neither is language-specific and neither is anybody's words.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{CHECKPOINT_SLOT}:{round_index}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": f"{CHECKPOINT_SLOT}:{round_index}",
+            "round": round_index,
+            "hasConclusion": has_conclusion,
+        },
+    )
 
 
 def emit_documents_waiting(*, file_count: int) -> None:
