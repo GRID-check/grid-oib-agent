@@ -12,6 +12,8 @@ import {
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { listProjectFolders } from '@/lib/projects/folder-service'
 import { listDocuments } from '@/lib/documents/service'
+import { summarizeDocumentVersions } from '@/lib/documents/lifecycle'
+import { resolveDocumentLifecyclePermissions } from '@/lib/documents/lifecycle-permissions'
 import { toDocumentWireRow, toFolderWireRow } from '@/lib/documents/list-projection'
 import { getTranslations } from '@/i18n/server'
 import { ProjectFileWorkspace } from '@/features/documents/components/project-file-workspace'
@@ -77,11 +79,33 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
       listDocuments(session, id),
     ])
 
+    /*
+     * The editorial state of every document in the listing, and what THIS
+     * reader may do about it.
+     *
+     * Both ride with the first paint for the same reason the listing does: the
+     * badge is part of the row, and the review controls are the answer to a
+     * question the reader has already asked by opening the file. The permission
+     * set is derived here — on the server, from `decide` — and handed down as
+     * data; the client never guesses one, and a control it renders is one the
+     * route would also allow.
+     */
+    const [versionSummaries, lifecyclePermissions] = await Promise.all([
+      summarizeDocumentVersions(
+        session.organizationId,
+        initialDocuments.map((row) => row.id),
+      ),
+      resolveDocumentLifecyclePermissions(session, id),
+    ])
+
     return (
       <ProjectFileWorkspace
+        lifecyclePermissions={lifecyclePermissions}
         projectId={id}
         initialFolders={initialFolders.map(toFolderWireRow)}
-        initialFiles={initialDocuments.map(toDocumentWireRow)}
+        initialFiles={initialDocuments.map((row) =>
+          toDocumentWireRow(row, versionSummaries.get(row.id)),
+        )}
         projectName={project.name}
         collectionName={project.collectionName}
         showMetadataPanel={showMetadataPanel}

@@ -510,6 +510,73 @@ export const files = {
      */
     notInKnowledge: 'Created by Piloti — not in the knowledge base',
   },
+  /**
+   * Freigabe und Fassungen — the editorial state of a document (ADR-0054).
+   *
+   * A separate vocabulary from `status`, which is where a document is in the
+   * INGESTION pipeline. „Freigegeben" and „Zitierbar" answer different
+   * questions, and the two word lists must not borrow from each other.
+   */
+  lifecycle: {
+    title: 'Approval and versions',
+    /** Hover text on the badge; the state word is interpolated. */
+    badgeTitle: 'Version status: {state}',
+    /** The filter chip, beside By Piloti. */
+    filter: 'Awaiting approval',
+    states: {
+      draft: 'Draft',
+      inReview: 'In review',
+      changesRequested: 'Changes requested',
+      approved: 'Approved',
+      published: 'Published',
+      rejected: 'Rejected',
+      superseded: 'Superseded',
+      archived: 'Archived',
+    },
+    actions: {
+      submit: 'Submit for approval',
+      approve: 'Approve',
+      requestChanges: 'Request changes',
+      reject: 'Reject',
+      publish: 'Publish',
+      archive: 'Archive',
+    },
+    comment: {
+      /** Rejecting needs a reason; asking for changes needs the changes. */
+      reasonLabel: 'Reason for rejection',
+      changesLabel: 'What needs to change',
+      placeholder: 'The next version reads this.',
+      cancel: 'Cancel',
+    },
+    versions: {
+      title: 'Versions',
+      number: 'Version {number}',
+      /** The version the document currently serves. */
+      live: 'Current',
+      open: 'Open',
+      compare: 'Compare with {number}',
+      comparing: 'Loading both versions…',
+      compareFailed: 'The two versions could not be loaded.',
+      /**
+       * Said out loud, because the panel shows two texts and not a diff: no
+       * diff implementation is installed here, and colouring rows that happen
+       * to share an index would be wrong the moment a line is inserted.
+       */
+      comparisonNote: 'Both versions, side by side — differences are not marked.',
+      submitted: 'Submitted',
+      approved: 'Approved',
+      published: 'Published',
+      byAt: 'by {name}, {time}',
+      you: 'you',
+      someone: 'someone',
+    },
+    errors: {
+      /** The compare-and-swap lost: somebody decided first, so re-read. */
+      conflict: 'This has moved on — reloading the current state.',
+      actionFailed: 'That did not go through. Nothing has changed.',
+      loadFailed: 'The version history could not be loaded.',
+    },
+  },
   assignment: {
     unassigned: 'Unassigned',
     assign: 'Assign',

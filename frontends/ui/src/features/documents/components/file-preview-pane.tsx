@@ -52,6 +52,11 @@ import { DrawingStructuredDetails } from './drawing-structured-details'
 import { hasStructuredDetail, type DrawingStructured } from '@/lib/documents/drawing-structured'
 import { AssignmentFaces } from './assignment-faces'
 import { AuthorshipLine } from './authorship-line'
+import { DocumentLifecyclePanel } from './document-lifecycle-panel'
+import type {
+  DocumentLifecyclePermission,
+  DocumentVersionState,
+} from '@/lib/documents/lifecycle-types'
 import { AssignPopover } from './assign-popover'
 import { useRouter } from 'next/navigation'
 import { askAboutFile } from '../lib/ask-about-file'
@@ -102,6 +107,20 @@ interface FilePreviewPaneProps {
   /** The document was deleted from the header menu; the pane closes itself. */
   onDeleted?: (fileId: string) => void
   canCollaborate?: boolean
+  /**
+   * What this reader may do to the document's versions, resolved on the server
+   * (`lib/documents/lifecycle-permissions.ts`). Absent means the surface did not
+   * read them — the Archiv sheet, the chat peek — and the rail then shows no
+   * Freigabe section at all rather than guessing a set.
+   */
+  lifecyclePermissions?: readonly DocumentLifecyclePermission[]
+  /** The reader, so their own acts in the version list read as „Sie". */
+  viewerUserId?: string | null
+  /** A Freigabe decision landed — the listing behind the pane moves its badge. */
+  onLifecycleChanged?: (
+    fileId: string,
+    summary: { versionState: DocumentVersionState; versionCount: number },
+  ) => void
   /** Modal on Files; peek/expanded once this file is the chat subject. */
   presentation?: 'modal' | 'peek' | 'expanded'
   onAssigneesChanged?: (assignees: FileItem['assignees']) => void
@@ -158,6 +177,9 @@ export function FilePreviewPane({
   projectId,
   projectName,
   canManage = true,
+  lifecyclePermissions,
+  viewerUserId,
+  onLifecycleChanged,
   scope = 'files',
   onClose,
   onReingested,
@@ -912,6 +934,38 @@ export function FilePreviewPane({
                 </span>
               )}
             </div>
+            {/* FREIGABE UND FASSUNGEN — a section of its own, under the identity
+              block and above everything ingestion derived.
+
+              Under it, and never inside it: the block above says who wrote the
+              file and who is on the hook for it, and this says whether the
+              office stands behind what it says. ADR-0047's addendum and ADR-0054
+              both turn on those being three sentences rather than one.
+
+              Only for a project document, and only where the surface resolved
+              this reader's permissions — the Archiv and the chat peek pass
+              neither, and a review control they cannot honour is worse than no
+              section. */}
+            {projectId && lifecyclePermissions && (
+              <DocumentLifecyclePanel
+                key={file.id}
+                documentId={file.id}
+                authoredBy={file.authoredBy}
+                viewer={{ permissions: lifecyclePermissions, userId: viewerUserId }}
+                names={Object.fromEntries(
+                  (file.assignees ?? []).flatMap((person) =>
+                    person.name ? [[person.userId, person.name] as const] : [],
+                  ),
+                )}
+                onChanged={(summary) =>
+                  onLifecycleChanged?.(file.id, {
+                    versionState: summary.state,
+                    versionCount: summary.versionCount,
+                  })
+                }
+                className="mb-4 border-b pb-4"
+              />
+            )}
             {/* The building's own numbers lead the rail: they are what the file
               IS. Ungated by the metadata flag, which covers what INGESTION
               derived — these come out of the IFC itself. Renders nothing until

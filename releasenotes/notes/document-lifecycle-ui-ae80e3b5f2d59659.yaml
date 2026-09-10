@@ -1,0 +1,32 @@
+---
+features:
+  - >
+    Der Stand einer Datei steht jetzt in Dateien: Entwurf, In Prüfung,
+    Änderungen erbeten, Freigegeben, Veröffentlicht, Ersetzt, Abgelehnt oder
+    Archiviert.
+  - >
+    Die Kennzeichnung erscheint nur dort, wo es etwas zu wissen gibt: bei
+    Dateien mit mehr als einer Fassung und bei allem, was Piloti geschrieben
+    hat. Eine hochgeladene Datei ist ab dem Ablegen veröffentlicht und bleibt
+    unbeschriftet.
+  - >
+    Die Dateiansicht führt die Freigabe: einreichen, freigeben, Änderungen
+    anfordern, ablehnen, veröffentlichen, archivieren. Angeboten wird jeweils
+    nur, was der aktuelle Stand und die eigenen Rechte zulassen — wer eine
+    Fassung eingereicht hat, sieht „Freigeben" nicht. Ablehnen und Änderungen
+    anfordern verlangen eine Begründung, die auf der Fassung stehen bleibt.
+  - >
+    Entscheiden zwei Personen gleichzeitig, erfährt die zweite „Der Stand hat
+    sich geändert" und sieht sofort, was tatsächlich passiert ist.
+  - >
+    Die Fassungsliste zeigt jede Fassung mit Nummer, Stand, wer sie eingereicht,
+    freigegeben und veröffentlicht hat — und lässt jede einzelne öffnen, auch
+    eine ersetzte. Zwei Fassungen lassen sich nebeneinander lesen; Unterschiede
+    werden noch nicht markiert.
+  - >
+    Der Filter „Freigabe ausstehend" steht neben „Unvergeben" und „Von Piloti"
+    und lässt sich mit beiden kombinieren.
+  - >
+    Der Postfach-Eintrag zu einer eingereichten Fassung nennt jetzt die Datei
+    beim Namen und führt direkt zu ihr; er erledigt sich, sobald entschieden
+    wurde.

@@ -35,6 +35,8 @@ type OptionalWireField =
   | 'originPath'
   | 'contentHash'
   | 'assignees'
+  | 'versionState'
+  | 'versionCount'
 
 /** Normalize one wire row into the shape every file surface reads. */
 export function toFileItem(row: DocumentWireRow): FileItem {
@@ -57,6 +59,11 @@ export function toFileItem(row: DocumentWireRow): FileItem {
     tags: row.tags ?? null,
     assignees: row.assignees ?? EMPTY_ASSIGNEES,
     authoredBy: row.authoredBy ?? 'user',
+    // `null`, never a default state: a listing that did not read the version
+    // summary is saying "unknown here", and the badge rule renders nothing for
+    // it. Defaulting to `published` would put a badge on every Archiv row.
+    versionState: row.versionState ?? null,
+    versionCount: row.versionCount ?? null,
   }
 }
 

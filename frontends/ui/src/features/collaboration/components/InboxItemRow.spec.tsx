@@ -289,3 +289,46 @@ describe('InboxItemRow — the operational storage alert (ADR-0042)', () => {
     expect(container.querySelector('.bg-warning-subtle')).not.toBeNull()
   })
 })
+
+describe('InboxItemRow — a version waiting for a decision (ADR-0054)', () => {
+  const reviewRequest = (overrides: Partial<InboxItemView> = {}): InboxItemView =>
+    item({
+      id: 'i-review',
+      type: 'document.review_requested',
+      resourceType: 'document',
+      resourceId: 'doc_1',
+      anchorId: 'ver_2',
+      actorName: 'Anna Weber',
+      actorUserId: 'u-anna',
+      // What the emission writes into the payload: the document's own name.
+      subject: 'Brandschutzkonzept_Wohnbau-Nord.md',
+      excerpt: null,
+      href: '/app/projects/p1/files?doc=doc_1',
+      ...overrides,
+    })
+
+  test('names the document and who is asking, and links to the file', () => {
+    render(<InboxItemRow item={reviewRequest()} />)
+
+    expect(
+      screen.getByText('Anna Weber asked you to review Brandschutzkonzept_Wohnbau-Nord.md'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('A new version is waiting for your approval.')).toBeInTheDocument()
+    // The deep link is the document's own — the pane it opens is where the
+    // review controls are.
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/app/projects/p1/files?doc=doc_1')
+  })
+
+  test('reads as an outstanding request while it is open', () => {
+    const { container } = render(<InboxItemRow item={reviewRequest()} />)
+    expect(container.querySelector('.bg-warning-subtle')).not.toBeNull()
+  })
+
+  test('stops shouting once the decision has been taken', () => {
+    // The backend resolves the round for every reviewer who was asked; the row
+    // is then history, and colouring it would keep asking for something that
+    // has already happened.
+    const { container } = render(<InboxItemRow item={reviewRequest({ state: 'resolved' })} />)
+    expect(container.querySelector('.bg-warning-subtle')).toBeNull()
+  })
+})

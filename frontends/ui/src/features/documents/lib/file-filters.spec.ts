@@ -152,3 +152,33 @@ describe('applyFileFilters', () => {
     ).toBe(files)
   })
 })
+
+describe('Freigabe ausstehend', () => {
+  test('keeps only the documents whose newest version is waiting for a decision', () => {
+    const files = [
+      file({ id: 'a', versionState: 'in_review' }),
+      file({ id: 'b', versionState: 'published' }),
+      file({ id: 'c', versionState: 'draft' }),
+    ]
+    expect(
+      applyFileFilters(files, { ...NO_FILE_FILTERS, reviewPendingOnly: true }, {
+        canCollaborate: true,
+      }).map((row) => row.id),
+    ).toEqual(['a'])
+  })
+
+  test('does not claim a row whose version state the listing never read', () => {
+    // An unknown editorial state is not „ausstehend": the honest answer to a
+    // question nobody asked is no.
+    const files = [file({ id: 'a', versionState: null }), file({ id: 'b' })]
+    expect(
+      applyFileFilters(files, { ...NO_FILE_FILTERS, reviewPendingOnly: true }, {
+        canCollaborate: true,
+      }),
+    ).toEqual([])
+  })
+
+  test('counts as one constraint on the Filter button', () => {
+    expect(activeFilterCount({ ...NO_FILE_FILTERS, reviewPendingOnly: true }, true)).toBe(1)
+  })
+})

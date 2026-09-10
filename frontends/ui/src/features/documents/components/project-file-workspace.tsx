@@ -45,6 +45,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useTranslations } from '@/i18n'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import type { DocumentAuthor } from '@/lib/db/schema'
+import type { DocumentLifecyclePermission, DocumentVersionState } from '@/lib/documents/lifecycle-types'
 
 interface ProjectFileWorkspaceProps {
   projectId: string
@@ -85,6 +86,14 @@ interface ProjectFileWorkspaceProps {
   /** Faces, Unvergeben, Zuweisen — behind the collaboration flag. */
   canCollaborate?: boolean
   currentUserId?: string
+  /**
+   * What this reader may do to a document's versions, resolved on the server
+   * (`lib/documents/lifecycle-permissions.ts`, ADR-0054). Handed to the preview
+   * pane, which shows exactly the review controls the transition table allows
+   * for the state AND the permission. Absent means the caller did not read them
+   * and the pane shows no Freigabe section — never a guessed set.
+   */
+  lifecyclePermissions?: readonly DocumentLifecyclePermission[]
   /**
    * The folder tree and the corpus as the SERVER already read them, for the
    * first paint.
@@ -180,6 +189,17 @@ export interface FileItem {
    * exactly what the column's default means — a person uploaded it.
    */
   authoredBy?: DocumentAuthor
+  /**
+   * The NEWEST version's editorial state, and how many versions there are
+   * (ADR-0054). Both come from the listing, together, because the badge rule
+   * reads both: a plain upload has one published version and shows nothing.
+   *
+   * `null` means "this listing did not read it" — not „Entwurf". The chat's
+   * surfaced-documents reader and the Archiv listing do not pay for the second
+   * query, and a badge must not appear where nobody asked the question.
+   */
+  versionState?: DocumentVersionState | null
+  versionCount?: number | null
 }
 
 export interface FileAssignee {
@@ -201,7 +221,7 @@ type FileView = 'cards' | 'list'
 
 const VIEW_STORAGE_KEY = 'grid.files.view'
 
-export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, previewFirst = true, canCollaborate = false, currentUserId, initialFolders, initialFiles }: ProjectFileWorkspaceProps) {
+export function ProjectFileWorkspace({ projectId, projectName, collectionName, showMetadataPanel = true, showModels = false, previewFirst = true, canCollaborate = false, currentUserId, lifecyclePermissions, initialFolders, initialFiles }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const router = useRouter()
   const pathname = usePathname()
@@ -622,6 +642,18 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, tags } : f)))
   }, [])
 
+  /**
+   * A Freigabe decision moved the document's state, so the card behind the pane
+   * moves with it. Patched rather than refetched, like a rename: the panel has
+   * just re-read the version list, so the two numbers are the server's own.
+   */
+  const handleLifecycleChanged = useCallback(
+    (fileId: string, summary: { versionState: DocumentVersionState; versionCount: number }) => {
+      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, ...summary } : f)))
+    },
+    [],
+  )
+
   // After a document is deleted, drop it from the local corpus and close the
   // preview overlay if it was the selected file.
   const handleDeleted = useCallback((fileId: string) => {
@@ -779,10 +811,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
         canCollaborate,
         showMetadataPanel,
         showModels,
+        lifecyclePermissions,
+        viewerUserId: currentUserId,
         onRenamed: handleRenamed,
         onDeleted: handleDeleted,
         onReingested: handleReingested,
         onTagsUpdated: handleTagsUpdated,
+        onLifecycleChanged: handleLifecycleChanged,
       })
     },
     [
@@ -794,10 +829,13 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
       projectName,
       canCollaborate,
       showMetadataPanel,
+      lifecyclePermissions,
+      currentUserId,
       handleRenamed,
       handleDeleted,
       handleReingested,
       handleTagsUpdated,
+      handleLifecycleChanged,
     ],
   )
 

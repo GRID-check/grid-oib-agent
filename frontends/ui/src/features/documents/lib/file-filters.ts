@@ -84,6 +84,16 @@ export interface FileFilters {
    * it here as well would be a second, divergent definition of the same word.
    */
   agentAuthoredOnly: boolean
+  /**
+   * Only the documents whose newest version is waiting for a decision
+   * (`in_review`) — „Freigabe ausstehend".
+   *
+   * Answered HERE, unlike `agentAuthoredOnly`, because the listing already
+   * carries each row's version state (`toDocumentWireRow`): asking the endpoint
+   * for a second narrowing would be a second definition of the same word and a
+   * round trip for a field the browser is holding.
+   */
+  reviewPendingOnly: boolean
   /** Empty means every kind — an empty set is "no constraint", never "nothing". */
   kinds: readonly DocumentKind[]
   /** Empty means every status, for the same reason. */
@@ -93,6 +103,7 @@ export interface FileFilters {
 export const NO_FILE_FILTERS: FileFilters = {
   assignment: 'all',
   agentAuthoredOnly: false,
+  reviewPendingOnly: false,
   kinds: [],
   statuses: [],
 }
@@ -110,6 +121,7 @@ export function activeFilterCount(filters: FileFilters, canCollaborate: boolean)
   let count = 0
   if (canCollaborate && filters.assignment !== 'all') count += 1
   if (filters.agentAuthoredOnly) count += 1
+  if (filters.reviewPendingOnly) count += 1
   if (filters.kinds.length > 0) count += 1
   if (filters.statuses.length > 0) count += 1
   return count
@@ -138,7 +150,10 @@ export function applyFileFilters<T extends FileItem>(
 ): readonly T[] {
   const assignment = canCollaborate ? filters.assignment : 'all'
   const constrained =
-    assignment !== 'all' || filters.kinds.length > 0 || filters.statuses.length > 0
+    assignment !== 'all' ||
+    filters.reviewPendingOnly ||
+    filters.kinds.length > 0 ||
+    filters.statuses.length > 0
   if (!constrained) return files
 
   return files.filter((file) => {
@@ -152,6 +167,9 @@ export function applyFileFilters<T extends FileItem>(
     if (filters.statuses.length > 0 && !filters.statuses.includes(statusGroupOf(file.status))) {
       return false
     }
+    // A row whose version state is unknown (a listing that did not read it) is
+    // not „ausstehend": the honest answer to a question nobody asked is no.
+    if (filters.reviewPendingOnly && file.versionState !== 'in_review') return false
     if (filters.kinds.length > 0) {
       const kind = inferDocumentKind({
         filename: file.filename,

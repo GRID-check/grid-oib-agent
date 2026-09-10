@@ -61,9 +61,12 @@ describe('FileFilterMenu', () => {
     })
     await open()
     await userEvent.click(await screen.findByLabelText('3D model (IFC)'))
+    // Spread from the empty set rather than enumerated: this expectation used
+    // to list every dimension by hand and broke the day one was added, which is
+    // the same fragility the reset button had.
     expect(onFiltersChange).toHaveBeenCalledWith({
+      ...NO_FILE_FILTERS,
       assignment: 'mine',
-      agentAuthoredOnly: false,
       statuses: ['failed'],
       kinds: ['model'],
     })
@@ -112,7 +115,13 @@ describe('FileFilterMenu', () => {
 
   test('reset clears every dimension at once, the server-side one included', async () => {
     const { onFiltersChange } = renderMenu({
-      filters: { assignment: 'unassigned', agentAuthoredOnly: true, kinds: ['photo'], statuses: ['ready'] },
+      filters: {
+        ...NO_FILE_FILTERS,
+        assignment: 'unassigned',
+        agentAuthoredOnly: true,
+        kinds: ['photo'],
+        statuses: ['ready'],
+      },
     })
     await open()
     await userEvent.click(await screen.findByTestId('file-filter-reset'))
