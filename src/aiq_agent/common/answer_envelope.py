@@ -98,10 +98,10 @@ _ANSWER_JSON_FENCE_RE = re.compile(rf"```{ENVELOPE_FENCE}[ \t]*\n(.*?)\n?```", r
 VERDICT_VALUE_MAX_CHARS = 60
 
 #: A summary is the whole answer in ONE to TWO sentences — the standfirst the
-#: reader gets before the prose. Unlike the verdict it is expected on
-#: basically every research reply (a ruling is earned, a summary is owed).
-#: Above this it is a paragraph wearing a summary's name, and it is dropped
-#: whole — the prose's own lede then does the job, so nothing is lost.
+#: reader gets before the prose. It is owed on a ruling; a walkthrough earns
+#: one only when it pays for the extra line. Above this it is a paragraph
+#: wearing a summary's name, and it is dropped whole — the prose's own lede
+#: then does the job, so nothing is lost.
 SUMMARY_MAX_CHARS = 320
 
 #: The callout's PLACEMENT marker. The one anatomy field whose right place the

@@ -907,8 +907,8 @@ export const chat = {
       contextLabel: 'Context',
       sourcesTab: 'Sources',
       sourcesTitle: 'Sources examined',
-      findingsTab: 'Assessment',
-      // Reasoning-only detail in the assessment node: which source lanes
+      findingsTab: 'Findings',
+      // Reasoning-only detail in the findings node: which source lanes
       // produced hits. NOT the answer's trust verdict (confidence/provenance) —
       // that lives once, on the answer card.
       findingsHits: 'Hits in: {lanes}',
@@ -916,13 +916,13 @@ export const chat = {
       // actually read, before naming which strata it came from.
       findingsTally: '{hits, plural, one {# hit} other {# hits}} across {docs} documents',
       findingsTallyOne: '{hits, plural, one {# hit} other {# hits}} in 1 document',
-      // While the turn streams there is no assessment yet, but the graph still
+      // While the turn streams there are no findings yet, but the graph still
       // needs its converge point — otherwise the source columns dangle and the
       // shape jumps when the answer lands.
-      findingsPendingTab: 'Assessment',
+      findingsPendingTab: 'Findings',
       findingsPending: 'Weighing the sources …',
       // The search did not finish; it ran into its iteration ceiling. It
-      // belongs in the assessment node because that node answers "what was
+      // belongs in the findings node because that node answers "what was
       // this answer built on?", and where the chain broke off is part of it.
       // {tool} is the last step that RAN, never the next one: nobody knows
       // what the model would have chosen, because it never got to propose it.

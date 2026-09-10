@@ -901,8 +901,8 @@ export const chat: typeof en.chat = {
       contextLabel: 'Kontext',
       sourcesTab: 'Quellen',
       sourcesTitle: 'Geprüfte Quellen',
-      findingsTab: 'Einschätzung',
-      // Reine Herleitungs-Info im Einschätzungsknoten: in welchen Quellenspuren
+      findingsTab: 'Stand',
+      // Reine Herleitungs-Info im Stand-Knoten: in welchen Quellenspuren
       // es Treffer gab. NICHT das Vertrauensurteil (Konfidenz/Belege) — das
       // steht einmal auf der Antwortkarte.
       findingsHits: 'Treffer in: {lanes}',
@@ -910,13 +910,13 @@ export const chat: typeof en.chat = {
       // tatsächlich gelesen wurde, bevor die Quellenarten aufgezählt werden.
       findingsTally: '{hits} Treffer in {docs} Dokumenten',
       findingsTallyOne: '{hits} Treffer in 1 Dokument',
-      // Während der Zug streamt gibt es noch keine Einschätzung, der Graph
+      // Während der Zug streamt gibt es noch keinen Stand, der Graph
       // braucht seinen Zusammenführungspunkt aber trotzdem — sonst hängen die
       // Quellenspalten in der Luft und die Form springt, sobald die Antwort da ist.
-      findingsPendingTab: 'Einschätzung',
+      findingsPendingTab: 'Stand',
       findingsPending: 'Quellen werden abgewogen …',
       // Die Recherche lief nicht zu Ende, sondern gegen ihre Iterationsgrenze.
-      // Im Einschätzungsknoten, weil er die Frage „was lag der Antwort
+      // Im Stand-Knoten, weil er die Frage „was lag der Antwort
       // zugrunde?“ beantwortet — und dazu gehört, wo die Kette abbrach.
       // {tool} ist der zuletzt AUSGEFÜHRTE Schritt, nicht der nächste: welchen
       // das Modell als Nächstes gewählt hätte, weiß niemand — es kam nicht mehr
