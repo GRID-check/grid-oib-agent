@@ -33,7 +33,7 @@ with. See the [root README](../README.md) for what Grid is, and
 | [`design/`](design/) | Design language, card charter, UI specs | You are building a surface |
 | [`ux/`](ux/) | UX playbooks: visual evidence, file explorer | You are adding a user-visible component |
 | [`product/`](product/) | Vision, positioning, long-form writing | You want the why behind the roadmap |
-| [`roadmap/`](roadmap/) | Where this is going: the agentic workspace review, IFC, spatial reasoning, cross-project RAG | You are scoping something that is not built yet |
+| [`roadmap/`](roadmap/) | Where this is going: the agentic workspace review, the artifact design of record and its product-perspective review, IFC, spatial reasoning, cross-project RAG | You are scoping something that is not built yet |
 | [`audit/`](audit/) | Frozen run logs from past audit and feedback-triage loops | You are tracing where a finding or a spec's evidence came from |
 | [`compliance/`](compliance/) | Audits and external dependency review | You are answering a compliance question |
 | [`superpowers/`](superpowers/) | Plans and specs from individual pieces of work. A spec here can be the design of record — [agent-authored documents](superpowers/specs/2026-08-20-agent-authored-documents-design.md) is marked **built** and is current | You need the design behind a shipped change, or you are reconstructing its history |
