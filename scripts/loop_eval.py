@@ -80,6 +80,7 @@ _PUNKT_NUMBER_RE = re.compile(r"\b(?:Pkt\.?|Punkt)\s*(\d+(?:\.\d+)*)")
 #: up measuring itself.
 _ROUND_STEP_RE = re.compile(r"^status:retrieval:(\d+)$")
 _CHECKPOINT_STEP_RE = re.compile(r"^status:checkpoint:(\d+)$")
+_COVERAGE_STEP_RE = re.compile(r"^status:coverage:(.+)$")
 _BUDGET_STEP = "status:budget"
 
 
@@ -114,6 +115,10 @@ class Observation:
     punkt_match: str = ""
     truncated: str = ""
     checkpoint_sources: str = ""
+    #: How much of each Richtlinien-Familie the turn read, as `<family> o/l`
+    #: ("2 3/4" — three of the four parts of OIB-RL 2). Empty when the turn
+    #: touched no family, which is the honest answer for a project question.
+    family_coverage: str = ""
     error: str = ""
 
 
@@ -197,6 +202,11 @@ def observe(question: Question, steps: Sequence[dict], answer: str, envelope: di
         if (m := _CHECKPOINT_STEP_RE.match(name))
     }
     tools = [tool for _, body in payloads for tool in (body.get("tools") or [])]
+    coverage = {
+        str(body.get("family") or m.group(1)): (int(body.get("opened") or 0), int(body.get("listed") or 0))
+        for name, body in payloads
+        if (m := _COVERAGE_STEP_RE.match(name))
+    }
     truncated = any(name == _BUDGET_STEP and body.get("truncated") for name, body in payloads)
     envelope = envelope or {}
     return Observation(
@@ -211,6 +221,9 @@ def observe(question: Question, steps: Sequence[dict], answer: str, envelope: di
         punkt_match=punkt_matches(question.punkt, cited_punkte(answer)),
         truncated=_yes_no(truncated),
         checkpoint_sources=">".join(checkpoints[index] for index in sorted(checkpoints)),
+        family_coverage=" ".join(
+            f"{family} {opened}/{listed}" for family, (opened, listed) in sorted(coverage.items())
+        ),
     )
 
 
@@ -261,7 +274,26 @@ class Summary:
     punkt_matched: int = 0
     booleans: dict[str, int] = field(default_factory=dict)
     checkpoint_sources: dict[str, int] = field(default_factory=dict)
+    families_touched: int = 0
+    families_complete: int = 0
     errors: int = 0
+
+
+def family_coverage(cell: str) -> list[tuple[str, int, int]]:
+    """`(family, opened, listed)` for each family a turn touched.
+
+    Parses the `family_coverage` cell, which is `"2 3/4 4 1/1"`. A cell that
+    cannot be read contributes nothing rather than a zero: an unparseable cell
+    is a harness fault, and scoring it as a complete miss would blame the agent
+    for it.
+    """
+    out: list[tuple[str, int, int]] = []
+    tokens = (cell or "").split()
+    for family, ratio in zip(tokens[::2], tokens[1::2], strict=False):
+        opened, _, listed = ratio.partition("/")
+        if opened.isdigit() and listed.isdigit():
+            out.append((family, int(opened), int(listed)))
+    return out
 
 
 def summarise(rows: Sequence[Observation]) -> Summary:
@@ -271,6 +303,7 @@ def summarise(rows: Sequence[Observation]) -> Summary:
     for row in rows:
         for token in filter(None, row.checkpoint_sources.split(">")):
             sources[token] = sources.get(token, 0) + 1
+    touched = [pair for row in rows for pair in family_coverage(row.family_coverage)]
     return Summary(
         answered=sum(1 for row in rows if not row.error),
         rounds_total=sum(int(row.rounds or 0) for row in rows),
@@ -279,13 +312,24 @@ def summarise(rows: Sequence[Observation]) -> Summary:
         punkt_matched=sum(1 for row in rows if row.punkt_match == "yes"),
         booleans=booleans,
         checkpoint_sources=sources,
+        families_touched=len(touched),
+        families_complete=sum(1 for _family, opened, listed in touched if listed and opened == listed),
         errors=sum(1 for row in rows if row.error),
     )
 
 
 #: Columns a per-question diff reports. `question` and the expectations do not
 #: change between runs — only what the agent did does.
-_COMPARED_FIELDS = ("kind", "verdict", "rounds", "read_passage", "punkt_match", "truncated", "checkpoint_sources")
+_COMPARED_FIELDS = (
+    "kind",
+    "verdict",
+    "rounds",
+    "read_passage",
+    "punkt_match",
+    "truncated",
+    "checkpoint_sources",
+    "family_coverage",
+)
 
 
 def changed_rows(before: Sequence[Observation], after: Sequence[Observation]) -> list[tuple[str, str, str, str]]:
@@ -324,6 +368,10 @@ def format_comparison(before: Sequence[Observation], after: Sequence[Observation
         f" of {_delta(old.punkt_measured, new.punkt_measured)} measured",
     ]
     lines += [f"{name}: {_delta(old.booleans.get(name, 0), new.booleans.get(name, 0))}" for name in _BOOLEAN_FIELDS]
+    lines.append(
+        f"families read completely: {_delta(old.families_complete, new.families_complete)}"
+        f" of {_delta(old.families_touched, new.families_touched)} touched"
+    )
     for token in sorted(old.checkpoint_sources.keys() | new.checkpoint_sources.keys()):
         lines.append(
             f"checkpoint source {token}: "

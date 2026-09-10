@@ -50,6 +50,7 @@ def _row(question_id: str, **overrides) -> loop_eval.Observation:
         "punkt_match": "yes",
         "truncated": "no",
         "checkpoint_sources": "none>argument",
+        "family_coverage": "2 3/4",
         "error": "",
     }
     return loop_eval.Observation(**{**base, **overrides})
@@ -141,6 +142,21 @@ class TestOneRow:
     def test_the_punkt_scan_reads_the_forms_an_answer_actually_writes(self):
         assert loop_eval.cited_punkte("Pkt. 3.5.2 und Punkt 5.1, siehe Pkt 4") == ["3.5.2", "5.1", "4"]
 
+    def test_the_coverage_event_becomes_the_family_column(self):
+        """The runner reads the product's own `status:coverage` records, one
+        per family, and folds them into one cell."""
+        question = loop_eval.Question(id="q", question="?", family="OIB-RL 2", punkt=None, kind="walkthrough")
+        steps = [
+            {"name": "status:coverage:2", "payload": '{"family":"2","listed":4,"opened":3}'},
+            {"name": "status:coverage:4", "payload": '{"family":"4","listed":1,"opened":1}'},
+        ]
+
+        assert loop_eval.observe(question, steps, "", {}).family_coverage == "2 3/4 4 1/1"
+
+    def test_a_turn_that_touched_no_family_leaves_the_cell_empty(self):
+        question = loop_eval.Question(id="q", question="?", family=None, punkt=None, kind="direct")
+        assert loop_eval.observe(question, [], "", {}).family_coverage == ""
+
 
 class TestTheCsv:
     def test_a_run_survives_the_round_trip(self, tmp_path: Path):
@@ -208,6 +224,28 @@ class TestComparing:
 
         assert "read_passage: 0 → 1 (+1)" in report
         assert "retrieval rounds, total: 2 → 3 (+1)" in report
+
+    def test_family_coverage_is_read_as_opened_of_listed(self):
+        """The column this set exists to move: "OIB-RL 2, three of four parts"."""
+        assert loop_eval.family_coverage("2 3/4 4 1/1") == [("2", 3, 4), ("4", 1, 1)]
+
+    def test_an_empty_or_unreadable_coverage_cell_scores_nothing(self):
+        """A cell the harness could not write is a harness fault. Scoring it as
+        a complete miss would blame the agent for it."""
+        assert loop_eval.family_coverage("") == []
+        assert loop_eval.family_coverage("2 drei/vier") == []
+
+    def test_the_aggregate_counts_complete_families_against_touched_ones(self):
+        before = [_row("a", family_coverage="2 3/4")]
+        after = [_row("a", family_coverage="2 4/4")]
+
+        report = loop_eval.format_comparison(before, after)
+
+        assert "families read completely: 0 → 1 (+1) of 1 → 1 (+0) touched" in report
+
+    def test_a_family_that_became_incomplete_shows_up_per_question(self):
+        moved = loop_eval.changed_rows([_row("a", family_coverage="2 4/4")], [_row("a", family_coverage="2 3/4")])
+        assert moved == [("a", "family_coverage", "2 4/4", "2 3/4")]
 
     def test_the_checkpoint_source_histogram_is_per_round_not_per_turn(self):
         """A two-round turn contributes two checkpoints. Counting turns would

@@ -50,6 +50,7 @@ from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
+from aiq_agent.common.turn_status import emit_family_coverage
 from aiq_agent.common.turn_status import emit_fanout_capped
 from aiq_agent.common.turn_status import emit_research_truncated
 from aiq_agent.common.turn_status import emit_retrieval
@@ -360,6 +361,52 @@ def _executing_retrieval_round(state: ResearchAgentState) -> int | None:
     # itself did not happen (a test driving the tools node directly). Round 0 is
     # the honest reading of "the first fetch of this run" — never a negative.
     return max(state.retrieval_round - 1, 0)
+
+
+def _opened_documents(sources: Iterable[Any]) -> set[str]:
+    """The indexed filenames this turn actually got a passage from.
+
+    Read off the citation key, which is ``"<file>, p.N"`` and may carry a shelf
+    qualifier when one filename sat on two shelves in one result set. Both are
+    RENDERING added around the identity, so both come off here rather than being
+    matched around.
+    """
+    names: set[str] = set()
+    for source in sources or ():
+        key = str(getattr(source, "citation_key", "") or "")
+        name = key.split(",", 1)[0].strip()
+        if "(" in name:
+            name = name.split("(", 1)[0].strip()
+        if name:
+            names.add(name)
+    return names
+
+
+def _report_family_coverage(turn_sources: Sequence[Any]) -> None:
+    """At synthesis: how much of each Richtlinien-Familie the turn read.
+
+    Only families the turn TOUCHED. A family it never went near is not a miss,
+    and emitting six records on every greeting would make the rate meaningless
+    as well as noisy — the same "a constant is not an event" rule the status
+    module is built on.
+
+    Fail-open: this is a measurement of the answer, worth strictly less than the
+    answer.
+    """
+    try:
+        from aiq_agent.common.norm_registry import oib_family_member
+        from aiq_agent.knowledge.inventory import get_norm_families
+
+        families = get_norm_families()
+        if not families:
+            return
+        opened = {member for name in _opened_documents(turn_sources) if (member := oib_family_member(name))}
+        for family in families:
+            hit = [member for member in family.members if member in opened]
+            if hit:
+                emit_family_coverage(family=family.key, listed=len(family.members), opened=len(hit))
+    except Exception:  # noqa: BLE001 — a coverage count must never take a turn down
+        logger.debug("Family-coverage record not emitted", exc_info=True)
 
 
 def _last_tool_calls(state: ResearchAgentState) -> list[dict[str, Any]]:
@@ -909,6 +956,11 @@ class ResearcherAgent:
             end_turn_capture(turn_capture)
             if registry_token is not None:
                 reset_session_registry(registry_token)
+
+        # Before the answer is finalised, because the question it answers is
+        # about the RESEARCH: how much of a Richtlinien-Familie this turn read
+        # against how much of it the inventory listed.
+        _report_family_coverage(turn_sources)
 
         final = await finalize_answer(
             graph_result.get("messages") or [],

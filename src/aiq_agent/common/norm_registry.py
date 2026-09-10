@@ -28,6 +28,8 @@ import logging
 import os
 import re
 from collections.abc import Callable
+from collections.abc import Iterable
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -918,6 +920,86 @@ def guess_display_title(file_name: str) -> str | None:
     title = f"{role_prefix}{subject}"
     tail = ", ".join(part for part in (edition, revision) if part)
     return f"{title}, {tail}" if tail else title
+
+
+# ---------------------------------------------------------------------------
+# Families: which Richtlinien belong together, derived from what is INDEXED.
+#
+# "OIB-Richtlinien 1–6" is a range, and a range names no members. OIB-RL 2 is
+# four separate documents — 2, 2.1 (Betriebsbauten), 2.2 (Garagen), 2.3
+# (Hochhäuser) — and the prompt never said so, so an overview question ("Was
+# weißt du über die OIB 2?") could open three of them, forget the fourth, and
+# read as complete. Nothing structural noticed, because nothing knew the family
+# had four members.
+#
+# Membership is DERIVED, never listed: a deployment whose corpus holds no 2.3
+# must not be told it has one, and a corpus that grows a 2.4 must not need this
+# file edited. The only input is the set of indexed filenames.
+# ---------------------------------------------------------------------------
+
+#: The Richtlinie number inside an OIB corpus filename, after the `oib-rl_`
+#: prefix: `2`, `2.1`, `6`. Anchored, so an edition or a revision that follows
+#: cannot be read as part of the number.
+_OIB_FAMILY_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)?)(?:[_-]|$)")
+
+
+@dataclass(frozen=True)
+class NormFamily:
+    """One Richtlinie and every part of it the corpus actually holds.
+
+    ``key`` is the family number (``"2"``), ``members`` the part numbers in
+    numeric order (``("2", "2.1", "2.2", "2.3")``) and ``files`` the indexed
+    filename of each, parallel to ``members``. A family with one member is
+    still a family — that is what "OIB-RL 3 has no parts" looks like, and it is
+    a different statement from "we do not know".
+    """
+
+    key: str
+    members: tuple[str, ...]
+    files: tuple[str, ...]
+
+    @property
+    def label(self) -> str:
+        return f"OIB-Richtlinie {self.key}"
+
+
+def oib_family_member(file_name: str) -> str | None:
+    """The Richtlinie part number a corpus filename IS, or ``None``.
+
+    Only the Richtlinie itself. A Leitfaden, an Erläuterung, an Änderungs-
+    dokument, the Begriffsbestimmungen and the Zitierte Normen are not members:
+    they are read WITH a Richtlinie, and counting them as parts of it would
+    make an overview answer look complete for having opened a reading aid.
+    """
+    name = Path(file_name or "").name.lower()
+    if oib_doc_class(name) != "richtlinie":
+        return None
+    match = _OIB_FAMILY_NUMBER_RE.match(name[len("oib-rl_") :])
+    return match.group(1) if match else None
+
+
+def _member_sort_key(member: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in member.split("."))
+
+
+def oib_families(file_names: Iterable[str]) -> list[NormFamily]:
+    """Group indexed corpus filenames into families, in numeric order.
+
+    Duplicates collapse on the part number, so a corpus carrying two editions of
+    OIB-RL 2 still reports one member `2` — the family is about which
+    requirements exist, not about how many files carry them.
+    """
+    by_family: dict[str, dict[str, str]] = {}
+    for file_name in file_names:
+        member = oib_family_member(file_name)
+        if member is None:
+            continue
+        by_family.setdefault(member.split(".")[0], {}).setdefault(member, Path(file_name).name)
+    families: list[NormFamily] = []
+    for key in sorted(by_family, key=lambda k: int(k) if k.isdigit() else 0):
+        members = sorted(by_family[key], key=_member_sort_key)
+        families.append(NormFamily(key=key, members=tuple(members), files=tuple(by_family[key][m] for m in members)))
+    return families
 
 
 def _host_matches(source_url: str | None, domain: str) -> bool:

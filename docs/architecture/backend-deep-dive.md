@@ -666,6 +666,21 @@ in-scope shelves render as empty rather than being omitted. The same list is
 then shared by the researcher, clarifier, and deep-research paths for that turn
 — it is not re-fetched per node.
 
+The Basiswissen shelf is FOLDED to a count rather than ~39 filenames (it is a
+platform constant, and retrieval reaches it without names) — with one
+exception. The fold carries one line per **Richtlinien-Familie** naming the
+parts the corpus actually holds: `OIB-Richtlinie 2: 2, 2.1, 2.2, 2.3`. "OIB-
+Richtlinien 1–6" is a range and names no members, so an overview answer could
+open three parts of OIB 2, forget the fourth, and read as complete — fluent
+prose, every citation resolving, the gap invisible. Retrieval can recover
+filenames; it cannot recover which parts EXIST, because a search that never
+returns 2.3 looks exactly like a Richtlinie without one. Membership is derived
+from indexed filenames (`norm_registry.oib_families`, Richtlinien only — a
+Leitfaden or an Erläuterung is read WITH a Richtlinie and is not a part of it)
+and computed BEFORE the inventory cap, which drops base rows first. The rule
+that acts on it is in `<research_rules>`; `status:coverage:<family>` records
+listed against opened per turn so the miss rate is countable.
+
 **Prompt gating asymmetry — fixed 2026-07-16 (`77a4d7a`)**: the deep-research
 prompts (`agents/deep_researcher/prompts/planner.j2`,
 `agents/deep_researcher/prompts/orchestrator.j2`,

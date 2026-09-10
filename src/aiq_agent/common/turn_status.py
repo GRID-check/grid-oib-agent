@@ -817,6 +817,46 @@ def emit_escalation(reason: str | None = None) -> None:
 BUDGET_SLOT = "budget"
 
 
+#: Slot prefix for the family-coverage record. The family key is part of the
+#: STEP NAME, like ``status:checkpoint:N`` and for the same reason: a turn that
+#: touched OIB-RL 2 and OIB-RL 4 must leave two countable records, and two steps
+#: sharing a name collapse into one under the frontend's dedupe.
+COVERAGE_SLOT = "coverage"
+
+
+def emit_family_coverage(*, family: str, listed: int, opened: int) -> None:
+    """Record how much of a Richtlinien-Familie the turn actually read.
+
+    Technical channel, like :func:`emit_checkpoint`, and for the same kind of
+    operator question. "OIB-Richtlinie 2" is four documents — 2, 2.1, 2.2,
+    2.3 — and an overview answer that opened three of them reads exactly like
+    one that opened all four: the prose is fluent, every citation resolves, and
+    the missing part is missing in the one way nothing checks. The inventory
+    knows the family; the source registry knows what was read; the difference
+    is the miss rate, and it was not countable before this event existed.
+
+    Counts only, never filenames: which parts exist is a property of the corpus
+    and which were read is a number, and neither needs anybody's document names
+    in a trace.
+
+    Args:
+        family: The family key as the inventory prints it (``"2"``).
+        listed: Members the inventory named for this turn.
+        opened: Members a retrieval actually returned a passage from.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{COVERAGE_SLOT}:{family}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": f"{COVERAGE_SLOT}:{family}",
+            "family": family,
+            "listed": listed,
+            "opened": opened,
+        },
+    )
+
+
 #: Slot for the round-zero fan-out cap. Its OWN slot rather than
 #: :data:`BUDGET_SLOT`: this is the budget being PROTECTED, not exhausted, and
 #: collapsing the two under one step name would make the frontend's name dedupe

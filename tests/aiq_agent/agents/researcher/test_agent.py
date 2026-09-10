@@ -2661,6 +2661,11 @@ class TestADirectReplyMayStillEmitACard:
         # it: a model that is capped without being told reads the notice as a
         # failure and retries the search it just lost.
         assert "first round runs at most two searches" in rules
+        # A family question is not answered by opening most of the family. The
+        # inventory names the members; this is the rule that acts on them, and
+        # the escape hatch it leaves is naming a member, never describing one.
+        assert "open EVERY member the knowledge-base inventory lists" in rules
+        assert "nicht gelesen" in rules
         stimme = rendered.split("<stimme>")[1].split("</stimme>")[0]
         assert "Folgerung der Herleitung" in stimme
 

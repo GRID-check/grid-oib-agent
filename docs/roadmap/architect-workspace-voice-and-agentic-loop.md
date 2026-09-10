@@ -25,8 +25,16 @@
 >    parallel batch §3 identified as the real spender.
 > 4. **A before-and-after set.** `tests/fixtures/herleitung/loop_eval_questions.yaml`
 >    plus `scripts/loop_eval.py` (`task be:eval:loop`) measure rounds, locator
->    use, checkpoint source, cited-Punkt match and truncation. §8's "what done
->    would look like" as a number rather than a description.
+>    use, checkpoint source, cited-Punkt match, truncation and family coverage.
+>    §8's "what done would look like" as a number rather than a description.
+> 5. **Family completeness.** "OIB-Richtlinien 1–6" is a range and names no
+>    members, so „Was weißt du über die OIB 2?" could open 2, 2.1 and 2.2,
+>    forget 2.3, and read as complete. The folded Basiswissen shelf now carries
+>    one line per family listing the parts the corpus actually holds (derived
+>    from what is indexed, never listed in code), `<research_rules>` says every
+>    member must be opened before a family question is answered, and
+>    `status:coverage:<family>` counts listed against opened so the miss rate is
+>    a number.
 >
 > What is still open from §5's layer map: the Herleitung is drawn as a spine of
 > checkpoints, but the sources still hang off the round rather than off a

@@ -34,6 +34,16 @@ _listing_shelf: ContextVar[Shelf | None] = ContextVar("grid_listing_shelf", defa
 # could carry an extra argument.
 _inventory_drops: ContextVar[dict[Shelf | None, int]] = ContextVar("grid_inventory_drops", default={})
 
+# The Richtlinien-Familien the base shelf holds, for the turn being rendered.
+#
+# A contextvar for the same reason as the two above, plus one of its own: it is
+# derived from the base shelf BEFORE the cap runs. The cap drops base rows
+# first (user shelves are the priority), so a family list derived from what
+# survives would lose members on exactly the projects with the most files —
+# which is the same silent-incompleteness failure the cap notice exists to
+# prevent, one level down.
+_norm_families: ContextVar[tuple[Any, ...]] = ContextVar("grid_norm_families", default=())
+
 # User-facing shelves first; base last so the OIB corpus cannot evict them.
 _USER_SHELF_ORDER: tuple[Shelf, ...] = (Shelf.ARCHIV, Shelf.PROJECT, Shelf.SESSION)
 _INVENTORY_ORDER: tuple[Shelf, ...] = (*_USER_SHELF_ORDER, Shelf.BASE)
@@ -338,6 +348,40 @@ def get_inventory_drops() -> dict[Shelf | None, int]:
     return _inventory_drops.get()
 
 
+def set_norm_families(families: Sequence[Any] | None) -> None:
+    """Remember which Richtlinien-Familien the base shelf holds, or clear it."""
+    _norm_families.set(tuple(families or ()))
+
+
+def get_norm_families() -> tuple[Any, ...]:
+    """The turn's families (:class:`~aiq_agent.common.norm_registry.NormFamily`)."""
+    return _norm_families.get()
+
+
+def _family_lines(families: Sequence[Any]) -> list[str]:
+    """One line per Richtlinie, naming every part of it the corpus holds.
+
+    "OIB-Richtlinien 1–6" is a range, and a range names no members. OIB-RL 2 is
+    four documents — 2, 2.1, 2.2, 2.3 — and until this line the prompt never
+    said so, so „Was weißt du über die OIB 2?“ could open three of them and
+    read as complete. The rule that acts on this is in ``<research_rules>``;
+    this is the fact it needs.
+    """
+    if not families:
+        return []
+    lines = [
+        "Die Richtlinien-Familien dieses Korpus, mit allen Teilen, die tatsächlich "
+        "indiziert sind (nicht die Reihe „1–6“, sondern die Mitglieder):"
+    ]
+    lines += [f"- {family.label}: {', '.join(family.members)}" for family in families]
+    lines.append(
+        "Eine Frage nach einer ganzen Richtlinie ist erst beantwortet, wenn jedes hier "
+        "genannte Mitglied gelesen wurde. Ein nicht gelesenes Mitglied darf genannt, "
+        "aber nicht beschrieben werden."
+    )
+    return lines
+
+
 def set_listing_shelf(shelf: Shelf | str | None) -> None:
     """Remember the shelf this turn is listing, or clear it."""
     _listing_shelf.set(parse_shelf(shelf))
@@ -415,6 +459,10 @@ def _folded_base_lines(count: int) -> list[str]:
         f"Fragt der Nutzer, was auf diesem Regal liegt: sage, dass es {n} des "
         "OIB-Korpus sind und du sie über die Suche erreichst. Erfinde keine "
         "Dateinamen.",
+        # The one thing the fold may NOT leave out. Everything above is a shape
+        # retrieval can recover; which parts a Richtlinie HAS is not — a search
+        # that never returns 2.3 looks exactly like a Richtlinie that has none.
+        *_family_lines(get_norm_families()),
     ]
 
 
