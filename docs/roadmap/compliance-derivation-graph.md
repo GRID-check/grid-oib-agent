@@ -257,7 +257,7 @@ The quote-polarity fix from the first review still applies to every passage
 the tree cites. The eval suite changes character: for the applicability and
 rule-engine halves, the golden set is `(facts, question) → expected
 requirement ids + result`, testable in CI without any model, which is the
-measurement gate ADR-0044 wanted and could not enforce on a similarity
+measurement gate ADR-0058 wanted and could not enforce on a similarity
 pipeline.
 
 ### 4.4 Memory: a ledger, decisions and procedures, not notes

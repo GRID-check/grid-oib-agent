@@ -102,7 +102,7 @@ the TTL-cleanup lock — is a cliff).
 
 ## Landed in this PR
 - `idx_job_access_org`, `idx_job_events_created_at` in the authoritative runtime
-  schema-ensure (access.py / event_store.py) — see ADR-0027 for why they live there
+  schema-ensure (access.py / event_store.py) — see ADR-0056 for why they live there
   and not in the infra bootstraps.
 - `ingest_jobs` retention (dead `delete()` wired).
 - Deep-run checkpoint purge on completion (`runner._purge_deep_checkpoint`, now

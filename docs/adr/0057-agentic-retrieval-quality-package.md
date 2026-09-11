@@ -1,4 +1,4 @@
-# ADR-0039: Agentic retrieval quality package (filters, hybrid RRF, LLM-judge reranker)
+# ADR-0057: Agentic retrieval quality package (filters, hybrid RRF, LLM-judge reranker)
 
 - **Status:** Accepted
 - **Date:** 2026-08-03

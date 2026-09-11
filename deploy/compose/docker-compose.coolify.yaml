@@ -153,6 +153,12 @@ services:
       # internal frontend->backend calls are always classified internal, so this
       # never breaks in-cluster traffic.
       - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
+      # The commit this deployment is running. Stamped into the image as a
+      # build arg by publish-images.yml, so it is normally already set inside
+      # the container and this line only matters for a locally built or
+      # hand-tagged image. It appears in the `[boot]` log line and on the health
+      # endpoints, and it is what makes a pilot report nameable.
+      - GRID_GIT_SHA=${GRID_GIT_SHA:-}
       # Defense-in-depth: hostnames the backend treats as external. Bare domain,
       # comma-separated, no scheme/port — matched against the request Host header
       # (see auth/middleware.py::_load_external_hostnames). If port 8000 is ever
@@ -507,8 +513,20 @@ services:
       # ── Shared cache (Dragonfly, ADR-0020) ──
       - REDIS_URL=redis://dragonfly:6379/0
       - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
+      # The commit this deployment is running. Stamped into the image as a
+      # build arg by publish-images.yml, so it is normally already set inside
+      # the container and this line only matters for a locally built or
+      # hand-tagged image. It appears in the `[boot]` log line and on the health
+      # endpoints, and it is what makes a pilot report nameable.
+      - GRID_GIT_SHA=${GRID_GIT_SHA:-}
       # ── Agent Skills (ADR-0046): dark-launch gate + save-time cron validation ──
       - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
+      # Flag ENFORCEMENT itself. It was on the skill-scheduler and NOT here,
+      # which meant `enforcementOn()` in the BFF read an unset variable no
+      # matter what the operator had configured — the frontend and the
+      # scheduler could disagree about whether WorkOS flags decide anything.
+      # Same default, so nothing moves until an operator sets it.
+      - GRID_ENFORCE_FEATURE_FLAGS=${GRID_ENFORCE_FEATURE_FLAGS:-false}
       - GRID_SKILL_MIN_INTERVAL_MINUTES=${GRID_SKILL_MIN_INTERVAL_MINUTES:-15}
       # ── Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox ──
       # Dark-launch gate, default-deny: with it off the inbox nav entry, the

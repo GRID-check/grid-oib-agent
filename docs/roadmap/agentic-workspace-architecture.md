@@ -46,7 +46,7 @@ that closes a loop is named where it ran.
 | A | Quote verification refuses a skipped or inserted whole word, whatever the word, at any length; sub-word OCR noise stays tolerated | `common/citation_verification.py` |
 | A | The Punkt and the retrieval score are parsed off the grounding block, fold under page dedup, reach the wire and the stored message, and the locus reads "Pkt. 3.5.2 · S. 7" | `citation_verification.py`, `features/chat/lib/citations/*`, `SourcePreview.tsx`, `CitationPeek.tsx` |
 | A | The turn's retrieval query survives the storage prune and the server whitelist, so a reloaded or shared thread keeps what was searched | `prune-message-for-storage.ts`, `message-provenance.ts`, `turn-events.ts` |
-| A · pass | The structural retrievability harness runs in CI as a gate (`task be:eval:retrieval`, 95% floor, 98.3% measured). *(Retired 2026-09-09: the corpus became operator-provided and gitignored, so no CI checkout can measure it. The harness stays as a local tool — [ADR-0044, Update (2026-09-09)](../adr/0044-retrieval-correctness-and-the-measurement-gate.md).)* | `Taskfile.yml`, `oib_retrieval_eval/runner.py` |
+| A · pass | The structural retrievability harness runs in CI as a gate (`task be:eval:retrieval`, 95% floor, 98.3% measured). *(Retired 2026-09-09: the corpus became operator-provided and gitignored, so no CI checkout can measure it. The harness stays as a local tool — [ADR-0058, Update (2026-09-09)](../adr/0058-retrieval-correctness-and-the-measurement-gate.md).)* | `Taskfile.yml`, `oib_retrieval_eval/runner.py` |
 | B | A background run carries the project, organization and user identity, fetches the live memory digest, composes it into the agent's context and hands the reflection pass a real digest; the fire path builds the digest and evaluates the reflection flag | `aiq_api/jobs/runner.py`, `routes/skills.py`, `lib/jobs/service.ts` |
 | B | A finished or failed run tells the job's creator: `job.completed` / `job.failed` inbox items, a `project` inbox target, an internal outcome route the worker calls from its terminal arms | `lib/inbox/*`, `app/api/internal/jobs/[jobId]/outcome`, `aiq_api/jobs/outcome_notify.py` |
 | B | One personal-data guard on the write path both memory writers share; a date is no longer dropped as a phone number | `knowledge/project_memory.py` |
@@ -235,7 +235,7 @@ What remains, ranked by consequence:
    calls by description. Multi-query and decomposition are missing while the
    fusion machinery to merge them is written and tested. `register.py:66`,
    `hybrid.py:29`.
-4. **The measurement gate is doctrine, not enforcement.** ADR-0044 rule 7
+4. **The measurement gate is doctrine, not enforcement.** ADR-0058 rule 7
    forbids tuning on judgement once the harness exists. It exists. No CI job
    runs it. The structural arm is model-free and offline, so a regression
    gate costs one Taskfile target and one workflow step.

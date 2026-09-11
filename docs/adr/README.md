@@ -87,7 +87,6 @@ Consequences, where a reader looks for them.
 | [0025](0025-norm-registry.md) | Norm catalog — flat curated pointers + prose legal notes, admin-managed | Accepted |
 | [0026](0026-unified-source-kind-model.md) | Unified source-kind model for citations, Herleitung, and reports | Accepted |
 | [0027](0027-platform-workflow-templates.md) | Platform-managed workflow templates | Superseded by ADR-0046 |
-| [0027](0027-unified-ingest-pipeline.md) | Unified document processing pipeline with concurrent VLM enrichment (duplicate number — see note below) | Accepted |
 | [0028](0028-horizontal-agent-scaling-conversation-affinity.md) | Horizontally scaling the aiq-agent container via conversation affinity | Accepted |
 | [0029](0029-aspire-dashboard-telemetry.md) | Aspire standalone dashboard as the live telemetry pane | Accepted |
 | [0030](0030-interactive-card-decisions-persist-on-the-message.md) | Interactive-card decisions persist on the message | Accepted |
@@ -99,18 +98,15 @@ Consequences, where a reader looks for them.
 | [0036](0036-when-the-agent-answers-in-a-shared-thread.md) | When the agent answers in a shared thread (engagement modes, not judgement) | Accepted |
 | [0037](0037-answer-provenance-persists-on-the-message.md) | An answer's provenance — and its open questions — persist on the message | Accepted |
 | [0038](0038-one-authorization-catalog-and-decision-point.md) | One authorization catalog, one decision point, and a coverage gate | Accepted |
-| [0039](0039-agentic-retrieval-quality-package.md) | Agentic retrieval quality package (filters, hybrid RRF, LLM-judge reranker) | Accepted |
 | [0039](0039-live-shared-turns-and-composing-presence.md) | Live shared turns and composing presence | Accepted |
 | [0040](0040-layered-rate-limiting-and-load-protection.md) | Layered rate limiting — the edge limits traffic, the app limits consumption | Accepted |
 | [0041](0041-row-level-security-for-tenant-isolation.md) | Row-level security for tenant isolation | Accepted |
 | [0042](0042-object-storage-durability-and-quota.md) | Object-storage durability — backup, quota, and least privilege | Proposed |
 | [0043](0043-seaweedfs-split-topology-and-per-tenant-buckets.md) | SeaweedFS split topology, a Postgres filer store, and a bucket per tenant | Proposed |
 | [0044](0044-langfuse-durable-llm-observability.md) | Langfuse as the durable LLM-observability backend | Proposed |
-| [0044](0044-retrieval-correctness-and-the-measurement-gate.md) | Retrieval correctness and the measurement gate (duplicate number) | Proposed |
 | [0045](0045-ifc-models-as-a-queryable-building-not-a-document.md) | IFC models are a queryable building, not another document | Accepted |
 | [0046](0046-agent-skills.md) | Agent skills — user-selected, progressive-disclosure instruction packages | Proposed |
 | [0047](0047-document-shelf-travels-as-data.md) | A document's shelf travels as data, not as a name or a label | Proposed |
-| [0047](0047-assignment-is-not-access.md) | Assignment is not access (and not provenance) | Proposed |
 | [0048](0048-tool-schemas-stay-with-the-provider.md) | Tool schemas stay with the provider, and a namespace is what makes that true | Proposed |
 | [0049](0049-folders-travel-as-a-materialised-path.md) | Folders reach the backend as a materialised path, mirrored on move | Proposed |
 | [0050](0050-scoped-agent-onboarding-guides.md) | Agent onboarding guides are scoped per service and bridged into Claude Code by import | Accepted |
@@ -119,12 +115,20 @@ Consequences, where a reader looks for them.
 | [0053](0053-credits-price-list-and-usd-cost.md) | Tenants see credits, the platform sees USD as charged, and a margin multiplier sits between them | Accepted |
 | [0054](0054-document-versions-and-the-publish-door.md) | A document has versions, and only a person opens the publish door | Accepted |
 | [0055](0055-api-first-workspace-primitives.md) | A workspace primitive is an HTTP route with a typed client, and every consumer is a client of it | Accepted |
+| [0056](0056-unified-ingest-pipeline.md) | Unified document processing pipeline with concurrent VLM enrichment | Accepted |
+| [0057](0057-agentic-retrieval-quality-package.md) | Agentic retrieval quality package (filters, hybrid RRF, LLM-judge reranker) | Accepted |
+| [0058](0058-retrieval-correctness-and-the-measurement-gate.md) | Retrieval correctness, structure-aware chunking, and the measurement gate | Proposed |
+| [0059](0059-assignment-is-not-access.md) | Assignment is not access (and not provenance) | Proposed |
 
-> Note: two ADRs were independently numbered 0027, two more 0039, and two more
-> 0047. Each collision is recorded rather than renumbered so existing links
-> keep resolving (the status column is authoritative;
-> `0027-platform-workflow-templates` is superseded, the others are in effect).
-> Number the next new ADR from the highest in this table.
+> Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
+> time because two people read the next number off this index instead of off
+> the directory. The four later records were renumbered to 0056–0059 and
+> `scripts/check_adrs.py` now fails on any repeat, so this table can no longer
+> disagree with the directory about which record a number names. The renumbered
+> four keep the pre-template shape they were written in — a number is metadata,
+> a decision is not, so renumbering one does not rewrite it.
+> Take the next number from `python3 scripts/check_adrs.py --next`, which reads
+> the directory, not from this table.
 
 ## Related documents
 

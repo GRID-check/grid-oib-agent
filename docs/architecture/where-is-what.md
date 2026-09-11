@@ -24,10 +24,10 @@ does not exist, so a moved file is caught; a missing row is not.
 | Author and ref-kind vocabulary | `frontends/ui/src/lib/documents/document-authors.ts` — `AUTHORED_REF_KINDS` | [`document-roles.md`](document-roles.md) | ADR-0032 |
 | The "written by a machine" marking in the bytes | `frontends/ui/src/lib/ai-provenance.ts` — `aiProvenanceMarking` | [`docs/user-guides/agent-authored-reports.md`](../user-guides/agent-authored-reports.md) | — |
 | Documents table | `frontends/ui/src/lib/db/schema/documents.ts` | [`docs/database/schema.md`](../database/schema.md) | ADR-0017 |
-| Status vocabulary (five spellings of "indexed", plus `stored`) | `frontends/ui/src/lib/documents/document-status.ts` — `DOCUMENT_STATUS_FACTS` | [`docs/technical-reference/document-ingestion.md`](../technical-reference/document-ingestion.md) | ADR-0027 (unified ingest) |
+| Status vocabulary (five spellings of "indexed", plus `stored`) | `frontends/ui/src/lib/documents/document-status.ts` — `DOCUMENT_STATUS_FACTS` | [`docs/technical-reference/document-ingestion.md`](../technical-reference/document-ingestion.md) | ADR-0056 (unified ingest) |
 | Status reconciliation against the backend job | `frontends/ui/src/lib/documents/reconcile-status.ts` | same | — |
 | Upload, list, search | `frontends/ui/src/lib/documents/service.ts` — `uploadDocument` | [`docs/ux/file-upload-and-explorer.md`](../ux/file-upload-and-explorer.md) | ADR-0017 |
-| Ingest dispatch | `frontends/ui/src/lib/documents/service.ts` — `dispatchDocument` | [`docs/technical-reference/document-ingestion.md`](../technical-reference/document-ingestion.md) | ADR-0027 |
+| Ingest dispatch | `frontends/ui/src/lib/documents/service.ts` — `dispatchDocument` | [`docs/technical-reference/document-ingestion.md`](../technical-reference/document-ingestion.md) | ADR-0056 |
 | Collection file ref and chunk purge | `frontends/ui/src/lib/documents/collection-file-ref.ts` — `collectionFileRef`, `purgeIngestedChunks` | [`deletion-pipeline.md`](deletion-pipeline.md) | ADR-0011 |
 | Folders as a materialised path | `frontends/ui/src/lib/db/schema/project-folders.ts` | [`docs/database/schema.md`](../database/schema.md) | ADR-0049 |
 | Roles on a document | `frontends/ui/src/lib/db/schema/document-roles.ts` | [`document-roles.md`](document-roles.md) | ADR-0032 |
@@ -168,8 +168,8 @@ does not exist, so a moved file is caught; a missing row is not.
 | Answer envelope, Python | `src/aiq_agent/common/answer_envelope.py` — `extract_answer_envelope`, `gate_answer_meta` | [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md) | ADR-0037 |
 | Answer envelope, TypeScript sanitizer | `frontends/ui/src/lib/conversations/message-answer-meta.ts` — `sanitizeAnswerMeta` | same | ADR-0037 |
 | Answer envelope, shared wire fixture | `tests/fixtures/answer_meta/wire_payload.json` | same | ADR-0037 |
-| Answer repair after verification | `src/aiq_agent/agents/piloti/repair.py` — `repair_answer` | [`citation-system-audit-2026-07.md`](citation-system-audit-2026-07.md) | ADR-0044 (retrieval correctness) |
-| Confidence markers and the overconfidence guard | `src/aiq_agent/agents/piloti/markers.py` | [`quote-verification-calibration-2026-07.md`](quote-verification-calibration-2026-07.md) | ADR-0044 (retrieval correctness) |
+| Answer repair after verification | `src/aiq_agent/agents/piloti/repair.py` — `repair_answer` | [`citation-system-audit-2026-07.md`](citation-system-audit-2026-07.md) | ADR-0058 (retrieval correctness) |
+| Confidence markers and the overconfidence guard | `src/aiq_agent/agents/piloti/markers.py` | [`quote-verification-calibration-2026-07.md`](quote-verification-calibration-2026-07.md) | ADR-0058 (retrieval correctness) |
 | Turn status steps | `src/aiq_agent/common/turn_status.py` — `emit_status` | [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md) | ADR-0009 |
 | Trace lanes in the UI | `frontends/ui/src/features/chat/lib/trace-lanes.ts` — `deriveTraceLanes` | [`docs/design/streaming-chat-answer.md`](../design/streaming-chat-answer.md) | ADR-0026 |
 | Turn dispatch and streaming | `src/aiq_agent/turn/dispatch.py`, `src/aiq_agent/turn/streaming.py` | [`docs/technical-reference/chat-flow.md`](../technical-reference/chat-flow.md) | ADR-0009 |
@@ -182,14 +182,14 @@ does not exist, so a moved file is caught; a missing row is not.
 | Concept | Owning code | Doc of record | Decision |
 |---|---|---|---|
 | Knowledge retrieval tool | `sources/knowledge_layer/src/register.py` — `knowledge_retrieval` | [`rag-system-audit-2026-08.md`](rag-system-audit-2026-08.md) | ADR-0039 (retrieval quality) |
-| Ingestion and chunking backends | `sources/knowledge_layer/src/llamaindex/adapter.py` | [`docs/technical-reference/document-ingestion.md`](../technical-reference/document-ingestion.md) | ADR-0027 |
+| Ingestion and chunking backends | `sources/knowledge_layer/src/llamaindex/adapter.py` | [`docs/technical-reference/document-ingestion.md`](../technical-reference/document-ingestion.md) | ADR-0056 |
 | Visual ingestion | `sources/knowledge_layer/src/llamaindex/visual_analysis.py` | [`visual-ingestion.md`](visual-ingestion.md) | — |
 | Data-source registry (the UI toggles) | `src/aiq_agent/common/data_source_registry.py` | [`docs/user-guides/knowledge-search.md`](../user-guides/knowledge-search.md) | ADR-0026 |
 | Source kinds, Python | `src/aiq_agent/common/source_kinds.py` — `SOURCE_KINDS`, `kind_for_lane` | [`rag-system-audit-2026-08.md`](rag-system-audit-2026-08.md) | ADR-0026 |
 | Source kinds, TypeScript mirror | `frontends/ui/src/features/chat/lib/source-kinds.ts` — `KIND_TO_SIGNAL`, `kindForLane` | same | ADR-0026 |
 | `doc_class` (human-set, beats every filename guess) | `src/aiq_agent/knowledge/document_classification.py`; UI in `frontends/ui/src/lib/knowledge/doc-class.ts` | [`docs/superpowers/specs/2026-07-17-norm-registry-design.md`](../superpowers/specs/2026-07-17-norm-registry-design.md) | ADR-0025 |
 | Norm registry lanes | `src/aiq_agent/common/norm_registry.py` | same | ADR-0025 |
-| Citation verification | `src/aiq_agent/common/citation_verification.py` | [`citation-system-audit-2026-07.md`](citation-system-audit-2026-07.md) | ADR-0044 (retrieval correctness) |
+| Citation verification | `src/aiq_agent/common/citation_verification.py` | [`citation-system-audit-2026-07.md`](citation-system-audit-2026-07.md) | ADR-0058 (retrieval correctness) |
 | Citation persistence and export | `frontends/ui/src/lib/citations/service.ts` | same | ADR-0037 |
 | IFC tools for the agent | `src/aiq_agent/tools/bim/register.py` — `ifc_query` | [`docs/user-guides/bim-models.md`](../user-guides/bim-models.md) | ADR-0045 |
 | IFC models in the BFF | `frontends/ui/src/lib/bim/model-service.ts` | same | ADR-0045 |

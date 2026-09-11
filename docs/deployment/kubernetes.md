@@ -1794,7 +1794,7 @@ Agent turns appear as `CHAIN` rows (the `<workflow>` root, per-agent steps) and
 `GENERATION` rows named by model id; token usage rides on each `GENERATION` in
 `usage_details`. Each knowledge search adds a `retrieve.knowledge_search`
 observation carrying the query, the collections searched, the budgets and the
-picked chunk ids/files/scores — metadata only, no chunk text (ADR-0044,
+picked chunk ids/files/scores — metadata only, no chunk text (ADR-0058,
 Amendment 2).
 
 The frontend tier exports **no request spans** (ADR-0029, Amendment 5): one

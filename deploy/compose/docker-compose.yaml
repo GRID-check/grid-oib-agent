@@ -364,6 +364,12 @@ services:
     command: ["node", "server.js"]
     environment:
       - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
+      # The commit this deployment is running. Stamped into the image as a
+      # build arg by publish-images.yml, so it is normally already set inside
+      # the container and this line only matters for a locally built or
+      # hand-tagged image. It appears in the `[boot]` log line and on the health
+      # endpoints, and it is what makes a pilot report nameable.
+      - GRID_GIT_SHA=${GRID_GIT_SHA:-}
       # APP_ENV lets the internal memory route distinguish dev from prod: the
       # well-known dev default GRID_INTERNAL_API_TOKEN is only accepted when
       # APP_ENV is development/dev/local (NODE_ENV is always 'production' in
@@ -431,8 +437,20 @@ services:
       # the WS-upgrade rate limiter. Unset = per-process in-memory fallback.
       - REDIS_URL=${REDIS_URL:-redis://dragonfly:6379/0}
       - GRID_WS_UPGRADE_RATE_LIMIT=${GRID_WS_UPGRADE_RATE_LIMIT:-30}
+      # The commit this deployment is running. Stamped into the image as a
+      # build arg by publish-images.yml, so it is normally already set inside
+      # the container and this line only matters for a locally built or
+      # hand-tagged image. It appears in the `[boot]` log line and on the health
+      # endpoints, and it is what makes a pilot report nameable.
+      - GRID_GIT_SHA=${GRID_GIT_SHA:-}
       # ── Agent Skills (ADR-0046): dark-launch gate + save-time cron validation ──
       - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
+      # Flag ENFORCEMENT itself. It was on the skill-scheduler and NOT here,
+      # which meant `enforcementOn()` in the BFF read an unset variable no
+      # matter what the operator had configured — the frontend and the
+      # scheduler could disagree about whether WorkOS flags decide anything.
+      # Same default, so nothing moves until an operator sets it.
+      - GRID_ENFORCE_FEATURE_FLAGS=${GRID_ENFORCE_FEATURE_FLAGS:-false}
       - GRID_SKILL_MIN_INTERVAL_MINUTES=${GRID_SKILL_MIN_INTERVAL_MINUTES:-15}
       # ── Collaboration (ADR-0032…0035): shared chats, @-mentions, the inbox ──
       # Dark-launch gate, default-deny: with it off the inbox nav entry, the

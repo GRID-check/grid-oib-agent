@@ -8,7 +8,7 @@ Branch: `claude/piloti-filesystem-write-design-mftg4d`
 Related: [file-native work objects](2026-08-13-file-native-ownership-design.md)
 (merged, PR #416), [ADR-0032](../../adr/0032-shareable-resource-model.md),
 [ADR-0042](../../adr/0042-object-storage-durability-and-quota.md),
-[ADR-0047](../../adr/0047-assignment-is-not-access.md),
+[ADR-0047](../../adr/0059-assignment-is-not-access.md),
 [ADR-0038](../../adr/0038-one-authorization-catalog-and-decision-point.md),
 [ADR-0011](../../adr/0011-deletion-pipeline.md).
 Long-form exploration this narrows:
@@ -489,7 +489,7 @@ deployment, which is why they are recorded rather than folded into a fix:
 
 - `docs/database/schema.md` — the columns, the CHECK, the partial index and the
   folder uniqueness.
-- [ADR-0047 addendum](../../adr/0047-assignment-is-not-access.md) — provenance as
+- [ADR-0047 addendum](../../adr/0059-assignment-is-not-access.md) — provenance as
   a **fourth** relation, never rendered as responsibility; the `document` purger
   still unimplemented (so grace/hold semantics do not cover these rows, while
   immediate erasure does, via `deleteDocument`); ADR-0042's backup posture still
@@ -524,7 +524,7 @@ stopped its own architects uploading plans.
 
 `project:documents:generate` is now required **in addition** at the seam, never
 instead — a conjunction, argued at the checks themselves and recorded in
-[ADR-0047's third addendum](../../adr/0047-assignment-is-not-access.md): that ADR
+[ADR-0047's third addendum](../../adr/0059-assignment-is-not-access.md): that ADR
 adds relations rather than substituting them; a standalone `generate` would let a
 role write bytes it cannot upload and cannot delete, rebuilding in the catalog
 the wider principal decision 4 deleted from the request path; and the conjunction

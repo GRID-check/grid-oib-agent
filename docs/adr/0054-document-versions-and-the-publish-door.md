@@ -331,7 +331,7 @@ wire.
   `frontends/ui/src/lib/documents/reviewers.ts`.
 - The design of record:
   [`../roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md).
-- What it amends: [ADR-0047](0047-assignment-is-not-access.md).
+- What it amends: [ADR-0047](0059-assignment-is-not-access.md).
 - The API-first doctrine this ships under: [ADR-0055](0055-api-first-workspace-primitives.md).
 - **Revisit when** a tenant asks for retention on superseded versions, or when
   the first non-Markdown deliverable needs a review round — the first is a

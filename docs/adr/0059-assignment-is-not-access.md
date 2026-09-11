@@ -1,4 +1,4 @@
-# ADR-0047: Assignment is not access (and not provenance)
+# ADR-0059: Assignment is not access (and not provenance)
 
 - **Status:** Proposed
 - **Date:** 2026-08-13

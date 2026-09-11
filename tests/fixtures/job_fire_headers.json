@@ -1,0 +1,34 @@
+{
+  "$schema": "grid-job-fire-headers-contract-v1",
+  "description": "Cross-service wire contract for the JOB FIRE PATH: the headers the BFF puts on POST /v1/internal/skills/submit and the ones the Python worker tier requires to be there. ADR-0046's Risks section records why this file exists: the route guard read `x-internal-token` while every caller in the repo sent `x-grid-internal-token`, so every scheduled run 403'd in a real deployment — and nothing caught it, because the two sides are tested separately and each test pinned its own spelling. Two tests that agree with themselves prove nothing about a boundary. TS: `frontends/ui/tests/lib/jobs/fire-headers.test.ts` submits a real run through `submitAgentRun`'s builders and asserts the headers that actually go out cover every name below. Python: `tests/aiq_agent/test_fire_path_contract.py` asserts each set the backend requires is a SUBSET of the names below, read off the modules themselves (`routes/internal_auth._TOKEN_HEADERS`, `context_envelope._INTERNAL_TOKEN_HEADER_NAMES`, `jobs/runner.WORKER_IDENTITY_HEADERS`, `project_context.REQUEST_CONTEXT_ENVELOPE_HEADER`). Either side moving a name alone fails one of the two. Every name here is lower-case; HTTP header names are case-insensitive and both tests compare case-insensitively, but the file states one spelling so a diff never turns on casing. The twin at `frontends/ui/tests/fixtures/job_fire_headers.json` is byte-identical, for the reason `grid_request_context.json` gives: the frontend typecheck/test Docker build context is scoped to `frontends/ui` and cannot COPY a file from outside it.",
+  "route": "/v1/internal/skills/submit",
+
+  "sentByBff": [
+    "content-type",
+    "x-grid-internal-token",
+    "x-grid-organization-id",
+    "x-grid-user-id",
+    "x-grid-project-id",
+    "x-grid-collection-scope",
+    "x-grid-project-context",
+    "x-grid-project-memory",
+    "x-grid-model-overrides",
+    "x-grid-budget",
+    "x-grid-feature-memory-reflection",
+    "x-grid-request-context",
+    "x-grid-request-context-sig"
+  ],
+  "sentByBffComment": "Everything a fully-populated fire carries: `content-type` and the service token from `lib/jobs/backend-client.ts::submitJob`, the rest from `buildGridRequestContextWireHeaders` in `lib/jobs/service.ts::submitAgentRun`. Values are omitted rather than sent empty when the corresponding lookup returns nothing (an org with no model overrides sends no `x-grid-model-overrides`), so this is the CEILING of what goes out, and `requiredOnEveryFire` below is the floor. `x-grid-disabled-sources` is deliberately absent: the fire path passes no `disabledSources` — a job's sources are its own column.",
+
+  "requiredOnEveryFire": ["x-grid-internal-token"],
+  "requiredOnEveryFireComment": "What the ROUTE refuses without. `routes/internal_auth._require_internal_token` is the whole gate on this path: no session, no JWT, one shared secret. This is the exact set whose spelling broke every scheduled run once.",
+
+  "internalTokenAcceptedSpellings": ["x-grid-internal-token", "x-internal-token"],
+  "internalTokenAcceptedSpellingsComment": "The guard and the envelope middleware both accept either, and the BFF sends the first. Two spellings are one more than anyone wants, and the reason they both stay is in `internal_auth.py`: the middleware already accepted both, so narrowing to one now would be a second flag day on the same header. A NEW caller sends `x-grid-internal-token`.",
+
+  "contextEnvelope": ["x-grid-request-context", "x-grid-request-context-sig"],
+  "contextEnvelopeComment": "The signed envelope (backlog T3-9). `context_envelope.GridContextEnvelopeMiddleware` enforces it on this path for WorkOS-authenticated callers and EXEMPTS internal-token service calls — so the fire path is not refused without it. The BFF sends it anyway, and this contract keeps it that way: it is what the worker reads the run's tenancy out of when the individual headers are eventually dropped, and an exemption is a bad thing to discover you were relying on. The signature header is omitted when `GRID_INTERNAL_API_TOKEN` is unset (dev), which is why it is listed here and not in `requiredOnEveryFire`.",
+
+  "workerIdentityHeaders": ["x-grid-project-id", "x-grid-organization-id", "x-grid-user-id"],
+  "workerIdentityHeadersComment": "`jobs/runner.WORKER_IDENTITY_HEADERS` — the headers the worker SYNTHESISES onto the tool context from the run's identity, so a project-scoped tool inside an unattended run reads the same names a chat turn does. They are here because they must be spelled identically to what the BFF sends on the wire: `remember` answered 'no project in scope' on every deep-research run when they were absent, and it would answer the same on a rename that only one side made."
+}

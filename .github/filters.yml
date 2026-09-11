@@ -62,7 +62,7 @@ backend:
 # frontends/benchmarks/oib_retrieval) are all inside `backend:` — the last of
 # them only since the `frontends/benchmarks/**` line above, added here so
 # removing the filter did not leave the harness watched by nothing. So nothing
-# lost a filter; only the job went. See ci.yml's `ci-ok` comment and ADR-0044's
+# lost a filter; only the job went. See ci.yml's `ci-ok` comment and ADR-0058's
 # "Update (2026-09-09)".
 frontend:
   - 'frontends/ui/**'
@@ -95,6 +95,18 @@ web:
   - '.github/actions/**'
 infra:
   - 'deploy/**'
+  - 'Taskfile.yml'
+  - '.github/workflows/ci.yml'
+  - '.github/filters.yml'
+  - '.github/actions/**'
+# The two standalone IFC packages (ADR-0045). Their own family rather than a
+# line in `backend:` or `frontend:`, because they are outside BOTH workspaces —
+# own package-lock.json, own uv.lock, own toolchains — so nothing the backend or
+# frontend jobs install can run them, and a `packages/`-only PR has no reason to
+# pay for a Next.js build. The `packages` job is ~4 minutes, essentially all of
+# it packages/ifc-spatial-py, which is why it is filtered at all.
+packages:
+  - 'packages/**'
   - 'Taskfile.yml'
   - '.github/workflows/ci.yml'
   - '.github/filters.yml'

@@ -1,4 +1,4 @@
-# ADR-0027: Unified Document Processing Pipeline with Concurrent VLM Enrichment
+# ADR-0056: Unified Document Processing Pipeline with Concurrent VLM Enrichment
 
 - **Status:** Accepted
 - **Date:** 2026-07-27

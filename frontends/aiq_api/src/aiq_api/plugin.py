@@ -64,6 +64,7 @@ from .routes.oib import add_oib_routes
 from .routes.ris import add_ris_routes
 from .routes.skill_review import add_skill_review_routes
 from .routes.skills import add_skill_routes
+from .startup_banner import log_boot_line
 from .websocket_reconnect import configure_websocket_auth
 from .websocket_reconnect import install_reconnectable_handler
 from .websocket_reconnect import send_stage_frame
@@ -217,6 +218,16 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         from aiq_agent.common.logging_utils import suppress_noisy_dependency_logs
 
         suppress_noisy_dependency_logs()
+
+        # What this process is, before it registers a single route (ledger item
+        # 1): the deployed commit and the effective value of the four gates, on
+        # one greppable line. A pilot report that arrives a week later is
+        # otherwise unanswerable — nobody could say which build ran, and three
+        # of the four gates default off, so "broken" and "never enabled" look
+        # the same from outside. Same line shape as the BFF's, deliberately;
+        # see startup_banner's module docstring, including why the flags this
+        # tier reports are its own rather than the frontend's.
+        log_boot_line()
 
         app = super().build_app()
 
