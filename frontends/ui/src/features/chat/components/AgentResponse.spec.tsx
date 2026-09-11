@@ -219,7 +219,7 @@ describe('AgentResponse', () => {
     expect(screen.getByText('Answer')).toBeInTheDocument()
   })
 
-  test('renders SummaryCard and LegalBasisCard from cards prop', () => {
+  test('renders SummaryCard framed and an unplaced legal_basis flat from cards prop', () => {
     const cards = [
       {
         type: 'summary' as const,
@@ -239,15 +239,20 @@ describe('AgentResponse', () => {
       },
     ]
 
-    render(<AgentResponse content="Response with cards" cards={cards} />)
+    const { container } = render(<AgentResponse content="Response with cards" cards={cards} />)
 
     expect(screen.getByText('Summary Title')).toBeInTheDocument()
     expect(screen.getByText('Summary content')).toBeInTheDocument()
     expect(screen.getByText('Point one')).toBeInTheDocument()
+    // An unplaced legal_basis is not a fallback-grid item: it renders flat
+    // above the prose (`EvidenceBlock`) — eyebrow, law, quote and disclaimer,
+    // but never the framed card's plain-language summary.
     expect(screen.getByText('Legal basis')).toBeInTheDocument()
     expect(screen.getByText('GDPR')).toBeInTheDocument()
-    expect(screen.getByText('Summary of the legal basis')).toBeInTheDocument()
     expect(screen.getByText('Original legal text')).toBeInTheDocument()
+    expect(screen.queryByText('Summary of the legal basis')).not.toBeInTheDocument()
+    const text = container.textContent ?? ''
+    expect(text.indexOf('Legal basis')).toBeLessThan(text.indexOf('Response with cards'))
   })
 
   // Cards used to open the answer, which is the one place they cannot help: two

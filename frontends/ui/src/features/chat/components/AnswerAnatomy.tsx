@@ -30,19 +30,33 @@ function showsVerdictMasthead(kind: AnswerKind | undefined, verdict: GridCard | 
 }
 
 /**
- * The answer's masthead: the verdict (when one was earned) and the summary —
- * the whole answer in one to two sentences, set at the lede's own type so the
- * standfirst IS the lede (AgentResponse suppresses the first-paragraph lede
- * styling when a summary is present, so the emphasis exists exactly once).
- * One hairline closes the whole header over the prose, whatever it holds.
+ * The answer's masthead: the verdict (when one was earned), else the topic —
+ * and the summary, the whole answer in one to two sentences, set at the lede's
+ * own type so the standfirst IS the lede (AgentResponse suppresses the
+ * first-paragraph lede styling when a summary is present, so the emphasis
+ * exists exactly once). One hairline closes the whole header over the prose,
+ * whatever it holds.
+ *
+ * The title is the verdict's value (the large figure, rendered by
+ * `VerdictHeaderCard`) or the topic (the answer-level `card-headline` step —
+ * the same size the summary standfirst sets, told apart by weight). The
+ * context rides under the title in muted ink — under a title, so a context
+ * with no title renders no line. No eyebrow on the topic path: the one value
+ * the contract carries would print the same words twice stacked, and a kicker
+ * that repeats its headline is decoration, not orientation.
  */
 export const AnatomyMasthead: FC<{
   verdict?: GridCard
   summary?: string
+  topic?: string
+  context?: string
   kind?: AnswerKind
-}> = ({ verdict, summary, kind }) => {
+}> = ({ verdict, summary, topic, context, kind }) => {
   const showVerdict = showsVerdictMasthead(kind, verdict)
-  if (!showVerdict && !summary) return null
+  // A verdict masthead already headlines the answer; the topic must not
+  // headline it twice.
+  const showTopic = !showVerdict && Boolean(topic)
+  if (!showVerdict && !showTopic && !summary) return null
   return (
     <FadeIn distance={4}>
       <header className="flex flex-col gap-3 border-b border-border/70 pb-4">
@@ -55,6 +69,12 @@ export const AnatomyMasthead: FC<{
             confidence={verdict.confidence}
             confidence_reason={verdict.confidence_reason}
           />
+        )}
+        {showTopic && topic && (
+          <p className="card-headline text-balance text-foreground">{topic}</p>
+        )}
+        {context && (showVerdict || showTopic) && (
+          <p className="text-sm leading-relaxed text-muted-foreground">{context}</p>
         )}
         {summary && <p className="text-[1.0625rem] leading-[1.65] text-foreground">{summary}</p>}
       </header>

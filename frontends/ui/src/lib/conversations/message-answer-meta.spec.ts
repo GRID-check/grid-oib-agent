@@ -4,6 +4,8 @@ import { resolve } from 'node:path'
 import {
   ANSWER_KINDS,
   ANSWER_META_VERSION,
+  CONTEXT_MAX_CHARS,
+  TOPIC_MAX_CHARS,
   VERDICT_VALUE_MAX_CHARS,
   sanitizeAnswerMeta,
 } from './message-answer-meta'
@@ -112,5 +114,56 @@ describe('sanitizeAnswerMeta', () => {
       v: 1,
       kind: 'walkthrough',
     })
+  })
+
+  test('a topic longer than the gate was never a headline — dropped whole', () => {
+    const meta = sanitizeAnswerMeta({
+      v: 1,
+      topic: 'x'.repeat(TOPIC_MAX_CHARS + 1),
+      summary: 'REI 60 in GK 4.',
+    })
+    expect(meta?.topic).toBeUndefined()
+    expect(meta?.summary).toBeDefined()
+  })
+
+  test('a topic at the gate survives verbatim, and alone is a usable payload', () => {
+    const topic = 'x'.repeat(TOPIC_MAX_CHARS)
+    expect(sanitizeAnswerMeta({ v: 1, topic })).toEqual({ v: 1, topic })
+    expect(sanitizeAnswerMeta({ v: 1, topic: '  Geländerhöhe bei Balkonen  ' })).toEqual({
+      v: 1,
+      topic: 'Geländerhöhe bei Balkonen',
+    })
+  })
+
+  test('a blank topic is not a topic', () => {
+    expect(sanitizeAnswerMeta({ v: 1, topic: '   ' })).toBeNull()
+  })
+
+  test('a context longer than the gate was never a scope line — dropped whole', () => {
+    const meta = sanitizeAnswerMeta({
+      v: 1,
+      topic: 'Geländerhöhe bei Balkonen',
+      context: 'x'.repeat(CONTEXT_MAX_CHARS + 40),
+    })
+    expect(meta?.topic).toBeDefined()
+    expect(meta?.context).toBeUndefined()
+  })
+
+  test('a context at the gate survives verbatim, and alone is a usable payload', () => {
+    const context = 'x'.repeat(CONTEXT_MAX_CHARS)
+    expect(sanitizeAnswerMeta({ v: 1, context })).toEqual({ v: 1, context })
+    expect(sanitizeAnswerMeta({ v: 1, context: '  Neubau in GK 4.  ' })).toEqual({
+      v: 1,
+      context: 'Neubau in GK 4.',
+    })
+  })
+
+  test('a future version keeps a topic and a context with its version stamp', () => {
+    const meta = sanitizeAnswerMeta({
+      v: 3,
+      topic: 'Geländerhöhe bei Balkonen',
+      context: 'Neubau in GK 4.',
+    })
+    expect(meta).toEqual({ v: 3, topic: 'Geländerhöhe bei Balkonen', context: 'Neubau in GK 4.' })
   })
 })

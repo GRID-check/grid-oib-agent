@@ -30,6 +30,10 @@ export const ANSWER_META_VERSION = 1
 export const VERDICT_VALUE_MAX_CHARS = 60
 /** Mirrors `SUMMARY_MAX_CHARS` — a standfirst, not a paragraph. Gate, not cap. */
 export const SUMMARY_MAX_CHARS = 320
+/** The masthead's title line — a headline, not a sentence. Gate, not cap. */
+export const TOPIC_MAX_CHARS = 90
+/** The masthead's situating line under the title — one line, truncated. */
+export const CONTEXT_MAX_CHARS = 160
 const MAX_SUBJECT_CHARS = 200
 const MAX_TAKEAWAYS = 5
 const MAX_TEXT_CHARS = 300
@@ -82,6 +86,19 @@ export interface AnswerMeta {
   kind?: AnswerKind
   /** The whole answer in 1–2 sentences — the standfirst above the prose. */
   summary?: string
+  /**
+   * The masthead's title when no verdict was earned — the answer's subject as
+   * a headline (e.g. a walkthrough's topic). Gated like the summary: over the
+   * limit it was never a headline, so it is dropped whole, not truncated.
+   */
+  topic?: string
+  /**
+   * The masthead's situating line under the title — what scopes this answer
+   * (instrument, edition, Land). Gated like the summary: over the limit it
+   * was never a scope line, so it is dropped whole, not truncated — mirroring
+   * the backend's gate, so both halves of the contract agree.
+   */
+  context?: string
   verdict?: AnswerMetaVerdict
   takeaways?: AnswerMetaTakeaway[]
   callout?: AnswerMetaCallout
@@ -174,18 +191,28 @@ export function sanitizeAnswerMeta(input: unknown): AnswerMeta | null {
   // limit it was never a standfirst, so it is dropped whole, not truncated.
   const rawSummary = typeof input.summary === 'string' ? input.summary.trim() : ''
   const summary = rawSummary && rawSummary.length <= SUMMARY_MAX_CHARS ? rawSummary : undefined
+  // The topic's bound is a gate in the same sense: a headline that does not
+  // fit the masthead line was never a headline.
+  const rawTopic = typeof input.topic === 'string' ? input.topic.trim() : ''
+  const topic = rawTopic && rawTopic.length <= TOPIC_MAX_CHARS ? rawTopic : undefined
+  // Like the summary, the context's bound is the backend's GATE: over the
+  // limit it was never a scope line, so it is dropped whole, not truncated.
+  const rawContext = typeof input.context === 'string' ? input.context.trim() : ''
+  const context = rawContext && rawContext.length <= CONTEXT_MAX_CHARS ? rawContext : undefined
   const kind = sanitizeKind(input.kind)
   // Exclusive kinds: a present non-ruling kind drops the verdict. An absent
   // kind is the legacy envelope — the verdict may still survive.
   const verdict = kind && kind !== 'ruling' ? undefined : sanitizeVerdict(input.verdict)
   const takeaways = sanitizeTakeaways(input.takeaways)
   const callout = sanitizeCallout(input.callout)
-  if (!kind && !summary && !verdict && !takeaways && !callout) return null
+  if (!kind && !summary && !topic && !context && !verdict && !takeaways && !callout) return null
 
   const version = typeof input.v === 'number' && Number.isFinite(input.v) ? input.v : ANSWER_META_VERSION
   const meta: AnswerMeta = { v: version }
   if (kind) meta.kind = kind
   if (summary) meta.summary = summary
+  if (topic) meta.topic = topic
+  if (context) meta.context = context
   if (verdict) meta.verdict = verdict
   if (takeaways) meta.takeaways = takeaways
   if (callout) meta.callout = callout

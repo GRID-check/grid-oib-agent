@@ -19,6 +19,14 @@ import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 export interface AnswerAnatomy {
   /** The masthead's standfirst — the whole answer in 1–2 sentences. */
   summary?: string
+  /**
+   * The masthead's title when no verdict was earned — a plain string, never a
+   * card shape: unlike the verdict it has no reference, no confidence, nothing
+   * a cross-card rule could coordinate over.
+   */
+  topic?: string
+  /** The masthead's situating line under the title — plain, like the topic. */
+  context?: string
   /** Rendered ABOVE the prose — the masthead's earned value. */
   verdict?: GridCard
   /** The one aside — spliced at its `[[callout]]` marker, else into `below`. */
@@ -78,12 +86,14 @@ export function answerMetaToAnatomy(meta: AnswerMeta | undefined): AnswerAnatomy
       : undefined
 
   const summary = meta.summary
+  const topic = meta.topic
+  const context = meta.context
 
-  if (!summary && !verdict && !callout && !takeaways) return null
+  if (!summary && !topic && !context && !verdict && !callout && !takeaways) return null
 
   const below: GridCard[] = []
   if (callout) below.push(callout)
   if (takeaways) below.push(takeaways)
   const all: GridCard[] = verdict ? [verdict, ...below] : [...below]
-  return { summary, verdict, callout, takeaways, below, all }
+  return { summary, topic, context, verdict, callout, takeaways, below, all }
 }

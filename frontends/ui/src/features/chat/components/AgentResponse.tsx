@@ -59,6 +59,7 @@ import { MemoryNotedChip } from './MemoryNotedChip'
 import { turnMemoryItems, type TurnMemoryItem } from '../lib/turn-memory'
 import { answerMetaToAnatomy } from '../lib/answer-meta-cards'
 import { AnatomyBlock, AnatomyMasthead } from './AnswerAnatomy'
+import { EvidenceBlock } from './EvidenceBlock'
 import type { AnswerKind, AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { ConfidenceChip, type AnswerConfidence } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
@@ -636,9 +637,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     numbers: citationNumbers,
   } = useMemo(() => splitAnswerBody(content), [content])
 
-  // The lede is suppressed when the envelope carries a summary: the masthead's
-  // standfirst holds that emphasis, and a 17px summary over a 17px first
-  // paragraph would be the same statement twice at the same weight.
+  // The lede is suppressed when the envelope carries a summary or a topic:
+  // the masthead's standfirst or title holds that emphasis, and a 17px
+  // masthead line over a 17px first paragraph would be the same statement
+  // twice at the same weight.
   // (`anatomy` is declared below; the class is derived after it.)
   // The markers are linked while the body is PARSED, not before: `[2][3]` — two
   // sources behind one claim, the shape the backend is told to write — is
@@ -656,7 +658,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // feeds every CardSetProvider so cross-card rules (charter §A2) see the
   // anatomy too, even though it never joins the `cards` array.
   const anatomy = useMemo(() => answerMetaToAnatomy(answerMeta), [answerMeta])
-  const ledeClass = opensWithLede(body, stillArriving) && !anatomy?.summary ? LEDE_CLASS : ''
+  const ledeClass = opensWithLede(body, stillArriving) && !anatomy?.summary && !anatomy?.topic ? LEDE_CLASS : ''
   // The files this answer NAMES, as opposed to the ones it cites. A sentence
   // like „Beginnen Sie mit pd8280-2.pdf" is pointing at a document the reader
   // owns, and until the index below resolved that name it was dead text. The
@@ -682,6 +684,25 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // The cards the prose did NOT claim. Read off the same body the renderer
   // parses, because the block below has to be built before that parse happens.
   const fallbackCardIndices = useMemo(() => unplacedCardIndices(body, cardCount), [body, cardCount])
+  // An UNPLACED `legal_basis` card is not a fallback-grid item: it surfaces
+  // flat above the prose as the answer's RECHTSGRUNDLAGE block
+  // (`EvidenceBlock`), and leaves the fallback indices so it can never render
+  // twice. The first unplaced one only — a second keeps its framed fallback.
+  // Gated on the finished stream like the fallback block itself: "unplaced" is
+  // read off the body SO FAR, and a marker that has not arrived yet must still
+  // be able to claim the card.
+  const evidenceIndex = useMemo(
+    () => fallbackCardIndices.find((index) => cards?.[index]?.type === 'legal_basis'),
+    [cards, fallbackCardIndices]
+  )
+  const fallbackGridIndices = useMemo(
+    () =>
+      evidenceIndex === undefined
+        ? fallbackCardIndices
+        : fallbackCardIndices.filter((index) => index !== evidenceIndex),
+    [fallbackCardIndices, evidenceIndex]
+  )
+  const evidenceCard = evidenceIndex !== undefined ? cards?.[evidenceIndex] : undefined
   // The after-prose anatomy: the callout leaves this block the moment the
   // prose claims it with a marker — same pre-render reading as the card
   // fallback above, and for the same reason.
@@ -895,14 +916,22 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
       resolveFileReference={fileReferences.resolve}
     >
       <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
-        {/* The answer's masthead — verdict and/or summary, flat above the prose. */}
-        {anatomy && (anatomy.verdict || anatomy.summary) && (
+        {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
+        {anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic) && (
           <CardSetProvider cards={cardSet}>
             <AnatomyMasthead
               verdict={anatomy.verdict}
               summary={anatomy.summary}
+              topic={anatomy.topic}
+              context={anatomy.context}
               kind={answerMeta?.kind}
             />
+          </CardSetProvider>
+        )}
+        {/* An unplaced legal basis — flat above the prose, never in the fallback grid. */}
+        {!stillArriving && evidenceCard?.type === 'legal_basis' && (
+          <CardSetProvider cards={cardSet}>
+            <EvidenceBlock card={evidenceCard} />
           </CardSetProvider>
         )}
         {/* Response Content rendered as markdown (with streaming caret). While
@@ -943,11 +972,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             </CardSetProvider>
           </div>
         )}
-        {!stillArriving && cards && fallbackCardIndices.length > 0 && (
+        {!stillArriving && cards && fallbackGridIndices.length > 0 && (
           <div className="mt-1">
             <GridCards
               cards={cards}
-              indices={fallbackCardIndices}
+              indices={fallbackGridIndices}
               projectId={projectId}
               messageId={messageId}
             />
@@ -1091,14 +1120,22 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             provenance footer by a single hairline, so the whole thing reads as
             one considered object with sections — not a card floating in a tray. */}
         <div className="flex flex-col gap-2 break-words border-b bg-card px-[22px] pb-[17px] pt-[18px]">
-          {/* The answer's masthead — verdict and/or summary, flat above the prose. */}
-          {anatomy && (anatomy.verdict || anatomy.summary) && (
+          {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
+          {anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic) && (
           <CardSetProvider cards={cardSet}>
             <AnatomyMasthead
               verdict={anatomy.verdict}
               summary={anatomy.summary}
+              topic={anatomy.topic}
+              context={anatomy.context}
               kind={answerMeta?.kind}
             />
+          </CardSetProvider>
+        )}
+        {/* An unplaced legal basis — flat above the prose, never in the fallback grid. */}
+        {!stillArriving && evidenceCard?.type === 'legal_basis' && (
+          <CardSetProvider cards={cardSet}>
+            <EvidenceBlock card={evidenceCard} />
           </CardSetProvider>
         )}
         {/* Response Content rendered as markdown (with streaming caret).
@@ -1134,11 +1171,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             </CardSetProvider>
           </div>
         )}
-        {!stillArriving && cards && fallbackCardIndices.length > 0 && (
+        {!stillArriving && cards && fallbackGridIndices.length > 0 && (
             <div className="mt-1">
               <GridCards
                 cards={cards}
-                indices={fallbackCardIndices}
+                indices={fallbackGridIndices}
                 projectId={projectId}
                 messageId={messageId}
               />
