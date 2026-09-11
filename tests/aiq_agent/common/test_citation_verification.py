@@ -3009,6 +3009,25 @@ class TestQualifiedKeysSurviveVerification:
         # Canonical spelling, so the key matches regardless of how the LLM cased it.
         assert key == "Plan.pdf (Büroarchiv), p.3"
 
+    def test_a_title_in_front_of_the_filename_is_dropped_without_a_registry(self):
+        """The shape test alone read "OIB-Richtlinie 2 – file.pdf, p.1" as ONE
+        long filename, because `.+\\.ext` is satisfied by the whole line. With
+        a registry the line resolves through the registry scan; without one
+        (a legacy path, a unit caller) the key carried the title and met no
+        document anywhere. The tail after a dash or colon is tried first."""
+        for line in (
+            "OIB-Richtlinie 2 – oib-rl_2_ausgabe_mai_2023.pdf, p.1",
+            "OIB-Richtlinie 2 — oib-rl_2_ausgabe_mai_2023.pdf, p.1",
+            "OIB-Richtlinie 2 - oib-rl_2_ausgabe_mai_2023.pdf, p.1",
+            "OIB-Richtlinie 2: oib-rl_2_ausgabe_mai_2023.pdf, p.1",
+        ):
+            is_kl, key = _is_knowledge_citation(line, None)
+            assert is_kl is True, line
+            assert key == "oib-rl_2_ausgabe_mai_2023.pdf, p.1", line
+        # A hyphen INSIDE a filename is not a separator: no surrounding spaces.
+        is_kl, key = _is_knowledge_citation("oib-rl_2_ausgabe_mai_2023.pdf, p.1", None)
+        assert (is_kl, key) == (True, "oib-rl_2_ausgabe_mai_2023.pdf, p.1")
+
     def test_an_annotation_is_still_trimmed(self):
         # "(Internal)" is not a shelf; it must keep being treated as noise.
         is_kl, key = _is_knowledge_citation("Plan.pdf (Internal)", self._registry())

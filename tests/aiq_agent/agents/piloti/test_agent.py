@@ -2752,6 +2752,33 @@ class TestKnowledgeInventoryIsNotCitable:
         # An unresolved conflict must not be reported as high confidence.
         assert "not `high`" in block
 
+    def test_every_example_source_line_in_the_prompt_is_a_bare_locator(self):
+        """The prompt's rule says `- [N] filename.pdf, p.X`; two of its examples
+        wrote `- [1] OIB-Richtlinie 2 – oib-rl_2_….pdf, p.1`, and the model
+        copies examples over rules. The BFF read that line as one long filename,
+        met no wire document, and drew a second, dead chip for the same source
+        under every answer. An example that contradicts the rule is a defect in
+        the prompt, so every example entry is checked against the rule here."""
+        import json
+        import re
+
+        source = self._prompt("piloti/prompts/piloti.j2")
+        blocks = re.findall(r"```answer_json\n(\{.*?\})\n```", source, flags=re.DOTALL)
+        assert blocks, "the prompt lost its answer_json examples"
+        entries: list[str] = []
+        for block in blocks:
+            answer = json.loads(block).get("answer", "")
+            for label in ("**Quellen:**", "**References:**"):
+                if label in answer:
+                    entries.extend(
+                        line.strip() for line in answer.split(label, 1)[1].split("\n") if line.strip().startswith("- [")
+                    )
+        assert entries, "no example carries a sources section"
+        bare_locator = re.compile(r"^- \[\d+\] (\S+\.\w{2,5}), p\.\d+$")
+        titled_url = re.compile(r"^- \[\d+\] .+ - https?://\S+$")
+        for entry in entries:
+            assert bare_locator.match(entry) or titled_url.match(entry), entry
+
     def test_deep_researcher_prompt_marks_the_inventory_as_not_a_source(self):
         rendered = self._render(self._prompt("deep_researcher/prompts/researcher.j2"), self.DOCUMENTS)
 

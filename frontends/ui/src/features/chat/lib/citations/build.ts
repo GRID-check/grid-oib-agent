@@ -184,6 +184,35 @@ const splitWrittenRef = (text: string): { name: string; page?: number } => {
   }
 }
 
+/**
+ * A separator the model puts between a display title and the locator:
+ * `OIB-Richtlinie 2 – oib-rl_2_ausgabe_mai_2023.pdf, p.1`. Spaced dashes and a
+ * colon-space only, so a hyphen inside a filename (`oib-rl_2`) never splits it.
+ * Mirrors the backend's `_title_prefix_tails`.
+ */
+const TITLE_SEPARATOR_RE = /\s+[-–—]\s+|:\s+/g
+
+/**
+ * Every filename a written name could mean, the literal reading first.
+ *
+ * The prompt asks for `filename.pdf, p.X` and its examples once showed
+ * `Title – filename.pdf, p.X`; the model copies examples, and the locator's
+ * filename test (`anything.ext`) accepted the decorated string whole. That
+ * reading meets no wire document, so the line became a second, dead chip for
+ * a source the row already showed. The tails after each separator are the
+ * other readings; which one is the document is decided against the wire
+ * (`findByFileAndNumber`), never by the shape of the string, so a filename that
+ * genuinely contains ` - ` still resolves to itself when the wire spells it so.
+ */
+export const writtenNameCandidates = (name: string): string[] => {
+  const candidates = [name]
+  for (const match of name.matchAll(TITLE_SEPARATOR_RE)) {
+    const tail = name.slice((match.index ?? 0) + match[0].length).trim()
+    if (tail && !candidates.includes(tail)) candidates.push(tail)
+  }
+  return candidates
+}
+
 const addWrittenEntries = (
   accumulator: CitationAccumulator,
   entries: ReportSourceEntry[] | undefined
@@ -213,8 +242,13 @@ const addWrittenEntries = (
       : splitWrittenRef(stripOriginToken(title || text))
     // A written line that means an already-known `[N]` of an already-known
     // file joins that document instead of creating a second observation with
-    // a never-meeting identity.
-    const existing = accumulator.findByFileAndNumber(normalizeFileName(ref.name), entry.number)
+    // a never-meeting identity. Every name the line could mean is tried, the
+    // literal one first: a title in front of the filename is read as part of
+    // the filename by the locator, and only the wire can say which reading is
+    // the document.
+    const existing = writtenNameCandidates(ref.name)
+      .map((name) => accumulator.findByFileAndNumber(normalizeFileName(name), entry.number))
+      .find((doc) => doc !== undefined)
     if (existing) {
       accumulator.attachLocus(existing, { page: ref.page, number: entry.number, isCited: true })
       continue

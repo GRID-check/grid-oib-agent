@@ -537,6 +537,50 @@ describe('a model-written filename spelling never doubles a chip', () => {
     expect(citedPages(docs[0]!)).toEqual([1, 26])
   })
 
+  it('folds a title-decorated written line into its wire document', () => {
+    // The line the deployed prompt taught the model to write: a display title,
+    // a spaced dash, then the locator. `parseKbLocator` reads the whole thing
+    // as one filename, which met no wire document, so the row showed the same
+    // Richtlinie twice — once as the real chip, once as a dead popover titled
+    // „OIB-Richtlinie 2 – oib-rl 2 ausgabe mai 2023".
+    for (const dash of ['–', '—', '-']) {
+      const docs = buildCitationModel({
+        citations: [wire(1, 1), wire(2, 26)],
+        entries: [
+          written(1, `[KB] OIB-Richtlinie 2 ${dash} oib-rl_2_ausgabe_mai_2023.pdf, p.1`),
+          written(2, `[KB] OIB-Richtlinie 2 ${dash} oib-rl_2_ausgabe_mai_2023.pdf, p.26`),
+        ],
+      })
+
+      expect(docs).toHaveLength(1)
+      expect(docs[0]!.title).toBe('OIB-Richtlinie 2, Ausgabe Mai 2023')
+      expect(citationNumbers(docs[0]!)).toEqual([1, 2])
+      expect(citedPages(docs[0]!)).toEqual([1, 26])
+    }
+  })
+
+  it('keeps a filename that genuinely contains a spaced dash when the wire spells it so', () => {
+    const dashed: CitationSource = {
+      ...wire(1, 4),
+      id: 'dbl-dash',
+      title: undefined,
+      content: '[KB] Bescheid - Kopie.pdf, p.4',
+      citationKey: 'Bescheid - Kopie.pdf, p.4',
+      collection: 'project_x',
+      fileName: 'Bescheid - Kopie.pdf',
+      lane: 'projekt',
+      kind: 'projekt',
+    }
+    const docs = buildCitationModel({
+      citations: [dashed],
+      entries: [written(1, '[KB] Bescheid - Kopie.pdf, p.4')],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(docs[0]!.fileName).toBe('Bescheid - Kopie.pdf')
+    expect(docs[0]!.loci).toHaveLength(1)
+  })
+
   it('never attaches a written line to a file it merely resembles', () => {
     // The filename half of the match is load-bearing: a commentary ABOUT the
     // Richtlinie carries the same `[N]` as the Richtlinie itself, and attaching
