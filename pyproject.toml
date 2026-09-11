@@ -108,6 +108,13 @@ aiq_documents = "aiq_agent.tools.documents.register"
 # `aiq_documents`: the two call different BFF routes with different contracts,
 # and a deployment that turns one off must be able to keep the other.
 aiq_tasks = "aiq_agent.tools.tasks.register"
+# Grid telemetry `_type`s named in the shipped YAML. They register at import
+# via NAT decorators and used to ride in on `chat_researcher.register`. After
+# that package dissolved, `load_config` in a clean interpreter (the container's
+# `start_web.py`) raised ValidationError and the pod CrashLoopBackOff'd.
+# Discovery loads `nat.plugins`; without these they do not exist at runtime.
+aiq_otel_logs = "aiq_agent.observability.otlp_logging_method"
+aiq_otel_redaction = "aiq_agent.observability.otel_header_redaction_exporter"
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "sources/**/tests"]

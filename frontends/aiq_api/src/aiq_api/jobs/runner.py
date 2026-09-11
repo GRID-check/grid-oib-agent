@@ -993,6 +993,12 @@ async def run_agent_job(
             poll_interval=1.0,
         )
 
+        from aiq_agent.observability import ensure_registered as register_grid_telemetry
+
+        # Same JOIN as deploy/start_web.py: Grid telemetry `_type`s register at
+        # import and are not in NAT's stock registry. A worker that reaches
+        # load_config without that import fails the same way the web pod did.
+        register_grid_telemetry()
         config = load_config(config_file_path)
 
         # Dynamically load the agent class
