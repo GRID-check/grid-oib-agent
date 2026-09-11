@@ -20,6 +20,7 @@ from aiq_agent.tools.documents.cards import emit_draft_card
 from aiq_agent.tools.documents.draft_store import DRAFT_ROOT
 from aiq_agent.tools.documents.draft_store import DraftBackend
 from aiq_agent.tools.documents.tools import DRAFT_TOOL_NAMES
+from aiq_agent.tools.documents.tools import _PERMISSIONS
 from aiq_agent.tools.documents.tools import draft_tools
 from aiq_agent.tools.documents.tools import draft_tools_for_turn
 
@@ -82,6 +83,35 @@ class TestTheDescriptions:
         write = next(tool for tool in draft_tools(backend) if tool.name == "write_file")
         assert DRAFT_ROOT in write.description
         assert "Aktenvermerk" in write.description
+
+
+class TestTheRootPermissions:
+    """The tool gate allows the root itself; the deny-all still catches the rest."""
+
+    def test_the_root_lists_with_or_without_slash(self) -> None:
+        from deepagents.middleware.filesystem import _check_fs_permission
+
+        assert _check_fs_permission(_PERMISSIONS, "read", DRAFT_ROOT) == "allow"
+        assert _check_fs_permission(_PERMISSIONS, "read", DRAFT_ROOT.rstrip("/")) == "allow"
+
+    def test_a_draft_under_the_root_reads_and_writes(self) -> None:
+        from deepagents.middleware.filesystem import _check_fs_permission
+
+        assert _check_fs_permission(_PERMISSIONS, "read", DRAFT) == "allow"
+        assert _check_fs_permission(_PERMISSIONS, "write", DRAFT) == "allow"
+
+    def test_outside_the_root_is_still_denied(self) -> None:
+        from deepagents.middleware.filesystem import _check_fs_permission
+
+        assert _check_fs_permission(_PERMISSIONS, "read", "/etc/passwd") == "deny"
+        assert _check_fs_permission(_PERMISSIONS, "write", "/etc/passwd") == "deny"
+
+    def test_traversal_never_reaches_the_gate(self) -> None:
+        """``validate_path`` rejects ``..`` before any permission is consulted."""
+        from deepagents.backends.utils import validate_path
+
+        with pytest.raises(ValueError):
+            validate_path(f"{DRAFT_ROOT}../secrets.md")
 
 
 class TestTheTurnFactory:

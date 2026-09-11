@@ -84,6 +84,7 @@ class TestTheCeiling:
         assert result.error is not None
         assert f"{MAX_DRAFT_BYTES // 1024} KB" in result.error
         assert "Shorten the document" in result.error
+        assert "edit the existing file" in result.error
 
     def test_a_refused_write_stores_nothing(self, backend: DraftBackend) -> None:
         backend.write(DRAFT, "x" * (MAX_DRAFT_BYTES + 1))
@@ -129,6 +130,38 @@ class TestThePathRoot:
 
     def test_an_edit_outside_the_root_is_refused(self, backend: DraftBackend) -> None:
         assert backend.edit("/etc/passwd", "a", "b").error is not None
+
+    def test_the_root_itself_is_inside_with_or_without_slash(self) -> None:
+        """``ls`` lists the root, so the refusal must not contradict the permission."""
+        assert draft_store.path_refusal(DRAFT_ROOT) is None
+        assert draft_store.path_refusal(DRAFT_ROOT.rstrip("/")) is None
+
+    def test_a_write_to_the_root_itself_is_refused(self, backend: DraftBackend) -> None:
+        """The directory is listed, not written: a draft is a file under it."""
+        for root in (DRAFT_ROOT, DRAFT_ROOT.rstrip("/")):
+            result = backend.write(root, "# Vermerk\n")
+            assert result.error is not None
+            assert f"{DRAFT_ROOT}<name>.md" in result.error
+
+    def test_an_edit_of_the_root_itself_is_refused(self, backend: DraftBackend) -> None:
+        assert backend.edit(DRAFT_ROOT.rstrip("/"), "a", "b").error is not None
+
+    def test_the_refusal_names_the_recovery(self, backend: DraftBackend) -> None:
+        """A dead end paraphrases as access denied; ``ls`` then ``read_file`` does not."""
+        result = backend.write("/etc/passwd", "x")
+        assert result.error is not None
+        assert "`ls`" in result.error
+        assert "`read_file`" in result.error
+        assert f"{DRAFT_ROOT}<name>.md" in result.error
+
+    def test_the_traversal_refusal_names_the_recovery(self, backend: DraftBackend) -> None:
+        result = backend.write(f"{DRAFT_ROOT}../secrets.md", "x")
+        assert result.error is not None
+        assert "`ls`" in result.error
+
+    def test_listing_the_bare_root_lists_the_drafts(self, backend: DraftBackend) -> None:
+        backend.write(DRAFT, "# Vermerk\n")
+        assert [entry["path"] for entry in backend.ls(DRAFT_ROOT.rstrip("/")).entries] == [DRAFT]
 
 
 class TestTheStockContract:
