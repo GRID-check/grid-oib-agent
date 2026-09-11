@@ -95,7 +95,10 @@ a tool with heavy optional dependencies stay independently loadable:
 where ifcopenshell and shapely are not installed.
 
 A function that is registered but has no entry point does not exist at runtime.
-**Enforced by:** nothing. It fails as absence, which is why it is worth knowing.
+Telemetry `_type`s are the same: `otelcollector_logs` sat in the shipped YAML
+with no entry point and CrashLoopBackOff'd the agent.
+**Enforced by:** `test_nat_plugins_entry_points_name_the_telemetry_modules` for
+those two; nothing else. It fails as absence, which is why it is worth knowing.
 
 ## Declare in code, reconcile against the vendor, gate on drift
 
