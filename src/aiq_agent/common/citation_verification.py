@@ -1434,6 +1434,24 @@ def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEn
     return cited
 
 
+_TITLE_PREFIX_SEPARATOR_RE = re.compile(r"\s+[-\u2013\u2014]\s+|:\s+")
+
+
+def _title_prefix_tails(text: str) -> list[str]:
+    """Every tail of ``text`` after a ``Title - `` / ``Title – `` / ``Title: `` separator.
+
+    Shortest tail first (the segment after the LAST separator), because a
+    reference line that decorates its filename with a title puts the title in
+    front, and the filename is what is left at the end.
+    """
+    tails: list[str] = []
+    for match in _TITLE_PREFIX_SEPARATOR_RE.finditer(text):
+        tail = text[match.end() :].strip()
+        if tail:
+            tails.append(tail)
+    return sorted(set(tails), key=len)
+
+
 def _is_knowledge_citation(ref_text: str, registry: SourceRegistry | None = None) -> tuple[bool, str | None]:
     """Check if reference text looks like a knowledge-layer citation.
 
@@ -1458,9 +1476,14 @@ def _is_knowledge_citation(ref_text: str, registry: SourceRegistry | None = None
 
     # Strip trailing "(Internal)" or similar parenthetical
     cleaned = re.sub(r"\s*\(.*?\)\s*$", "", unemphasized).strip()
-    # Remove leading "Title - " or "Title: " prefix by taking last segment
-    # if it contains a filename pattern
-    for segment in [cleaned, cleaned.split(" - ")[-1].strip(), cleaned.split(": ")[-1].strip()]:
+    # Remove a leading "Title - ", "Title – " or "Title: " prefix by taking the
+    # last segment if it contains a filename pattern. The TAIL segments come
+    # first: the whole line also matches the shape test (`.+\.ext, p.N` is
+    # satisfied by "OIB-Richtlinie 2 – file.pdf, p.1" as one long filename), and
+    # a key that carries the title in front of the filename meets no document
+    # anywhere downstream. The en and em dash are what the model actually
+    # writes between a display title and a filename.
+    for segment in [*_title_prefix_tails(cleaned), cleaned]:
         if _KL_CITATION_PATTERN_RE.match(segment):
             return True, segment
 

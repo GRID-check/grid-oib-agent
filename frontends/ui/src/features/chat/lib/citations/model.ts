@@ -1001,23 +1001,47 @@ export class CitationAccumulator {
   }
 
   /**
-   * The document a model-written source line belongs to, by filename AND
-   * citation number.
+   * The document the wire already numbers `[N]`, if any.
    *
-   * The written `## Quellen` list spells filenames from memory — different
-   * separators, different case, sometimes no extension at all — so its entry
-   * cannot go through `add` (its identity would never meet the wire's, and the
-   * pair would render as two chips for one document). The number overlap is
-   * the second half of the match: it proves THIS line means the already-known
-   * `[N]`, rather than merely naming a similar file.
+   * The wire's number IS the backend's verified binding (`verify_citations`
+   * resolved the written line against the registry of what was retrieved).
+   * A written line carrying the same `[N]` is that binding restated in prose,
+   * so it can only ever join this document — never mint another, whatever
+   * its spelling of the filename. Two chips for one `[N]` is the defect this
+   * lookup exists to make impossible.
    */
-  findByFileAndNumber(normFile: string, number: number | undefined): CitedDocument | undefined {
-    if (!normFile || typeof number !== 'number') return undefined
+  findByNumber(number: number | undefined): CitedDocument | undefined {
+    if (typeof number !== 'number') return undefined
     for (const doc of this.docs.values()) {
-      if (!doc.fileName || normalizeFileName(doc.fileName) !== normFile) continue
       if (doc.loci.some((locus) => locus.number === number)) return doc
     }
     return undefined
+  }
+
+  /**
+   * The one document whose filename normalises to `normFile`, or undefined
+   * when none or several do. For a written line whose `[N]` the wire does NOT
+   * carry (a message persisted before the wire numbered sources, a sparse
+   * number map): the filename is then the only bridge, and an ambiguous one
+   * (`Plan.pdf` on two shelves) is no bridge at all.
+   */
+  findByFile(normFile: string): CitedDocument | undefined {
+    if (!normFile) return undefined
+    const matches = Array.from(this.docs.values()).filter(
+      (doc) => !!doc.fileName && normalizeFileName(doc.fileName) === normFile
+    )
+    return matches.length === 1 ? matches[0] : undefined
+  }
+
+  /**
+   * Let a written line add what the wire's `[N]` locus lacks — a page — and
+   * nothing else. The wire's page wins when it has one: the written list is
+   * the model's memory of the locator, the wire is the registry's record.
+   */
+  adoptWrittenLocus(doc: CitedDocument, locus: { number: number; page?: number }): void {
+    const numbered = doc.loci.find((candidate) => candidate.number === locus.number)
+    if (numbered?.page !== undefined) return
+    this.mergeLocus(doc, { page: locus.page, number: locus.number, isCited: true })
   }
 
   /** Fold a written-list locus into an already-matched document (see above). */

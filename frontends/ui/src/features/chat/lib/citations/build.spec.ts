@@ -537,10 +537,129 @@ describe('a model-written filename spelling never doubles a chip', () => {
     expect(citedPages(docs[0]!)).toEqual([1, 26])
   })
 
-  it('never attaches a written line to a file it merely resembles', () => {
-    // The filename half of the match is load-bearing: a commentary ABOUT the
-    // Richtlinie carries the same `[N]` as the Richtlinie itself, and attaching
-    // by number alone would hand its page to the wrong document.
+  it('folds a title-decorated written line into its wire document', () => {
+    // The line the deployed prompt taught the model to write: a display title,
+    // a spaced dash, then the locator. `parseKbLocator` reads the whole thing
+    // as one filename, which met no wire document, so the row showed the same
+    // Richtlinie twice — once as the real chip, once as a dead popover titled
+    // „OIB-Richtlinie 2 – oib-rl 2 ausgabe mai 2023".
+    for (const dash of ['–', '—', '-']) {
+      const docs = buildCitationModel({
+        citations: [wire(1, 1), wire(2, 26)],
+        entries: [
+          written(1, `[KB] OIB-Richtlinie 2 ${dash} oib-rl_2_ausgabe_mai_2023.pdf, p.1`),
+          written(2, `[KB] OIB-Richtlinie 2 ${dash} oib-rl_2_ausgabe_mai_2023.pdf, p.26`),
+        ],
+      })
+
+      expect(docs).toHaveLength(1)
+      expect(docs[0]!.title).toBe('OIB-Richtlinie 2, Ausgabe Mai 2023')
+      expect(citationNumbers(docs[0]!)).toEqual([1, 2])
+      expect(citedPages(docs[0]!)).toEqual([1, 26])
+    }
+  })
+
+  it('keeps a filename that genuinely contains a spaced dash when the wire spells it so', () => {
+    const dashed: CitationSource = {
+      ...wire(1, 4),
+      id: 'dbl-dash',
+      title: undefined,
+      content: '[KB] Bescheid - Kopie.pdf, p.4',
+      citationKey: 'Bescheid - Kopie.pdf, p.4',
+      collection: 'project_x',
+      fileName: 'Bescheid - Kopie.pdf',
+      lane: 'projekt',
+      kind: 'projekt',
+    }
+    const docs = buildCitationModel({
+      citations: [dashed],
+      entries: [written(1, '[KB] Bescheid - Kopie.pdf, p.4')],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(docs[0]!.fileName).toBe('Bescheid - Kopie.pdf')
+    expect(docs[0]!.loci).toHaveLength(1)
+  })
+
+  it('a written [N] the wire already numbers joins that document, whatever it says', () => {
+    // The wire's number is the backend's verified binding; the written line is
+    // the model's prose restatement of it. No spelling the line chooses can
+    // mint a second document for a `[N]` the wire has already bound.
+    const docs = buildCitationModel({
+      citations: [wire(1, 1)],
+      entries: [written(1, '[KB] irgendein-anderer-name.pdf, p.9')],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(docs[0]!.fileName).toBe(WIRE_FILE)
+    // The wire's page wins over the model's memory of it.
+    expect(citedPages(docs[0]!)).toEqual([1])
+  })
+
+  it('a RIS source cited by URL is one chip even when the written URL differs', () => {
+    // The second face of the same defect: a RIS norm arrived on the wire with
+    // its lane, its binding note and `[6]`, and the written list spelled the
+    // URL differently (a `www.`, a `FassungVom=` the model added). Identity by
+    // normalised URL made them two documents, so the row showed the norm twice
+    // — once with the Bindungswirkung card, once bare.
+    const wireRis: CitationSource = {
+      id: 'ris-6',
+      content: '[RIS] Wiener Bautechnikverordnung 2023',
+      timestamp: new Date(0),
+      origin: 'ris',
+      kind: 'baurecht',
+      lane: 'baurecht_ris',
+      laneLabel: 'Verordnung',
+      title: 'Wiener Bautechnikverordnung 2023',
+      url: 'https://ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000456',
+      bindingStatus: 'binding',
+      bindingNote: 'Macht die OIB-Richtlinien in Wien verbindlich.',
+      number: 6,
+      isCited: true,
+    }
+    const docs = buildCitationModel({
+      citations: [wireRis],
+      entries: [
+        written(
+          6,
+          '[RIS] Wiener Bautechnikverordnung 2023 - https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000456&FassungVom=2024-01-01'
+        ),
+      ],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(docs[0]!.bindingNote).toBe('Macht die OIB-Richtlinien in Wien verbindlich.')
+    expect(citationNumbers(docs[0]!)).toEqual([6])
+  })
+
+  it('a written line fills the page the wire left blank, and nothing more', () => {
+    const pageless: CitationSource = { ...wire(1, 1), page: undefined, citationKey: WIRE_FILE }
+    const docs = buildCitationModel({
+      citations: [pageless],
+      entries: [written(1, `[KB] ${WIRE_FILE}, p.7`)],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(citedPages(docs[0]!)).toEqual([7])
+  })
+
+  it('without a wire number, a decorated line still finds its file by name', () => {
+    // A message persisted before the wire numbered sources: the filename is the
+    // only bridge, and the title in front of it must not break the bridge.
+    const unnumbered: CitationSource = { ...wire(1, 1), number: undefined }
+    const docs = buildCitationModel({
+      citations: [unnumbered],
+      entries: [written(1, '[KB] OIB-Richtlinie 2 – oib-rl_2_ausgabe_mai_2023.pdf, p.1')],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(citationNumbers(docs[0]!)).toEqual([1])
+  })
+
+  it('without a wire number, never attaches a written line to a file it merely resembles', () => {
+    // The filename half of the bridge is load-bearing when there is no number
+    // to go on: a commentary ABOUT the Richtlinie must not hand its page to
+    // the Richtlinie itself.
     const corpus: CitationSource = {
       id: 'dbl-c',
       content: '[KB] oib-rl_6_ausgabe_mai_2023.pdf, p.2',
@@ -553,7 +672,7 @@ describe('a model-written filename spelling never doubles a chip', () => {
       collection: 'oib_knowledge',
       fileName: 'oib-rl_6_ausgabe_mai_2023.pdf',
       page: 2,
-      number: 1,
+      number: undefined,
       isCited: true,
     }
     const docs = buildCitationModel({
