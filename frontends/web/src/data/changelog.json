@@ -52,6 +52,14 @@
             {
               "en": "Unter einer längeren Antwort in einem Projekt steht jetzt der Vorschlag „Als Aktenvermerk schreiben\". Er füllt die Eingabezeile mit der passenden Bitte, abgeschickt wird sie wie jede andere — Piloti schreibt daraufhin einen Entwurf in die Projektdateien.",
               "de": "Unter einer längeren Antwort in einem Projekt steht jetzt der Vorschlag „Als Aktenvermerk schreiben\". Er füllt die Eingabezeile mit der passenden Bitte, abgeschickt wird sie wie jede andere — Piloti schreibt daraufhin einen Entwurf in die Projektdateien."
+            },
+            {
+              "en": "Answers now open with a proper masthead no matter the question: overviews get a title and scope line, legal rulings keep their verdict header, and single-norm answers quote the decisive passage directly beneath it.",
+              "de": "Answers now open with a proper masthead no matter the question: overviews get a title and scope line, legal rulings keep their verdict header, and single-norm answers quote the decisive passage directly beneath it."
+            },
+            {
+              "en": "Drafts Piloti writes can now be opened and read straight from the chat, before anything is filed into the project.",
+              "de": "Drafts Piloti writes can now be opened and read straight from the chat, before anything is filed into the project."
             }
           ]
         },
@@ -89,6 +97,14 @@
             {
               "en": "Erweitert Piloti eine Suche selbst um andere Formulierungen, weil die ersten Treffer die Frage nicht abdecken, weiß es das jetzt auch selbst und kann darauf reagieren — bisher bekam es die zusätzlichen Treffer wortlos untergeschoben. Ebenso sieht es bei einer nachgebesserten Antwort, welche Fundstelle und welches Zitat die Prüfung nicht bestanden haben.",
               "de": "Erweitert Piloti eine Suche selbst um andere Formulierungen, weil die ersten Treffer die Frage nicht abdecken, weiß es das jetzt auch selbst und kann darauf reagieren — bisher bekam es die zusätzlichen Treffer wortlos untergeschoben. Ebenso sieht es bei einer nachgebesserten Antwort, welche Fundstelle und welches Zitat die Prüfung nicht bestanden haben."
+            },
+            {
+              "en": "Overviews carry a summary and the key points again, and follow-up suggestions come from the actual gaps in the answer.",
+              "de": "Overviews carry a summary and the key points again, and follow-up suggestions come from the actual gaps in the answer."
+            },
+            {
+              "en": "The Herleitung names what was actually searched instead of calling every search OIB knowledge.",
+              "de": "The Herleitung names what was actually searched instead of calling every search OIB knowledge."
             }
           ]
         },
@@ -110,6 +126,14 @@
             {
               "en": "Unter „Belegt durch\" erschien dieselbe Quelle zweimal, einmal davon als toter Chip ohne Fundstelle. Ursache war eine Quellenzeile mit einem Titel vor dem Dateinamen, die die Oberfläche keinem Dokument zuordnen konnte. Jede Quelle erscheint jetzt genau einmal, mit Fundstelle.",
               "de": "Unter „Belegt durch\" erschien dieselbe Quelle zweimal, einmal davon als toter Chip ohne Fundstelle. Ursache war eine Quellenzeile mit einem Titel vor dem Dateinamen, die die Oberfläche keinem Dokument zuordnen konnte. Jede Quelle erscheint jetzt genau einmal, mit Fundstelle."
+            },
+            {
+              "en": "Piloti no longer runs the same Richtlinie search twice when the whole family was already retrieved, and follow-up file requests no longer trigger a format interrogation.",
+              "de": "Piloti no longer runs the same Richtlinie search twice when the whole family was already retrieved, and follow-up file requests no longer trigger a format interrogation."
+            },
+            {
+              "en": "Long text documents now scroll correctly in the side preview.",
+              "de": "Long text documents now scroll correctly in the side preview."
             }
           ]
         }
