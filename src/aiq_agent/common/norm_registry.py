@@ -28,6 +28,8 @@ import logging
 import os
 import re
 from collections.abc import Callable
+from collections.abc import Iterable
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -37,6 +39,9 @@ import yaml
 from pydantic import BaseModel
 from pydantic import Field
 from pydantic import ValidationError
+
+from aiq_agent.common.source_kinds import AGENT_AUTHORED_LANE
+from aiq_agent.common.source_kinds import AGENT_AUTHORED_LANE_LABEL
 
 logger = logging.getLogger(__name__)
 
@@ -776,6 +781,9 @@ _LANE_LABELS: dict[str, str] = {
     **{key: label for key, label in _RANK_LANES.values()},
     "baurecht_ris": "Rechtsquelle (RIS)",
     "baurecht_basis": "Basisdokument",
+    # Reachable only through stated PROVENANCE (``authored_by: agent``), never
+    # through a doc_class — see :data:`~aiq_agent.common.source_kinds.AGENT_AUTHORED_LANE`.
+    AGENT_AUTHORED_LANE: AGENT_AUTHORED_LANE_LABEL,
 }
 
 
@@ -920,6 +928,86 @@ def guess_display_title(file_name: str) -> str | None:
     return f"{title}, {tail}" if tail else title
 
 
+# ---------------------------------------------------------------------------
+# Families: which Richtlinien belong together, derived from what is INDEXED.
+#
+# "OIB-Richtlinien 1–6" is a range, and a range names no members. OIB-RL 2 is
+# four separate documents — 2, 2.1 (Betriebsbauten), 2.2 (Garagen), 2.3
+# (Hochhäuser) — and the prompt never said so, so an overview question ("Was
+# weißt du über die OIB 2?") could open three of them, forget the fourth, and
+# read as complete. Nothing structural noticed, because nothing knew the family
+# had four members.
+#
+# Membership is DERIVED, never listed: a deployment whose corpus holds no 2.3
+# must not be told it has one, and a corpus that grows a 2.4 must not need this
+# file edited. The only input is the set of indexed filenames.
+# ---------------------------------------------------------------------------
+
+#: The Richtlinie number inside an OIB corpus filename, after the `oib-rl_`
+#: prefix: `2`, `2.1`, `6`. Anchored, so an edition or a revision that follows
+#: cannot be read as part of the number.
+_OIB_FAMILY_NUMBER_RE = re.compile(r"^(\d+(?:\.\d+)?)(?:[_-]|$)")
+
+
+@dataclass(frozen=True)
+class NormFamily:
+    """One Richtlinie and every part of it the corpus actually holds.
+
+    ``key`` is the family number (``"2"``), ``members`` the part numbers in
+    numeric order (``("2", "2.1", "2.2", "2.3")``) and ``files`` the indexed
+    filename of each, parallel to ``members``. A family with one member is
+    still a family — that is what "OIB-RL 3 has no parts" looks like, and it is
+    a different statement from "we do not know".
+    """
+
+    key: str
+    members: tuple[str, ...]
+    files: tuple[str, ...]
+
+    @property
+    def label(self) -> str:
+        return f"OIB-Richtlinie {self.key}"
+
+
+def oib_family_member(file_name: str) -> str | None:
+    """The Richtlinie part number a corpus filename IS, or ``None``.
+
+    Only the Richtlinie itself. A Leitfaden, an Erläuterung, an Änderungs-
+    dokument, the Begriffsbestimmungen and the Zitierte Normen are not members:
+    they are read WITH a Richtlinie, and counting them as parts of it would
+    make an overview answer look complete for having opened a reading aid.
+    """
+    name = Path(file_name or "").name.lower()
+    if oib_doc_class(name) != "richtlinie":
+        return None
+    match = _OIB_FAMILY_NUMBER_RE.match(name[len("oib-rl_") :])
+    return match.group(1) if match else None
+
+
+def _member_sort_key(member: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in member.split("."))
+
+
+def oib_families(file_names: Iterable[str]) -> list[NormFamily]:
+    """Group indexed corpus filenames into families, in numeric order.
+
+    Duplicates collapse on the part number, so a corpus carrying two editions of
+    OIB-RL 2 still reports one member `2` — the family is about which
+    requirements exist, not about how many files carry them.
+    """
+    by_family: dict[str, dict[str, str]] = {}
+    for file_name in file_names:
+        member = oib_family_member(file_name)
+        if member is None:
+            continue
+        by_family.setdefault(member.split(".")[0], {}).setdefault(member, Path(file_name).name)
+    families: list[NormFamily] = []
+    for key in sorted(by_family, key=lambda k: int(k) if k.isdigit() else 0):
+        members = sorted(by_family[key], key=_member_sort_key)
+        families.append(NormFamily(key=key, members=tuple(members), files=tuple(by_family[key][m] for m in members)))
+    return families
+
+
 def _host_matches(source_url: str | None, domain: str) -> bool:
     """True when *source_url*'s host is ``domain`` or a subdomain of it.
 
@@ -948,6 +1036,7 @@ def lane_for_hit(
     collection: str | None = None,
     registry: NormRegistry | None = None,
     shelf: object = None,
+    authored_by: str | None = None,
 ) -> tuple[str, str]:
     """(stratum_key, human label) for a retrieval/citation hit — display tagging only.
 
@@ -965,11 +1054,23 @@ def lane_for_hit(
 
     ``shelf`` is the shelf the caller knows the hit came from; without it the
     collection id is read the legacy way (ADR-0047).
+
+    ``authored_by`` is the stated PROVENANCE of the document
+    (``common/provenance.py``), and it outranks everything else here — the
+    doc_class included. A published Piloti document is filed on the project or
+    the Archiv shelf like any other document, so every rule below would place
+    it as Projektwissen or Büroarchiv and lose the one fact a reader must not
+    miss; and a doc_class stamped on it by ingest would place it in the norm
+    hierarchy, in law blue, under the ``"Baurecht"`` label fallback. Who wrote
+    a document is not a guess any of those signals can overturn.
     """
+    from aiq_agent.common.provenance import is_agent_author
     from aiq_agent.common.source_kinds import Shelf
     from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
     from aiq_agent.common.source_kinds import parse_shelf
 
+    if is_agent_author(authored_by):
+        return (AGENT_AUTHORED_LANE, AGENT_AUTHORED_LANE_LABEL)
     known_shelf = parse_shelf(shelf) or legacy_shelf_for_collection_name(collection)
     users_shelf = known_shelf in (Shelf.ARCHIV, Shelf.PROJECT, Shelf.SESSION)
     if doc_class:
@@ -1014,6 +1115,7 @@ def lane_for_knowledge_hit(
     collection: str | None = None,
     registry: NormRegistry | None = None,
     shelf: object = None,
+    authored_by: str | None = None,
 ) -> tuple[str, str]:
     """:func:`lane_for_hit` for a hit that came from the KNOWLEDGE LAYER.
 
@@ -1036,5 +1138,6 @@ def lane_for_knowledge_hit(
         collection=collection,
         registry=registry,
         shelf=shelf,
+        authored_by=authored_by,
     )
     return ("projekt", "Projektwissen") if lane == ("web", "Web") else lane

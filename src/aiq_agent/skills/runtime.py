@@ -197,7 +197,7 @@ class SkillRuntime:
         a ``use_skill`` call to satisfy it. The research budget reserves that
         many iterations so a deployment publishing a second standard skill does
         not silently shorten every research chain by one (see
-        ``ResearcherAgent.reserved_tool_iterations``).
+        ``PilotiAgent.reserved_tool_iterations``).
         """
         return len(self._standard)
 

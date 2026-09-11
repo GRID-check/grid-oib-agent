@@ -49,9 +49,9 @@ _REQUEST_TIMEOUT_SECONDS = 5.0
 #: logged and ignored rather than silently narrowing a skill to nothing: a typo
 #: there would otherwise make a skill vanish with no diagnostic.
 #:
-#: Both names are DELIVERED, and they are delivered differently. The chat
-#: researcher resolves inside a live request and builds a ``SkillRuntime`` per
-#: turn (``researcher/register.py``). Deep research runs in a Dask worker
+#: Both names are DELIVERED, and they are delivered differently. Piloti
+#: resolves inside a live request and builds a ``SkillRuntime`` per
+#: turn (``piloti/register.py``). Deep research runs in a Dask worker
 #: with no request headers to read an organization off, so it resolves per RUN
 #: through :func:`resolve_served_skills`, keyed on an organization the job runner
 #: captured at submit time and put on the agent state — see
@@ -61,6 +61,12 @@ _REQUEST_TIMEOUT_SECONDS = 5.0
 #: one, which cost the product's longest answers its house voice in silence:
 #: naming an agent nothing resolves for is not a smaller mistake than naming an
 #: agent that does not exist, it is only a quieter one.
+#:
+#: ``researcher`` and not ``piloti`` although the package was renamed to
+#: ``agents/piloti``: this string is stored in ``platform_skills.grid_agents``
+#: and hand-written into every skill's frontmatter, so it is a wire name.
+#: Moving it needs a migration and read-side aliases, the way ``0081`` and
+#: ``AGENT_ALIASES`` below did for the last one.
 KNOWN_AGENTS = frozenset({"researcher", "deep_researcher"})
 
 #: Retired ``grid-agents`` names and the agent each one now means.

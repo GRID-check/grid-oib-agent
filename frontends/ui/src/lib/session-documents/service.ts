@@ -42,7 +42,13 @@ import { contentDigest } from '@/lib/documents/content-digest'
 import { documentNameKey } from '@/lib/documents/name-match'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { findLiveDocumentByFilename, type DocumentListRow } from '@/lib/documents/repository'
-import { deleteDocumentObjects, discardSupersededObjects } from '@/lib/documents/object-cleanup'
+import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
+import {
+  nextVersionNumber,
+  recordUploadedVersion,
+} from '@/lib/documents/lifecycle'
+import { versionedStorageKey } from '@/lib/documents/version-content'
+import { listDocumentVersionObjects } from '@/lib/documents/version-repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { purgeCollectionChunks } from './cleanup'
 import { collectionFileRef } from '@/lib/documents/collection-file-ref'
@@ -151,7 +157,16 @@ export async function uploadSessionDocument(
   const filename = documentNameKey(file.name)
   const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
   const documentId = superseded?.id ?? crypto.randomUUID()
-  const storageKey = buildSessionStorageKey(session.organizationId, conversationId, documentId, filename)
+  // A re-upload writes new bytes under a new `v<n>/` key, so the version it
+  // replaces keeps an object a reader can open (ADR-0054). Version 1 keeps
+  // today's key exactly.
+  const versionNumber = superseded
+    ? await nextVersionNumber(documentId, session.organizationId)
+    : 1
+  const storageKey = versionedStorageKey(
+    buildSessionStorageKey(session.organizationId, conversationId, documentId, filename),
+    versionNumber,
+  )
 
   // Same provisioning step as the other shelves (ADR-0043): a session
   // attachment shares the tenant's bucket, because it shares the tenant's bytes.
@@ -202,10 +217,8 @@ export async function uploadSessionDocument(
       folderId: null,
       createdBy: session.userId,
     })
-    // The key is a pure function of the id here, so the new bytes land on the
-    // old ones; what is stale is the thumbnail and the parsed building beside
-    // them. Best-effort: the row is already correct.
-    await discardSupersededObjects(superseded, storageKey, 'session-documents')
+    // Nothing is discarded: the previous bytes are the previous VERSION's now
+    // (ADR-0054) and its row still names them. They go with the attachment.
   } else {
     await admitOrDiscard(storageBucket, storageKey, {
       id: documentId,
@@ -232,6 +245,11 @@ export async function uploadSessionDocument(
   // The whole point of Phase 2: a session upload now reaches the SAME dispatcher
   // the other shelves use, so an IFC dropped into a chat is parsed into a
   // building instead of being embedded as STEP noise.
+  // The version, through the same transition table every other shelf uses
+  // (ADR-0054): born `published` and born approved, because the person who
+  // attached it is the assertion.
+  await recordUploadedVersion(session, documentId, request)
+
   const { jobId, status } = await dispatchDocument({
     organizationId: session.organizationId,
     projectId: null,
@@ -296,6 +314,14 @@ export async function deleteSessionDocument(
   // and purging by its filename would address whatever human document shares it.
   const purgeRef = collectionFileRef(doc)
   const chunks = await purgeCollectionChunks(doc.collectionName, purgeRef ? [purgeRef] : [])
+  // Every VERSION's objects, not only the live one (ADR-0054). Best-effort per
+  // version: the live object's result below is what decides whether the row may
+  // be deleted, and a superseded version's leftover is an orphan, not a leak of
+  // access the row was guarding.
+  for (const version of await listDocumentVersionObjects(documentId, session.organizationId)) {
+    if (version.storageKey === doc.storageKey) continue
+    await deleteDocumentObjects(version).catch(() => undefined)
+  }
   const objects = await deleteDocumentObjects(doc)
   if (!chunks.ok || !objects.ok) {
     // Reasons carry bucket names and upstream error text, so they go to the log

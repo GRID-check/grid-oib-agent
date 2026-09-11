@@ -23,6 +23,7 @@ from aiq_agent.knowledge import get_available_documents_async
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.inventory import allocate_inventory_detailed
 from aiq_agent.knowledge.inventory import set_inventory_drops
+from aiq_agent.knowledge.inventory import set_norm_families
 from aiq_agent.knowledge.inventory import stamp_document
 from aiq_agent.knowledge.scoping import ScopedCollection
 from aiq_agent.turn.admission import spanned
@@ -101,6 +102,23 @@ def shelves_in_scope(scope: Iterable[ScopedCollection]) -> list[str]:
     return [str(entry.shelf) for entry in scope if entry.shelf is not None]
 
 
+def _base_families(docs: Iterable) -> list:
+    """The Richtlinien-Familien the BASE shelf holds, derived from its filenames.
+
+    Base shelf only: a project file called ``oib-rl_2.pdf`` is somebody's copy
+    of a Richtlinie, not a member of the platform corpus, and counting it would
+    tell the model a part exists that a search of the corpus cannot reach.
+    """
+    from aiq_agent.common.norm_registry import oib_families
+
+    names = [
+        getattr(doc, "file_name", "")
+        for doc in docs
+        if getattr(doc, "shelf", None) is Shelf.BASE and getattr(doc, "file_name", "")
+    ]
+    return oib_families(names)
+
+
 async def aggregate_documents_across_collections(
     collections: Iterable[ScopedCollection],
     fetch_one: FetchOne,
@@ -132,6 +150,12 @@ async def aggregate_documents_across_collections(
         for entry, docs in per_collection
         for doc in docs or []
     ]
+
+    # BEFORE the cap. Which parts a Richtlinie has is derived from the base
+    # shelf, and the cap drops base rows first — so a family list taken after
+    # it would lose members on exactly the projects with the most files, and
+    # an incomplete family list reads as a complete one.
+    set_norm_families(_base_families(aggregated))
 
     limit = available_documents_limit() if max_documents is None else max_documents
     before = len(aggregated)

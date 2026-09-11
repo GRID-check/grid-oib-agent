@@ -16,6 +16,7 @@ import { AnimatePresence, motion, motionEntrance } from '@/components/motion'
 import { useTranslations } from '@/i18n'
 import { sourceBase, sourceTint } from '@/lib/ui/source-tint'
 import type { ComposerSubject } from '@/features/chat/types'
+import { DOCUMENT_VERSION_STATES, type DocumentVersionState } from '@/lib/documents/lifecycle-types'
 import { documentFilesHref } from '../lib/document-question'
 
 /** Shelves a composer subject can sit on; `documents.scope` uses these names. */
@@ -26,6 +27,7 @@ interface DocumentSubjectStatus {
   filename?: string
   displayName?: string | null
   scope?: string | null
+  openVersion?: { id?: string | null; state?: string | null } | null
 }
 
 /** What the status lookup recovered for a subject restored from an id alone. */
@@ -33,6 +35,16 @@ export interface ResolvedSubjectIdentity {
   title: string | null
   filename: string | null
   shelf?: ComposerSubject['shelf']
+  /**
+   * The subject's open (unpublished) version, or `null` when it has none.
+   *
+   * `null` and `undefined` are different answers here and the caller merges
+   * them differently: `null` is "asked, and the live bytes are published", which
+   * must CLEAR a stale pair left by an earlier subject, while `undefined` is
+   * "the lookup did not answer" and leaves whatever is there.
+   */
+  versionId?: string | null
+  versionState?: DocumentVersionState | null
 }
 
 export function ComposerSubjectBar({
@@ -60,16 +72,19 @@ export function ComposerSubjectBar({
     also have to be kept in step with a rename, and the row is the authority
     either way.
 
-    The guard is "anything missing", not "no title": a subject restored with a
-    title but no filename used to skip this fetch entirely and send the title
-    as the filename.
+    There is no "already complete" guard any more, and there cannot be one.
+    The lookup now also recovers the subject's OPEN VERSION, which no caller
+    carries and whose ABSENCE is itself an answer ("the live bytes are
+    published"), so "the fields I can see are filled" can never mean "there is
+    nothing left to ask". The earlier guard was already widening for the same
+    reason: a subject restored with a title but no filename used to skip the
+    fetch entirely and send the title as the filename.
 
-    It is keyed on the SUBJECT and nothing else. The caller's handler is held in
-    a ref rather than a dependency because a composer re-renders on every
-    keystroke, and it is attempted once per resource because a document that
-    404s (deleted, or no longer readable) never completes the subject — between
-    them, the widened guard above would otherwise mean one request per
-    keystroke for as long as the bar is mounted.
+    What bounds the requests is `attemptedRef`, not the guard: it is keyed on
+    the SUBJECT and nothing else, so a composer that re-renders on every
+    keystroke still asks once per resource — and a document that 404s (deleted,
+    or no longer readable) is asked about once rather than once per keystroke.
+    The caller's handler is held in a ref for the same reason.
   */
   const onResolvedRef = useRef(onResolved)
   useEffect(() => {
@@ -78,10 +93,9 @@ export function ComposerSubjectBar({
 
   const attemptedRef = useRef<string | null>(null)
   const resourceId = subject?.resourceId ?? null
-  const isComplete = Boolean(subject?.title && subject?.filename && subject?.shelf)
 
   useEffect(() => {
-    if (!resourceId || isComplete) return
+    if (!resourceId) return
     if (attemptedRef.current === resourceId) return
     attemptedRef.current = resourceId
     let cancelled = false
@@ -92,13 +106,24 @@ export function ComposerSubjectBar({
         const filename = body.filename?.trim() || null
         const title = body.displayName?.trim() || filename
         const shelf = SUBJECT_SHELVES.find((value) => value === body.scope)
-        if (title || filename || shelf) onResolvedRef.current({ title, filename, shelf })
+        // Always reported, even when it is `null`: "this document has no open
+        // version" is the answer that stops the previous subject's version id
+        // riding along on the next turn.
+        const open = body.openVersion ?? null
+        const versionState = DOCUMENT_VERSION_STATES.find((value) => value === open?.state) ?? null
+        onResolvedRef.current({
+          title,
+          filename,
+          shelf,
+          versionId: open?.id ?? null,
+          versionState,
+        })
       })
       .catch(() => undefined)
     return () => {
       cancelled = true
     }
-  }, [resourceId, isComplete])
+  }, [resourceId])
 
   const name = subject?.title?.trim() || t('assignment.thisFile')
   const href = subject && projectId ? documentFilesHref(projectId, subject.resourceId) : null

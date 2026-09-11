@@ -57,7 +57,7 @@ export function ModelFileOwnership({
       )}
       {canAsk && (
         <ViewerIconButton
-          label={t('assignment.ask')}
+          label={t('assignment.discuss')}
           icon={MessageSquare}
           onClick={() =>
             askAboutFile({

@@ -82,6 +82,23 @@ const STEP_NAME_RULES: Array<{ match: RegExp; key: string }> = [
   { match: /remember/, key: 'note' },
   { match: /emit_card/, key: 'card' },
   { match: /compliance_check/, key: 'compliance' },
+  // The working directory (§1 of the design of record): four verbs over a
+  // conversation's own scratch, and ONE chip between them. „Entwurf" is the
+  // work a reader recognises; „write_file, read_file, edit_file, edit_file,
+  // ls" is a log, and the technical panel is where a log belongs. The order
+  // matters — `file_draft` and `submit_draft` are filing and must not be eaten
+  // by `/draft/`, so those rules come first.
+  { match: /^file_draft$|^submit_draft$|file[_-]?draft|submit[_-]?draft/, key: 'filing' },
+  { match: /write[_-]?file|read[_-]?file|edit[_-]?file|^ls$|draft/, key: 'draft' },
+  { match: /create[_-]?task/, key: 'task' },
+  // The five file-operation tools propose and never write (ADR-0003), so the
+  // chip says what happened — a proposal — and the card underneath says what it
+  // would do. One chip for the family, for the same reason the drafting verbs
+  // share one.
+  {
+    match: /move[_-]?document|rename[_-]?document|create[_-]?folder|assign[_-]?document|set[_-]?doc[_-]?class/,
+    key: 'fileProposal',
+  },
   // `shallow` is the wire name (`shallow_research_agent`), kept when the agent
   // itself was renamed to `researcher` because it is stored per turn.
   { match: /shallow|assistant/, key: 'assistant' },

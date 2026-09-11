@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-09-09T19:28:34.696235+00:00'
+generated_at: '2026-09-10T15:14:32.658046+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/aiq-add-data-source
@@ -64,12 +64,12 @@ dependencies:
   - .claude/skills/aiq-customize-prompts-models/references/model-selection.md
   - .claude/skills/aiq-customize-prompts-models/references/prompt-templates.md
   deployed_file_hashes:
-    .agents/skills/aiq-customize-prompts-models/SKILL.md: sha256:d08754d07b43650a16d875b554b5bc27ee660492bd1f603829cf94a0ae460fb0
-    .agents/skills/aiq-customize-prompts-models/references/model-selection.md: sha256:e7c0e91110ea20f1a3561049a51f156ef1ed57b6f81b1d1f0e10bc58c1bec3d9
-    .agents/skills/aiq-customize-prompts-models/references/prompt-templates.md: sha256:77e7fde067622ca1c87f37dfcfeb18d93167ffafa775d6e1aa7ae6ce48c39880
-    .claude/skills/aiq-customize-prompts-models/SKILL.md: sha256:d08754d07b43650a16d875b554b5bc27ee660492bd1f603829cf94a0ae460fb0
-    .claude/skills/aiq-customize-prompts-models/references/model-selection.md: sha256:e7c0e91110ea20f1a3561049a51f156ef1ed57b6f81b1d1f0e10bc58c1bec3d9
-    .claude/skills/aiq-customize-prompts-models/references/prompt-templates.md: sha256:77e7fde067622ca1c87f37dfcfeb18d93167ffafa775d6e1aa7ae6ce48c39880
+    .agents/skills/aiq-customize-prompts-models/SKILL.md: sha256:6f8cd60e6b2f5e75dd47a35bef1cd268a5c58fd1ad3d79d8550421f37009ae14
+    .agents/skills/aiq-customize-prompts-models/references/model-selection.md: sha256:eed1371a608b005897fc9f921db5141c70bd2c93aa15d5c180012c3ae2fbbce9
+    .agents/skills/aiq-customize-prompts-models/references/prompt-templates.md: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
+    .claude/skills/aiq-customize-prompts-models/SKILL.md: sha256:6f8cd60e6b2f5e75dd47a35bef1cd268a5c58fd1ad3d79d8550421f37009ae14
+    .claude/skills/aiq-customize-prompts-models/references/model-selection.md: sha256:eed1371a608b005897fc9f921db5141c70bd2c93aa15d5c180012c3ae2fbbce9
+    .claude/skills/aiq-customize-prompts-models/references/prompt-templates.md: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
   source: local
   local_path: ./skills/aiq-customize-prompts-models
 - repo_url: _local/aiq-definition-of-done
@@ -721,7 +721,7 @@ deployments:
   owners:
   - ./skills/aiq-customize-prompts-models
   active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:d08754d07b43650a16d875b554b5bc27ee660492bd1f603829cf94a0ae460fb0
+  content_hash: sha256:6f8cd60e6b2f5e75dd47a35bef1cd268a5c58fd1ad3d79d8550421f37009ae14
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-customize-prompts-models/references/model-selection.md
@@ -730,7 +730,7 @@ deployments:
   owners:
   - ./skills/aiq-customize-prompts-models
   active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:e7c0e91110ea20f1a3561049a51f156ef1ed57b6f81b1d1f0e10bc58c1bec3d9
+  content_hash: sha256:eed1371a608b005897fc9f921db5141c70bd2c93aa15d5c180012c3ae2fbbce9
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-customize-prompts-models/references/prompt-templates.md
@@ -739,7 +739,7 @@ deployments:
   owners:
   - ./skills/aiq-customize-prompts-models
   active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:77e7fde067622ca1c87f37dfcfeb18d93167ffafa775d6e1aa7ae6ce48c39880
+  content_hash: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-definition-of-done
@@ -1702,7 +1702,7 @@ deployments:
   owners:
   - ./skills/aiq-customize-prompts-models
   active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:d08754d07b43650a16d875b554b5bc27ee660492bd1f603829cf94a0ae460fb0
+  content_hash: sha256:6f8cd60e6b2f5e75dd47a35bef1cd268a5c58fd1ad3d79d8550421f37009ae14
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-customize-prompts-models/references/model-selection.md
@@ -1711,7 +1711,7 @@ deployments:
   owners:
   - ./skills/aiq-customize-prompts-models
   active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:e7c0e91110ea20f1a3561049a51f156ef1ed57b6f81b1d1f0e10bc58c1bec3d9
+  content_hash: sha256:eed1371a608b005897fc9f921db5141c70bd2c93aa15d5c180012c3ae2fbbce9
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-customize-prompts-models/references/prompt-templates.md
@@ -1720,7 +1720,7 @@ deployments:
   owners:
   - ./skills/aiq-customize-prompts-models
   active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:77e7fde067622ca1c87f37dfcfeb18d93167ffafa775d6e1aa7ae6ce48c39880
+  content_hash: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-definition-of-done

@@ -401,3 +401,50 @@ class TestAnnotateCurrentSpan:
                 await asyncio.to_thread(annotate_current_span, cache_model_config="hit")
         root = next(s for s in post.call_args.args[0]["spans"] if s["kind"] == "turn")
         assert root["metadata"] == {"cache_model_config": "hit"}
+
+
+class TestTheRootSpanCarriesTheCacheCounters:
+    """A warm turn and a cold one must be different rows (latency audit §4.4, E7).
+
+    The counters are the shared cache's own (``common/cache.py``); the profiler
+    only stamps them, and only at teardown, where the turn's totals are final.
+    """
+
+    def _span(self, post):
+        return post.call_args.args[0]["spans"][0]
+
+    def test_a_turn_that_read_the_cache_reports_hits_and_misses(self, monkeypatch):
+        from aiq_agent.common import cache
+
+        monkeypatch.delenv("REDIS_URL", raising=False)
+        cache.reset_local_store()
+        with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
+            with track_agent_profile(agent_name="chat_researcher", identity={"organization_id": "org_1"}):
+                cache.get_json("cold")
+                cache.set_json("warm", {"a": 1}, ttl_seconds=60)
+                cache.get_json("warm")
+        metadata = self._span(post)["metadata"]
+        assert metadata["cache_local_hits"] == 1
+        assert metadata["cache_local_misses"] == 1
+
+    def test_a_turn_that_never_touched_the_cache_says_nothing_about_it(self):
+        with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
+            with track_agent_profile(agent_name="chat_researcher", identity={"organization_id": "org_1"}):
+                pass
+        assert not self._span(post)["metadata"]
+
+    def test_two_turns_do_not_count_each_other(self, monkeypatch):
+        """One replica answers several turns at once; the scope is a ContextVar
+        so a turn's row is its own traffic, not the replica's."""
+        from aiq_agent.common import cache
+
+        monkeypatch.delenv("REDIS_URL", raising=False)
+        cache.reset_local_store()
+        with patch("aiq_agent.common.profiler._post_profiler_spans") as post:
+            with track_agent_profile(agent_name="chat_researcher", identity={"organization_id": "org_1"}):
+                cache.get_json("a")
+                cache.get_json("b")
+            with track_agent_profile(agent_name="chat_researcher", identity={"organization_id": "org_1"}):
+                cache.get_json("c")
+        assert post.call_args_list[0].args[0]["spans"][0]["metadata"]["cache_local_misses"] == 2
+        assert post.call_args_list[1].args[0]["spans"][0]["metadata"]["cache_local_misses"] == 1

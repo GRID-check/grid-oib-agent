@@ -25,6 +25,8 @@ export const nav = {
     automation: 'Automation',
     skills: 'Skills',
     jobs: 'Jobs',
+    /** The third Automation tab: work delegated to Piloti (ADR-0051). */
+    tasks: 'Tasks',
     archiv: 'Archiv',
     settings: 'Settings',
     // The intake wizard, labelled "Setup" in the product (⌘K palette only).

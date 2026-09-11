@@ -286,6 +286,87 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'task' }],
     metadata: { projectId: 'string', kind: 'string', decision: 'string', withReason: 'boolean' },
   },
+  // The document lifecycle (ADR-0054). Six version transitions plus the item's
+  // own archive. The actor is the person who decided — for the agent's internal
+  // route that is the pinned requester, resolved from the signed envelope, never
+  // a service token.
+  //
+  // `versionId` and `versionNumber` are both carried on purpose: the id is what
+  // the deep link and the API use, the number is what a person says out loud
+  // („Fassung 3 wurde freigegeben") and what survives in an export where the
+  // uuid means nothing. `withComment` is a boolean rather than the comment
+  // itself: the reviewer's words are tenant content and belong on the row, not
+  // in a trail that leaves the tenant.
+  'document.version.drafted': {
+    targets: [{ type: 'document' }],
+    metadata: {
+      versionId: 'string',
+      versionNumber: 'number',
+      state: 'string',
+      projectId: 'string',
+      withComment: 'boolean',
+    },
+  },
+  'document.version.submitted': {
+    targets: [{ type: 'document' }],
+    metadata: {
+      versionId: 'string',
+      versionNumber: 'number',
+      state: 'string',
+      projectId: 'string',
+      withComment: 'boolean',
+    },
+  },
+  'document.version.approved': {
+    targets: [{ type: 'document' }],
+    metadata: {
+      versionId: 'string',
+      versionNumber: 'number',
+      state: 'string',
+      projectId: 'string',
+      withComment: 'boolean',
+    },
+  },
+  'document.version.changes_requested': {
+    targets: [{ type: 'document' }],
+    metadata: {
+      versionId: 'string',
+      versionNumber: 'number',
+      state: 'string',
+      projectId: 'string',
+      withComment: 'boolean',
+    },
+  },
+  'document.version.rejected': {
+    targets: [{ type: 'document' }],
+    metadata: {
+      versionId: 'string',
+      versionNumber: 'number',
+      state: 'string',
+      projectId: 'string',
+      withComment: 'boolean',
+    },
+  },
+  // The publish door. Emitted for a human upload as well as for a Freigabe that
+  // was reviewed: both are "these bytes are now the live version", and a trail
+  // that recorded only one of them could not answer "when did this file last
+  // change" without also reading `document.uploaded`.
+  'document.version.published': {
+    targets: [{ type: 'document' }],
+    metadata: {
+      versionId: 'string',
+      versionNumber: 'number',
+      state: 'string',
+      projectId: 'string',
+      withComment: 'boolean',
+    },
+  },
+  // Item-level, not a version state: „archiviert" is a statement about the FILE.
+  // The bytes and every version stay; the chunks go.
+  'document.archived': {
+    targets: [{ type: 'document' }],
+    metadata: { projectId: 'string', filename: 'string', collectionName: 'string' },
+  },
   'document.generated': {
     targets: [{ type: 'document' }, { type: 'agent_run' }, { type: 'answer_artifact' }],
     // `producer` is emitted by `fileGeneratedDocument` and MUST be declared

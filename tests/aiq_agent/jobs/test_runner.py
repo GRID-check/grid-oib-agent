@@ -689,18 +689,19 @@ class TestRunAgentStateFields:
     @pytest.mark.asyncio
     async def test_run_agent_skips_unsupported_state_fields(self):
         """Fields absent from a state model are not passed (no validation errors)."""
-        from aiq_agent.agents.researcher.models import ResearchAgentState
+        from aiq_agent.agents.piloti.models import ResearchAgentState
         from aiq_api.jobs.runner import _run_agent
 
         captured: dict = {}
 
-        class FakeResearcherAgent:
+        class FakePilotiAgent:
             async def run(self, state):
                 captured["state"] = state
                 return state
 
-        FakeResearcherAgent.__module__ = "aiq_agent.agents.researcher.agent"
-        FakeResearcherAgent.__name__ = "ResearcherAgent"
+        FakePilotiAgent.__module__ = "aiq_agent.agents.piloti.agent"
+        FakePilotiAgent.__name__ = "PilotiAgent"
+        FakePilotiAgent.state_model = ResearchAgentState
 
         monitor = MagicMock()
         monitor.is_cancelled = False
@@ -708,7 +709,7 @@ class TestRunAgentStateFields:
         monitor.stop = AsyncMock()
 
         await _run_agent(
-            agent=FakeResearcherAgent(),
+            agent=FakePilotiAgent(),
             input_text="quick lookup",
             monitor=monitor,
             user_info={"name": "Ada"},
@@ -721,6 +722,28 @@ class TestRunAgentStateFields:
         assert state.user_info == {"name": "Ada"}
         assert state.project_context == "facts: {}"
         assert not hasattr(state, "clarifier_result")
+
+    def test_every_registered_agent_declares_its_state_model(self):
+        """The state model is declared, never spelled out of the class name.
+
+        ``_get_agent_state_class`` falls back to guessing from the class name,
+        and the guess is silent when it misses: the agent is handed a bare
+        dict and every field this class forwards is dropped. Renaming
+        ``ResearcherAgent`` to ``PilotiAgent`` is exactly the miss.
+        """
+        import importlib
+
+        from aiq_api.jobs.runner import _get_agent_state_class
+        from aiq_api.registry import AGENT_REGISTRY
+
+        assert AGENT_REGISTRY, "no agents registered"
+        for agent_type, config in AGENT_REGISTRY.items():
+            module_path, _, class_name = config.class_path.rpartition(".")
+            agent_cls = getattr(importlib.import_module(module_path), class_name)
+            declared = getattr(agent_cls, "state_model", None)
+            assert isinstance(declared, type), f"{agent_type} ({class_name}) declares no state_model"
+            assert "messages" in declared.model_fields, f"{agent_type} state model has no messages field"
+            assert _get_agent_state_class(agent_cls.__new__(agent_cls)) is declared
 
 
 class TestResolveWorkerToolRefs:

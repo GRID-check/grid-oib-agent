@@ -72,10 +72,36 @@ by `fe:test:merge` for the coverage comment. Run in series on one runner, the
 tests were about 63% of the job's wall clock. Locally `task fe:verify` runs lint,
 types, tests and build in order instead.
 
-Two required checks are not in `task verify` at all: `db:test:rls` (it needs
-PostgreSQL server binaries) and the release-note gate (it needs the PR's base
-and head). Run the first by hand when you touch the tenant boundary; the second
-only exists on a PR.
+Three required checks are not in `task verify` at all: `db:test:rls` (it needs
+PostgreSQL server binaries), `pkg:test` (four minutes, on a directory most
+changes never touch — see below), and the release-note gate (it needs the PR's
+base and head). Run the first two by hand when you touch what they cover; the
+third only exists on a PR.
+
+## The standalone packages under `packages/`
+
+`packages/ifc-spatial` (TypeScript) and `packages/ifc-spatial-py` (Python) are
+two implementations of the same spatial surface over IFC (ADR-0045), and both
+sit **outside** the workspace they live next to: their own `package-lock.json`
+and `uv.lock`, their own toolchains. Nothing the frontend or backend tier
+installs can run them, which is how 830 tests behind a default-ON feature that
+renders OIB compliance verdicts ended up with no gate at all — no Taskfile
+target, no CI job, no pre-commit hook. The same shape as `sources/` before it.
+
+They now run as CI's `packages` job, behind a `packages/**` paths filter, and
+`CI OK` requires it. Locally:
+
+```bash
+task pkg:install    # both toolchains (`task setup` does this too now)
+task pkg:test       # both suites
+```
+
+`task verify` deliberately leaves them out. `pkg:test:py` is 636 tests in 3m55s
+(measured 2026-09-10) against its own IfcOpenShell/shapely environment; adding
+that to every local gate run is the fastest way to get people to stop running
+the gate. `pkg:test:ts` is ~10 seconds and runs **both** tsconfigs, the source
+one and `tsconfig.test.json` — a test file that no longer type-checks is how an
+operator contract silently stops being asserted.
 
 The single required status check is **CI OK**
 ([`ci.yml`](../../.github/workflows/ci.yml)), which passes only when every
@@ -84,13 +110,13 @@ needed job succeeded or was skipped by the path filter.
 ## The live turn-shape eval
 
 ADR-0052 deleted the intent router, so two things that used to be code are now
-the researcher's reading of its own prompt: a greeting or a question
+Piloti's reading of its own prompt: a greeting or a question
 about the assistant answers without calling a search tool, and a commissioned
 report („erstelle mir einen vollständigen Prüfbericht …") escalates to deep
 research before it retrieves anything.
 [`tests/benchmarks/test_turn_shapes_live.py`](../../tests/benchmarks/test_turn_shapes_live.py)
 pins both, plus a control question that must still search. It runs the real
-agent on the real prompt against the researcher's own model through OpenRouter, with
+agent on the real prompt against Piloti's own model through OpenRouter, with
 stub tools that record every call, so the assertion is on the trace rather
 than on the prose.
 
@@ -110,6 +136,48 @@ rather than skips when the secret is missing. The assertions are strict: a
 transport failure gets one rerun, a behaviour miss does not. A red run means
 the prompt no longer holds the model on one of the two shapes; the ADR's
 "More Information" section says what to do about that.
+
+## The loop eval
+
+`task be:eval:loop` measures the **shape** of a chat turn rather than the
+correctness of its answer: how many retrieval rounds it took, whether the
+locator (`read_passage`) was used instead of a second search, whether the cited
+Punkt is the one the question is about, whether the Herleitung checkpoint came
+from the tool argument or from prose or from nowhere, and whether the research
+budget ran out. Twenty realistic German questions from a Wiener Planungsbüro
+live in [`tests/fixtures/herleitung/loop_eval_questions.yaml`](../../tests/fixtures/herleitung/loop_eval_questions.yaml)
+— every expected Punkt in it is read off the committed structural index rather
+than remembered — and [`scripts/loop_eval.py`](../../scripts/loop_eval.py) runs
+them, writes a CSV, and diffs two CSVs with `--compare`. **It cannot run in
+CI**, for the same reason `be:eval:retrieval` no longer does: it needs a
+reachable backend with the operator-provided, gitignored OIB corpus ingested,
+and every question costs real model calls. Run it on either side of a change to
+the answering loop and quote the delta in the PR; the CSV and comparison logic
+themselves are covered offline by
+[`tests/test_loop_eval.py`](../../tests/test_loop_eval.py).
+
+## Cross-service contract fixtures
+
+Where a wire format has a producer in one language and a consumer in another,
+the contract is a JSON fixture under `tests/fixtures/` that **both** suites read,
+never two assertions that each pin their own side. Two tests that agree with
+themselves prove nothing about a boundary: ADR-0046 records the internal-token
+header spelled one way by every caller and read the other way by the guard,
+which 403'd every scheduled run in a real deployment while both sides' tests
+stayed green.
+
+Two of these exist:
+
+| Fixture | Producer side | Consumer side |
+|---|---|---|
+| `grid_request_context.json` | `request-context.spec.ts` builds the headers | `test_project_context.py` parses them back |
+| `job_fire_headers.json` | `tests/lib/jobs/fire-headers.test.ts` fires a real submit and captures what went out | `test_fire_path_contract.py` asserts each backend-required set is a subset |
+
+Each is duplicated verbatim into `frontends/ui/tests/fixtures/`, because
+`frontends/ui/Dockerfile.typecheck`'s build context is scoped to `frontends/ui`
+and cannot `COPY` from outside it. **Copy the repo-root file over the twin when
+you change it** — `test_fire_path_contract.py` compares the two byte for byte,
+so drift fails a test rather than splitting the contract in half.
 
 ## Security and static analysis
 

@@ -19,6 +19,11 @@ import logging
 import os
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from dataclasses import replace
 from typing import Any
 
 try:
@@ -62,6 +67,134 @@ _client_lock = threading.Lock()
 _CLIENT_RETRY_SECONDS = 30.0
 
 
+# --- Counting, and saying so once -------------------------------------------
+#
+# Two things the fail-open contract was missing, both named by the
+# 2026-09 latency audit (§4.4, options E6 and E7): nothing counted a hit, and
+# an unreachable store logged one warning WITH A TRACEBACK per operation. The
+# second is the reason the first matters — a replica that has lost Dragonfly
+# is serving every reader from the per-process map, which is correct and
+# invisible, and the only evidence in the log was a wall of identical
+# tracebacks nobody reads.
+
+#: How often the "the store is down" warning may repeat. Longer than
+#: :data:`_CLIENT_RETRY_SECONDS` on purpose: the breaker retries every 30s, and
+#: a warning per retry is the wall of tracebacks again at a tenth of the rate.
+#: Same shape as ``knowledge_layer.cross_encoder._throttled_warning``, which
+#: paid for this lesson first.
+_STORE_DOWN_WARN_INTERVAL_SECONDS = 300.0
+
+#: ``None`` means "never warned in this process" — the same distinction, and
+#: the same reason, as :data:`_client_failed_at` above: ``time.monotonic()`` is
+#: time since boot, so a float sentinel of 0.0 would swallow the first warning
+#: of a fresh container's first five minutes.
+_store_down_warned_at: float | None = None
+_warn_lock = threading.Lock()
+
+
+@dataclass(frozen=True)
+class CacheCounters:
+    """How the shared cache answered, since a process or a turn started.
+
+    ``shared_*`` is the Dragonfly tier, ``local_*`` the in-process fallback map;
+    a read is counted in exactly one of them. ``errors`` counts operations the
+    store refused or could not answer, whichever tier they landed on — a read
+    that errors is an error and NOT a miss, because the two have different
+    fixes.
+    """
+
+    shared_hits: int = 0
+    shared_misses: int = 0
+    local_hits: int = 0
+    local_misses: int = 0
+    errors: int = 0
+
+    def __bool__(self) -> bool:
+        """False when nothing was counted — a turn that never touched the cache."""
+        return any(vars(self).values())
+
+    def since(self, earlier: CacheCounters) -> CacheCounters:
+        """This snapshot minus an earlier one."""
+        return CacheCounters(
+            shared_hits=self.shared_hits - earlier.shared_hits,
+            shared_misses=self.shared_misses - earlier.shared_misses,
+            local_hits=self.local_hits - earlier.local_hits,
+            local_misses=self.local_misses - earlier.local_misses,
+            errors=self.errors - earlier.errors,
+        )
+
+    def as_facts(self, prefix: str = "cache") -> dict[str, int]:
+        """The counters as flat span facts (``cache_shared_hits`` …)."""
+        return {f"{prefix}_{name}": value for name, value in vars(self).items()}
+
+
+_process_counters = CacheCounters()
+_counters_lock = threading.Lock()
+
+#: Per-turn counters, when a caller opened a scope. A ContextVar rather than a
+#: module global for the reason every other per-turn registry here is one
+#: (``cards/registry.py``): a replica answers several turns at once, and a
+#: process-global delta taken around one of them counts the others' traffic —
+#: a number that looks per-turn and is not. ContextVars travel into
+#: ``asyncio.to_thread``, which is how the sync helpers here are called from
+#: the event loop, so a scope covers the turn's real cache traffic. A thread
+#: started outside the scope (ingest) counts into the process totals only.
+_turn_counters: ContextVar[CacheCounters | None] = ContextVar("grid_cache_counters", default=None)
+
+
+def _count(**deltas: int) -> None:
+    """Add to the process totals and, when one is open, the turn's scope."""
+    global _process_counters
+    with _counters_lock:
+        _process_counters = replace(
+            _process_counters, **{name: getattr(_process_counters, name) + value for name, value in deltas.items()}
+        )
+    scoped = _turn_counters.get()
+    if scoped is not None:
+        _turn_counters.set(replace(scoped, **{name: getattr(scoped, name) + value for name, value in deltas.items()}))
+
+
+def cache_counters() -> CacheCounters:
+    """The open turn scope's counters, or the process totals when there is none."""
+    scoped = _turn_counters.get()
+    return scoped if scoped is not None else _process_counters
+
+
+@contextmanager
+def count_cache_operations() -> Iterator[None]:
+    """Count this turn's cache traffic on its own, for the profiler to stamp.
+
+    Read the numbers with :func:`cache_counters` inside the block (the profiler
+    does it at teardown, where the totals are final). Never raises, and never
+    changes what a cache call returns.
+    """
+    token = _turn_counters.set(CacheCounters())
+    try:
+        yield
+    finally:
+        _turn_counters.reset(token)
+
+
+def _warn_store_down(message: str, *args: Any) -> None:
+    """Warn that the store is unreachable — once per window, debug in between.
+
+    The traceback rides the FIRST warning of a window only. An outage means
+    every operation of every turn takes this path, so an unthrottled
+    ``exc_info=True`` costs one stack per cache call and buries the line that
+    says the cache is gone.
+    """
+    global _store_down_warned_at
+    now = time.monotonic()
+    with _warn_lock:
+        first = _store_down_warned_at is None or now - _store_down_warned_at >= _STORE_DOWN_WARN_INTERVAL_SECONDS
+        if first:
+            _store_down_warned_at = now
+    if first:
+        logger.warning(message, *args, exc_info=True)
+    else:
+        logger.debug(message, *args)
+
+
 def _get_client() -> Any | None:
     """Lazily build the Redis client; None when unset, unavailable, or cooling down."""
     global _client, _client_failed_at
@@ -84,7 +217,8 @@ def _get_client() -> Any | None:
             )
             return _client
         except Exception:
-            logger.warning("Shared cache unavailable; using in-process fallback", exc_info=True)
+            _warn_store_down("Shared cache unavailable; using in-process fallback")
+            _count(errors=1)
             _client_failed_at = time.monotonic()
             return None
 
@@ -148,8 +282,9 @@ def _is_transport_error(exc: BaseException) -> bool:
 
 
 def _on_store_error(operation: str, key: str, exc: BaseException) -> None:
+    _count(errors=1)
     if _is_transport_error(exc):
-        logger.warning("Shared cache %s failed for %s; falling back", operation, key, exc_info=True)
+        _warn_store_down("Shared cache %s failed for %s; falling back", operation, key)
         _mark_client_failed()
     else:
         # Per-key rejection: debug without traceback to avoid one traceback
@@ -179,14 +314,27 @@ def _local_set(key: str, value: str, ttl_seconds: float) -> None:
 
 
 def reset_local_store() -> None:
-    """Clear the in-process fallback store. Test-support only.
+    """Clear this module's per-process state. Test-support only.
 
     The fallback (`REDIS_URL` unset) is a module-global map that otherwise leaks
     cached values across tests. No effect on a real Redis backend.
+
+    The counters and the warn throttle are per-process state of the same kind
+    and are cleared with it, so a test that asserts "warns once" is not decided
+    by which test ran before it. The suite calls this around every test
+    (``tests/conftest.py``), which is what makes both assertions stable.
     """
+    global _store_down_warned_at, _process_counters
     with _local_lock:
         _local_store.clear()
         _local_tombstones.clear()
+    with _warn_lock:
+        _store_down_warned_at = None
+    with _counters_lock:
+        _process_counters = CacheCounters()
+    scoped = _turn_counters.get()
+    if scoped is not None:
+        _turn_counters.set(CacheCounters())
 
 
 def _tombstone_active(key: str) -> bool:
@@ -203,12 +351,18 @@ def _tombstone_active(key: str) -> bool:
 def get_json(key: str) -> Any | None:
     """Fetch and JSON-decode a value; None on miss or any store error."""
     if _tombstone_active(key):
+        _count(local_misses=1)
         return None
     client = _get_client()
     if client is not None:
         try:
             raw = client.get(key)
-            return json.loads(raw) if raw is not None else None
+            if raw is None:
+                _count(shared_misses=1)
+                return None
+            value = json.loads(raw)
+            _count(shared_hits=1)
+            return value
         except Exception as exc:
             _on_store_error("read", key, exc)
             if not _is_transport_error(exc):
@@ -217,11 +371,15 @@ def get_json(key: str) -> Any | None:
                 return None
     raw = _local_get(key)
     if raw is None:
+        _count(local_misses=1)
         return None
     try:
-        return json.loads(raw)
+        value = json.loads(raw)
     except (TypeError, ValueError):
+        _count(errors=1)
         return None
+    _count(local_hits=1)
+    return value
 
 
 def set_json(key: str, value: Any, ttl_seconds: float) -> None:
@@ -376,8 +534,9 @@ def eval_script(script: str, keys: list[str], args: list[Any]) -> Any | None:
         # A Lua compile error, WRONGTYPE key, or NOSCRIPT is this call, not
         # the store (see _is_transport_error): the cooldown is for an
         # unreachable store.
+        _count(errors=1)
         if _is_transport_error(exc):
-            logger.warning("Shared cache eval failed", exc_info=True)
+            _warn_store_down("Shared cache eval failed")
             _mark_client_failed()
         else:
             logger.debug("Shared cache eval rejected by server: %s", exc)

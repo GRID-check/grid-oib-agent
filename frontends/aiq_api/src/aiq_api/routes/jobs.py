@@ -583,7 +583,16 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
         from ..jobs.event_store import EventStore
 
-        result = {"status": "ok", "dask_available": dask_available, "db": "ok"}
+        # `sha` is the deployed commit (GRID_GIT_SHA, stamped into the image
+        # at build time), or "unknown". The boot log prints it too, but a pilot
+        # report arrives after that line has rotated — this answers "what is
+        # that deployment running" over HTTP, which is what makes the report
+        # actionable. It also reaches the BFF's own `/api/health`, which is a
+        # pass-through of this body. A commit sha of a private repository is
+        # not a credential and not tenant data.
+        from ..startup_banner import deployed_sha
+
+        result = {"status": "ok", "sha": deployed_sha(), "dask_available": dask_available, "db": "ok"}
 
         # Check DB connectivity using any cached async engine
         try:

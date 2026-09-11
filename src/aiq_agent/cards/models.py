@@ -107,7 +107,7 @@ class CardModel(BaseModel):
 
     It runs on EVERY emission path, because all of them go through
     ``grid_card_adapter`` or :func:`validate_cards` — the ``emit_card`` tool, the
-    post-hoc batch generator, the researcher DSML path, project memory
+    post-hoc batch generator, Piloti's DSML path, project memory
     and surfaced documents. Identifier-shaped fields (IFC GlobalIds, model file
     names, JSON-pointer paths) inherit it too and are unaffected: none of the
     three constructs can occur in one.
@@ -2194,6 +2194,241 @@ class DocumentGridCard(CardModel):
     documents: list[SurfacedDocument] = Field(min_length=1, description="The surfaced files, best match first")
 
 
+# ── Draft card (system-emitted) ──────────────────────────────────────────────
+#: The editorial states of a document version, mirrored (not imported) from
+#: ``DOCUMENT_VERSION_STATES`` in
+#: ``frontends/ui/src/lib/documents/lifecycle-types.ts`` — the same
+#: parse-independently rule the request-context headers follow, since the
+#: contract crosses a language boundary and the JSON Schema at
+#: ``frontends/ui/tests/fixtures/document-lifecycle.schema.json`` is what pins
+#: the two together (``tests/aiq_agent/tools/documents/test_wire_contract.py``).
+DocumentVersionState = Literal[
+    "draft",
+    "in_review",
+    "changes_requested",
+    "approved",
+    "published",
+    "superseded",
+    "rejected",
+]
+
+# The one thing that says a chat turn WROTE something. Pushed by `write_file`
+# and `edit_file` from the conversation's working directory
+# (`tools/documents/draft_store.py`), never by the model: a draft the reader can
+# open has to be a file that exists, and a fabricated one would name a path
+# nothing wrote.
+
+
+class DocumentDraftCard(CardModel):
+    """A document the agent wrote into this conversation's working directory.
+
+    System-emitted by the working directory's ``write_file`` / ``edit_file``, and
+    again by ``file_draft`` once the draft has become a project document.
+
+    **The card has two states, and the difference is three fields.** Unfiled, it
+    reports a file that exists in this conversation and nowhere else: not filed,
+    not indexed, not citable, not in the Files pane. Filed, it names a
+    ``documents`` row — and then it can offer the two things a reader wants,
+    opening it and sending it for review, both through the routes the Files pane
+    itself uses.
+
+    The three fields travel together or not at all: a card carrying a
+    ``document_id`` and no ``version_state`` could not say whether the draft is
+    still submittable, and one carrying a state with no ``version_id`` could not
+    submit it. ``_require_filed_together`` is what refuses the half-filled shape,
+    because the alternative is a card that renders a live-looking control over
+    nothing.
+    """
+
+    type: Literal["document_draft"] = "document_draft"
+    title: str = Field(min_length=1, description="The document's first heading, or its file name when it has none")
+    path: str = Field(min_length=1, description="Path in the working directory, e.g. '/entwuerfe/aktenvermerk.md'")
+    bytes: int = Field(ge=0, description="Size of the draft as stored, in UTF-8 bytes")
+    version: int = Field(ge=1, description="How often this path has been written or edited in this conversation")
+    document_id: str | None = Field(
+        default=None, description="The project document this draft was filed as; absent while it is unfiled"
+    )
+    version_id: str | None = Field(
+        default=None, description="The open version of that document — what 'submit for review' acts on"
+    )
+    version_state: DocumentVersionState | None = Field(
+        default=None, description="That version's editorial state, as the lifecycle API last reported it"
+    )
+
+    @model_validator(mode="after")
+    def _require_filed_together(self) -> "DocumentDraftCard":
+        filed = (self.document_id, self.version_id, self.version_state)
+        if any(filed) and not all(filed):
+            raise ValueError(
+                "document_id, version_id and version_state are the filed state and travel together: "
+                "a card with some of them cannot say what it is offering"
+            )
+        return self
+
+
+# ── Task created (system-emitted, informational) ─────────────────────────────
+# Pushed by `create_task` (`tools/tasks/register.py`) and by nothing else. A
+# delegated task is a ROW the BFF has already created by the time the card
+# exists, so this card REPORTS rather than proposes: there is nothing to accept,
+# and a control here would offer to do a second time what the tool just did.
+
+#: The kinds a person may delegate. Mirrored (not imported) from
+#: `DELEGATABLE_TASK_KINDS` in `frontends/ui/src/lib/db/schema/tasks.ts` — the
+#: same parse-independently rule `DocumentVersionState` follows one screen up,
+#: for the same reason: the contract crosses a language boundary, and a shared
+#: schema between the two would be a build step neither tier wants.
+TaskKind = Literal["compliance_check", "einreichcheck", "document", "revision"]
+
+
+class TaskCreatedCard(CardModel):
+    """Work Piloti has taken on, as a row somebody can come back to.
+
+    System-emitted by ``create_task``. What it exists to prevent is the answer
+    „ich mache den Einreichcheck bis Freitag" with nothing behind it: the card is
+    proof there is a row, and the row is what carries the requester's permission,
+    the deadline and — when a person judges the result — the decision that reaches
+    the next attempt (ADR-0051).
+
+    Informational, not interactive. The task is already queued when this renders,
+    so there is no Accept: a control would either repeat the delegation or cancel
+    it, and cancelling delegated work is a Files-and-tasks surface decision, not
+    a chat one.
+
+    ``conversation_id`` is the thread the run writes into, so the card can link a
+    reader to the work rather than only announce it. Absent when the run's
+    conversation could not be created, which is the same degraded shape a
+    scheduled job has had since jobs got conversations at all.
+    """
+
+    type: Literal["task_created"] = "task_created"
+    task_id: str = Field(min_length=1, description="The task row's id")
+    kind: TaskKind = Field(description="What kind of work was delegated")
+    title: str = Field(min_length=1, max_length=200, description="What the task is called in the inbox and the list")
+    goal: str = Field(min_length=1, max_length=500, description="What was asked, in the requester's own words")
+    due_at: str | None = Field(
+        default=None, description="ISO instant the work is wanted by, or absent when none was named"
+    )
+    conversation_id: str | None = Field(
+        default=None, description="The conversation the run writes into; absent when it could not be created"
+    )
+
+
+# ── File-operation proposal (system-emitted, interactive) ────────────────────
+# ONE card type for four verbs, discriminated by `operation`, because the
+# alternative is four cards that differ in one field and share every line of
+# their chrome, their decision lifecycle and their i18n. The four write-side
+# workspace tools (`tools/files/`) each emit this card and NEVER perform the
+# operation: the Python tier holds no path into `grid_app` (ADR-0003), so
+# accepting it is what executes — through the same routes the Files pane uses,
+# in the reader's own session, under `requireProjectAccess`.
+#
+# The batch is what makes it one card and not one per file. „Räum die
+# Einreichunterlagen zusammen" is four moves, and four cards asking the same
+# question four times is four decisions for one intention. So `operations`
+# is a list, capped, and every entry shares the card's `operation` kind.
+
+#: How many operations one card may carry. A tidying turn proposes a handful;
+#: past that the card stops being a decision the reader can actually read
+#: before answering, and „alles verschieben" is not a proposal, it is a job.
+MAX_FILE_OPERATIONS = 8
+
+#: The four verbs. Each names the tool that emits it (`move_document`,
+#: `rename_document`, `create_folder`, `assign_document`).
+#:
+#: A fifth, `set_doc_class`, was here and is gone. A project document has no
+#: doc_class route for an Accept to run, so the card drew the proposal and no
+#: control — a decision the reader could read and could not take. It comes back
+#: with the route, not before it.
+FileOperationKind = Literal["move", "rename", "create_folder", "assign"]
+
+
+class FileOperationItem(CardModel):
+    """One proposed change, in the vocabulary of the operation that owns it.
+
+    Deliberately flat with per-operation fields rather than a nested union: the
+    card is built by the tool, validated once here, and rendered by one
+    component that switches on the CARD's `operation` — a shape the frontend's
+    generated Zod can narrow without a second discriminator inside every row.
+    :meth:`FileOperationProposalCard._require_operation_fields` is what keeps a
+    row from carrying another operation's fields.
+
+    ``document`` is a FILE NAME and never an id. The agent's inventory
+    (``knowledge/inventory.py``) knows files by ``(collection, file_name)`` and
+    has no document ids in it at all, so a card carrying an id would be
+    carrying something the tool invented. The reader's session resolves the
+    name against their own document list when they accept.
+    """
+
+    document: str | None = Field(
+        default=None,
+        description="File name exactly as the inventory lists it (move, rename, assign)",
+    )
+    source: Literal["projekt", "buero"] | None = Field(
+        default=None,
+        description="Which shelf the document sits on, so the name resolves in the right corpus",
+    )
+    current: str | None = Field(
+        default=None,
+        description="What this is TODAY (current folder or name) — for the before/after line",
+    )
+    target_folder: str | None = Field(
+        default=None,
+        description="move: the destination folder PATH, e.g. 'Einreichung/Pläne'. Empty string is the project root",
+    )
+    new_display_name: str | None = Field(default=None, description="rename: the new display name")
+    folder_name: str | None = Field(default=None, description="create_folder: the new folder's own name (one segment)")
+    parent_folder: str | None = Field(
+        default=None,
+        description="create_folder: the parent folder PATH, or an empty string for the project root",
+    )
+    member: str | None = Field(
+        default=None,
+        description="assign: the person as the user named them; the reader's session resolves it against the project",
+    )
+
+
+class FileOperationProposalCard(CardModel):
+    """A workspace change the agent PROPOSES and the reader executes.
+
+    System-emitted by the four tools under ``src/aiq_agent/tools/files/``. Every
+    one of them is a write, none of them writes: the card is the proposal, the
+    reader's Accept runs it through the existing document/folder/assignment
+    routes in their own session, and the tool's own result text says plainly
+    that nothing has changed yet.
+    """
+
+    type: Literal["file_operation_proposal"] = "file_operation_proposal"
+    title: str = Field(min_length=1, description="Short action title, e.g. 'Vier Dateien in „Einreichung“ verschieben'")
+    operation: FileOperationKind = Field(description="Which verb every entry in `operations` is")
+    operations: list[FileOperationItem] = Field(
+        min_length=1,
+        max_length=MAX_FILE_OPERATIONS,
+        description="The proposed changes, in the order they will be applied",
+    )
+    note: str | None = Field(default=None, description="One line of context under the list, when it adds something")
+
+    @model_validator(mode="after")
+    def _require_operation_fields(self) -> "FileOperationProposalCard":
+        """Every entry must carry what its verb needs, and nothing it does not.
+
+        The card is built in Python, so this is not a guard against a model —
+        it is the guard against a TOOL that grows a fifth caller and forgets a
+        field. A row missing its target renders as a proposal to do nothing,
+        which the reader would accept.
+        """
+        required: dict[str, tuple[str, ...]] = {
+            "move": ("document", "target_folder"),
+            "rename": ("document", "new_display_name"),
+            "create_folder": ("folder_name",),
+            "assign": ("document", "member"),
+        }[self.operation]
+        for index, item in enumerate(self.operations):
+            missing = [name for name in required if getattr(item, name) is None]
+            if missing:
+                raise ValueError(f"operation {index} ({self.operation}) is missing {', '.join(missing)}")
+        return self
+
+
 # ---------------------------------------------------------------------------
 # IFC/BIM viewer card
 # ---------------------------------------------------------------------------
@@ -2509,6 +2744,9 @@ GridCard = (
     | ParkingRequirementCard
     | MemoryProposalCard
     | DocumentGridCard
+    | DocumentDraftCard
+    | TaskCreatedCard
+    | FileOperationProposalCard
     | IfcViewerCard
     | IfcComplianceCard
     | IfcScheduleCard
@@ -2538,6 +2776,7 @@ __all__ = [
     "DeadlineTimelineCard",
     "DiagramCard",
     "DocumentChecklistCard",
+    "DocumentDraftCard",
     "DocumentGridCard",
     "FollowUp",
     "FollowUpsCard",
@@ -2564,6 +2803,7 @@ __all__ = [
     "ProjectProfilePatchPreviewItem",
     "RequirementChecklistCard",
     "SummaryCard",
+    "TaskCreatedCard",
     "TypedColumn",
     "TypedTableCard",
     "VerdictHeaderCard",

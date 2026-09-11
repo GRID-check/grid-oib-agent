@@ -67,6 +67,16 @@ tasks:
       # Delegate to the same per-tier task groups CI invokes, so there is one
       # definition of each tier's gate rather than a second list here that can
       # drift from the workflow (that drift is exactly what this file removes).
+      #
+      # `pkg:test` is deliberately NOT here, and the number is the reason:
+      # packages/ifc-spatial-py is 636 tests in 3m55s (measured 2026-09-10)
+      # against its own uv.lock and its own IfcOpenShell/shapely toolchain, on a
+      # directory most changes never touch. CI runs it behind a `packages/**`
+      # paths filter (ci.yml's `packages` job), which pays that cost only on the
+      # commits that earn it; making every local `task verify` pay it would be
+      # the fastest way to get people to stop running `task verify`. Run
+      # `task pkg:test` when you change `packages/`, the same discipline
+      # `db:test:rls` asks for at the tenant boundary.
       - task: lint:repo
       - task: be:verify
       - task: fe:verify
@@ -108,6 +118,9 @@ tasks:
       # program's own TypeScript and Vitest were never fetched.
       - npm --prefix deploy/pulumi ci
       - npm --prefix deploy/pulumi/policy ci
+      # packages/ used to be skipped here too, so `task pkg:test` on a fresh
+      # clone failed at "vitest: not found" rather than at an assertion.
+      - task: pkg:install
       - task: agents:setup
 
   # ── agent skills (apm) ──────────────────────────────────────────────────────
@@ -397,7 +410,7 @@ tasks:
     env:
       PYTHONPATH: src:frontends/benchmarks/oib_retrieval/src
     cmds:
-      # ADR-0044 rule 7 made measurable: a chunker or German-analyzer change
+      # ADR-0058 rule 7 made measurable: a chunker or German-analyzer change
       # that makes fewer Punkte survive as a citable unit fails here, on the
       # real corpus, with no embedder and no key. Baseline is in the harness
       # README; the threshold sits a few points under it so a measurement
@@ -408,7 +421,7 @@ tasks:
       # checkout could hold the PDFs to measure. This is now an opt-in local
       # tool: run it yourself before a chunker or German-analyzer change, and
       # quote the number in the PR. Without a corpus it exits 1 saying so.
-      # What was lost and what would restore it: ADR-0044, "Update (2026-09-09)".
+      # What was lost and what would restore it: ADR-0058, "Update (2026-09-09)".
       - '{{.PY}} -m oib_retrieval_eval.runner --structure-only --fail-below {{.RETRIEVAL_GATE_PCT | default "95"}}'
 
   be:eval:overview:
@@ -430,8 +443,25 @@ tasks:
       # this when AIQ_EMBED_MODEL, data/oib or the golden questions change.
       - '{{.PY}} -m oib_retrieval_eval.record_vector'
 
+  be:eval:loop:
+    desc: 'Agentic-loop shape eval — rounds, locator use, checkpoint source, truncation (NEEDS a running backend with the corpus; set GRID_LOOP_EVAL_URL)'
+    cmds:
+      # Sibling of be:eval:retrieval and unrunnable in CI for the same reason:
+      # the corpus is operator-provided and gitignored, and every question here
+      # costs real model calls. What it measures is the SHAPE of a turn, not
+      # whether the right passage came back — that is be:eval:retrieval's job.
+      #
+      # Two runs and a diff:
+      #   GRID_LOOP_EVAL_URL=… task be:eval:loop -- --out /tmp/before.csv
+      #   …change the loop, redeploy…
+      #   GRID_LOOP_EVAL_URL=… task be:eval:loop -- --out /tmp/after.csv
+      #   task be:eval:loop -- --compare /tmp/before.csv /tmp/after.csv
+      # The compare mode needs no backend at all. Without a URL the run exits 2
+      # saying so rather than writing an empty CSV somebody later compares.
+      - '{{.PY}} scripts/loop_eval.py {{.CLI_ARGS}}'
+
   be:eval:turn-shapes:
-    desc: ADR-0052 turn-shape eval against the live researcher model (needs OPENROUTER_API_KEY; skips without it)
+    desc: ADR-0052 turn-shape eval against Piloti's live model (needs OPENROUTER_API_KEY; skips without it)
     cmds:
       # The two behaviours ADR-0052 moved from the router into the prompt — a
       # greeting does not search, a commissioned report escalates before it
@@ -498,6 +528,55 @@ tasks:
     dir: deploy/pulumi
     cmds:
       - npm run preview
+
+  # ── standalone packages (packages/) ─────────────────────────────────────────
+  #
+  # Two implementations of the same spatial surface over IFC (ADR-0045), each
+  # OUTSIDE the workspace it sits next to: `ifc-spatial` has its own
+  # package-lock.json and is not in the UI's bun workspace; `ifc-spatial-py` has
+  # its own uv.lock and is not in the root uv workspace. That is why they get
+  # their own tasks instead of riding `fe:*` or `be:*` — neither toolchain can
+  # see them.
+  #
+  # Until now nothing ran either suite: no Taskfile target, no CI job, no
+  # pre-commit hook. 830 tests behind a default-ON feature that renders OIB
+  # compliance verdicts, and the only thing standing between a broken assertion
+  # and a customer was somebody remembering to run pytest by hand.
+
+  pkg:install:
+    desc: Install the standalone packages' own toolchains (own lockfiles, outside every workspace)
+    cmds:
+      # `ci`, not `install`: the lockfile is the contract here exactly as it is
+      # for the UI and for deploy/pulumi.
+      - npm --prefix packages/ifc-spatial ci
+      # The Python package builds its env on first `uv run`; syncing here means
+      # `pkg:test:py` measures the suite rather than the download.
+      - uv sync --project packages/ifc-spatial-py --all-extras
+
+  pkg:test:ts:
+    desc: 'packages/ifc-spatial: tests + typecheck (own lockfile, ~10s)'
+    cmds:
+      - npm --prefix packages/ifc-spatial test
+      # `typecheck` runs BOTH tsconfigs — the source one and tsconfig.test.json.
+      # A test file that no longer type-checks is how an operator contract
+      # silently stops being asserted.
+      - npm --prefix packages/ifc-spatial run typecheck
+
+  pkg:test:py:
+    desc: 'packages/ifc-spatial-py: pytest against its own uv.lock (636 tests, ~4 min)'
+    cmds:
+      # `--all-extras`, NOT `--extra dev`: pytest is the `dev` extra, and the
+      # suite also collects test_ids_export.py, which needs `ifctester` from the
+      # `ids` extra. Plain `uv run pytest` installs neither and collection dies.
+      # `--project` rather than a `dir:`, so the path in the failure output is
+      # the one you can paste back.
+      - uv run --project packages/ifc-spatial-py --all-extras pytest packages/ifc-spatial-py/tests -q
+
+  pkg:test:
+    desc: Both standalone package suites (packages/ifc-spatial + ifc-spatial-py)
+    cmds:
+      - task: pkg:test:ts
+      - task: pkg:test:py
 
   # ── repo-wide ───────────────────────────────────────────────────────────────
 

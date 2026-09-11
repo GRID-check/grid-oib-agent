@@ -44,6 +44,7 @@
 import 'server-only'
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 import { bucketAdminS3Client, buildStorageKey, s3Client } from '@/lib/s3'
+import { agentDocumentFilename } from './agent-namespace'
 import { ensureTenantBucketChecked } from '@/lib/storage/bucket'
 import { admitOrDiscard } from '@/lib/storage/admission'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -102,6 +103,18 @@ export const GENERATED_DOCUMENT_PRODUCER_REF_KINDS = {
   /** The chat answer the diagram was drawn in, plus a hash of its source. */
   diagram_svg: 'answer_artifact',
   diagram_pdf: 'answer_artifact',
+  /**
+   * A Markdown document a chat turn wrote (ADR-0054), filed as a `draft`
+   * version rather than as a finished report.
+   *
+   * `answer_artifact` and not `agent_run`: its reference is
+   * `{conversation id}-{slug}`, built so two turns of ONE conversation writing
+   * „Aktenvermerk" land on one document with two versions. There is no backend
+   * job to look up, which is exactly the distinction migration 0066 exists for —
+   * a reference nobody can resolve, written into `AIRunId`, reads like an audit
+   * trail and is not one.
+   */
+  agent_document: 'answer_artifact',
 } as const satisfies Record<string, AuthoredRefKind>
 
 export type GeneratedDocumentProducer = keyof typeof GENERATED_DOCUMENT_PRODUCER_REF_KINDS
@@ -136,6 +149,28 @@ export const GENERATED_DOCUMENT_PRODUCERS = Object.keys(
 const REF_KIND_IS_A_RUN: Record<AuthoredRefKind, boolean> = {
   agent_run: true,
   answer_artifact: false,
+}
+
+/**
+ * Which producers file under the `piloti/` filename namespace (ADR-0054 §
+ * Indexing).
+ *
+ * A `Record<GeneratedDocumentProducer, boolean>` and not an `if`, for the reason
+ * {@link REF_KIND_IS_A_RUN} is one: it is exhaustive by construction, so a fifth
+ * producer is a compile error here rather than a silent decision that its
+ * output may collide with a human upload's name.
+ *
+ * `true` means "a version of this can be PUBLISHED, and a published version is
+ * indexed". Only `agent_document` walks the lifecycle; the other three file as
+ * `stored`, are never dispatched, and own no chunks — so namespacing them would
+ * rename existing rows for no invariant. That is the whole test: the namespace
+ * is about the join key to the retrieval index, not about tidiness.
+ */
+const PRODUCER_FILES_UNDER_NAMESPACE: Record<GeneratedDocumentProducer, boolean> = {
+  deep_research: false,
+  diagram_svg: false,
+  diagram_pdf: false,
+  agent_document: true,
 }
 
 /**
@@ -513,8 +548,23 @@ export async function fileGeneratedDocument(
   const folder = await getOrCreateProjectFolderByName(projectId, destination.folderName)
 
   const documentId = crypto.randomUUID()
-  const filename = generatedFilename(title, rendered.contentType, new Date())
-  const storageKey = buildStorageKey(session.organizationId, projectId, documentId, filename, folder.path)
+  const storedName = generatedFilename(title, rendered.contentType, new Date())
+  // The ROW's name, namespaced for a producer whose output can be published and
+  // therefore indexed — see `agent-namespace.ts` for why `piloti/<id>/` and why
+  // at creation rather than at ingest.
+  const filename = PRODUCER_FILES_UNDER_NAMESPACE[producer]
+    ? agentDocumentFilename(documentId, storedName)
+    : storedName
+  // The OBJECT's key is built from the bare name, so a stored key stays one flat
+  // segment under `doc/<id>/` exactly as every document's is — `storageKeySegment`
+  // would otherwise flatten the namespace's slashes into `piloti_<id>_<name>` and
+  // repeat the id it already carries one level up. The two strings may differ
+  // because they answer different questions: the key says where the bytes are,
+  // and the row's `filename` is the identity the retrieval index joins on. The
+  // dispatch STATES that identity on `/v1/ingest` (`file_name`) rather than
+  // letting the backend read it off the presigned URL's last segment, which is
+  // this key's basename.
+  const storageKey = buildStorageKey(session.organizationId, projectId, documentId, storedName, folder.path)
 
   // Create the organization's bucket on first use (ADR-0043) before the PUT, so
   // a provisioning failure leaves nothing behind.
@@ -551,13 +601,17 @@ export async function fileGeneratedDocument(
       // written under an older answer. See the column's own note.
       authoredByRefKind: refKind,
       filename,
-      displayName: title.trim() || filename,
+      // The bare name, never the namespaced one: `displayName` is what a reader
+      // sees in the Files pane, and `piloti/<uuid>/…` is an index join key.
+      displayName: title.trim() || storedName,
       storageKey,
       storageBucket,
       // The collection this project's evidence lives in — recorded because the
       // column says which corpus the row BELONGS to, not which one holds chunks
-      // for it. Nothing is ever indexed here, so there are none; the safety
-      // comes from the dispatch that does not happen, never from this string.
+      // for it. Nothing is indexed by THIS function; a row filed here has no
+      // chunks until somebody publishes a version of it (ADR-0054), and the
+      // safety comes from the dispatch that does not happen, never from this
+      // string.
       collectionName: project.collectionName,
       fileSize: body.byteLength,
       contentType: rendered.contentType,
@@ -609,9 +663,14 @@ export async function fileGeneratedDocument(
   // corpus, comes back to the agent as retrievable evidence under a green
   // *Projektwissen* badge, indistinguishable from a stamped Gutachten — and the
   // retrieval path's documented posture is fail-OPEN, so a filter there is not
-  // a safety mechanism. No chunks exist, so self-citation is unrepresentable
-  // rather than filtered. `src/lib/documents/generated.spec.ts` asserts the
+  // a safety mechanism. `src/lib/documents/generated.spec.ts` asserts the
   // absence at the dispatch site; do not add a call here.
+  //
+  // ADR-0054 opened exactly one door, and it is not this one: a PUBLISHED
+  // version is dispatched, from the lifecycle's `ingestPublished` effect, after
+  // a person approved it. What is filed here is a draft, and a draft is never
+  // published — so the sentence above stays literally true of this function,
+  // which is why the door could be opened without reopening it.
 
   try {
     await recordAuditEventOrThrow({

@@ -140,6 +140,23 @@
       "envelopeJson": "{\"organizationId\":\"org_123\",\"userId\":\"user_456\",\"projectId\":\"proj_789\",\"collectionScope\":[\"oib_knowledge\",\"proj_proj_789\",\"s_conv_1\"],\"projectContext\":\"PROJECT_CONTEXT v1\\n\\nconfirmed:\\n- bundesland=wien\",\"projectMemory\":\"- Prefers concise citations\\n- Based in Germany\",\"modelOverrides\":{\"deep_research\":\"openrouter/anthropic/claude-3.7-sonnet\",\"shallow_research\":\"openrouter/openai/gpt-4o-mini\"},\"budget\":{\"remainingOrgUsd\":42.5,\"remainingUserUsd\":10,\"remainingProjectUsd\":5.25},\"disabledSources\":[\"web_search\"],\"memoryReflectionEnabled\":true,\"bundesland\":\"wien\"}",
       "header": "eyJvcmdhbml6YXRpb25JZCI6Im9yZ18xMjMiLCJ1c2VySWQiOiJ1c2VyXzQ1NiIsInByb2plY3RJZCI6InByb2pfNzg5IiwiY29sbGVjdGlvblNjb3BlIjpbIm9pYl9rbm93bGVkZ2UiLCJwcm9qX3Byb2pfNzg5Iiwic19jb252XzEiXSwicHJvamVjdENvbnRleHQiOiJQUk9KRUNUX0NPTlRFWFQgdjFcblxuY29uZmlybWVkOlxuLSBidW5kZXNsYW5kPXdpZW4iLCJwcm9qZWN0TWVtb3J5IjoiLSBQcmVmZXJzIGNvbmNpc2UgY2l0YXRpb25zXG4tIEJhc2VkIGluIEdlcm1hbnkiLCJtb2RlbE92ZXJyaWRlcyI6eyJkZWVwX3Jlc2VhcmNoIjoib3BlbnJvdXRlci9hbnRocm9waWMvY2xhdWRlLTMuNy1zb25uZXQiLCJzaGFsbG93X3Jlc2VhcmNoIjoib3BlbnJvdXRlci9vcGVuYWkvZ3B0LTRvLW1pbmkifSwiYnVkZ2V0Ijp7InJlbWFpbmluZ09yZ1VzZCI6NDIuNSwicmVtYWluaW5nVXNlclVzZCI6MTAsInJlbWFpbmluZ1Byb2plY3RVc2QiOjUuMjV9LCJkaXNhYmxlZFNvdXJjZXMiOlsid2ViX3NlYXJjaCJdLCJtZW1vcnlSZWZsZWN0aW9uRW5hYmxlZCI6dHJ1ZSwiYnVuZGVzbGFuZCI6IndpZW4ifQ",
       "signature": "c786ba6104bef5300166b6443e53cd9e5b541eae5cc2c80d5e1c9de80c65374d"
+    },
+    {
+      "name": "signed_envelope_with_conversation_and_issued_at",
+      "comment": "ADR-0054: the agent's document route reads the acting user out of the VERIFIED envelope and files in that person's session, so the turn's conversation id and a minting timestamp ride inside the signed bytes. Both are appended AFTER `bundesland` in the fixed key order, so every case above keeps byte-identical header/signature. `issuedAt` is epoch milliseconds; the BFF verifier (verifyGridRequestContextEnvelope) refuses an envelope older than six hours and refuses one carrying no issuedAt at all, which is what stops a captured envelope replaying as its user forever. The Python reader keeps accepting envelopes without one -- it has since before the field existed, and stopping would break every in-flight turn.",
+      "secret": "grid-envelope-fixture-secret",
+      "input": {
+        "organizationId": "org_123",
+        "userId": "user_456",
+        "projectId": "proj_789",
+        "collectionScope": ["oib_knowledge", "proj_proj_789"],
+        "memoryReflectionEnabled": true,
+        "conversationId": "s_conv_1",
+        "issuedAt": 1789430400000
+      },
+      "envelopeJson": "{\"organizationId\":\"org_123\",\"userId\":\"user_456\",\"projectId\":\"proj_789\",\"collectionScope\":[\"oib_knowledge\",\"proj_proj_789\"],\"memoryReflectionEnabled\":true,\"conversationId\":\"s_conv_1\",\"issuedAt\":1789430400000}",
+      "header": "eyJvcmdhbml6YXRpb25JZCI6Im9yZ18xMjMiLCJ1c2VySWQiOiJ1c2VyXzQ1NiIsInByb2plY3RJZCI6InByb2pfNzg5IiwiY29sbGVjdGlvblNjb3BlIjpbIm9pYl9rbm93bGVkZ2UiLCJwcm9qX3Byb2pfNzg5Il0sIm1lbW9yeVJlZmxlY3Rpb25FbmFibGVkIjp0cnVlLCJjb252ZXJzYXRpb25JZCI6InNfY29udl8xIiwiaXNzdWVkQXQiOjE3ODk0MzA0MDAwMDB9",
+      "signature": "fb8acc1b3060e47630e50c817b6839e3689b41aad809aaec832f7a3a541573b9"
     }
   ]
 }

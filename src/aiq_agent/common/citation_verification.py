@@ -82,6 +82,14 @@ class SourceEntry:
     # it is the FIRST-priority signal for lane/kind placement, overriding the
     # filename/collection heuristics. None for sources without an explicit class.
     doc_class: str | None = None
+    # WHO WROTE THE DOCUMENT this passage came from — ``"agent"`` for a
+    # published Piloti document, None for everything a human wrote. Parsed from
+    # the knowledge-layer tool output's ``Herkunft:`` line
+    # (``common/provenance.py``). It is its own axis, never a doc_class and
+    # never a shelf: it decides the lane before either of those is consulted,
+    # and it is what ``answer_envelope._gate_verdict`` reads to refuse a
+    # normative verdict resting on an office document Piloti wrote itself.
+    authored_by: str | None = None
     # Retrieved passage body for knowledge-layer hits (the chunk content the KB
     # tool returned, truncated at 1500 chars per chunk). Used by
     # ``verify_quoted_spans`` to check that a QUOTED sentence in the answer
@@ -577,6 +585,7 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                             collection=item.get("collection"),
                             shelf=item.get("shelf"),
                             doc_class=item.get("doc_class"),
+                            authored_by=item.get("authored_by"),
                             chunk_text=item.get("chunk_text"),
                             rank=item.get("rank"),
                             binding_status=item.get("binding_status", "unbekannt"),
@@ -767,7 +776,7 @@ def extract_sources_from_tool_result(
     This means new sources (Bing, Perplexity, etc.) work automatically
     without any parser registration — as long as their output contains URLs.
 
-    The non-URL fallback is permissive on purpose: callers (the researcher and
+    The non-URL fallback is permissive on purpose: callers (Piloti and
     deep researchers) are responsible for deciding which tool calls are
     eligible to contribute sources, typically by limiting capture to the
     agent's loaded tool set. The optional ``source_id`` is stored on the
@@ -974,6 +983,15 @@ _KL_SHELF_RE = re.compile(r"^Shelf:\s*(.+)$", re.MULTILINE)
 # `_format_results` (``Dokumentart: <doc_class_key>``). ``Doc-Class:`` is
 # accepted as an alias for robustness.
 _KL_DOC_CLASS_RE = re.compile(r"^(?:Dokumentart|Doc-Class):\s*(.+)$", re.MULTILINE)
+# WHO WROTE the document, stated by ``_format_results`` as a ``Herkunft:`` line
+# whose value BEGINS with the frozen ``Piloti-Dokument`` token
+# (``source_kinds.AGENT_AUTHORED_LANE_LABEL``) and continues with the German
+# approval clause. Only the leading token is read here: it is an identity in
+# this position, the way a shelf qualifier is inside a citation key, and the
+# rest of the line is rendering. The machine-readable approval fields travel
+# structured, in the Trace-Lanes ``provenance`` object — never re-derived from
+# this sentence.
+_KL_PROVENANCE_RE = re.compile(r"^Herkunft:\s*(.+)$", re.MULTILINE)
 # The Punkt the excerpt belongs to, as the chunker established it
 # (``punkt_chunking.py``, measured 946/946 against the corpus's contents
 # pages) and ``_format_results`` states it. This is the citation form Austrian
@@ -1083,6 +1101,21 @@ def _parse_kl_doc_class(raw: str | None) -> str | None:
     return raw.split("—")[0].split(" - ")[0].strip() or None
 
 
+def _parse_kl_authored_by(raw: str | None) -> str | None:
+    """``"agent"`` when a ``Herkunft:`` value names a Piloti document, else None.
+
+    Fails CLOSED: an unrecognised, reworded or absent value leaves the author
+    unknown rather than claiming a human wrote it — unknown and human are the
+    same for every reader downstream, and only this exact token buys the
+    document its Piloti lane and its verdict ban.
+    """
+    from aiq_agent.common.provenance import AGENT_AUTHOR
+    from aiq_agent.common.source_kinds import AGENT_AUTHORED_LANE_LABEL
+
+    value = (raw or "").strip()
+    return AGENT_AUTHOR if value.startswith(AGENT_AUTHORED_LANE_LABEL) else None
+
+
 def _kl_entry(
     *,
     citation_key: str,
@@ -1090,6 +1123,7 @@ def _kl_entry(
     collection: str | None,
     shelf: str | None = None,
     doc_class: str | None,
+    authored_by: str | None = None,
     chunk_text: str | None,
     tool_name: str,
     punkt: str | None = None,
@@ -1105,6 +1139,7 @@ def _kl_entry(
         collection=collection or None,
         shelf=str(parsed_shelf) if parsed_shelf else None,
         doc_class=doc_class or None,
+        authored_by=authored_by or None,
         chunk_text=chunk_text or None,
         punkt=(punkt or "").strip() or None,
         score=score,
@@ -1160,6 +1195,7 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
                     collection=_first(_KL_COLLECTION_RE, header),
                     shelf=_first(_KL_SHELF_RE, header),
                     doc_class=_parse_kl_doc_class(_first(_KL_DOC_CLASS_RE, header)),
+                    authored_by=_parse_kl_authored_by(_first(_KL_PROVENANCE_RE, header)),
                     chunk_text=_kl_block_body(block),
                     tool_name=tool_name,
                     punkt=_first(_KL_PUNKT_RE, header),
@@ -1481,6 +1517,7 @@ def source_lane(entry: SourceEntry, registry: NormRegistry | None = None) -> tup
         collection=entry.collection,
         registry=registry,
         shelf=entry.shelf,
+        authored_by=entry.authored_by,
     )
 
 
@@ -1767,6 +1804,38 @@ def source_origin_token(entry: SourceEntry) -> str:
     return ""
 
 
+def agent_authored_document_names(registry: SourceRegistry | None) -> frozenset[str]:
+    """Normalised names of the AGENT-AUTHORED documents this turn captured.
+
+    The input to the verdict gate (``answer_envelope._gate_verdict``), which
+    has a model-written ``reference.document`` and no registry of its own. Both
+    identities a model could name a document by are included — the indexed
+    filename and the display title — each reduced through
+    :func:`~aiq_agent.common.provenance.normalize_document_name` so
+    ``"**Brandschutzkonzept Haus B.md**"`` and ``"Brandschutzkonzept Haus-B"``
+    are the same name.
+
+    Empty when the turn captured no such document, which is the overwhelmingly
+    common case and the one that must cost nothing: an empty set makes the gate
+    a no-op.
+    """
+    from aiq_agent.common.provenance import is_agent_author
+    from aiq_agent.common.provenance import normalize_document_name
+
+    names: set[str] = set()
+    for entry in registry.all_sources() if registry else ():
+        if not is_agent_author(entry.authored_by):
+            continue
+        file_name, _ = _parse_citation_key(entry.citation_key or "")
+        # The basename only: a published Piloti document is indexed under a
+        # namespaced path (``piloti/<item id>/<slug>.md``) that no model would
+        # ever write, while the slug is the name it WOULD write.
+        base_name = file_name.rsplit("/", 1)[-1]
+        names.update(normalize_document_name(value) for value in (base_name, entry.title))
+    names.discard("")
+    return frozenset(names)
+
+
 def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> dict[str, Any]:
     """Serialize a :class:`SourceEntry` for the citation wire (SSE / WS).
 
@@ -2021,7 +2090,7 @@ def _normalize_source_section_layout(ref_section: str) -> str:
         # German-or-else binary mirrors the writer's contract, which allows the
         # label exactly two forms: "**Quellen:**" for a German answer and
         # "**References:**" for an answer in any other language, never a label
-        # translated into a third language (see researcher.j2 <language> and
+        # translated into a third language (see piloti.j2 <language> and
         # <output_contract>). A translated label would land on "## Sources".
         lines[0] = "## Quellen" if _GERMAN_REFERENCE_HEADING_LABEL_RE.search(lines[0]) else "## Sources"
         ref_section = "\n".join(lines)

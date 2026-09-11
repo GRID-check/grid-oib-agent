@@ -75,6 +75,9 @@ describe('activeFilterCount', () => {
 
   test('counts the server-side authorship filter, which the menu does show', () => {
     expect(activeFilterCount({ ...NO_FILE_FILTERS, agentAuthoredOnly: true }, false)).toBe(1)
+    // The one filter that WIDENS still counts: the badge says the listing is
+    // not the default one, whichever direction it was moved in.
+    expect(activeFilterCount({ ...NO_FILE_FILTERS, includeArchived: true }, false)).toBe(1)
   })
 })
 
@@ -150,5 +153,35 @@ describe('applyFileFilters', () => {
     expect(
       applyFileFilters(files, { ...NO_FILE_FILTERS, agentAuthoredOnly: true }, { canCollaborate: true })
     ).toBe(files)
+  })
+})
+
+describe('Freigabe ausstehend', () => {
+  test('keeps only the documents whose newest version is waiting for a decision', () => {
+    const files = [
+      file({ id: 'a', versionState: 'in_review' }),
+      file({ id: 'b', versionState: 'published' }),
+      file({ id: 'c', versionState: 'draft' }),
+    ]
+    expect(
+      applyFileFilters(files, { ...NO_FILE_FILTERS, reviewPendingOnly: true }, {
+        canCollaborate: true,
+      }).map((row) => row.id),
+    ).toEqual(['a'])
+  })
+
+  test('does not claim a row whose version state the listing never read', () => {
+    // An unknown editorial state is not „ausstehend": the honest answer to a
+    // question nobody asked is no.
+    const files = [file({ id: 'a', versionState: null }), file({ id: 'b' })]
+    expect(
+      applyFileFilters(files, { ...NO_FILE_FILTERS, reviewPendingOnly: true }, {
+        canCollaborate: true,
+      }),
+    ).toEqual([])
+  })
+
+  test('counts as one constraint on the Filter button', () => {
+    expect(activeFilterCount({ ...NO_FILE_FILTERS, reviewPendingOnly: true }, true)).toBe(1)
   })
 })

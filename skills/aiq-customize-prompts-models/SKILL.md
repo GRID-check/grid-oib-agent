@@ -51,7 +51,7 @@ change. The one exception is adding a brand-new template, which needs a one-line
   which bind a resolved LLM to an agent role (used by the deep research agent).
 - Templates to model on: `src/aiq_agent/agents/deep_researcher/prompts/*.j2`
   (orchestrator, planner, researcher, source_router, writer) and
-  `src/aiq_agent/agents/researcher/prompts/*.j2` (researcher, plus the
+  `src/aiq_agent/agents/piloti/prompts/*.j2` (`piloti.j2`, plus the
   clarification step's two). Other agents have prompts too — check
   `src/aiq_agent/agents/*/prompts/`.
 

@@ -295,3 +295,65 @@ describe('FileCard for a report Piloti wrote', () => {
     expect(screen.queryByText('Citable')).not.toBeInTheDocument()
   })
 })
+
+describe('FileCard and the version state badge', () => {
+  const uploaded = file('u1', 'Einreichplan.pdf', 'application/pdf')
+
+  it('says nothing on a plain upload', () => {
+    // One version, born published, a person put it there. A badge here would
+    // appear on every row of every folder and distinguish nothing.
+    render(
+      <FileCard
+        file={{ ...uploaded, versionState: 'published', versionCount: 1 }}
+        isSelected={false}
+        onSelect={() => {}}
+        locale="de"
+      />,
+    )
+
+    expect(screen.queryByTestId('document-version-badge')).not.toBeInTheDocument()
+  })
+
+  it('speaks once the document has a history', () => {
+    render(
+      <FileCard
+        file={{ ...uploaded, versionState: 'in_review', versionCount: 2 }}
+        isSelected={false}
+        onSelect={() => {}}
+        locale="de"
+      />,
+    )
+
+    expect(screen.getByTestId('document-version-badge')).toHaveTextContent('In review')
+  })
+
+  it('speaks for a first draft Piloti wrote, and keeps it out of the footer', () => {
+    render(
+      <FileCard
+        file={{
+          ...uploaded,
+          authoredBy: 'agent',
+          status: 'stored',
+          versionState: 'draft',
+          versionCount: 1,
+        }}
+        isSelected={false}
+        onSelect={() => {}}
+        locale="de"
+      />,
+    )
+
+    const badge = screen.getByTestId('document-version-badge')
+    expect(badge).toHaveTextContent('Draft')
+    // The footer is the assignment slot — „Unvergeben" and the faces. The
+    // editorial state is a statement about the CONTENT and must not be read as
+    // one about responsibility (ADR-0047 addendum, ADR-0054).
+    expect(screen.getByTestId('file-card').lastElementChild).not.toContainElement(badge)
+  })
+
+  it('says nothing when the listing never read the state', () => {
+    render(<FileCard file={uploaded} isSelected={false} onSelect={() => {}} locale="de" />)
+
+    expect(screen.queryByTestId('document-version-badge')).not.toBeInTheDocument()
+  })
+})

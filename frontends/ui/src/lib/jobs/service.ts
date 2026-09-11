@@ -350,6 +350,132 @@ export function buildFirePrompt({ prompt, skill }: FirePromptInput): string {
 }
 
 /**
+ * One background run, as everything below the job row needs it.
+ *
+ * Extracted from {@link fireJob} so a DELEGATED task (ADR-0051: "a chat handoff
+ * becomes another trigger") reaches the same submission with the same context,
+ * the same signed envelope and the same conversation semantics. It is the
+ * submission, not a second queue: `submitJob` and the backend's own worker are
+ * unchanged, and the only thing that varies is who assembled the spec.
+ */
+export interface AgentRunSpec {
+  organizationId: string
+  projectId: string
+  /** Whose identity the run carries — pinned, never `'scheduler'`. */
+  userId: string
+  ownerEmail: string | null
+  /** The prompt exactly as it is submitted, skill body and decisions included. */
+  prompt: string
+  /** The attached skill, or null for a plain prompt. */
+  skillSnapshot: SkillSnapshot | null
+  output: JobOutput
+  dataSources: string[] | null
+  /**
+   * The title of the conversation an `output: 'chat'` run writes into. Null
+   * means "no conversation": a deep-research run produces a report, not a
+   * thread.
+   */
+  conversationTitle: string | null
+  /** Stamped on the conversation when the run belongs to a job. */
+  jobId?: string | null
+}
+
+/** What the submission produced: the backend's id and where the answer lands. */
+export interface SubmittedAgentRun {
+  backendJobId: string
+  conversationId: string | null
+}
+
+/**
+ * Build one run's context, create its conversation and submit it to the backend.
+ *
+ * Throws what `submitJob` throws (`JobSubmitError`, `JobSubmitSkippedError`) and
+ * whatever a context lookup throws; every caller decides how to record that,
+ * because the two callers record it in two different places — a `job_runs` row
+ * for a job, the task row itself for a delegated task.
+ */
+export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgentRun> {
+  const { organizationId, projectId, userId } = spec
+  const [
+    budgetSnapshot,
+    modelOverrides,
+    collectionScope,
+    projectContext,
+    bundesland,
+    projectMemory,
+    memoryReflectionEnabled,
+  ] = await Promise.all([
+    resolveBudgetSnapshot(organizationId, userId, projectId),
+    getEffectiveModelOverrides(organizationId).catch(() => null),
+    buildProjectCollectionScope(projectId, organizationId),
+    loadProjectPromptView(projectId, organizationId).catch(() => null),
+    loadProjectBundesland(projectId, organizationId).catch(() => null),
+    // What the project already knows, ranked against this run's own prompt the
+    // way a chat turn's digest is ranked against its question. Best effort —
+    // memory must never stop a run from firing.
+    buildProjectMemoryDigest(projectId, organizationId, { query: spec.prompt }).catch(() => null),
+    // The org's flag, evaluated here exactly as the WS handshake evaluates it;
+    // the worker holds the config and resolves the model itself.
+    isMemoryReflectionEnabled(organizationId).catch(() => false),
+  ])
+  const budgetHeader = budgetSnapshot ? encodeGridBudgetHeader(budgetSnapshot) : null
+
+  // An `output: 'chat'` run lands in a REAL conversation the team can open and
+  // continue, and this is where it is created — before submission, because the
+  // backend needs its id to write into.
+  const conversationId =
+    spec.output === 'chat' && spec.conversationTitle
+      ? await createRunConversation({
+          organizationId,
+          projectId,
+          createdBy: userId,
+          title: spec.conversationTitle,
+          jobId: spec.jobId ?? null,
+        })
+      : null
+
+  const payload: JobSubmitPayload = {
+    input: spec.prompt,
+    skills: spec.skillSnapshot ? [spec.skillSnapshot.name] : [],
+    output: spec.output,
+    ...(conversationId ? { conversation_id: conversationId } : {}),
+    data_sources: withAlwaysOnKnowledge(spec.dataSources ?? null),
+    collection_scope: collectionScope,
+    project_context: projectContext,
+    project_memory: projectMemory,
+    memory_reflection_enabled: memoryReflectionEnabled,
+    organization_id: organizationId,
+    user_id: userId,
+    project_id: projectId,
+    owner_email: spec.ownerEmail,
+    budget_header: budgetHeader,
+    model_overrides: modelOverrides,
+  }
+
+  // Signed context envelope (same wire format as fireWorkflow): built from the
+  // exact values above via the shared GridRequestContext builder so this path's
+  // wire format can never drift from the interactive one.
+  const contextHeaders = buildGridRequestContextWireHeaders(
+    {
+      organizationId,
+      userId,
+      projectId,
+      collectionScope,
+      projectContext,
+      projectMemory,
+      modelOverrides,
+      budget: budgetSnapshot,
+      bundesland,
+      memoryReflectionEnabled,
+    },
+    process.env.GRID_INTERNAL_API_TOKEN,
+  )
+
+  const { jobId } = await submitJob(payload, contextHeaders)
+  return { backendJobId: jobId, conversationId }
+}
+
+/**
  * The single submission path (manual + scheduled). Context building sits
  * inside the try: a transient DB/WorkOS failure surfaces as an `error` run
  * row, never as an unrecorded throw — the job advances past this occurrence
@@ -369,83 +495,20 @@ export async function fireJob(
     const firePrompt = [buildFirePrompt({ prompt: job.prompt, skill: job.skillSnapshot }), decisions]
       .filter(Boolean)
       .join('\n\n')
-    const [
-      budgetSnapshot,
-      modelOverrides,
-      collectionScope,
-      projectContext,
-      bundesland,
-      projectMemory,
-      memoryReflectionEnabled,
-    ] = await Promise.all([
-      resolveBudgetSnapshot(organizationId, createdBy, projectId),
-      getEffectiveModelOverrides(organizationId).catch(() => null),
-      buildProjectCollectionScope(projectId, organizationId),
-      loadProjectPromptView(projectId, organizationId).catch(() => null),
-      loadProjectBundesland(projectId, organizationId).catch(() => null),
-      // What the project already knows, ranked against the job's own prompt
-      // the way a chat turn's digest is ranked against its question. Until
-      // now a job saw the intake profile alone: the surfaces closest to "the
-      // agent does the work" were the ones running without memory. Best
-      // effort — memory must never stop a job from firing.
-      buildProjectMemoryDigest(projectId, organizationId, { query: firePrompt }).catch(() => null),
-      // The org's flag, evaluated here exactly as the WS handshake evaluates
-      // it; the worker holds the config and resolves the model itself.
-      isMemoryReflectionEnabled(organizationId).catch(() => false),
-    ])
-    const budgetHeader = budgetSnapshot ? encodeGridBudgetHeader(budgetSnapshot) : null
-
-    // An `output: 'chat'` run lands in a REAL conversation the team can open
-    // and continue, and this is where it is created — before submission,
-    // because the backend needs its id to write into (see the payload below).
-    const conversationId = await createRunConversation(job)
-
-    const payload: JobSubmitPayload = {
-      input: firePrompt,
-      // Empty when no skill is attached: the prompt runs alone, which the
-      // backend now accepts.
-      skills: job.skillSnapshot ? [job.skillSnapshot.name] : [],
+    const { backendJobId, conversationId } = await submitAgentRun({
+      organizationId,
+      projectId,
+      userId: createdBy,
+      ownerEmail: job.createdByEmail,
+      prompt: firePrompt,
+      skillSnapshot: job.skillSnapshot,
       output: job.output,
-      // Where the answer is to be written. Absent for deep-research (a report,
-      // not a thread) and for a chat run whose conversation could not be
-      // created — the backend then behaves exactly as it did before jobs had
-      // conversations at all.
-      ...(conversationId ? { conversation_id: conversationId } : {}),
       // Defense for legacy rows persisted before knowledge_layer was always-on.
-      data_sources: withAlwaysOnKnowledge(job.dataSources ?? null),
-      collection_scope: collectionScope,
-      project_context: projectContext,
-      project_memory: projectMemory,
-      memory_reflection_enabled: memoryReflectionEnabled,
-      organization_id: organizationId,
-      user_id: createdBy,
-      project_id: projectId,
-      owner_email: job.createdByEmail,
-      budget_header: budgetHeader,
-      model_overrides: modelOverrides,
-    }
-
-    // Signed context envelope (same wire format as fireWorkflow): built from
-    // the exact values above via the shared GridRequestContext builder so the
-    // job path's wire format can never drift from the interactive one.
-    const contextHeaders = buildGridRequestContextWireHeaders(
-      {
-        organizationId,
-        userId: createdBy,
-        projectId,
-        collectionScope,
-        projectContext,
-        projectMemory,
-        modelOverrides,
-        budget: budgetSnapshot,
-        bundesland,
-        memoryReflectionEnabled,
-      },
-      process.env.GRID_INTERNAL_API_TOKEN,
-    )
-
-    const { jobId } = await submitJob(payload, contextHeaders)
-    const run = await recordJobRun(job, trigger, actor, 'submitted', jobId, null, conversationId)
+      dataSources: job.dataSources ?? null,
+      conversationTitle: job.name,
+      jobId: job.id,
+    })
+    const run = await recordJobRun(job, trigger, actor, 'submitted', backendJobId, null, conversationId)
     // The durable unit of this attempt (ADR-0051): the requester pinned, the
     // plan frozen, the backend id recorded for the worker's outcome to close.
     await createTaskForRun(job, run, firePrompt)
@@ -470,13 +533,15 @@ export async function fireJob(
  * The conversation an `output: 'chat'` run writes into — a real thread the team
  * opens, reads and keeps typing into, not a rendering of a report.
  *
- * Returns the new conversation's id, or null when this job produces no
- * conversation (`output: 'deep-research'`) or when the insert failed.
+ * Returns the new conversation's id, or null when the insert failed. Whether a
+ * run HAS a conversation is the caller's decision (`submitAgentRun` asks only
+ * for `output: 'chat'`), because a delegated task decides it from its kind
+ * rather than from a job row.
  *
  * Three decisions are made here, and each was forced:
  *
- * **`createdBy` is the JOB'S OWNER — a real user id, never 'scheduler' and
- * never a synthetic one.** Four separate mechanisms read `conversations.created_by`
+ * **`createdBy` is the JOB'S OWNER, or the task's pinned requester — a real
+ * user id, never 'scheduler' and never a synthetic one.** Four separate mechanisms read `conversations.created_by`
  * as a person, and a synthetic id breaks all four: the sharing roster lists the
  * creator as a participant (`lib/sharing/service.ts`), the last-owner invariant
  * refuses to leave a resource ownerless and needs a real user to hold that role,
@@ -514,9 +579,14 @@ export async function fireJob(
  * common case), and deleting the conversation a run is about to write into
  * would destroy the output to tidy up a row.
  */
-async function createRunConversation(job: Job): Promise<string | null> {
-  if (job.output !== 'chat') return null
-
+async function createRunConversation(run: {
+  organizationId: string
+  projectId: string
+  createdBy: string
+  title: string
+  /** Null for a delegated task, which has no job row to stamp provenance from. */
+  jobId: string | null
+}): Promise<string | null> {
   // The app's conversation id shape: `s_` + a uuid with hyphens as underscores.
   // It is not cosmetic — the id doubles as this session's Qdrant collection
   // name (`lib/collection-scope.ts`, `lib/proxy/collection-authz.ts` both key
@@ -527,21 +597,21 @@ async function createRunConversation(job: Job): Promise<string | null> {
   try {
     const inserted = await insertConversation({
       id,
-      organizationId: job.organizationId,
-      createdBy: job.createdBy,
-      title: job.name,
-      projectId: job.projectId,
+      organizationId: run.organizationId,
+      createdBy: run.createdBy,
+      title: run.title,
+      projectId: run.projectId,
       visibility: 'project',
-      jobId: job.id,
+      jobId: run.jobId,
     })
     if (inserted) return inserted.id
     // `onConflictDoNothing` returned nothing, i.e. the id already exists —
     // impossible for a uuid we just minted, so treat it as a failed create
     // rather than adopting a row we cannot vouch for.
-    console.warn('[jobs] conversation id collision while firing job', job.id)
+    console.warn('[jobs] conversation id collision while firing run', run.jobId ?? run.title)
     return null
   } catch (err) {
-    console.warn('[jobs] failed to create the conversation for job', job.id, err)
+    console.warn('[jobs] failed to create the conversation for run', run.jobId ?? run.title, err)
     return null
   }
 }

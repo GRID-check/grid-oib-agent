@@ -23,16 +23,41 @@
  */
 
 import { type FC } from 'react'
-import { CornerDownRight, MessageCircleQuestion } from 'lucide-react'
+import { CornerDownRight, MessageCircleQuestion, type LucideIcon } from 'lucide-react'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useChatStore } from '@/features/chat/store'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { FollowUpData } from '../schematics/types'
 
+/**
+ * A chip the CLIENT offers, rather than one the model emitted.
+ *
+ * Same chrome, same promise (a click fills the composer and does nothing else),
+ * one difference the type has to carry: a question IS its own prefill, and an
+ * offer is not — „Als Aktenvermerk schreiben" is what the reader is offered,
+ * „Schreib das als Aktenvermerk in mein Projekt." is what gets typed for them.
+ * Hence the split; a follow-up question keeps using the single string it always
+ * has.
+ */
+export interface FollowUpAction {
+  /** Stable react key, and what a spec names the chip by. */
+  key: string
+  label: string
+  /** What the composer is filled with when the chip is pressed. */
+  prefill: string
+  icon?: LucideIcon
+}
+
 interface FollowUpChipsProps {
   title?: string | null
   items: FollowUpData[]
+  /**
+   * Client-side offers, rendered AFTER the model's questions in the same row.
+   * Last because they are the aside: the questions are what this answer made
+   * askable, and an offer to file it is a different kind of thing.
+   */
+  actions?: FollowUpAction[]
   /** Wrapper-level spacing owned by the caller — the block's own air. */
   className?: string
 }
@@ -65,7 +90,12 @@ const CHIP = cn(
 export const usableFollowUps = (items: FollowUpData[]): FollowUpData[] =>
   items.filter((item) => Boolean(item?.question))
 
-export const FollowUpChips: FC<FollowUpChipsProps> = ({ title, items, className }) => {
+export const FollowUpChips: FC<FollowUpChipsProps> = ({
+  title,
+  items,
+  actions = [],
+  className,
+}) => {
   const t = useTranslations('chat')
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   // An empty set renders NOTHING — not an eyebrow over an empty row. An offer
@@ -73,7 +103,7 @@ export const FollowUpChips: FC<FollowUpChipsProps> = ({ title, items, className 
   // even a box left to explain the gap.
   const questions = usableFollowUps(items)
 
-  if (questions.length === 0) return null
+  if (questions.length === 0 && actions.length === 0) return null
 
   return (
     <div className={cn('flex flex-col gap-2.5', className)}>
@@ -102,6 +132,24 @@ export const FollowUpChips: FC<FollowUpChipsProps> = ({ title, items, className 
             <span className="truncate">{item.question}</span>
           </button>
         ))}
+        {actions.map((action) => {
+          const Icon = action.icon ?? CornerDownRight
+          return (
+            <button
+              key={action.key}
+              type="button"
+              data-testid={`follow-up-action-${action.key}`}
+              onClick={() => setComposerPrefill(action.prefill)}
+              className={CHIP}
+            >
+              <Icon
+                className="text-subtle group-hover:text-foreground size-3.5 shrink-0 transition-colors duration-quick ease-out motion-reduce:transition-none"
+                aria-hidden="true"
+              />
+              <span className="truncate">{action.label}</span>
+            </button>
+          )
+        })}
       </div>
     </div>
   )

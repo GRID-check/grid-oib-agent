@@ -289,3 +289,87 @@ describe('InboxItemRow — the operational storage alert (ADR-0042)', () => {
     expect(container.querySelector('.bg-warning-subtle')).not.toBeNull()
   })
 })
+
+describe('InboxItemRow — a version waiting for a decision (ADR-0054)', () => {
+  const reviewRequest = (overrides: Partial<InboxItemView> = {}): InboxItemView =>
+    item({
+      id: 'i-review',
+      type: 'document.review_requested',
+      resourceType: 'document',
+      resourceId: 'doc_1',
+      anchorId: 'ver_2',
+      actorName: 'Anna Weber',
+      actorUserId: 'u-anna',
+      // What the emission writes into the payload: the document's own name.
+      subject: 'Brandschutzkonzept_Wohnbau-Nord.md',
+      excerpt: null,
+      href: '/app/projects/p1/files?doc=doc_1',
+      ...overrides,
+    })
+
+  test('names the document and who is asking, and links to the file', () => {
+    render(<InboxItemRow item={reviewRequest()} />)
+
+    expect(
+      screen.getByText('Anna Weber asked you to review Brandschutzkonzept_Wohnbau-Nord.md'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('A new version is waiting for your approval.')).toBeInTheDocument()
+    // The deep link is the document's own — the pane it opens is where the
+    // review controls are.
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/app/projects/p1/files?doc=doc_1')
+  })
+
+  test('reads as an outstanding request while it is open', () => {
+    const { container } = render(<InboxItemRow item={reviewRequest()} />)
+    expect(container.querySelector('.bg-warning-subtle')).not.toBeNull()
+  })
+
+  test('stops shouting once the decision has been taken', () => {
+    // The backend resolves the round for every reviewer who was asked; the row
+    // is then history, and colouring it would keep asking for something that
+    // has already happened.
+    const { container } = render(<InboxItemRow item={reviewRequest({ state: 'resolved' })} />)
+    expect(container.querySelector('.bg-warning-subtle')).toBeNull()
+  })
+})
+
+describe('InboxItemRow — a row whose target is a document', () => {
+  const reviewRequest = (overrides: Partial<InboxItemView> = {}): InboxItemView =>
+    item({
+      type: 'document.review_requested',
+      resourceType: 'document',
+      resourceId: 'doc-7',
+      anchorId: 'ver-7',
+      href: '/app/projects/p1/files?doc=doc-7',
+      subject: 'Befund Fluchtwege',
+      excerpt: null,
+      ...overrides,
+    })
+
+  test('offers Besprechen beside the link that opens the file', () => {
+    // A reviewer has two next moves — open the file, or ask about it — and only
+    // the first had a control. The second used to be impossible anyway: a
+    // submitted draft has no chunks, so Piloti could not answer about it.
+    render(<InboxItemRow item={reviewRequest()} />)
+    expect(screen.getByTestId('discuss-document')).toBeInTheDocument()
+  })
+
+  test('does not switch on the item type, only on what the row points at', () => {
+    // The registry is the only thing that decides how a row LOOKS; this control
+    // is keyed on `resourceType`, which every row already carries.
+    render(<InboxItemRow item={item()} />)
+    expect(screen.queryByTestId('discuss-document')).not.toBeInTheDocument()
+  })
+
+  test('offers nothing on an inert row, whose target is gone', () => {
+    // Same reason the title is not a link there: a working-looking control
+    // pointing at content this reader may no longer reach (IB-13/IB-14).
+    render(<InboxItemRow item={reviewRequest({ state: 'inert', href: null })} />)
+    expect(screen.queryByTestId('discuss-document')).not.toBeInTheDocument()
+  })
+
+  test('offers nothing for an Archiv document, which has no project chat', () => {
+    render(<InboxItemRow item={reviewRequest({ href: '/app/archiv?doc=doc-7' })} />)
+    expect(screen.queryByTestId('discuss-document')).not.toBeInTheDocument()
+  })
+})

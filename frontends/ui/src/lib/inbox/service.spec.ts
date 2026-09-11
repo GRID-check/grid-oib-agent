@@ -82,6 +82,7 @@ const ALL_TYPES = [
   'document.assigned_to_you',
   'job.completed',
   'job.failed',
+  'document.review_requested',
 ] as const satisfies readonly InboxItemType[]
 
 /** What a tenant WITHOUT collaboration may see: the operational types only. */
@@ -89,6 +90,10 @@ const OPERATIONAL_TYPES = [
   'storage.quota_warning',
   'job.completed',
   'job.failed',
+  // A Freigabe is not a chat feature (ADR-0054): an office that never bought
+  // collaboration still has documents to approve, and gating the one review
+  // queue in the product would make it invisible for exactly them.
+  'document.review_requested',
 ] as const satisfies readonly InboxItemType[]
 
 const at = new Date('2026-07-29T10:00:00.000Z')

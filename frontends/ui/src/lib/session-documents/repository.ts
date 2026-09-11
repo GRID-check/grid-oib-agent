@@ -50,6 +50,8 @@ export async function listSessionDocuments(
         contentHash: documents.contentHash,
         status: documents.status,
         authoredBy: documents.authoredBy,
+        publishedVersionId: documents.publishedVersionId,
+      lifecycle: documents.lifecycle,
         collectionName: documents.collectionName,
         folderId: documents.folderId,
         originPath: documents.originPath,

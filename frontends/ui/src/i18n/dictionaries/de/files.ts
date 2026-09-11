@@ -479,6 +479,81 @@ export const files: typeof en.files = {
     // indexiert, damit Piloti den eigenen Text nicht als Beleg zitiert.
     notInKnowledge: 'Von Piloti erstellt — nicht in der Wissensbasis',
   },
+  lifecycle: {
+    title: 'Freigabe und Fassungen',
+    badgeTitle: 'Stand der Fassung: {state}',
+    filter: 'Freigabe ausstehend',
+    // Der einzige Filter, der ERWEITERT: Archivierte Dateien stehen gar nicht
+    // erst in der Liste. Deshalb „auch“ und nicht „nur“.
+    archivedFilter: 'Archivierte auch zeigen',
+    states: {
+      draft: 'Entwurf',
+      inReview: 'In Prüfung',
+      changesRequested: 'Änderungen erbeten',
+      approved: 'Freigegeben',
+      published: 'Veröffentlicht',
+      rejected: 'Abgelehnt',
+      superseded: 'Ersetzt',
+      archived: 'Archiviert',
+    },
+    actions: {
+      submit: 'Zur Freigabe einreichen',
+      approve: 'Freigeben',
+      requestChanges: 'Änderungen anfordern',
+      // Dieselbe Entscheidung wie „Änderungen anfordern“, mit einem Zusatz:
+      // Piloti übernimmt die Überarbeitung. Deshalb steht der Knopf daneben und
+      // verlangt dieselbe Begründung.
+      delegateRevision: 'Piloti überarbeiten lassen',
+      reject: 'Ablehnen',
+      publish: 'Veröffentlichen',
+      archive: 'Archivieren',
+    },
+    // Wer die Fassung freigeben soll. „Alle Bearbeiter“ ist der Normalfall und
+    // deshalb die Vorauswahl: Eine unvergebene Fassung geht an alle, die sie
+    // freigeben dürfen — wer zuerst hinsieht, entscheidet.
+    reviewer: {
+      every: 'Alle Bearbeiter',
+    },
+    comment: {
+      reasonLabel: 'Grund der Ablehnung',
+      changesLabel: 'Was geändert werden soll',
+      delegateNote:
+        'Piloti schreibt daraufhin die nächste Fassung und legt sie zur Freigabe vor.',
+      placeholder: 'Die nächste Fassung liest das hier.',
+      cancel: 'Abbrechen',
+    },
+    versions: {
+      title: 'Fassungen',
+      number: 'Fassung {number}',
+      live: 'Aktuell',
+      open: 'Öffnen',
+      compare: 'Mit {number} vergleichen',
+      comparing: 'Beide Fassungen werden geladen…',
+      compareFailed: 'Die beiden Fassungen konnten nicht geladen werden.',
+      diff: {
+        heading: 'Was sich geändert hat',
+        between: 'Fassung {from} → Fassung {to}',
+        added: '{count, plural, one {# Zeile hinzugefügt} other {# Zeilen hinzugefügt}}',
+        removed: '{count, plural, one {# Zeile entfernt} other {# Zeilen entfernt}}',
+        gap: '{count, plural, one {# Zeile unverändert} other {# Zeilen unverändert}}',
+        identical: 'Die beiden Fassungen sind Zeile für Zeile identisch.',
+        truncated: 'Der Vergleich ist lang – gezeigt werden die ersten {count} Zeilen.',
+        addedLine: 'hinzugefügt',
+        removedLine: 'entfernt',
+      },
+      submitted: 'Eingereicht',
+      approved: 'Freigegeben',
+      published: 'Veröffentlicht',
+      byAt: 'von {name}, {time}',
+      you: 'Ihnen',
+      someone: 'jemandem',
+    },
+    errors: {
+      conflict: 'Der Stand hat sich geändert – die aktuelle Fassung wird geladen.',
+      actionFailed: 'Das hat nicht geklappt. Es hat sich nichts geändert.',
+      loadFailed: 'Die Fassungen konnten nicht geladen werden.',
+    },
+  },
   assignment: {
     unassigned: 'Unvergeben',
     assign: 'Zuweisen',
@@ -492,8 +567,11 @@ export const files: typeof en.files = {
     emptyDescription:
       'Ein anderer Filter zeigt Ihnen wieder alle Dateien dieses Ordners.',
     responsible: 'Verantwortlich',
-    ask: 'Piloti dazu fragen',
-    askDisabled: 'Sobald die Datei zitierbar ist',
+    // EIN Wort für eine Geste, an allen drei Stellen: Dateiablage, Berichtskarte
+    // und Posteingang. Vorher hieß derselbe Knopf „Piloti dazu fragen“ und war
+    // ausgerechnet bei Entwürfen ausgegraut — genau den Dokumenten, über die man
+    // sprechen will. Piloti kann jetzt auch eine unveröffentlichte Fassung lesen.
+    discuss: 'Besprechen',
     askColleague: 'Kollegin fragen',
     copyLink: 'Link kopieren',
     linkCopied: 'Link kopiert',

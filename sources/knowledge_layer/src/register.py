@@ -81,20 +81,30 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "BROWSE files, no legal question): that is `surface_documents`. After "
     "you cite a project or Büroarchiv file, do not also call "
     "`surface_documents`; the UI peeks the cited file. Live Austrian law "
-    "(statutes, Bauordnungen) is the RIS tools, not this index.\n"
+    "(statutes, Bauordnungen) is the RIS tools, not this index. When you "
+    "already know the document AND the Punkt or page you need, that is "
+    "`read_passage` — a lookup, not a second search.\n"
     "HOW TO QUERY — rewrite the user question into a search query (topic + "
     "jurisdiction + implied year). Prefer one precise call over a broad dump. "
-    "If a conclusion names a file, a Punkt, or a measure you have not opened, "
-    "search again with a tighter query. Empty results: change the query and "
+    "If a conclusion names a document and a Punkt or page you have not opened, "
+    "open it with `read_passage`; search again only when you still do not know "
+    "WHICH document holds the answer. Empty results: change the query and "
     "try again; do not invent a citation around a gap you could still close. "
     "Never invent a `file_name`; take it from the inventory or the user. The "
     "OIB base corpus "
     "is not enumerated there — reach it by `doc_class` (e.g. `oib_richtlinie`) "
     "or by plain semantic search, never a guessed name. Do not pass a raw "
     "`filters` object unless you need `content_type`.\n"
+    "ALWAYS pass `conclusion=` — one sentence saying what you now know and what "
+    "you still need, which is why you are making THIS call. Empty on your first "
+    "call of the turn. It is the Herleitung checkpoint the reader sees above the "
+    "fetch; it changes nothing about the search and never appears in `answer`.\n"
     "RETURNS — numbered passages with Source, Citation (copy this key "
     "verbatim), Dokumentart, Ordner (the folder the file is filed in, when it "
     "has one), page, and the passage. Cite only those keys. "
+    "A hit whose Herkunft line says 'Piloti-Dokument' is office knowledge the "
+    "office has approved, never a source for a normative value: cite it for "
+    "what the office decided, not for what the OIB requires. "
     "An empty result tells you how to retry (narrower query, `file_name`, "
     "`title_contains`); it is not permission to invent a citation."
 )
@@ -1197,6 +1207,13 @@ def _trace_lanes_json(
     would merely repeat the filename (project/Büroarchiv uploads, where the
     filename IS the user-meaningful name).
 
+    A source the publish path marked as agent-authored carries a
+    ``provenance`` object (``authored_by``/``approved_by``/``approved_at``/
+    ``producer``) and lands in its own lane, ``buero_piloti``. That lane is
+    decided by the provenance BEFORE the shelf, so a published Piloti document
+    filed on the project shelf keeps its author instead of joining
+    Projektwissen.
+
     ``resolved`` is the store-authoritative doc_class map from
     :func:`_resolve_doc_classes` and ``resolved_titles`` the stored display-title
     map from :func:`_resolve_display_titles`; when omitted they are computed here
@@ -1207,6 +1224,7 @@ def _trace_lanes_json(
         from collections import OrderedDict
 
         from aiq_agent.common.norm_registry import lane_for_knowledge_hit
+        from aiq_agent.common.provenance import provenance_metadata
         from aiq_agent.common.source_kinds import kind_for_lane
 
         if resolved is None:
@@ -1220,8 +1238,13 @@ def _trace_lanes_json(
             collection = metadata.get("collection")
             shelf = metadata.get("shelf")
             doc_class = _hit_doc_class(chunk, resolved)
+            provenance = _hit_provenance(chunk)
             key, label = lane_for_knowledge_hit(
-                doc_class=doc_class, file_name=chunk.file_name, collection=collection, shelf=shelf
+                doc_class=doc_class,
+                file_name=chunk.file_name,
+                collection=collection,
+                shelf=shelf,
+                authored_by=provenance.authored_by if provenance else None,
             )
             bucket = lanes.get(key)
             if bucket is None:
@@ -1248,6 +1271,12 @@ def _trace_lanes_json(
                     entry["detail"] = detail
                 if isinstance(shelf, str) and shelf:
                     entry["shelf"] = shelf
+                if provenance is not None:
+                    # The KEYS, not the German sentence: the fan-out is data,
+                    # and a frontend that wants "freigegeben von …" should build
+                    # it in the reader's own locale from the approver and the
+                    # ISO date rather than parse it back out of prose.
+                    entry["provenance"] = provenance_metadata(provenance)
                 try:
                     from aiq_agent.common.turn_status import current_retrieval_round
 
@@ -1261,6 +1290,21 @@ def _trace_lanes_json(
     except Exception:
         logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
         return '{"lanes":[]}'
+
+
+def _hit_provenance(chunk):
+    """The agent provenance stated in a hit's chunk metadata, or ``None``.
+
+    The keys are stamped at ingest by the publish path and read back by
+    ``aiq_agent.common.provenance``; a human-authored document has none, and
+    every line below that depends on this is simply not emitted for it. Chunk
+    metadata is the only carrier — unlike doc_class and the display title there
+    is no store-resolved override, because authorship is decided once, at
+    publish, and cannot be edited afterwards.
+    """
+    from aiq_agent.common.provenance import parse_agent_provenance
+
+    return parse_agent_provenance(chunk.metadata or {})
 
 
 def _chunk_shelf(chunk):
@@ -1394,6 +1438,16 @@ def _format_results(retrieval_result, query: str) -> str:
 
             label = DOCUMENT_CLASS_LABELS.get(doc_class, doc_class)
             lines.append(f"Dokumentart: {doc_class} — {label}")
+        # WHO WROTE IT, for the documents Piloti wrote and a person released.
+        # One line, no sentence: everything here is text the model may copy into
+        # an answer, and „Dieses Dokument wurde freigegeben von …" is a sentence
+        # that would arrive in one. Emitted only for a marked hit, so every
+        # human document's block is unchanged byte for byte.
+        provenance = _hit_provenance(chunk)
+        if provenance is not None:
+            from aiq_agent.common.provenance import provenance_label
+
+            lines.append(f"Herkunft: {provenance_label(provenance)}")
         if chunk.page_number and chunk.page_number > 0:
             lines.append(f"Page: {chunk.page_number}")
         # The Punkt this excerpt belongs to, when the chunker established one. An
@@ -1490,8 +1544,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     # Cross-encoder reranking, when configured. Primary when present; the LLM judge
     # above stays as the fallback. Returns None (never raises) for 'none', an unknown
     # provider, or a key that does not resolve. Built once at startup with no
-    # organization in scope, so org BYOK is not threaded here — the platform key
-    # is used (see cross_encoder._resolve_api_key).
+    # organization in scope, which is why the KEY is no longer decided here: the
+    # handle resolves its credential per search from the turn's organization, so
+    # a BYOK org's reranks go out on its own key
+    # (``cross_encoder.CrossEncoderReranker._credential_for_search``). The
+    # platform key still has to resolve at startup, because a handle that could
+    # never authenticate anything is one this returns None for.
     cross_encoder = None
     try:
         from knowledge_layer.cross_encoder import resolve_cross_encoder
@@ -1543,6 +1601,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         title_contains: str | None = None,
         file_name: str | None = None,
         folder: str | None = None,
+        conclusion: str = "",
     ) -> str:
         """Read and cite passages from the ingested knowledge base.
 
@@ -1550,6 +1609,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             query (str): The fact or passage you need, rewritten as a search
                 query (topic + jurisdiction + implied year). Not the raw user
                 message.
+            conclusion (str): ONE sentence: what you now know and what you
+                still need, which is why you are making this call. Empty on
+                your first call of the turn, when you know nothing yet. It is
+                the Herleitung checkpoint the reader sees above this fetch; it
+                does not change what is searched and does not belong in your
+                answer.
             file_name (str | None): Indexed file name to read (from the
                 inventory or the user). Never invent a name. Base-corpus
                 files are not listed in the inventory — filter those with
@@ -1571,6 +1636,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         Returns:
             str: Numbered excerpts with a Citation key to copy verbatim.
         """
+        # `conclusion` is deliberately unread HERE. It is a checkpoint channel,
+        # not a retrieval parameter: the researcher's agent node reads it off
+        # the tool CALL (`turn_status.emit_retrieval`) before this coroutine
+        # runs, and it must not influence what is searched — a sentence that
+        # changed the result would make the Herleitung a cause instead of a
+        # record of one.
         query = (query or "").strip()
         file_name = (file_name or "").strip() or None
         title_contains = (title_contains or "").strip() or None
@@ -1936,6 +2007,16 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             except Exception:  # noqa: BLE001 - tracing must never break the search path
                 logger.debug("Retrieval pick span failed", exc_info=True)
 
+            # The widening, said out loud to the model that asked for the search
+            # (roadmap: "hidden loops the model does not own"). Empty for the
+            # one-shot search every other turn runs, and carried on the
+            # empty-result message too: a search that widened AND still found
+            # nothing is the case where the model most needs to know that its
+            # own formulation was already given a second chance.
+            from knowledge_layer.requery import requery_notice
+
+            notice = requery_notice(requery_queries)
+
             # After the floor, not before: the floor is the only thing that can empty a
             # non-empty result set, and this message is the vocabulary for saying so.
             # A failed or degraded merge is NOT a miss: total fingerprint loss comes
@@ -1944,8 +2025,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # than the retry-hint below, which would read as "nothing matched".
             if not merged.chunks:
                 if not merged.success or getattr(merged, "error_message", None):
-                    return _format_results(merged, query)
-                return _empty_search_message(
+                    return notice + _format_results(merged, query)
+                return notice + _empty_search_message(
                     query,
                     file_name=file_name,
                     doc_class=doc_class,
@@ -1960,7 +2041,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             formatted = await asyncio.to_thread(_format_results, merged, query)
             logger.info(f"Knowledge search returned {len(merged.chunks)} chunks")
             logger.debug(f"Formatted result for LLM:\n{formatted[:500]}...")
-            return formatted
+            return notice + formatted
 
         except Exception as e:
             logger.error(f"Knowledge search failed: {e}")

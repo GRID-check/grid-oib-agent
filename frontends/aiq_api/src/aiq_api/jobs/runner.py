@@ -636,7 +636,7 @@ def _resolve_worker_tool_refs(fn_config: Any) -> list[str]:
     while validation elsewhere reported the inherited tools as available. This
     matches the two other resolution sites (the sync agent build in
     deep_researcher/register.py and the chat-route validator in
-    researcher/conversation_register.py), which both treat an empty list as "inherit".
+    piloti/conversation_register.py), which both treat an empty list as "inherit".
     """
     tool_refs = getattr(fn_config, "tools", None)
     if not tool_refs:
@@ -1191,7 +1191,7 @@ async def run_agent_job(
 
             # WHAT the project already knows. The chat path fetches a live digest
             # per turn and falls back to the connection-time one only on failure
-            # (researcher/conversation_register.py); the same discipline here, with the
+            # (piloti/conversation_register.py); the same discipline here, with the
             # BFF-built `project_memory` as the frozen fallback. A successful
             # fetch is authoritative even when empty — memory may have been
             # cleared since the job fired.
@@ -1697,7 +1697,7 @@ def _create_agent_instance(
     except TypeError:
         pass
 
-    # Try llm_provider + tools pattern (ResearcherAgent style)
+    # Try llm_provider + tools pattern (PilotiAgent style)
     try:
         return agent_cls(
             llm_provider=llm_provider,
@@ -1829,7 +1829,18 @@ async def _run_agent(
 
 
 def _get_agent_state_class(agent) -> type | None:
-    """Try to find the state class for an agent."""
+    """The state model ``agent.run`` takes, or None.
+
+    An agent that DECLARES ``state_model`` is believed. Everything below it is
+    a guess made from the class name, and a guess is what a rename breaks
+    without a word: ``ResearcherAgent`` → ``PilotiAgent`` stopped matching
+    ``ResearchAgentState`` and the agent was handed a bare dict. Declare the
+    attribute on any new agent rather than shaping its class name to fit.
+    """
+    declared = getattr(type(agent), "state_model", None)
+    if isinstance(declared, type):
+        return declared
+
     agent_module = type(agent).__module__
     agent_name = type(agent).__name__
 
@@ -1876,7 +1887,7 @@ def _get_agent_state_class(agent) -> type | None:
 def _bound_card_registry() -> Iterator[CardRegistry]:
     """Bind a fresh per-job ``CardRegistry`` for the agent run, and unbind it after.
 
-    The chat turn does the same around ``agent.run`` (``researcher/conversation_register.py``),
+    The chat turn does the same around ``agent.run`` (``piloti/conversation_register.py``),
     with a conversation-scoped registry it clears per turn. A job has no
     conversation of its own to key on and runs once, so a fresh registry is the
     per-turn state here — the ``ContextVar`` rule in ``src/aiq_agent/AGENTS.md``.
@@ -1959,7 +1970,7 @@ async def _run_deep_research_reflection(
 
     The synchronous chat path runs a post-answer reflection stage for
     chat/meta turns but deliberately skips deep-research jobs (see
-    researcher/conversation_register.py, ``not deep_research_job_id``) because the report
+    piloti/conversation_register.py, ``not deep_research_job_id``) because the report
     does not exist until the async job completes. This closes that gap on the
     worker, where the report and the submitting identity are both in hand.
 

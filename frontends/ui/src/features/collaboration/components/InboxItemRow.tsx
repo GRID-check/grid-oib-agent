@@ -57,6 +57,8 @@ import {
 } from '@/components/ui/item'
 import { motion, motionQuick } from '@/components/motion'
 import { cn } from '@/lib/utils'
+import { DiscussDocumentButton } from '@/features/documents/components/discuss-document-button'
+import { projectIdFromDocumentHref } from '@/features/documents/lib/document-question'
 
 /**
  * The ONE place the registry's icon names become components. Keeping the map here
@@ -116,6 +118,25 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
   */
   const presentation = INBOX_TYPE_PRESENTATION[item.type] ?? UNKNOWN_TYPE_PRESENTATION
   const Icon = ICONS[presentation.icon]
+
+  /*
+    „Besprechen", for a row whose target is a DOCUMENT.
+
+    Still no `switch (item.type)`: the condition is the row's own
+    `resourceType`, which every row carries, exactly like `href` and `state`. A
+    reviewer reading „Anna bittet um Freigabe von Brandschutzkonzept" has two
+    next moves — open the file, or ask about it — and only the first had a
+    control. The second used to be impossible anyway: a submitted draft has no
+    chunks, so Piloti could not answer about it; the turn now reads the subject
+    version's bytes instead.
+
+    The project comes back out of the link the row already holds. The inbox
+    payload is deliberately type-agnostic and carries no project field, and
+    widening it for one button would put a document's concern into the generic
+    shape. An Archiv document has no project chat and correctly yields `null`.
+  */
+  const documentProjectId =
+    item.resourceType === 'document' ? projectIdFromDocumentHref(item.href) : null
 
   const inert = item.state === 'inert'
   const unread = item.state === 'unread'
@@ -301,6 +322,19 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
                 </Badge>
                 <span className="text-xs text-muted-foreground">{t('inbox.inertHint')}</span>
               </>
+            )}
+            {/* z-10, like the archive control: the row's stretched link paints an
+                overlay across the whole card, and anything meant to be clickable
+                has to sit above it. Never on an inert row — its target is gone,
+                which is the same reason the title is not a link there. */}
+            {documentProjectId && !inert && (
+              <DiscussDocumentButton
+                projectId={documentProjectId}
+                documentId={item.resourceId}
+                variant="outline"
+                withIcon
+                className="relative z-10"
+              />
             )}
           </div>
         </ItemContent>

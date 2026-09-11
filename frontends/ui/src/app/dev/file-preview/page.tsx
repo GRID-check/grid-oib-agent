@@ -8,14 +8,21 @@
  * exercised: on the mobile sheet ALL metadata must be reachable below the capped
  * preview, and on desktop the split's two columns must scroll independently.
  *
- * A module-scope fetch shim (browser + dev only) serves the preview URL and the
- * visual-details payload so the pane renders fully backend-free. Not linked from
- * anywhere and 404s outside development.
+ * A module-scope fetch shim (browser + dev only) serves the preview URL, the
+ * visual-details payload and — for `?variant=review` — the version listing, so
+ * the pane renders fully backend-free. Not linked from anywhere and 404s outside
+ * development.
+ *
+ * `?variant=review` is the one that answers "has anybody opened the review rail
+ * on a phone?" (ledger 40): it passes the `lifecyclePermissions` the pane needs
+ * before it mounts „Freigabe und Fassungen", which no preview had ever done, so
+ * the section shipped unphotographed at every width.
  */
 
 import { notFound } from 'next/navigation'
-import { use } from 'react'
+import { use, useEffect } from 'react'
 import { FilePreviewDialog } from '@/features/documents/components/file-preview-dialog'
+import { FilePreviewPane } from '@/features/documents/components/file-preview-pane'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 
 // A visible "document page" so the left preview renders something real (not a
@@ -307,6 +314,88 @@ const DEV_STRUCTURED = {
   },
 }
 
+/**
+ * A version IN REVIEW, so the rail carries the whole decision set.
+ *
+ * `in_review` is the state the rail exists for — Freigeben / Änderungen
+ * anfordern / Piloti überarbeiten lassen / Ablehnen / Archivieren, five
+ * controls that have to wrap legibly in a 280px desktop rail and again in a
+ * 390px phone column. A `draft` would show one button and photograph nothing.
+ */
+/** The document the review rail is mounted on: an ordinary indexed project file. */
+const REVIEW_FIXTURE: FileItem = { ...FIXTURE, id: 'dev-doc-review' }
+
+/**
+ * On a phone, scroll the review section into view before the shot.
+ *
+ * The harness captures a page at rest. At 390px the rail STACKS under the
+ * document, so at rest the review controls are a scroll away and a screenshot
+ * of the top of the rail is evidence of the identity block, not of the thing
+ * this target exists to show. On a desktop the rail is its own column and the
+ * controls are already visible, so the scroll only runs narrow — one shot per
+ * viewport, each showing what that viewport actually has to show.
+ *
+ * Idempotent through a module-scope flag and a poll that stops once the panel
+ * is in view, because `reactStrictMode` mounts every effect twice — the
+ * `/dev/citation-interaction` pattern.
+ */
+let scrolledIntoView = false
+
+function ScrollRailIntoViewOnNarrow(): null {
+  useEffect(() => {
+    if (window.innerWidth >= 640) return
+    const timer = setInterval(() => {
+      if (scrolledIntoView) return clearInterval(timer)
+      const panel = document.querySelector('[data-testid="document-lifecycle-panel"]')
+      if (!panel) return
+      panel.scrollIntoView({ block: 'start', behavior: 'instant' })
+      const box = panel.getBoundingClientRect()
+      if (box.top >= 0 && box.top < window.innerHeight) {
+        scrolledIntoView = true
+        clearInterval(timer)
+      }
+    }, 120)
+    return () => clearInterval(timer)
+  }, [])
+  return null
+}
+
+/** What the reader in this fixture may do — enough for all five decisions. */
+const REVIEW_PERMISSIONS = [
+  'project:view',
+  'project:edit',
+  'project:documents:write',
+] as const
+
+const REVIEW_VERSIONS = {
+  documentId: 'dev-doc-review',
+  lifecycle: 'active',
+  publishedVersionId: null,
+  versions: [
+    {
+      id: 'ver_1',
+      documentId: 'dev-doc-review',
+      versionNumber: 1,
+      state: 'in_review',
+      contentType: 'text/markdown',
+      fileSize: 18_400,
+      contentHash: 'sha256:1',
+      submittedBy: 'u-2',
+      submittedAt: '2026-09-03T10:15:00.000Z',
+      reviewedBy: null,
+      reviewedAt: null,
+      approvedBy: null,
+      approvedAt: null,
+      publishedBy: null,
+      publishedAt: null,
+      reviewComment: null,
+      createdBy: 'u-2',
+      createdAt: '2026-09-02T07:30:00.000Z',
+      updatedAt: '2026-09-03T10:15:00.000Z',
+    },
+  ],
+}
+
 // the pane's preview / visual-details fetches always resolve. Idempotent +
 // dev/browser-guarded.
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
@@ -331,6 +420,23 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
               ? TEXT_BODY
               : MARKDOWN_BODY
         return Response.json({ text: body, truncated: textMatch[1] === 'dev-doc-txt' })
+      }
+      // ── the review rail ─────────────────────────────────────────────────
+      // `?variant=review` mounts `DocumentLifecyclePanel` INSIDE the pane's
+      // rail, which is the only place it actually ships and the one place it
+      // had never been photographed (ledger 40). The panel reaches the network
+      // through the typed client, so the fixture goes here rather than through
+      // a prop: `FilePreviewPane` deliberately does not forward a client.
+      if (/\/api\/documents\/.+\/versions\/reviewers$/.test(url)) {
+        return Response.json({
+          candidates: [
+            { userId: 'u-1', name: 'Miriam Hofer' },
+            { userId: 'u-2', name: 'Anna Berger' },
+          ],
+        })
+      }
+      if (/\/api\/documents\/.+\/versions$/.test(url)) {
+        return Response.json(REVIEW_VERSIONS)
       }
       if (/\/api\/documents\/.+\/visual-details$/.test(url)) {
         return Response.json({
@@ -397,6 +503,42 @@ export default function FilePreviewDevPage({
     variant === 'markdown' || variant === 'csv' || variant === 'text'
       ? TEXT_FIXTURES[variant]
       : null
+
+  // `?variant=review` mounts the pane the way the surface that OWNS the review
+  // rail mounts it (ledger 40).
+  //
+  // Not through `FilePreviewDialog`: that mount forwards neither
+  // `lifecyclePermissions` nor `viewerUserId`, so „Freigabe und Fassungen" can
+  // never appear inside it — the rail ships through `file-preview-host`, which
+  // renders `FilePreviewPane` directly in a `h-[85vh] w-[min(960px,…)]` box.
+  // The box below is that box, so the preview photographs the geometry the
+  // reader actually gets: two scrolling columns on a desktop, and at 390px one
+  // column with the rail stacked under the document.
+  // The host's own geometry, to the pixel: `h-[85vh]`, `w-[min(960px,
+  // calc(100% - 2rem))]`, centred on the page — and no page padding of its own.
+  // An extra `p-4` here would make the pane 32px narrower than the real one,
+  // and 32px is the difference between the type chip fitting in the header and
+  // being truncated at phone width: a preview narrower than production
+  // photographs a squeeze the reader never sees.
+  if (variant === 'review') {
+    return (
+      <main className="bg-muted/40 flex min-h-dvh items-center justify-center">
+        <ScrollRailIntoViewOnNarrow />
+        <div className="bg-popover text-popover-foreground h-[85vh] w-[min(960px,calc(100%-2rem))] overflow-hidden rounded-2xl border shadow-lg">
+          <FilePreviewPane
+            file={REVIEW_FIXTURE}
+            projectId="proj-demo"
+            projectName="Wohnbau Nord — Linz"
+            canManage
+            canCollaborate
+            lifecyclePermissions={REVIEW_PERMISSIONS}
+            viewerUserId="u-1"
+            onClose={() => {}}
+          />
+        </div>
+      </main>
+    )
+  }
 
   return (
     <FilePreviewDialog

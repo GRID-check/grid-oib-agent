@@ -119,11 +119,89 @@ is the party that holds the report, so the report rides the callback).
 the budget guard and the scheduler are the next step, named in the
 decision.
 
+### Addendum (2026-09-10): three kinds of trigger, and four kinds of work
+
+The record above said "`jobs` becomes one trigger that creates tasks. A chat
+handoff becomes another." One existed. Both of the others named here are built
+now, and the shape they took is worth recording because two of the obvious
+builds were wrong.
+
+**The kinds.** `TASK_KINDS` gains `compliance_check`, `einreichcheck`,
+`document` and `revision` — the four the roadmap named, each already having an
+engine. Migration `0075` gave `kind` no CHECK on purpose, so this was a
+TypeScript change and nothing else. `DELEGATABLE_TASK_KINDS` is the four,
+DERIVED as the complement of the two job outputs rather than listed a second
+time: `deep-research` and `chat` say how a JOB delivers a result, and a caller
+asking for one would be naming a delivery channel where a piece of work belongs.
+
+**Chat as a trigger.** `create_task(kind, goal, due?)` (`src/aiq_agent/tools/
+tasks/`) reaches `POST /api/internal/tasks`, which is the document-versions
+route's identity pattern lifted into `lib/api/internal-envelope.ts` on its
+second caller: the verified envelope names the acting person, the pinned session
+is built from their WorkOS membership today, and the task's requester is pinned
+to them — so the run spends their budget under their permissions. The op set is
+`create` and nothing else. **A machine may ask for work and may never judge it**;
+`reviewTask` stays a session route, because a machine that could accept its own
+output would close the loop this record exists to open.
+
+**Request-changes reaches the agent twice, and never both ways at once.** A
+version filed from a live conversation carries `origin_conversation_id`
+(migration `0084`, written from the verified envelope), and the next turn of THAT
+conversation reads the reviewer's words verbatim as a `REVIEW_DECISIONS v1`
+block on the memory channel — the same channel and the same shape
+`PROPOSAL_DECISIONS` already uses, so it needed no new header. A version with no
+origin has nobody typing, so the lifecycle's `openRevisionTask` effect opens a
+`revision` task instead. The reviewer can also ask for one outright („Piloti
+überarbeiten lassen"), which is a field on the existing `request_changes`
+request rather than a fourth op: the version makes the same move either way.
+
+Two builds were considered and rejected, and both would have looked cheaper:
+
+1. **A hidden `jobs` row per delegation.** It reuses `fireJob` wholesale, which
+   is genuinely attractive. It also puts a scheduled-job entry in the project's
+   Aufträge list for a sentence somebody typed once. So a delegated task has no
+   `job_runs` row at all; `job_runs.schedule_id` is NOT NULL and its RLS
+   predicate requires a `jobs` row (migration `0043`), and making that column
+   nullable would have moved the tenant boundary of a table this change has no
+   business touching. The task row carries the backend job id itself —
+   `uniq_tasks_backend_job_id` is what makes the outcome a lookup — and the
+   outcome route tries the run first and falls back to the task. That fallback
+   is the one branch the arrangement costs.
+2. **Letting the run file its own draft.** The agent already has `file_draft`,
+   and a `document` or `revision` task looks like a turn that should call it.
+   It cannot, and the refusal is correct: the job worker injects three unsigned
+   identity headers and never the signed envelope, so `file_draft` has no acting
+   person and says so (`tools/AGENTS.md`, "echo, never sign"). The filing
+   therefore happens at COMPLETION, in the pinned requester's session, through
+   the same lifecycle service a person's own filing goes through — which is
+   where `deep-research` already filed.
+
+**A deep-research report is now a `draft` too**, submitted to the person who
+commissioned it. Same producer, same PDF renderer, same idempotency key; what
+changes is that a filed report stops looking, in the Files pane, exactly like a
+document somebody checked. One vocabulary for humans and for Piloti was
+ADR-0054's decision, and a report filed with no editorial state was the last
+place it was not true.
+
+Confirmation for all of it: `lib/tasks/delegation.spec.ts` (the requester
+pinned, the engines, a submission failure recorded ON the row),
+`lib/tasks/service.spec.ts` (each kind's filing, and the outcome that has no
+run), `lib/documents/review-decisions.spec.ts` and `lifecycle.spec.ts` (the
+condition, both ways, and that the effect is on exactly one transition),
+`app/api/internal/tasks/route.spec.ts` (identity, tenancy, the closed op set),
+and `tests/aiq_agent/tools/tasks/` (echo-never-sign, and every refusal before
+the call).
+
 ## More Information
 
 - The row's columns and their reasons: `frontends/ui/src/lib/db/schema/tasks.ts`.
 - Lifecycle and filing: `frontends/ui/src/lib/tasks/service.ts`.
 - The pinned session: `frontends/ui/src/lib/auth/pinned-session.ts`.
-- ADR-0046 (skills and jobs), ADR-0035 (inbox), the agent-authored-documents
-  design (decision 10), `docs/roadmap/agentic-workspace-architecture.md` §6
-  and Loop C.
+- Delegation and the revision loop: `frontends/ui/src/lib/tasks/delegation.ts`,
+  `frontends/ui/src/lib/documents/review-decisions.ts`,
+  `frontends/ui/src/lib/documents/revision.ts`, `src/aiq_agent/tools/tasks/`.
+- ADR-0046 (skills and jobs), ADR-0035 (inbox), ADR-0054 (the version and the
+  publish door), ADR-0055 (one HTTP surface per primitive), the
+  agent-authored-documents design (decision 10),
+  `docs/roadmap/agentic-workspace-architecture.md` §6 and Loop C, and
+  `docs/roadmap/piloti-writes-artifacts-and-approval.md` §5.

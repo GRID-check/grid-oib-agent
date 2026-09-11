@@ -5,7 +5,14 @@
  * fetch returned) → findings → (live HITL) branches. One retrieval stays the
  * old fan. A second search is a new layer: conclusion, tools, then its own
  * fan. Each layer speaks the model's thought when it wrote one, never the
- * search query. Files hang off the checkpoint that fetched them.
+ * search query. Files hang off the checkpoint that fetched them, and each
+ * checkpoint FOLDS: a click on the layer replaces its fan with the count of
+ * what that fetch returned („3 Dateien") and a second click brings it back. A
+ * spine of three or more rounds arrives with everything but the newest layer
+ * folded, because past the third the graph stops being a shape and becomes a
+ * scroll — see `SPINE_FOLD_THRESHOLD`. A folded layer contributes no column
+ * nodes at all, so the measured stacking pass reclaims the row rather than
+ * leaving a gap where the fan was.
  * derived from the SAME streamed props the old ReasoningChain used, so the graph
  * grows as a turn streams in. The canvas is non-interactive (no pan/zoom/drag)
  * and renders at 1:1 — its height comes from MEASURED node heights (no fitView,
@@ -108,6 +115,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { ChevronDown } from 'lucide-react'
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -283,6 +291,19 @@ type RoundData = {
   actions: string[]
   targets: HandleSpec[]
   sources: HandleSpec[]
+  /**
+   * This layer has a fan to fold. A checkpoint that returned nothing has no
+   * fold: a control that removes nothing is a control that lies about what it
+   * does, and the reader learns to distrust the ones that do work.
+   */
+  foldable: boolean
+  /** Folded — the fan is gone and {@link foldSummary} stands in its place. */
+  folded: boolean
+  /** „3 Dateien". The COUNT, never the query — the same PF-12 rule as the body. */
+  foldSummary: string
+  /** Accessible name of the fold control; the card's own text is the context. */
+  toggleLabel: string
+  onToggle: () => void
 }
 
 // ── node components ───────────────────────────────────────────────────────────
@@ -301,12 +322,49 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
   </div>
 )
 
+/**
+ * One checkpoint layer, and the control that folds the fan under it.
+ *
+ * The whole card is the target, because "the step" is what a reader points at —
+ * so the control is a stretched overlay button rather than a chevron in the
+ * corner. It carries its own `aria-label` (the card's body is a conclusion, not
+ * a control name) and reports the state through `aria-expanded`, which is what
+ * makes it keyboard-operable at all: React Flow is configured with
+ * `nodesFocusable={false}` and `disableKeyboardA11y`, so a node is only ever
+ * reachable through a real `<button>` inside it, exactly as `BranchOptions` is.
+ *
+ * There is deliberately no `aria-controls`: the fan is a SIBLING node in the
+ * React Flow pane, not a descendant of this card, and its column elements carry
+ * `data-id` rather than `id`. Pointing at an id that does not exist is worse
+ * than pointing at nothing.
+ */
 const RoundFlowNode: FC<NodeProps<Node<RoundData>>> = ({ data }) => (
-  <div className="w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs">
+  <div className="relative w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs">
     {data.targets.map((h) => (
       <Handle key={h.id} id={h.id} type="target" position={Position.Top} style={{ ...H, left: h.left }} />
     ))}
-    <Eyebrow>{data.label}</Eyebrow>
+    {data.foldable && (
+      <button
+        type="button"
+        onClick={data.onToggle}
+        aria-expanded={!data.folded}
+        aria-label={data.toggleLabel}
+        data-testid="reasoning-round-toggle"
+        className="absolute inset-0 z-10 cursor-pointer rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      />
+    )}
+    <div className="flex items-start justify-between gap-2">
+      <Eyebrow>{data.label}</Eyebrow>
+      {data.foldable && (
+        <ChevronDown
+          aria-hidden="true"
+          className={cn(
+            'mt-px size-3.5 shrink-0 text-muted-foreground transition-transform duration-quick ease-out motion-reduce:transition-none',
+            data.folded && '-rotate-90'
+          )}
+        />
+      )}
+    </div>
     {data.text ? <p className="mt-1 text-sm leading-relaxed text-foreground">{data.text}</p> : null}
     {data.actions.length > 0 ? (
       <ul className="mt-1.5 flex flex-wrap gap-1">
@@ -319,6 +377,14 @@ const RoundFlowNode: FC<NodeProps<Node<RoundData>>> = ({ data }) => (
           </li>
         ))}
       </ul>
+    ) : null}
+    {/* Folded: the fan collapses to what it WAS — a count. Not the query, and
+        not the filenames either: a list of names is the fan again, in worse
+        typography. */}
+    {data.foldable && data.folded ? (
+      <p className="mt-1.5 border-t border-base pt-1.5 text-xs leading-relaxed text-muted-foreground">
+        {data.foldSummary}
+      </p>
     ) : null}
     {data.sources.map((h) => (
       <Handle key={h.id} id={h.id} type="source" position={Position.Bottom} style={{ ...H, left: h.left }} />
@@ -763,6 +829,42 @@ export interface BuiltGraph {
 }
 
 /**
+ * How many retrieval rounds a spine may show in full before the older layers
+ * arrive folded.
+ *
+ * Two is a comparison — "it looked here, then it looked there" — and folding
+ * either half of a comparison hides the thing the reader came for. Three is
+ * where the graph stops being a shape and starts being a scroll: at the 680px
+ * thread column a checkpoint plus its fan is ~230px, so the third layer is the
+ * one that pushes the assessment below the fold on a laptop. From there the
+ * newest round is the live one and the older ones are the record, so the record
+ * arrives closed and opens on a click.
+ */
+export const SPINE_FOLD_THRESHOLD = 3
+
+/**
+ * Which layers a spine of `count` rounds opens with, before the reader touches
+ * anything. Exported because it is the rule, not an implementation detail —
+ * `ReasoningFlow` seeds its state from it and the spec asserts it directly.
+ */
+export function defaultFoldedRounds(count: number): Set<number> {
+  if (count < SPINE_FOLD_THRESHOLD) return new Set()
+  return new Set(Array.from({ length: count - 1 }, (_, i) => i))
+}
+
+/**
+ * The fold state of the spine, and the way back out of it.
+ *
+ * Passed in rather than held here because `buildGraph` is pure: the state lives
+ * in `ReasoningFlow` (see the note there on where it does NOT live), and a spec
+ * can build any fold configuration it wants without rendering.
+ */
+export interface SpineFolding {
+  folded: ReadonlySet<number>
+  onToggle: (index: number) => void
+}
+
+/**
  * Pure graph builder — exported for structural regression tests. Produces the
  * nodes (with per-column handle specs), the parallel wiring, and the row groups
  * for the measured layout pass. See ReasoningFlow.spec.
@@ -777,7 +879,13 @@ export function buildGraph(
    * default: a graph built without it animates nothing, which is the right
    * answer both for a structural test and for a rebuild that added no cards.
    */
-  enterOrder: ReadonlyMap<string, number> = new Map()
+  enterOrder: ReadonlyMap<string, number> = new Map(),
+  /**
+   * Which checkpoint layers are folded, and how to unfold one. Absent means
+   * "nothing is folded and the control does nothing" — the right answer for a
+   * structural test that is not about folding.
+   */
+  folding: SpineFolding = { folded: new Set<number>(), onToggle: () => {} }
 ): BuiltGraph {
   const { columns, colW, gap, fanX, grouped } = layout
   const hasSources = cards.length > 0 && columns.length > 0
@@ -943,17 +1051,32 @@ export function buildGraph(
     return out
   }
 
+  // A folded layer keeps its cards (the count is the whole point of the fold)
+  // and contributes NO column nodes: the fan is gone from the graph, not merely
+  // hidden with CSS, so the measured stacking pass reclaims its row and the
+  // checkpoint wires straight into the next one.
   const fans = spine
     ? rounds.map((round, i) => {
         const roundCards = documentsForRound(round, cards)
         const packed = planFan(layout.contentW, roundCards.length)
-        return { roundCards, packed, ids: packed.columns.map((_, c) => `r${i}-col-${c}`) }
+        const folded = folding.folded.has(i)
+        return {
+          roundCards,
+          packed,
+          folded,
+          ids: folded ? [] : packed.columns.map((_, c) => `r${i}-col-${c}`),
+        }
       })
     : []
 
   const pushColumns = (ids: string[], packed: FanLayout, roundCards: CitedDocument[]) => {
+    // Driven by the ID list, not by the packing: a FOLDED layer keeps its
+    // packing (the cards are still its cards) and is given no ids, and walking
+    // the packing here would push column nodes with an `undefined` id that
+    // nothing can wire to and the measure pass silently strands.
+    if (ids.length === 0) return
     const xOf = (i: number) => packed.fanX + i * (packed.colW + packed.gap)
-    packed.columns.forEach((indices, i) => {
+    packed.columns.slice(0, ids.length).forEach((indices, i) => {
       const columnData: SourceColumnData = {
         cards: indices.map((idx) => roundCards[idx]!),
         hitLabel,
@@ -978,12 +1101,23 @@ export function buildGraph(
     rounds.forEach((round, i) => {
       const text = round.reason?.trim() ?? ''
       const fan = fans[i]!
+      const fileCount = fan.roundCards.length
       const roundData: RoundData = {
         label: t(text ? 'thinking.node.checkpointTab' : 'thinking.node.roundTab', { n: i + 1 }),
         text,
         actions: actionLabels(round.tools),
         targets: [CENTRE_TOP],
         sources: [CENTRE_BOTTOM],
+        foldable: fileCount > 0,
+        folded: fan.folded,
+        foldSummary: t(
+          fileCount === 1 ? 'thinking.node.roundFilesOne' : 'thinking.node.roundFiles',
+          { count: fileCount }
+        ),
+        toggleLabel: t(fan.folded ? 'thinking.node.roundUnfold' : 'thinking.node.roundFold', {
+          n: i + 1,
+        }),
+        onToggle: () => folding.onToggle(i),
       }
       nodes.push({
         id: roundIds[i]!,
@@ -1303,6 +1437,40 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
   const layout = useMemo(() => planFan(width || FALLBACK_W, cards.length), [width, cards.length])
 
   /**
+   * Which checkpoint layers the reader has folded or unfolded BY HAND, keyed by
+   * round index. Absent means "whatever `defaultFoldedRounds` says", so a turn
+   * that streams a third round folds the older two on arrival — and a layer the
+   * reader opened stays open when the fourth lands.
+   *
+   * Component state, and not the thinking store, because there is no natural
+   * place for it there: `ReasoningFlow` is handed steps, not a message id
+   * (neither is `ChatThinking` above it), and `useLayoutStore` holds
+   * app-wide chrome — `showTechnicalReasoning` and the panels — with no
+   * per-message map to hang this on. Inventing one would mean a store key
+   * whose lifetime nothing prunes, for a preference whose whole scope is one
+   * expanded Herleitung. The panel itself already collapses on the turn's own
+   * terms (`ChatThinking`), which is the persistence that matters.
+   */
+  const [foldOverrides, setFoldOverrides] = useState<ReadonlyMap<number, boolean>>(new Map())
+  const roundCount = useMemo(() => retrievalRounds(steps).length, [steps])
+  const folding = useMemo<SpineFolding>(() => {
+    const byDefault = defaultFoldedRounds(roundCount)
+    const folded = new Set<number>()
+    for (let i = 0; i < roundCount; i++) {
+      if (foldOverrides.get(i) ?? byDefault.has(i)) folded.add(i)
+    }
+    return {
+      folded,
+      onToggle: (index: number) =>
+        setFoldOverrides((prev) => {
+          const next = new Map(prev)
+          next.set(index, !(prev.get(index) ?? defaultFoldedRounds(roundCount).has(index)))
+          return next
+        }),
+    }
+  }, [foldOverrides, roundCount])
+
+  /**
    * Card ids that have already played their enter animation.
    *
    * Which column NODE a card lives in is a function of the container width and
@@ -1367,7 +1535,8 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
         t,
         layout,
         cards,
-        enterOrder
+        enterOrder,
+        folding
       ),
     [
       steps,
@@ -1382,6 +1551,7 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
       layout,
       cards,
       enterOrder,
+      folding,
     ]
   )
 

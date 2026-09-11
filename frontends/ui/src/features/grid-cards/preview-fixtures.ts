@@ -467,6 +467,69 @@ const RAW_FIXTURES: CardInput[] = [
     confidence: 'high',
   },
   {
+    // The state a draft is usually met in: written more than once, because the
+    // reader asked for a change and the tool edited the same path again, and
+    // not yet filed — so the card offers to ASK Piloti to file it rather than
+    // claiming a project document that does not exist.
+    type: 'document_draft',
+    title: 'Aktenvermerk – Abweichung Fluchtweglänge',
+    path: '/entwuerfe/aktenvermerk-fluchtweg.md',
+    bytes: 4820,
+    version: 3,
+  },
+  {
+    // The same draft after `file_draft`: it names a project document and an
+    // open version, which is what turns the card's two controls on.
+    type: 'document_draft',
+    title: 'Aktenvermerk – Abweichung Fluchtweglänge',
+    path: '/entwuerfe/aktenvermerk-fluchtweg.md',
+    bytes: 4820,
+    version: 3,
+    document_id: '00000000-0000-4000-8000-000000000001',
+    version_id: '00000000-0000-4000-8000-0000000000a1',
+    version_state: 'draft',
+  },
+  {
+    // Delegation, in the shape it is usually met in: a deadline the person named
+    // and a thread the run is writing into, because those are the two facts the
+    // card can offer beyond „angelegt".
+    type: 'task_created',
+    task_id: '00000000-0000-4000-8000-0000000000f1',
+    kind: 'einreichcheck',
+    title: 'Einreichcheck: Bauansuchen Haus A',
+    goal: 'Mach den Einreichcheck für das Bauansuchen bis Freitag',
+    due_at: '2026-09-18T23:59:59.999Z',
+    conversation_id: 's_00000000_0000_4000_8000_0000000000f2',
+  },
+  {
+    // The state the card is usually met in: a tidying turn that proposed more
+    // than one move, so the batch and the „from → to" row both have to render.
+    type: 'file_operation_proposal',
+    title: 'Drei Dateien in „Einreichung/Pläne“ verschieben',
+    operation: 'move',
+    operations: [
+      {
+        document: 'Grundriss EG.pdf',
+        source: 'projekt',
+        current: 'Nachweise',
+        target_folder: 'Einreichung/Pläne',
+      },
+      {
+        document: 'Grundriss OG.pdf',
+        source: 'projekt',
+        current: '',
+        target_folder: 'Einreichung/Pläne',
+      },
+      {
+        document: 'Schnitt A-A.pdf',
+        source: 'projekt',
+        current: 'Nachweise',
+        target_folder: 'Einreichung/Pläne',
+      },
+    ],
+    note: 'Vorschlag — es wurde noch nichts verschoben.',
+  },
+  {
     type: 'building_section',
     title: 'Gebäudeschnitt – Höhenprüfung GK 4',
     storeys: [

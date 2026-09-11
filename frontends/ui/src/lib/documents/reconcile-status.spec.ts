@@ -37,6 +37,10 @@ const makeRow = (overrides: Partial<ReconcilableDocument> = {}): ReconcilableDoc
   filename: 'plan.pdf',
   collectionName: 'proj_abc',
   authoredBy: 'user',
+  // Nothing published, which is what a human upload's row carried before
+  // migration 0082 and what the backfill gives it. A human row owns its chunks
+  // regardless; a case about a PUBLISHED Piloti document says so.
+  publishedVersionId: null,
   errorMessage: null,
   metadata: { ingestJobId: 'job-1' },
   ...overrides,

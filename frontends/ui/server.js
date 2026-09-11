@@ -23,6 +23,38 @@ const httpProxy = require('http-proxy')
 const { parse } = require('url')
 const crypto = require('crypto')
 
+// ── Boot identity (ledger item 1) ────────────────────────────────────────────
+// One greppable line naming the deployed commit and the effective value of the
+// four gates, printed before this process serves anything. A pilot said a
+// feature did not work and nobody could say which build they were on, nor
+// whether that feature was switched on for them at all — three of the four
+// flags default OFF, so "broken" and "never enabled" look identical from
+// outside. Rationale in full: `src/lib/boot.ts`.
+//
+// DUPLICATED from `formatBootLine`/`bootFlags`/`deployedSha` in that module,
+// for the same reason the envelope builder below is duplicated: this file is
+// plain CommonJS (see the `require(...)` calls above) and cannot import a TS
+// module. `tests/lib/boot.test.ts` extracts THIS function from the source and
+// runs it against the TS one over the same table, so the two cannot print
+// different lines. Keep it pure and self-contained — the test instantiates it
+// with `new Function`, so a reference to anything outside its own body breaks
+// the pin rather than the line.
+function bootLogLine(env) {
+  const optIn = (raw) => (raw || '').trim().toLowerCase() === 'true'
+  // Unset means ON for this one, matching agentAuthoredDocumentsEnvEnabled.
+  const optOut = (raw) => {
+    const value = (raw || '').trim().toLowerCase()
+    return value === '' || !['false', '0', 'no', 'off'].includes(value)
+  }
+  const sha = (env.GRID_GIT_SHA || '').trim() || 'unknown'
+  return (
+    `[boot] sha=${sha} skills=${optIn(env.GRID_SKILLS_ENABLED)}` +
+    ` collaboration=${optIn(env.GRID_COLLABORATION_ENABLED)}` +
+    ` enforceFlags=${optIn(env.GRID_ENFORCE_FEATURE_FLAGS)}` +
+    ` agentDocs=${optOut(env.GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED)}`
+  )
+}
+
 // ── Signed context envelope (backlog T3-9 follow-up, 2026-07-16, user-mandated) ──
 // One consolidated, signed `X-Grid-Request-Context` header (+ integrity
 // signature `X-Grid-Request-Context-Sig`) carrying every x-grid-* field this
@@ -61,6 +93,19 @@ function buildGridRequestContextEnvelopeHeaders(input) {
   // `buildGridRequestContextEnvelopePayload`'s docstring in request-context.ts
   // (the canonical definition this function is pinned to).
   if (input.bundesland) payload.bundesland = input.bundesland
+  // `conversationId` and `issuedAt` (ADR-0054), appended LAST in key order for
+  // the reason `bundesland` was last before them: every pre-existing signed
+  // payload stays byte-identical, so the fixture's precomputed header/signature
+  // values keep exact-matching on both sides of the language boundary.
+  //
+  // These two are what make the envelope usable as a CREDENTIAL and not only as
+  // context. The agent's document route reads the acting user out of the
+  // verified payload and files in that person's pinned session, so it needs to
+  // know which conversation asked (`conversationId`) and it must be able to
+  // refuse a replay (`issuedAt`, inside the signed bytes, checked against
+  // GRID_REQUEST_CONTEXT_MAX_AGE_MS by `verifyGridRequestContextEnvelope`).
+  if (input.conversationId) payload.conversationId = input.conversationId
+  if (input.issuedAt !== undefined && input.issuedAt !== null) payload.issuedAt = input.issuedAt
 
   const json = JSON.stringify(payload)
   const headers = {
@@ -737,6 +782,17 @@ const startServer = async () => {
               disabledSources: result.data?.disabledSources,
               memoryReflectionEnabled: result.data?.memoryReflectionEnabled,
               bundesland: result.data?.bundesland,
+              // The conversation the scope route AUTHORIZED, not the raw query
+              // param: `buildCollectionScopeFromRequest` runs
+              // `authorizeConversationScope` on it and the upgrade is already
+              // refused when that fails, so the id echoed back is one this tier
+              // asserted. Signing the query param instead would put a
+              // caller-chosen value inside a signature a write route trusts.
+              conversationId: result.data?.conversationId,
+              // Minted HERE rather than inside the builder: the envelope's age
+              // is the age of THIS handshake, and a builder that stamped its own
+              // clock would silently refresh a payload a caller handed it.
+              issuedAt: Date.now(),
             })
           )
         } else if (result.status === 401 || result.status === 403) {
@@ -857,6 +913,10 @@ const startServer = async () => {
   }
 
   server.listen(port, hostname, () => {
+    // Its own console.log, ahead of the banner and on ONE line: this is the
+    // line an operator greps out of a pod log to answer "what is this pilot
+    // running", and a line inside a box drawn with ━ is not greppable.
+    console.log(bootLogLine(process.env))
     console.log(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Frontend: http://localhost:${port}

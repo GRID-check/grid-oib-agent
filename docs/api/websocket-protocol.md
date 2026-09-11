@@ -251,7 +251,7 @@ as-is. An old backend ignores the unknown keys and searches the full authorized
 scope — the pre-#429 behaviour, never a dropped frame.
 
 `focus_file_name` is not only a retrieval hint. It is lifted onto
-`ConversationState` and rendered into the answering prompt (`researcher.j2`),
+`ConversationState` and rendered into the answering prompt (`piloti.j2`),
 because a turn that says "fass zusammen" carries its subject in the composer bar
 and nowhere in its text: with retrieval scoped correctly but the model told
 nothing, the answer was "which document do you mean?" over an open PDF. The
@@ -262,6 +262,36 @@ only the subject's resource id, so a thread reopened after a reload re-reads the
 filename and shelf from the document (`GET /api/documents/[id]/status` returns
 `filename` and `scope`). Until that lookup returns, the turn carries the file
 name without a shelf and retrieval keeps the signed scope.
+
+##### The subject's open version (`focus_document_id` / `focus_version_id` / `focus_version_state`)
+
+Three more fields, additive and omitted whenever there is nothing to say. They
+answer a different question from the three above: those say **which chunks to
+prefer**, and this says **which version the turn is about** — because for a
+version nobody has published there are no chunks to prefer.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `focus_document_id` | `string` | The subject document's id. Sent whenever the composer names a subject; from the SUBJECT only, never from a file that merely happens to be visible beside the chat. |
+| `focus_version_id` | `string` | The subject's OPEN version — the one still being worked on. Omitted when the live bytes are the published ones. |
+| `focus_version_state` | `"draft"` \| `"in_review"` \| `"changes_requested"` | That version's editorial state. Any other value (including `published`) leaves the turn on the retrieval path unchanged. |
+
+Only a published version reaches the retrieval index (ADR-0054), so a draft has
+no chunks, the focus filter matches nothing, and it falls open to the whole
+corpus (`sources/knowledge_layer/src/register.py`) — the reader asks about the
+Befund Piloti filed a minute ago and gets an answer sourced from everything
+except that Befund. Told which version the subject is, the backend reads that
+version's own bytes through
+`GET /api/internal/document-versions/[versionId]/content` and writes them into
+the conversation's working directory as `/entwuerfe/<name>.md`
+(`src/aiq_agent/turn/subject_document.py`), stamped with the filing record that
+makes a later `file_draft` on that path replace this version rather than file a
+second document. The fail-open in the focus filter is unchanged; this is
+upstream of it.
+
+The client sends them from the composer subject, which recovers both from
+`GET /api/documents/[id]/status` (`openVersion: { id, state } | null`). All
+three absent is every ordinary turn, and an old backend ignores unknown keys.
 
 #### user_interaction_message
 

@@ -15,6 +15,7 @@ from aiq_agent.knowledge.inventory import allocate_inventory_detailed
 from aiq_agent.knowledge.inventory import document_identity
 from aiq_agent.knowledge.inventory import render_inventory_block
 from aiq_agent.knowledge.inventory import set_inventory_drops
+from aiq_agent.knowledge.inventory import set_norm_families
 from aiq_agent.knowledge.inventory import shelf_hint_from_query
 from aiq_agent.knowledge.inventory import stamp_document
 from aiq_agent.knowledge.schema import AvailableDocument
@@ -527,3 +528,71 @@ class TestFilesStillBeingRead:
 
         assert block != ""
         assert "erste_datei.pdf" in block
+
+
+class TestTheFamiliesAreNamed:
+    """ "OIB-Richtlinien 1–6" is a range, and a range names no members.
+
+    OIB-RL 2 is four documents — 2, 2.1 (Betriebsbauten), 2.2 (Garagen), 2.3
+    (Hochhäuser) — and the folded base shelf never said so. An overview
+    question could open three of them, forget the fourth, and read as complete:
+    fluent prose, every citation resolving, and the missing part missing in the
+    one way nothing checked. The fold may drop filenames, which retrieval can
+    recover; it may not drop which parts EXIST, which retrieval cannot — a
+    search that never returns 2.3 looks exactly like a Richtlinie without one.
+    """
+
+    def teardown_method(self):
+        set_inventory_drops(None)
+        set_norm_families(None)
+
+    def _base(self, *names: str):
+        return [_doc(name, collection="oib_knowledge", shelf="base") for name in names]
+
+    def test_the_folded_shelf_lists_each_family_and_its_members(self):
+        from aiq_agent.common.norm_registry import oib_families
+
+        names = [
+            "oib-rl_2_ausgabe_mai_2023.pdf",
+            "oib-rl_2.1_ausgabe_mai_2023.pdf",
+            "oib-rl_2.2_ausgabe_mai_2023.pdf",
+            "oib-rl_2.3_ausgabe_mai_2023.pdf",
+            "oib-rl_4_ausgabe_mai_2023.pdf",
+        ]
+        set_norm_families(oib_families(names))
+
+        text = render_inventory_block(self._base(*names))
+
+        assert "OIB-Richtlinie 2: 2, 2.1, 2.2, 2.3" in text
+        assert "OIB-Richtlinie 4: 4" in text
+        # …and the filenames are still folded away. This adds a fact, not a list.
+        assert "oib-rl_2.3_ausgabe_mai_2023.pdf" not in text
+
+    def test_it_says_what_an_unread_member_may_be_called(self):
+        from aiq_agent.common.norm_registry import oib_families
+
+        set_norm_families(oib_families(["oib-rl_2_x.pdf", "oib-rl_2.1_x.pdf"]))
+        text = render_inventory_block(self._base("oib-rl_2_x.pdf", "oib-rl_2.1_x.pdf"))
+
+        assert "nicht gelesen" in text
+
+    def test_a_corpus_with_no_families_adds_no_lines(self):
+        """Derived, never listed. A deployment whose corpus holds no
+        Richtlinien must not be told it has any."""
+        set_norm_families(None)
+        text = render_inventory_block(self._base("Handbuch.pdf"))
+
+        assert "Richtlinien-Familien" not in text
+
+    def test_a_listing_turn_about_base_prints_names_rather_than_families(self):
+        """The fold is what the family lines belong to. With the full list on
+        screen the members are visible as filenames."""
+        from aiq_agent.common.norm_registry import oib_families
+
+        names = ["oib-rl_2_x.pdf", "oib-rl_2.3_x.pdf"]
+        set_norm_families(oib_families(names))
+
+        text = render_inventory_block(self._base(*names), focus_shelf=Shelf.BASE)
+
+        assert "oib-rl_2.3_x.pdf" in text
+        assert "Richtlinien-Familien" not in text

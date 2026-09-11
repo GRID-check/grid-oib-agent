@@ -1,7 +1,7 @@
 """Memory reflection, declared as a post-answer stage.
 
 This is the migration of the bespoke block that used to sit inline in
-``agents/researcher/conversation_register.py`` (schedule + gate) and in
+``agents/piloti/conversation_register.py`` (schedule + gate) and in
 ``project_memory/reflection.schedule_memory_reflection`` (semaphore, pending cap,
 cost/profile tracking). **What it does is unchanged** — the same predicate, the
 same prompt, the same writes through the same token-guarded endpoint. What
@@ -54,7 +54,7 @@ REFLECTION_NON_ANSWERS = (
 
 #: Phrases that make the tail of an answer an insufficiency statement rather
 #: than a finding. Only the reflection gate reads them: escalation itself
-#: requires the researcher's explicit structured ask, because a substring match
+#: requires Piloti's explicit structured ask, because a substring match
 #: on German legal hedging false-positived on successful answers.
 _INSUFFICIENCY_PHRASES = (
     "i don't have enough information",

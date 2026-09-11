@@ -3,6 +3,7 @@ import { internalApiRoute, parseQuery } from '@/lib/api/handler'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { buildProjectMemoryDigest, resolveProjectOrganization } from '@/lib/projects/memory-service'
 import { buildProposalDecisionsBlock, composeMemoryContext } from '@/lib/projects/proposal-decisions'
+import { buildReviewDecisionsBlock } from '@/lib/documents/review-decisions'
 
 /**
  * INTERNAL service endpoint — the per-turn READ path for the agent's core
@@ -28,12 +29,24 @@ const digestQuerySchema = z
      * becomes an embedding call; never stored.
      */
     query: z.string().trim().max(2000).optional(),
+    /**
+     * The turn's conversation, for the `REVIEW_DECISIONS v1` block. Optional:
+     * a caller with none (the WS handshake, a background run) gets the digest
+     * and the proposal decisions exactly as before.
+     *
+     * It is not an authorization input — nothing below reads a row this id
+     * names without also pinning the organization — so an unknown id is an
+     * empty block rather than a refusal, which is what a conversation that has
+     * filed nothing looks like anyway.
+     */
+    conversationId: z.string().trim().max(200).optional(),
   })
   // Empty strings behave like absent params (previous `|| undefined` behavior).
   .transform((query) => ({
     projectId: query.projectId || undefined,
     organizationId: query.organizationId || undefined,
     query: query.query || undefined,
+    conversationId: query.conversationId || undefined,
   }))
   .refine((query) => !!(query.projectId || query.organizationId), {
     message: 'projectId or organizationId is required',
@@ -42,7 +55,7 @@ const digestQuerySchema = z
 export const GET = internalApiRoute(
   'Internal Memory Digest',
   async ({ request }) => {
-    const { projectId, organizationId, query } = parseQuery(request, digestQuerySchema)
+    const { projectId, organizationId, query, conversationId } = parseQuery(request, digestQuerySchema)
 
     // The schema accepts a projectId on its own, so the organization is not
     // always known here. It has to be RESOLVED rather than skipped: reading the
@@ -74,7 +87,13 @@ export const GET = internalApiRoute(
       const decisions = projectId
         ? await buildProposalDecisionsBlock(projectId, tenant).catch(() => null)
         : null
-      return { digest: composeMemoryContext(digest, decisions) }
+      // What a reviewer decided about the drafts THIS conversation filed. Same
+      // channel, same failure posture: a scan that breaks costs the block, never
+      // the turn's memory.
+      const reviewDecisions = conversationId
+        ? await buildReviewDecisionsBlock(conversationId, tenant).catch(() => null)
+        : null
+      return { digest: composeMemoryContext(digest, decisions, reviewDecisions) }
     })
   },
   { tenancy: { fromPayload: '?organizationId, else resolved from the project row' } }

@@ -9,7 +9,7 @@ generated.").
 ## Problem
 
 Target users are German-speaking. The LLM pipeline already answers in the
-user's language (the deep-research writer and the researcher prompts
+user's language (the deep-research writer and Piloti's prompts
 match the user's language; the clarifier localizes its question and plan
 content — see Part 1 of this change). But a small set of **fixed, non-LLM**
 strings are emitted verbatim by backend code and are always English:

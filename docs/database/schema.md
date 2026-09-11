@@ -217,7 +217,7 @@ export const documents = pgTable('documents', {
 | `authored_by_producer` | `text` | | **Migration `0063`**: WHAT wrote a non-`user` document, as a producer identifier (`deep_research`, `diagram_svg`, `diagram_pdf`), never a display label. A producer is a KIND OF DELIVERABLE, not a piece of software — which is why one run can carry two of them, and why migration `0065` makes it half of the idempotency key. `NULL` for everything a person uploaded. Separate from `authored_by_ref` because a reference identifies the producer only while there is exactly one of them; recovering it later from pruned job history is archaeology. Since migration `0066` it is also what the reference KIND is derived from. |
 | `authored_by_ref` | `text` | | **Migration `0063`, renamed by `0066`**: the identifier of the thing that produced a non-`user` document. `NULL` for everything a person uploaded. `text`, not `uuid` — every kind of reference is carried from somewhere else, never generated here. It was called `authored_by_run_id` and documented as "the backend async job id of the run", which was true while `deep_research` was the only producer and false for the two diagram producers, whose reference is the chat answer the drawing came from plus a hash of its source. Read it WITH `authored_by_ref_kind`. |
 | `authored_by_ref_kind` | `text` | | **Migration `0066`**: what kind of identifier `authored_by_ref` holds — `agent_run` (a backend async job id in the `aiq_api` job store) or `answer_artifact` (one artifact inside one chat answer). `NULL` for everything a person uploaded. Derived from `authored_by_producer` by the one filing path (`GENERATED_DOCUMENT_PRODUCER_REF_KINDS`), never chosen at a call site, so a producer and the kind of identity it files under cannot disagree. No CHECK on the value, so a further kind is a TypeScript change — the `authored_by`/`scope` arrangement. It is ALSO the WorkOS audit target type on `document.generated`, so a kind added to `AUTHORED_REF_KINDS` owes an entry in `lib/audit/schemas.mjs` — without it WorkOS rejects the event, and because that emit throws, the rejection unfiles the document rather than losing a log line. Backfilled from the producer by `0066`, which refuses to run rather than guess a kind for a producer it does not know. |
-| `filename` | `text` | NOT NULL | Original filename — the document's IDENTITY, not its label. It addresses the SeaweedFS object and, as `(collection_name, filename)`, every chunk the retrieval index holds for the document, so it is written at upload and never updated. |
+| `filename` | `text` | NOT NULL | Original filename — the document's IDENTITY, not its label. It addresses the SeaweedFS object and, as `(collection_name, filename)`, every chunk the retrieval index holds for the document, so it is written at upload and never updated. A document Piloti wrote whose versions may be **published** carries the namespace `piloti/<document id>/<name>` from creation (ADR-0054, `lib/documents/agent-namespace.ts`), so a model-chosen title cannot collide with a person's upload; the OBJECT key is built from the bare name and stays flat, and the ingest dispatch states this column as `file_name` rather than letting the backend derive it from the key. |
 | `display_name` | `text` | | **Migration `0048`**: what a reader sees, once somebody has renamed the document. `NULL` = never renamed → show `filename`, which is what every earlier row means (no backfill). Resolve the pair with `documentDisplayName` (`lib/documents/display-name`) rather than reading the column directly. Written by `PATCH /api/documents/{id}`, which also mirrors the value onto the backend metadata store's `display_title` so citation chips follow the rename without a re-ingestion. Renaming `filename` instead would orphan the document's chunks — the migration spells out why. |
 | `storage_key` | `text` | NOT NULL | Object storage key |
 | `storage_bucket` | `text` | | **ADR-0043** (migration `0033`): the S3 bucket holding this document's bytes. `NULL` means the deployment's shared bucket (`SEAWEED_BUCKET`), which is what every row written before per-organization buckets existed means — and the meaning is fixed, so no backfill is needed or wanted. Recorded rather than derived from `organization_id`: deriving it would make `SEAWEED_PER_ORG_BUCKETS` a cutover, where flipping it makes every earlier object unreachable. `resolveDocumentBucket` in `lib/storage/bucket` is the one place that turns it back into a name. |
@@ -240,7 +240,7 @@ export const documents = pgTable('documents', {
 
 - `uniq_documents_authored_ref_producer_per_project` — **UNIQUE**, on (`organization_id`, `project_id`, `authored_by_ref`, `authored_by_producer`), **PARTIAL** (`WHERE authored_by <> 'user'`) — one machine-authored document per reference per producer. Its columns are exactly the WHERE clause of `findDocumentAuthoredByRef`: an index narrower than that probe rejects rows the probe would accept, a wider one admits the duplicates the probe was meant to prevent, so the two are changed together or not at all. Introduced without the producer as `uniq_documents_authored_run_per_project` (migration `0064`, one document per RUN) and widened by migration `0065`, because a run can owe more than one file — a diagram is a previewable SVG that carries its own source and an attachable PDF, and under the old key the second call answered "already filed". Restated under the renamed column by migration `0066` rather than renamed, so the live rule is readable in one file instead of split between a `CREATE` in `0065` and an `ALTER … RENAME` in `0066`. `authored_by_ref_kind` is deliberately NOT in the key: it is a function of `authored_by_producer`, which is already in it. Partial on `<> 'user'` because the CHECK below deliberately lets a HUMAN row carry a reference too, and two colleagues saving one run's artefact into one project must not collide. A NULL producer is not covered (NULL never equals NULL), which `documents_authorship_requires_provenance` makes unreachable for these rows.
 
-- `uniq_documents_live_name_per_collection` — **UNIQUE**, on (`organization_id`, `collection_name`, `filename`), **PARTIAL** (`WHERE authored_by = 'user'`) — one human-uploaded document per filename per collection, because the ingest pipeline replaces passages by filename and a second row under one name is a ghost (migration `0074`). Its columns and predicate are the WHERE clause of `findLiveDocumentByFilename`, the probe that makes a re-upload replace instead of insert; the index closes the concurrent-first-upload race the probe cannot. Created with `AND deleted_at IS NULL` and restated without it by migration `0077`, which dropped `documents.deleted_at`: the column was added by `0009` for a soft delete that documents never got (every document delete is a hard DELETE), so the clause was inert, and a predicate over a column nothing writes hides rows the day something does. `projects` and `conversations` keep their `deleted_at`.
+- `uniq_documents_live_name_per_collection` — **UNIQUE**, on (`organization_id`, `collection_name`, `filename`), **PARTIAL** (`WHERE authored_by = 'user' OR filename LIKE 'piloti/%'`) — one live document per filename per collection over every row that can own chunks, because the ingest pipeline replaces passages by filename and a second row under one name is a ghost (migration `0074`, widened by `0083`). The predicate is two disjoint arms: `authored_by = 'user'` is 0074's rule, and `filename LIKE 'piloti/%'` covers the namespace an agent-authored document is filed under once a version of it may be published and therefore indexed (ADR-0054). They cannot meet — no browser produces a filename containing a slash, so no upload can reach the second arm — and a machine-authored row OUTSIDE the namespace is in neither: it carries a model-chosen name, owns no chunks, and must coexist with a person's file of the same name. Its columns and its FIRST arm are the WHERE clause of `findLiveDocumentByFilename`, the probe that makes a re-upload replace instead of insert; the index closes the concurrent-first-upload race the probe cannot. The second arm has no probe and needs none — the document id inside the namespace is unique by construction, and the filing path's idempotency is `uniq_documents_authored_ref_producer_per_project` one level up — so it is the database refusing to hold a collision the application has no way to create. Created with `AND deleted_at IS NULL` and restated without it by migration `0077`, which dropped `documents.deleted_at`: the column was added by `0009` for a soft delete that documents never got (every document delete is a hard DELETE), so the clause was inert, and a predicate over a column nothing writes hides rows the day something does. `projects` and `conversations` keep their `deleted_at`.
 
 The three `authored_by` partial indexes above live **only in the migration** — drizzle's index builder cannot express a `WHERE` clause — with a NOTE beside the relevant column in `schema/documents.ts`; the filename one is declared in the schema as well. `documents.spec.ts` pins each one to its migration so a regeneration cannot quietly drop it.
 
@@ -248,6 +248,174 @@ The three `authored_by` partial indexes above live **only in the migration** —
 - `documents_folder_requires_project` — a document with a folder has a project, which is what makes the composite folder FK check anything under MATCH SIMPLE (migration `0030`)
 - `documents_session_requires_conversation` — the scope partition: a `session` row has a conversation, nothing else does, and a `session` row has no project (migration `0049`)
 - `documents_authorship_requires_provenance` — `authored_by = 'user' OR (authored_by_producer IS NOT NULL AND authored_by_ref IS NOT NULL AND authored_by_ref_kind IS NOT NULL)`. A document no person wrote can always say what wrote it, which one, and what kind of identifier that is; one that cannot is an audit trail in appearance only. The third conjunct is migration `0066`'s: the first two were satisfiable by a row whose reference nobody could resolve, because the column's name asserted a job id over a value that was not one. Written against `<> 'user'` rather than against `agent` so a member added to `DOCUMENT_AUTHORS` arrives already constrained instead of arriving as a hole nothing notices (migration `0063`). One-directional: a `user` row carrying all three is legal.
+
+- `documents_lifecycle_known` — `lifecycle IN ('active', 'archived')` (migration `0082`). A CHECK where `scope` and `status` deliberately have none, because this column gates a LISTING: a third value nothing knows how to render would silently hide documents, and that looks like data loss to the person whose file vanished.
+
+**Version pointer (migration `0082`, ADR-0054):** `published_version_id` names the `document_versions` row whose bytes the storage columns above mirror, through a composite foreign key on `(published_version_id, id)` → `document_versions (id, document_id)` — so a document can only ever point at a version OF ITSELF. `ON DELETE SET NULL`: discarding a version must not take the item with it. The constraint lives only in the migration, because declaring it in drizzle would make `documents.ts` and `document-versions.ts` import each other.
+
+---
+
+## document_versions (migration 0082, ADR-0054)
+
+One row per set of bytes a document has ever had, plus the one fact the item
+could not carry: **whether anybody has asserted the content**.
+
+It is not an agent-only structure. Re-uploading a file under a name a collection
+already holds has replaced the document in place since migration `0074` — the
+same id, so citations, chat subjects and folder placements survive — and then
+threw the previous bytes away. That was versioning without the history. Now:
+
+| Who | What happens |
+|---|---|
+| a person uploads a file | version 1, `published`, born approved (`approved_by = published_by = created_by`) — the person who uploaded it IS the assertion, and no review round is invented |
+| a person re-uploads the same name | version N+1, `published`; version N becomes `superseded` and **keeps its object**, under the `v<n>/` storage prefix it was written to |
+| Piloti files a document | version 1, `draft`, which walks `draft → in_review → approved → published` and can be sent back with `changes_requested` or `rejected` |
+
+`documents.published_version_id` points at the live version and the item's
+`storage_key` / `storage_bucket` / `file_size` / `content_type` / `content_hash`
+mirror it, which is what makes every existing reader — preview, download,
+thumbnail, ingest, the quota ledger — work unchanged.
+
+**Columns:** `id`, `organization_id`, `document_id` + `project_id` (composite FK
+to `documents (id, project_id)`, the `documents_folder_id_project_id_fkey`
+shape; `project_id` is NULL for the Archiv and session shelves, where MATCH
+SIMPLE skips the check), `version_number`, `state`, `storage_key`,
+`storage_bucket`, `content_type`, `file_size`, `content_hash`,
+`submitted_by`/`_at`, `reviewed_by`/`_at`, `approved_by`/`_at`,
+`published_by`/`_at`, `review_comment`, `created_by`,
+`origin_conversation_id` (migration `0084`), `submitted_by_actor` (migration
+`0085`), `created_at`, `updated_at`.
+
+**Constraints — the ratchet, not decoration:**
+
+- `document_versions_state_known` — `draft | in_review | changes_requested | approved | published | superseded | rejected`, generated from `DOCUMENT_VERSION_STATES` so the tuple and the CHECK cannot drift.
+- `document_versions_review_complete` — `(reviewed_by IS NULL) = (reviewed_at IS NULL)`. Copied from `tasks_review_complete` (migration `0075`): a decision is by somebody, at some time, or it is not a decision.
+- `document_versions_published_is_approved` — `state <> 'published' OR (approved_by IS NOT NULL AND approved_at IS NOT NULL)`. **The publish door.** Only a published version is ever dispatched to the retrieval index, so this makes "indexed ⟹ approved by a person" a row invariant rather than a predicate in a fail-open retrieval path.
+- `document_versions_refusal_has_comment` — `state NOT IN ('changes_requested', 'rejected') OR review_comment IS NOT NULL`. A refusal with nothing in it is a decision the next attempt cannot act on.
+- `document_versions_submitted_by_actor_known` — `human | agent` (migration `0085`).
+
+**Indexes:** `idx_document_versions_document (document_id, version_number)`,
+`idx_document_versions_organization_id`, and two PARTIAL unique indexes that
+live only in the migration (with `COMMENT ON INDEX`, because the next person to
+meet one meets it as a constraint violation in a log line):
+`uniq_document_versions_open_per_document` — at most one `draft`/`in_review`/
+`changes_requested` version per document, so two chat turns cannot fork one file
+into two live drafts — and `uniq_document_versions_published_per_document`.
+
+The second one is why publishing is ONE transaction: "two published versions of
+one document" is unrepresentable, so the previous version must already have been
+superseded at the instant the new one becomes published, and a supersede that
+then lost the compare-and-swap race would leave the document with no published
+version at all.
+
+There are two such transactions, and the second one was missing at first.
+`promoteVersionToPublished` moves an EXISTING version to `published`. A version
+that is BORN published — every human upload — cannot use it: the row has to be
+INSERTED as `published`, and the index is a plain partial unique index, checked
+per statement rather than deferred, so that insert is refused while the previous
+version is still published. The insert therefore lives inside the same
+transaction as the supersede (`insertPublishedVersion`), supersede first. Before
+that, **every re-upload of a document failed** on the constraint.
+
+**Bytes:** a superseded version keeps its object. They are purged when the
+document is deleted — `deleteDocument`, `deleteArchivDocument` and
+`deleteSessionDocument` each walk every version — and not when one is replaced.
+The consequence is stated rather than hidden: superseded versions stay charged
+against the organization's storage quota, because they exist. A per-organization
+retention policy is a later row on a later table.
+
+**And the ledger says so.** That sentence was a claim the code did not honour
+for a while: usage summed `documents.file_size` alone, which is the LIVE bytes,
+so every superseded version and every written-to draft was invisible to the
+quota it was supposed to be charged against. `lib/storage/repository.ts` now adds
+`versionOverheadBytes` — every `document_versions` row whose `storage_key` is not
+its item's `storage_key` — to `sumStorageBytes`, to the per-scope breakdown, and
+to both admitting transactions, so the ceiling and the number a reader is shown
+measure the same thing. The predicate compares KEYS rather than ids on purpose:
+a draft forked from the published version deliberately shares that version's
+object until its content is replaced, and two rows over one object are one
+charge.
+
+**Whose hand submitted (migration `0085`):** `submitted_by_actor` (`human` |
+`agent`, default `human`) is written from `TransitionInput.actingHuman` at the
+submit transition. `submitted_by` stays whose AUTHORITY the submission carried —
+permissions, the audit actor and the inbox all read it. The distinction has one
+reader: the not-the-submitter guard on `approve`. „Der Einreichende darf nicht
+freigeben" is about a person asserting their own work, and a report Piloti filed
+in the commissioning human's session is not their own work — reading
+`submitted_by` alone refused the one person who had asked for the report the
+right to release it.
+
+**Where a version came from (migration `0084`):** `origin_conversation_id` is
+the chat conversation a version was filed from, written at the internal filing
+route out of the VERIFIED request-context envelope and never off a request body
+(ADR-0054 §4), so it is a fact this tier asserted. NULL for a human upload, a
+scheduled deep-research report, and every version forked from the Files pane.
+`text` with no foreign key, as `job_runs.conversation_id` is: the honest
+constraint would be the composite `(conversation_id, organization_id)`, which is
+worth its cost on a row that decides access and not on one that decides prose.
+
+It is PROVENANCE, never authorization — nothing reads it to decide who may act —
+and it decides exactly two things, both of them what happens after a reviewer
+presses „Änderungen anfordern":
+
+- with an origin, the next turn of THAT conversation is told, verbatim, as a
+  `REVIEW_DECISIONS v1` block on the memory channel
+  (`lib/documents/review-decisions.ts`);
+- without one, there is nobody typing, so the lifecycle's `openRevisionTask`
+  effect opens a `revision` task instead (ADR-0051).
+
+`idx_document_versions_origin_conversation (origin_conversation_id, reviewed_at DESC)`
+is partial on `origin_conversation_id IS NOT NULL` and lives only in the
+migration, like the two unique indexes above.
+
+**RLS:** tenant table, secured the way `tasks` is, widened by a NULL arm for the
+two shelves with no project. Listed in `rls-coverage.spec.ts`
+`BOUNDARY_MIGRATIONS`. Migration `0084` adds a column and does NOT move the
+boundary, so it is deliberately not in that list.
+
+---
+
+## tasks (migration 0075, ADR-0051)
+
+The durable unit of delegated work: one row per attempt, with the requester
+pinned, the plan frozen, and review as an axis of its own.
+
+**Columns:** `id`, `organization_id`, `project_id`, `kind`, `title`, `plan`
+(jsonb), `requester_user_id` + `requester_email`, `status`, `error`,
+`budget_usd`, `deadline_at`, `job_id` + `job_run_id` + `backend_job_id`,
+`conversation_id`, `filed_document_id` + `filing_status` + `filing_detail`,
+`review` + `review_reason` + `reviewed_by` + `reviewed_at`, `created_at`,
+`started_at`, `finished_at`, `updated_at`.
+
+**`kind` has no CHECK, deliberately** (see migration `0075`'s own header), which
+is why the vocabulary lives in one place — `TASK_KINDS` in
+`lib/db/schema/tasks.ts` — rather than in a column and a tuple that can disagree.
+It holds six members: `deep-research` and `chat` are `jobs.output` and describe
+how a JOB delivers its result; `compliance_check`, `einreichcheck`, `document`
+and `revision` are what a person DELEGATES (`DELEGATABLE_TASK_KINDS`, derived as
+the complement rather than listed again). `status`, `review` and `filing_status`
+DO carry CHECKs naming their members.
+
+**`plan` is the frozen statement of what was asked:** `prompt` (as submitted,
+skill body included), `skill` (the snapshot, `{}` for a plain prompt),
+`dataSources`, and — for a delegated task — `goal`, the requester's own sentence,
+plus `subject` for a `revision`: the `{documentId, versionId, comment}` a
+reviewer sent back. On the plan rather than in three columns, because it is part
+of what was asked and it exists for exactly one kind.
+
+**A delegated task has no `job_runs` row.** `job_runs.schedule_id` is NOT NULL
+and its RLS predicate requires the row to name a `jobs` row (migration `0043`),
+so giving every „@Piloti prüf das" a hidden job row would have put a
+scheduled-job entry in the project's Aufträge list for a sentence somebody typed
+once. The task row IS the record: `uniq_tasks_backend_job_id` is what the
+worker's outcome callback looks it up by, and
+`POST /api/internal/jobs/[jobId]/outcome` tries the run first and falls back to
+the task.
+
+**RLS:** the organization AND the project's organization, so a row cannot be
+planted under another tenant's project. Listed in `rls-coverage.spec.ts`
+`BOUNDARY_MIGRATIONS`.
 
 ---
 
@@ -365,7 +533,7 @@ This PostgreSQL entrypoint script runs on first container startup and creates tw
 | `job_info` | NAT JobStore metadata | `job_id` (PK), `status`, `config_file`, `error`, `output_path`, `created_at`, `updated_at`, `expiry_seconds`, `is_expired` |
 | `job_access` | Job ownership/access control | `job_id` (PK), `owner_auth_type`, `owner_subject`, `owner_email` |
 | `job_events` | SSE streaming event persistence | `id` (serial PK), `job_id`, `event_type`, `event_data`, `created_at` |
-| `document_metadata` | Per-document metadata (was `summaries`) | `collection` + `filename` (composite PK), `summary`, `tags` (`TEXT`, JSON list; nullable), `doc_class` (`TEXT`; nullable), `display_title` (`TEXT`; nullable), `folder_path` (`TEXT`; nullable — the BFF's materialised `project_folders.path`, ADR-0049) |
+| `document_metadata` | Per-document metadata (was `summaries`) | `collection` + `filename` (composite PK), `summary`, `tags` (`TEXT`, JSON list; nullable), `doc_class` (`TEXT`; nullable), `display_title` (`TEXT`; nullable), `folder_path` (`TEXT`; nullable — the BFF's materialised `project_folders.path`, ADR-0049), `provenance` (`TEXT`, JSON object; nullable — who wrote a published Piloti document and who released it, ADR-0054; deleted with the chunks by `unregister_summary`) |
 
 Indexes: `job_info(status)`, `job_info(created_at)`, `job_access(owner_auth_type, owner_subject)`, `job_events(job_id)`, `job_events(job_id, id)`, `document_metadata(collection)`.
 
@@ -761,7 +929,7 @@ omits it to collapse.
 | `id` | `uuid` | PK, `defaultRandom()` | |
 | `organization_id` | `text` | NOT NULL | A user in two orgs has two inboxes; counts never mix |
 | `recipient_user_id` | `text` | NOT NULL | WorkOS user this is FOR |
-| `type` | `text` | NOT NULL | `mention.requested` \| `mention.answered` \| `conversation.shared_with_you` \| `conversation.activity` |
+| `type` | `text` | NOT NULL | The item kind. **The list lives in `INBOX_ITEM_TYPES` (`frontends/ui/src/lib/db/schema/inbox.ts`) and is exhaustive over two registries by construction**, so it is not restated here — this row said four types long after there were eight. Today: the four collaboration ones, `storage.quota_warning`, `document.assigned_to_you`, `job.completed` / `job.failed`, and `document.review_requested` (ADR-0054, actionable). |
 | `resource_type` / `resource_id` | `text` | NOT NULL | What it points AT — resolved through the sharing registry |
 | `anchor_id` | `text` | | Exact spot inside the resource (a message id), for a deep link |
 | `actor_user_id` | `text` | | Who caused it; NULL for system items |

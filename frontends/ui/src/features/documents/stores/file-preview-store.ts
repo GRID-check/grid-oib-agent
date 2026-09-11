@@ -16,6 +16,10 @@ import { create } from 'zustand'
 import { useChatStore } from '@/features/chat/store'
 import type { DocumentScope } from '../components/document-actions'
 import type { FileItem } from '../components/project-file-workspace'
+import type {
+  DocumentLifecyclePermission,
+  DocumentVersionState,
+} from '@/lib/documents/lifecycle-types'
 
 export type FilePreviewMode = 'modal' | 'peek' | 'expanded'
 
@@ -100,10 +104,28 @@ export interface FilePreviewContext {
    * preview always opens, and this says whether it also offers the way on.
    */
   showModels?: boolean
+  /**
+   * What the reader may do to this document's versions, resolved on the server
+   * (`lib/documents/lifecycle-permissions.ts`). Absent on every surface that did
+   * not read them — the Archiv sheet, a citation peek — and the pane then shows
+   * no Freigabe section rather than guessing.
+   */
+  lifecyclePermissions?: readonly DocumentLifecyclePermission[]
+  /** The reader's own user id, so their acts in the version list read as „Sie". */
+  viewerUserId?: string | null
   onRenamed?: (fileId: string, displayName: string | null) => void
   onDeleted?: (fileId: string) => void
   onReingested?: (fileId: string, status: string) => void
   onTagsUpdated?: (fileId: string, tags: string[]) => void
+  /**
+   * A decision was taken in the pane's Freigabe section, so the listing behind
+   * it can move the badge without re-reading the whole corpus — the same shape
+   * `onTagsUpdated` and `onReingested` already use.
+   */
+  onLifecycleChanged?: (
+    fileId: string,
+    summary: { versionState: DocumentVersionState; versionCount: number },
+  ) => void
 }
 
 interface FilePreviewState {

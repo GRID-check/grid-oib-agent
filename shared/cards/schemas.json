@@ -1586,6 +1586,97 @@
       "title": "DocumentChecklistCard",
       "type": "object"
     },
+    "DocumentDraftCard": {
+      "description": "A document the agent wrote into this conversation's working directory.\n\nSystem-emitted by the working directory's ``write_file`` / ``edit_file``, and\nagain by ``file_draft`` once the draft has become a project document.\n\n**The card has two states, and the difference is three fields.** Unfiled, it\nreports a file that exists in this conversation and nowhere else: not filed,\nnot indexed, not citable, not in the Files pane. Filed, it names a\n``documents`` row \u2014 and then it can offer the two things a reader wants,\nopening it and sending it for review, both through the routes the Files pane\nitself uses.\n\nThe three fields travel together or not at all: a card carrying a\n``document_id`` and no ``version_state`` could not say whether the draft is\nstill submittable, and one carrying a state with no ``version_id`` could not\nsubmit it. ``_require_filed_together`` is what refuses the half-filled shape,\nbecause the alternative is a card that renders a live-looking control over\nnothing.",
+      "properties": {
+        "bytes": {
+          "description": "Size of the draft as stored, in UTF-8 bytes",
+          "minimum": 0,
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "document_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The project document this draft was filed as; absent while it is unfiled",
+          "title": "Document Id"
+        },
+        "path": {
+          "description": "Path in the working directory, e.g. '/entwuerfe/aktenvermerk.md'",
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "title": {
+          "description": "The document's first heading, or its file name when it has none",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "document_draft",
+          "default": "document_draft",
+          "title": "Type",
+          "type": "string"
+        },
+        "version": {
+          "description": "How often this path has been written or edited in this conversation",
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The open version of that document \u2014 what 'submit for review' acts on",
+          "title": "Version Id"
+        },
+        "version_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "draft",
+                "in_review",
+                "changes_requested",
+                "approved",
+                "published",
+                "superseded",
+                "rejected"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "That version's editorial state, as the lifecycle API last reported it",
+          "title": "Version State"
+        }
+      },
+      "required": [
+        "title",
+        "path",
+        "bytes",
+        "version"
+      ],
+      "title": "DocumentDraftCard",
+      "type": "object"
+    },
     "DocumentGridCard": {
       "description": "Project/B\u00fcroarchiv files the user asked to see.\n\nSystem-emitted by ``surface_documents``. One file or a short browse\nchoice \u2014 same card, the list length is the difference. Never a\ncatalogue. Citations of exactly one project/B\u00fcro file peek without\nthis card (``useCitationPeek``).",
       "properties": {
@@ -1956,6 +2047,179 @@
         "u_value"
       ],
       "title": "EnvelopeComponent",
+      "type": "object"
+    },
+    "FileOperationItem": {
+      "description": "One proposed change, in the vocabulary of the operation that owns it.\n\nDeliberately flat with per-operation fields rather than a nested union: the\ncard is built by the tool, validated once here, and rendered by one\ncomponent that switches on the CARD's `operation` \u2014 a shape the frontend's\ngenerated Zod can narrow without a second discriminator inside every row.\n:meth:`FileOperationProposalCard._require_operation_fields` is what keeps a\nrow from carrying another operation's fields.\n\n``document`` is a FILE NAME and never an id. The agent's inventory\n(``knowledge/inventory.py``) knows files by ``(collection, file_name)`` and\nhas no document ids in it at all, so a card carrying an id would be\ncarrying something the tool invented. The reader's session resolves the\nname against their own document list when they accept.",
+      "properties": {
+        "current": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What this is TODAY (current folder or name) \u2014 for the before/after line",
+          "title": "Current"
+        },
+        "document": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "File name exactly as the inventory lists it (move, rename, assign)",
+          "title": "Document"
+        },
+        "folder_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "create_folder: the new folder's own name (one segment)",
+          "title": "Folder Name"
+        },
+        "member": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "assign: the person as the user named them; the reader's session resolves it against the project",
+          "title": "Member"
+        },
+        "new_display_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "rename: the new display name",
+          "title": "New Display Name"
+        },
+        "parent_folder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "create_folder: the parent folder PATH, or an empty string for the project root",
+          "title": "Parent Folder"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "projekt",
+                "buero"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Which shelf the document sits on, so the name resolves in the right corpus",
+          "title": "Source"
+        },
+        "target_folder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "move: the destination folder PATH, e.g. 'Einreichung/Pl\u00e4ne'. Empty string is the project root",
+          "title": "Target Folder"
+        }
+      },
+      "title": "FileOperationItem",
+      "type": "object"
+    },
+    "FileOperationProposalCard": {
+      "description": "A workspace change the agent PROPOSES and the reader executes.\n\nSystem-emitted by the four tools under ``src/aiq_agent/tools/files/``. Every\none of them is a write, none of them writes: the card is the proposal, the\nreader's Accept runs it through the existing document/folder/assignment\nroutes in their own session, and the tool's own result text says plainly\nthat nothing has changed yet.",
+      "properties": {
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "One line of context under the list, when it adds something",
+          "title": "Note"
+        },
+        "operation": {
+          "description": "Which verb every entry in `operations` is",
+          "enum": [
+            "move",
+            "rename",
+            "create_folder",
+            "assign"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "operations": {
+          "description": "The proposed changes, in the order they will be applied",
+          "items": {
+            "$ref": "#/$defs/FileOperationItem"
+          },
+          "maxItems": 8,
+          "minItems": 1,
+          "title": "Operations",
+          "type": "array"
+        },
+        "title": {
+          "description": "Short action title, e.g. 'Vier Dateien in \u201eEinreichung\u201c verschieben'",
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "file_operation_proposal",
+          "default": "file_operation_proposal",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "operation",
+        "operations"
+      ],
+      "title": "FileOperationProposalCard",
       "type": "object"
     },
     "FireAccessPlanCard": {
@@ -4132,6 +4396,82 @@
       "title": "SurfacedDocument",
       "type": "object"
     },
+    "TaskCreatedCard": {
+      "description": "Work Piloti has taken on, as a row somebody can come back to.\n\nSystem-emitted by ``create_task``. What it exists to prevent is the answer\n\u201eich mache den Einreichcheck bis Freitag\" with nothing behind it: the card is\nproof there is a row, and the row is what carries the requester's permission,\nthe deadline and \u2014 when a person judges the result \u2014 the decision that reaches\nthe next attempt (ADR-0051).\n\nInformational, not interactive. The task is already queued when this renders,\nso there is no Accept: a control would either repeat the delegation or cancel\nit, and cancelling delegated work is a Files-and-tasks surface decision, not\na chat one.\n\n``conversation_id`` is the thread the run writes into, so the card can link a\nreader to the work rather than only announce it. Absent when the run's\nconversation could not be created, which is the same degraded shape a\nscheduled job has had since jobs got conversations at all.",
+      "properties": {
+        "conversation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The conversation the run writes into; absent when it could not be created",
+          "title": "Conversation Id"
+        },
+        "due_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ISO instant the work is wanted by, or absent when none was named",
+          "title": "Due At"
+        },
+        "goal": {
+          "description": "What was asked, in the requester's own words",
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Goal",
+          "type": "string"
+        },
+        "kind": {
+          "description": "What kind of work was delegated",
+          "enum": [
+            "compliance_check",
+            "einreichcheck",
+            "document",
+            "revision"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "The task row's id",
+          "minLength": 1,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "title": {
+          "description": "What the task is called in the inbox and the list",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "type": {
+          "const": "task_created",
+          "default": "task_created",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "kind",
+        "title",
+        "goal"
+      ],
+      "title": "TaskCreatedCard",
+      "type": "object"
+    },
     "ThermalEnvelopeCard": {
       "description": "A thermal-envelope (W\u00e4rmeschutz) schematic: U-values per building part.\n\nEmit for U-Wert / W\u00e4rmeschutz questions (OIB 6). Draws a simple building\ncross-section with each envelope component highlighted by status, and one\nlimit bar per component reading its U-value against the maximum permitted\n(lower is better). Fills the OIB 6 energy-efficiency domain.",
       "properties": {
@@ -4367,10 +4707,12 @@
       "diagram": "#/$defs/DiagramCard",
       "dimension_diagram": "#/$defs/DimensionDiagramCard",
       "document_checklist": "#/$defs/DocumentChecklistCard",
+      "document_draft": "#/$defs/DocumentDraftCard",
       "document_grid": "#/$defs/DocumentGridCard",
       "egress_diagram": "#/$defs/EgressDiagramCard",
       "elevator_requirement": "#/$defs/ElevatorRequirementCard",
       "energy_performance": "#/$defs/EnergyPerformanceCard",
+      "file_operation_proposal": "#/$defs/FileOperationProposalCard",
       "fire_access_plan": "#/$defs/FireAccessPlanCard",
       "fire_compartment": "#/$defs/FireCompartmentCard",
       "follow_ups": "#/$defs/FollowUpsCard",
@@ -4392,6 +4734,7 @@
       "setback_plan": "#/$defs/SetbackPlanCard",
       "stair_diagram": "#/$defs/StairDiagramCard",
       "summary": "#/$defs/SummaryCard",
+      "task_created": "#/$defs/TaskCreatedCard",
       "thermal_envelope": "#/$defs/ThermalEnvelopeCard",
       "typed_table": "#/$defs/TypedTableCard",
       "verdict_header": "#/$defs/VerdictHeaderCard"
@@ -4503,6 +4846,15 @@
     },
     {
       "$ref": "#/$defs/DocumentGridCard"
+    },
+    {
+      "$ref": "#/$defs/DocumentDraftCard"
+    },
+    {
+      "$ref": "#/$defs/TaskCreatedCard"
+    },
+    {
+      "$ref": "#/$defs/FileOperationProposalCard"
     },
     {
       "$ref": "#/$defs/IfcViewerCard"

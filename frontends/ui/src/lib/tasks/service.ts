@@ -17,13 +17,25 @@
  */
 
 import 'server-only'
-import { ApiError, ConflictError, NotFoundError } from '@/lib/api/errors'
+import { ApiError, ConflictError, NotFoundError, UnprocessableError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import type { Job, JobRun, Task, TaskFilingStatus, TaskStatus } from '@/lib/db/schema'
+import type { InboxItemType, Job, JobRun, Task, TaskFilingStatus, TaskKind, TaskStatus } from '@/lib/db/schema'
+import { inboxGroupKey } from '@/lib/inbox/registry'
+import { emitInboxItems } from '@/lib/inbox/service'
+import { fileAgentDocumentDraft } from '@/lib/documents/agent-document'
+import {
+  replaceVersionContent,
+  transitionDocumentVersion,
+} from '@/lib/documents/lifecycle'
+import { findDocumentInOrg } from '@/lib/documents/repository'
+import { openDraftForRevision } from '@/lib/documents/revision'
 import { fileResearchReport } from '@/lib/documents/research-report'
+import { resolvePeople } from '@/lib/sharing/directory'
+import type { TaskWireRow } from '@/features/tasks/lib/task-view'
+import { toTaskWireRow } from './list-projection'
 import * as repository from './repository'
 import type { ReviewTaskInput } from './types'
 
@@ -116,7 +128,7 @@ export async function completeTaskForRun(
     metadata: { projectId: task.projectId, kind: task.kind, status },
   })
 
-  if (status !== 'succeeded' || task.kind !== 'deep-research' || !outcome.report) {
+  if (status !== 'succeeded' || !outcome.report || !FILES_ITS_RESULT[task.kind]) {
     return { task: closed, filed: null }
   }
   const filing = await fileAsRequester(closed, outcome.report, outcome.cards ?? undefined)
@@ -127,6 +139,28 @@ export async function completeTaskForRun(
       filedDocumentId: filing.filed?.documentId ?? null,
     })) ?? closed
   return { task: withFiling, filed: filing.filed }
+}
+
+/**
+ * Which kinds leave a DOCUMENT behind, and which leave an answer.
+ *
+ * A `Record<TaskKind, boolean>` and not an `if`, for the reason the producer map
+ * in `documents/generated.ts` is one: it is exhaustive by construction, so the
+ * next kind is a compile error here rather than a silent decision that its
+ * result is not worth filing.
+ *
+ * `compliance_check` and `einreichcheck` answer INTO the conversation the run
+ * wrote — that is what an `output: 'chat'` run is — and filing their prose as a
+ * second document would put a copy of the thread in Berichte. `chat` is the
+ * same thing arriving from a job.
+ */
+const FILES_ITS_RESULT: Record<TaskKind, boolean> = {
+  'deep-research': true,
+  chat: false,
+  compliance_check: false,
+  einreichcheck: false,
+  document: true,
+  revision: true,
 }
 
 interface FilingResult {
@@ -162,14 +196,8 @@ async function fileAsRequester(task: Task, report: string, cards?: unknown[]): P
   }
 
   try {
-    const filed = await fileResearchReport({
-      session,
-      projectId: task.projectId,
-      runId: task.backendJobId,
-      report,
-      cards,
-    })
-    return { status: 'filed', detail: null, filed: { documentId: filed.documentId, filename: filed.filename } }
+    const filed = await fileResultFor(task, session, report, cards)
+    return { status: 'filed', detail: null, filed }
   } catch (error) {
     // The authorization ladder answers a missing permission as 404 and a
     // switched-off feature as 403: both mean "not as this person, not today".
@@ -182,10 +210,181 @@ async function fileAsRequester(task: Task, report: string, cards?: unknown[]): P
   }
 }
 
+/**
+ * The document one finished task leaves behind, by kind.
+ *
+ * Three producers, one seam: whichever runs, the write happens in the pinned
+ * requester's own session through the SAME lifecycle service a person's own
+ * filing goes through (ADR-0055). Nothing here writes a row itself.
+ *
+ *   - `deep-research` — the PDF report, through `fileResearchReport`, keyed on
+ *     the backend job id so the interactive report GET and this path collapse
+ *     onto one document (migration 0064).
+ *   - `document` — the run's Markdown, filed as version 1 of a new item and
+ *     submitted. The reference is the TASK's id, so a retried outcome lands on
+ *     the document the first one made.
+ *   - `revision` — the run's Markdown, written over the open draft of the
+ *     document the reviewer sent back, and submitted again. `openDraftForRevision`
+ *     is what turns "sent back" into "there is a draft to write into", and it is
+ *     the one place that decides between reusing the open version and forking a
+ *     new one from the published bytes.
+ *
+ * A refusal or a failure is the caller's to classify: everything thrown here
+ * reaches {@link fileAsRequester}'s catch unchanged.
+ */
+async function fileResultFor(
+  task: Task,
+  session: AuthorizedSession,
+  report: string,
+  cards?: unknown[],
+): Promise<{ documentId: string; filename: string }> {
+  if (task.kind === 'deep-research') {
+    const filed = await fileResearchReport({
+      session,
+      projectId: task.projectId,
+      // Non-null by the guard in `fileAsRequester`, which refuses a task with no
+      // backend job id before it gets here.
+      runId: task.backendJobId as string,
+      report,
+      cards,
+    })
+    return { documentId: filed.documentId, filename: filed.filename }
+  }
+
+  if (task.kind === 'revision') {
+    const subject = task.plan.subject
+    if (!subject) throw new UnprocessableError('A revision task carries no version to revise')
+    const draft = await openDraftForRevision(session, subject.documentId)
+    const replaced = await replaceVersionContent(
+      session,
+      subject.documentId,
+      draft.version.id,
+      report,
+      // The hash the lifecycle just reported for THIS version. Computing one
+      // here would agree with itself and overwrite whatever a person had put
+      // in the draft in the meantime. `undefined` and not `''` when the row
+      // carries no digest: „nothing to match" is a state `assertGuards` knows,
+      // and an empty string was a value it could only ever refuse.
+      draft.version.contentHash ?? undefined,
+      // A run is not a person, on both halves of the filing. `update` and
+      // `submit` are `either` rows so nothing is refused today — and that is
+      // exactly why the flag has to be right: the door is the `actor` field,
+      // and a caller that lies about who it is bypasses it the moment a row
+      // changes.
+      { actingHuman: false },
+    )
+    await transitionDocumentVersion(session, subject.documentId, replaced.id, 'submit', {
+      // Back to the person who asked for the changes: they are the one waiting.
+      reviewerUserIds: draft.reviewers,
+      actingHuman: false,
+    })
+    return { documentId: subject.documentId, filename: draft.filename }
+  }
+
+  // `document`: a new item, version 1, submitted to the requester.
+  const filed = await fileAgentDocumentDraft({
+    session,
+    projectId: task.projectId,
+    // The task's own id, so a retried outcome updates rather than duplicates.
+    ref: `task-${task.id}`,
+    title: task.plan.goal?.trim() || task.title,
+    content: report,
+    actingHuman: false,
+  })
+  if (!filed.alreadyFiled) {
+    await transitionDocumentVersion(session, filed.documentId, filed.version.id, 'submit', {
+      reviewerUserIds: [task.requesterUserId],
+      // The run's own submission, like the filing one line up.
+      actingHuman: false,
+    })
+  }
+  const document = await findDocumentInOrg(filed.documentId, session.organizationId)
+  return { documentId: filed.documentId, filename: document?.filename ?? `task-${task.id}` }
+}
+
+/**
+ * Close a DELEGATED task and tell its requester — the arm with no `job_runs` row.
+ *
+ * A task created from a job is closed by `recordJobOutcome`, which finds the run
+ * first and calls {@link completeTaskForRun} on the way to the inbox item. A task
+ * created from a chat handoff or from a reviewer's „Piloti überarbeiten lassen"
+ * has no run row to find (see `lib/tasks/delegation.ts` for why), so the outcome
+ * route falls through to here.
+ *
+ * The inbox type is the same `job.completed` / `job.failed` pair, and that is a
+ * decision rather than an omission: the row already carries `taskId` in its
+ * payload and already links to the conversation the run wrote into, so a
+ * `task.completed` type would be a second registry entry, two more translations
+ * per dictionary and a second presentation for a row that says the same thing —
+ * „Piloti ist fertig, hier ist das Ergebnis". If the two ever need to READ
+ * differently, that is the moment to split them, and the payload already
+ * distinguishes them.
+ *
+ * `actorUserId: null` for the reason `recordJobOutcome` gives: the work was
+ * Piloti's, and `emitInboxItems` drops a row whose actor is its recipient —
+ * which a task somebody delegated to themselves always would be.
+ */
+export async function recordTaskOutcome(
+  task: Task,
+  outcome: TaskOutcome,
+): Promise<{ notified: boolean; filed: { documentId: string; filename: string } | null }> {
+  const completed = await completeTaskForRun(task, outcome)
+  const type: InboxItemType = outcome.status === 'success' ? 'job.completed' : 'job.failed'
+  const anchor = task.backendJobId ?? task.id
+  const emitted = await emitInboxItems([
+    {
+      organizationId: task.organizationId,
+      recipientUserId: task.requesterUserId,
+      type,
+      resourceType: 'project',
+      resourceId: task.projectId,
+      anchorId: anchor,
+      actorUserId: null,
+      groupKey: inboxGroupKey(type, 'project', task.projectId, anchor),
+      payload: {
+        subject: task.title,
+        status: outcome.status,
+        error: outcome.error ?? null,
+        jobId: null,
+        runId: null,
+        conversationId: task.conversationId,
+        taskId: completed.task.id,
+        filedDocumentId: completed.filed?.documentId ?? null,
+        filedFilename: completed.filed?.filename ?? null,
+      },
+    },
+  ])
+  return { notified: emitted > 0, filed: completed.filed }
+}
+
 /** A project's tasks, newest first. `project:view`, like the run history. */
 export async function listTasks(session: AuthorizedSession, projectId: string): Promise<Task[]> {
   await requireProjectAccess(session, projectId, 'project:view')
   return repository.listTasksInProject(projectId, session.organizationId)
+}
+
+/**
+ * The same listing, projected for the wire and with the requesters NAMED.
+ *
+ * The name resolution is here and not in the browser because the roster
+ * endpoint is `project:members:manage`: a `project:view` member reading their
+ * own project's task list would have got a 403 for a byline. `resolvePeople` is
+ * the one place this tier turns a user id into a name, so the Aufgaben list and
+ * the share roster cannot disagree about what somebody is called.
+ */
+export async function listTaskViews(
+  session: AuthorizedSession,
+  projectId: string,
+): Promise<TaskWireRow[]> {
+  const tasks = await listTasks(session, projectId)
+  if (tasks.length === 0) return []
+  const people = await resolvePeople(
+    session.organizationId,
+    [...new Set(tasks.map((task) => task.requesterUserId))],
+  )
+  return tasks.map((task) =>
+    toTaskWireRow(task, people.get(task.requesterUserId)?.name ?? null),
+  )
 }
 
 /**

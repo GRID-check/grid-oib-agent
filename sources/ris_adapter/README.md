@@ -41,7 +41,7 @@ behavior with a warning):
 3. **Prompt block**: `aiq_agent.common.norm_registry.render_block_for_prompt`
    renders the catalog — Bundesrecht lane, the project's own Bundesland lane
    (other states' law dropped), curated binding notes, and an OIB-corpus
-   citation note — into the researcher and deep-researcher prompts.
+   citation note — into Piloti's and the deep researcher's prompts.
 
 **Jurisdiction-aware matching.** Building law is state law, and the nine state
 codes all match generic topics like "bauordnung", so both tool consumers

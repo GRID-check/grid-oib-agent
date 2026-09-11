@@ -393,6 +393,40 @@ describe('useWebSocketChat', () => {
     expect(mockSetLoading).toHaveBeenCalledWith(false)
   })
 
+  test('sendMessage names the subject VERSION when the subject has an unpublished one', () => {
+    // The turn cannot find a draft in the retrieval index — only a published
+    // version is dispatched to it — so what the agent needs is which version and
+    // what state it is in, and it gets both from the composer subject.
+    mockWsClient.isConnected.mockReturnValue(true)
+    mockStoreState = {
+      ...mockStoreState,
+      composerSubject: {
+        resourceType: 'document',
+        resourceId: 'doc-9',
+        filename: 'piloti/doc-9/befund.md',
+        shelf: 'project',
+        versionId: 'ver-9',
+        versionState: 'changes_requested',
+      },
+    }
+    useChatStore.getState = vi.fn(() => mockStoreState) as unknown as typeof useChatStore.getState
+
+    const { result } = renderWebSocketHook()
+    act(() => {
+      result.current.sendMessage('Warum steht in Abschnitt 3 GK 4?')
+    })
+
+    expect(mockWsClient.sendMessage).toHaveBeenCalledWith(
+      'Warum steht in Abschnitt 3 GK 4?',
+      expect.any(Array),
+      expect.objectContaining({
+        focusDocumentId: 'doc-9',
+        focusVersionId: 'ver-9',
+        focusVersionState: 'changes_requested',
+      })
+    )
+  })
+
   test('sendMessage includes focusFileName while the composer bar names a file', () => {
     mockWsClient.isConnected.mockReturnValue(true)
     const peekFile = {
@@ -430,6 +464,9 @@ describe('useWebSocketChat', () => {
     expect(mockWsClient.sendMessage).toHaveBeenCalledWith('About this plan', expect.any(Array), {
       focusFileName: 'plan.pdf',
       focusShelf: 'project',
+      // The subject's document id rides along even with nothing unpublished to
+      // read: it is what the turn's subject facts are keyed on.
+      focusDocumentId: 'doc-1',
     })
 
     mockWsClient.sendMessage.mockClear()
@@ -444,6 +481,7 @@ describe('useWebSocketChat', () => {
       {
         focusFileName: 'plan.pdf',
         focusShelf: 'project',
+        focusDocumentId: 'doc-1',
       }
     )
 

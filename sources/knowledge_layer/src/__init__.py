@@ -14,6 +14,8 @@ The adapter modules can be used standalone without NAT.
 
 # Eagerly import NAT functions to trigger @register_function decorators
 try:
+    from .read_passage import ReadPassageConfig
+    from .read_passage import read_passage
     from .register import KnowledgeRetrievalConfig
     from .register import knowledge_retrieval
     from .view_image import ViewKnowledgeImageToolConfig
@@ -22,6 +24,8 @@ try:
     __all__ = [
         "KnowledgeRetrievalConfig",
         "knowledge_retrieval",
+        "ReadPassageConfig",
+        "read_passage",
         "ViewKnowledgeImageToolConfig",
         "view_knowledge_image",
     ]

@@ -14,6 +14,7 @@ import { sourceTint } from '@/lib/ui/source-tint'
 import { extChipTint, fileExtensionLabel, inferDocumentKind } from '../document-kind'
 import { DocumentKindThumbnail } from './document-kind-thumbnail'
 import { AuthorshipLine } from './authorship-line'
+import { DocumentVersionStateBadge } from './document-version-badge'
 import { DocumentStatusBadge, isCitableStatus, isSettlingStatus } from './document-status'
 import { SemanticMatch } from './semantic-match'
 import { GridTileBody, GridTileFooter, GridTileMedia, GridTileShell } from './grid-tile'
@@ -330,6 +331,17 @@ export function FileCard({
                 `Unvergeben` live and that slot answers a different question:
                 who is responsible for it. */}
             <AuthorshipLine authoredBy={file.authoredBy} className="mt-0.5" />
+            {/* The editorial state, on the same side as the byline and nowhere
+                near the footer, for exactly that reason: „freigegeben" is a
+                statement about the CONTENT and „Unvergeben" one about
+                responsibility (ADR-0047's addendum, ADR-0054). Silent on a plain
+                upload — see `showsVersionStateBadge`. */}
+            <DocumentVersionStateBadge
+              versionState={file.versionState}
+              versionCount={file.versionCount}
+              authoredBy={file.authoredBy}
+              className="mt-1"
+            />
             {match ? (
               <SemanticMatch snippet={match.snippet} page={match.page} score={match.score} />
             ) : isFailed ? (

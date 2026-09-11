@@ -19,7 +19,7 @@ through the LangChain callback manager, so they carry no ``run_id``/
 ``parent_run_id`` of their own. ``current_span_var`` closes that gap — the id
 of the innermost open span, pushed/reset with the same ContextVar token idiom
 already used in this codebase for ``session_registry``/``card_registry``
-(see ``agents/researcher/conversation_register.py``) — so nesting is correct across
+(see ``agents/piloti/conversation_register.py``) — so nesting is correct across
 ``await`` boundaries without depending on LangChain/LangGraph callback
 internals. ``profiled_node()`` wraps each graph node with it; LLM/tool spans
 read it as their parent when they open.
@@ -45,6 +45,9 @@ from threading import Lock
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
+
+from aiq_agent.common.cache import cache_counters
+from aiq_agent.common.cache import count_cache_operations
 
 logger = logging.getLogger(__name__)
 
@@ -483,28 +486,59 @@ def track_agent_profile(
     except Exception:
         logger.warning("Could not activate agent profiling", exc_info=True)
         profiler = None
+    # The shared cache counts inside this block, so the root span can say how
+    # much of the turn the cache answered (latency audit §4.4, option E7). The
+    # scope is a ContextVar, so two turns on one replica count separately; the
+    # teardown below runs INSIDE it, which is what lets it read the totals.
+    with count_cache_operations():
+        try:
+            yield profiler
+        except Exception as exc:
+            turn_failed = True
+            turn_error = str(exc)
+            raise
+        finally:
+            if span_token is not None:
+                current_span_var.reset(span_token)
+            if profiler_token is not None:
+                agent_profiler_var.reset(profiler_token)
+            _close_turn_span(
+                profiler,
+                root_span_id,
+                failed=turn_failed,
+                error=turn_error,
+                inline_flush=inline_flush,
+            )
+
+
+def _close_turn_span(
+    profiler: AgentProfiler | None,
+    root_span_id: str | None,
+    *,
+    failed: bool,
+    error: str | None,
+    inline_flush: bool,
+) -> None:
+    """Stamp the turn's cache counters on the root span, close it, and flush."""
+    if profiler is None or root_span_id is None:
+        return
+    counters = cache_counters()
+    # Silence rather than five zeros: a turn that never read the cache has
+    # nothing to say about it, and `annotate` merges into the caller's own
+    # metadata dict.
+    if counters:
+        profiler.annotate(root_span_id, counters.as_facts())
+    profiler.end_span(root_span_id, status="error" if failed else "ok", error=error)
+    if not inline_flush:
+        return
     try:
-        yield profiler
-    except Exception as exc:
-        turn_failed = True
-        turn_error = str(exc)
-        raise
-    finally:
-        if span_token is not None:
-            current_span_var.reset(span_token)
-        if profiler_token is not None:
-            agent_profiler_var.reset(profiler_token)
-        if profiler is not None and root_span_id is not None:
-            profiler.end_span(root_span_id, status="error" if turn_failed else "ok", error=turn_error)
-            if inline_flush:
-                try:
-                    # Inline post at teardown, same rationale as
-                    # cost_tracking.track_llm_costs: a wait=False flush would hand
-                    # the final batch to the daemon executor, which a worker
-                    # exiting right after this turn can strand.
-                    profiler.flush(wait=True)
-                except Exception:
-                    logger.warning("Failed to flush profiler spans at end of turn", exc_info=True)
+        # Inline post at teardown, same rationale as
+        # cost_tracking.track_llm_costs: a wait=False flush would hand
+        # the final batch to the daemon executor, which a worker
+        # exiting right after this turn can strand.
+        profiler.flush(wait=True)
+    except Exception:
+        logger.warning("Failed to flush profiler spans at end of turn", exc_info=True)
 
 
 async def flush_after_answer(*ledgers: Any, timeout_seconds: float | None = None) -> None:

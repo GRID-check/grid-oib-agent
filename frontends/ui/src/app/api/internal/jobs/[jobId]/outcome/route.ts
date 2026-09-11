@@ -21,6 +21,7 @@ import { NotFoundError } from '@/lib/api/errors'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { loadJobRunForOutcome, recordJobOutcome } from '@/lib/jobs/service'
+import { loadTaskForOutcome, recordTaskOutcome } from '@/lib/tasks/service'
 
 type Params = { jobId: string }
 
@@ -53,11 +54,28 @@ export const POST = internalApiRoute<Params>(
       'job outcome: the worker identifies a run by backend job id, before any organization is known',
       () => loadJobRunForOutcome(params.jobId)
     )
-    if (!run || run.organizationId !== organizationId) throw new NotFoundError('Unknown job run')
+    const outcome = { status, error: error ?? null, report: report ?? null, cards: cards ?? null }
+    if (run) {
+      if (run.organizationId !== organizationId) throw new NotFoundError('Unknown job run')
+      return withTenant({ organizationId: run.organizationId }, () => recordJobOutcome(run, outcome))
+    }
 
-    return withTenant({ organizationId: run.organizationId }, () =>
-      recordJobOutcome(run, { status, error: error ?? null, report: report ?? null, cards: cards ?? null })
+    // No run row: a DELEGATED task (a chat handoff, a reviewer's „Piloti
+    // überarbeiten lassen"). Those carry the backend job id on the task itself —
+    // `uniq_tasks_backend_job_id` is what makes this a lookup and not a scan —
+    // because `job_runs.schedule_id` is NOT NULL and its RLS predicate requires
+    // a `jobs` row, so giving every delegation a hidden job would have put a
+    // scheduled-job entry in the project's list for a sentence somebody typed
+    // once. Same platform-scope-then-tenant shape as the run lookup above.
+    const task = await withPlatformAccess(
+      'task outcome: the worker identifies a delegated task by backend job id, before any organization is known',
+      () => loadTaskForOutcome(params.jobId)
     )
+    // A backend id with neither a run nor a task is an interactive
+    // deep-research job, which the worker treats as "nothing to notify".
+    if (!task || task.organizationId !== organizationId) throw new NotFoundError('Unknown job run')
+
+    return withTenant({ organizationId: task.organizationId }, () => recordTaskOutcome(task, outcome))
   },
   { tenancy: { fromPayload: 'the job run named by params.jobId, cross-checked against body.organizationId' } }
 )

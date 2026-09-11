@@ -340,6 +340,11 @@ functions:
         description: "Search uploaded documents and files."
         tools:
           - knowledge_search
+          # The locator reads the same index through the same scope, so it
+          # belongs to the same source: narrowing that turns the knowledge base
+          # off must take both, and `get_source_id_for_tool` must resolve it or
+          # nothing it returns is captured as a citable source.
+          - read_passage
       - id: ris
         name: "RIS – Österreichisches Recht"
         description: "Search Austrian federal/state law and case law in the official RIS (Rechtsinformationssystem des Bundes) and fetch entire documents on demand."
@@ -405,7 +410,7 @@ functions:
   # GRID_NORMS_DIR; ADR-0025): typed spine with verified RIS pointers.
   # ris_search short-circuits to these pointers on a catalog match
   # (catalog_shortcut), ris_catalog_lookup annotates hits with registry
-  # relations, and the researcher prompts show the lane-rendered block.
+  # relations, and both answering prompts show the lane-rendered block.
   ris_catalog_lookup_tool:
     _type: ris_catalog_lookup
     max_matches: 8
@@ -510,6 +515,16 @@ functions:
     requery_llm: rerank_llm
     requery_max_queries: 2
 
+  # The locator beside the search: open the passage a conclusion NAMED
+  # (document + Punkt, or document + page) instead of searching for it again.
+  # Deterministic — one filtered fetch, no reranker, no requery judge, no LLM.
+  # Collection scope, base corpus and file exclusions are read off the
+  # `knowledge_search` instance named here rather than restated, so the two
+  # cannot end up pointed at different corpora.
+  read_passage:
+    _type: read_passage
+    knowledge_search: knowledge_search
+
   # Project Memory: silent, observable capture of durable project findings.
   # Available in project-scoped chats; no-ops (with a clear error) elsewhere.
   remember:
@@ -541,6 +556,59 @@ functions:
   # the UI peeks cited files, so the agent must not also surface after citing.
   surface_documents:
     _type: surface_documents
+
+  # The five WRITE-side workspace tools (src/aiq_agent/tools/files). Each one
+  # proposes: it resolves the file, the folder or the Dokumentart against what
+  # the turn can already see, renders ONE `file_operation_proposal` card, and
+  # changes nothing. Accepting the card runs the operation through the routes
+  # the Files pane already uses, in the reader's own session — the BFF stays
+  # the single writer of `grid_app` (ADR-0003), which is why there is no
+  # backend path here to write with.
+  #
+  # Bound on Piloti only. Deep research runs unattended on the
+  # job worker with nobody to press Accept, so a proposal card there is a
+  # decision nobody is on the other end of; the two agents differ here for the
+  # same reason `ask_user` does.
+  move_document:
+    _type: move_document
+  rename_document:
+    _type: rename_document
+  create_folder:
+    _type: create_folder
+  # No doc_class verb here: proposals wait for a project-scoped doc_class route.
+  assign_document:
+    _type: assign_document
+
+  # The working directory's two doors into the project (src/aiq_agent/tools/
+  # documents). `file_draft` puts a draft the turn WROTE into the project as a
+  # draft version; `submit_draft` sends that version for review. Unlike the five
+  # proposal tools above these two DO change the project — and they do it through
+  # `POST /api/internal/document-versions`, echoing the BFF-signed request
+  # envelope, so the write happens in the requesting person's pinned session
+  # under their permissions and their audit actor (ADR-0054 §4). The BFF stays
+  # the single writer of `grid_app`.
+  #
+  # Bound on Piloti only, for the same reason as the proposal
+  # tools and one more: the envelope is minted per chat turn, so an unattended
+  # deep-research run has no signed identity to file as and the tool refuses.
+  file_draft:
+    _type: file_draft
+  submit_draft:
+    _type: submit_draft
+
+  # Delegation (src/aiq_agent/tools/tasks). Hands work that outlives this turn
+  # to a `tasks` row (ADR-0051) — the compliance checker, the Einreichcheck
+  # skill, a document to write, a draft to revise — through
+  # `POST /api/internal/tasks`, echoing the same BFF-signed envelope, so the row
+  # is created in the requesting person's pinned session, under their
+  # permissions, and spends their budget.
+  #
+  # Bound on Piloti only, for the two reasons the filing tools
+  # give and one of its own: the envelope is minted per chat turn, so an
+  # unattended run has no identity to delegate as; and a background run
+  # delegating further background runs is a loop with nobody in it.
+  create_task:
+    _type: create_task
 
   # BIM/IFC: deterministic structured queries over the project's uploaded IFC
   # model (ADR-0045). Distinct from knowledge_search in kind, not degree — that
@@ -596,6 +664,7 @@ functions:
     tools:
       - web_search_tool
       - knowledge_search
+      - read_passage
       - view_knowledge_image
       - ris_search_tool
       - ris_fetch_tool
@@ -604,6 +673,13 @@ functions:
       - emit_card
       - describe_card
       - surface_documents
+      - move_document
+      - rename_document
+      - create_folder
+      - assign_document
+      - file_draft
+      - submit_draft
+      - create_task
       - ifc_query
       - ifc_measure
       - ask_user
@@ -614,7 +690,7 @@ functions:
     # this surface documents, plus one repair.
     #
     # The accounting is `new_iterations += len(response.tool_calls)` in
-    # `researcher/agent.py`, charged when the model EMITS the call and
+    # `piloti/agent.py`, charged when the model EMITS the call and
     # never refunded. Three consequences that are not obvious from the name:
     #   * a call that comes back with 0 hits costs what one that answers costs;
     #   * PARALLEL calls each cost one, so a model emitting three per turn gets

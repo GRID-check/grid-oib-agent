@@ -44,6 +44,7 @@ import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
 // reason the collaboration imports above are: existing specs mock that barrel,
 // and a new export on it would have to be added to every one of those mocks.
 import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
+import { offersAktenvermerk } from '@/features/chat/lib/aktenvermerk-chip'
 import { AGENT_MENTION_ID } from '@/lib/mentions/types'
 import { cn } from '@/lib/utils'
 import { AwaitingBanner } from '@/features/collaboration/components/AwaitingBanner'
@@ -130,6 +131,10 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   )
 
   const respondToPrompt = useChatStore((s) => s.respondToPrompt)
+  // The project this thread is scoped to. Read here for one reason: the
+  // „Als Aktenvermerk schreiben" chip is only offered where a draft has
+  // somewhere to be filed (ledger 23).
+  const activeProjectId = useChatStore((s) => s.projectId)
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const getThinkingStepsForMessage = useChatStore((s) => s.getThinkingStepsForMessage)
   const dismissErrorCard = useChatStore((s) => s.dismissErrorCard)
@@ -745,7 +750,11 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                   exit={{ opacity: 0, y: 16 }}
                   transition={motionSheetExit}
                 >
-                  <WelcomeState isAuthenticated={isAuthenticated} onSignIn={onSignIn} />
+                  <WelcomeState
+                    isAuthenticated={isAuthenticated}
+                    onSignIn={onSignIn}
+                    inProject={Boolean(activeProjectId)}
+                  />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -816,6 +825,16 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         selected: choicePromptMsg.promptResponse,
                       }
                     : undefined
+
+                  // Whether this turn earns the „Als Aktenvermerk schreiben"
+                  // chip — a walkthrough or a ruling, in a project, long enough
+                  // that the reader is already thinking about where to put it
+                  // (`features/chat/lib/aktenvermerk-chip`).
+                  const aktenvermerk = offersAktenvermerk({
+                    kind: agentMsg?.answerMeta?.kind,
+                    projectId: activeProjectId,
+                    body: agentMsg?.content,
+                  })
 
                   // The just-sent question's turn is the top-anchor target on send.
                   const isAnchorTarget = isUserMessage && message.id === currentUserMessageId
@@ -911,9 +930,20 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       in the THREAD either, the answer no longer streaming, the
                       reader not already typing) is enforced where the frame
                       arrives, in `applyStageFrame`. */}
-                      {message.stages?.followUps && (
+                      {/* One more chip beside them, decided in the browser: the
+                      offer to file this answer as an Aktenvermerk. It rides the
+                      rail rather than getting a surface of its own, because it
+                      is the same gesture the questions are (fill the composer,
+                      the reader presses send) and a second block under the
+                      answer would be a second thing to learn. `agentMsg` is
+                      only resolved once the turn has an answer, so the chip
+                      cannot appear mid-stream. */}
+                      {(message.stages?.followUps || aktenvermerk) && (
                         <div className="w-full">
-                          <FollowUpsRail items={message.stages.followUps.items} />
+                          <FollowUpsRail
+                            items={message.stages?.followUps?.items ?? []}
+                            offerAktenvermerk={aktenvermerk}
+                          />
                         </div>
                       )}
                     </motion.div>
@@ -1478,6 +1508,12 @@ const MessageListSkeleton: FC = () => {
 interface WelcomeStateProps {
   isAuthenticated?: boolean
   onSignIn?: () => void
+  /**
+   * The canvas belongs to a project, so the one sentence about what Piloti can
+   * do with it is true here. Outside a project there is nowhere for a draft to
+   * be filed, and the sentence would be an offer the surface cannot keep.
+   */
+  inProject?: boolean
 }
 
 /** Time-of-day bucket for the greeting (morning / afternoon / evening). */
@@ -1487,7 +1523,11 @@ const greetingKeyForHour = (hour: number): 'morning' | 'afternoon' | 'evening' =
   return 'evening'
 }
 
-const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn }) => {
+const WelcomeState: FC<WelcomeStateProps> = ({
+  isAuthenticated = false,
+  onSignIn,
+  inProject = false,
+}) => {
   const t = useTranslations('research')
   const tChat = useTranslations('chat')
   const { user } = useAuth()
@@ -1548,6 +1588,23 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
           {tFiles('assignment.welcomeAbout', {
             name: composerSubject.title?.trim() || tFiles('assignment.thisFile'),
           })}
+        </p>
+      )}
+
+      {/* One sentence, and only in a project: that Piloti WRITES. The canvas is
+          otherwise deliberately quiet (the starters were cut for costing every
+          user on every new thread), and this earns its place because it is the
+          product's least discoverable capability — today it is found only by
+          someone who happens to phrase a request as a commission (ledger 23).
+          Below the file line, because a named subject is the state of THIS
+          canvas and this is a standing fact about the project.
+
+          Not shown when the thread is about one file: that reader has already
+          been told what this canvas is for, and two grey sentences under a
+          greeting is a paragraph. */}
+      {inProject && !composerSubject && (
+        <p className="text-muted-foreground mt-3 max-w-md text-center text-sm leading-relaxed">
+          {tChat('greeting.projectWrites')}
         </p>
       )}
     </div>

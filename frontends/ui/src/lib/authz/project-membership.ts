@@ -22,7 +22,7 @@ import { getCached } from '@/lib/cache'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { getWorkOS } from '@/lib/workos/client'
 import { orgRoleHoldsPermission } from './org-role-permissions'
-import { ORG_PERMISSIONS } from './permissions'
+import { ORG_PERMISSIONS, type ProjectPermission } from './permissions'
 
 /** Matches the membership cache TTL in `@/lib/auth/session`. */
 const MEMBERSHIP_TTL_MS = 10 * 60 * 1000
@@ -101,6 +101,22 @@ export async function canUserAccessProject(
   projectId: string,
   targetUserId: string
 ): Promise<boolean> {
+  return userHoldsProjectPermission(session, projectId, targetUserId, 'project:view')
+}
+
+/**
+ * Whether `targetUserId` holds one specific project permission.
+ *
+ * The general form of {@link canUserAccessProject}, which is this asked about
+ * `project:view`. Same fail-closed posture, and the same reason the org-wide
+ * bypass is checked first: it is a PERMISSION, not the role slug `admin`.
+ */
+export async function userHoldsProjectPermission(
+  session: AuthorizedSession,
+  projectId: string,
+  targetUserId: string,
+  permission: ProjectPermission
+): Promise<boolean> {
   const membership = await resolveSubjectMembership(session.organizationId, targetUserId)
   if (!membership) return false
 
@@ -117,7 +133,7 @@ export async function canUserAccessProject(
   try {
     const result = await getWorkOS().authorization.check({
       organizationMembershipId: membership.organizationMembershipId,
-      permissionSlug: 'project:view',
+      permissionSlug: permission,
       resourceExternalId: projectId,
       resourceTypeSlug: 'project',
     })
@@ -145,10 +161,27 @@ export async function filterUsersWithProjectAccess(
   projectId: string,
   candidateUserIds: readonly string[]
 ): Promise<Set<string>> {
+  return filterUsersWithProjectPermission(session, projectId, candidateUserIds, 'project:view')
+}
+
+/**
+ * The same filter, for a permission that is not `project:view`.
+ *
+ * The reviewer picker needs `project:edit`: being able to OPEN a project does
+ * not make somebody able to release a Brandschutzkonzept, and a picker that
+ * offered them would open a round the approve transition then refuses. Same
+ * fail-closed posture, same per-user independence.
+ */
+export async function filterUsersWithProjectPermission(
+  session: AuthorizedSession,
+  projectId: string,
+  candidateUserIds: readonly string[],
+  permission: ProjectPermission
+): Promise<Set<string>> {
   const results = await Promise.all(
     candidateUserIds.map(async (userId) => ({
       userId,
-      allowed: await canUserAccessProject(session, projectId, userId),
+      allowed: await userHoldsProjectPermission(session, projectId, userId, permission),
     }))
   )
   return new Set(results.filter((result) => result.allowed).map((result) => result.userId))

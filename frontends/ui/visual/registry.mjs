@@ -56,6 +56,22 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '.react-flow__node',
   },
   {
+    id: 'herleitung-spine',
+    mobile: true,
+    path: '/dev/herleitung?variant=spine',
+    description:
+      'A turn that searched TWICE, drawn as a spine: checkpoint, the files that fetch returned, the next checkpoint, then the assessment. Both layers open — folding half of a comparison hides the comparison, so the fold only starts at the third round. Each layer carries a fold control (the whole card, with a chevron in its eyebrow) that a keyboard can reach; judge that the two conclusions read as the model’s own sentences and that NEITHER card shows a search query (PF-12) — the queries in this fixture are „Fluchtweglänge GK4“ and „Treppenraum Entrauchung“, and seeing either one is the failure.',
+    waitFor: '.react-flow__node',
+  },
+  {
+    id: 'herleitung-spine-folded',
+    mobile: true,
+    path: '/dev/herleitung?variant=spine-folded',
+    description:
+      'The same spine one round longer, which is where the graph stops being a shape and becomes a scroll: at three rounds the older layers arrive FOLDED and only the newest fan is drawn. What this pins is what a folded layer says instead of its fan — ‚2 files’ / ‚3 files’ (the preview is not locale-pinned, so it captures in the harness’s English), the count and nothing else. Not the filenames (that is the fan again, in worse typography) and not the query. The chevron on a folded card points right, the open one down, and the assessment now sits within one screen of the framing card, which is the whole reason the fold exists.',
+    waitFor: '.react-flow__node',
+  },
+  {
     id: 'pdf-passage',
     // The viewer's toolbar used to run off the right edge of a phone and take
     // the page's horizontal scroll with it; it wraps now, and this is the shot
@@ -392,6 +408,14 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[role="dialog"]',
   },
   {
+    id: 'file-preview-review',
+    mobile: true,
+    path: '/dev/file-preview?variant=review',
+    description:
+      'The review rail, IN the pane — „Freigabe und Fassungen" on a version in Prüfung, with all five decisions (Freigeben, Änderungen anfordern, Piloti überarbeiten lassen, Ablehnen, Archivieren) and the version list under them. It had never been photographed anywhere: the section renders only for a project document whose reader’s lifecycle permissions the surface resolved, and no preview passed them, so the whole of ADR-0054’s reader-facing half shipped unseen. The MOBILE twin is the point (ledger 40): at 390px the rail stacks under the document instead of sitting beside it, the five controls wrap into rows of full-width buttons rather than a squeezed line, and the page must not scroll sideways.',
+    waitFor: '[data-testid="document-lifecycle-panel"]',
+  },
+  {
     id: 'file-preview-authored',
     mobile: true,
     path: '/dev/file-preview?authored=agent',
@@ -686,6 +710,38 @@ export const SCREENSHOT_TARGETS = [
     // card on the page is still in `drawing` — the one selector that is true
     // only once both the drawn and the failed panel have settled.
     waitFor: '[data-testid="diagram-card-preview"]:not(:has([data-state="drawing"]))',
+  },
+  {
+    id: 'document-draft-card',
+    mobile: true,
+    path: '/dev/document-draft-card',
+    description:
+      "The `document_draft` card, in the states a draft actually passes through. UNFILED it borrows the FILE idiom (name, path, size, and \u201eVon Piloti erstellt\u201C from the Files feature's own AuthorshipLine) without borrowing the file CARD: the draft is not filed, not indexed and not citable, so anything that read as a row of the Files pane would be the one wrong claim \u2014 and its \u201eIns Projekt \u00fcbernehmen\u201C writes nothing, it puts the request in the composer. FILED it names a project document and offers the two things that are then real, opening it and sending it for approval. IN REVIEW it draws no control at all, because the version can no longer be replaced. What the shot is for is the line between the first two: the unfiled card must never read as though the document is already in the project, the filed one must say ENTWURF and never Freigabe, and the quiet-ink controls (diagram-filing style, not buttons) must stay lighter than the draft's own name two lines above them \u2014 in both themes, where `text-primary` behaves differently. A fourth panel draws the empty first write (`v1`, `0 B`), which is inside the schema and is the day a card that only looks right on rich values looks broken.",
+    waitFor: '[data-testid="document-draft-card-preview"]',
+  },
+  {
+    id: 'task-created-card',
+    mobile: true,
+    path: '/dev/task-created-card',
+    description:
+      "The `task_created` card \u2014 work Piloti has taken on, in the shapes a delegation arrives in. It offers nothing, because the row exists by the time it renders, so everything the shot is for is in the reporting: \u201El\u00e4uft\u201C beside a kind and a Frist, and the one control being a LINK to the thread the run writes into. Four panels. The usual one, with both facts. The degraded one \u2014 no Frist named, no conversation created \u2014 which must still read as a finished card rather than as one that failed to load, and which draws no link rather than a dead one. A title and a goal that outrun the card, where the judgement is that the title truncates on one line while the goal wraps \u2014 a name survives being cut, the reader's own sentence does not \u2014 and the meta line keeps its shape either way. And the three remaining kinds, because the kind is the only word on the card that changes what the reader thinks was delegated \u2014 including \u00dcberarbeitung, the one that arrives from a Freigabe rather than from a sentence in the chat.",
+    waitFor: '[data-testid="task-created-card-preview"]',
+  },
+  {
+    id: 'task-list',
+    mobile: true,
+    path: '/dev/task-list',
+    description:
+      "The Aufgaben list \u2014 a project's delegated work (ADR-0051), which had a durable row, an inbox item and a review verb and no surface at all until now. Three panels. (1) A MIXED list, which is what a project looks like after a fortnight of using Piloti: something running, something accepted, something sent back with the reviewer's own words under it, and one failure carrying the worker's sanitized error. Judge that the kind chip, the title, the status and the review stay on one line as the title grows, that the review reason reads as belonging to the row above it, and that the two links at the foot (\u201eDokument\u201c, \u201eChat\u201c) read as places to go rather than as decoration \u2014 they are the one thing a list of finished work has to answer. (2) The empty state, which must read as an invitation rather than as a list that failed to load. (3) The failure state, which is that same distinction from the other side: \u201eNoch nichts \u00fcbergeben\u201c over a failed request is the one lie this surface could tell that somebody would act on.",
+    waitFor: '[data-testid="task-list-preview"]',
+  },
+  {
+    id: 'file-operation-proposal-card',
+    mobile: true,
+    path: '/dev/file-operation-proposal-card',
+    description:
+      "The `file_operation_proposal` card \u2014 the workspace change Piloti proposed and did not make. The agent has no way to write a document row at all, so until this card is accepted nothing has happened; accepting runs the same routes the Files pane runs, in the reader's own session. Two panels, and what the shot is for is different in each. (1) A BATCH of three moves, because that is the shape a tidying turn produces \u2014 judge that the „von \u2192 nach\u201C rows stay legible when a file name is long, that the arrow does not wrap away from its target, and that „Oberste Ebene\u201C reads as a place rather than as a missing value. (2) A single rename, the other end of the range: one row, no „von\u201C. The settled states are not here; they are one sentence inside `ProposalShell`, already shot through `memory_proposal` in the gallery.",
+    waitFor: '[data-testid="file-operation-proposal-card-preview"]',
   },
   {
     id: 'condition-tree',
@@ -1288,5 +1344,21 @@ export const SCREENSHOT_TARGETS = [
     description:
       'The same page for someone who has not worked in any project yet: the rail is filled by project recency instead, and the heading says "Your projects" rather than "Pick up where you left off". The label is load-bearing — the data cannot support a "continue" claim here, and the row timestamps fall back to the project’s own last movement.',
     waitFor: '[data-testid="projects-home-preview"]',
+  },
+  {
+    id: 'document-lifecycle',
+    mobile: true,
+    path: '/dev/document-lifecycle',
+    description:
+      'Freigabe und Fassungen, the CMS-like half of Dateien (ADR-0054): the whole badge set in its two neutral registers, a freshly filed Entwurf with the one control it allows, a version In Pr\u00fcfung with Freigeben / \u00c4nderungen anfordern / Piloti \u00fcberarbeiten lassen / Ablehnen and the comment box open \u2014 the flow that must not be sendable without words \u2014 then the SAME state with the third control pressed instead, which is the one shot that shows what separates the two boxes: one line saying Piloti will write the next version and submit it. Judge that the third button reads as a variant of the second rather than as a fourth decision, and that the five controls still wrap legibly. Last, a published document with three versions, who submitted, approved and published each, and the comment that sent version 2 back. No chroma anywhere in it: colour belongs to provenance, and an editorial state is not provenance.',
+    waitFor: '[data-testid="document-lifecycle-preview"]',
+  },
+  {
+    id: 'document-version-diff',
+    mobile: true,
+    path: '/dev/document-version-diff',
+    description:
+      'Was sich zwischen zwei Fassungen ge\u00e4ndert hat, zeilenweise (ledger item 14). Four blocks: a revised Aktenvermerk with a corrected Geb\u00e4udeklasse, a reworded sentence and a new section; a line inserted near the top of a long checklist, where the two line-number columns visibly drift apart from the insert onwards; one change in a thirty-paragraph report, with the unchanged run folded into a counted gap; and two identical versions, which say so in a sentence rather than rendering an empty box. Judge that an added line and a removed line are told apart with NO chroma at all \u2014 a solid left rule against a dashed one, a +/\u2212 gutter and the ink weight are the whole vocabulary, because colour belongs to provenance and an editorial change is not provenance. Judge too that the folded gap reads as "nothing happened here" rather than as a missing chunk.',
+    waitFor: '[data-testid="document-version-diff-preview"]',
   },
 ]

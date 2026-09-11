@@ -8,11 +8,12 @@
 'use client'
 
 import { type FC, useId, useState } from 'react'
-import { ChevronDown, ChevronUp, AlertTriangle, XCircle, X, RotateCw } from 'lucide-react'
+import { ChevronDown, ChevronUp, AlertTriangle, XCircle, X, RotateCw, Check, Copy } from 'lucide-react'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
+import { shortRequestId } from '@/shared/utils/request-id'
 import type { ErrorCode } from '../types'
 import { getErrorMeta } from '../lib/error-registry'
 
@@ -35,6 +36,18 @@ export interface ErrorBannerProps {
    * Left optional so callers/specs that don't wire a retry are unaffected.
    */
   onRetry?: () => void
+  /**
+   * The failed response's correlation id, when it carried one.
+   *
+   * The BFF puts it on every error as `requestId` in the body and `x-request-id`
+   * on the response (`lib/api/request-id`), and prints it on its own log line
+   * for a 500. Shown here because the reader is the only person who knows WHICH
+   * request failed, and without something quotable a report is "es hat gestern
+   * nicht funktioniert" — which no operator can look up. Optional: an error
+   * raised in the client (a dropped socket, a parse failure) has no id, and the
+   * banner says nothing rather than inventing one.
+   */
+  requestId?: string | null
 }
 
 /**
@@ -56,6 +69,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
   timestamp,
   onDismiss,
   onRetry,
+  requestId,
 }) => {
   const t = useTranslations('chat')
   const tc = useTranslations('common')
@@ -117,6 +131,7 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
               {details}
             </pre>
           )}
+          {requestId && <RequestReference requestId={requestId} />}
           {onRetry && (
             <div className="mt-2">
               <Button
@@ -146,6 +161,57 @@ export const ErrorBanner: FC<ErrorBannerProps> = ({
       {timestamp && (
         <span className="text-subtle mr-2 self-end text-xs">{formatTime(timestamp, locale)}</span>
       )}
+    </div>
+  )
+}
+
+/**
+ * „Referenz für den Support": the eight characters a person reads out.
+ *
+ * Short on screen and long on the clipboard, on purpose. The short form is a
+ * literal prefix of the full id, so either one greps to the same log line, but
+ * what gets pasted into a ticket should be the whole thing — a truncated id in
+ * a bug report is a second round trip.
+ *
+ * A copy affordance rather than plain text because this is an identifier, and
+ * the failure mode of an identifier a person has to retype is a typo nobody
+ * notices until the search comes back empty.
+ */
+const RequestReference: FC<{ requestId: string }> = ({ requestId }) => {
+  const t = useTranslations('chat')
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(requestId)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // The id is on screen either way — it is selectable text — so a refused
+      // clipboard costs the reader nothing but the shortcut.
+      setCopied(false)
+    }
+  }
+
+  return (
+    <div className="mt-2 flex items-center gap-1.5" data-testid="error-request-id">
+      <span className="text-subtle text-xs">{t('error.reference')}</span>
+      <button
+        type="button"
+        onClick={() => void handleCopy()}
+        aria-label={t('error.referenceCopyAria', { id: requestId })}
+        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 rounded-xs font-mono text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+      >
+        {shortRequestId(requestId)}
+        {copied ? (
+          <Check className="size-3" aria-hidden="true" />
+        ) : (
+          <Copy className="size-3" aria-hidden="true" />
+        )}
+      </button>
+      <span aria-live="polite" className="sr-only">
+        {copied ? t('error.referenceCopied') : ''}
+      </span>
     </div>
   )
 }

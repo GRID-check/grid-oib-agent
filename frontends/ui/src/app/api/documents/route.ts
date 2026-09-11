@@ -6,6 +6,7 @@
 import { z } from 'zod'
 import { apiRoute, parseQuery } from '@/lib/api/handler'
 import { listDocuments } from '@/lib/documents/service'
+import { summarizeDocumentVersions } from '@/lib/documents/lifecycle'
 import { toDocumentWireRow } from '@/lib/documents/list-projection'
 import { DOCUMENT_AUTHORS } from '@/lib/documents/document-authors'
 
@@ -21,16 +22,37 @@ const listDocumentsQuerySchema = z.object({
    * with the tuple, which is the point of the tuple.
    */
   authoredBy: z.enum(DOCUMENT_AUTHORS).optional(),
+  /**
+   * Include the documents somebody archived (ADR-0054).
+   *
+   * Absent means active only, which is what „archiviert" has to mean or the
+   * gesture does nothing a reader can see. `'true'` and not a bare presence
+   * check, so the parameter reads the same way in a log line as it does in the
+   * URL the Files pane builds.
+   */
+  includeArchived: z.literal('true').optional(),
 })
 
 export const GET = apiRoute(
   async ({ session, request }) => {
-    const { projectId, authoredBy } = parseQuery(request, listDocumentsQuerySchema)
-    const documents = await listDocuments(session, projectId, { authoredBy })
+    const { projectId, authoredBy, includeArchived } = parseQuery(request, listDocumentsQuerySchema)
+    const documents = await listDocuments(session, projectId, {
+      authoredBy,
+      includeArchived: includeArchived === 'true',
+    })
+    // The editorial state rides ALONG with the listing rather than being asked
+    // for per card: the badge is on every tile, and the Files workspace re-reads
+    // this route on every filter change and settling poll. A listing that
+    // carried it once (server render) and not on the re-read would make the
+    // badge blink out a second after the page settled.
+    const versions = await summarizeDocumentVersions(
+      session.organizationId,
+      documents.map((row) => row.id),
+    )
     // Serialized explicitly rather than left to `JSON.stringify`, because the
     // Files page reads this same listing server-side and hands it across the
     // RSC boundary, which does not stringify a `Date` — see the module header.
-    return { documents: documents.map(toDocumentWireRow) }
+    return { documents: documents.map((row) => toDocumentWireRow(row, versions.get(row.id))) }
   },
   { authz: { enforcedBy: 'listDocuments (requireProjectAccess project:view)' } }
 )

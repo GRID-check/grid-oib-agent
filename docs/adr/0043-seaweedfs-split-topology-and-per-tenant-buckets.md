@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-08-08
 - **Deciders:** Grid Agent team
-- **Related:** [ADR-0005](0005-object-storage-for-documents-minio.md), [ADR-0011](0011-deletion-pipeline.md), [ADR-0038](0038-one-authorization-catalog-and-decision-point.md), [ADR-0039](0039-agentic-retrieval-quality-package.md), [ADR-0042](0042-object-storage-durability-and-quota.md), [`../deployment/kubernetes.md`](../deployment/kubernetes.md)
+- **Related:** [ADR-0005](0005-object-storage-for-documents-minio.md), [ADR-0011](0011-deletion-pipeline.md), [ADR-0038](0038-one-authorization-catalog-and-decision-point.md), [ADR-0057](0057-agentic-retrieval-quality-package.md), [ADR-0042](0042-object-storage-durability-and-quota.md), [`../deployment/kubernetes.md`](../deployment/kubernetes.md)
 
 ## Context
 
@@ -48,7 +48,7 @@ same subsystem:
   bare action against the request before it ever looks at the bucket, so it
   matched every bucket in the deployment — including `grid-pg-backups`, the
   Postgres PITR archive. The agent tier could read every row of every database.
-  ADR-0039 described this identity as scoped to the documents bucket; it was
+  ADR-0057 described this identity as scoped to the documents bucket; it was
   not.
 - **Deleting a single document left its `_thumb.jpg` sibling behind.** Invisible
   to the UI, invisible to the quota ledger (which counts rows, not bytes), and

@@ -1,4 +1,4 @@
-# FreshQA research-only (the chat researcher alone, no escalation)
+# FreshQA research-only (Piloti alone, no escalation)
 # Agent models run through OpenRouter (OPENROUTER_API_KEY); add judge (OpenAI or Gemini) for evaluator.
 
 general:

@@ -26,13 +26,13 @@ quotation is.
 That difference is why a measurement is a KIND here and is **not** a
 ``SourceEntry``. ``citation_grounded`` is derived from the registry's contents,
 and it is the one signal that lets an answer surface "high"; the normative
-brake in ``researcher.grounding`` is gated on its ABSENCE. A
+brake in ``piloti.grounding`` is gated on its ABSENCE. A
 measurement that entered the registry would therefore hand an answer's uncited
 legal verdict the evidence of its own basement measurement — the laundering
 path the grounding module exists to close. So measurements travel their own
 channel (:mod:`aiq_agent.tools.bim.measurement_sources`) and meet the
 retrieved sources only on the wire, where this taxonomy is all that is left of
-either. See ``tests/aiq_agent/agents/researcher/test_agent.py::
+either. See ``tests/aiq_agent/agents/piloti/test_agent.py::
 TestMeasurementSourcesDoNotGroundCitations``.
 
 ``auto`` exists in the click-dummy as a *selection mode* ("Piloti wählt die
@@ -110,6 +110,26 @@ SOURCE_KINDS: dict[str, SourceKind] = {
         css_token="model",
     ),
 }
+
+#: The fine lane of a PUBLISHED, human-approved, agent-authored document, and
+#: the German sub-label it renders as. A ``buero`` kind — office knowledge, in
+#: the office colour — with its own lane inside that kind, because "the office
+#: approved this" and "Piloti wrote it and the office approved it" are different
+#: claims and only the second one needs the reader to be told.
+#:
+#: NOT a ``doc_class``: that vocabulary describes a document's role in the norm
+#: hierarchy and fails open into law blue (see ``common/provenance.py`` for the
+#: full argument). NOT a shelf either — such a document sits on the project or
+#: the Archiv shelf like any other, which is exactly why the lane must beat the
+#: shelf in ``norm_registry.lane_for_hit``: on the project shelf it would
+#: otherwise wear the Projektwissen chip and lose its author.
+#:
+#: The label is the SUB-LABEL only. The approver is appended by whoever renders
+#: it (the grounding block via ``provenance.provenance_label``, the frontend
+#: from the ``provenance`` payload), so the lane table stays a taxonomy rather
+#: than a sentence with a hole in it.
+AGENT_AUTHORED_LANE = "buero_piloti"
+AGENT_AUTHORED_LANE_LABEL = "Piloti-Dokument"
 
 #: The kind a model-derived measurement renders as. Named rather than spelled
 #: out at the call sites so the one place that decides "this is a measurement,

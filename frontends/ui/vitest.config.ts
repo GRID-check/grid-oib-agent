@@ -39,6 +39,10 @@ export default defineConfig({
       'observability/**/*.spec.mjs',
       'scripts/**/*.spec.mjs',
       'eslint-rules/**/*.spec.mjs',
+      // The visual registry gates itself (ledger 33): every target has its
+      // PNGs, no PNG is orphaned, and no preview has moved since its shots
+      // were taken. See `visual/registry.spec.mjs`.
+      'visual/**/*.spec.mjs',
     ],
     exclude: ['**/mocks/**', '**/node_modules/**'],
     setupFiles: ['./config/vitest/polyfills.ts', './config/vitest/vitest.setup.ts'],

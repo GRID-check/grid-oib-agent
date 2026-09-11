@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 from aiq_agent.turn.payload import _extract_query_and_sources
 from aiq_agent.turn.payload import _extract_query_from_text
 from aiq_agent.turn.payload import _extract_text_from_message
+from aiq_agent.turn.payload import extract_turn_inputs
 
 
 class TestExtractTextFromMessage:
@@ -322,3 +323,60 @@ class TestExtractTurnInputs:
         monkeypatch.setattr(payload_module, "set_turn_intent", broken)
         with pytest.raises(RuntimeError, match="focus store gone"):
             payload_module.extract_turn_inputs('{"query": "x", "focus_file_name": "a.pdf"}')
+
+
+class TestTheSubjectVersion:
+    """What the composer says about the subject's OPEN version, and only that."""
+
+    def test_it_travels_beside_the_focus_file_name(self):
+        parsed = _extract_query_from_text(
+            '{"query": "warum GK 4?", "focus_file_name": "Befund.md", "focus_shelf": "project",'
+            ' "focus_document_id": "doc-9", "focus_version_id": "ver-9", "focus_version_state": "draft"}'
+        )
+        assert parsed.intent.subject.document_id == "doc-9"
+        assert parsed.intent.subject.version_id == "ver-9"
+        assert parsed.intent.subject.state == "draft"
+        assert parsed.intent.subject.is_open
+
+    def test_a_published_subject_is_not_open(self):
+        parsed = _extract_query_from_text(
+            '{"query": "x", "focus_document_id": "doc-9", "focus_version_id": "ver-9",'
+            ' "focus_version_state": "published"}'
+        )
+        # Nothing to do: a published version has chunks and the focus filter works.
+        assert not parsed.intent.subject.is_open
+
+    def test_an_ordinary_message_names_no_subject_version(self):
+        parsed = _extract_query_from_text("Wie lang darf ein Fluchtweg sein?")
+        assert parsed.intent.subject.document_id is None
+        assert not parsed.intent.subject.is_open
+
+    def test_blank_and_non_string_fields_are_not_a_subject(self):
+        parsed = _extract_query_from_text(
+            '{"query": "x", "focus_document_id": "  ", "focus_version_id": 7, "focus_version_state": "draft"}'
+        )
+        assert parsed.intent.subject.document_id is None
+        assert parsed.intent.subject.version_id is None
+        assert not parsed.intent.subject.is_open
+
+    def test_a_state_the_lifecycle_does_not_have_is_not_open(self):
+        # The open set is mirrored from `OPEN_DOCUMENT_VERSION_STATES`; anything
+        # else is left to retrieval, which is the behaviour that already works.
+        parsed = _extract_query_from_text(
+            '{"query": "x", "focus_document_id": "d", "focus_version_id": "v", "focus_version_state": "invented"}'
+        )
+        assert not parsed.intent.subject.is_open
+
+    def test_it_reaches_the_turn_inputs(self):
+        inputs = extract_turn_inputs(
+            '{"query": "warum GK 4?", "focus_document_id": "doc-9", "focus_version_id": "ver-9",'
+            ' "focus_version_state": "in_review"}'
+        )
+        assert inputs.subject.is_open
+        assert inputs.subject.version_id == "ver-9"
+
+    def test_a_plain_turn_does_not_inherit_the_previous_ones_subject(self):
+        extract_turn_inputs(
+            '{"query": "a", "focus_document_id": "doc-9", "focus_version_id": "ver-9", "focus_version_state": "draft"}'
+        )
+        assert not extract_turn_inputs("und jetzt?").subject.is_open

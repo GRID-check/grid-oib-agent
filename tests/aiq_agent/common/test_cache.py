@@ -11,6 +11,7 @@ replica, and the breaker stays out.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 
@@ -486,3 +487,194 @@ def test_cold_start_builds_the_client_whatever_the_uptime(monkeypatch, uptime):
         cache._client = None
         cache._client_failed_at = None
         cache.reset_local_store()
+
+
+# --- Every public function, one client that refuses everything ---------------
+
+
+_PUBLIC_OPS: tuple[tuple[str, ...], ...] = (
+    ("get_json", "read"),
+    ("set_json", "write"),
+    ("delete", "delete"),
+    ("incr_fixed_window", "count"),
+    ("eval_script", "eval"),
+)
+
+
+def _call_public(name: str):
+    """One call of each public function, with arguments it accepts."""
+    if name == "get_json":
+        return cache.get_json("k")
+    if name == "set_json":
+        return cache.set_json("k", {"a": 1}, ttl_seconds=60)
+    if name == "delete":
+        return cache.delete("k")
+    if name == "incr_fixed_window":
+        return cache.incr_fixed_window("rl", 60)
+    if name == "eval_script":
+        return cache.eval_script("return 1", [], [])
+    raise AssertionError(name)  # pragma: no cover - test helper
+
+
+@pytest.mark.usefixtures("_shared_store")
+class TestAClientThatRefusesEverything:
+    """ADR-0020's floor, asserted as a whole: a store that raises on every
+    operation leaves every public function returning its fallback.
+
+    The audit that asked for this (§4.4, option E6) found the fail-open
+    contract asserted nowhere — which is how a cache outage could have started
+    taking turns down without a single test going red.
+    """
+
+    @pytest.mark.parametrize("name", [op[0] for op in _PUBLIC_OPS])
+    @pytest.mark.parametrize("exc", [c[0] for c in _store_down_cases()], ids=_STORE_DOWN_IDS)
+    def test_no_public_function_raises_when_the_store_is_down(self, name, exc):
+        _install(_FailingClient(exc))
+        _call_public(name)  # the assertion is that this returns at all
+
+    @pytest.mark.parametrize("name", [op[0] for op in _PUBLIC_OPS])
+    @pytest.mark.parametrize("exc", [c[0] for c in _per_key_cases()], ids=_PER_KEY_IDS)
+    def test_no_public_function_raises_on_a_per_key_rejection(self, name, exc):
+        _install(_FailingClient(exc))
+        _call_public(name)
+
+    def test_each_function_returns_its_documented_fallback(self):
+        """Not merely "does not raise": the VALUE each one degrades to.
+
+        A local value written while the store was down must still read back
+        (that is the fallback tier doing its job), the delete must REPORT the
+        failure rather than claim success, the limiter must still count, and
+        `eval_script` — the one primitive with no local equivalent — must
+        answer None so its caller picks its own failure policy.
+        """
+        refuse = RedisConnectionError("refused")
+        _install(_FailingClient(refuse))
+        assert cache.set_json("k", {"a": 1}, ttl_seconds=60) is None
+        cache._client = _FailingClient(refuse)
+        assert cache.get_json("k") == {"a": 1}, "the local tier did not answer the read"
+        cache._client = _FailingClient(refuse)
+        assert cache.delete("k") is False, "a failed shared delete must not report success"
+        cache._client = _FailingClient(refuse)
+        assert cache.get_json("k") is None, "the tombstone must hide the not-deleted server copy"
+        cache._client = _FailingClient(refuse)
+        assert cache.incr_fixed_window("rl", 60) == 1
+        cache._client = _FailingClient(refuse)
+        assert cache.eval_script("return 1", [], []) is None
+
+    def test_the_outage_is_logged_once_per_process_not_once_per_call(self, caplog):
+        """Twenty calls into a dead store are ONE warning, not twenty tracebacks.
+
+        Every operation of every turn takes this path while Dragonfly is
+        unreachable, so a warning per call — with `exc_info` — buries the one
+        line that says the cache is gone under its own stack traces.
+        """
+        with caplog.at_level(logging.DEBUG, logger="aiq_agent.common.cache"):
+            caplog.clear()
+            for _ in range(4):
+                for name, _label in _PUBLIC_OPS:
+                    cache._client = _FailingClient(RedisConnectionError("refused"))
+                    _call_public(name)
+
+        warnings = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert len(warnings) == 1, f"expected one warning, got {[r.message for r in warnings]}"
+        assert warnings[0].exc_info, "the one warning is the one that carries the traceback"
+        assert any(record.levelno == logging.DEBUG for record in caplog.records), "the rest must still be recorded"
+
+    def test_the_window_reopens_after_the_interval(self, monkeypatch):
+        """Throttled, not silenced: a second outage an hour later still warns."""
+        clock = {"now": 1_000.0}
+        monkeypatch.setattr(cache.time, "monotonic", lambda: clock["now"])
+        cache.reset_local_store()
+
+        def _warn_count(records):
+            return len([r for r in records if r.levelno == logging.WARNING])
+
+        with caplog_at_debug() as records:
+            cache._client = _FailingClient(RedisConnectionError("refused"))
+            cache.get_json("k")
+            clock["now"] += cache._STORE_DOWN_WARN_INTERVAL_SECONDS + 1
+            cache._client = _FailingClient(RedisConnectionError("refused"))
+            cache.get_json("k")
+        assert _warn_count(records) == 2
+
+
+@contextlib.contextmanager
+def caplog_at_debug():
+    """Collect this module's records without pytest's caplog fixture.
+
+    ``caplog`` and a monkeypatched ``time.monotonic`` do not mix: the handler
+    stamps every record with the clock the test froze.
+    """
+    records: list[logging.LogRecord] = []
+
+    class _Sink(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    logger = logging.getLogger("aiq_agent.common.cache")
+    handler = _Sink(level=logging.DEBUG)
+    previous = logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    try:
+        yield records
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous)
+
+
+# --- Counting what the cache answered ----------------------------------------
+
+
+class TestCounters:
+    """Hit/miss counters, so "is the cache working" stops being a belief.
+
+    The latency audit's option E7: neither cache module counted a hit, so every
+    argument about caching in this repo was made from the code rather than from
+    a measurement.
+    """
+
+    def test_the_local_tier_counts_hits_and_misses(self, monkeypatch):
+        monkeypatch.delenv("REDIS_URL", raising=False)
+        cache.reset_local_store()
+        with cache.count_cache_operations():
+            assert cache.get_json("cold") is None
+            cache.set_json("warm", {"a": 1}, ttl_seconds=60)
+            assert cache.get_json("warm") == {"a": 1}
+            counters = cache.cache_counters()
+        assert (counters.local_hits, counters.local_misses, counters.errors) == (1, 1, 0)
+
+    def test_the_shared_tier_counts_separately(self, _shared_store):
+        _install(_DictClient())
+        with cache.count_cache_operations():
+            assert cache.get_json("cold") is None
+            cache.set_json("warm", {"a": 1}, ttl_seconds=60)
+            assert cache.get_json("warm") == {"a": 1}
+            counters = cache.cache_counters()
+        assert (counters.shared_hits, counters.shared_misses) == (1, 1)
+        assert (counters.local_hits, counters.local_misses) == (0, 0)
+
+    def test_an_error_is_an_error_and_not_a_miss(self, _shared_store):
+        """The two have different fixes, so they are never the same number."""
+        _install(_FailingClient(RedisConnectionError("refused")))
+        with cache.count_cache_operations():
+            cache.get_json("k")
+            counters = cache.cache_counters()
+        assert counters.errors >= 1
+        assert counters.shared_misses == 0
+
+    def test_a_scope_does_not_leak_into_the_next_turn(self, monkeypatch):
+        """The counters are per-turn ContextVar state, like every other
+        per-turn registry here: a replica answering two turns at once must not
+        report one turn's cache traffic on the other's span."""
+        monkeypatch.delenv("REDIS_URL", raising=False)
+        cache.reset_local_store()
+        with cache.count_cache_operations():
+            cache.get_json("a")
+        with cache.count_cache_operations():
+            assert cache.cache_counters().local_misses == 0
+
+    def test_the_counters_render_as_span_facts(self):
+        facts = cache.CacheCounters(shared_hits=2, local_misses=1).as_facts()
+        assert facts["cache_shared_hits"] == 2
+        assert facts["cache_local_misses"] == 1

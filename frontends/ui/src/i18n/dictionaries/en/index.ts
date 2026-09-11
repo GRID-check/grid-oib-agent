@@ -21,6 +21,7 @@ import { knowledge } from './knowledge'
 import { research } from './research'
 import { skills } from './skills'
 import { jobs } from './jobs'
+import { tasks } from './tasks'
 import { members } from './members'
 import { onboarding } from './onboarding'
 import { organization } from './organization'
@@ -49,6 +50,7 @@ export const en = {
   research,
   skills,
   jobs,
+  tasks,
   members,
   onboarding,
   organization,

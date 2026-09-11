@@ -1,6 +1,38 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 
+/**
+ * `document_versions` is not this suite's subject (ADR-0054). The upload path
+ * records a version through the lifecycle; here that reduces to "it was asked
+ * for", and the version table's own behaviour is `lifecycle.spec.ts`'s.
+ */
+vi.mock('./version-repository', () => ({
+  DOCUMENT_VERSION_LIST_LIMIT: 200,
+  insertDocumentVersion: vi.fn(async (values: Record<string, unknown>) => ({
+    id: 'version_1',
+    state: 'published',
+    versionNumber: 1,
+    ...values,
+  })),
+  // The born-published insert: supersede, insert and pointer in one
+  // transaction, because the unique index is not deferrable (migration 0082).
+  insertPublishedVersion: vi.fn(async (values: Record<string, unknown>) => ({
+    version: { id: 'version_1', state: 'published', versionNumber: 1, ...values },
+    superseded: [],
+  })),
+  listDocumentVersions: vi.fn().mockResolvedValue([]),
+  findDocumentVersion: vi.fn().mockResolvedValue(null),
+  findPublishedVersion: vi.fn().mockResolvedValue(null),
+  findOpenVersion: vi.fn().mockResolvedValue(null),
+  // 2: the only caller asks for it on the REPLACE path, where the next version
+  // is by definition not the first.
+  nextVersionNumber: vi.fn().mockResolvedValue(2),
+  compareAndSwapVersionState: vi.fn().mockResolvedValue(null),
+  promoteVersionToPublished: vi.fn().mockResolvedValue(null),
+  setDocumentLifecycle: vi.fn(),
+  listDocumentVersionObjects: vi.fn().mockResolvedValue([]),
+}))
+
 vi.mock('@/lib/storage/service', () => ({
   // The quota check is exercised in src/lib/storage/service.spec.ts; here it is
   // stubbed to a no-op so these specs keep testing the upload path itself
@@ -449,8 +481,28 @@ describe('listDocuments', () => {
     expect(listProjectDocuments).toHaveBeenCalledWith(
       'proj-1',
       session.organizationId,
-      undefined,
-      'agent'
+      expect.objectContaining({ authoredBy: 'agent' })
+    )
+  })
+
+  it('leaves archived documents out of the default listing', async () => {
+    // „Archiviert" purged the chunks and wrote `documents.lifecycle`, and no
+    // listing read that column — so the file stayed exactly where it was in the
+    // Files pane and the whole gesture was an audit event nobody could see.
+    await listDocuments(session, 'proj-1')
+    expect(listProjectDocuments).toHaveBeenCalledWith(
+      'proj-1',
+      session.organizationId,
+      expect.objectContaining({ includeArchived: undefined })
+    )
+  })
+
+  it('widens to the archived ones when the caller asks', async () => {
+    await listDocuments(session, 'proj-1', { includeArchived: true })
+    expect(listProjectDocuments).toHaveBeenCalledWith(
+      'proj-1',
+      session.organizationId,
+      expect.objectContaining({ includeArchived: true })
     )
   })
 
@@ -463,8 +515,7 @@ describe('listDocuments', () => {
     expect(listProjectDocuments).toHaveBeenCalledWith(
       'proj-1',
       session.organizationId,
-      undefined,
-      undefined
+      expect.objectContaining({ authoredBy: undefined })
     )
   })
 
@@ -479,6 +530,8 @@ describe('listDocuments', () => {
         id: 'doc-1',
         filename: 'plan.pdf',
         displayName: null,
+        lifecycle: 'active',
+        publishedVersionId: null,
         originPath: null,
         contentHash: null,
         fileSize: 1024,
@@ -686,6 +739,7 @@ describe('searchProjectDocuments', () => {
       collectionName: 'proj_abc',
       errorMessage: null,
       authoredBy: 'user',
+      publishedVersionId: null,
     },
     {
       id: 'doc-b',
@@ -695,6 +749,7 @@ describe('searchProjectDocuments', () => {
       collectionName: 'proj_abc',
       errorMessage: null,
       authoredBy: 'user',
+      publishedVersionId: null,
     },
   ]
 
@@ -1436,6 +1491,10 @@ describe('the authorship gate on the (collection, filename) join', () => {
           id: 'doc-agent',
           filename: collidingName,
           displayName: null,
+          lifecycle: 'active',
+          // Nothing published: an agent DRAFT, which is what a row filed by
+          // `fileGeneratedDocument` is until somebody releases a version of it.
+          publishedVersionId: null,
           originPath: null,
           contentHash: null,
           fileSize: 1024,

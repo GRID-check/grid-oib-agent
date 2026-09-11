@@ -2,6 +2,7 @@ import { FlatCompat } from '@eslint/eslintrc'
 import requireTenantScope from './eslint-rules/require-tenant-scope.mjs'
 import motionVocabulary from './eslint-rules/motion-vocabulary.mjs'
 import cardTypeScale from './eslint-rules/card-type-scale.mjs'
+import requireTenantCacheKey from './eslint-rules/require-tenant-cache-key.mjs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -24,6 +25,7 @@ const compat = new FlatCompat({
 const gridRules = {
   rules: {
     'require-tenant-scope': requireTenantScope,
+    'require-tenant-cache-key': requireTenantCacheKey,
     'motion-vocabulary': motionVocabulary,
     'card-type-scale': cardTypeScale,
   },
@@ -74,6 +76,19 @@ export default [
     files: ['src/app/**/*.{ts,tsx}'],
     ignores: ['src/**/*.spec.{ts,tsx}'],
     rules: { 'grid/require-tenant-scope': 'error' },
+  },
+  {
+    // The other half of the tenant boundary, and the half row-level security
+    // cannot backstop: `getCached` answers from the store BEFORE the loader
+    // runs, so an unpartitioned key never reaches a tenant scope at all. It has
+    // already happened once (gotchas.md:36, "Cached project context comes back
+    // belonging to another tenant") and the keys were ad-hoc template strings at
+    // 28 call sites when the caching audit counted them. ERROR, with a reasoned
+    // allowlist in eslint-rules/global-cache-keys.mjs for the keys that really
+    // are one per deployment. See eslint-rules/require-tenant-cache-key.mjs.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.spec.{ts,tsx}'],
+    rules: { 'grid/require-tenant-cache-key': 'error' },
   },
   {
     // Motion is decoration with a job here, which makes it cheap to get wrong in

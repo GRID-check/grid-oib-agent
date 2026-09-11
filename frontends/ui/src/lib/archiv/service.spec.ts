@@ -1,5 +1,31 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+/**
+ * `document_versions` is not this suite's subject (ADR-0054). The upload path
+ * records a version through the lifecycle; here that reduces to "it was asked
+ * for", and the version table's own behaviour is `lifecycle.spec.ts`'s.
+ */
+vi.mock('@/lib/documents/version-repository', () => ({
+  DOCUMENT_VERSION_LIST_LIMIT: 200,
+  insertDocumentVersion: vi.fn(async (values: Record<string, unknown>) => ({
+    id: 'version_1',
+    state: 'published',
+    versionNumber: 1,
+    ...values,
+  })),
+  listDocumentVersions: vi.fn().mockResolvedValue([]),
+  findDocumentVersion: vi.fn().mockResolvedValue(null),
+  findPublishedVersion: vi.fn().mockResolvedValue(null),
+  findOpenVersion: vi.fn().mockResolvedValue(null),
+  // 2: the only caller asks for it on the REPLACE path, where the next version
+  // is by definition not the first.
+  nextVersionNumber: vi.fn().mockResolvedValue(2),
+  compareAndSwapVersionState: vi.fn().mockResolvedValue(null),
+  promoteVersionToPublished: vi.fn().mockResolvedValue(null),
+  setDocumentLifecycle: vi.fn(),
+  listDocumentVersionObjects: vi.fn().mockResolvedValue([]),
+}))
+
 vi.mock('@/lib/storage/service', () => ({
   // The quota check is exercised in src/lib/storage/service.spec.ts; here it is
   // stubbed to a no-op so these specs keep testing the upload path itself
@@ -55,6 +81,11 @@ vi.mock('@/lib/documents/reconcile-status', () => ({
 // path is the insert path it has always been.
 vi.mock('@/lib/documents/repository', () => ({
   findLiveDocumentByFilename: vi.fn().mockResolvedValue(null),
+  // Read back by `recordUploadedVersion` (ADR-0054) to mirror the row's storage
+  // columns onto version 1. Null is the honest default here: this suite is
+  // about the Archiv upload, and a version for a row it did not stub is not a
+  // fact it should invent.
+  findDocumentInOrg: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('@/lib/storage/admission', () => ({
@@ -142,6 +173,7 @@ describe('listArchiv', () => {
         status: 'completed',
         collectionName: 'archiv_org-1',
         authoredBy: 'user',
+        publishedVersionId: null,
         errorMessage: null,
         metadata: { ingestJobId: 'secret' },
         summary: 's',
@@ -173,6 +205,7 @@ describe('searchArchivDocuments', () => {
         collectionName: 'archiv_org-1',
         errorMessage: null,
         authoredBy: 'user',
+        publishedVersionId: null,
       },
     ]
     vi.mocked(listArchivDocuments).mockResolvedValue([])

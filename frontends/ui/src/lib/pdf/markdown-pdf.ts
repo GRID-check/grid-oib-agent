@@ -24,6 +24,7 @@ import React from 'react'
 import { createHash } from 'node:crypto'
 import { renderToStream } from '@react-pdf/renderer'
 import type { AiProvenanceMarking } from '@/lib/ai-provenance'
+import type { DocumentChrome } from './branding'
 import { ReportPDF } from './ReactPdfDocument'
 import type { DocumentFact } from '@/lib/answer-export/answer-document'
 
@@ -248,6 +249,17 @@ export interface MarkdownPdfOptions {
    * leaves the product with no byline to carry it.
    */
   marking?: AiProvenanceMarking
+  /**
+   * The branding this document carries — the header line, the prose block on
+   * the cover and the line at the foot of every page.
+   *
+   * Resolved by `lib/documents/branding.ts` and handed down, never built here:
+   * a renderer that composed its own sentence about who is answerable for a
+   * document would be a second copy of the one thing that module exists to keep
+   * single. Opt-in for the same reason {@link marking} is — a person exporting
+   * prose they have read is not a document Piloti filed on their behalf.
+   */
+  branding?: DocumentChrome
 }
 
 
@@ -369,6 +381,7 @@ export async function renderMarkdownPdf(
       diagramPlaceholder: options.diagramPlaceholder,
       aiProvenance: options.marking,
     },
+    branding: options.branding,
   })
 
   const stream = await renderToStream(element as unknown as PdfDocumentElement).catch((error) => {

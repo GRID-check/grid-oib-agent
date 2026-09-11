@@ -65,7 +65,7 @@ def test_the_image_tool_is_declared_with_its_own_type(functions: dict):
     assert entry["_type"] == "view_knowledge_image"
 
 
-def test_both_researchers_reach_the_same_knowledge_and_ris_tools(config: dict):
+def test_both_agents_reach_the_same_knowledge_and_ris_tools(config: dict):
     """Shallow and deep answer the same questions; a tool on one and not the
     other means the answer changes with the routing decision rather than with
     the question."""
@@ -85,8 +85,38 @@ def test_both_researchers_reach_the_same_knowledge_and_ris_tools(config: dict):
 def test_the_deep_researcher_can_show_a_file_and_not_only_cite_it(config: dict):
     """`surface_documents` emits the `document_grid` card. A deep run that
     could cite a project file but never show one answered „zeig mir den
-    Brandschutzplan" with a paragraph about it; the tool was bound on the
-    researcher only. The job runner binds the card registry the tool
+    Brandschutzplan" with a paragraph about it; the tool was bound on
+    Piloti only. The job runner binds the card registry the tool
     writes into (`jobs/runner.py::_bound_card_registry`); this is the other
     half, the two YAML lines."""
     assert "surface_documents" in _tools(config, "deep_research_agent")
+
+
+def test_the_locator_is_declared_and_bound_on_the_answering_agent(config: dict, functions: dict):
+    """`read_passage` is what makes a second round a lookup instead of a search.
+
+    Bound on the SHALLOW agent only, deliberately: it is the chat loop that runs
+    against a tool ceiling of 7 and pays for a second semantic search out of the
+    same budget as the measurement. A deep run plans its own retrieval across up
+    to six researchers and does not have that shape. If deep research later grows
+    a Punkt-following step, this is the line to change and the reason to state.
+    """
+    entry = functions.get("read_passage")
+    assert entry is not None, "read_passage must be declared under `functions:`"
+    assert entry["_type"] == "read_passage"
+    assert "read_passage" in _tools(config, "shallow_research_agent")
+
+
+def test_the_locator_shares_the_searchs_collection_scope(functions: dict):
+    """One contract, not two. A locator pointed at another corpus than the
+    search would open a passage the answer cannot cite."""
+    assert functions["read_passage"]["knowledge_search"] == "knowledge_search"
+
+
+def test_the_locator_resolves_to_a_data_source(config: dict):
+    """`_capture_sources` drops any tool result whose name does not resolve to a
+    configured data source, so a locator missing from this list returns real
+    passages that are never registered as citable — and the answer's citations
+    are then stripped as unsupported."""
+    sources = {entry["id"]: entry for entry in config["functions"]["data_sources"]["sources"]}
+    assert "read_passage" in sources["knowledge_layer"]["tools"]

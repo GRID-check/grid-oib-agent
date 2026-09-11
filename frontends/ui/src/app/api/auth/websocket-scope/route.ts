@@ -9,8 +9,8 @@
  * the reflection flag, the org-level cached reads, and the budget status —
  * each step can refuse the upgrade or is needed by the gate, so they run
  * alone and in order. A blocked budget returns 403 BEFORE any project-expensive
- * lookup fires. Phase 2 fans out to at most 4 concurrent lookups (prompt view,
- * Bundesland, memory digest, decisions scan). Each keeps the failure posture
+ * lookup fires. Phase 2 fans out to at most 5 concurrent lookups (prompt view,
+ * Bundesland, memory digest, proposal-decisions scan, review-decisions scan). Each keeps the failure posture
  * it had: the ones that were best-effort still degrade to "absent" with a
  * warning, the prompt-view denial still fails the upgrade with 403, and any
  * other prompt-view failure still propagates to the 500 handler.
@@ -27,6 +27,7 @@ import { getGridSession } from '@/lib/auth/session'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { buildProposalDecisionsBlock, composeMemoryContext } from '@/lib/projects/proposal-decisions'
+import { buildReviewDecisionsBlock } from '@/lib/documents/review-decisions'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import { isMemoryReflectionEnabled } from '@/lib/workos/feature-flags'
 import { isWebSearchEnabledForOrg } from '@/lib/organizations/service'
@@ -72,6 +73,17 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       header: headerValue,
     }
 
+    // Echoed so `server.js` signs the conversation it was ALLOWED to sign.
+    // `buildCollectionScopeFromRequest` has just run `authorizeConversationScope`
+    // on this id (and the upgrade is refused when that throws), so what goes into
+    // the envelope is an id this tier asserted rather than the query param the
+    // client sent. The agent's document route authorizes on the verified payload
+    // (ADR-0054 §4) — a caller-chosen value must never reach it under a
+    // signature.
+    if (conversationId) {
+      response.conversationId = conversationId
+    }
+
     if (session) {
       response.organizationId = session.organizationId
       response.userId = session.userId
@@ -89,8 +101,8 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
     // Phase 1 — serial gates. Session and scope already ran above; then the
     // reflection flag and the budget status, in that order. They stay serial
     // so a refusal returns BEFORE anything else fires — and so the post-gate
-    // fan-out below is bounded at 4 concurrent lookups (pool impact: at most
-    // 4 pool users after the gate, each a bounded query or cached read).
+    // fan-out below is bounded at 5 concurrent lookups (pool impact: at most
+    // 5 pool users after the gate, each a bounded query or cached read).
     //
     // Gate the async memory-reflection stage: with WorkOS flag enforcement
     // on, the per-org "memory-reflection" flag is the source of truth; without
@@ -122,7 +134,7 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
 
     // Still serial, but AFTER the gate: the org-level cached reads (30s/5min
     // TTLs, near-always hits) the success response carries. They run here —
-    // not in the fan-out — so Phase 2 stays exactly the four project lookups.
+    // not in the fan-out — so Phase 2 stays exactly the five turn-scoped lookups.
     // Org-level web-search setting (ADR-0022): when off, server.js forwards
     // x-grid-disabled-sources and the backend subtracts the source from
     // every tool selection — enforcement, not just UI hiding. Best-effort:
@@ -157,7 +169,7 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
     // keeps today's posture and propagates to the 500 handler. Everything
     // else fails open to "absent", as today.
     let promptViewAuthzError: unknown = null
-    const [projectContext, bundesland, memoryDigest, decisions] = await Promise.all([
+    const [projectContext, bundesland, memoryDigest, decisions, reviewDecisions] = await Promise.all([
       // Structured project facts for the envelope's `projectContext` field.
       effectiveProjectId
         ? loadProjectPromptView(effectiveProjectId, organizationId).catch((error: unknown) => {
@@ -192,11 +204,20 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       effectiveProjectId && organizationId
         ? buildProposalDecisionsBlock(effectiveProjectId, organizationId).catch(() => null)
         : Promise.resolve(null),
+      // What a reviewer decided about the drafts THIS conversation filed
+      // (`REVIEW_DECISIONS v1`). Scoped to the conversation and not the project:
+      // a decision about a draft is an instruction to whoever wrote it. The
+      // connection-time copy is a FALLBACK — the header is frozen for the life
+      // of the socket, so the live per-turn digest fetch is what carries a
+      // decision taken mid-session. Best-effort, like every lookup beside it.
+      conversationId && organizationId
+        ? buildReviewDecisionsBlock(conversationId, organizationId).catch(() => null)
+        : Promise.resolve(null),
     ])
     if (promptViewAuthzError) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
-    const projectMemory = composeMemoryContext(memoryDigest, decisions)
+    const projectMemory = composeMemoryContext(memoryDigest, decisions, reviewDecisions)
 
     response.memoryReflectionEnabled = memoryReflectionEnabled
 

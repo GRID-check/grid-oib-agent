@@ -630,7 +630,11 @@ export const BlocksDocument: React.FC<BlocksDocumentProps> = ({
     </Page>
     <Page size="A4" style={styles.page}>
       <RunningHeader title={cover.title} />
-      <PageFooter />
+      {/* The branding's footer line rides on the page footer that already
+          exists rather than on a second fixed element: two fixed views at the
+          same edge is how a footer stops being drawn at all (see the
+          `lineHeight` note on `styles.page`). */}
+      <PageFooter line={cover.chrome?.footerLine} />
       {blockNodes(blocks)}
     </Page>
   </Document>

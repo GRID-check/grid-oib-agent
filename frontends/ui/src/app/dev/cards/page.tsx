@@ -959,6 +959,54 @@ function Gallery() {
         />
       </Section>
 
+      {/* A SYSTEM card, and the fourth INTERACTIVE one: the working directory's
+          write_file/edit_file pushes it, so it reports a draft that exists
+          rather than one the model described, and `file_draft` pushes it again
+          once that draft has become a project document.
+
+          Drawn UNFILED here, which is the state a reader meets first. „Ins
+          Projekt übernehmen" writes nothing: it puts the request in the
+          composer, because the draft's bytes live in the agent's working
+          directory and the browser has neither them nor a route to file them
+          (see the component's header). The FILED states — „Im Projekt öffnen"
+          and „Zur Freigabe einreichen" — are judged on
+          `/dev/document-draft-card`, which draws all three. */}
+      <Section id="document_draft">
+        <GridCards
+          cards={[
+            {
+              type: 'document_draft',
+              title: 'Aktenvermerk – Abweichung Fluchtweglänge',
+              path: '/entwuerfe/aktenvermerk-fluchtweg.md',
+              bytes: 4820,
+              version: 3,
+            },
+          ] as GridCard[]}
+          projectId={null}
+        />
+      </Section>
+
+      {/* Delegation: work Piloti took on, with the deadline the person named
+          and a link to the thread the run writes into. Presentational on
+          purpose — the row exists by the time the card renders, so there is
+          nothing to accept (see `TaskCreatedCard`'s header). */}
+      <Section id="task_created">
+        <GridCards
+          cards={[
+            {
+              type: 'task_created',
+              task_id: '00000000-0000-4000-8000-0000000000f1',
+              kind: 'einreichcheck',
+              title: 'Einreichcheck: Bauansuchen Haus A',
+              goal: 'Mach den Einreichcheck für das Bauansuchen bis Freitag',
+              due_at: '2026-09-18T23:59:59.999Z',
+              conversation_id: 's_00000000_0000_4000_8000_0000000000f2',
+            },
+          ] as GridCard[]}
+          projectId={null}
+        />
+      </Section>
+
       {/* The two INTERACTIVE cards (ADR-0030) go through the GridCards
           dispatcher rather than being rendered directly, so the gallery
           exercises the same `cardKey` wiring the chat uses. With no owning
@@ -988,6 +1036,50 @@ function Gallery() {
               content: 'Das Büro setzt bei GK 4 durchgängig REI 90 an, auch wo REI 60 genügen würde.',
               kind: 'preference',
               confidence: 'high',
+            },
+          ] as GridCard[]}
+          projectId={null}
+        />
+      </Section>
+
+      {/* The third interactive card, and a SYSTEM one: the five write-side
+          workspace tools push it and the model cannot author one. Several
+          operations of one kind land on ONE card, which is the shape a tidying
+          turn produces — so what this section shows is the list under one
+          question.
+
+          The gallery has no project in its store, and every route behind this
+          card is project-scoped: it therefore draws its reason line instead of
+          its buttons, which is a real product state. The buttons are judged on
+          `/dev/file-operation-proposal-card`, which sets a project. */}
+      <Section id="file_operation_proposal">
+        <GridCards
+          cards={[
+            {
+              type: 'file_operation_proposal',
+              title: 'Drei Dateien nach „Einreichung/Pläne“ verschieben',
+              operation: 'move',
+              operations: [
+                {
+                  document: 'Grundriss EG.pdf',
+                  source: 'projekt',
+                  current: 'Nachweise',
+                  target_folder: 'Einreichung/Pläne',
+                },
+                {
+                  document: 'Grundriss OG.pdf',
+                  source: 'projekt',
+                  current: '',
+                  target_folder: 'Einreichung/Pläne',
+                },
+                {
+                  document: 'Schnitt A-A.pdf',
+                  source: 'projekt',
+                  current: 'Nachweise',
+                  target_folder: 'Einreichung/Pläne',
+                },
+              ],
+              note: 'Vorschlag — es wurde noch nichts verschoben.',
             },
           ] as GridCard[]}
           projectId={null}

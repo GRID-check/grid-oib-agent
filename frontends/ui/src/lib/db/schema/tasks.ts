@@ -25,29 +25,64 @@
 import { relations, sql } from 'drizzle-orm'
 import { check, index, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import type { SkillSnapshot } from '@/lib/skills/types'
+import {
+  TASK_KINDS,
+  TASK_REVIEWS,
+  TASK_STATUSES,
+  type TaskKind,
+  type TaskReview,
+  type TaskStatus,
+} from '@/lib/tasks/task-vocabulary'
 import { projects } from './projects'
 import { jobRuns, jobs } from './jobs'
 
 /**
- * What kind of work the task is. Today exactly the two job outputs; the next
- * members (`compliance_check`, `einreichcheck`) are the roadmap's, and they
- * arrive as a TypeScript change — plain text, no CHECK — the same arrangement
- * `documents.scope` has.
+ * What kind of work the task is.
+ *
+ * The first two are the job outputs a scheduled run produces; the rest are what
+ * a person delegates from a chat turn (`create_task`) or what a reviewer's
+ * „Änderungen anfordern" opens on unattended work. They arrived as a TypeScript
+ * change and nothing else — migration 0075 gave `kind` no CHECK, deliberately,
+ * so the vocabulary lives in one place rather than in a column and a tuple that
+ * can disagree.
+ *
+ *   - `deep-research` · `chat` — a job fired on its timer; the value is
+ *     `jobs.output`.
+ *   - `compliance_check` — the compliance checker over the project (the engine
+ *     exists: `agents/compliance_checker/`).
+ *   - `einreichcheck` — the builtin Einreichcheck skill, whose "Done" section
+ *     is literally the work list.
+ *   - `document` — write a document and file it as a draft version.
+ *   - `revision` — revise a version a reviewer sent back, and file the result
+ *     as the next draft of the SAME document. Created by the lifecycle's
+ *     `request_changes` transition when nobody is in a conversation to hear the
+ *     `REVIEW_DECISIONS` block, or when the reviewer asked for it outright.
  */
-export const TASK_KINDS = ['deep-research', 'chat'] as const
-export type TaskKind = (typeof TASK_KINDS)[number]
+export { TASK_KINDS, type TaskKind }
+
+/**
+ * The kinds a person may ask for by delegating — `create_task` from chat, and
+ * the reviewer's „Piloti überarbeiten lassen".
+ *
+ * DERIVED as the complement of the two job outputs rather than listed a second
+ * time: `deep-research` and `chat` describe how a JOB delivers its result and
+ * are set by `fireJob` from `jobs.output`, so a caller asking for one of them
+ * would be naming a delivery channel where a piece of work belongs.
+ */
+export const DELEGATABLE_TASK_KINDS = [
+  'compliance_check',
+  'einreichcheck',
+  'document',
+  'revision',
+] as const satisfies readonly TaskKind[]
+export type DelegatableTaskKind = (typeof DELEGATABLE_TASK_KINDS)[number]
 
 /**
  * The lifecycle. `queued` from creation until the worker reports; the three
  * terminal states are the worker's own outcome vocabulary, unchanged, so the
  * row says what the run store said before it forgot.
  */
-export const TASK_STATUSES = ['queued', 'running', 'succeeded', 'failed', 'interrupted'] as const
-export type TaskStatus = (typeof TASK_STATUSES)[number]
-
-/** How a person judged the result. Null until somebody did. */
-export const TASK_REVIEWS = ['accepted', 'rejected'] as const
-export type TaskReview = (typeof TASK_REVIEWS)[number]
+export { TASK_STATUSES, type TaskStatus, TASK_REVIEWS, type TaskReview }
 
 /**
  * Whether the result was filed into the project, as the requester.
@@ -71,6 +106,27 @@ export interface TaskPlan {
   skill: SkillSnapshot
   /** Data sources the run was allowed to use. */
   dataSources: string[] | null
+  /**
+   * What the task was asked FOR, in the requester's own words. Null for a job,
+   * whose `title` is the job's name and whose prompt is the whole of it.
+   */
+  goal?: string | null
+  /**
+   * The version this task is a revision of, and why it came back.
+   *
+   * On the plan rather than in three columns of its own, because it is part of
+   * the frozen statement of what was asked — the same reason the prompt and the
+   * skill snapshot live here — and because it exists for exactly one kind. A
+   * `revision` task carries it; every other kind leaves it absent, and
+   * `completeTaskForRun` files the result as the next draft of THAT document
+   * instead of as a new one.
+   */
+  subject?: {
+    documentId: string
+    versionId: string
+    /** The reviewer's words, verbatim. What the run is told to fix. */
+    comment: string
+  } | null
 }
 
 export const tasks = pgTable(

@@ -58,6 +58,20 @@ _EXAMPLE_EXEMPT = {
     # System-emitted (by the surface_documents tool) from a real corpus search;
     # never advertised to the model, so it ships without a worked example.
     "document_grid",
+    # System-emitted (by the working directory's write_file/edit_file) and built
+    # in Python from the file that was just written; the model never authors one,
+    # so an example would teach a shape it must not produce.
+    "document_draft",
+    # System-emitted (by the four write-side workspace tools) and built in
+    # Python from names the tool RESOLVED against the turn's inventory. An
+    # example would teach a shape the model must not produce — and this is the
+    # card where authoring one would mean naming a file it never looked up.
+    "file_operation_proposal",
+    # System-emitted (by `create_task`) and built in Python from the id and the
+    # title the BFF returned. An example would teach the model to author proof
+    # that a task row exists — which is the one claim this card was added to
+    # make unfakeable.
+    "task_created",
 }
 
 

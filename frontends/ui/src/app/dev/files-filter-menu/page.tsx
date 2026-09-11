@@ -45,8 +45,8 @@ export default function FilesFilterMenuDevPage(): JSX.Element {
               defaultOpen
               canCollaborate
               filters={{
+                ...NO_FILE_FILTERS,
                 assignment: 'mine',
-                agentAuthoredOnly: false,
                 kinds: ['model'],
                 statuses: ['failed'],
               }}
@@ -72,10 +72,10 @@ export default function FilesFilterMenuDevPage(): JSX.Element {
             <FileFilterMenu
               canCollaborate
               filters={{
+                ...NO_FILE_FILTERS,
                 assignment: 'unassigned',
                 agentAuthoredOnly: true,
                 kinds: ['floorplan', 'section'],
-                statuses: [],
               }}
               onFiltersChange={noop}
               sort={DEFAULT_FILE_SORT}

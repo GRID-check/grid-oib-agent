@@ -37,6 +37,7 @@ import { cpus } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { SCREENSHOT_TARGETS } from './registry.mjs'
+import { recordCaptured } from './manifest.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const UI_ROOT = join(HERE, '..')
@@ -501,6 +502,21 @@ async function main() {
   const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)
   console.log(`[screenshots] wrote ${results.length} file(s) in ${elapsed}s:`)
   for (const f of results.sort()) console.log(`  ${f}`)
+
+  // Record what was captured, so a route that moves afterwards makes the shots
+  // FAIL a test rather than merely go quietly out of date (`manifest.mjs`).
+  // Only targets whose every variant succeeded: a half-captured target must not
+  // be recorded as current. A `--mobile-only` run is deliberately not recorded
+  // either — it does not refresh the desktop shots the entry also stands for.
+  if (!mobileOnly) {
+    const failed = new Set(failures.map(({ job }) => job.target.id))
+    const captured = targets.filter((t) => !failed.has(t.id))
+    if (captured.length > 0) {
+      await recordCaptured(captured)
+      console.log(`[screenshots] manifest updated for ${captured.length} target(s)`)
+    }
+  }
+
   if (failures.length) {
     console.error(`[screenshots] ${failures.length} target(s) failed:`)
     for (const { job, err } of failures) {

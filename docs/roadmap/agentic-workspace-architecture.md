@@ -46,22 +46,22 @@ that closes a loop is named where it ran.
 | A | Quote verification refuses a skipped or inserted whole word, whatever the word, at any length; sub-word OCR noise stays tolerated | `common/citation_verification.py` |
 | A | The Punkt and the retrieval score are parsed off the grounding block, fold under page dedup, reach the wire and the stored message, and the locus reads "Pkt. 3.5.2 · S. 7" | `citation_verification.py`, `features/chat/lib/citations/*`, `SourcePreview.tsx`, `CitationPeek.tsx` |
 | A | The turn's retrieval query survives the storage prune and the server whitelist, so a reloaded or shared thread keeps what was searched | `prune-message-for-storage.ts`, `message-provenance.ts`, `turn-events.ts` |
-| A · pass | The structural retrievability harness runs in CI as a gate (`task be:eval:retrieval`, 95% floor, 98.3% measured). *(Retired 2026-09-09: the corpus became operator-provided and gitignored, so no CI checkout can measure it. The harness stays as a local tool — [ADR-0044, Update (2026-09-09)](../adr/0044-retrieval-correctness-and-the-measurement-gate.md).)* | `Taskfile.yml`, `oib_retrieval_eval/runner.py` |
+| A · pass | The structural retrievability harness runs in CI as a gate (`task be:eval:retrieval`, 95% floor, 98.3% measured). *(Retired 2026-09-09: the corpus became operator-provided and gitignored, so no CI checkout can measure it. The harness stays as a local tool — [ADR-0058, Update (2026-09-09)](../adr/0058-retrieval-correctness-and-the-measurement-gate.md).)* | `Taskfile.yml`, `oib_retrieval_eval/runner.py` |
 | B | A background run carries the project, organization and user identity, fetches the live memory digest, composes it into the agent's context and hands the reflection pass a real digest; the fire path builds the digest and evaluates the reflection flag | `aiq_api/jobs/runner.py`, `routes/skills.py`, `lib/jobs/service.ts` |
 | B | A finished or failed run tells the job's creator: `job.completed` / `job.failed` inbox items, a `project` inbox target, an internal outcome route the worker calls from its terminal arms | `lib/inbox/*`, `app/api/internal/jobs/[jobId]/outcome`, `aiq_api/jobs/outcome_notify.py` |
 | B | One personal-data guard on the write path both memory writers share; a date is no longer dropped as a phone number | `knowledge/project_memory.py` |
-| B | Accepted and declined proposals reach the next turn as a `PROPOSAL_DECISIONS` block on the memory channel | `lib/projects/proposal-decisions.ts`, `researcher.j2` |
+| B | Accepted and declined proposals reach the next turn as a `PROPOSAL_DECISIONS` block on the memory channel | `lib/projects/proposal-decisions.ts`, `piloti.j2` |
 | B | Memory recall ranks by similarity in SQL and a quoted correction resolves across the whole scope, not the 200 most recent rows | `lib/projects/memory-service.ts` |
 | fix | A chat attachment re-uploaded under its name replaces the first, as the project and Archiv shelves already did; the probe skips machine-authored rows; migration 0074 makes one live human-uploaded document per `(organization, collection, filename)` a unique index; every replace path discards the superseded thumbnail and `_bim/` derivatives | `lib/session-documents/service.ts`, `lib/documents/object-cleanup.ts`, `drizzle/0074_*` |
 | fix | A deep run whose post-hoc cards could not be produced records `cards_generation_failed` as a degraded reason, worded under the answer and in the Herleitung graph, instead of looking like a run that had nothing to propose | `cards/generate.py`, `jobs/runner.py`, `turn-events.ts`, `message-provenance.ts` |
 | fix | The Report tab's source list carries the `[N]` the report cites by: the report route returns the persisted numbered sources, and both load paths merge them into the citation list | `routes/jobs.py`, `deep-research-client.ts`, `use-deep-research.ts`, `use-load-job-data.ts` |
 | fix | The OIB display title reads any edition off the filename, not only "Mai 2023"; the three document-metadata resolvers log a failed store read instead of silently falling back | `common/norm_registry.py`, `sources/knowledge_layer/src/register.py` |
-| D · L0 | The turn's one repair: a failed citation or quote triggers one retrieval aimed at the failing text and one rewrite, re-verified, the better answer ships (`repair_pass`, `status.repair`) | `researcher/agent.py` |
+| D · L0 | The turn's one repair: a failed citation or quote triggers one retrieval aimed at the failing text and one rewrite, re-verified, the better answer ships (`repair_pass`, `status.repair`) | `piloti/agent.py` |
 | D · L1 | The retrieval loop: a sufficiency judge beside the reranker, alternative formulations retrieved from every collection and fused into the same RRF, a second rerank; `status.retrieval.requery` on the live line and `requery_queries` in the trace | `knowledge_layer/requery.py`, `register.py`, `config_oib_openrouter.yml` |
-| D · L5 | The turn holds for an attachment still being indexed (`GRID_INGEST_WAIT_SECONDS`, `status.documents.waiting`), re-reads the inventory when it finishes; the in-flight filter that never fired is fixed | `researcher/conversation_register.py`, `knowledge/ingest_status_store.py` |
+| D · L5 | The turn holds for an attachment still being indexed (`GRID_INGEST_WAIT_SECONDS`, `status.documents.waiting`), re-reads the inventory when it finishes; the in-flight filter that never fired is fixed | `piloti/conversation_register.py`, `knowledge/ingest_status_store.py` |
 | fix | Deep research no longer dies of one slow source: a tool's own timeout is a tool error the model routes around; the writer's call bound matches its output (600 s, one retry); a budget exhaustion keeps its actionable message; the banner names the real cause | `deep_researcher/tools/source_tool_batching.py`, `deep_researcher/agent.py`, `jobs/runner.py`, `config_oib_openrouter.yml` |
 | B | Reinforcement fires only on a build ranked against a question; a refused supersede is recorded as `conflicts_with_id` on the new row (migration 0076); every bound tool's context needs are declared (`TOOL_CONTEXT_REQUIREMENTS`) and checked against what the job worker injects | `lib/projects/memory-service.ts`, `project_context.py`, `tests/aiq_agent/test_tool_context_contract.py` |
-| delete | `card_generator_llm` (a field nothing read), the unmaintained `config_grid_oib.yml`, the two-hop research → history → chat redirect, and the backlog lines closed at HEAD | `researcher/conversation_register.py`, `configs/`, `backlog.md` |
+| delete | `card_generator_llm` (a field nothing read), the unmaintained `config_grid_oib.yml`, the two-hop research → history → chat redirect, and the backlog lines closed at HEAD | `piloti/conversation_register.py`, `configs/`, `backlog.md` |
 | C | The `tasks` row (ADR-0051): one per attempt, requester pinned, plan frozen, lifecycle and review as separate axes; a scheduled deep-research report is filed at completion as the requester through the outcome callback; a rejection's reason reaches the next run's prompt as `PREVIOUS_DECISIONS`; audit `task.created` / `task.completed` / `task.reviewed`; `GET …/tasks`, `POST …/tasks/[taskId]/review` | `lib/tasks/*`, `lib/auth/pinned-session.ts`, `drizzle/0075_tasks.sql`, `jobs/outcome_notify.py` |
 
 Still open from the plan: the card-generation failure signal, the stall
@@ -134,7 +134,7 @@ named in `deploy/compose/docker-compose.coolify.yaml:131`.
 
 | Question | Answer today | Evidence |
 |---|---|---|
-| Can the agent loop? | Yes, a ReAct loop with a ceiling of 7 charged tool calls plus reserved skill loads. The accounting charges per *emitted* call, so three parallel searches cost three | `researcher/agent.py:997`, config `:648-705` (a 55-line trace of which German question shapes truncate) |
+| Can the agent loop? | Yes, a ReAct loop with a ceiling of 7 charged tool calls plus reserved skill loads. The accounting charges per *emitted* call, so three parallel searches cost three | `piloti/agent.py:997`, config `:648-705` (a 55-line trace of which German question shapes truncate) |
 | Does it check its own answer? | Only subtractively: unresolvable `[N]` are deleted, a fabricated quote is annotated, the confidence chip is capped. Nothing re-searches or rewrites | `common/citation_verification.py:2295-2365`, `deep_researcher/agent.py:1090-1097` ("it still ships") |
 | Can it act? | Two write tools: `remember` (project memory) and `ris_fetch_tool` (ingests into the session shelf). Everything else reads or renders | config `:630-644`; `project_memory/register.py:150-186` |
 | Can it act without a human click? | No. Org memory writes and profile patches become proposal cards the user accepts | `register.py:171-186`, `cards/models.py:280-289` |
@@ -235,7 +235,7 @@ What remains, ranked by consequence:
    calls by description. Multi-query and decomposition are missing while the
    fusion machinery to merge them is written and tested. `register.py:66`,
    `hybrid.py:29`.
-4. **The measurement gate is doctrine, not enforcement.** ADR-0044 rule 7
+4. **The measurement gate is doctrine, not enforcement.** ADR-0058 rule 7
    forbids tuning on judgement once the harness exists. It exists. No CI job
    runs it. The structural arm is model-free and offline, so a regression
    gate costs one Taskfile target and one workflow step.
@@ -297,7 +297,7 @@ What a delegated task needs, and what already exists for each:
 | Execution | Two correct DB-claimed worker tiers (`FOR UPDATE SKIP LOCKED`, heartbeat, stale reclaim, leader-elected reaper) | `aiq_api/jobs/queue.py`, `scheduler/db.js`, `purger/db.js` | One shared claim library; a `kind` on the queue so a non-research step can be queued; a migration and RLS for `research_job_queue`, which is created by runtime DDL |
 | Trigger | A job: prompt, optional skill snapshot, output kind, cron | `schema/jobs.ts:98` | An overlap policy (`skip_if_running` / `queue`); an event trigger of any kind |
 | Playbook | Skills: versioned, org-owned, platform-shadowable, snapshotted, progressively disclosed | `skills/resolver.py`, `runtime.py` | Nothing. This is the most finished part |
-| Plan + approval | The clarifier's plan preview with approve / short answer / cancel | `researcher/clarify.py` (`preview_plan`) | It is an `asyncio` future on a live socket. A job has no socket, so it cannot be approved |
+| Plan + approval | The clarifier's plan preview with approve / short answer / cancel | `piloti/clarify.py` (`preview_plan`) | It is an `asyncio` future on a live socket. A job has no socket, so it cannot be approved |
 | Artifact | `fileGeneratedDocument`, `authored_by` / `authored_by_producer`, the "KI-generiert — nicht geprüft" block, deliberately not indexed | `lib/documents/generated.ts`, migration 0063 | Filing happens only on an interactive report GET. A scheduled run's report expires with `job_info` in 24 h and is filed by nobody (`api/jobs/async/[...path]/route.ts:237-245`) |
 | Notification | Inbox with six typed items, per-filter empty states, deep links that hold the anchor | `schema/inbox.ts:45-63`, `lib/inbox/registry.ts` | No `task.*` or `job.*` type. ADR-0035 priced one at "a registry entry plus two translations" and named a failed workflow run as the motivating case |
 | Review | Assignment *is* approval for a filed report ("being answerable for the content is the approval") | `agent-authored-reports.md:107-111` | No queue of agent output awaiting a human. The `Unvergeben + Von Piloti` filter is one page in one project |
@@ -424,7 +424,7 @@ Behind the release layer, the backend items that are real and were confirmed:
 | `ResearchWorker`'s loop and heartbeat cancellation have no test | `worker.py:68-102`; `grep ResearchWorker frontends/aiq_api/tests/` is empty | The most safety-critical code in the tier |
 | No cross-service contract test for the fire path | ADR-0046 Risks records the 403 that broke every scheduled run in a real deployment | The lesson was written down; the test was not |
 | `sources/` (90 tests) and `packages/` (~636 tests) run in no CI job | `Taskfile.yml:347-352`, `packages/AGENTS.md` | `sources/` is where every agent tool lives; `packages/ifc-spatial*` backs a default-on feature that renders compliance verdicts |
-| `backend-deep-dive.md` describes a card-generation LLM call that no longer exists and a `card_generator_llm` key that nothing reads | `backend-deep-dive.md:355-368`, `researcher/conversation_register.py:639,816` | An agent working this repo acts on the doc |
+| `backend-deep-dive.md` describes a card-generation LLM call that no longer exists and a `card_generator_llm` key that nothing reads | `backend-deep-dive.md:355-368`, `piloti/conversation_register.py:639,816` | An agent working this repo acts on the doc |
 | ADR numbers 0027, 0039, 0044, 0047 are each two files | `docs/adr/` | `scripts/check_adrs.py` exists; the collisions predate it |
 
 ---
@@ -516,7 +516,7 @@ The one new table, and the seams that already exist hung off it.
 | Change | Module | Kind |
 |---|---|---|
 | `tasks` table with lifecycle, pinned requester, plan, budget, deadline, concurrency policy; `jobs` creates tasks | `frontends/ui/src/lib/db/schema/tasks.ts`, `lib/tasks/`, migration with `grid_secure_table` | new row, generalises `jobs`/`job_runs`/`mention_requests` |
-| Persist the clarifier's plan on the task; approval is a row transition resolved by an event, not a socket future | `researcher/clarify.py` (`preview_plan`), `lib/tasks/` | generalisation |
+| Persist the clarifier's plan on the task; approval is a row transition resolved by an event, not a socket future | `piloti/clarify.py` (`preview_plan`), `lib/tasks/` | generalisation |
 | File the run's artifact at completion as the pinned requester, off the interactive GET | `lib/documents/research-report.ts`, `api/jobs/async/[...path]/route.ts:247` | generalisation; the route comment names this as "v1.1, decision 10" |
 | Audit actions `task.created … task.accepted`; per-task budget and deadline enforced by `GridCostTracker` and `BudgetGuardCallback` | `lib/audit/schemas.mjs`, `common/budget_guard.py`, `lib/request-context.ts` | generalisation |
 | A review surface: the `Unvergeben + Von Piloti` preset becomes the inbox row's landing view; accept / reject / edit writes a decision the next run reads | `documents/lib/file-filters.ts:20,80`, `file-filter-menu.tsx` | generalisation |
@@ -537,7 +537,7 @@ The loops that make the agent trustworthy unattended.
 
 | Change | Module |
 |---|---|
-| One bounded repair pass in the turn: on `citations_removed > 0`, an unverified quote or a capped confidence, one more retrieval and one rewrite, then ship with the marker if it still fails | `researcher/agent.py:1150-1400`, `deep_researcher/agent.py:1049-1160` |
+| One bounded repair pass in the turn: on `citations_removed > 0`, an unverified quote or a capped confidence, one more retrieval and one rewrite, then ship with the marker if it still fails | `piloti/agent.py:1150-1400`, `deep_researcher/agent.py:1049-1160` |
 | Retrieve → judge → re-query inside `knowledge_search`: a sufficiency judgement over the fused pool, one paraphrase fan-out merged by the existing RRF | `sources/knowledge_layer/src/register.py:1312`, `hybrid.py:29` |
 | A checker step on every task kind: the compliance matrix is re-read against its own citations before filing | `agents/compliance_checker/agent.py:503`, task runner |
 | The event seam with three consumers: ingest terminal state (hold the turn, tell the agent), `oib_status` STALE (re-check affected projects), a watched folder | `knowledge/ingest_status_store.py`, `oib_status.py:31-55`, `lib/tasks/triggers/` |

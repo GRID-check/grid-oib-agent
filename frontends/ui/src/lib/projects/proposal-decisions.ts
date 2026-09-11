@@ -17,17 +17,25 @@
 
 import 'server-only'
 import { listRecentMessagesWithCardDecisions } from '@/lib/conversations/repository'
-import { formatBoundedDigest, type DigestLineItem } from '@/lib/knowledge/digest-format'
+import {
+  DIGEST_BLOCK_MAX_CHARS,
+  formatBoundedDigest,
+  type DigestLineItem,
+} from '@/lib/knowledge/digest-format'
 
 export const PROPOSAL_DECISIONS_HEADER = 'PROPOSAL_DECISIONS v1'
 /** Messages scanned, newest first. Decisions are rare, so this reaches back far. */
 const MESSAGE_SCAN_LIMIT = 40
 /** Decisions kept, newest first. The next turn needs the recent ones, not the history. */
 const MAX_DECISIONS = 10
-/** Same order of size as one memory digest, so the two share the header budget. */
-const MAX_CHARS = 900
 
-type Decision = 'accepted' | 'rejected' | 'savedOrg' | 'savedProject' | 'dismissed'
+type Decision =
+  | 'accepted'
+  | 'rejected'
+  | 'savedOrg'
+  | 'savedProject'
+  | 'dismissed'
+  | 'partiallyApplied'
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -41,6 +49,11 @@ function verdictOf(decision: string): 'angenommen' | 'abgelehnt' | null {
     case 'accepted':
     case 'savedOrg':
     case 'savedProject':
+    // A partial application is a YES. What failed is a transport fact the next
+    // turn cannot act on and the reader can see in the Files pane; what the
+    // agent must not do is propose the same tidy-up again because some of it
+    // did not land.
+    case 'partiallyApplied':
       return 'angenommen'
     case 'rejected':
     case 'dismissed':
@@ -72,6 +85,23 @@ function describeCard(card: Record<string, unknown>): { kind: string; content: s
   if (type === 'memory_proposal') {
     const content = asString(card.content)
     return content ? { kind: 'Notiz', content } : null
+  }
+  if (type === 'file_operation_proposal') {
+    // The decision, in the words the card showed: the verb and what it named.
+    // Enough for the next turn to know it must not propose this again — and
+    // deliberately not the whole payload, which would spend the block's budget
+    // on rows nobody will act on.
+    const title = asString(card.title)
+    const operation = asString(card.operation)
+    const rows = Array.isArray(card.operations) ? card.operations : []
+    const subjects = rows
+      .filter(isRecord)
+      .map((row) => asString(row.document) ?? asString(row.folder_name))
+      .filter((subject): subject is string => subject !== undefined)
+      .slice(0, 3)
+    if (!title && !operation) return null
+    const named = subjects.length > 0 ? ` (${subjects.join('; ')})` : ''
+    return { kind: 'Ablage', content: `${title ?? operation}${named}` }
   }
   return null
 }
@@ -126,12 +156,30 @@ export async function buildProposalDecisionsBlock(
   return formatBoundedDigest(
     PROPOSAL_DECISIONS_HEADER,
     decided.map((entry) => entry.item),
-    MAX_CHARS,
+    DIGEST_BLOCK_MAX_CHARS,
   )
 }
 
-/** The memory digest and the decisions block, as one header value. */
-export function composeMemoryContext(digest: string | null, decisions: string | null): string | null {
-  const parts = [digest, decisions].filter((part): part is string => Boolean(part && part.trim()))
+/**
+ * The memory channel, as one header value: the digest, what the project decided
+ * about the agent's own proposals, and what a reviewer decided about the drafts
+ * this conversation filed (`lib/documents/review-decisions.ts`).
+ *
+ * Three blocks on one channel rather than three headers, for the reason the
+ * second one is here at all: `x-grid-project-memory` already reaches every
+ * surface memory reaches — the WS upgrade, the live per-turn digest fetch and a
+ * background run — and a new header would have to be added to each of them and
+ * to the envelope's TS/Python twins. Each block is bounded on its own and each
+ * is null when it has nothing to say, so a turn with no decisions carries
+ * exactly what it carried before.
+ */
+export function composeMemoryContext(
+  digest: string | null,
+  decisions: string | null,
+  reviewDecisions: string | null = null,
+): string | null {
+  const parts = [digest, decisions, reviewDecisions].filter((part): part is string =>
+    Boolean(part && part.trim()),
+  )
   return parts.length > 0 ? parts.join('\n\n') : null
 }

@@ -118,6 +118,13 @@ jobs:
           file: deploy/Dockerfile
           target: release
           push: true
+          # The commit the image runs, so the container can say so itself: it
+          # becomes GRID_GIT_SHA in the image (both Dockerfiles) and appears in
+          # the boot line and on the health endpoints. The image TAG already
+          # carries the sha, but nothing inside a running container can read its
+          # own tag — which is why a pilot report could never name a build.
+          build-args: |
+            GRID_GIT_SHA=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Layer cache lives in GHCR (a `buildcache` tag per image), NOT in
@@ -175,6 +182,13 @@ jobs:
           context: frontends/ui
           file: frontends/ui/deploy/Dockerfile
           push: true
+          # The commit the image runs, so the container can say so itself: it
+          # becomes GRID_GIT_SHA in the image (both Dockerfiles) and appears in
+          # the boot line and on the health endpoints. The image TAG already
+          # carries the sha, but nothing inside a running container can read its
+          # own tag — which is why a pilot report could never name a build.
+          build-args: |
+            GRID_GIT_SHA=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Layer cache in GHCR, mode=max for the intermediate dependency

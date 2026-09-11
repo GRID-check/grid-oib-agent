@@ -84,10 +84,10 @@ describe('FilePreviewPane', () => {
     expect(screen.queryByText('Citable')).toBeNull()
 
     // What Piloti made of it, and who owns it — the rail's, not the chrome's.
-    expect(chrome.queryByRole('button', { name: 'Ask Piloti' })).toBeNull()
+    expect(chrome.queryByRole('button', { name: 'Discuss' })).toBeNull()
     expect(chrome.queryByRole('button', { name: 'Ask a colleague' })).toBeNull()
     expect(chrome.queryByText('Responsible')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Ask Piloti' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Discuss' })).toBeInTheDocument()
     expect(screen.getByText('Responsible')).toBeInTheDocument()
   })
 
@@ -893,15 +893,18 @@ describe('FilePreviewPane', () => {
     })
   })
 
-  it('enables Ask when ingest reconciled to completed, not only the literal ready', () => {
-    render(<FilePreviewPane file={{ ...mockFile, status: 'completed' }} projectId="proj-1" />)
-    const ask = screen.getByRole('button', { name: /ask piloti/i })
-    expect(ask).toBeEnabled()
+  it('offers Besprechen while the file is still being read', () => {
+    // It used to be greyed out here, with a hint promising a wait. The wait was
+    // about the retrieval INDEX, and a conversation about a document no longer
+    // depends on it: the turn reads the subject version's own bytes. Disabling
+    // the control would now be withholding something that works.
+    render(<FilePreviewPane file={{ ...mockFile, status: 'processing' }} projectId="proj-1" />)
+    expect(screen.getByRole('button', { name: 'Discuss' })).toBeEnabled()
   })
 
-  it('keeps Ask disabled while the file is still being read', () => {
-    render(<FilePreviewPane file={{ ...mockFile, status: 'processing' }} projectId="proj-1" />)
-    expect(screen.getByRole('button', { name: /ask piloti/i })).toBeDisabled()
+  it('offers Besprechen once ingest has reconciled, too', () => {
+    render(<FilePreviewPane file={{ ...mockFile, status: 'completed' }} projectId="proj-1" />)
+    expect(screen.getByRole('button', { name: 'Discuss' })).toBeEnabled()
   })
 
   describe('a document that is not there any more', () => {
@@ -975,23 +978,18 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
     expect(screen.getByText('Size')).toBeInTheDocument()
   })
 
-  it('disables Ask and says why, instead of promising a wait that never ends', async () => {
+  it('offers Besprechen and still says the report is not in the knowledge base', async () => {
+    // THE POINT OF THE CHANGE. This button used to be greyed out for exactly
+    // this document — a report Piloti wrote, deliberately never indexed — which
+    // made the one file the reader most wants to talk about the one file they
+    // could not. The turn reads an unpublished version's own bytes now, so the
+    // control works; what it cannot do is cite the report as Projektwissen, and
+    // the hint still says so.
     render(<FilePreviewPane file={generated} projectId="proj-1" />)
 
-    const ask = screen.getByRole('button', { name: 'Ask Piloti' })
-    expect(ask).toBeDisabled()
-    // NOT "Once the file is citable": the report was deliberately never
-    // indexed, so there is no "once".
-    //
-    // And the reason is on the WRAPPER, not the button: a disabled `<button>`
-    // dispatches no pointer events in Chrome or Safari, so a `title` on it is a
-    // tooltip that can never open. The description is also announced, so the
-    // sentence exists for a reader who is not hovering anything.
-    expect(ask.closest('[title]')).toHaveAttribute(
-      'title',
-      'Created by Piloti — not in the knowledge base'
-    )
-    expect(ask).toHaveAccessibleDescription('Created by Piloti — not in the knowledge base')
+    const discuss = screen.getByRole('button', { name: 'Discuss' })
+    expect(discuss).toBeEnabled()
+    expect(discuss).toHaveAttribute('title', 'Created by Piloti — not in the knowledge base')
   })
 
   it('withholds Ask on a machine-authored row whose status says citable', () => {
@@ -1008,15 +1006,14 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
     // `authored_by` says what it is and cannot.
     render(<FilePreviewPane file={{ ...generated, status: 'completed' }} projectId="proj-1" />)
 
-    const ask = screen.getByRole('button', { name: 'Ask Piloti' })
-    expect(ask).toBeDisabled()
-    expect(ask.closest('[title]')).toHaveAttribute(
-      'title',
-      'Created by Piloti — not in the knowledge base'
-    )
+    const discuss = screen.getByRole('button', { name: 'Discuss' })
+    expect(discuss).toHaveAttribute('title', 'Created by Piloti — not in the knowledge base')
   })
 
-  it('still promises the wait for a document that really is being read', () => {
+  it('says nothing extra about a document that is simply still being read', () => {
+    // The uploaded file will be Projektwissen in a minute; there is nothing to
+    // warn anybody about, so the button carries no hint at all. The never-indexed
+    // sentence belongs to the report above and to nothing else.
     render(
       <FilePreviewPane
         file={{ ...generated, status: 'processing', authoredBy: 'user' }}
@@ -1024,10 +1021,9 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
       />
     )
 
-    const ask = screen.getByRole('button', { name: 'Ask Piloti' })
-    expect(ask).toBeDisabled()
-    expect(ask.closest('[title]')).toHaveAttribute('title', 'Once the file is citable')
-    expect(ask).toHaveAccessibleDescription('Once the file is citable')
+    const discuss = screen.getByRole('button', { name: 'Discuss' })
+    expect(discuss).toBeEnabled()
+    expect(discuss).not.toHaveAttribute('title')
   })
 
   describe('text-shaped documents', () => {

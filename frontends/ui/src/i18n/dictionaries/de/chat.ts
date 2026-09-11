@@ -122,6 +122,12 @@ export const chat: typeof en.chat = {
     afternoon: 'Guten Tag',
     evening: 'Guten Abend',
     withName: '{greeting}, {name}.',
+    // Der leere Chat in einem Projekt sagt EINE Sache über sich: dass Piloti
+    // nicht nur antwortet, sondern schreibt. Sonst entdeckt das nur, wer eine
+    // Bitte zufällig als Auftrag formuliert (Ledger 23). Nur im Projekt, weil
+    // ohne Projekt kein Ablageort existiert, in den ein Entwurf ginge.
+    projectWrites:
+      'Piloti beantwortet nicht nur Fragen – auf Zuruf schreibt Piloti Aktenvermerke, Notizen und Entwürfe direkt in die Projektdateien.',
   },
   // Thread role tabs (click-dummy overhaul, WS-3).
   roles: {
@@ -335,6 +341,13 @@ export const chat: typeof en.chat = {
     followUps: {
       eyebrow: 'Weiterfragen',
       groupAria: 'Weiterführende Fragen',
+      // Der eine clientseitige Chip unter einer langen Antwort: das Angebot,
+      // das sonst niemand entdeckt — Piloti schreibt auch (Ledger 23).
+      aktenvermerk: 'Als Aktenvermerk schreiben',
+      // Was der Chip in den Eingabebereich schreibt. Bewusst nicht die
+      // Beschriftung: „Als Aktenvermerk schreiben“ ist ein Satzfragment und
+      // keine Bitte.
+      aktenvermerkPrefill: 'Schreib das als Aktenvermerk in mein Projekt.',
     },
     keyTakeaways: {
       eyebrow: 'Das Wichtigste',
@@ -373,6 +386,95 @@ export const chat: typeof en.chat = {
     // Mermaid-Block im Fließtext (`diagrams.schematicOnly`, `diagrams.fallback`).
     diagram: {
       eyebrow: 'Diagramm',
+    },
+    // Ein Dokument, das Piloti in den Arbeitsordner dieser Unterhaltung
+    // geschrieben hat. Keine Projektunterlage: nichts davon ist abgelegt,
+    // indexiert oder zitierfähig, bis eine Person es ins Projekt übernimmt —
+    // genau das wird die (noch wirkungslose) Aktion unter der Karte tun.
+    documentDraft: {
+      eyebrow: 'Entwurf',
+      // Wie oft dieser Pfad in dieser Unterhaltung geschrieben wurde. Eigenes
+      // Token neben der Größe, damit eine Sprache das „v" fallen lassen kann.
+      version: 'v{version}',
+      // Der Entwurf liegt nur in dieser Unterhaltung. „Übernehmen" ist deshalb
+      // eine Bitte an Piloti und kein Formular: die Datei liegt im
+      // Arbeitsordner des Agenten, nicht im Browser, und Piloti legt sie in der
+      // Sitzung der Lesenden ab. Der Klick schreibt den Satz in die
+      // Eingabezeile, abgeschickt wird er von der Person.
+      file: 'Ins Projekt übernehmen',
+      fileRequest: 'Leg diesen Entwurf ins Projekt ab.',
+      // Ab hier liegt das Dokument im Projekt.
+      filed: 'Liegt als Entwurf im Projekt',
+      open: 'Im Projekt öffnen',
+      submit: 'Zur Freigabe einreichen',
+      submitting: 'Wird eingereicht …',
+      submitted: 'Zur Freigabe eingereicht — wartet auf eine Person',
+      // Der Zustand, den eine Person schon gesetzt hat. Kein Knopf: Was jetzt
+      // passiert, entscheidet sie in der Dateiablage.
+      inReview: 'Wartet auf Freigabe',
+      changesRequested: 'Änderungen erbeten',
+      approved: 'Freigegeben',
+      published: 'Veröffentlicht',
+      error: 'Das Einreichen hat nicht geklappt. Bitte in der Dateiablage erneut versuchen.',
+    },
+    // Ein Auftrag, den Piloti nach diesem Gespräch selbständig erledigt
+    // (ADR-0051). Die Karte bietet nichts an: die Zeile existiert schon, wenn
+    // sie erscheint. „läuft" ist deshalb der wichtigste Text auf ihr — die
+    // Antwort daneben darf nicht so klingen, als sei die Arbeit getan.
+    taskCreated: {
+      eyebrow: 'Auftrag',
+      running: 'läuft',
+      due: 'bis {date}',
+      open: 'Unterhaltung öffnen',
+      // Die vier Arten, in den Worten, in denen die Nutzerin sie beauftragt hat.
+      kind: {
+        complianceCheck: 'Normprüfung',
+        einreichcheck: 'Einreichcheck',
+        document: 'Dokument',
+        revision: 'Überarbeitung',
+      },
+    },
+    // Die Änderung an der Ablage, die Piloti VORGESCHLAGEN hat. Bis zum
+    // Annehmen ist nichts geschehen: Der Agent kann gar keine Dokumentzeile
+    // schreiben, die Karte ist also alles, was hinten passiert ist. Das
+    // Annehmen ruft dieselben Routen wie die Dateiablage — in der Sitzung der
+    // Lesenden.
+    fileOperationProposal: {
+      // Eine Augenbraue je Verb: Welche Art von Änderung das ist, gehört vor
+      // die erste Zeile und nicht dahinter.
+      eyebrow: {
+        move: 'Verschieben',
+        rename: 'Umbenennen',
+        create_folder: 'Neuer Ordner',
+        assign: 'Zuweisen',
+      },
+      // Die oberste Ebene hat keinen Pfad, aber einen Namen, den Menschen sagen.
+      root: 'Oberste Ebene',
+      prompt: 'Übernehmen?',
+      accept: 'Übernehmen',
+      reject: 'Verwerfen',
+      applying: 'Wird übernommen …',
+      applied: {
+        move: '{count, plural, one {Datei verschoben.} other {# Dateien verschoben.}}',
+        rename: '{count, plural, one {Datei umbenannt.} other {# Dateien umbenannt.}}',
+        create_folder: '{count, plural, one {Ordner angelegt.} other {# Ordner angelegt.}}',
+        assign: '{count, plural, one {Datei zugewiesen.} other {# Dateien zugewiesen.}}',
+      },
+      // Teils übernommen, teils nicht. WELCHE, wird nicht gespeichert (eine
+      // Entscheidung ist eine Entscheidung und ein Zeitpunkt) — nach dem Neuladen
+      // ist das alles, was die Karte ehrlich sagen kann, und sie sagt, wo man
+      // nachsieht, statt zu raten.
+      partial:
+        'Teilweise übernommen. Einige Einträge konnten nicht ausgeführt werden — sehen Sie in der Dateiablage nach.',
+      dismissed: 'Verworfen. Es wurde nichts geändert.',
+      error: 'Konnte nicht übernommen werden.',
+      // Der eine Fall, in dem die Karte nichts auszuführen hat. Der Vorschlag
+      // bleibt lesbar, die Schaltfläche erscheint nicht, und hier steht warum —
+      // statt beim Klick zu scheitern.
+      unavailable: {
+        noProject:
+          'Diese Unterhaltung gehört zu keinem Projekt, es gibt hier also keine Ablage zu ändern.',
+      },
     },
     processMap: {
       eyebrow: 'Verfahrensablauf',
@@ -770,6 +872,12 @@ export const chat: typeof en.chat = {
         retrieval: {
           withQuery: 'Sucht {corpus}: „{query}“',
           plain: 'Sucht {corpus} …',
+          // Die Fundstelle steht schon fest und wird GELESEN — deshalb nennt
+          // die Zeile das Dokument statt eines Korpus. `{document}` ist der
+          // Name, den Herausgeber oder Büro vergeben haben: ein Eigenname, der
+          // unübersetzt durchgereicht wird.
+          punkt: 'Liest {document}, Pkt. {punkt} …',
+          page: 'Liest {document}, S. {page} …',
           // Die erste Trefferliste reichte nicht; es wird mit anderen
           // Formulierungen weitergesucht. Die Formulierungen selbst sind
           // die des Modells und stehen deshalb nicht in der Zeile.
@@ -781,6 +889,24 @@ export const chat: typeof en.chat = {
         action: {
           remember: 'Notiz wird gespeichert …',
           card: 'Ergebniskarte wird erstellt …',
+          // Der Arbeitsordner dieser Unterhaltung: ein Verb, eine Zeile. Kein
+          // „sucht“ — hier wird nichts gelesen, was eine Antwort belegen
+          // könnte, sondern am Dokument gearbeitet, das gerade entsteht.
+          draftList: 'Entwürfe werden durchgesehen …',
+          draftRead: 'Entwurf wird gelesen …',
+          draftWrite: 'Entwurf wird geschrieben …',
+          draftEdit: 'Entwurf wird überarbeitet …',
+          // Eine vorgeschlagene Änderung an der Ablage. Kein Verb und kein
+          // Dateiname: Die Karte sagt gleich darauf, welcher Vorgang welche
+          // Datei betrifft — mit den Schaltflächen daneben.
+          fileProposal: 'Vorschlag für Ihre Ablage wird vorbereitet …',
+          // Die zwei Schritte, die die Unterhaltung verlassen. Eigene Zeilen,
+          // weil sich hier nicht der Entwurf ändert, sondern wo er liegt — und
+          // weil Ablegen und Einreichen für die Lesenden zwei verschiedene
+          // Dinge sind: das eine legt etwas hin, das andere bittet jemanden.
+          draftFiled: 'Entwurf wird im Projekt abgelegt …',
+          draftSubmitted: 'Entwurf wird zur Freigabe eingereicht …',
+          taskCreated: 'Auftrag wird angelegt …',
         },
         // Das Vertrauensversprechen des Produkts, laut ausgesprochen: geprüft
         // wird nicht „irgendetwas an den Belegen“, sondern jede Fundstelle
@@ -810,6 +936,16 @@ export const chat: typeof en.chat = {
       corpus: 'OIB-Wissen',
       assistant: 'Assistent',
       reading: 'Lesen',
+      // Das Arbeitsverzeichnis der Unterhaltung: schreiben, lesen, ändern,
+      // auflisten — ein Wort für alle vier. Was Lesende interessiert, ist dass
+      // an einem Entwurf gearbeitet wurde, nicht wie oft.
+      draft: 'Entwurf',
+      // Der Entwurf verlässt das Arbeitsverzeichnis: als Projektdokument
+      // abgelegt oder zur Freigabe eingereicht.
+      filing: 'Ablage',
+      task: 'Auftrag',
+      // Die Dateiaktionen SCHLAGEN vor und schreiben nichts (ADR-0003).
+      fileProposal: 'Ablagevorschlag',
       // Ein Chip pro Skill, den dieser Turn tatsächlich angewendet hat.
       // `{name}` liefert die einzige Label-Instanz
       // (features/skills/lib/skill-activity).
@@ -905,6 +1041,15 @@ export const chat: typeof en.chat = {
       // Same layer, when the model wrote a Thought: the conclusion that
       // caused the next fetch, not the search query (PF-12).
       checkpointTab: 'Folgerung {n}',
+      // Zugeklappte Schicht: was dieser Abruf zurückgebracht hat, als Zahl.
+      // Nie die Suchanfrage und nie die Dateinamen — eine Namensliste ist der
+      // Fächer noch einmal, nur schlechter gesetzt (PF-12).
+      roundFilesOne: '1 Datei',
+      roundFiles: '{count} Dateien',
+      // Barrierefreier Name der Schaltfläche, die die Schicht auf- und zuklappt.
+      // Der Kartentext selbst ist eine Folgerung und taugt nicht als Name.
+      roundFold: 'Schritt {n} zuklappen',
+      roundUnfold: 'Schritt {n} aufklappen',
       contextLabel: 'Kontext',
       sourcesTab: 'Quellen',
       sourcesTitle: 'Geprüfte Quellen',
@@ -1050,6 +1195,11 @@ export const chat: typeof en.chat = {
     // Wiederholaktion bei einer fehlgeschlagenen Antwort (Designsprache:
     // „hilfreiche Meldung + erneut versuchen“).
     retry: 'Erneut versuchen',
+    // Die Kennung der fehlgeschlagenen Anfrage. Angezeigt werden die ersten
+    // acht Zeichen – genau die, die im Log stehen –, kopiert wird die ganze.
+    reference: 'Referenz für den Support',
+    referenceCopyAria: 'Referenz {id} kopieren',
+    referenceCopied: 'Referenz kopiert',
   },
   errorRegistry: {
     connectionLost: {

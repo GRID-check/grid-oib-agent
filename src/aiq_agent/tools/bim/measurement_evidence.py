@@ -1,7 +1,7 @@
 """What a measurement result says about ITSELF — the one machine-readable fact.
 
 ``ifc_measure``'s renderer and the confidence gate in
-:mod:`aiq_agent.agents.researcher.grounding` need to agree on a single
+:mod:`aiq_agent.agents.piloti.grounding` need to agree on a single
 question: **did this result actually measure anything?** They used to agree by
 vocabulary — the gate searched the whole rendered string for „gemessen" or
 „deklariert" — and that is not a contract, it is a coincidence. The renderer
@@ -38,7 +38,7 @@ import re
 EVIDENCE_PROVENANCES: frozenset[str] = frozenset({"declared", "computed"})
 
 #: The opening of the trailer line. Changing it changes the contract, and
-#: ``tests/aiq_agent/agents/researcher/test_grounding.py`` pins both
+#: ``tests/aiq_agent/agents/piloti/test_grounding.py`` pins both
 #: sides of it against real renderer output.
 MEASUREMENT_EVIDENCE_PREFIX = "Messwerte in diesem Ergebnis:"
 

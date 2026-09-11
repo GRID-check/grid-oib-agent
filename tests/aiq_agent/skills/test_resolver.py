@@ -271,7 +271,7 @@ def test_unknown_grid_agents_names_do_not_delete_the_skill(resolver: SkillResolv
     assert _agent_allows(real, "researcher") is False
 
 
-def test_the_retired_agent_name_still_scopes_a_skill_to_the_researcher() -> None:
+def test_the_retired_agent_name_still_scopes_a_skill_to_the_chat_agent() -> None:
     """`shallow_researcher` is `researcher`, and reads as a RESTRICTION either way.
 
     The failure this pins is the silent one. Both resolvers ignore a name they

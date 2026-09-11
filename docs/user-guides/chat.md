@@ -44,7 +44,7 @@ The whole header is hidden on an empty chat that has not started yet, apart from
 
 The composer is a white card with the message field on top and a control row below, separated by a hairline:
 
-- **Asking about … bar**: when this turn is about a project file (**Piloti dazu fragen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Piloti dazu fragen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroarchiv.
+- **Asking about … bar**: when this turn is about a project file (**Besprechen**, a surfaced card, or a cited drawing), a bar at the top of the composer names that file and the file stays open as a peek. Sidebar **Frag Piloti** (`?new=1` alone) is an empty draft and closes the previous peek. **Besprechen** lands on `?new=1&doc=` — a new chat *about that file* — and must keep the peek. The **×** on the bar stops asking about the file. The next send searches that document, not the Büroarchiv.
 - **Datengrundlage chip**: shows how many data sources are currently enabled and opens the existing Data Sources panel.
 - **Scope chip**: shows the current project with a lock icon. Retrieval is always scoped to this project; the popover lists a disabled "All projects" option — cross-project search is not available yet.
 - **Deep Research pill**: an on/off *preference*. Piloti escalates to deep research automatically when a question calls for it; the pill records your intent and shows an honest hint — it does not force a deep-research run.
@@ -193,6 +193,48 @@ retry is possible — previously an earlier success kept the composer locked for
 good, telling the user research had completed over a session whose report never
 arrived.
 
+## Herleitung: folding a search step
+
+Above the answer sits the *Herleitung* — a one-line bar that opens into the
+graph of how the turn got there. A turn that searched once draws a single fan of
+sources. A turn that searched **more than once** draws a spine instead: the
+conclusion that caused each fetch, the files *that* fetch returned, then the
+next conclusion. A step's body is always the model's own sentence, never the
+search query.
+
+**Every step folds.** Clicking a step (or reaching it with Tab and pressing
+Enter — it is a real button and reports its state through `aria-expanded`)
+replaces its fan of file cards with the count of what that fetch returned,
+"3 Dateien". Clicking again brings the cards back. A step that fetched nothing
+has no fold: there is nothing to put away.
+
+**Three or more steps arrive folded**, all but the newest. Two steps are a
+comparison and folding half of one hides it; from the third the graph stops
+being a shape and starts being a scroll, so the older steps arrive as counts and
+the reader opens the one they want. A step opened by hand stays open as later
+steps stream in. The choice lives for as long as the panel is open — it is a
+reading preference for one Herleitung, not a saved setting.
+
+Rendered evidence: `frontends/ui/visual/screenshots/herleitung-spine*.png`.
+
+## After a long answer: "Als Aktenvermerk schreiben"
+
+Under the answer, outside its card, sit the follow-up chips — the questions this
+answer made askable, computed by a post-answer stage. Beside them, on a turn
+that earns it, is one chip the browser decides on its own: **„Als Aktenvermerk
+schreiben"**.
+
+It appears when all three are true: the answer is a walkthrough or a ruling
+(a Hinweis or a handoff is not a document), the chat belongs to a project (a
+draft needs somewhere to be filed), and the answer is longer than about a
+screenful. Pressing it fills the composer with the request and stops there —
+the person presses send, so the draft is written under their permissions and
+their audit actor, exactly as if they had typed it.
+
+The empty chat in a project says the same thing in one sentence, because
+otherwise the only people who find out that Piloti writes are the ones who
+happen to phrase a request as a commission.
+
 ## Answer sources ("Belegt durch")
 
 Answers that already carry source data show a provenance block: structured citations from shallow/deep research (`origin` plus optional `file_name`/`page`/`number`, with `[KB]`/`[RIS]`/`[Web]` tokens and URL heuristics as fallback) and the laws named by `legal_basis` cards. Sources are tinted by origin (law / project / web) and always pair icon + label with the color; web and RIS sources link out. Answers without source data show no block — sources are never fabricated.
@@ -251,7 +293,7 @@ steps aside, since the request was to see the file), and the **×** on the
 *Asking about …* bar — the one control that ends the question as well as the
 viewer — offers **Undo** in the confirmation that follows it.
 
-**Coming from Files.** *Piloti dazu fragen* carries the document with you: the
+**Coming from Files.** *Besprechen* carries the document with you: the
 viewer you were looking at stays on screen while the conversation loads, and
 hands over to the peek when it arrives. It never blinks out and leaves you
 looking at the file grid mid-move.

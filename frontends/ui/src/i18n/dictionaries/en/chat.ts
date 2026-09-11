@@ -133,6 +133,13 @@ export const chat = {
     afternoon: 'Good afternoon',
     evening: 'Good evening',
     withName: '{greeting}, {name}.',
+    // The empty canvas inside a project says ONE thing about itself: that
+    // Piloti writes as well as answers. Otherwise the only people who find out
+    // are the ones who happen to phrase a request as a commission (ledger 23).
+    // Project-only, because without a project there is nowhere for a draft to
+    // be filed.
+    projectWrites:
+      'Piloti does more than answer — ask, and it writes file notes, memos and drafts straight into the project files.',
   },
   // Thread role tabs (click-dummy overhaul, WS-3).
   roles: {
@@ -344,6 +351,13 @@ export const chat = {
     followUps: {
       eyebrow: 'Ask on',
       groupAria: 'Follow-up questions',
+      // The one client-side chip under a long answer: the offer nobody
+      // otherwise discovers — Piloti writes, too (ledger 23).
+      aktenvermerk: 'Write this up as a file note',
+      // What the chip types into the composer. Deliberately not the label: the
+      // label is a sentence fragment, not a request. It is prefill and not a
+      // command, so the reader can edit it before pressing send.
+      aktenvermerkPrefill: 'Write that up as a file note in my project.',
     },
     keyTakeaways: {
       eyebrow: 'What matters most',
@@ -383,6 +397,92 @@ export const chat = {
     // same picture, said once.
     diagram: {
       eyebrow: 'Diagram',
+    },
+    // A document Piloti wrote into this conversation's working directory. Not a
+    // project document: nothing here is filed, indexed or citable until a
+    // person takes it into the project — which is what the (still inert)
+    // action under the card will do.
+    documentDraft: {
+      eyebrow: 'Draft',
+      // How often this path has been written in this conversation. Rendered as
+      // its own token beside the size, so a locale can drop the „v".
+      version: 'v{version}',
+      // The draft lives in this conversation only. "Add to the project" is
+      // therefore a request to Piloti rather than a form: the file is in the
+      // agent's working directory, not in the browser, and Piloti files it in
+      // the reader's own session. The click puts the sentence in the composer;
+      // the person sends it.
+      file: 'Add to the project',
+      fileRequest: 'File this draft into the project.',
+      // From here on the document is in the project.
+      filed: 'Filed in the project as a draft',
+      open: 'Open in the project',
+      submit: 'Send for approval',
+      submitting: 'Sending …',
+      submitted: 'Sent for approval — waiting for a person',
+      // A state a person has already set. No button: what happens next is
+      // decided in the Files pane.
+      inReview: 'Awaiting approval',
+      changesRequested: 'Changes requested',
+      approved: 'Approved',
+      published: 'Published',
+      error: 'Sending for approval failed. Please try again from the Files pane.',
+    },
+    // Work Piloti has taken on and will finish after this conversation
+    // (ADR-0051). The card offers nothing: the row exists by the time it
+    // renders. „running" is therefore the most important word on it — the
+    // answer beside it must not read as though the work were done.
+    taskCreated: {
+      eyebrow: 'Task',
+      running: 'running',
+      due: 'by {date}',
+      open: 'Open conversation',
+      // The four kinds, in the words somebody would use to ask for them.
+      kind: {
+        complianceCheck: 'Compliance check',
+        einreichcheck: 'Submission check',
+        document: 'Document',
+        revision: 'Revision',
+      },
+    },
+    // The workspace change Piloti PROPOSED. Nothing has happened until the
+    // reader accepts: the agent has no way to write a document row at all, so
+    // the card is the whole of what the backend did. Accepting runs the same
+    // routes the Files pane runs, in the reader's own session.
+    fileOperationProposal: {
+      // One eyebrow per verb — the reader should know what kind of change this
+      // is before reading a single row of it.
+      eyebrow: {
+        move: 'Move',
+        rename: 'Rename',
+        create_folder: 'New folder',
+        assign: 'Assign',
+      },
+      // The project root has a path of nothing; it needs a name a person uses.
+      root: 'Top level',
+      prompt: 'Apply this?',
+      accept: 'Apply',
+      reject: 'Discard',
+      applying: 'Applying…',
+      applied: {
+        move: '{count, plural, one {File moved.} other {# files moved.}}',
+        rename: '{count, plural, one {File renamed.} other {# files renamed.}}',
+        create_folder: '{count, plural, one {Folder created.} other {# folders created.}}',
+        assign: '{count, plural, one {File assigned.} other {# files assigned.}}',
+      },
+      // Some of it landed and some did not. WHICH is not stored (a decision is
+      // a decision plus a timestamp), so after a reload this is all the card
+      // can honestly say — and it says where to look instead of guessing.
+      partial: 'Applied in part. Some entries could not be applied — check the file list.',
+      dismissed: 'Discarded. Nothing was changed.',
+      error: 'Could not be applied.',
+      // The one case where the card has nothing to run. The proposal still
+      // reads; the control does not appear, and this says why rather than
+      // failing on click.
+      unavailable: {
+        noProject:
+          'This chat is not attached to a project, so there is no file store to change.',
+      },
     },
     processMap: {
       eyebrow: 'Procedure',
@@ -793,6 +893,12 @@ export const chat = {
         retrieval: {
           withQuery: 'Searching {corpus}: “{query}”',
           plain: 'Searching {corpus} …',
+          // The passage was already identified and is being READ, so the line
+          // names the document instead of a corpus. `{document}` is the name
+          // the publisher or the office gave it — a proper noun, sent as
+          // itself and never translated.
+          punkt: 'Reading {document}, Pkt. {punkt} …',
+          page: 'Reading {document}, p. {page} …',
           // The first pool was not enough; other formulations are being tried.
           // The formulations are the model's words, so they stay off the line.
           requery: 'First results are not enough — searching with other terms …',
@@ -802,6 +908,24 @@ export const chat = {
         action: {
           remember: 'Saving the note …',
           card: 'Building the result card …',
+          // This conversation's working directory: one verb, one line. Never
+          // "searching" — nothing here is read as evidence for an answer; the
+          // document being written is what is being worked on.
+          draftList: 'Reviewing the drafts …',
+          draftRead: 'Reading the draft …',
+          draftWrite: 'Writing the draft …',
+          draftEdit: 'Revising the draft …',
+          // A workspace change being PROPOSED. Present tense and no verb: the
+          // card names the operation and the file a moment later, with the
+          // buttons attached, so saying it twice would only say it worse.
+          fileProposal: 'Preparing a suggestion for your files…',
+          // The two steps that leave the conversation. Their own lines, because
+          // what changes here is not the draft but where it lives — and because
+          // filing and sending for approval are two different things to the
+          // reader: one puts something down, the other asks somebody.
+          draftFiled: 'Filing the draft in the project …',
+          draftSubmitted: 'Sending the draft for approval …',
+          taskCreated: 'Creating the task …',
         },
         // The product's trust proposition said out loud: what is checked is not
         // "the citations" in the abstract but every one of them, against what
@@ -830,6 +954,13 @@ export const chat = {
       corpus: 'OIB knowledge',
       assistant: 'Assistant',
       reading: 'Reading',
+      /** The conversation's working directory: write, read, edit, list — one word. */
+      draft: 'Draft',
+      /** The draft leaves the working directory: filed, or submitted for approval. */
+      filing: 'Filing',
+      task: 'Task',
+      /** The file actions PROPOSE and write nothing (ADR-0003). */
+      fileProposal: 'File proposal',
       // One chip per skill the turn actually applied. `{name}` is resolved by
       // the single label authority (features/skills/lib/skill-activity).
       skill: 'Skill: {name}',
@@ -911,6 +1042,15 @@ export const chat = {
       // Same layer, when the model wrote a Thought: the conclusion that
       // caused the next fetch, not the search query (PF-12).
       checkpointTab: 'Conclusion {n}',
+      // A folded layer: what this fetch brought back, as a number. Never the
+      // query and never the filenames — a list of names is the fan again, in
+      // worse typography (PF-12).
+      roundFilesOne: '1 file',
+      roundFiles: '{count} files',
+      // Accessible name of the control that folds and unfolds the layer. The
+      // card's own text is a conclusion and makes a poor control name.
+      roundFold: 'Collapse step {n}',
+      roundUnfold: 'Expand step {n}',
       contextLabel: 'Context',
       sourcesTab: 'Sources',
       sourcesTitle: 'Sources examined',
@@ -1051,6 +1191,11 @@ export const chat = {
     hideDetails: 'Hide details',
     // Retry action on an errored answer (design language: "helpful message + retry").
     retry: 'Try again',
+    // The failed request's id. The first eight characters are shown — the same
+    // ones the log line carries — and the whole id is what gets copied.
+    reference: 'Support reference',
+    referenceCopyAria: 'Copy reference {id}',
+    referenceCopied: 'Reference copied',
   },
   // Localized titles + default messages for the chat error registry
   // (features/chat/lib/error-registry.ts). Keyed by error code.

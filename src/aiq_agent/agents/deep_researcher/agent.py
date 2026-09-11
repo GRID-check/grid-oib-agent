@@ -14,8 +14,8 @@ from uuid import uuid4
 from langchain_core.tools import BaseTool
 from langgraph.types import Checkpointer
 
-from aiq_agent.agents.researcher.markers import ConfidenceLevel
-from aiq_agent.agents.researcher.markers import detect_and_strip_confidence_marker
+from aiq_agent.agents.piloti.markers import ConfidenceLevel
+from aiq_agent.agents.piloti.markers import detect_and_strip_confidence_marker
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import citation_events
 from aiq_agent.common import load_prompt
@@ -170,6 +170,10 @@ class DeepResearchRunArtifacts:
 
 class DeepResearcherAgent:
     """Deep research agent using deepagents library for multi-phase workflow."""
+
+    #: The state model ``run`` takes, declared for the async job runner the same
+    #: way ``PilotiAgent`` declares its own — see the note there.
+    state_model = DeepResearchAgentState
 
     def __init__(
         self,

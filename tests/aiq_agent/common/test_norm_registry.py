@@ -458,6 +458,54 @@ class TestLaneForHit:
         )
 
 
+class TestLaneForAgentAuthoredHit:
+    """Stated provenance outranks every other signal in the classifier.
+
+    A published Piloti document is filed on the project or the Büroarchiv shelf
+    like any other document, and ingest stamps it with a doc_class like any
+    other document. Both of those are how it would silently lose its author:
+    the shelf would make it Projektwissen, and the doc_class would file it in
+    the norm hierarchy under a label fallback that reads "Baurecht".
+    """
+
+    def test_provenance_gives_the_document_its_own_lane(self):
+        assert nr.lane_for_hit(authored_by="agent") == ("buero_piloti", "Piloti-Dokument")
+
+    def test_it_beats_the_project_shelf(self):
+        """The headline defect: on the project shelf it would wear the
+        Projektwissen chip, and nothing would say Piloti wrote it."""
+        assert nr.lane_for_hit(shelf="project", collection="proj_abc", authored_by="agent") == (
+            "buero_piloti",
+            "Piloti-Dokument",
+        )
+        # Same hit without the provenance — the shelf decides, exactly as before.
+        assert nr.lane_for_hit(shelf="project", collection="proj_abc") == ("projekt", "Projektwissen")
+
+    def test_it_beats_an_explicit_doc_class(self):
+        """doc_class is the first-priority signal for everything else, and its
+        label fallback is "Baurecht" — law blue for a document we wrote."""
+        assert nr.lane_for_hit(doc_class="gesetz", shelf="archiv", authored_by="agent") == (
+            "buero_piloti",
+            "Piloti-Dokument",
+        )
+
+    def test_the_lane_is_office_knowledge_not_law(self):
+        from aiq_agent.common.source_kinds import kind_for_lane
+
+        lane_key, _label = nr.lane_for_hit(authored_by="agent")
+        assert kind_for_lane(lane_key) == "buero"
+
+    def test_the_knowledge_hit_classifier_agrees(self):
+        assert nr.lane_for_knowledge_hit(shelf="project", authored_by="agent") == (
+            "buero_piloti",
+            "Piloti-Dokument",
+        )
+
+    def test_an_unmarked_hit_is_untouched(self):
+        for authored_by in (None, "", "human", "Marianne"):
+            assert nr.lane_for_hit(shelf="archiv", authored_by=authored_by) == ("buero", "Büroarchiv")
+
+
 class TestLaneForKnowledgeHit:
     """A retrieved document is something we hold — it can never be Web."""
 
@@ -708,3 +756,73 @@ class TestNormsDirResolution:
         (tmp_path / "configs" / "norms").mkdir(parents=True)
         monkeypatch.chdir(tmp_path)
         assert nr._norms_dir(None) == Path(nr.DEFAULT_NORMS_DIR)
+
+
+class TestOibFamilies:
+    """Which Richtlinien belong together, derived from what is INDEXED.
+
+    "OIB-Richtlinien 1–6" names no members, and OIB-RL 2 is four documents.
+    Membership is derived from the corpus's own filenames rather than listed
+    here, so a deployment without a 2.3 is never told it has one and a corpus
+    that grows a 2.4 needs no code change.
+    """
+
+    def test_a_richtlinie_with_parts_reports_all_of_them(self):
+        from aiq_agent.common.norm_registry import oib_families
+
+        families = oib_families(
+            [
+                "oib-rl_2_ausgabe_mai_2023.pdf",
+                "oib-rl_2.3_ausgabe_mai_2023.pdf",
+                "oib-rl_2.1_ausgabe_mai_2023.pdf",
+                "oib-rl_2.2_ausgabe_mai_2023.pdf",
+            ]
+        )
+
+        assert [(f.key, f.members) for f in families] == [("2", ("2", "2.1", "2.2", "2.3"))]
+        assert families[0].label == "OIB-Richtlinie 2"
+
+    def test_a_richtlinie_without_parts_is_still_a_family(self):
+        """One member is a fact about the corpus. It is a different statement
+        from "we do not know what parts it has"."""
+        from aiq_agent.common.norm_registry import oib_families
+
+        assert [f.members for f in oib_families(["oib-rl_3_ausgabe_mai_2023.pdf"])] == [("3",)]
+
+    def test_reading_aids_are_not_members(self):
+        """A Leitfaden, an Erläuterung and an Änderungsdokument are read WITH a
+        Richtlinie. Counting them as parts would let an overview answer look
+        complete for having opened an interpretation aid."""
+        from aiq_agent.common.norm_registry import oib_families
+        from aiq_agent.common.norm_registry import oib_family_member
+
+        assert oib_family_member("oib-rl_2_leitfaden_ausgabe_mai_2023.pdf") is None
+        assert oib_family_member("oib-rl_6-leitfaden_ausgabe_mai_2023.pdf") is None
+        assert oib_family_member("erlaeuterungen_oib-rl_2_ausgabe_mai_2023.pdf") is None
+        assert oib_family_member("aenderungen_oib-rl_2_ausgabe_mai_2023.pdf") is None
+        assert oib_family_member("oib-rl_begriffsbestimmungen_ausgabe_mai_2023.pdf") is None
+        assert oib_families(["oib-rl_2_leitfaden_ausgabe_mai_2023.pdf"]) == []
+
+    def test_a_project_file_is_not_a_member(self):
+        from aiq_agent.common.norm_registry import oib_family_member
+
+        assert oib_family_member("Brandschutzkonzept.pdf") is None
+
+    def test_two_editions_of_one_part_are_one_member(self):
+        """The family is about which requirements exist, not how many files
+        carry them."""
+        from aiq_agent.common.norm_registry import oib_families
+
+        families = oib_families(["oib-rl_2_ausgabe_mai_2023.pdf", "oib-rl_2_ausgabe_april_2019.pdf"])
+        assert [f.members for f in families] == [("2",)]
+
+    def test_members_sort_numerically_and_families_by_number(self):
+        """`2.10` after `2.9`, and family 10 after family 2 — both of which a
+        string sort gets backwards."""
+        from aiq_agent.common.norm_registry import oib_families
+
+        names = [f"oib-rl_2.{i}_x.pdf" for i in (10, 9, 2)] + ["oib-rl_10_x.pdf", "oib-rl_2_x.pdf"]
+        families = oib_families(names)
+
+        assert [f.key for f in families] == ["2", "10"]
+        assert families[0].members == ("2", "2.2", "2.9", "2.10")

@@ -399,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
     # An empty `data/oib` is the ordinary state of a fresh clone, not a bug in the
     # harness, so it exits with the instruction rather than a traceback. This is also
     # why there is no CI job here any more: no CI checkout can hold the corpus
-    # (ADR-0044, "Update (2026-09-09)").
+    # (ADR-0058, "Update (2026-09-09)").
     try:
         report = structure.measure_structure(index)
     except corpus.CorpusMissingError as exc:
@@ -412,7 +412,7 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"\nFAIL: the Punkt arm's citable-unit share is {citable_pct:.1f}%, "
                 f"below the {args.fail_below:.1f}% gate. A chunker or German-analyzer change made "
-                "fewer Punkte survive as a citable unit (rag-system-audit-2026-08 Part IV; ADR-0044 rule 7).",
+                "fewer Punkte survive as a citable unit (rag-system-audit-2026-08 Part IV; ADR-0058 rule 7).",
                 file=stream,
             )
             return 1

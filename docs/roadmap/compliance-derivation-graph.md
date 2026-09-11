@@ -27,7 +27,7 @@ assumptions. Each is the 2024 industry default. Each is wrong for this domain.
 | **The law is a corpus.** Chunk it, embed it, retrieve by similarity, hand the model sixteen passages | `sources/knowledge_layer/src/register.py:1312`, `top_k: 16` | The OIB Richtlinien are a *rule system*: numbered requirements with applicability conditions over a small set of project facts (Gebäudeklasse, Nutzung, Höhe, Fläche, Bundesland), thresholds, exceptions, cross-references and editions. Which requirement applies is a function of the project, not of the wording of the question. A similarity search over a user's sentence is the weakest possible way to find it |
 | **The project is a set of documents.** Chunk them the same way as the law | `adapter.py:3157` (same splitter), `proj_<id>` collections | A plan, a Nachweis, a Baubeschreibung are carriers of *facts*: a room height, a door width, a fire compartment, a U-value. The check the user wants is a join between a requirement and a fact, and neither side of that join is a chunk |
 | **The answer is a message.** Generate text, then verify what can be verified and strip the rest | `citation_verification.py:2295-2365`; `deep_researcher/agent.py:1090` ("it still ships") | A compliance answer is a *derivation*: these facts, this rule, this passage, therefore this verdict. When the derivation is the object, verification is structural (is a leaf missing?) and repair is targeted (find that leaf). When the message is the object, verification can only subtract |
-| **The agent is a searcher.** A ReAct loop with a budget of calls | `configs/config_oib_openrouter.yml:705` (7 calls), `researcher/agent.py:997` | A searcher spends its budget guessing what to look for. A deriver knows what it needs (the facts the applicable rules depend on) and spends the budget filling exactly those slots |
+| **The agent is a searcher.** A ReAct loop with a budget of calls | `configs/config_oib_openrouter.yml:705` (7 calls), `piloti/agent.py:997` | A searcher spends its budget guessing what to look for. A deriver knows what it needs (the facts the applicable rules depend on) and spends the budget filling exactly those slots |
 
 The first review measured how well the defaults are executed. Well. This one
 asks whether they are the right defaults. They are not, and the strongest
@@ -218,7 +218,7 @@ tools. They are not the change.
 
 ### 4.2 The agent loop: from a search budget to a derivation program
 
-The researcher's loop is *think → call tools → think → answer*, with
+Piloti's loop is *think → call tools → think → answer*, with
 the budget charged per emitted call. In the new shape the loop is typed:
 
 ```
@@ -257,7 +257,7 @@ The quote-polarity fix from the first review still applies to every passage
 the tree cites. The eval suite changes character: for the applicability and
 rule-engine halves, the golden set is `(facts, question) → expected
 requirement ids + result`, testable in CI without any model, which is the
-measurement gate ADR-0044 wanted and could not enforce on a similarity
+measurement gate ADR-0058 wanted and could not enforce on a similarity
 pipeline.
 
 ### 4.4 Memory: a ledger, decisions and procedures, not notes

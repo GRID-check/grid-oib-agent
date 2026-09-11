@@ -26,8 +26,6 @@ import {
 } from '@/lib/s3'
 import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import { canManageArchiv } from '@/lib/authz/organizations'
-import { requireResourceAccess } from '@/lib/sharing/access'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
@@ -84,7 +82,11 @@ import {
 } from './repository'
 import { documentDisplayName, validateDocumentName } from './display-name'
 import { deleteBimDerivedObjects, runBimExtraction } from '@/lib/bim/service'
-import { discardSupersededObjects } from './object-cleanup'
+import { getAccessibleDocument } from './access'
+import { nextVersionNumber, recordUploadedVersion } from './lifecycle'
+import { versionedStorageKey } from './version-content'
+import { findOpenVersion, listDocumentVersionObjects } from './version-repository'
+import { deleteDocumentObjects } from './object-cleanup'
 import { isIfcFilename } from '@/lib/bim/types'
 import {
   INLINE_PREVIEW_CONTENT_TYPES,
@@ -188,86 +190,6 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
   return `${type}; filename="${asciiFallback}"; filename*=UTF-8''${encodeRfc5987(filename)}`
 }
 
-/**
- * Load a document (org-scoped in SQL) and enforce the access its OWN shelf
- * calls for, so the SAME item routes (download/preview/status/reingest/tags)
- * serve all three shelves:
- *
- *   - `project` → per-project FGA via `requireProjectAccess`.
- *   - `archiv`  → org-wide: any member reads, writes need `org:archiv:manage`.
- *   - `session` → as private as the chat it hangs off: `viewer` to read,
- *     `collaborator` to write, resolved on the conversation (ADR-0032).
- *
- * ## Why this switches on `scope` and not on `projectId`
- *
- * It used to read `doc.scope === 'archiv' || doc.projectId === null`, which was
- * correct while a null project could only mean the Archiv. A session document
- * also has a null project (ADR-0047 Phase 2), so that disjunction would have
- * handed every private chat attachment to the Archiv branch — where any member
- * of the organization may read it. The upload is private; the download would
- * not have been. A `switch` over the scope union is exhaustive, so a fourth
- * shelf cannot fall through to somebody else's rule: it fails to compile.
- *
- * Cross-tenant and no-access lookups both surface as 404. The `intent` maps to
- * `project:view` for reads and `project:documents:write` (accepting the legacy
- * `project:edit` umbrella) for writes — ADR-0038.
- */
-async function getAccessibleDocument(
-  session: AuthorizedSession,
-  documentId: string,
-  intent: 'read' | 'write' = 'read'
-): Promise<Document> {
-  const doc = await findDocumentInOrg(documentId, session.organizationId)
-  if (!doc) throw new NotFoundError()
-
-  switch (doc.scope) {
-    case 'archiv': {
-      // Org-scoped: findDocumentInOrg already confirmed the row belongs to the
-      // caller's org (so any member may read it). Only mutations need the
-      // manage permission.
-      if (intent === 'write' && !canManageArchiv(session)) throw new ForbiddenError()
-      return doc
-    }
-    case 'session': {
-      // A row that contradicts `documents_session_requires_conversation`
-      // (migration 0049) is not something to guess about — it is unattributable,
-      // so it is not found.
-      if (!doc.conversationId) throw new NotFoundError()
-      await requireResourceAccess(
-        session,
-        'conversation',
-        doc.conversationId,
-        intent === 'write' ? 'collaborator' : 'viewer'
-      )
-      return doc
-    }
-    case 'project': {
-      // A `project` row with no project is a corrupt row, not an org-wide one.
-      // The old disjunction quietly re-read it as an Archiv document and handed
-      // it to every member; there is nothing to authorize against, so it is not
-      // found.
-      if (doc.projectId === null) throw new NotFoundError()
-      await requireProjectAccess(
-        session,
-        doc.projectId,
-        intent === 'write' ? ['project:documents:write', 'project:edit'] : 'project:view'
-      )
-      return doc
-    }
-    default: {
-      // Two jobs. At COMPILE time the `never` annotation is the exhaustiveness
-      // check ADR-0047 decision 3 asks for: add a shelf to `DocumentScope` and
-      // this line stops type-checking until it has a rule here. At RUN time it
-      // catches what the type cannot — `scope` is a plain `text` column, so a
-      // row can hold a value no version of this code knows. There is no
-      // authorization rule to apply to such a row, and defaulting to another
-      // shelf's is how a private document becomes an org-wide one.
-      const unhandledScope: never = doc.scope
-      void unhandledScope
-      throw new NotFoundError()
-    }
-  }
-}
 
 /**
  * Dispatch a document to the backend ingest API and persist the outcome. The
@@ -279,6 +201,47 @@ async function getAccessibleDocument(
  *   - dispatch failed     → status failed   (markDocumentIngestFailed)
  *   - ok but no job id    → status left as-is ('uploaded' on first upload)
  */
+/**
+ * The two things only some dispatch callers know.
+ *
+ * One trailing bag rather than a seventh and eighth positional on a function
+ * that already takes six — and one bag rather than two parameters because they
+ * arrive together, from the one caller that has a version row in hand.
+ */
+export interface DispatchIngestExtras {
+  /**
+   * The `documents.filename` these bytes are known by — the retrieval index's
+   * join key. Omitted only where the ingested object is not the row's file.
+   */
+  fileName?: string | null
+  /** Set only for a published Piloti document. */
+  provenance?: AgentDocumentProvenance | null
+}
+
+/**
+ * What a published Piloti document carries into the retrieval index.
+ *
+ * The four keys are spelled here and parsed in
+ * `src/aiq_agent/common/provenance.py`; the pair is the whole contract, and a
+ * typo on either side is silent — a human document is what an unmarked chunk
+ * looks like. So the field names ARE the wire names (snake_case, unlike every
+ * other interface in this file) rather than being mapped at the fetch, which is
+ * where a rename would go unnoticed.
+ *
+ * `authored_by` is not optional and has one legal value: this type exists only
+ * for documents Piloti wrote, and an absent author is what every human document
+ * already sends.
+ */
+export interface AgentDocumentProvenance {
+  authored_by: 'agent'
+  /** The DISPLAY NAME of the person who approved it, never their user id. */
+  approved_by: string | null
+  /** ISO timestamp of that approval. */
+  approved_at: string | null
+  /** Which pipeline wrote the document — `documents.authored_by_producer`. */
+  producer: string | null
+}
+
 export async function dispatchIngest(
   documentId: string,
   collectionName: string,
@@ -301,7 +264,9 @@ export async function dispatchIngest(
    * the backend has no `project_folders` table to join against, the path is what
    * a person reads, and a prefix match over it is the folder's whole subtree.
    */
-  folderPath: string | null = null
+  folderPath: string | null = null,
+  /** See {@link DispatchIngestExtras}. */
+  extras: DispatchIngestExtras = {}
 ): Promise<{ jobId: string | null; status: 'pending' | 'uploaded' | 'failed' }> {
   const bucket = resolveDocumentBucket(storageBucket)
   // The backend fetches the file itself, from inside the Docker network —
@@ -345,6 +310,22 @@ export async function dispatchIngest(
         document_id: documentId,
         thumbnail_upload_url: thumbnailUploadUrl,
         folder_path: folderPath,
+        // The document's IDENTITY inside the collection, stated rather than
+        // left to be derived. Without it the backend reads the name off the
+        // presigned URL's last path segment, which is the OBJECT KEY's
+        // basename — and `storageKeySegment` has already flattened that
+        // (`piloti/<id>/x.md` becomes `piloti_<id>_x.md`, a name with a
+        // backslash or over 255 characters becomes a different one again). The
+        // chunks would then be filed under a string no purge ever asks for,
+        // because every purge addresses `documents.filename`. `null` keeps the
+        // old derivation for the one caller that genuinely ingests a different
+        // file than the row names — the IFC digest.
+        file_name: extras.fileName ?? null,
+        // Absent for every human document, and the Python side treats absent,
+        // null and a non-agent author identically (`parse_agent_provenance`).
+        // Spread so the four keys are the four keys, never a nested object the
+        // chunk metadata would have to be taught to flatten.
+        ...(extras.provenance ?? {}),
       }),
       signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS),
     })
@@ -391,18 +372,18 @@ export async function listDocuments(
    * and filtering after the fact would read the whole project's corpus — plus
    * reconcile and assignment-hydrate every row of it — to return a handful.
    */
-  options: { authoredBy?: DocumentAuthor } = {}
+  options: { authoredBy?: DocumentAuthor; includeArchived?: boolean } = {}
 ): Promise<ListedDocument[]> {
   await requireProjectAccess(session, projectId, 'project:view')
 
-  const rows = await listProjectDocuments(
-    projectId,
-    session.organizationId,
-    // `undefined` takes the repository's own default rather than restating it
-    // here, where a second copy of the cap could drift from the real one.
-    undefined,
-    options.authoredBy
-  )
+  // `limit` is deliberately not passed: the repository's own default is the
+  // cap, and a second copy of it here could drift from the real one.
+  const rows = await listProjectDocuments(projectId, session.organizationId, {
+    authoredBy: options.authoredBy,
+    // Archived documents have LEFT the working set, so they are absent unless
+    // the caller says otherwise (ADR-0054).
+    includeArchived: options.includeArchived,
+  })
 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
@@ -810,12 +791,23 @@ export async function uploadDocument(
     filename
   )
   const documentId = superseded?.id ?? crypto.randomUUID()
-  const storageKey = buildStorageKey(
-    session.organizationId,
-    projectId,
-    documentId,
-    filename,
-    folderPath
+  /*
+   * A re-upload writes NEW bytes, so it needs a NEW key (ADR-0054).
+   *
+   * The id is deliberately kept — that is what makes citations, chat subjects
+   * and folder assignments survive a corrected plan — but the key used to be
+   * derived from the id alone, so the new bytes landed on top of the old ones
+   * and `discardSupersededObjects` tidied up what was left. That is versioning
+   * without the history. Version 1 keeps today's key exactly, so nothing that
+   * predates this moves; version N lands under `v<n>/`, and the previous
+   * version's row still names an object a reader can open.
+   */
+  const versionNumber = superseded
+    ? await nextVersionNumber(documentId, session.organizationId)
+    : 1
+  const storageKey = versionedStorageKey(
+    buildStorageKey(session.organizationId, projectId, documentId, filename, folderPath),
+    versionNumber
   )
 
   // Create the organization's bucket if this is its first upload (ADR-0043).
@@ -906,12 +898,11 @@ export async function uploadDocument(
       folderId: folderId ?? null,
       createdBy: session.userId,
     })
-    // The old object when the new bytes did not land on top of it (a re-upload
-    // into a DIFFERENT folder builds a different path), and the old thumbnail
-    // and `_bim/` derivatives either way — they describe the bytes that were
-    // just replaced. Best-effort: the row is already correct, and failing the
-    // request over a leaked object would be the wrong trade.
-    await discardSupersededObjects(superseded, storageKey, 'documents')
+    // NOTHING is discarded here any more. The previous bytes are the previous
+    // VERSION's bytes now (ADR-0054), and a superseded version whose object was
+    // deleted is a row in the history that opens nothing. They go when the
+    // document is deleted — `deleteDocument` walks every version — or when a
+    // retention policy that does not exist yet says so.
   } else {
     await admitOrDiscard(storageBucket, storageKey, {
       id: documentId,
@@ -932,6 +923,13 @@ export async function uploadDocument(
       status: 'uploaded',
     })
   }
+
+  // The version, recorded through the SAME transition table the agent's drafts
+  // walk (ADR-0054). Born `published` and born approved: the person who
+  // uploaded it is the assertion, so the `published requires an approver` CHECK
+  // is satisfied honestly rather than worked around, and no review round is
+  // invented for a gesture that never asked for one.
+  await recordUploadedVersion(session, documentId, request)
 
   const { jobId: ingestJobId, status: ingestStatus } = await dispatchDocument({
     organizationId: session.organizationId,
@@ -992,11 +990,37 @@ export interface BeginModelExtractionInput {
 }
 
 /**
- * What a stored object needs before anything can be started for it. Identical
- * to {@link BeginModelExtractionInput} because the IFC branch is the one that
- * needs more: `dispatchIngest` uses a strict subset of these fields.
+ * What a stored object needs before anything can be started for it.
+ *
+ * `BeginModelExtractionInput` plus the one field only the ingest branch reads,
+ * because the IFC branch is otherwise the one that needs more: `dispatchIngest`
+ * uses a strict subset of these fields.
  */
-export type DispatchDocumentInput = BeginModelExtractionInput
+export interface DispatchDocumentInput extends BeginModelExtractionInput {
+  /**
+   * WHICH VERSION these bytes are — the half of the publish door the row cannot
+   * answer on its own (ADR-0054).
+   *
+   * A machine-authored document is refused unless this names the row's
+   * `published_version_id`, so a draft, an in-review version, an
+   * approved-but-unpublished one, a superseded one and a rejected one all fail
+   * the same check rather than each needing to be listed. Absent means "the
+   * caller is not dispatching a particular version", which is every human
+   * upload path and every re-index — and which an agent-authored row is refused
+   * for, exactly as it was before this door existed.
+   */
+  versionId?: string | null
+  /**
+   * The provenance a published Piloti document carries into every chunk
+   * (`docs/architecture/agent-document-provenance.md`).
+   *
+   * Never assembled here: this tier does not know who approved anything. It is
+   * built by the `ingestPublished` effect, which is the only caller that has a
+   * version row and a directory in hand, and travels verbatim onto the wire so
+   * the keys the Python side parses are the keys the BFF wrote.
+   */
+  provenance?: AgentDocumentProvenance | null
+}
 
 export interface DispatchDocumentResult {
   jobId: string | null
@@ -1020,14 +1044,17 @@ export interface DispatchDocumentResult {
  * forget the branch: it cannot see it.
  */
 /**
- * Thrown when something tries to index a document a machine wrote.
+ * Thrown when something tries to index a document a machine wrote and nobody
+ * published.
  *
  * Named and exported so a caller can tell this refusal apart from a backend
  * failure: one is a bug in the caller, the other is an outage.
  */
 export class AgentAuthoredDocumentNotIndexableError extends Error {
   constructor(readonly documentId: string) {
-    super(`document ${documentId} was written by a machine and must not be indexed`)
+    super(
+      `document ${documentId} was written by a machine and is not a published version, so it must not be indexed`
+    )
     this.name = 'AgentAuthoredDocumentNotIndexableError'
   }
 }
@@ -1036,9 +1063,32 @@ export async function dispatchDocument(
   input: DispatchDocumentInput
 ): Promise<DispatchDocumentResult> {
   /**
-   * A document a machine wrote never reaches the retrieval index — checked
-   * HERE, at the one place every ingestion path funnels through, and checked by
-   * READING THE ROW rather than by trusting the caller.
+   * A document a machine wrote reaches the retrieval index in exactly ONE case,
+   * and it is checked HERE, at the one place every ingestion path funnels
+   * through, by READING THE ROW rather than by trusting the caller.
+   *
+   * ## The one case, and why it is a row invariant
+   *
+   * The rule used to be "human-authored, full stop". ADR-0054 widened it by one
+   * clause and no more: an agent-authored row passes when the dispatch names
+   * the version the row's `published_version_id` points at. Everything else a
+   * version can be — `draft`, `in_review`, `changes_requested`, `approved` but
+   * not yet published, `superseded`, `rejected` — fails the SAME comparison
+   * rather than being enumerated, so a later state cannot be forgotten here.
+   *
+   * The clause is worth exactly as much as what stands behind it, and what
+   * stands behind it is the database: `document_versions_published_is_approved`
+   * refuses a published row with no `approved_by`/`approved_at`, and
+   * `uniq_document_versions_published_per_document` refuses a second published
+   * version. So `published_version_id` names a version a PERSON approved, and
+   * "indexed ⟹ published ⟹ approved by a person" is a chain of constraints
+   * rather than a chain of call sites.
+   *
+   * The version id travels in the input because the row cannot supply it: the
+   * question is not "does this document have a published version" but "are
+   * these the published version's bytes". A re-index that enumerated documents
+   * and re-dispatched them names no version and is refused, which is what keeps
+   * „Projekt neu indizieren" from putting a superseded draft back in the index.
    *
    * The invariant used to live in `generated.ts`, which only proved that the
    * FILING path does not ingest. That is a claim about one function; the claim
@@ -1064,7 +1114,7 @@ export async function dispatchDocument(
   // caller", and treating an absent row as `user` trusts the caller about the
   // only thing left. No caller reaches this without having inserted first, so
   // the refusal costs nothing today; it is what keeps the next one honest.
-  if (!row || row.authoredBy !== 'user') {
+  if (!row || !mayBeIndexed(row, input.versionId ?? null)) {
     throw new AgentAuthoredDocumentNotIndexableError(input.documentId)
   }
 
@@ -1077,8 +1127,27 @@ export async function dispatchDocument(
     input.storageKey,
     input.organizationId,
     input.storageBucket,
-    input.folderPath ?? null
+    input.folderPath ?? null,
+    // The ROW's filename, not the caller's: the join key belongs to the row,
+    // and this is the same "never trust the caller" argument the guard above
+    // makes about authorship.
+    { fileName: row.filename, provenance: input.provenance ?? null }
   )
+}
+
+/**
+ * Whether this document, dispatched for this version, may be indexed.
+ *
+ * Split out of {@link dispatchDocument} so the rule is one expression a reader
+ * can hold: a person's document always, a machine's only as its own published
+ * version. `dispatch.spec.ts` walks every version state through it.
+ */
+function mayBeIndexed(
+  row: Pick<Document, 'authoredBy' | 'publishedVersionId'>,
+  versionId: string | null
+): boolean {
+  if (row.authoredBy === 'user') return true
+  return Boolean(row.publishedVersionId) && row.publishedVersionId === versionId
 }
 
 /**
@@ -1113,6 +1182,13 @@ export async function beginModelExtraction(
     filename: input.filename,
     storageKey: input.storageKey,
     storageBucket: input.storageBucket,
+    // No `fileName`: what is ingested here is the Markdown DIGEST, not the
+    // model the row names, so the backend's own derivation from the presigned
+    // URL (`digest.md`) is what these chunks have always been filed under.
+    // Stating `input.filename` would rename them to `haus.ifc` and orphan every
+    // chunk already written under the old name. That the row's purge therefore
+    // addresses a name its chunks do not carry is a defect this change did not
+    // introduce and does not fix — see the note in the slice report.
     dispatchDigest: (digestStorageKey) =>
       dispatchIngest(
         input.documentId,
@@ -1267,7 +1343,7 @@ export async function reindexProject(
   // would report a project-wide reindex as partially FAILED for rows that were
   // never eligible. The dispatcher is the invariant; this is the caller not
   // asking a question it already knows the answer to.
-  const rows = await listProjectDocuments(projectId, session.organizationId, undefined, 'user')
+  const rows = await listProjectDocuments(projectId, session.organizationId, { authoredBy: 'user' })
   const result: ReindexProjectResult = { projectId, queued: 0, skipped: 0, failed: [] }
 
   const redispatch = async (row: DocumentListRow): Promise<void> => {
@@ -1542,6 +1618,21 @@ export async function deleteDocument(
   const chunksPurged = purgeRef
     ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
     : null
+
+  /*
+   * Every VERSION's objects, not only the live one (ADR-0054).
+   *
+   * A document used to have one set of bytes, so one delete erased it. With a
+   * history it has several, each under its own `v<n>/` prefix, and a delete that
+   * removed only the published version would leave every superseded one in the
+   * bucket: invisible to the UI, still charged to the organization, and readable
+   * by anyone who can presign a key. Best-effort per version, for the reason the
+   * live-object delete below is: the row delete is the record of intent.
+   */
+  for (const version of await listDocumentVersionObjects(documentId, session.organizationId)) {
+    if (version.storageKey === doc.storageKey) continue
+    await deleteDocumentObjects(version).catch(() => undefined)
+  }
 
   if (doc.storageKey) {
     try {
@@ -1995,6 +2086,7 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
   const [reconciled] = await reconcileDocumentStatuses([doc], session.organizationId)
+  const openVersion = await findOpenVersion(reconciled.id, session.organizationId)
 
   return {
     id: reconciled.id,
@@ -2029,6 +2121,17 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     // responsibility — the row's assignees are unaffected and still say
     // `Unvergeben`.
     authoredBy: reconciled.authoredBy,
+    // THE VERSION THE TURN WOULD HAVE TO READ AS BYTES.
+    //
+    // At most one version per document is still being worked on (the partial
+    // unique index behind `findOpenVersion`), and that is precisely the version
+    // retrieval cannot see: only a published version is dispatched to the index
+    // (ADR-0054), so a draft has no chunks and the focus filter falls open to
+    // the whole corpus. This payload is how the composer resolves its subject,
+    // so it is where the two facts the turn needs — WHICH version and what state
+    // it is in — belong. `null` means the live bytes are the published ones and
+    // nothing extra has to travel.
+    openVersion: openVersion ? { id: openVersion.id, state: openVersion.state } : null,
   }
 }
 

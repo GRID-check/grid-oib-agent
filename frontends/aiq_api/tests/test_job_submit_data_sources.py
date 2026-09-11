@@ -433,7 +433,7 @@ async def test_submit_job_validates_sources_for_researcher(submit_app, monkeypat
     import aiq_api.routes.jobs as jobs_routes
 
     research_config = AgentConfig(
-        class_path="aiq_agent.agents.researcher.agent.ResearcherAgent",
+        class_path="aiq_agent.agents.piloti.agent.PilotiAgent",
         config_name="shallow_research_agent",
         description="Test researcher",
     )

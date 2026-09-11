@@ -51,6 +51,7 @@ import { isLikelyAuthRelatedTransportError } from '../lib/transport-auth-signals
 import { validateGridCards } from '@/shared/cards/schemas'
 import { citationsFromWireList } from '../lib/wire-citation'
 import { isDeepResearchLive } from '../lib/session-activity'
+import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
 import type { GridCard } from '@/shared/cards/schemas'
 import type {
   ChatMessage,
@@ -226,6 +227,11 @@ type PendingOutgoing =
       skills?: string[]
       focusFileName?: string
       focusShelf?: 'project' | 'archiv' | 'session'
+      /** The subject document and, when it has one, its OPEN version — the
+       *  version retrieval cannot see, which the turn reads as bytes instead. */
+      focusDocumentId?: string
+      focusVersionId?: string
+      focusVersionState?: DocumentVersionState
       sourcePreset?: 'law' | 'project' | 'office'
       deliveryRetryCount?: number
     }
@@ -1263,6 +1269,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           ...(payload.skills && payload.skills.length > 0 ? { skills: payload.skills } : {}),
           ...(payload.focusFileName ? { focusFileName: payload.focusFileName } : {}),
           ...(payload.focusShelf ? { focusShelf: payload.focusShelf } : {}),
+          ...(payload.focusDocumentId ? { focusDocumentId: payload.focusDocumentId } : {}),
+          ...(payload.focusVersionId ? { focusVersionId: payload.focusVersionId } : {}),
+          ...(payload.focusVersionState ? { focusVersionState: payload.focusVersionState } : {}),
           ...(payload.sourcePreset ? { sourcePreset: payload.sourcePreset } : {}),
         }
         return Object.keys(extras).length > 0
@@ -2308,6 +2317,12 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         : undefined
       const focusFileName = subjectName || peekName
       const focusShelf = subject?.shelf
+      // Only from the composer SUBJECT, never from a peek: a version id is a
+      // statement about what this turn is about, and a file that merely happens
+      // to be visible beside the chat is not that.
+      const focusDocumentId = subject?.resourceId
+      const focusVersionId = subject?.versionId ?? undefined
+      const focusVersionState = subject?.versionState ?? undefined
       const sourcePreset = useLayoutStore.getState().activeSourcePreset
       const outgoingPayload: PendingOutgoing = {
         kind: 'message',
@@ -2316,6 +2331,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         ...(skills && skills.length > 0 ? { skills } : {}),
         ...(focusFileName ? { focusFileName } : {}),
         ...(focusShelf ? { focusShelf } : {}),
+        ...(focusDocumentId ? { focusDocumentId } : {}),
+        ...(focusVersionId ? { focusVersionId } : {}),
+        ...(focusVersionState ? { focusVersionState } : {}),
         ...(sourcePreset ? { sourcePreset } : {}),
       }
 

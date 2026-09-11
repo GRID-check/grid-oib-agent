@@ -78,7 +78,7 @@ Body: { projectId: string, file: File }
 3. **Store in SeaweedFS** — `PutObjectCommand` with key `org/{orgId}/project/{projId}/doc/{docId}/{filename}` (built by `buildStorageKey()` in `s3.ts`)
 4. **Insert DB row** — Drizzle `documents` table with `status: 'uploaded'`, storing `documentId`, `organizationId`, `projectId`, `createdBy`, `filename`, `storageKey`, `collectionName`, `fileSize`, `contentType`
 5. **Generate presigned GET URL** — `getSignedUrl(s3Client, GetObjectCommand, { expiresIn: SEAWEED_PRESIGNED_URL_TTL_SECONDS || 600 })`
-6. **Trigger ingestion** — POST to `{BACKEND_URL}/v1/ingest` with `{ file_ref: presignedUrl, collection: collectionName, document_id: documentId }`
+6. **Trigger ingestion** — POST to `{BACKEND_URL}/v1/ingest` with `{ file_ref: presignedUrl, collection: collectionName, document_id: documentId, file_name: filename, folder_path }`. `file_name` is the row's own `documents.filename`, stated rather than derived from the presigned URL's last path segment, because it is the join key every chunk purge addresses
 7. **Record the job** — on success the row is updated to `status: 'pending'` with `metadata: { ingestJobId }` so status reads can later reconcile the row against the backend job (see Step 5)
 8. **Return response** — `{ documentId, jobId, status: 'pending' | 'uploaded' }`
 
@@ -95,7 +95,12 @@ Body: { projectId: string, file: File }
 
 ```python
 POST /v1/ingest
-Body: { file_ref: str, collection: str, document_id: str }
+Body: {
+  file_ref: str, collection: str, document_id: str,
+  file_name: str | None, folder_path: str | None, thumbnail_upload_url: str | None,
+  # provenance, all four together or none (ADR-0054)
+  authored_by: str | None, approved_by: str | None, approved_at: str | None, producer: str | None,
+}
 Status: 202 Accepted
 ```
 
@@ -103,8 +108,28 @@ Status: 202 Accepted
 2. Downloads the file from the presigned URL via `httpx.AsyncClient` (follows redirects)
 3. Infers file suffix from `Content-Type` header or URL path
 4. Saves to a `tempfile.NamedTemporaryFile`
-5. Submits to the active ingestor via `ingestor.submit_job([temp_path], collection, config={cleanup_files: True, original_filenames: [...]})`
+5. Submits to the active ingestor via `ingestor.submit_job([temp_path], collection, config={cleanup_files: True, original_filenames: [...]})`. `original_filenames` is `file_name` when the BFF stated one and the URL basename otherwise; it becomes each chunk's `file_name` metadata
 6. Returns `{ job_id, status: 'pending', document_id }`
+
+### Provenance (ADR-0054)
+
+A **published** document Piloti wrote and a person released carries four extra
+fields: `authored_by: "agent"`, `approved_by` (the approver's display name),
+`approved_at` and `producer`. The route drops all four unless `authored_by` is
+the token `agent` — a human document must reach the pipeline byte-for-byte as it
+always did — and otherwise puts them on the job config, from which the ingestor
+stamps them onto **every chunk's metadata** and onto the `document_metadata`
+row's `provenance` column. They are excluded from the embedded text and the LLM
+header (a release date carries no retrieval signal, and embedding an approver's
+name would shift every chunk of the document toward whoever signed it) and
+stored regardless, because retrieval reads them off `Chunk.metadata`.
+
+The names are spelled once, in `src/aiq_agent/common/provenance.py`, which is
+also what reads them back. Nothing is inferred: a document with no provenance is
+a human document, which is what every unmarked chunk already means. Only a
+published version is ever dispatched, so a draft has no chunks at all — see
+[`../architecture/agent-document-provenance.md`](../architecture/agent-document-provenance.md)
+for the lane and the label, and ADR-0054 for the door.
 
 On failure, the temp file is cleaned up in the `finally` block. The ingestion route delegates to the active ingestor singleton, which is set up during NAT function registration.
 

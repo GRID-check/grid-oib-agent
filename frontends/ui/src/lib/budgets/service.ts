@@ -44,6 +44,7 @@ import type { BudgetPolicy, BudgetScope, BudgetUnit, NewLlmUsageEvent } from '@/
 import { getCached, invalidateCached, invalidateCachedPrefix } from '@/lib/cache'
 import { canManageBudgets } from '@/lib/authz/organizations'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { resolveSubjectMembership } from '@/lib/authz/project-membership'
 import { findProjectTenancy } from '@/lib/projects/repository'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { BadRequestError, ForbiddenError, UnprocessableError } from '@/lib/api/errors'
@@ -567,14 +568,32 @@ export async function getBudgetOverview(session: AuthorizedSession): Promise<Bud
 }
 
 /**
+ * Whether the write being authorized creates a policy or removes one.
+ *
+ * The subject checks below are asymmetric on purpose. Storing a policy for
+ * somebody who is not a member is the bug; REMOVING one is the cure, and a
+ * roster check on the clear path would make a departed member's stale limit
+ * permanent — the one row an admin most wants gone is the one whose subject no
+ * longer resolves.
+ */
+type PolicyWriteIntent = 'set' | 'clear'
+
+/**
  * Authorization for policy writes. Org and member scopes: budget admins only.
  * Project scope: budget admins (with the subject validated against the org)
  * or that project's admins (requireProjectAccess enforces tenancy + FGA).
+ *
+ * "Validated against the org" is the whole point for the member scope too: a
+ * limit stored against a user id that is not in this organization's roster is
+ * not a limit, it is a row that never matches spend. It reads as enforced on the
+ * settings page and enforces nothing, which is strictly worse than the admin
+ * being told the id is wrong.
  */
 async function authorizePolicyWrite(
   session: AuthorizedSession,
   scope: BudgetScope,
   subjectId: string | null,
+  intent: PolicyWriteIntent,
 ): Promise<void> {
   if (scope === 'project') {
     if (!subjectId) {
@@ -593,11 +612,21 @@ async function authorizePolicyWrite(
     }
     return
   }
-  // TODO: for scope='member' the subjectId is not verified against the
-  // organization's member roster — an admin can store a policy for an
-  // arbitrary user id (it simply never matches spend).
   if (!canManageBudgets(session)) {
     throw new ForbiddenError()
+  }
+  if (scope !== 'member' || intent === 'clear') return
+
+  // The roster, through the same resolver sharing uses to answer "can that other
+  // person reach this" (`lib/authz/project-membership`). It asks WorkOS for the
+  // membership and caches it per (org, user), so this costs a cached lookup on
+  // an admin action rather than a round trip.
+  if (!subjectId) {
+    throw new BadRequestError('member scope requires subjectId')
+  }
+  const membership = await resolveSubjectMembership(session.organizationId, subjectId)
+  if (!membership) {
+    throw new BadRequestError('Unknown member')
   }
 }
 
@@ -619,7 +648,7 @@ export async function saveBudgetPolicy(
   const { scope, dailyLimit, monthlyLimit } = input
   const subjectId = input.subjectId ?? null
 
-  await authorizePolicyWrite(session, scope, subjectId)
+  await authorizePolicyWrite(session, scope, subjectId, 'set')
 
   let policy: BudgetPolicy
   try {
@@ -659,7 +688,7 @@ export async function removeBudgetPolicy(
 ): Promise<boolean> {
   const { scope, subjectId } = input
 
-  await authorizePolicyWrite(session, scope, subjectId)
+  await authorizePolicyWrite(session, scope, subjectId, 'clear')
 
   const removed = await clearBudgetPolicy({
     organizationId: session.organizationId,

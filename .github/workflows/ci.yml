@@ -28,6 +28,7 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       web: ${{ steps.filter.outputs.web }}
       infra: ${{ steps.filter.outputs.infra }}
+      packages: ${{ steps.filter.outputs.packages }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -360,6 +361,54 @@ jobs:
       - run: task infra:test
         working-directory: .
 
+  packages:
+    # The `packages/` directory had NO gate at all: no Taskfile target, no CI
+    # job, no pre-commit hook — 830 tests behind a default-ON feature that
+    # renders OIB compliance verdicts, and the only thing between a broken
+    # assertion and a customer was somebody remembering to run pytest by hand.
+    # Same shape as `sources/` before it, and the same fix.
+    #
+    # Its own job rather than a step in `backend-test`/`frontend`, because both
+    # packages sit OUTSIDE their neighbouring workspace: `ifc-spatial` has its
+    # own package-lock.json (not the UI's bun workspace) and `ifc-spatial-py`
+    # its own uv.lock (not the root uv workspace), so neither tier's install
+    # can run them.
+    name: Standalone packages (packages/)
+    needs: changes
+    if: needs.changes.outputs.packages == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      # Runs PR-controlled code (`npm ci` executes dependency lifecycle scripts,
+      # and the suites run the packages themselves), so no repository credential
+      # is left in .git/config for them to find.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/ifc-spatial/package-lock.json
+      # ifc-spatial-py resolves against its OWN uv.lock, not the root one, so the
+      # cache has to be keyed on that file — pointing it at the repo-root lock
+      # would restore an environment this suite never uses and then build the
+      # real one from scratch on every run. It is the expensive half of this job
+      # (636 tests, 3m55s measured locally) and it drags IfcOpenShell + shapely
+      # wheels in, so the cache is the difference between ~4 and ~6 minutes.
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: packages/ifc-spatial-py/uv.lock
+      - uses: ./.github/actions/setup-task
+      - name: Install the packages' own toolchains
+        run: task pkg:install
+      # Two steps, not `task pkg:test`, so the job's summary says WHICH package
+      # failed without opening the log.
+      - name: ifc-spatial (tests + typecheck)
+        run: task pkg:test:ts
+      - name: ifc-spatial-py (pytest)
+        run: task pkg:test:py
+
   release-note:
     name: Release note
     # Deliberately NOT behind a paths filter, and deliberately not part of the
@@ -413,7 +462,7 @@ jobs:
     #
     # `retrieval-eval` USED TO BE here, for the same reason: it was the only
     # check that proved a chunker still leaves Punkte as citable units
-    # (ADR-0044 rule 7). It is gone, deliberately, and the reason is written
+    # (ADR-0058 rule 7). It is gone, deliberately, and the reason is written
     # down here rather than deleted with it: the gate reads the real OIB
     # Richtlinien, and those are now operator-provided and gitignored
     # (data/oib/README.md), so no CI checkout can ever have a corpus to measure.
@@ -422,9 +471,9 @@ jobs:
     # The harness survives as an opt-in local tool (`task be:eval:retrieval`),
     # and it now says so when the corpus is absent instead of raising.
     # What restoring the gate would take, and what was lost with it:
-    # docs/adr/0044-retrieval-correctness-and-the-measurement-gate.md,
+    # docs/adr/0058-retrieval-correctness-and-the-measurement-gate.md,
     # "Update (2026-09-09)".
-    needs: [changes, backend-lint, backend-test, frontend, frontend-test, tenant-isolation, web, infra, repo-lint, release-note]
+    needs: [changes, backend-lint, backend-test, frontend, frontend-test, tenant-isolation, web, infra, packages, repo-lint, release-note]
     runs-on: ubuntu-latest
     steps:
       - name: Require needed jobs to have passed (skipped is fine)

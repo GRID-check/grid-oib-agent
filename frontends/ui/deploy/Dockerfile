@@ -136,6 +136,15 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
+# The commit this image was built from. `--build-arg GRID_GIT_SHA=$(git rev-parse
+# HEAD)` in the image build (publish-images.yml / docker-build.yml); unset
+# everywhere else, and the boot line then prints `sha=unknown` rather than
+# guessing. There is no `.git` in the image, so a build arg is the only way the
+# running container can answer "which commit am I", and it is the question a
+# pilot report cannot be actioned without.
+ARG GRID_GIT_SHA=""
+ENV GRID_GIT_SHA=$GRID_GIT_SHA
+
 RUN groupadd --system --gid 1001 nodejs \
     && useradd --system --uid 1001 --gid nodejs nextjs \
     && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/bun

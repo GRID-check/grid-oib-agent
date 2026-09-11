@@ -28,13 +28,18 @@ from pydantic_core import PydanticUndefined
 # keeps rendering — and only their description in the model-facing catalog is
 # suppressed. Every emission path reads this set: `emit_card`
 # (`cards/register.py`), post-hoc batch generation (`validate_cards` in
-# `cards/models.py`) and the DSML salvage (`researcher/dsml.py`).
+# `cards/models.py`) and the DSML salvage (`piloti/dsml.py`).
 #
 # Two kinds of member, one mechanism:
 #
 #   * SYSTEM-emitted — a tool on a sanctioned path owns the card and the model
 #     must not be able to fabricate it (`memory_proposal` from `remember`,
-#     `document_grid` from `surface_documents`).
+#     `document_grid` from `surface_documents`, `document_draft` from the
+#     working directory's `write_file`/`edit_file`, whose card names a file
+#     that has to exist, `task_created` from `create_task`, whose card names a
+#     task row the BFF has already written, `file_operation_proposal` from the
+#     four write-side workspace tools, whose card names files the reader
+#     actually has).
 #   * RETIRED — the content moved off the card path entirely and the card only
 #     survives so that stored ones keep rendering. `follow_ups` was the first:
 #     the post-answer `follow_ups` STAGE now computes the questions after the
@@ -49,14 +54,27 @@ from pydantic_core import PydanticUndefined
 # dropping the type from the union would make `validateGridCards`
 # (`shared/cards/schemas.ts`) reject every stored `follow_ups` card, so every
 # historical thread would lose its chips and log a warning per card.
-SYSTEM_CARD_TYPES = frozenset({"memory_proposal", "document_grid", "follow_ups"})
+SYSTEM_CARD_TYPES = frozenset(
+    {
+        "memory_proposal",
+        "document_grid",
+        "document_draft",
+        # `task_created` from `create_task`: the card is proof that a task ROW
+        # exists, and a model that could fabricate one could announce delegated
+        # work nobody queued — which is exactly the sentence the tool was added
+        # to stop the model writing on its own.
+        "task_created",
+        "file_operation_proposal",
+        "follow_ups",
+    }
+)
 
 # Card types that stopped being cards — the RHETORICAL shapes, the ones almost
 # every answer could carry. A verdict, the takeaways and the single callout are
 # the answer's own anatomy, not exhibits attached beside it, so they left the
 # card system entirely: the chat answer envelope (```answer_json) carries them as
 # optional fields, validated and gated platform-side
-# (`agents/researcher/answer_meta.py` — a verdict must be a short
+# (`agents/piloti/answer_meta.py` — a verdict must be a short
 # VALUE, a takeaway block is earned by length, one callout at most), and they
 # travel on the answer itself, beside ``answer_confidence``, never in the
 # ``cards`` array. `summary` has no trailer field — its role is covered by the
@@ -108,7 +126,17 @@ ENVELOPE_CARD_TYPES = frozenset({"summary", "verdict_header", "key_takeaways", "
 # construction are two things to keep in sync, of which one stops being
 # maintained. A card that is genuinely one and not the other is the reason to
 # split them again — and then the split has to be argued at that card.
-INTERACTIVE_CARD_TYPES = frozenset({"project_profile_patch", "memory_proposal"})
+#
+# `document_draft` joined when `file_draft` gave it something to act on. It is a
+# borderline case worth stating: the card is emitted by a WRITE that already
+# happened (the draft exists), so emitting it costs the reader no decision — but
+# a FILED card offers „Zur Freigabe einreichen", and that is a non-idempotent
+# write which opens an inbox item on a colleague. The rule above is about the
+# answer, not about the emission, so it is a member. Its OTHER control, on an
+# unfiled card, writes nothing at all: it prefills the composer.
+INTERACTIVE_CARD_TYPES = frozenset(
+    {"project_profile_patch", "memory_proposal", "file_operation_proposal", "document_draft"}
+)
 
 # Card types whose fields must be COPIED from a tool result and cannot be
 # derived from prose: every one of them is addressed by IFC GlobalId, rule id

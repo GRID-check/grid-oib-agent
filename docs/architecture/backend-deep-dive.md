@@ -43,7 +43,7 @@ Browser WebSocket
       • ALSO sets the signed X-Grid-Request-Context envelope (below)
       • proxies the upgrade to the aiq-agent backend
   → NAT workflow  chat_deepresearcher_agent
-      LangGraph:  shallow_research  (the researcher; entry on EVERY turn, full tool set bound)
+      LangGraph:  shallow_research  (Piloti; entry on EVERY turn, full tool set bound)
                     ├─ envelope.escalate_to_deep → clarifier → deep_research → END
                     └─ otherwise                 → END
 
@@ -55,7 +55,7 @@ Browser WebSocket
     the model's own clause). A commissioned report escalates immediately,
     without a retrieval first.
 
-    Note: the researcher doubles as the conversational assistant, so the UI
+    Note: Piloti doubles as the conversational assistant, so the UI
     presents it neutrally as "Assistant" (getDisplayName in
     intermediate-step-parser.ts), not "Research Agent" — a greeting is
     not a research run.
@@ -67,10 +67,9 @@ Browser WebSocket
 ```
 
 Key files:
-- Graph build: `src/aiq_agent/agents/researcher/conversation.py` (`_build_graph`,
-  nodes). The escalation edge and the conversation-scoped state belong to the
-  researcher; the workflow only wires them up.
-- Workflow registration + response creation: `src/aiq_agent/agents/researcher/conversation_register.py`.
+- Graph build: `src/aiq_agent/agents/piloti/conversation.py` (`_build_graph`,
+  nodes). The escalation edge and the conversation-scoped state belong to Piloti; the workflow only wires them up.
+- Workflow registration + response creation: `src/aiq_agent/agents/piloti/conversation_register.py`.
 - WS wire types (NAT, vendored): `.venv/Lib/site-packages/nat/data_models/api_server.py`
   — `ChatResponse` and the WS message models are `extra="allow"`, so extra
   fields (cards, deep_research_job_id) survive serialization.
@@ -108,7 +107,7 @@ boundary in `ConversationGraph.run()`:
   `routing_reason`.
 - `escalation_reason` — set by the clarifier node only on a shallow→deep
   escalation, and only from the structured `escalation_ask_reason` the
-  answering node wrote from the researcher's envelope (`escalate_to_deep` plus the model's
+  answering node wrote from Piloti's envelope (`escalate_to_deep` plus the model's
   own one-clause `escalation_reason`). There is no keyword/prose fallback: a substring match on the answer tail ("nicht
   finden", "weitere Recherche erforderlich") false-positived on successful
   German legal answers and surprise-escalated them to deep research. Likewise
@@ -116,8 +115,8 @@ boundary in `ConversationGraph.run()`:
   with the standard retry-able error (`escalate_to_deep=False`) instead of
   deep-escalating on a bug.
 - `answer_confidence_reason` (≤300 chars) — the model's own one-clause
-  justification. The researcher may append `| <reason>` to its terminal
-  `[CONFIDENCE:<level>]` marker (`researcher.j2`); `markers.py` parses it
+  justification. Piloti may append `| <reason>` to its terminal
+  `[CONFIDENCE:<level>]` marker (`piloti.j2`); `markers.py` parses it
   (fail-open: an invalid level discards level AND reason, the reason is trimmed
   and capped), and `conversation.py::_finalize_answer` carries it as
   `answer_confidence_reason` alongside the level. Escalated turns drop it.
@@ -136,7 +135,7 @@ boundary in `ConversationGraph.run()`:
   - `"normative_claim_uncited"` / `"measurement_only"` — the two reasons about
     the SECOND kind of grounding, below.
   - `"citation_fallback"` — the answer's only citation is the single registry
-    source the researcher appended when nothing the model wrote survived
+    source Piloti appended when nothing the model wrote survived
     verification (`_append_minimal_citation`). The registry is cumulative across
     the conversation, so that source may have been retrieved on an earlier turn
     for a different question: it is treated exactly like a measurement (ceiling
@@ -149,10 +148,10 @@ boundary in `ConversationGraph.run()`:
   a readable `method` and the GlobalIds it was derived from
   (`ifc_spatial.envelope.Answer`) — so a correctly measured number was capped to
   `"low"` for lacking evidence it structurally cannot have. Two extra signals
-  travel from the researcher alongside `answer_citation_grounded`:
+  travel from Piloti alongside `answer_citation_grounded`:
   - `answer_measurement_grounded` — this turn produced at least one
-    `declared`/`computed` `ifc_measure` answer. Written by the researcher's
-    tools node (a sticky OR across the tool loop; `researcher/grounding.py`
+    `declared`/`computed` `ifc_measure` answer. Written by Piloti's
+    tools node (a sticky OR across the tool loop; `piloti/grounding.py`
     decides what counts — a refusal, an outage, an `inferred` guess and a
     `decidable: false` finding all do not). Lifts the surfaced confidence off the
     `"low"` floor to at most `"medium"`; `"high"` still requires a verified
@@ -291,7 +290,7 @@ next real turn's `ainvoke` then reads the ingested turns as ordinary history.
 Key pieces:
 - Wire parse, char caps, appender registry: `src/aiq_agent/conversation_context.py`.
 - The appender is *published*, not imported: `aiq_api` owns the socket and
-  `aiq_agent` owns the graph, so `researcher/conversation_register.py` calls
+  `aiq_agent` owns the graph, so `piloti/conversation_register.py` calls
   `register_context_appender(agent.append_context_message)` where the compiled graph
   (and its checkpointer) exists.
 - Fail-soft throughout. A missing appender, a dead checkpointer or a raising append is
@@ -409,7 +408,7 @@ Intake wizard answers
   → /api/websocket-scope reads profile_prompt_view → returns projectContext
   → server.js sets header  x-grid-project-context  on the WS upgrade
   → src/aiq_agent/project_context.py reads the header (truncated to 4000 chars)
-  → researcher/conversation_register.py sets state.project_context
+  → piloti/conversation_register.py sets state.project_context
   → injected into every prompt: all *.j2 have {% if project_context %}{{ project_context }}
 ```
 
@@ -453,7 +452,7 @@ projection) uses the same labels.
 
 The agent keeps the brief current by emitting a `project_profile_patch` card
 (via `emit_card`) whenever the conversation establishes a durable hard fact —
-the researcher prompt has an explicit "Keeping the Project Brief
+Piloti's prompt has an explicit "Keeping the Project Brief
 current" policy, and the card model carries the canonical fact-key vocabulary
 (`PROFILE_FACT_VOCABULARY` in `cards/models.py`, mirroring the intake
 definition). The card only proposes: the user's Accept posts the JSON-Patch to
@@ -624,7 +623,7 @@ alone.
 retrieval to the right file answers "where do I look"; it does not answer "what
 is *this document*". `register.py` lifts the turn ContextVars onto
 `ConversationState.focus_file_name` / `.focus_shelf`, the graph carries them
-into `ResearchAgentState`, and the answering prompt (`researcher.j2`
+into `ResearchAgentState`, and the answering prompt (`piloti.j2`
 §"This turn's subject") names the file — so a bare "fass zusammen" has an
 antecedent. Without that the model asked which document the user meant while
 the composer bar on screen said exactly which one, and retrieval's correct
@@ -653,7 +652,7 @@ double LLM failure" below for the fix that closed the practical case of
 this.
 
 `available_documents` is fetched **once per turn**, in
-`researcher/conversation_register.py`, aggregated across the collections in the
+`piloti/conversation_register.py`, aggregated across the collections in the
 request's header-based scope (or the base + session collection fallback when
 no scope header is present). Identity is `(collection, file_name)` — the same
 filename on the Büroarchiv and in a project is two documents (ADR-0047). The
@@ -663,20 +662,34 @@ sort-then-slice let ~40 OIB filenames eat the window and made "welche Dateien
 hast du im Büroarchiv" answer from Basiswissen. The prompt block is grouped
 by shelf (`aiq_agent.knowledge.inventory.render_inventory_block`) and empty
 in-scope shelves render as empty rather than being omitted. The same list is
-then shared by the researcher, clarifier, and deep-research paths for that turn
+then shared by Piloti, clarifier, and deep-research paths for that turn
 — it is not re-fetched per node.
+
+The Basiswissen shelf is FOLDED to a count rather than ~39 filenames (it is a
+platform constant, and retrieval reaches it without names) — with one
+exception. The fold carries one line per **Richtlinien-Familie** naming the
+parts the corpus actually holds: `OIB-Richtlinie 2: 2, 2.1, 2.2, 2.3`. "OIB-
+Richtlinien 1–6" is a range and names no members, so an overview answer could
+open three parts of OIB 2, forget the fourth, and read as complete — fluent
+prose, every citation resolving, the gap invisible. Retrieval can recover
+filenames; it cannot recover which parts EXIST, because a search that never
+returns 2.3 looks exactly like a Richtlinie without one. Membership is derived
+from indexed filenames (`norm_registry.oib_families`, Richtlinien only — a
+Leitfaden or an Erläuterung is read WITH a Richtlinie and is not a part of it)
+and computed BEFORE the inventory cap, which drops base rows first. The rule
+that acts on it is in `<research_rules>`; `status:coverage:<family>` records
+listed against opened per turn so the miss rate is countable.
 
 **Prompt gating asymmetry — fixed 2026-07-16 (`77a4d7a`)**: the deep-research
 prompts (`agents/deep_researcher/prompts/planner.j2`,
 `agents/deep_researcher/prompts/orchestrator.j2`,
 `agents/deep_researcher/prompts/researcher.j2`, and
 `agents/deep_researcher/prompts/source_router.j2`) used to gate document
-*awareness* purely on `available_documents` being non-empty, unlike the
-researcher's unconditional "use `knowledge_search` first" instruction
-(`agents/researcher/prompts/researcher.j2:31`). The document
+*awareness* purely on `available_documents` being non-empty, unlike Piloti's unconditional "use `knowledge_search` first" instruction
+(`agents/piloti/prompts/piloti.j2:31`). The document
 *listing* block is still wrapped in `{% if available_documents %}` (nothing
 to list when the document_metadata table has no row), but `planner.j2` and
-`researcher.j2` now separately instruct the agent to probe `knowledge_search`
+`piloti.j2` now separately instruct the agent to probe `knowledge_search`
 unconditionally whenever the query concerns project/user content — "do this
 regardless of whether the ... list below is empty or missing" — explaining
 that the list "comes from a summaries index that can lag ingestion and
@@ -701,7 +714,7 @@ at indexing and is the wrong place to look.
 
 The prompts therefore label the block "Knowledge-base inventory (index — NOT
 sources)" and state that a filename is not citable until a retrieval result has
-returned a passage from it (`researcher/prompts/researcher.j2`,
+returned a passage from it (`piloti/prompts/piloti.j2`,
 `deep_researcher/prompts/{researcher,orchestrator}.j2`); the anti-memory rule in
 `<citation_format>` covers document citation keys and not only URLs, and the
 prompt no longer tells the model that verification will sort the references out
@@ -950,6 +963,42 @@ deterministically from `storageKey`, and a missing/expired SeaweedFS object fall
 back gracefully to the SVG sketch. Re-ingesting a document overwrites the
 thumbnail at the same key.
 
+### The locator: `read_passage`
+
+`knowledge_search` is a *search*, and for a long time it was the only way to
+reach a passage. So a second round that already knew what it wanted — "the
+Herleitung concluded that OIB-Richtlinie 2 Pkt. 3.5.2 decides this, and I have
+not read it" — had to ask the corpus to find that passage again by similarity,
+paying a full fan-out, a reranker pass and possibly the requery judge for a
+lookup it could already address.
+
+`read_passage` (`sources/knowledge_layer/src/read_passage.py`) is that lookup:
+`document` (exact indexed name, stored display title, or the derived OIB title)
+plus `punkt` (the `punkt_id` the Punkt chunker verified against the corpus's own
+contents pages) or `page`. It is deterministic — one filtered fetch per
+collection the named document lives in, no reranker, no requery, no LLM
+anywhere — and it re-checks the Punkt/page in Python after the store's metadata
+filter, because "the store applies the filter" is a contract and a locator that
+returns the neighbouring requirement is worse than one that returns nothing.
+
+Three things make it fit the rest of the tier rather than sit beside it. Its
+output is `_format_results`, so citations, the `Punkt:` line and the
+`## Trace-Lanes` fan-out under the round stamp all work unchanged and nothing
+downstream learns a second shape. Its collection scope, base corpus and file
+exclusions are read off the `knowledge_search` instance named in its config
+(`knowledge_search: knowledge_search`) rather than restated, so the two cannot
+end up pointed at different corpora. And it is listed under the same
+`knowledge_layer` data source, which is what makes `get_source_id_for_tool`
+resolve it — a retrieval tool missing from that list returns real passages that
+are never registered as citable, and the answer's citations are then stripped as
+unsupported.
+
+It is charged to the research budget like a search, because it reads evidence
+and that budget is what bounds evidence-gathering; it is simply the cheapest
+thing the budget can buy. The live line names what is being read rather than a
+corpus: `status.retrieval.punkt` / `status.retrieval.page`
+("Liest OIB-Richtlinie 2, Pkt. 3.5.2").
+
 ### Agentic retrieval quality package (ADR-0039)
 
 Five retrieval-quality improvements sit in the knowledge layer's `register.py`
@@ -1016,7 +1065,10 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    collection in scope and fused into the same RRF as new channels (the
    original query keeps the tie-break seat), then reranked once more. The
    live line says `status.retrieval.requery`; the Langfuse retrieval span
-   records `requery_queries`. Fail-open at every step.
+   records `requery_queries`; and the tool result the MODEL reads leads with
+   one German line naming the alternative formulations and why they were tried
+   (`requery.requery_notice`), so the agent that issued the search is not the
+   one party the widening is hidden from. Fail-open at every step.
 
 4. **Retrieval-precision feedback** — a new `retrieval_precision` event kind in
    the citation-health pipeline (`src/aiq_agent/common/citation_events.py`):
@@ -1059,7 +1111,7 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    `deleteDerivedObjects` (`lib/documents/object-cleanup.ts`). One turn may
    call the tool at most `MAX_IMAGE_VIEWS_PER_TURN` times (6,
    `common/image_view_budget.py`, a per-turn ContextVar bound beside the card
-   registry in `researcher/conversation_register.py`); past that it answers with a
+   registry in `piloti/conversation_register.py`); past that it answers with a
    text block. Because the SeaweedFS `storage_key` lives only in the frontend's
    `documents` table, the tool resolves `(collection, filename)` through a new
    token-guarded BFF route `GET /api/internal/document-file`
@@ -1098,7 +1150,7 @@ system — each plane has its own storage, admin surface, and priority):
 |---|---|---|---|---|
 | **Catalog** | verified RIS pointers, prose legal facts (`binding_note`), open TODOs (`review_note`), non-RIS stubs (MA 37, ÖNORM) | norm store (DB) seeded from `configs/norms/<cc>/registry.yml` | `/app/platform` norms editor + verify-and-pick | tells the agent *where law lives* and *what binds what* |
 | **Corpus** | full norm texts inside the RAG (OIB PDFs today) | per-country base collection — `NormsFile.corpus_collection` (AT: `oib_knowledge`) | `/app/platform` Base-Knowledge upload/sync | requirements are cited from here (normative documents only) |
-| **Project/parcel** | uploads incl. Flächenwidmungs-/Bebauungsplan (tag-classified at ingestion) | project collections in the RAG | project Files UI | **per-parcel source of truth**: `parcel_note` renders tagged plans into the researcher prompt as the governing source for Widmung/Bauklasse/Höhe — above OIB and Bauordnung |
+| **Project/parcel** | uploads incl. Flächenwidmungs-/Bebauungsplan (tag-classified at ingestion) | project collections in the RAG | project Files UI | **per-parcel source of truth**: `parcel_note` renders tagged plans into Piloti's prompt as the governing source for Widmung/Bauklasse/Höhe — above OIB and Bauordnung |
 
 Country expansion touches data, not architecture: a new
 `configs/norms/<cc>/registry.yml` (catalog) + its `corpus_collection` (corpus)
@@ -1149,7 +1201,7 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   the curated `binding_note` lines, a static OIB-corpus citation note, and the
   project applicability section (`applicability.render_project_block`). The
   Normenhierarchie doctrine itself is one constant (`NORM_DOCTRINE`) injected
-   into the researcher, deep-researcher, planner, and writer templates
+   into Piloti, deep-researcher, planner, and writer templates
    as `{{ norm_doctrine }}`.
 - **Jurisdiction** — `resolve_country(project_context)` regexes the structured
    `country=<cc>` fact from the prompt text (`at`/`de`/`ch`/`other`, authored
@@ -1444,7 +1496,7 @@ runner). And the research tab can 403 — see §9.
 
 **Collection-scope re-injection gap — now diagnosable (fixed 2026-07-16,
 `f8093a0`)**: the `X-Grid-Collection-Scope` header is captured once at submit
-time (`researcher/conversation_register.py`) and threaded into the async job payload
+time (`piloti/conversation_register.py`) and threaded into the async job payload
 as `collection_scope`. The Dask worker only re-injects it into its own
 request context conditionally — `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
 does `if collection_scope is not None:` before base64url-encoding it back
@@ -1497,7 +1549,7 @@ Registered agents (via NAT `@register_function` + `FunctionBaseConfig`):
 `chat_deepresearcher_agent` (entrypoint), `shallow_research_agent`,
 `deep_research_agent` (+ eval/placeholder wrappers). The clarifier is no longer
 among them: it is a step of the conversation graph
-(`researcher/clarify.py`) configured by the `clarifier:` block on
+(`piloti/clarify.py`) configured by the `clarifier:` block on
 `chat_deepresearcher_agent`.
 
 No shared base-agent class exists; the remaining agent classes each repeat: tool
@@ -1547,7 +1599,7 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   `{agentGroup: openrouterModelId}`) is parsed by
   `src/aiq_agent/common/model_overrides.py` and applied request-scoped:
   `LLMProvider.with_model_overrides()` (group-tagged roles; identity when
-  nothing applies) in the researcher/deep `_run` closures and in
+  nothing applies) in Piloti/deep `_run` closures and in
   `clarify.Clarifier.deps_for`, plus `apply_model_override()` at the clarifier
   planner and the reflection scheduling site. Async jobs carry
   the map through `submit_agent_job` → `jobs/runner.py` (provider + header
@@ -1649,7 +1701,7 @@ config gate: `skills_enabled` (default true) + `skill_allowlist` (empty =
 all). `use_skill` is bound on every turn like every other tool; whether a
 greeting loads a skill is the model's call (ADR-0052). Deep research loads
 machinery from the filesystem (`DeepResearchSkillsConfig` mounts `oib`/`bim`
-on the researcher and `synthesis` on the writer; curated dirs 404) and
+on Piloti and `synthesis` on the writer; curated dirs 404) and
 loads house voice, offers and org skills through `use_skill`
 (`resolve_served_skills`). Full design and tests:
 `docs/architecture/agent-skills.md`.

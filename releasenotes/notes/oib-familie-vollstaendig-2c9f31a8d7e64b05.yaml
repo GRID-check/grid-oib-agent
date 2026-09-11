@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    A question about a whole OIB-Richtlinie now reads every part of it —
+    OIB-Richtlinie 2 covers 2, 2.1, 2.2 and 2.3 — and says plainly when a part
+    was not read, instead of quietly answering from the parts it happened to
+    find.

@@ -575,6 +575,34 @@
       "when": 1789344000006,
       "tag": "0081_grid_agents_researcher_rename",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1789430400006,
+      "tag": "0082_document_versions",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1789516800006,
+      "tag": "0083_documents_piloti_namespace_live_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1789603200006,
+      "tag": "0084_document_versions_origin_conversation",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1789689600006,
+      "tag": "0085_document_versions_submitted_by_actor",
+      "breakpoints": true
     }
   ]
 }

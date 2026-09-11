@@ -133,6 +133,7 @@ def fetch_memory_digest(
     project_id: str | None,
     organization_id: str | None,
     query: str | None = None,
+    conversation_id: str | None = None,
 ) -> str | None:
     """Fetch the CURRENT core-memory digest via the internal BFF endpoint.
 
@@ -141,13 +142,30 @@ def fetch_memory_digest(
     mid-session never reaches the agent until a reconnect. Calling this at the
     start of a turn re-serves the up-to-date digest.
 
+    The channel carries three blocks, not one: ``PROJECT_MEMORY``,
+    ``PROPOSAL_DECISIONS`` and — when this turn belongs to a conversation —
+    ``REVIEW_DECISIONS``, what a person decided about the drafts that
+    conversation filed. ``conversation_id`` defaults to the ACTIVE conversation
+    read off the NAT context rather than to nothing, so a caller that has one
+    need not thread it through: the digest fetch is per turn and the turn always
+    knows which conversation it is. Pass it explicitly to override, or pass
+    ``""`` to ask for no review block at all.
+
     Returns the digest string, or ``None`` when there is no active memory (a valid
     empty result). Raises RuntimeError on configuration problems and urllib errors
     on transport failures, so the caller can fall back to the frozen header digest
-    instead of dropping memory entirely. Blocking; call via ``asyncio.to_thread``.
+    instead of dropping memory entirely. Blocking; call via ``asyncio.to_thread``
+    — which copies the current context, so the default read below still sees it.
     """
     if not project_id and not organization_id:
         return None
+    if conversation_id is None:
+        # Imported here rather than at module scope: `project_context` is the
+        # header layer and this module is a knowledge one, and the four other
+        # readers of the NAT context in this package do the same.
+        from aiq_agent.project_context import get_conversation_id_from_context
+
+        conversation_id = get_conversation_id_from_context()
 
     token = os.environ.get("GRID_INTERNAL_API_TOKEN")
     if not token:
@@ -164,6 +182,12 @@ def fetch_memory_digest(
         # the digest is exactly what it was before. Bounded here as well as
         # there — a caller must not be able to post a transcript as a param.
         params["query"] = query.strip()[:2000]
+    if conversation_id and conversation_id.strip():
+        # Scopes the REVIEW_DECISIONS block. Not an authorization input on the
+        # BFF side — the tenant is pinned from the project/organization above —
+        # so an id that names nothing yields an empty block, which is also what
+        # a conversation that has filed nothing looks like.
+        params["conversationId"] = conversation_id.strip()[:200]
     query_string = urllib.parse.urlencode(params)
 
     request = urllib.request.Request(

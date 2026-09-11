@@ -69,8 +69,10 @@ describe('/api/auth/websocket-scope', () => {
       scope: ['oib_knowledge'],
       scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }],
       header: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
-      // The route echoes the requested projectId so server.js can scope the socket.
+      // The route echoes the requested projectId so server.js can scope the socket,
+      // and the conversationId it authorized so the signed envelope carries it.
       projectId: 'proj-1',
+      conversationId: 'conv-1',
       // Anonymous mode: no org, and GRID_ENFORCE_FEATURE_FLAGS is off, so the
       // GRID_MEMORY_REFLECTION_ENABLED fallback decides — and it defaults ON.
       memoryReflectionEnabled: true,

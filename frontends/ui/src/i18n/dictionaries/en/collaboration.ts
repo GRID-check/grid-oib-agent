@@ -403,6 +403,12 @@ export const collaboration = {
         title: '"{subject}" failed',
         body: 'The job could not be completed. The run history in the project names the reason.',
       },
+      // A version of a document is waiting for a decision (ADR-0054).
+      // {subject} is the document, {actor} whoever submitted it.
+      documentReviewRequested: {
+        title: '{actor} asked you to review {subject}',
+        body: 'A new version is waiting for your approval.',
+      },
       unknown: {
         title: 'Something happened',
         body: 'in {subject}',

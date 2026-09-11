@@ -46,15 +46,20 @@ import {
   fileTypeIcon,
   isCitable,
   isNeverIndexed,
-  isFailedStatus,
 } from './document-status'
 import { DrawingStructuredDetails } from './drawing-structured-details'
 import { hasStructuredDetail, type DrawingStructured } from '@/lib/documents/drawing-structured'
 import { AssignmentFaces } from './assignment-faces'
 import { AuthorshipLine } from './authorship-line'
+import { DocumentLifecyclePanel } from './document-lifecycle-panel'
+import type {
+  DocumentLifecyclePermission,
+  DocumentVersionState,
+} from '@/lib/documents/lifecycle-types'
 import { AssignPopover } from './assign-popover'
 import { useRouter } from 'next/navigation'
 import { askAboutFile } from '../lib/ask-about-file'
+import { DiscussDocumentButton } from './discuss-document-button'
 import { dropFileSubject } from '../lib/open-file-peek'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 
@@ -102,6 +107,20 @@ interface FilePreviewPaneProps {
   /** The document was deleted from the header menu; the pane closes itself. */
   onDeleted?: (fileId: string) => void
   canCollaborate?: boolean
+  /**
+   * What this reader may do to the document's versions, resolved on the server
+   * (`lib/documents/lifecycle-permissions.ts`). Absent means the surface did not
+   * read them — the Archiv sheet, the chat peek — and the rail then shows no
+   * Freigabe section at all rather than guessing a set.
+   */
+  lifecyclePermissions?: readonly DocumentLifecyclePermission[]
+  /** The reader, so their own acts in the version list read as „Sie". */
+  viewerUserId?: string | null
+  /** A Freigabe decision landed — the listing behind the pane moves its badge. */
+  onLifecycleChanged?: (
+    fileId: string,
+    summary: { versionState: DocumentVersionState; versionCount: number },
+  ) => void
   /** Modal on Files; peek/expanded once this file is the chat subject. */
   presentation?: 'modal' | 'peek' | 'expanded'
   onAssigneesChanged?: (assignees: FileItem['assignees']) => void
@@ -158,6 +177,9 @@ export function FilePreviewPane({
   projectId,
   projectName,
   canManage = true,
+  lifecyclePermissions,
+  viewerUserId,
+  onLifecycleChanged,
   scope = 'files',
   onClose,
   onReingested,
@@ -182,16 +204,15 @@ export function FilePreviewPane({
    */
   const showIndexedSection = showMetadataPanel && !isNeverIndexed(file)
   /**
-   * Why „Piloti dazu fragen" is off. „Sobald die Datei zitierbar ist" promises
-   * a wait; a report Piloti wrote was deliberately never dispatched to
-   * `/v1/ingest`, so there is no wait to promise and the sentence says that
-   * instead.
+   * What „Besprechen" will and will not be able to do with this document.
+   *
+   * It is a hint and no longer a reason a control is off: a report Piloti wrote
+   * was deliberately never dispatched to `/v1/ingest`, so it is not Projektwissen
+   * and cannot be cited as such — and it can still be read and discussed. Only
+   * the never-indexed case has anything to say; a citable document's button
+   * needs no explaining.
    */
-  const askDisabledReason = isNeverIndexed(file)
-    ? t('authorship.notInKnowledge')
-    : t('assignment.askDisabled')
-  const askReasonId = `ask-disabled-${file.id}`
-  const router = useRouter()
+  const discussHint = isNeverIndexed(file) ? t('authorship.notInKnowledge') : undefined
   const storeMode = useFilePreviewStore((state) => state.mode)
   const storeFileId = useFilePreviewStore((state) => state.file?.id)
   const inChat =
@@ -465,12 +486,20 @@ export function FilePreviewPane({
               Neither chip is restated in the rail: the Status row and the
               Document type row are gone from Properties, because the same fact
               stated twice on one surface reads as two facts. */}
-            <div className="mt-1 flex min-w-0 items-center gap-1.5">
+            {/* `overflow-hidden` on the row and `shrink` on the type badge, and
+              both are load-bearing at phone width: `Badge` is `w-fit shrink-0`
+              by construction, so `min-w-0` alone never made it narrow — at
+              390px „Grundriss" simply ran out of the name column and under the
+              Download button beside it. It truncates now instead. The status
+              badge keeps `shrink-0` on purpose: „Wird verarbeitet" clipped to
+              „Wird ver…" is a state nobody can read, and it is the chip that
+              explains why the Ask button in the rail is grey. */}
+            <div className="mt-1 flex min-w-0 items-center gap-1.5 overflow-hidden">
               {!isCitable(file) && (
                 <DocumentStatusBadge status={file.status} className="shrink-0" />
               )}
               {showMetadataPanel && detectedType && (
-                <Badge variant="secondary" className="min-w-0 font-normal">
+                <Badge variant="secondary" className="min-w-0 max-w-full shrink font-normal">
                   <span className="truncate">{detectedType}</span>
                 </Badge>
               )}
@@ -868,50 +897,70 @@ export function FilePreviewPane({
                 these were two 90px pills competing with four icon controls for
                 the same row; here they are the block's conclusion, and the
                 reader has just been told whether the document is citable. */}
-              {projectId && isCitable(file) && !inChat && (
-                <Button
-                  type="button"
-                  size="sm"
-                  className="h-8 w-full"
-                  onClick={() =>
-                    askAboutFile({
-                      projectId,
-                      file,
-                      navigate: (href) => router.push(href),
-                    })
-                  }
-                >
-                  {t('assignment.ask')}
-                </Button>
+              {/* „Besprechen" — never conditional on the document being
+                citable any more, and that is the whole change.
+
+                This control used to be a PAIR: an enabled „Piloti dazu fragen"
+                for a citable file and a greyed-out twin for everything else,
+                with a hint explaining the grey. The grey covered exactly the
+                documents a reader most wants to talk about — every report Piloti
+                wrote, and every version nobody has published — because a turn
+                could only reach a document through the retrieval index, and only
+                a published version is dispatched to it (ADR-0054). The turn now
+                reads an unpublished subject version's own bytes into the
+                conversation's working directory, so the reason for the grey is
+                gone and the pair collapses into one always-live button.
+
+                What survives is the SENTENCE: `discussHint` still says whether
+                this document is in the knowledge base, because that changes what
+                the answer will be able to cite — it no longer changes whether the
+                conversation can happen. */}
+              {projectId && !inChat && (
+                <DiscussDocumentButton
+                  projectId={projectId}
+                  documentId={file.id}
+                  filename={file.filename}
+                  file={file}
+                  hint={discussHint}
+                  className="w-full"
+                />
               )}
               {projectId && canCollaborate && isCitable(file) && (
                 <AskColleagueButton projectId={projectId} file={file} documentId={file.id} />
               )}
-              {/* Disabled rather than hidden, the way this surface already treats
-                a document that is still being read — but the HINT has to tell
-                the truth. „Sobald die Datei zitierbar ist" promises a wait; a
-                report Piloti wrote was deliberately never indexed, so there is
-                nothing to wait for, and the hint says why instead. No `Piloti
-                dazu fragen` affordance appears in any other form here: that is
-                the design, not a gap. */}
-              {projectId && !isCitable(file) && !isFailedStatus(file.status) && (
-                // The reason sits on a WRAPPER, not on the button. A disabled
-                // `<button>` dispatches no pointer events in Chrome or Safari, so
-                // a `title` on it is a tooltip that can never open — the one
-                // sentence explaining why Ask is off was unreachable for every
-                // reader. The span is not disabled and does receive hover, so the
-                // explanation exists again; `aria-describedby` gives it to the
-                // reader who is not hovering anything.
-                <span title={askDisabledReason} className="block">
-                  <Button size="sm" className="h-8 w-full" disabled aria-describedby={askReasonId}>
-                    {t('assignment.ask')}
-                  </Button>
-                  <span id={askReasonId} className="sr-only">
-                    {askDisabledReason}
-                  </span>
-                </span>
-              )}
             </div>
+            {/* FREIGABE UND FASSUNGEN — a section of its own, under the identity
+              block and above everything ingestion derived.
+
+              Under it, and never inside it: the block above says who wrote the
+              file and who is on the hook for it, and this says whether the
+              office stands behind what it says. ADR-0047's addendum and ADR-0054
+              both turn on those being three sentences rather than one.
+
+              Only for a project document, and only where the surface resolved
+              this reader's permissions — the Archiv and the chat peek pass
+              neither, and a review control they cannot honour is worse than no
+              section. */}
+            {projectId && lifecyclePermissions && (
+              <DocumentLifecyclePanel
+                key={file.id}
+                documentId={file.id}
+                authoredBy={file.authoredBy}
+                viewer={{ permissions: lifecyclePermissions, userId: viewerUserId }}
+                names={Object.fromEntries(
+                  (file.assignees ?? []).flatMap((person) =>
+                    person.name ? [[person.userId, person.name] as const] : [],
+                  ),
+                )}
+                onChanged={(summary) =>
+                  onLifecycleChanged?.(file.id, {
+                    versionState: summary.state,
+                    versionCount: summary.versionCount,
+                  })
+                }
+                className="mb-4 border-b pb-4"
+              />
+            )}
             {/* The building's own numbers lead the rail: they are what the file
               IS. Ungated by the metadata flag, which covers what INGESTION
               derived — these come out of the IFC itself. Renders nothing until

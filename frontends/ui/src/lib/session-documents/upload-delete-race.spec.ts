@@ -157,6 +157,7 @@ vi.mock('@/lib/storage/admission', () => ({
 }))
 // A first upload: the replace probe finds nothing to supersede.
 vi.mock('@/lib/documents/repository', () => ({
+  findDocumentInOrg: vi.fn().mockResolvedValue(null),
   findLiveDocumentByFilename: vi.fn().mockResolvedValue(null),
 }))
 

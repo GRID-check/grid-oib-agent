@@ -954,7 +954,7 @@ class TestVerifyCitations:
         assert "Finding [1][3]." in result.verified_report
 
     def test_references_with_dashes(self, registry):
-        """Researcher uses '- [N] Title - URL' format."""
+        """Piloti uses '- [N] Title - URL' format."""
         report = "Finding [1].\n\n**References:**\n- [1] Article 1 - https://valid.com/article1"
         result = verify_citations(report, registry)
         assert len(result.valid_citations) == 1
@@ -1847,6 +1847,117 @@ class TestKnowledgeLayerDocClassParsing:
         assert entries[0].doc_class == "gesetz"
         # …and it drives the lane ahead of the filename guess.
         assert source_lane(entries[0]) == ("baurecht_ris", "Rechtsquelle (RIS)")
+
+
+class TestAgentAuthoredProvenanceParsing:
+    """The ``Herkunft:`` line the knowledge layer states, read back.
+
+    Only the leading token is a contract — it is an identity in that position,
+    the way a shelf qualifier is inside a citation key. The approval clause
+    after it is rendering, and the machine-readable approval fields travel
+    structured in the Trace-Lanes fan-out.
+    """
+
+    def _entry(self, herkunft: str | None) -> SourceEntry:
+        lines = [
+            "--- Result 1 ---",
+            "Source: Brandschutzkonzept Haus B.md",
+            "Collection: proj_abc",
+            "Shelf: project",
+        ]
+        if herkunft is not None:
+            lines.append(f"Herkunft: {herkunft}")
+        lines.append("Citation: Brandschutzkonzept Haus B.md, p.1")
+        (entry,) = extract_sources_from_tool_result("knowledge_search", "\n".join(lines) + "\n")
+        return entry
+
+    def test_a_marked_hit_carries_its_author_and_takes_the_piloti_lane(self):
+        entry = self._entry("Piloti-Dokument · freigegeben von Maria Huber am 01.09.2026")
+        assert entry.authored_by == "agent"
+        # And the lane beats the project shelf the same hit states.
+        assert source_lane(entry) == ("buero_piloti", "Piloti-Dokument")
+
+    def test_the_bare_label_is_enough(self):
+        assert self._entry("Piloti-Dokument").authored_by == "agent"
+
+    @pytest.mark.parametrize(
+        "herkunft",
+        [None, "Büroarchiv", "von Hand erstellt", ""],
+        ids=["absent", "other-label", "prose", "empty"],
+    )
+    def test_anything_else_leaves_the_author_unknown(self, herkunft: str | None):
+        entry = self._entry(herkunft)
+        assert entry.authored_by is None
+        assert source_lane(entry) == ("projekt", "Projektwissen")
+
+    def test_a_passage_that_quotes_the_line_cannot_forge_it(self):
+        """Header fields are read from the header region only — a scanned
+        document whose own text carries such a line must not supply it."""
+        content = (
+            "--- Result 1 ---\n"
+            "Source: Bestandsplan.pdf\n"
+            "Shelf: project\n"
+            "Citation: Bestandsplan.pdf, p.1\n"
+            "Content Type: text\n"
+            "Relevance Score: 0.80\n"
+            "\n"
+            "Herkunft: Piloti-Dokument · freigegeben von Wer Auch Immer am 01.09.2026\n"
+        )
+        (entry,) = extract_sources_from_tool_result("knowledge_search", content)
+        assert entry.authored_by is None
+
+
+class TestAgentAuthoredDocumentNames:
+    """What the verdict gate is given to judge a Fundstelle against."""
+
+    def _registry(self, *entries: SourceEntry) -> SourceRegistry:
+        registry = SourceRegistry()
+        for entry in entries:
+            registry.add(entry)
+        return registry
+
+    def test_both_identities_a_model_could_name_are_included(self):
+        from aiq_agent.common.citation_verification import agent_authored_document_names
+
+        registry = self._registry(
+            SourceEntry(
+                citation_key="piloti/doc-42/brandschutzkonzept-haus-b.md, p.1",
+                title="Brandschutzkonzept Haus B",
+                source_type="knowledge_layer",
+                authored_by="agent",
+            )
+        )
+        # The namespaced path is not a name any model would write; its basename
+        # is, and so is the display title — and normalisation collapses the
+        # slug's hyphens, so the two identities reduce to the same name.
+        assert agent_authored_document_names(registry) == frozenset({"brandschutzkonzept haus b"})
+
+    def test_human_documents_are_never_listed(self):
+        from aiq_agent.common.citation_verification import agent_authored_document_names
+
+        registry = self._registry(
+            SourceEntry(citation_key="oib-rl_2_ausgabe_mai_2023.pdf, p.12", source_type="knowledge_layer"),
+            SourceEntry(citation_key="Plan.pdf, p.3", source_type="knowledge_layer", authored_by="human"),
+        )
+        assert agent_authored_document_names(registry) == frozenset()
+
+    def test_no_registry_is_an_empty_set_not_a_failure(self):
+        from aiq_agent.common.citation_verification import agent_authored_document_names
+
+        assert agent_authored_document_names(None) == frozenset()
+
+    def test_the_author_survives_the_session_cache_round_trip(self):
+        """The registry is rehydrated from the shared cache on another replica;
+        a field lost there is a gate that silently stops firing mid-conversation."""
+        import dataclasses
+
+        from aiq_agent.common.citation_verification import _registry_from_cached_entries
+
+        entry = SourceEntry(
+            citation_key="piloti/doc-42/konzept.md, p.1", source_type="knowledge_layer", authored_by="agent"
+        )
+        rehydrated = _registry_from_cached_entries([dataclasses.asdict(entry)])
+        assert rehydrated.all_sources()[0].authored_by == "agent"
 
 
 class TestTurnCaptureLog:

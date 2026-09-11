@@ -15,6 +15,7 @@ import type { DocumentKind } from '../document-kind'
 import {
   FILE_KIND_FILTERS,
   FILE_STATUS_GROUPS,
+  NO_FILE_FILTERS,
   activeFilterCount,
   toggleIn,
   type AssignmentFilter,
@@ -221,6 +222,32 @@ export function FileFilterMenu({
             }
             label={t('authorship.filter')}
           />
+          {/* „Freigabe ausstehend" sits with „Von Piloti" rather than under
+              Status, and the two sections are not the same question: Status is
+              where a document is in the INGESTION pipeline, this is whether the
+              office has asserted its content (ADR-0054). It ANDs with everything
+              else here, which is the query the lead clearing a queue before an
+              Einreichung actually asks. */}
+          <CheckRow
+            id="file-filter-review-pending"
+            checked={filters.reviewPendingOnly}
+            onChange={() =>
+              onFiltersChange({ ...filters, reviewPendingOnly: !filters.reviewPendingOnly })
+            }
+            label={t('lifecycle.filter')}
+          />
+          {/* The one control here that WIDENS. An archived document is not in
+              the listing at all — `lifecycle = 'active'` is in the query — so
+              this is the only way back to one, and it says „auch" rather than
+              „nur" so nobody reads it as a narrowing. */}
+          <CheckRow
+            id="file-filter-include-archived"
+            checked={filters.includeArchived}
+            onChange={() =>
+              onFiltersChange({ ...filters, includeArchived: !filters.includeArchived })
+            }
+            label={t('lifecycle.archivedFilter')}
+          />
         </FilterSection>
 
         <Separator />
@@ -259,9 +286,9 @@ export function FileFilterMenu({
           size="sm"
           className="w-full"
           disabled={count === 0}
-          onClick={() =>
-            onFiltersChange({ assignment: 'all', agentAuthoredOnly: false, kinds: [], statuses: [] })
-          }
+          // The whole set, spelled once: a reset that enumerated the fields by
+          // hand left every filter added afterwards standing.
+          onClick={() => onFiltersChange({ ...NO_FILE_FILTERS })}
           data-testid="file-filter-reset"
         >
           {t('filters.reset')}

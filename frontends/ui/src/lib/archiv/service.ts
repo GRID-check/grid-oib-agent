@@ -45,7 +45,13 @@ import { assertWithinStorageQuota } from '@/lib/storage/service'
 import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
 import { findLiveDocumentByFilename } from '@/lib/documents/repository'
-import { discardSupersededObjects } from '@/lib/documents/object-cleanup'
+import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
+import {
+  nextVersionNumber,
+  recordUploadedVersion,
+} from '@/lib/documents/lifecycle'
+import { versionedStorageKey } from '@/lib/documents/version-content'
+import { listDocumentVersionObjects } from '@/lib/documents/version-repository'
 import type { DocumentListRow } from '@/lib/documents/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { archivCollectionName } from './collection'
@@ -137,7 +143,16 @@ export async function uploadArchivDocument(
   const filename = documentNameKey(file.name)
   const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
   const documentId = superseded?.id ?? crypto.randomUUID()
-  const storageKey = buildArchivStorageKey(session.organizationId, documentId, filename)
+  // A re-upload writes new bytes under a new `v<n>/` key, so the version it
+  // replaces keeps an object a reader can open (ADR-0054). Version 1 keeps
+  // today's key exactly.
+  const versionNumber = superseded
+    ? await nextVersionNumber(documentId, session.organizationId)
+    : 1
+  const storageKey = versionedStorageKey(
+    buildArchivStorageKey(session.organizationId, documentId, filename),
+    versionNumber,
+  )
 
   // Same provisioning step as the project path (ADR-0043): the Archiv shares
   // the tenant's bucket, because it shares the tenant's bytes.
@@ -172,10 +187,8 @@ export async function uploadArchivDocument(
       folderId: null,
       createdBy: session.userId,
     })
-    // The Archiv is flat, so the key is a pure function of the id and the new
-    // bytes land on the old ones; the helper still guards the key, and removes
-    // the stale thumbnail and `_bim/` derivatives either way.
-    await discardSupersededObjects(superseded, storageKey, 'archiv')
+    // Nothing is discarded: the previous bytes are the previous VERSION's now
+    // (ADR-0054) and its row still names them. They go with the document.
   } else {
     await admitOrDiscard(storageBucket, storageKey, {
       id: documentId,
@@ -194,6 +207,11 @@ export async function uploadArchivDocument(
       status: 'uploaded',
     })
   }
+
+  // The version, through the same transition table every other shelf uses
+  // (ADR-0054): born `published` and born approved, because the person who
+  // uploaded it is the assertion.
+  await recordUploadedVersion(session, documentId, request)
 
   // Same dispatcher as every other shelf: the STEP source of an IFC is never
   // embedded, so an uploaded model is parsed and its digest is what reaches the
@@ -253,6 +271,14 @@ export async function deleteArchivDocument(
   const chunksPurged = purgeRef
     ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
     : null
+
+  // Every VERSION's objects, not only the live one (ADR-0054) — see the same
+  // loop in `deleteDocument` for why a superseded version's bytes would
+  // otherwise stay in the bucket, invisible and still charged.
+  for (const version of await listDocumentVersionObjects(documentId, session.organizationId)) {
+    if (version.storageKey === doc.storageKey) continue
+    await deleteDocumentObjects(version).catch(() => undefined)
+  }
 
   if (doc.storageKey) {
     try {

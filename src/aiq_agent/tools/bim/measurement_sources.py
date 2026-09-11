@@ -3,7 +3,7 @@
 The agent measures a basement correctly and the Herleitungspfad shows nothing.
 That is the defect this module closes, and the reason it was open is worth
 stating: ``ifc_measure`` is deliberately not a data source
-(:mod:`aiq_agent.agents.researcher.grounding`), so nothing it produced
+(:mod:`aiq_agent.agents.piloti.grounding`), so nothing it produced
 ever reached the citation registry, and the Herleitung is fed from the
 registry.
 

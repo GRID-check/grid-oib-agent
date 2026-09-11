@@ -320,7 +320,7 @@ GOLDEN_ANSWER = (
 
 
 def run_golden_path():
-    """Walk the whole chain exactly as the researcher's node does.
+    """Walk the whole chain exactly as Piloti's node does.
 
     KB tool output → ``extract_sources_from_tool_result`` → ``SourceRegistry`` →
     ``verify_citations`` → ``sanitize_report`` → ``source_entry_to_wire``,

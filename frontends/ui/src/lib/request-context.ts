@@ -52,7 +52,7 @@
  * choice (envelope-only parsing, no legacy individual-header fallback).
  */
 
-import { createHmac } from 'node:crypto'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { ScopedCollection } from '@/lib/collection-scope'
 
 export interface GridBudgetSnapshot {
@@ -131,6 +131,34 @@ export interface GridRequestContextInput {
    * exactly as it did before this field existed.
    */
   bundesland?: string | null
+  /**
+   * → envelope payload field `conversationId` ONLY (ADR-0054). The chat turn
+   * this request belongs to.
+   *
+   * Envelope-only, like `bundesland` and for a stronger reason: it is the field
+   * a BFF route AUTHORIZES on. The agent's document route reads the acting user
+   * out of the verified payload and files in that person's session, so a
+   * conversation id that travelled as its own unsigned header would be a
+   * caller-chosen value in a decision — exactly what the signature exists to
+   * prevent. Omitted when the turn has no conversation.
+   */
+  conversationId?: string | null
+  /**
+   * → envelope payload field `issuedAt` ONLY (ADR-0054): epoch MILLISECONDS at
+   * which this envelope was minted.
+   *
+   * A signature says the payload was not altered. It does not say the payload is
+   * CURRENT — a captured envelope replays forever, and the one that matters here
+   * carries a user id a write route acts as. `issuedAt` plus the window in
+   * {@link verifyGridRequestContextEnvelope} is what bounds that.
+   *
+   * Optional so every existing producer keeps minting byte-identical envelopes
+   * (the fixture's older cases pin exactly that), and so a verifier can decide
+   * for itself what an envelope without one means. The BFF's verifier refuses
+   * it; the Python side, which has always accepted envelopes without one,
+   * continues to.
+   */
+  issuedAt?: number | null
 }
 
 /** Canonical header names, exact casing as sent on the wire. */
@@ -324,6 +352,16 @@ export function buildGridRequestContextEnvelopePayload(input: GridRequestContext
   if (input.bundesland) {
     payload.bundesland = input.bundesland
   }
+  // LAST in the key order, after `bundesland`, for the reason `bundesland` was
+  // last before them: every pre-existing fixture case's signed bytes stay
+  // byte-identical, so the precomputed `header`/`signature` values keep
+  // exact-matching on both sides of the language boundary.
+  if (input.conversationId) {
+    payload.conversationId = input.conversationId
+  }
+  if (input.issuedAt !== undefined && input.issuedAt !== null) {
+    payload.issuedAt = input.issuedAt
+  }
 
   return payload
 }
@@ -391,4 +429,119 @@ export function buildGridRequestContextWireHeaders(
     ...buildGridRequestContextHeaders(input),
     ...buildGridRequestContextEnvelopeHeaders(input, secret),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Verifying an envelope (ADR-0054)
+// ---------------------------------------------------------------------------
+
+/** How long a minted envelope stays acceptable. */
+export const GRID_REQUEST_CONTEXT_MAX_AGE_MS = 6 * 60 * 60 * 1000
+
+/** The fields a verified envelope can be acted on. */
+export interface VerifiedGridRequestContext {
+  organizationId: string
+  userId: string
+  projectId: string | null
+  conversationId: string | null
+  issuedAt: number
+}
+
+/**
+ * Verify a signed context envelope and read the acting identity out of it.
+ *
+ * ## Why a BFF route verifies something the BFF signed
+ *
+ * Until now the envelope travelled one way: the BFF minted it and the Python
+ * tier verified it (`aiq_agent.project_context.GridRequestContext.from_envelope`).
+ * The agent's document route is the first hop in the other direction, and the
+ * problem it solves is the one ADR-0051 named for scheduled work: **an internal
+ * route carries a service token and no user.** `GRID_INTERNAL_API_TOKEN`
+ * authenticates the SERVICE, and the agent's principal is wider than any human's
+ * — so a route that took `userId` from its own request body would let anything
+ * holding the shared token write into any tenant as anybody.
+ *
+ * The envelope closes that. It was minted by this tier at the start of the turn,
+ * from a real session, and signed with the same secret; a caller cannot forge
+ * one without the secret, and cannot edit the one it was given without breaking
+ * the signature. What comes back is a user id this tier itself asserted.
+ *
+ * ## The threat model, stated plainly
+ *
+ * | An attacker who holds | Can |
+ * |---|---|
+ * | the internal token alone | reach the route and be refused: no envelope, no acting identity |
+ * | a captured envelope, within its window | act as the user it names, in the organization and project it names, for at most {@link GRID_REQUEST_CONTEXT_MAX_AGE_MS} — the same authority that user's own turn already had |
+ * | a captured envelope, after its window | nothing: `issuedAt` is inside the signed bytes, so the age cannot be edited without invalidating the signature |
+ * | the signing secret | everything the internal token already grants. This is not a second factor; it is what turns a service call into a person's call |
+ *
+ * Two properties do the work. `issuedAt` is INSIDE the signed payload, so an
+ * expired envelope cannot be refreshed by a caller. And an envelope with no
+ * `issuedAt` at all is REFUSED here — fail-closed, unlike the Python side, which
+ * has accepted envelopes without one since before the field existed and would
+ * break for every in-flight turn if it stopped. A missing signature is refused
+ * for the same reason: this tier always has the secret, so "no secret
+ * configured" is not a state a write route may treat as permission.
+ *
+ * Returns `null` for every refusal rather than throwing, and never says WHICH —
+ * the caller answers 401 either way, and a verifier that distinguishes "bad
+ * signature" from "expired" is an oracle.
+ */
+export function verifyGridRequestContextEnvelope(
+  header: string | null | undefined,
+  signature: string | null | undefined,
+  secret: string | null | undefined,
+  now: number = Date.now(),
+): VerifiedGridRequestContext | null {
+  if (!header || !signature || !secret) return null
+
+  let json: string
+  try {
+    json = Buffer.from(header, 'base64url').toString('utf8')
+  } catch {
+    return null
+  }
+
+  const expected = signGridRequestContextEnvelope(json, secret)
+  // Constant-time: `===` on hex leaks the length of the shared prefix, which is
+  // enough to walk a forgery byte by byte given enough attempts.
+  if (!timingSafeEqualHex(expected, signature)) return null
+
+  let payload: unknown
+  try {
+    payload = JSON.parse(json)
+  } catch {
+    return null
+  }
+  if (typeof payload !== 'object' || payload === null) return null
+
+  const fields = payload as Record<string, unknown>
+  const organizationId = typeof fields.organizationId === 'string' ? fields.organizationId : null
+  const userId = typeof fields.userId === 'string' ? fields.userId : null
+  const issuedAt = typeof fields.issuedAt === 'number' ? fields.issuedAt : null
+  // An envelope with no acting identity cannot authorize a write, whatever its
+  // signature says: an anonymous turn's envelope is genuinely valid and names
+  // nobody.
+  if (!organizationId || !userId || issuedAt === null) return null
+  if (!Number.isFinite(issuedAt)) return null
+  // Both directions. A future-dated envelope is a clock that disagrees or a
+  // value somebody chose, and neither is a reason to widen the window.
+  if (Math.abs(now - issuedAt) > GRID_REQUEST_CONTEXT_MAX_AGE_MS) return null
+
+  return {
+    organizationId,
+    userId,
+    projectId: typeof fields.projectId === 'string' ? fields.projectId : null,
+    conversationId: typeof fields.conversationId === 'string' ? fields.conversationId : null,
+    issuedAt,
+  }
+}
+
+/** `timingSafeEqual` over two hex digests, length mismatch included. */
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  const left = Buffer.from(a, 'hex')
+  const right = Buffer.from(b, 'hex')
+  if (left.length !== right.length || left.length === 0) return false
+  return timingSafeEqual(left, right)
 }

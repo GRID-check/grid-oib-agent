@@ -70,6 +70,7 @@ import {
   TooManyRequestsError,
 } from './errors'
 import { requestBodyLimitBytes } from '@/shared/config/request-body-limit'
+import { REQUEST_ID_HEADER, resolveRequestId } from './request-id'
 
 /** Context passed to session-authenticated handlers. */
 export interface ApiContext<TParams = Record<string, never>> {
@@ -235,8 +236,31 @@ function isNextControlFlowError(error: unknown): boolean {
   )
 }
 
+/**
+ * Every error carries its request id, in the body and in the header.
+ *
+ * Both, because the two readers are different: the header is what a proxy log
+ * and a browser's network panel keep, and the body is the only one a chat
+ * client can put in front of the person who is looking at the failure
+ * (`ErrorBanner`). Adding it here rather than at each throw site means an id is
+ * on the errors nobody remembered to think about, which are the ones that get
+ * reported.
+ */
+function errorPayload(
+  body: Record<string, unknown>,
+  status: number,
+  requestId: string,
+  headers?: Record<string, string>,
+): Response {
+  return NextResponse.json(
+    { ...body, requestId },
+    { status, headers: { ...headers, [REQUEST_ID_HEADER]: requestId } },
+  )
+}
+
 export function errorResponse(error: unknown, request: Request): Response {
   if (isNextControlFlowError(error)) throw error
+  const requestId = resolveRequestId(request)
   if (error instanceof ApiError) {
     const body: Record<string, unknown> = { error: error.message, code: error.code }
     if (error.details !== undefined) body.details = error.details
@@ -245,25 +269,28 @@ export function errorResponse(error: unknown, request: Request): Response {
     // the retry storm the limit exists to stop (ADR-0040).
     const headers =
       error instanceof TooManyRequestsError ? rateLimitHeaders(error.decision) : undefined
-    return NextResponse.json(body, { status: error.status, headers })
+    return errorPayload(body, error.status, requestId, headers)
   }
   // Legacy guards (requireGridSession, requireProjectAccess, WorkOS client
   // wrappers) throw plain Errors classified by message. Map them exactly as
   // authzErrorResponse() did so behavior stays stable while they migrate.
   if (isAuthzError(error)) {
-    return NextResponse.json({ error: 'Forbidden', code: 'FORBIDDEN' }, { status: 403 })
+    return errorPayload({ error: 'Forbidden', code: 'FORBIDDEN' }, 403, requestId)
   }
   // Binding a filename to a uuid column is not an internal failure (#572).
   if (isInvalidUuidQueryError(error)) {
-    return NextResponse.json({ error: 'Not found', code: 'NOT_FOUND' }, { status: 404 })
+    return errorPayload({ error: 'Not found', code: 'NOT_FOUND' }, 404, requestId)
   }
   const url = new URL(request.url)
   const pgCode = findPostgresCode(error)
+  // The id goes in the LOG LINE too, and that is the half that makes it worth
+  // having: the response tells the user what to quote, this tells the operator
+  // what to grep. An id on only one side of that handshake is decoration.
   console.error(
-    `[api] Unhandled error in ${request.method} ${url.pathname}${pgCode ? ` pgCode=${pgCode}` : ''}:`,
+    `[api] Unhandled error in ${request.method} ${url.pathname} requestId=${requestId}${pgCode ? ` pgCode=${pgCode}` : ''}:`,
     error
   )
-  return NextResponse.json({ error: 'Internal server error', code: 'INTERNAL' }, { status: 500 })
+  return errorPayload({ error: 'Internal server error', code: 'INTERNAL' }, 500, requestId)
 }
 
 /**

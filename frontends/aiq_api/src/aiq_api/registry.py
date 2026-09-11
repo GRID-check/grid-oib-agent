@@ -96,7 +96,7 @@ register_agent(
 # ``configs/config_oib_openrouter.yml``.
 register_agent(
     agent_type="researcher",
-    class_path="aiq_agent.agents.researcher.agent.ResearcherAgent",
+    class_path="aiq_agent.agents.piloti.agent.PilotiAgent",
     config_name="shallow_research_agent",
     description="Performs quick single-turn research",
 )

@@ -204,7 +204,12 @@ clarifying questions, source-citation accuracy during research. They are in
 `releasenotes/notes/` and on `develop`. If they were still visible in testing,
 the deployment was behind the branch, and that is worth checking before the
 pilot: it changes which of these reports are code problems and which are
-release problems.
+release problems. That check no longer needs anyone's memory: both services now
+print `[boot] sha=… skills=… collaboration=… enforceFlags=… agentDocs=…` at
+startup and serve the same `sha` on `/api/healthz` and `/health`, so the next
+report can name the build it was made against and say whether the feature it is
+about was switched on at all — which three of the four gates default to *not*
+being (`frontends/ui/src/lib/boot.ts`).
 
 ## The HTML mock-ups
 

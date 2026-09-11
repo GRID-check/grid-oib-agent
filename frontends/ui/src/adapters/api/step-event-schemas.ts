@@ -237,9 +237,33 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
   'status.documents.waiting': 'thinking.turnStatus.',
   'status.retrieval.withQuery': 'thinking.turnStatus.',
   'status.retrieval.plain': 'thinking.turnStatus.',
+  // The locator rounds: a passage the agent already identified is being READ,
+  // not searched for. No `{corpus}` slot — the document names itself.
+  'status.retrieval.punkt': 'thinking.turnStatus.',
+  'status.retrieval.page': 'thinking.turnStatus.',
   'status.retrieval.requery': 'thinking.turnStatus.',
   'status.action.remember': 'thinking.turnStatus.',
   'status.action.card': 'thinking.turnStatus.',
+  // The conversation's working directory: one verb per tool, and nothing is
+  // being RETRIEVED — the draft being worked on is the one the turn is writing.
+  'status.action.draftList': 'thinking.turnStatus.',
+  'status.action.draftRead': 'thinking.turnStatus.',
+  'status.action.draftWrite': 'thinking.turnStatus.',
+  'status.action.draftEdit': 'thinking.turnStatus.',
+  // A file operation being PROPOSED. One key for all five verbs: the card that
+  // follows says which operation on which file, so the live line's job is only
+  // to say that a proposal is being prepared — not to be the card, early.
+  'status.action.fileProposal': 'thinking.turnStatus.',
+  // The two steps that leave the conversation: the draft becomes a project
+  // document, and then a person is asked to look at it. Kept apart, unlike the
+  // five proposal verbs above, because there is no card following to say which
+  // of the two just happened.
+  'status.action.draftFiled': 'thinking.turnStatus.',
+  'status.action.draftSubmitted': 'thinking.turnStatus.',
+  // Handing the work over: this turn will not produce the answer, something
+  // outside the conversation will. Its own key, and not one of the two above,
+  // because no draft is moving.
+  'status.action.taskCreated': 'thinking.turnStatus.',
   'status.citations': 'thinking.turnStatus.',
   'status.repair': 'thinking.turnStatus.',
   'status.escalation': 'thinking.turnStatus.',

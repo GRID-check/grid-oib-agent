@@ -45,9 +45,15 @@ import { PDF_MEDIA_TYPE, renderMarkdownPdf } from '@/lib/pdf/markdown-pdf'
 import type { DocumentFact } from '@/lib/answer-export/answer-document'
 import { AI_GENERATOR_NAME } from '@/lib/ai-provenance'
 import { buildProjectBriefView } from '@/lib/project-profile/brief-view'
+import { getOrganizationDisplayName } from '@/lib/organizations/service'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { resolveDocumentBranding } from './branding'
+import { contentDigest } from './content-digest'
 import { fileGeneratedDocument, type FiledGeneratedDocument } from './generated'
+import { createDocumentVersion, transitionDocumentVersion } from './lifecycle'
+import { findDocumentInOrg } from './repository'
+import { findOpenVersion } from './version-repository'
 
 export interface FileResearchReportInput {
   session: AuthorizedSession
@@ -149,7 +155,12 @@ export function splitReportTitle(report: string): { title: string | null; body: 
  *   - **Projektphase, Katastralgemeinde, Geschosse, Fluchtniveau, Widmung** —
  *     the rest of the brief. A cover identifies; it does not summarise. The
  *     brief is a page in the app and a section of no document.
- *   - **The organization's name or mark.** This is a report, not a letterhead.
+ *   - **The organization's name or mark, as a FACT ROW.** This is a report, not
+ *     a letterhead. The office is named once, in the branding header line above
+ *     the facts (`./branding`, „Erstellt mit Piloti für …") — which is chrome
+ *     saying who this was made for, not a claim the report makes about its
+ *     subject. A fact row would put the office beside Standort and Bundesland,
+ *     where every other line is something the report was checked against.
  */
 const COVER_FACT_PLACEHOLDER = '—'
 
@@ -279,10 +290,115 @@ async function loadProfile(projectId: string, organizationId: string): Promise<u
 export async function fileResearchReport(
   input: FileResearchReportInput,
 ): Promise<FiledGeneratedDocument> {
+  const filed = await renderAndFileReport(input)
+  await openReviewRound(input, filed)
+  return filed
+}
+
+/**
+ * The report's review round: version 1 as a `draft`, submitted to the person
+ * who commissioned it.
+ *
+ * ## Why a report goes through the same door as a chat draft
+ *
+ * Before ADR-0054 a filed report had no editorial state at all: it appeared in
+ * Berichte looking exactly like a document somebody had checked, and the only
+ * thing saying otherwise was the „KI-generiert — nicht geprüft" block printed
+ * inside the PDF. „Piloti hat für Sie recherchiert" and „das Büro steht dahinter"
+ * are different sentences, and until now the Files pane could only say the
+ * second one.
+ *
+ * So the report is a `draft` and its arrival is a request for somebody to look
+ * at it. One vocabulary for humans and for Piloti was the whole point of the
+ * decision (ADR-0054, option 4 overturned): a reviewer should not have to know
+ * who produced a file to know what state it is in.
+ *
+ * ## What stays exactly as it was
+ *
+ * The producer (`deep_research`), the PDF renderer, the cover sheet, the
+ * marking, the `Berichte` folder and the idempotency key. This adds a version
+ * row and a submit; it changes nothing about the bytes. A publish would index
+ * the report — and `deep_research` is outside the `piloti/` namespace, so
+ * `ingestPublished` refuses it and says so, which is the honest behaviour for a
+ * producer whose output was never meant to be a Fundstelle.
+ *
+ * ## Best effort, and why
+ *
+ * A report that filed but could not open its review round is still a report in
+ * the project — the run took minutes and its artifact is the thing the user
+ * waited for. Failing the whole filing to report a submit problem would trade
+ * the artifact for the notification. An already-filed reference (the report GET
+ * being opened twice) finds its version already there and does nothing.
+ */
+async function openReviewRound(
+  input: FileResearchReportInput,
+  filed: FiledGeneratedDocument,
+): Promise<void> {
+  const { session, request } = input
+  try {
+    const existing = await findOpenVersion(filed.documentId, session.organizationId)
+    if (existing) return
+
+    const document = await findDocumentInOrg(filed.documentId, session.organizationId)
+    if (!document) return
+
+    const version = await createDocumentVersion(session, {
+      document,
+      op: 'create',
+      storageKey: document.storageKey,
+      storageBucket: document.storageBucket,
+      contentType: document.contentType,
+      fileSize: document.fileSize,
+      contentHash: document.contentHash ?? contentDigest(new TextEncoder().encode(input.report)),
+      request,
+    })
+
+    // To the person who commissioned it. `emitInboxItems` drops a row whose
+    // recipient is its own actor, so a report somebody asked for interactively
+    // opens no inbox item at THEM — they are looking at it — while a scheduled
+    // run, submitted in the pinned requester's session, does. Either way the
+    // Files pane shows „in Prüfung", which is the state that had no way to be
+    // true before.
+    await transitionDocumentVersion(session, filed.documentId, version.id, 'submit', {
+      reviewerUserIds: [session.userId],
+      request,
+      // The RUN made this gesture, in the commissioning human's session
+      // (migration 0085). Without saying so, `submitted_by` reads as that
+      // person having asserted the report themselves — and the
+      // not-the-submitter guard then refused the one person who asked for it
+      // the right to release it.
+      actingHuman: false,
+    })
+  } catch (error) {
+    console.error('[documents] a filed report could not open its review round', {
+      documentId: filed.documentId,
+      cause: error instanceof Error ? error.name : 'unknown',
+    })
+  }
+}
+
+/** Render the PDF and file the item. The half that was here before. */
+async function renderAndFileReport(
+  input: FileResearchReportInput,
+): Promise<FiledGeneratedDocument> {
   const { session, projectId, runId, report, cards, request } = input
   const { title, body } = splitReportTitle(report)
-  const [t, locale] = await Promise.all([getTranslations('answerExport'), getLocale()])
+  const [t, locale, organizationName] = await Promise.all([
+    getTranslations('answerExport'),
+    getLocale(),
+    getOrganizationDisplayName(session.organizationId),
+  ])
   const documentTitle = title ?? t('documentTitle')
+  // The words on the cover's header line, prose block and page footer. Resolved
+  // ONCE, before the render, and from one module — see `./branding`. It fails
+  // soft to the platform's own copy, which is true of every deployment, so a
+  // settings read that cannot be made never costs the filing of a report a
+  // twelve-minute run just produced.
+  const branding = await resolveDocumentBranding({
+    organizationId: session.organizationId,
+    organizationName,
+    locale,
+  })
 
   return fileGeneratedDocument({
     session,
@@ -370,6 +486,10 @@ export async function fileResearchReport(
         // twice and is now right once — for the reason the seam gives: it is
         // the one place that knows whether a reference IS a run.
         marking,
+        // The header line, the cover prose and the footer line. `branding` is a
+        // superset of the renderer's `DocumentChrome`, so the words stay owned
+        // by `./branding` and the PDF module never imports the copy.
+        branding,
       })
       return { bytes, contentType: PDF_MEDIA_TYPE, marking }
     },

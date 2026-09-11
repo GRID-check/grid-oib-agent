@@ -5,7 +5,7 @@
 
 import { apiRoute } from '@/lib/api/handler'
 import { requireSkillsEnabled } from '@/lib/authz/feature-flags'
-import { listTasks } from '@/lib/tasks/service'
+import { listTaskViews } from '@/lib/tasks/service'
 
 type Params = { id: string }
 
@@ -13,11 +13,13 @@ export const GET = apiRoute<Params>(
   async ({ session, params }) => {
     const gated = requireSkillsEnabled(session)
     if (gated) return gated
-    return { tasks: await listTasks(session, params.id) }
+    // Projected explicitly: a drizzle row carries `Date`s and a plan whose
+    // prompt is a skill's whole body, and neither belongs on this wire.
+    return { tasks: await listTaskViews(session, params.id) }
   },
   {
     authz: {
-      enforcedBy: 'listTasks (requireProjectAccess project:view)',
+      enforcedBy: 'listTaskViews -> listTasks (requireProjectAccess project:view)',
     },
   }
 )

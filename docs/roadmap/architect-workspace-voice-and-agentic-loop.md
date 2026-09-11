@@ -4,6 +4,56 @@
 > voice, chrome, docs) and the Herleitung checkpoint (Thought as spine body,
 > never the search query) now live on `research/architect-workspace-voice`.
 > Isolated worktree: `.worktrees/architect-workspace-voice`.
+>
+> **Second landing.** The first one made a second retrieval round *permitted*
+> (§3: the "at most 2 calls" cap and "commit to your approach" are gone).
+> Permitted is not precise, and four changes make it so:
+>
+> 1. **A locator, so the second round is a lookup.** `read_passage(document,
+>    punkt|page)` opens the passage a conclusion named — deterministic, no
+>    reranker, no requery, no LLM — in the same grounding block
+>    `knowledge_search` returns. Before it, the only way to reach a named Punkt
+>    was to search for it again.
+> 2. **A checkpoint the model cannot skip.** Both retrieval tools declare a
+>    `conclusion` argument; `emit_retrieval` prefers it over prose beside the
+>    calls, and `status:checkpoint:N` records which channel it came from
+>    (`argument` / `prose` / `none`). §3's "function calling bypasses explicit
+>    intermediate reasoning" is exactly why prose alone was not enough.
+> 3. **A round-zero fan-out cap.** The first fetch round runs two searches; the
+>    rest are answered with the reason and not charged. §9's warning that
+>    checkpoints must not steal the traced floors' calls, applied to the greedy
+>    parallel batch §3 identified as the real spender.
+> 4. **A before-and-after set.** `tests/fixtures/herleitung/loop_eval_questions.yaml`
+>    plus `scripts/loop_eval.py` (`task be:eval:loop`) measure rounds, locator
+>    use, checkpoint source, cited-Punkt match, truncation and family coverage.
+>    §8's "what done would look like" as a number rather than a description.
+> 5. **Family completeness.** "OIB-Richtlinien 1–6" is a range and names no
+>    members, so „Was weißt du über die OIB 2?" could open 2, 2.1 and 2.2,
+>    forget 2.3, and read as complete. The folded Basiswissen shelf now carries
+>    one line per family listing the parts the corpus actually holds (derived
+>    from what is indexed, never listed in code), `<research_rules>` says every
+>    member must be opened before a family question is answered, and
+>    `status:coverage:<family>` counts listed against opened so the miss rate is
+>    a number.
+>
+> **Second landing, part 2 (ledger row 20): the two hidden loops now report to
+> the model.** §3's "hidden loops the model does not own" named requery and
+> repair as workflows the agent could neither see nor react to. Both now leave
+> an observation the model reads: a widened `knowledge_search` leads its result
+> with one German line naming the alternative formulations and why they were
+> tried (`sources/knowledge_layer/src/requery.py::requery_notice`), and a
+> failed verification reaches the rewrite as a `citation_check` tool result
+> naming the marker and the quote that failed
+> (`agents/piloti/repair.py::verification_observation`), with
+> `status:repair` carrying `{citationsRemoved, quotesFailed}` as the
+> Herleitung's technical detail. §5's layer map is now closed on the drawing
+> side too (ledger row 19): the sources hang off the checkpoint that fetched
+> them, each checkpoint FOLDS to the count of what that fetch returned, and a
+> spine of three or more rounds arrives with everything but the newest layer
+> folded. The frontend round walker is pinned to the backend's own bytes —
+> `tests/fixtures/herleitung/two_search_rounds_steps.json` is written by the
+> emitters and read by `retrieval-rounds.spec.ts`, so a change to the wire
+> fails exactly one side.
 > **Method.** Read the live system prompt, the answer envelope, the shallow ReAct loop, the Herleitung graph, and the production config. Cross-checked against the 2026-09-01 workspace architecture review, ADRs 0051–0052, and current industry writing on agentic RAG, coding agents, legal AI, and AEC clouds.
 
 **What “Harvey for architects” means here.** Harvey is a workspace for lawyers, not a statute chatbot. Piloti is a workspace for architects, not an OIB chatbot. Questions are about the work — files, drawings, the model, how to organise, what to tell a colleague. Answers are *grounded* in whichever of these actually bears: the project’s files, the office archive, and the Austrian building-regulation corpus. Not every question is a legal question. A ruling is only when there is a copyable legal value. Treating “workspace for architects” as “every answer is about law” is the same colocation this report is trying to kill.
@@ -256,6 +306,8 @@ Two quality loops already exist. Both are **workflows inside a tool or after the
 **Repair pass (evaluator-optimizer, after verification).** If a citation or quote fails, the turn may retrieve once more aimed at the failing text and rewrite, then re-verify (`repair_pass: true`). The reader may see `status.repair`. The model did not choose this.
 
 The 2026-09-01 review said there was no repair and no retrieval loop. On this develop tip the code has both. The review’s *product* claim still holds: the reader is not shown a decision, only a status key, and the model is not the one looping.
+
+**[LANDED — the model is now told, ledger row 20.]** Neither loop is silent to the agent any more. A widened search leads its tool result with `Hinweis: die Suche wurde um N Umformulierungen erweitert (…), weil die ersten Treffer die Frage nicht abdeckten.`, naming each alternative formulation (`requery.py::requery_notice`, prefixed in `register.py` onto both the excerpts and the empty-result message); a failed verification reaches the rewrite as a `citation_check` tool call and its result, naming which `[N]` and which quote failed (`agents/piloti/repair.py::verification_observation`). Neither instructs — what to do about it is the model's next decision, which is the whole point. Still true: the pipeline, not the model, DECIDES to widen and to repair.
 
 Deep research is the one place the backend is genuinely multi-agent (orchestrator, source router, planner, up to six researchers, writer). Chat-path shallow is a single agent with a short leash. Escalation is an envelope field, not a continuation of the same loop.
 

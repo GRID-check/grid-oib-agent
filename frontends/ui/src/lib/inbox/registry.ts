@@ -125,6 +125,26 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     retentionDays: 60,
     gate: 'operational',
   },
+  /*
+    A version is waiting for a decision (ADR-0054). Actionable, because it IS an
+    outstanding request against the recipient and the badge is what makes it
+    visible; `per-anchor` on the VERSION, because two review rounds on one
+    document ask about two sets of bytes and collapsing them would hide the
+    second. Kept as long as a mention, for the same reason: an unanswered
+    request is the most valuable thing in this list.
+
+    `operational` rather than `collaboration`: a Ziviltechniker's Freigabe is
+    not a chat feature, and a tenant that never bought collaboration still has
+    documents to approve. Gating it would make the one review queue in the
+    product invisible for exactly the offices most likely to want it — the same
+    mistake the storage warning's entry above records.
+  */
+  'document.review_requested': {
+    actionable: true,
+    grouping: 'per-anchor',
+    retentionDays: 180,
+    gate: 'operational',
+  },
 }
 
 /** Whether a type is actionable (denormalized onto the row for a cheap count). */

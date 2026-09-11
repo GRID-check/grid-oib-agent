@@ -61,6 +61,7 @@ vi.mock('@/lib/sharing/service', () => ({ resolveParticipants: vi.fn() }))
 // state what the service does with each outcome; the erasure itself is tested
 // in `session-documents/cleanup.spec.ts`.
 vi.mock('@/lib/session-documents/cleanup', () => ({ purgeSessionDocuments: vi.fn() }))
+vi.mock('./working-directory', () => ({ discardConversationDrafts: vi.fn() }))
 vi.mock('@/lib/collaboration/cleanup', () => ({ purgeConversationCollaboration: vi.fn() }))
 vi.mock('@/lib/events/bus', () => ({ publishToUsers: vi.fn() }))
 vi.mock('@/lib/inbox/service', () => ({
@@ -94,6 +95,7 @@ import { applyMessageMentions, resolveRequestsOnReply } from '@/lib/mentions/ser
 import { countGrantsForResource, findGrantForSubject } from '@/lib/sharing/repository'
 import { resolveParticipants } from '@/lib/sharing/service'
 import { purgeSessionDocuments } from '@/lib/session-documents/cleanup'
+import { discardConversationDrafts } from './working-directory'
 import { resolveEngagement, resolveEngagementFor, setEngagement } from './engagement'
 import {
   deleteConversationInOrg,
@@ -1342,5 +1344,45 @@ describe('project:chat gates the AGENT, not the conversation (the message-write 
     ])
 
     expect(requireProjectAccess).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The chat's drafts on the Python tier (ADR-0003, §1 of the design of record).
+ *
+ * A conversation's working directory lives in the agent service's own store,
+ * which no foreign key and no cascade reaches — so „Chat gelöscht" has to mean
+ * the drafts went too, or the product keeps private text in a store nothing
+ * lists.
+ */
+describe('deleting a conversation takes its working directory with it', () => {
+  beforeEach(() => {
+    stubConversation({ visibility: 'private', createdBy: session.userId })
+    vi.mocked(markConversationDeleting).mockResolvedValue({ id: CONVERSATION_ID } as never)
+    vi.mocked(purgeSessionDocuments).mockResolvedValue({
+      ok: true,
+      retained: 0,
+      failures: [],
+    } as never)
+  })
+
+  it('asks the agent service to drop the drafts, by conversation id', async () => {
+    await deleteConversation(session, CONVERSATION_ID)
+    expect(discardConversationDrafts).toHaveBeenCalledWith(CONVERSATION_ID)
+  })
+
+  it('does not ask when the delete stopped short of removing the rows', async () => {
+    // The attachment purge is the one failure the delete cannot be retried past
+    // — it stops BEFORE the rows that still name the objects — and the
+    // conversation is still there afterwards.
+    vi.mocked(purgeSessionDocuments).mockResolvedValue({
+      ok: false,
+      retained: 1,
+      failures: ['object store unreachable'],
+    } as never)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(deleteConversation(session, CONVERSATION_ID)).rejects.toThrow()
+    expect(discardConversationDrafts).not.toHaveBeenCalled()
   })
 })

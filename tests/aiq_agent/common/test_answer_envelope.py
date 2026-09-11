@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 
-from aiq_agent.agents.researcher.markers import detect_and_strip_confidence_marker
+from aiq_agent.agents.piloti.markers import detect_and_strip_confidence_marker
 from aiq_agent.common.answer_envelope import ENVELOPE_VERSION
 from aiq_agent.common.answer_envelope import SUMMARY_MAX_CHARS
 from aiq_agent.common.answer_envelope import AnswerMeta
@@ -222,6 +222,124 @@ class TestGating:
         assert meta.kind == "walkthrough"
         payload = gate_answer_meta(meta, prose_chars=1_000)
         assert payload == {"v": ENVELOPE_VERSION, "kind": "walkthrough"}
+
+
+class TestAVerdictNeverRestsOnADocumentPilotiWrote:
+    """The gate that keeps an approved office document from becoming a norm.
+
+    A published Piloti document is real evidence and it is citable — but a
+    VERDICT is the one place an answer names a Fundstelle for a value the
+    reader copies straight into a Nachweis, and „REI 90, laut
+    Brandschutzkonzept Haus B" reads as a requirement whether or not the
+    document ever claimed to be one. ``verify_citations`` cannot catch this: it
+    proves the source is real, and this source IS real.
+
+    The gate drops the verdict, not the answer — every word of the prose, and
+    every citation in it, survives.
+    """
+
+    _AGENT_DOCS = frozenset({"brandschutzkonzept haus b"})
+
+    def _gate(self, reference: dict | None, documents: frozenset[str] | None = None) -> dict | None:
+        verdict = {**_VERDICT, **({"reference": reference} if reference else {})}
+        return gate_answer_meta(
+            AnswerMeta.model_validate({"verdict": verdict}),
+            prose_chars=1_000,
+            agent_authored_documents=self._AGENT_DOCS if documents is None else documents,
+        )
+
+    def test_a_verdict_referencing_an_agent_authored_document_is_dropped(self):
+        assert self._gate({"document": "Brandschutzkonzept Haus B"}) is None
+
+    def test_the_match_survives_the_spellings_a_model_writes(self):
+        assert self._gate({"document": "**Brandschutzkonzept Haus-B.md**"}) is None
+        assert self._gate({"document": "Brandschutzkonzept Haus B (Büroarchiv)"}) is None
+
+    def test_a_verdict_referencing_the_OIB_survives_untouched(self):
+        payload = self._gate({"document": "OIB-Richtlinie 2", "section": "Tabelle 1b"})
+        assert payload is not None
+        assert payload["verdict"]["reference"] == {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b"}
+
+    def test_a_verdict_with_no_reference_survives_an_ordinary_turn(self):
+        """Nothing agent-authored was retrieved, so there is nothing to launder.
+
+        „Nicht geregelt" is the common unattributed verdict and it must keep
+        standing: on a turn whose registry holds no Piloti document, an absent
+        Fundstelle is an absent Fundstelle and nothing more.
+        """
+        payload = self._gate(None, documents=frozenset())
+        assert payload is not None
+        assert payload["verdict"] == _VERDICT
+
+    def test_a_verdict_with_no_reference_is_dropped_when_piloti_wrote_a_source(self):
+        """THE HOLE. The gate above can only judge a reference it was given, so
+        omitting it was the cheapest way to the same headline resting on the
+        same document — with the evidence that would have failed it left out."""
+        assert self._gate(None) is None
+
+    def test_the_unreferenced_drop_is_counted_under_its_own_reason(self, monkeypatch):
+        pushed: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            "aiq_agent.common.turn_status.push_custom_step",
+            lambda name, payload: pushed.append((name, payload)),
+        )
+        assert self._gate(None) is None
+        assert [payload["values"]["reason"] for _, payload in pushed] == ["unreferenced_with_agent_source"]
+
+    def test_a_norm_reference_still_survives_a_turn_with_an_agent_document(self):
+        """The three cases are distinct: a norm Fundstelle is kept even when the
+        turn also retrieved something Piloti wrote."""
+        payload = self._gate({"document": "OIB-Richtlinie 2", "section": "Tabelle 1b"})
+        assert payload is not None
+        assert payload["verdict"]["reference"]["document"] == "OIB-Richtlinie 2"
+
+    def test_a_turn_that_retrieved_no_agent_document_gates_nothing(self):
+        """The common case, and the one that must cost nothing."""
+        payload = self._gate({"document": "Brandschutzkonzept Haus B"}, documents=frozenset())
+        assert payload is not None
+
+    def test_the_default_caller_behaves_exactly_as_before(self):
+        payload = gate_answer_meta(
+            AnswerMeta.model_validate({"verdict": {**_VERDICT, "reference": {"document": "Konzept"}}}),
+            prose_chars=1_000,
+        )
+        assert payload is not None
+
+    def test_a_name_too_short_to_judge_is_left_alone(self):
+        """A two-character Fundstelle is not a document name a substring test
+        can decide, in either direction."""
+        payload = self._gate({"document": "B"}, documents=frozenset({"b"}))
+        assert payload is not None
+
+    def test_the_drop_is_counted_as_a_technical_event(self, monkeypatch):
+        """A gate that drops silently makes „how often does this happen?"
+        unanswerable, and that rate is what says whether the wording works."""
+        pushed: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            "aiq_agent.common.turn_status.push_custom_step",
+            lambda name, payload: pushed.append((name, payload)),
+        )
+        assert self._gate({"document": "Brandschutzkonzept Haus B"}) is None
+        assert pushed == [
+            (
+                "status:verdict:dropped",
+                {
+                    "kind": "status",
+                    "channel": "technical",
+                    "slot": "verdict:dropped",
+                    "values": {"reason": "agent_authored_reference"},
+                },
+            )
+        ]
+
+    def test_a_surviving_verdict_emits_nothing(self, monkeypatch):
+        pushed: list[tuple[str, dict]] = []
+        monkeypatch.setattr(
+            "aiq_agent.common.turn_status.push_custom_step",
+            lambda name, payload: pushed.append((name, payload)),
+        )
+        assert self._gate({"document": "OIB-Richtlinie 2"}) is not None
+        assert pushed == []
 
 
 class TestControlFields:
