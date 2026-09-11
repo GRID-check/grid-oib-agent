@@ -2,20 +2,20 @@
 
 /**
  * A document's versions: what state each is in, who moved it and when, the
- * reviewer's words, a way to open the bytes, and a side-by-side comparison.
+ * reviewer's words, a way to open the bytes, and a line diff against the
+ * previous one.
  *
- * ## Why the comparison is not a diff
+ * ## Where the comparison is rendered
  *
- * The route hands back BOTH contents and does not diff (`versions/diff`): word
- * or line granularity, whitespace, and whether a moved paragraph is a move or a
- * delete-plus-insert are rendering decisions. Rendering them properly needs a
- * diff implementation, and this repository has none — no `diff`, no
- * `diff-match-patch`, in `package.json` or in `node_modules`. So this shows the
- * two texts beside each other and says so; it does not fake alignment by
- * colouring rows that happen to share an index, which is wrong the moment a line
- * is inserted and is worse than no marking at all. Adding the dependency is a
- * decision with its own PR (the "buy, don't build" rule cuts that way here — the
- * library exists, we simply have not adopted one).
+ * The route still hands back BOTH contents and still does not diff
+ * (`versions/diff`): word or line granularity, whitespace, and whether a moved
+ * paragraph is a move or a delete-plus-insert are rendering decisions, and
+ * baking one into the API would freeze it for every later surface. What changed
+ * is that the client now HAS an implementation — `diff` (jsdiff) behind
+ * `lib/documents/version-diff` — so the two texts are aligned properly instead
+ * of being shown beside each other under a note saying differences are not
+ * marked. `document-version-diff.tsx` owns everything about how a changed line
+ * looks; this file owns which two versions are compared.
  *
  * ## Names
  *
@@ -38,6 +38,7 @@ import type {
   DocumentVersionView,
 } from '@/lib/documents/lifecycle-types'
 import { DocumentVersionStateBadge } from './document-version-badge'
+import { DocumentVersionDiff } from './document-version-diff'
 
 export interface DocumentVersionListProps {
   documentId: string
@@ -223,22 +224,17 @@ export function DocumentVersionList({
         </p>
       )}
       {comparison && (
-        <div className="space-y-1.5" data-testid="document-version-comparison">
-          <p className="text-muted-foreground text-[11px]">
-            {t('lifecycle.versions.comparisonNote')}
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {[comparison.from, comparison.to].map((side) => (
-              <figure key={side.version.id} className="min-w-0 space-y-1">
-                <figcaption className="text-muted-foreground text-[11px]">
-                  {t('lifecycle.versions.number', { number: side.version.versionNumber })}
-                </figcaption>
-                <pre className="bg-surface-sunken max-h-64 overflow-auto rounded-lg border p-2 text-[11px] leading-[1.5] whitespace-pre-wrap">
-                  {side.content}
-                </pre>
-              </figure>
-            ))}
-          </div>
+        <div data-testid="document-version-comparison">
+          <DocumentVersionDiff
+            from={{
+              versionNumber: comparison.from.version.versionNumber,
+              content: comparison.from.content,
+            }}
+            to={{
+              versionNumber: comparison.to.version.versionNumber,
+              content: comparison.to.content,
+            }}
+          />
         </div>
       )}
     </section>

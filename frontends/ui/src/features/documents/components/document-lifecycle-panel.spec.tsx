@@ -10,7 +10,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
-import { render, screen, waitFor } from '@/test-utils'
+import { render, screen, waitFor, within } from '@/test-utils'
 import { DocumentLifecycleError } from '@/lib/documents/lifecycle-client'
 import type { DocumentLifecycleClient } from '@/lib/documents/lifecycle-client'
 import type {
@@ -302,7 +302,7 @@ describe('DocumentLifecyclePanel — the version list', () => {
     )
   })
 
-  it('shows both texts side by side, and says the differences are not marked', async () => {
+  it('marks what changed between the two versions', async () => {
     const diff = vi.fn().mockResolvedValue({
       from: { version: makeVersion(1, 'superseded'), content: 'alte Fassung' },
       to: { version: makeVersion(2, 'published'), content: 'neue Fassung' },
@@ -320,7 +320,14 @@ describe('DocumentLifecyclePanel — the version list', () => {
     const comparison = await screen.findByTestId('document-version-comparison')
     expect(comparison).toHaveTextContent('alte Fassung')
     expect(comparison).toHaveTextContent('neue Fassung')
-    expect(comparison).toHaveTextContent('differences are not marked')
+    // A real diff now, not two texts beside each other: the old line is marked
+    // removed, the new one added, and the count says so.
+    expect(comparison).toHaveTextContent('1 line added')
+    expect(comparison).toHaveTextContent('1 line removed')
+    const kinds = within(comparison)
+      .getAllByTestId('document-version-diff-row')
+      .map((row) => row.getAttribute('data-kind'))
+    expect(kinds).toEqual(['removed', 'added'])
   })
 
   it('keeps the list when a comparison fails', async () => {

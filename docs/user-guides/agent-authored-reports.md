@@ -179,10 +179,12 @@ plan under the same name no longer throws the old file away; it becomes version
 N+1 and the previous one stays readable. „Was stand im März drin" is a question
 with an answer.
 
-**Mit … vergleichen** puts two versions side by side. It shows both texts as
-they are and does not mark the differences — a proper diff is a later addition,
-and marking lines that merely happen to line up would be worse than marking
-nothing.
+**Mit … vergleichen** shows what changed between two versions, line by line:
+added lines are marked with a `+` and a solid rule, removed ones with a `−` and
+a dashed one, long unchanged stretches fold into a counted gap, and both
+versions' line numbers run down the left so you can see an insert push them
+apart. No red and no green — colour in Piloti means where something came from,
+never what happened to it.
 
 ### Finding what is waiting
 

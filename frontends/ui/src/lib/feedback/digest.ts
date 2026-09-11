@@ -109,15 +109,18 @@ export interface FeedbackDigestOptions {
  * the value the payload is labelled with (`health.windowDays`). Re-deriving it
  * from the filters would put a second default in the code, and a cached digest
  * keyed on a different window than it describes is a mislabelled digest.
+ *
+ * Written as one template rather than a `parts.join(':')` so the organization
+ * segment is visible where the key is — to a reader, and to
+ * `grid/require-tenant-cache-key`, which can only read what the key expression
+ * says. The `*` is the platform-wide digest, which is what this surface asks for
+ * when it is not narrowed to one organization; it is a real partition, not an
+ * absent one.
  */
 function digestKey(windowDays: number, filters: FeedbackHealthFilters, locale: string): string {
-  const parts = [
-    windowDays,
-    filters.organizationId ?? '*',
-    filters.topic ?? '*',
-    locale.slice(0, 5),
-  ]
-  return `feedback:digest:${CACHE_VERSION}:${parts.join(':')}`
+  const organizationId = filters.organizationId ?? '*'
+  const topic = filters.topic ?? '*'
+  return `feedback:digest:${CACHE_VERSION}:${windowDays}:${organizationId}:${topic}:${locale.slice(0, 5)}`
 }
 
 /**

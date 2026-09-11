@@ -568,11 +568,23 @@ export const files = {
       comparing: 'Loading both versions…',
       compareFailed: 'The two versions could not be loaded.',
       /**
-       * Said out loud, because the panel shows two texts and not a diff: no
-       * diff implementation is installed here, and colouring rows that happen
-       * to share an index would be wrong the moment a line is inserted.
+       * The line diff. No red and no green anywhere in it: chroma belongs to
+       * provenance, and an editorial change is not provenance, so a changed line
+       * is marked by a left rule, a `+`/`−` gutter and its ink weight instead.
+       * `addedLine` / `removedLine` are the screen-reader words behind the two
+       * markers — nothing here may depend on seeing a glyph.
        */
-      comparisonNote: 'Both versions, side by side — differences are not marked.',
+      diff: {
+        heading: 'What changed',
+        between: 'Version {from} → version {to}',
+        added: '{count, plural, one {# line added} other {# lines added}}',
+        removed: '{count, plural, one {# line removed} other {# lines removed}}',
+        gap: '{count, plural, one {# line unchanged} other {# lines unchanged}}',
+        identical: 'The two versions are identical, line for line.',
+        truncated: 'This comparison is long — showing the first {count} lines.',
+        addedLine: 'added',
+        removedLine: 'removed',
+      },
       submitted: 'Submitted',
       approved: 'Approved',
       published: 'Published',

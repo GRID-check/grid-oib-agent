@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
  */
 export interface SectionLabelProps extends React.HTMLAttributes<HTMLElement> {
   /** Element to render. Defaults to `span`. */
-  as?: 'span' | 'h2' | 'h3' | 'p' | 'div'
+  as?: 'span' | 'h2' | 'h3' | 'h4' | 'p' | 'div'
   /** Optional scan-target icon (preview rails, inspector sections). */
   icon?: LucideIcon
   children: React.ReactNode
