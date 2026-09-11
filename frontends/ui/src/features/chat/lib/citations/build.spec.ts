@@ -581,10 +581,49 @@ describe('a model-written filename spelling never doubles a chip', () => {
     expect(docs[0]!.loci).toHaveLength(1)
   })
 
-  it('never attaches a written line to a file it merely resembles', () => {
-    // The filename half of the match is load-bearing: a commentary ABOUT the
-    // Richtlinie carries the same `[N]` as the Richtlinie itself, and attaching
-    // by number alone would hand its page to the wrong document.
+  it('a written [N] the wire already numbers joins that document, whatever it says', () => {
+    // The wire's number is the backend's verified binding; the written line is
+    // the model's prose restatement of it. No spelling the line chooses can
+    // mint a second document for a `[N]` the wire has already bound.
+    const docs = buildCitationModel({
+      citations: [wire(1, 1)],
+      entries: [written(1, '[KB] irgendein-anderer-name.pdf, p.9')],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(docs[0]!.fileName).toBe(WIRE_FILE)
+    // The wire's page wins over the model's memory of it.
+    expect(citedPages(docs[0]!)).toEqual([1])
+  })
+
+  it('a written line fills the page the wire left blank, and nothing more', () => {
+    const pageless: CitationSource = { ...wire(1, 1), page: undefined, citationKey: WIRE_FILE }
+    const docs = buildCitationModel({
+      citations: [pageless],
+      entries: [written(1, `[KB] ${WIRE_FILE}, p.7`)],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(citedPages(docs[0]!)).toEqual([7])
+  })
+
+  it('without a wire number, a decorated line still finds its file by name', () => {
+    // A message persisted before the wire numbered sources: the filename is the
+    // only bridge, and the title in front of it must not break the bridge.
+    const unnumbered: CitationSource = { ...wire(1, 1), number: undefined }
+    const docs = buildCitationModel({
+      citations: [unnumbered],
+      entries: [written(1, '[KB] OIB-Richtlinie 2 – oib-rl_2_ausgabe_mai_2023.pdf, p.1')],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(citationNumbers(docs[0]!)).toEqual([1])
+  })
+
+  it('without a wire number, never attaches a written line to a file it merely resembles', () => {
+    // The filename half of the bridge is load-bearing when there is no number
+    // to go on: a commentary ABOUT the Richtlinie must not hand its page to
+    // the Richtlinie itself.
     const corpus: CitationSource = {
       id: 'dbl-c',
       content: '[KB] oib-rl_6_ausgabe_mai_2023.pdf, p.2',
@@ -597,7 +636,7 @@ describe('a model-written filename spelling never doubles a chip', () => {
       collection: 'oib_knowledge',
       fileName: 'oib-rl_6_ausgabe_mai_2023.pdf',
       page: 2,
-      number: 1,
+      number: undefined,
       isCited: true,
     }
     const docs = buildCitationModel({

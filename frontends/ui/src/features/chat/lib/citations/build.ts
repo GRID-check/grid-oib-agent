@@ -152,15 +152,23 @@ const addWireCitations = (
 }
 
 /**
- * The answer's written sources section.
+ * The answer's written sources section — a FALLBACK carrier, never a rival.
  *
- * Its one irreplaceable fact is the `[N]` ↔ locator binding: on the shallow
- * path the model writes the list and the backend's number map can be sparse.
- * Everything else it says (a filename, maybe a URL) the wire already said
- * better, so a written entry adds a numbered LOCUS to an existing document and
- * only creates a document when nothing structured matched — which is now a
- * complete document rather than a degraded chip, because the title, kind and
- * tint come from the same resolution every other producer uses.
+ * The `[N]` ↔ document binding belongs to the backend: `verify_citations`
+ * resolves every written line against the registry of what was retrieved and
+ * the wire carries the result as `number` on the source. A written line whose
+ * `[N]` the wire already numbers is therefore that binding restated in prose,
+ * and it joins the wire's document by number alone, whatever it says — the
+ * spelling of the filename, a title in front of it, a page the model
+ * misremembered. The line used to be matched by FILENAME, so a spelling the
+ * matcher could not read minted a second document for a `[N]` the wire had
+ * already bound, and the row showed the same source twice, once dead.
+ *
+ * The written list matters only where the wire has no number for `[N]`: a
+ * message persisted before the wire numbered sources, or a sparse number map
+ * on the shallow path. There the filename is the only bridge, and a line that
+ * bridges to nothing becomes a document of its own — a complete one, because
+ * title, kind and tint come from the same resolution every producer uses.
  */
 /** Trailing page token of a written source line, when the strict locator rejects it. */
 const LOOSE_PAGE_RE = /[,\s]\s*(?:p\.?|page)\s*(\d+)\s*$/i
@@ -198,11 +206,11 @@ const TITLE_SEPARATOR_RE = /\s+[-–—]\s+|:\s+/g
  * The prompt asks for `filename.pdf, p.X` and its examples once showed
  * `Title – filename.pdf, p.X`; the model copies examples, and the locator's
  * filename test (`anything.ext`) accepted the decorated string whole. That
- * reading meets no wire document, so the line became a second, dead chip for
- * a source the row already showed. The tails after each separator are the
+ * reading meets no wire document. The tails after each separator are the
  * other readings; which one is the document is decided against the wire
- * (`findByFileAndNumber`), never by the shape of the string, so a filename that
+ * (`findByFile`), never by the shape of the string, so a filename that
  * genuinely contains ` - ` still resolves to itself when the wire spells it so.
+ * Only consulted when the wire carries no number for the line's `[N]`.
  */
 export const writtenNameCandidates = (name: string): string[] => {
   const candidates = [name]
@@ -240,17 +248,21 @@ const addWrittenEntries = (
     const ref = locator
       ? { name: locator.filename, page: locator.page }
       : splitWrittenRef(stripOriginToken(title || text))
-    // A written line that means an already-known `[N]` of an already-known
-    // file joins that document instead of creating a second observation with
-    // a never-meeting identity. Every name the line could mean is tried, the
-    // literal one first: a title in front of the filename is read as part of
-    // the filename by the locator, and only the wire can say which reading is
-    // the document.
-    const existing = writtenNameCandidates(ref.name)
-      .map((name) => accumulator.findByFileAndNumber(normalizeFileName(name), entry.number))
+    // The wire numbers this `[N]`: the backend already bound it, and the line
+    // can add at most a page the wire lacks.
+    const bound = accumulator.findByNumber(entry.number)
+    if (bound) {
+      accumulator.adoptWrittenLocus(bound, { number: entry.number, page: ref.page })
+      continue
+    }
+    // No wire number for `[N]`: the filename is the only bridge. Every name
+    // the line could mean is tried, the literal one first — a title in front
+    // of the filename is read as part of it by the locator.
+    const byFile = writtenNameCandidates(ref.name)
+      .map((name) => accumulator.findByFile(normalizeFileName(name)))
       .find((doc) => doc !== undefined)
-    if (existing) {
-      accumulator.attachLocus(existing, { page: ref.page, number: entry.number, isCited: true })
+    if (byFile) {
+      accumulator.attachLocus(byFile, { page: ref.page, number: entry.number, isCited: true })
       continue
     }
     const origin = entry.sourceKind ? ENTRY_KIND_TO_ORIGIN[entry.sourceKind] : undefined
