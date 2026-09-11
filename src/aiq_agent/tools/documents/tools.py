@@ -78,9 +78,15 @@ _TOOL_DESCRIPTIONS = {
 #: TOOL, before the backend is reached, so the model gets "permission denied" on
 #: a path it invented instead of a storage error; the backend refuses the same
 #: paths on its own (``draft_store.path_refusal``), because a second consumer
-#: of the backend must not have to remember this list.
+#: of the backend must not have to remember this list. The root itself is
+#: allowed — ``ls`` lists it — in both spellings, because the middleware
+#: normalises the trailing slash away before matching.
 _PERMISSIONS = [
-    FilesystemPermission(operations=["read", "write"], paths=[f"{DRAFT_ROOT}**"], mode="allow"),
+    FilesystemPermission(
+        operations=["read", "write"],
+        paths=[DRAFT_ROOT.rstrip("/"), DRAFT_ROOT, f"{DRAFT_ROOT}**"],
+        mode="allow",
+    ),
     FilesystemPermission(operations=["read", "write"], paths=["/**"], mode="deny"),
 ]
 

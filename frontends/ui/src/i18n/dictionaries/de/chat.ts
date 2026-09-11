@@ -274,6 +274,11 @@ export const chat: typeof en.chat = {
   cards: {
     aiGenerated:
       'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle (OIB / RIS).',
+    // Die gedämpfte Zeile unter einer UNPLATZIERTEN Rechtsgrundlage, die flach
+    // über der Prosa steht (`EvidenceBlock`): das Zitat ist KI-generiert, wie
+    // auf der gerahmten Karte — hier kürzer, weil der Block daneben schon
+    // schlank ist.
+    evidenceQuoteDisclaimer: 'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle.',
     legalBasis: 'Rechtsgrundlage',
     // Tooltip auf dem OIB-/RIS-Abzeichen: das Abzeichen selbst ist ein
     // Eigenname und in beiden Sprachen gleich — hier steht, was er bedeutet.
@@ -403,6 +408,13 @@ export const chat: typeof en.chat = {
       // Eingabezeile, abgeschickt wird er von der Person.
       file: 'Ins Projekt übernehmen',
       fileRequest: 'Leg diesen Entwurf ins Projekt ab.',
+      // Die Lesefläche des unabgelegten Entwurfs: Die Bytes liegen im
+      // Arbeitsordner des Agenten und kommen über die Entwurfs-Vorschautür des
+      // BFF. Ein Lesen, also schreibt sie nichts und bleibt presentational.
+      preview: 'Entwurf ansehen',
+      previewLoading: 'Entwurf wird geladen …',
+      previewError: 'Der Entwurf konnte nicht geladen werden.',
+      previewRetry: 'Erneut versuchen',
       // Ab hier liegt das Dokument im Projekt.
       filed: 'Liegt als Entwurf im Projekt',
       open: 'Im Projekt öffnen',
@@ -814,12 +826,12 @@ export const chat: typeof en.chat = {
     // sinnvolle Phrase zurück, sonst auf `working` weiter oben.
     activity: {
       // Gleiche Wörter wie die Chips darunter (`stepName.*`, etwa
-      // `stepName.corpus` = „OIB-Wissen“): Lesende sollen ein Vokabular
+      // `stepName.corpus` = "Wissen"): Lesende sollen ein Vokabular
       // lernen, nicht zwei für dieselbe Sache.
       understanding: 'Frage wird eingeordnet …',
       planning: 'Rechercheweg wird festgelegt …',
       searchingWeb: 'Web wird durchsucht …',
-      searchingKnowledge: 'OIB-Wissen wird durchsucht …',
+      searchingKnowledge: 'Wissen wird durchsucht …',
       searchingRis: 'RIS (österreichisches Recht) wird durchsucht …',
       searchingSources: 'Quellen werden durchsucht …',
       researching: 'Recherche läuft …',
@@ -838,10 +850,10 @@ export const chat: typeof en.chat = {
     // die vorige sinnvolle Phrase zurück. Nie den Schlüssel, nie einen
     // internen Bezeichner.
     turnStatus: {
-      // Korpus-NAMEN: „im OIB-Wissen“ ist Produkttext mit angeschweißter
+      // Korpus-NAMEN: „im Wissen“ ist Produkttext mit angeschweißter
       // Präposition, kein Eigenname. Das Backend schickt die ID.
       corpus: {
-        knowledge: 'im OIB-Wissen',
+        knowledge: 'im Wissen',
         ris: 'im RIS',
         web: 'im Web',
         documents: 'in Ihren Unterlagen',
@@ -933,7 +945,7 @@ export const chat: typeof en.chat = {
     stepName: {
       webSearch: 'Websuche',
       ris: 'RIS',
-      corpus: 'OIB-Wissen',
+      corpus: 'Wissen',
       assistant: 'Assistent',
       reading: 'Lesen',
       // Das Arbeitsverzeichnis der Unterhaltung: schreiben, lesen, ändern,

@@ -290,6 +290,10 @@ export const chat = {
     verifyRis: 'Verify in RIS',
     aiGenerated:
       'AI-generated citation — check the excerpt against the primary source (OIB / RIS).',
+    // The muted line under an UNPLACED legal basis surfaced flat above the
+    // prose (`EvidenceBlock`): the quote is model-generated, like the framed
+    // card's — shorter here, because the block beside it is spare already.
+    evidenceQuoteDisclaimer: 'AI-generated citation — check the excerpt against the primary source.',
     conditionTree: {
       eyebrow: 'Condition tree',
       dependsOn: 'Depends on',
@@ -414,6 +418,13 @@ export const chat = {
       // the person sends it.
       file: 'Add to the project',
       fileRequest: 'File this draft into the project.',
+      // The unfiled draft's reading surface: the bytes live in the agent's
+      // working directory, fetched through the BFF draft-preview door. A read,
+      // so it writes nothing and stays presentational.
+      preview: 'View draft',
+      previewLoading: 'Loading the draft …',
+      previewError: 'The draft could not be loaded.',
+      previewRetry: 'Try again',
       // From here on the document is in the project.
       filed: 'Filed in the project as a draft',
       open: 'Open in the project',
@@ -835,12 +846,12 @@ export const chat = {
     // to the previous meaningful phrase, or to `working` above.
     activity: {
       // The same words as the chips below (`stepName.*`, e.g.
-      // `stepName.corpus` = "OIB knowledge"): the reader should learn one
+      // `stepName.corpus` = "Knowledge"): the reader should learn one
       // vocabulary, not two for the same thing.
       understanding: 'Classifying your question …',
       planning: 'Choosing the research path …',
       searchingWeb: 'Searching the web …',
-      searchingKnowledge: 'Searching OIB knowledge …',
+      searchingKnowledge: 'Searching knowledge …',
       searchingRis: 'Searching RIS (Austrian law) …',
       searchingSources: 'Searching your sources …',
       researching: 'Researching …',
@@ -858,11 +869,11 @@ export const chat = {
     // A key with no entry here renders NOTHING — the live line falls back to
     // the previous meaningful phrase. Never the key, never an identifier.
     turnStatus: {
-      // Corpus NAMES, because "im OIB-Wissen" is product copy with a German
+      // Corpus NAMES, because "im Wissen" is product copy with a German
       // preposition welded on, not a proper noun. The backend sends the id.
       // Each entry is the prepositional phrase the templates below slot in.
       corpus: {
-        knowledge: 'the OIB knowledge base',
+        knowledge: 'the knowledge base',
         ris: 'RIS (Austrian law)',
         web: 'the web',
         documents: 'your documents',
@@ -951,7 +962,7 @@ export const chat = {
     stepName: {
       webSearch: 'Web search',
       ris: 'RIS',
-      corpus: 'OIB knowledge',
+      corpus: 'Knowledge',
       assistant: 'Assistant',
       reading: 'Reading',
       /** The conversation's working directory: write, read, edit, list — one word. */

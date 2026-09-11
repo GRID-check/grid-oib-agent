@@ -25,28 +25,27 @@
  *
  * The obvious build is the wrong one: have this button create the document
  * through the lifecycle client, the way `FileOperationProposalCard`'s Accept
- * runs its moves. Three things stop it, and they compound.
+ * runs its moves. Two things stop it, and they compound.
  *
- * 1. **The bytes are not here.** The draft lives in the agent's working
- *    directory (a LangGraph store on the Python service's own database), and no
- *    route exposes it to the browser. The markdown would have to RIDE on the
- *    card — and a card is persisted on the message, in `metadata.cards` and in
- *    localStorage, so every stored turn would carry a copy of a document that
- *    may be 50 KB. The card is a report of a file, not a second copy of it.
- * 2. **There is no route to create it.** The lifecycle API's public surface
+ * 1. **There is no route to create it.** The lifecycle API's public surface
  *    starts at a document that already exists (`forkDraft(documentId)`);
  *    creating the ITEM is `fileAgentDocumentDraft`, reached by the agent's one
  *    internal route. Adding a second door to it for the browser is exactly what
  *    ADR-0055 forbids — one primitive, one HTTP surface, no service function on
  *    two paths.
- * 3. **The path that exists is better.** `file_draft` files in the requesting
+ * 2. **The path that exists is better.** `file_draft` files in the requesting
  *    person's PINNED session, under their permissions and their audit actor
  *    (ADR-0054 §4). Asking Piloti is therefore not a workaround for a missing
  *    button; it is the same gate, reached the way the product already works.
  *
- * So the unfiled control prefills the composer with the sentence that files it,
- * exactly as a follow-up chip does, and the person presses send. It writes
- * nothing, which is why it is not the reason this card is `'interactive'`.
+ * Reading, unlike filing, CAN happen here: the bytes live in the agent's
+ * working directory and the BFF's `GET /api/conversations/[id]/draft?path=…`
+ * proxies exactly that one conversation's drafts for a reader who may see it.
+ * So the unfiled card offers „Entwurf ansehen" beside the file request — a
+ * markdown reading surface (`DocumentDraftPreviewDialog`, via `FileTextPage`
+ * directly, never through `FilePreviewPane`, which needs a `documents` row
+ * that does not exist). It writes nothing, which is why neither control is
+ * the reason this card is `'interactive'`.
  *
  * ## What IS interactive
  *
@@ -76,7 +75,9 @@ import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
 import { formatBytes } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { useCardDecision } from '../hooks/use-card-decision'
+import { fetchConversationDraft } from '../lib/document-draft-preview'
 import { CARD_SHELL } from './card-chrome'
+import { DocumentDraftPreviewDialog } from './DocumentDraftPreviewDialog'
 
 interface DocumentDraftCardProps {
   /** The document's first heading, or its file name when it has none. */
@@ -143,12 +144,20 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
   const { locale } = useLocale()
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const projectId = useChatStore((s) => s.projectId)
+  const conversationId = useChatStore((s) => s.currentConversation?.id ?? null)
   const isMobile = useIsMobile()
   const { decision, decide, canDecide } = useCardDecision(messageId, cardKey, {
     mustPersist: decisionsMustPersist,
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The preview's view state — what is open, what arrived, what failed. Local
+  // `useState`, never a `CardInteraction`: opening a read starts no commitment
+  // (`card-decision.ts`), so there is nothing to remember across a reload.
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewContent, setPreviewContent] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewFailed, setPreviewFailed] = useState(false)
 
   // A filed card needs the project to link into the Files pane; a chat with no
   // project could not have filed in the first place, so this is belt-and-braces
@@ -175,6 +184,29 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
   }
 
   const stateKey = versionState ? STATE_LABEL[versionState] : undefined
+
+  // Reads the draft through the BFF preview door into the dialog. Runs on open
+  // and on retry — never on mount, so a card the reader never looks at costs
+  // no request.
+  const loadPreview = async () => {
+    if (!conversationId) return
+    setPreviewLoading(true)
+    setPreviewFailed(false)
+    try {
+      const draft = await fetchConversationDraft(conversationId, path)
+      setPreviewContent(draft.content)
+    } catch {
+      setPreviewFailed(true)
+      setPreviewContent(null)
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  const openPreview = () => {
+    setPreviewOpen(true)
+    void loadPreview()
+  }
 
   return (
     <Card data-testid="document-draft-card" className={cn(CARD_SHELL, 'gap-2 p-5')}>
@@ -220,6 +252,14 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
             </>
           )}
         </span>
+
+        {!filed && conversationId && (
+          // Reads nothing but the draft, through the BFF preview door into the
+          // dialog below. Presentational view state — see the header.
+          <button type="button" className={ACTION} onClick={openPreview}>
+            {t('cards.documentDraft.preview')}
+          </button>
+        )}
 
         {!filed && (
           // Writes nothing: it puts the request in the composer and the person
@@ -267,6 +307,21 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
         <p className="card-caption text-destructive" data-testid="document-draft-error">
           {error}
         </p>
+      )}
+
+      {!filed && conversationId && (
+        <DocumentDraftPreviewDialog
+          open={previewOpen}
+          onClose={() => setPreviewOpen(false)}
+          title={title}
+          path={path}
+          version={version}
+          bytes={bytes}
+          content={previewContent}
+          loading={previewLoading}
+          failed={previewFailed}
+          onRetry={() => void loadPreview()}
+        />
       )}
     </Card>
   )

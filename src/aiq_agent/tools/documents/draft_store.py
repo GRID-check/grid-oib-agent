@@ -107,6 +107,11 @@ FILED_STATE_KEY = "grid_filed_state"
 #: The four together, in the order a reader meets them.
 FILING_KEYS = (FILED_DOCUMENT_KEY, FILED_VERSION_KEY, FILED_HASH_KEY, FILED_STATE_KEY)
 
+#: The root without its trailing slash: the middleware normalises ``/entwuerfe/``
+#: to ``/entwuerfe`` before the permission check, so both spellings name the
+#: listing and both are allowed.
+_DRAFT_ROOT_BARE = DRAFT_ROOT.rstrip("/")
+
 #: Store rows read per page while totalling a conversation's bytes. The ceiling
 #: above bounds the real number far below this; the page size only decides how
 #: many round trips an unusual conversation costs.
@@ -202,12 +207,30 @@ def usage_from_items(items: list[Item], file_path: str) -> DraftUsage:
 
 
 def path_refusal(file_path: str) -> str | None:
-    """The model-facing refusal for a path outside the working directory, or ``None``."""
-    if file_path.startswith(DRAFT_ROOT) and ".." not in file_path:
+    """The model-facing refusal for a path outside the working directory, or ``None``.
+
+    The root itself counts as inside, with or without its trailing slash: both
+    spellings are what ``ls`` lists. A write or edit still needs a file path
+    under it — :func:`write_refusal` and :func:`edit_refusal` refuse the bare
+    root on their own, because the directory is listed, not written.
+    """
+    normalized = file_path.rstrip("/") or "/"
+    if ".." not in file_path and (normalized == _DRAFT_ROOT_BARE or normalized.startswith(f"{_DRAFT_ROOT_BARE}/")):
         return None
     return (
         f"Cannot write to {file_path} because this conversation's working directory only holds "
-        f"files under {DRAFT_ROOT}. Write to {DRAFT_ROOT}<name>.md instead."
+        f"files under {DRAFT_ROOT}. List `{DRAFT_ROOT}` with `ls`, then read the draft with "
+        f"`read_file` on its `{DRAFT_ROOT}<name>.md` path."
+    )
+
+
+def _root_write_refusal(file_path: str) -> str | None:
+    """Why a ``write_file``/``edit_file`` addressed at the root itself cannot happen."""
+    if (file_path.rstrip("/") or "/") != _DRAFT_ROOT_BARE:
+        return None
+    return (
+        f"Cannot write to {file_path} because it is this conversation's working directory, "
+        f"not a file. Write to {DRAFT_ROOT}<name>.md instead."
     )
 
 
@@ -227,6 +250,9 @@ def write_refusal(usage: DraftUsage, file_path: str, content: str) -> str | None
     refusal = path_refusal(file_path)
     if refusal is not None:
         return refusal
+    refusal = _root_write_refusal(file_path)
+    if refusal is not None:
+        return refusal
     projected = usage.total_bytes - draft_bytes(usage.content or "") + draft_bytes(content)
     return ceiling_refusal(projected, file_path)
 
@@ -242,6 +268,9 @@ def edit_refusal(
     where it is.
     """
     refusal = path_refusal(file_path)
+    if refusal is not None:
+        return refusal
+    refusal = _root_write_refusal(file_path)
     if refusal is not None:
         return refusal
     if usage.content is None:

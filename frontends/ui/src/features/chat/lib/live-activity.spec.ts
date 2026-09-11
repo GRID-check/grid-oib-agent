@@ -196,9 +196,9 @@ describe('deriveLiveActivity — turn events', () => {
         query: 'Fluchtweglänge GK4',
       }),
     ]
-    expect(deriveLiveActivity(steps, tDe)).toBe('Sucht im OIB-Wissen: „Fluchtweglänge GK4“')
+    expect(deriveLiveActivity(steps, tDe)).toBe('Sucht im Wissen: „Fluchtweglänge GK4“')
     expect(deriveLiveActivity(steps, tEn)).toBe(
-      'Searching the OIB knowledge base: “Fluchtweglänge GK4”'
+      'Searching the knowledge base: “Fluchtweglänge GK4”'
     )
   })
 
@@ -248,7 +248,7 @@ describe('deriveLiveActivity — turn events', () => {
       }),
       step({ id: 'tool', functionName: 'knowledge_search_tool', isComplete: false }),
     ]
-    expect(deriveLiveActivity(steps, tDe)).toBe('Sucht im OIB-Wissen: „Fluchtweglänge GK4“')
+    expect(deriveLiveActivity(steps, tDe)).toBe('Sucht im Wissen: „Fluchtweglänge GK4“')
   })
 
   test('a technical event is never rendered, and carries no key to render', () => {
@@ -337,7 +337,7 @@ describe('deriveLiveActivity — turn events', () => {
       [step({ functionName: 'status:retrieval:0', isComplete: true, content: '', rawPayload: wire })],
       tDe
     )
-    expect(phrase).toBe('Sucht im OIB-Wissen: „Brand & Rauch“')
+    expect(phrase).toBe('Sucht im Wissen: „Brand & Rauch“')
   })
 
   test('an already-decoded content payload is NOT decoded a second time', () => {
@@ -354,7 +354,7 @@ describe('deriveLiveActivity — turn events', () => {
       [step({ functionName: 'status:retrieval:0', isComplete: true, content: decodedOnce })],
       tDe
     )
-    expect(phrase).toBe('Sucht im OIB-Wissen: „&amp; Co“')
+    expect(phrase).toBe('Sucht im Wissen: „&amp; Co“')
   })
 
   test('a pre-key backend still speaks, for one release', () => {
@@ -389,6 +389,6 @@ describe('deriveLiveActivity — turn events', () => {
       ],
       tDe
     )
-    expect(phrase).toBe('OIB-Wissen wird durchsucht …')
+    expect(phrase).toBe('Wissen wird durchsucht …')
   })
 })

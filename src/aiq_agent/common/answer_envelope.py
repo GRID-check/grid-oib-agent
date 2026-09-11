@@ -7,8 +7,8 @@ and the validator that enforces it cannot drift. The object's required
 ``answer`` field carries the markdown prose (citations, the sources section and
 the trailing control markers included, so the whole verification pipeline keeps
 operating on one string); the other fields are the answer's own RHETORICAL
-anatomy, every one optional: the headline verdict, the takeaways, the single
-callout.
+anatomy, every one optional: the headline verdict, the nominal topic, the
+one-line context scope, the takeaways, the single callout.
 
 They used to be ordinary card types the model emitted through ``emit_card``,
 which was wrong twice over — emission was optional twice (the model had to
@@ -103,11 +103,22 @@ _ANSWER_JSON_FENCE_RE = re.compile(rf"```{ENVELOPE_FENCE}[ \t]*\n(.*?)\n?```", r
 VERDICT_VALUE_MAX_CHARS = 60
 
 #: A summary is the whole answer in ONE to TWO sentences — the standfirst the
-#: reader gets before the prose. It is owed on a ruling; a walkthrough earns
-#: one only when it pays for the extra line. Above this it is a paragraph
+#: reader gets before the prose. It is owed on every researched answer longer
+#: than two sentences, whatever the kind; at two sentences or fewer the reply
+#: is its own summary. Above this it is a paragraph
 #: wearing a summary's name, and it is dropped whole — the prose's own lede
 #: then does the job, so nothing is lost.
 SUMMARY_MAX_CHARS = 320
+
+#: A topic is the nominal title for a non-ruling answer ("Brandschutz", never
+#: a verdict verb). Plain text in the answer's language, claiming nothing the
+#: prose didn't ground. Above this it is a heading claiming too much.
+TOPIC_MAX_CHARS = 90
+
+#: A context line is the one-line scope ("OIB-RL 2, Ausgabe Mai 2023 · Wien").
+#: Plain text in the answer's language. Above this it is a paragraph, not a
+#: scope line.
+CONTEXT_MAX_CHARS = 160
 
 #: The callout's PLACEMENT marker. The one anatomy field whose right place the
 #: model knows better than a fixed layout does: a Landesabweichung belongs
@@ -224,7 +235,7 @@ class AnswerMeta(_EnvelopeModel):
     """The validated envelope beyond ``answer``. Every field optional.
 
     Two kinds of field, deliberately separate: ANATOMY (kind, summary, verdict,
-    takeaways, callout — rendered content, gated through :data:`ANATOMY_FIELDS`
+    topic, context, takeaways, callout — rendered content, gated through :data:`ANATOMY_FIELDS`
     onto the wire) and CONTROL (confidence, escalate_to_deep — signals the
     platform consumes, which never ride the ``answer_meta`` wire payload;
     confidence travels as ``answer_confidence`` exactly as it always has).
@@ -232,7 +243,10 @@ class AnswerMeta(_EnvelopeModel):
     ``kind`` is exclusive: a verdict is kept only for ``ruling``. An absent
     kind is the legacy envelope and keeps today's behaviour. Unknown values
     are coerced to ``walkthrough`` (no verdict) rather than failing open
-    to a ruling.
+    to a ruling. ``topic`` and ``context`` render in the masthead and have no
+    gate interaction with ``kind`` — the frontend prefers the verdict masthead
+    when it shows, the backend keeps both; the model decides content, never
+    placement.
     """
 
     kind: AnswerKind | None = Field(
@@ -246,6 +260,17 @@ class AnswerMeta(_EnvelopeModel):
         description="the whole answer in 1-2 sentences: outcome plus the decisive qualifier, in the answer's language",
     )
     verdict: AnswerMetaVerdict | None = None
+    topic: str | None = Field(
+        default=None,
+        description=(
+            "nominal title for non-ruling answers, e.g. 'Brandschutz' — never a verdict verb; "
+            "plain text in the answer's language, claiming nothing the prose didn't ground"
+        ),
+    )
+    context: str | None = Field(
+        default=None,
+        description=("one-line scope, e.g. 'OIB-RL 2, Ausgabe Mai 2023 · Wien'; plain text in the answer's language"),
+    )
     takeaways: list[AnswerMetaTakeaway] | None = None
     callout: AnswerMetaCallout | None = None
     confidence: AnswerMetaConfidence | None = None
@@ -280,6 +305,8 @@ class AnswerMeta(_EnvelopeModel):
             self.kind is None
             and self.summary is None
             and self.verdict is None
+            and self.topic is None
+            and self.context is None
             and not self.takeaways
             and self.callout is None
             and self.confidence is None
@@ -320,6 +347,38 @@ def _gate_summary(meta: AnswerMeta, ctx: GateContext) -> str | None:
         )
         return None
     return summary
+
+
+def _gate_topic(meta: AnswerMeta, ctx: GateContext) -> str | None:
+    if meta.topic is None:
+        return None
+    topic = meta.topic.strip()
+    if not topic:
+        return None
+    if len(topic) > TOPIC_MAX_CHARS:
+        logger.info(
+            "answer_meta topic gated out: %d chars exceeds %d — a heading, not a nominal title",
+            len(topic),
+            TOPIC_MAX_CHARS,
+        )
+        return None
+    return topic
+
+
+def _gate_context(meta: AnswerMeta, ctx: GateContext) -> str | None:
+    if meta.context is None:
+        return None
+    context = meta.context.strip()
+    if not context:
+        return None
+    if len(context) > CONTEXT_MAX_CHARS:
+        logger.info(
+            "answer_meta context gated out: %d chars exceeds %d — a paragraph, not a scope line",
+            len(context),
+            CONTEXT_MAX_CHARS,
+        )
+        return None
+    return context
 
 
 def _gate_kind(meta: AnswerMeta, ctx: GateContext) -> str | None:
@@ -468,6 +527,8 @@ ANATOMY_FIELDS: tuple[AnatomyField, ...] = (
     AnatomyField("kind", _gate_kind),
     AnatomyField("summary", _gate_summary),
     AnatomyField("verdict", _gate_verdict),
+    AnatomyField("topic", _gate_topic),
+    AnatomyField("context", _gate_context),
     AnatomyField("callout", _gate_callout),
     AnatomyField("takeaways", _gate_takeaways),
 )
@@ -792,10 +853,6 @@ def render_envelope_schema() -> str:
             kinds = " | ".join(json.dumps(k) for k in ANSWER_KINDS)
             lines.append(f"kind: {kinds}")
             continue
-        if field.name == "summary":
-            description = AnswerMeta.model_fields["summary"].description
-            lines.append(f"summary: string ({description})")
-            continue
         if field.name == "takeaways":
             lines.append(f"takeaways: [{_shape(AnswerMetaTakeaway)}] (2-{TAKEAWAYS_MAX_ITEMS} items)")
             continue
@@ -803,4 +860,11 @@ def render_envelope_schema() -> str:
         if model_cls is not None:
             suffix = " (only for kind=ruling)" if field.name == "verdict" else ""
             lines.append(f"{field.name}: {_shape(model_cls)}{suffix}")
+            continue
+        # Plain-text anatomy (summary, topic, context, …): one line each,
+        # description straight from the model, so a registry entry reaches the
+        # prompt in the same commit that changes the validator.
+        if field.name in AnswerMeta.model_fields:
+            description = AnswerMeta.model_fields[field.name].description
+            lines.append(f"{field.name}: string ({description})")
     return "\n".join(f"  {line}" for line in lines)

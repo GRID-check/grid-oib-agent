@@ -78,9 +78,9 @@ describe('turnEventLiveText', () => {
       corpus: 'knowledge',
       query: 'Fluchtweglänge GK4',
     })
-    expect(turnEventLiveText(step, tDe)).toBe('Sucht im OIB-Wissen: „Fluchtweglänge GK4“')
+    expect(turnEventLiveText(step, tDe)).toBe('Sucht im Wissen: „Fluchtweglänge GK4“')
     expect(turnEventLiveText(step, tEn)).toBe(
-      'Searching the OIB knowledge base: “Fluchtweglänge GK4”'
+      'Searching the knowledge base: “Fluchtweglänge GK4”'
     )
   })
 
@@ -88,9 +88,9 @@ describe('turnEventLiveText', () => {
     // `und` is grammar, and so is the preposition welded onto each name. The
     // wire carries `knowledge,ris` and nothing else.
     const step = status('retrieval:0', 'status.retrieval.plain', { corpus: 'knowledge,ris' })
-    expect(turnEventLiveText(step, tDe)).toBe('Sucht im OIB-Wissen und im RIS …')
+    expect(turnEventLiveText(step, tDe)).toBe('Sucht im Wissen und im RIS …')
     expect(turnEventLiveText(step, tEn)).toBe(
-      'Searching the OIB knowledge base and RIS (Austrian law) …'
+      'Searching the knowledge base and RIS (Austrian law) …'
     )
   })
 
@@ -478,7 +478,7 @@ describe('a stored step renders from its hoisted event', () => {
       values: { corpus: 'knowledge', query: 'Fluchtweglänge GK4' },
     })
     const stored = { functionName: live.functionName, content: '', turnEvent: hoisted }
-    expect(turnEventLiveText(stored, tDe)).toBe('Sucht im OIB-Wissen: „Fluchtweglänge GK4“')
+    expect(turnEventLiveText(stored, tDe)).toBe('Sucht im Wissen: „Fluchtweglänge GK4“')
   })
 
   test('a live payload still wins over a stale hoisted event', () => {
@@ -510,10 +510,10 @@ describe('a stored step renders from its hoisted event', () => {
     })
     const hoisted = turnEventOf(live)
     expect(hoisted?.reason).toBe('OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.')
-    expect(turnEventLiveText(live, tDe)).toBe('Sucht im OIB-Wissen: „Überhang Dachrand“')
+    expect(turnEventLiveText(live, tDe)).toBe('Sucht im Wissen: „Überhang Dachrand“')
     expect(turnEventLiveText(live, tDe)).not.toContain('Einfallswinkel')
     expect(turnEventLiveText({ functionName: live.functionName, content: '', turnEvent: hoisted }, tEn)).toBe(
-      'Searching the OIB knowledge base: “Überhang Dachrand”'
+      'Searching the knowledge base: “Überhang Dachrand”'
     )
   })
 })
