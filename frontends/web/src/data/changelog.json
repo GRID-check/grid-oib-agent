@@ -32,6 +32,82 @@
   },
   "releases": [
     {
+      "id": "2026-09-11",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-11",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "„Mit … vergleichen\" zeigt jetzt, was sich zwischen zwei Fassungen geändert hat, statt beide Texte nur nebeneinanderzulegen: Neue Zeilen sind mit einem Plus und einem durchgezogenen Strich markiert, entfernte mit einem Minus und einem gestrichelten. Lange unveränderte Abschnitte werden zu einer gezählten Lücke zusammengefasst.",
+              "de": "„Mit … vergleichen\" zeigt jetzt, was sich zwischen zwei Fassungen geändert hat, statt beide Texte nur nebeneinanderzulegen: Neue Zeilen sind mit einem Plus und einem durchgezogenen Strich markiert, entfernte mit einem Minus und einem gestrichelten. Lange unveränderte Abschnitte werden zu einer gezählten Lücke zusammengefasst."
+            },
+            {
+              "en": "Hat Piloti für eine Antwort mehrmals gesucht, lässt sich jeder Suchschritt der Herleitung jetzt zuklappen: Ein Klick auf den Schritt ersetzt die gefundenen Dateien durch ihre Anzahl, ein zweiter holt sie zurück. Ab drei Suchschritten kommt die Herleitung bereits zusammengeklappt und zeigt nur den jüngsten offen — damit bleibt der Stand am Ende sichtbar, ohne scrollen zu müssen.",
+              "de": "Hat Piloti für eine Antwort mehrmals gesucht, lässt sich jeder Suchschritt der Herleitung jetzt zuklappen: Ein Klick auf den Schritt ersetzt die gefundenen Dateien durch ihre Anzahl, ein zweiter holt sie zurück. Ab drei Suchschritten kommt die Herleitung bereits zusammengeklappt und zeigt nur den jüngsten offen — damit bleibt der Stand am Ende sichtbar, ohne scrollen zu müssen."
+            },
+            {
+              "en": "Unter einer längeren Antwort in einem Projekt steht jetzt der Vorschlag „Als Aktenvermerk schreiben\". Er füllt die Eingabezeile mit der passenden Bitte, abgeschickt wird sie wie jede andere — Piloti schreibt daraufhin einen Entwurf in die Projektdateien.",
+              "de": "Unter einer längeren Antwort in einem Projekt steht jetzt der Vorschlag „Als Aktenvermerk schreiben\". Er füllt die Eingabezeile mit der passenden Bitte, abgeschickt wird sie wie jede andere — Piloti schreibt daraufhin einen Entwurf in die Projektdateien."
+            }
+          ]
+        },
+        {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "Die Zeilennummern beider Fassungen stehen nebeneinander. Wird oben etwas eingefügt, laufen sie ab dieser Stelle sichtbar auseinander — damit ist erkennbar, dass wirklich verglichen und nicht nur Zeile für Zeile übereinandergelegt wird.",
+              "de": "Die Zeilennummern beider Fassungen stehen nebeneinander. Wird oben etwas eingefügt, laufen sie ab dieser Stelle sichtbar auseinander — damit ist erkennbar, dass wirklich verglichen und nicht nur Zeile für Zeile übereinandergelegt wird."
+            },
+            {
+              "en": "Rot und Grün kommen dabei nicht vor. Farbe sagt in Piloti, woher etwas stammt, und nicht, was damit passiert ist; der Unterschied wird über Strich, Zeichen und Schriftfarbe getragen.",
+              "de": "Rot und Grün kommen dabei nicht vor. Farbe sagt in Piloti, woher etwas stammt, und nicht, was damit passiert ist; der Unterschied wird über Strich, Zeichen und Schriftfarbe getragen."
+            },
+            {
+              "en": "Sind zwei Fassungen inhaltlich gleich — etwa nach einem erneuten Hochladen derselben Datei —, steht das als Satz da, statt eine leere Liste zu zeigen.",
+              "de": "Sind zwei Fassungen inhaltlich gleich — etwa nach einem erneuten Hochladen derselben Datei —, steht das als Satz da, statt eine leere Liste zu zeigen."
+            },
+            {
+              "en": "Schlägt etwas fehl, nennt die Fehlermeldung jetzt eine kurze Referenz für den Support, die sich mit einem Klick kopieren lässt. Damit lässt sich ein gemeldeter Fehler im Betrieb wiederfinden, statt nach dem Zeitpunkt suchen zu müssen.",
+              "de": "Schlägt etwas fehl, nennt die Fehlermeldung jetzt eine kurze Referenz für den Support, die sich mit einem Klick kopieren lässt. Damit lässt sich ein gemeldeter Fehler im Betrieb wiederfinden, statt nach dem Zeitpunkt suchen zu müssen."
+            },
+            {
+              "en": "Der leere Chat in einem Projekt sagt in einem Satz, dass Piloti nicht nur antwortet, sondern auf Zuruf auch Aktenvermerke, Notizen und Entwürfe schreibt. Bisher fand das nur, wer seine Bitte zufällig als Auftrag formuliert hat.",
+              "de": "Der leere Chat in einem Projekt sagt in einem Satz, dass Piloti nicht nur antwortet, sondern auf Zuruf auch Aktenvermerke, Notizen und Entwürfe schreibt. Bisher fand das nur, wer seine Bitte zufällig als Auftrag formuliert hat."
+            },
+            {
+              "en": "Die Verbrauchsübersicht zeigt jetzt auch die Modellaufrufe, mit denen Piloti die gefundenen Textstellen sortiert, bevor es antwortet. Bisher fehlten sie dort vollständig: pro Suche lief ein solcher Aufruf, der auf keiner Abrechnung auftauchte und in keinem Budget zählte.",
+              "de": "Die Verbrauchsübersicht zeigt jetzt auch die Modellaufrufe, mit denen Piloti die gefundenen Textstellen sortiert, bevor es antwortet. Bisher fehlten sie dort vollständig: pro Suche lief ein solcher Aufruf, der auf keiner Abrechnung auftauchte und in keinem Budget zählte."
+            },
+            {
+              "en": "Organisationen mit eigenem Modellschlüssel verwenden ihn dafür ab sofort auch. Diese Aufrufe liefen bisher immer über den Schlüssel der Plattform, unabhängig davon, was hinterlegt war.",
+              "de": "Organisationen mit eigenem Modellschlüssel verwenden ihn dafür ab sofort auch. Diese Aufrufe liefen bisher immer über den Schlüssel der Plattform, unabhängig davon, was hinterlegt war."
+            },
+            {
+              "en": "Erweitert Piloti eine Suche selbst um andere Formulierungen, weil die ersten Treffer die Frage nicht abdecken, weiß es das jetzt auch selbst und kann darauf reagieren — bisher bekam es die zusätzlichen Treffer wortlos untergeschoben. Ebenso sieht es bei einer nachgebesserten Antwort, welche Fundstelle und welches Zitat die Prüfung nicht bestanden haben.",
+              "de": "Erweitert Piloti eine Suche selbst um andere Formulierungen, weil die ersten Treffer die Frage nicht abdecken, weiß es das jetzt auch selbst und kann darauf reagieren — bisher bekam es die zusätzlichen Treffer wortlos untergeschoben. Ebenso sieht es bei einer nachgebesserten Antwort, welche Fundstelle und welches Zitat die Prüfung nicht bestanden haben."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Ein Budget für ein einzelnes Mitglied lässt sich nicht mehr auf eine Person setzen, die der Organisation gar nicht angehört. Bisher wurde so ein Limit gespeichert, in den Einstellungen angezeigt und hat nie gegriffen.",
+              "de": "Ein Budget für ein einzelnes Mitglied lässt sich nicht mehr auf eine Person setzen, die der Organisation gar nicht angehört. Bisher wurde so ein Limit gespeichert, in den Einstellungen angezeigt und hat nie gegriffen."
+            },
+            {
+              "en": "Auf dem Telefon lief die Dokumentart im Kopf der Dateivorschau unter die Schaltflächen daneben. Sie wird jetzt gekürzt, statt sich zu überlagern.",
+              "de": "Auf dem Telefon lief die Dokumentart im Kopf der Dateivorschau unter die Schaltflächen daneben. Sie wird jetzt gekürzt, statt sich zu überlagern."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-09-10",
       "kind": "date",
       "version": null,
@@ -42,12 +118,120 @@
           "key": "features",
           "notes": [
             {
+              "en": "A project's Automation section has a new Tasks tab. It lists the work handed to Piloti — from a chat, from a review decision, or from a job on its schedule — with what was asked for, how far it got, how it was judged, and a link to the document or the chat the result ended up in.",
+              "de": "A project's Automation section has a new Tasks tab. It lists the work handed to Piloti — from a chat, from a review decision, or from a job on its schedule — with what was asked for, how far it got, how it was judged, and a link to the document or the chat the result ended up in."
+            },
+            {
+              "en": "Piloti nimmt jetzt Arbeit an, die länger dauert als eine Antwort: „Mach den Einreichcheck bis Freitag\" legt einen Auftrag an, der danach selbständig läuft und sich meldet, wenn er fertig ist. Der Auftrag steht mit Ihrem Namen und Ihren Rechten da — Sie sehen als Karte im Gespräch, was angenommen wurde und bis wann.",
+              "de": "Piloti nimmt jetzt Arbeit an, die länger dauert als eine Antwort: „Mach den Einreichcheck bis Freitag\" legt einen Auftrag an, der danach selbständig läuft und sich meldet, wenn er fertig ist. Der Auftrag steht mit Ihrem Namen und Ihren Rechten da — Sie sehen als Karte im Gespräch, was angenommen wurde und bis wann."
+            },
+            {
+              "en": "Geben Sie einen Entwurf mit „Änderungen anfordern\" zurück, liest Piloti Ihre Begründung im nächsten Zug derselben Unterhaltung wörtlich mit und überarbeitet den Entwurf daraufhin — es entsteht die nächste Fassung desselben Dokuments, kein zweites. Bei Entwürfen ohne laufendes Gespräch, etwa einem nächtlichen Bericht, legt Piloti dafür selbst einen Auftrag an.",
+              "de": "Geben Sie einen Entwurf mit „Änderungen anfordern\" zurück, liest Piloti Ihre Begründung im nächsten Zug derselben Unterhaltung wörtlich mit und überarbeitet den Entwurf daraufhin — es entsteht die nächste Fassung desselben Dokuments, kein zweites. Bei Entwürfen ohne laufendes Gespräch, etwa einem nächtlichen Bericht, legt Piloti dafür selbst einen Auftrag an."
+            },
+            {
+              "en": "Jede Datei hat jetzt eine Fassungsgeschichte. Wer eine korrigierte Datei unter demselben Namen erneut hochlädt, ersetzt sie wie bisher — die alte Fassung bleibt aber erhalten und lässt sich öffnen, statt gelöscht zu werden. Die Liste der Fassungen zeigt, wer wann welche Fassung eingestellt hat.",
+              "de": "Jede Datei hat jetzt eine Fassungsgeschichte. Wer eine korrigierte Datei unter demselben Namen erneut hochlädt, ersetzt sie wie bisher — die alte Fassung bleibt aber erhalten und lässt sich öffnen, statt gelöscht zu werden. Die Liste der Fassungen zeigt, wer wann welche Fassung eingestellt hat."
+            },
+            {
+              "en": "Eine Fassung kann zur Freigabe eingereicht werden. Die geprüfte Person bekommt einen Eintrag im Postfach, kann freigeben, Änderungen anfordern oder ablehnen — die beiden Absagen verlangen eine Begründung, damit die nächste Fassung weiß, worum es geht. Wer eine Fassung eingereicht hat, kann sie nicht selbst freigeben.",
+              "de": "Eine Fassung kann zur Freigabe eingereicht werden. Die geprüfte Person bekommt einen Eintrag im Postfach, kann freigeben, Änderungen anfordern oder ablehnen — die beiden Absagen verlangen eine Begründung, damit die nächste Fassung weiß, worum es geht. Wer eine Fassung eingereicht hat, kann sie nicht selbst freigeben."
+            },
+            {
+              "en": "Freigeben und Veröffentlichen sind zwei Schritte. Ein Befund kann am Dienstag freigegeben und am Freitag mit der Einreichung veröffentlicht werden; veröffentlicht ist immer genau eine Fassung, und die vorige gilt ab dann als ersetzt.",
+              "de": "Freigeben und Veröffentlichen sind zwei Schritte. Ein Befund kann am Dienstag freigegeben und am Freitag mit der Einreichung veröffentlicht werden; veröffentlicht ist immer genau eine Fassung, und die vorige gilt ab dann als ersetzt."
+            },
+            {
+              "en": "„Zuweisen\" bleibt, was es war: wer für eine Datei verantwortlich ist. Die Freigabe ist eine Aussage über den Inhalt, nicht über die Zuständigkeit — eine Datei kann Annas sein und noch nicht freigegeben, und umgekehrt.",
+              "de": "„Zuweisen\" bleibt, was es war: wer für eine Datei verantwortlich ist. Die Freigabe ist eine Aussage über den Inhalt, nicht über die Zuständigkeit — eine Datei kann Annas sein und noch nicht freigegeben, und umgekehrt."
+            },
+            {
+              "en": "Dokumente lassen sich archivieren. Sie verschwinden aus den Listen, die Dateien und alle Fassungen bleiben erhalten; das ist kein Löschen.",
+              "de": "Dokumente lassen sich archivieren. Sie verschwinden aus den Listen, die Dateien und alle Fassungen bleiben erhalten; das ist kein Löschen."
+            },
+            {
+              "en": "Der Stand einer Datei steht jetzt in Dateien: Entwurf, In Prüfung, Änderungen erbeten, Freigegeben, Veröffentlicht, Ersetzt, Abgelehnt oder Archiviert.",
+              "de": "Der Stand einer Datei steht jetzt in Dateien: Entwurf, In Prüfung, Änderungen erbeten, Freigegeben, Veröffentlicht, Ersetzt, Abgelehnt oder Archiviert."
+            },
+            {
+              "en": "Die Kennzeichnung erscheint nur dort, wo es etwas zu wissen gibt: bei Dateien mit mehr als einer Fassung und bei allem, was Piloti geschrieben hat. Eine hochgeladene Datei ist ab dem Ablegen veröffentlicht und bleibt unbeschriftet.",
+              "de": "Die Kennzeichnung erscheint nur dort, wo es etwas zu wissen gibt: bei Dateien mit mehr als einer Fassung und bei allem, was Piloti geschrieben hat. Eine hochgeladene Datei ist ab dem Ablegen veröffentlicht und bleibt unbeschriftet."
+            },
+            {
+              "en": "Die Dateiansicht führt die Freigabe: einreichen, freigeben, Änderungen anfordern, ablehnen, veröffentlichen, archivieren. Angeboten wird jeweils nur, was der aktuelle Stand und die eigenen Rechte zulassen — wer eine Fassung eingereicht hat, sieht „Freigeben\" nicht. Ablehnen und Änderungen anfordern verlangen eine Begründung, die auf der Fassung stehen bleibt.",
+              "de": "Die Dateiansicht führt die Freigabe: einreichen, freigeben, Änderungen anfordern, ablehnen, veröffentlichen, archivieren. Angeboten wird jeweils nur, was der aktuelle Stand und die eigenen Rechte zulassen — wer eine Fassung eingereicht hat, sieht „Freigeben\" nicht. Ablehnen und Änderungen anfordern verlangen eine Begründung, die auf der Fassung stehen bleibt."
+            },
+            {
+              "en": "Entscheiden zwei Personen gleichzeitig, erfährt die zweite „Der Stand hat sich geändert\" und sieht sofort, was tatsächlich passiert ist.",
+              "de": "Entscheiden zwei Personen gleichzeitig, erfährt die zweite „Der Stand hat sich geändert\" und sieht sofort, was tatsächlich passiert ist."
+            },
+            {
+              "en": "Die Fassungsliste zeigt jede Fassung mit Nummer, Stand, wer sie eingereicht, freigegeben und veröffentlicht hat — und lässt jede einzelne öffnen, auch eine ersetzte. Zwei Fassungen lassen sich nebeneinander lesen; Unterschiede werden noch nicht markiert.",
+              "de": "Die Fassungsliste zeigt jede Fassung mit Nummer, Stand, wer sie eingereicht, freigegeben und veröffentlicht hat — und lässt jede einzelne öffnen, auch eine ersetzte. Zwei Fassungen lassen sich nebeneinander lesen; Unterschiede werden noch nicht markiert."
+            },
+            {
+              "en": "Der Filter „Freigabe ausstehend\" steht neben „Unvergeben\" und „Von Piloti\" und lässt sich mit beiden kombinieren.",
+              "de": "Der Filter „Freigabe ausstehend\" steht neben „Unvergeben\" und „Von Piloti\" und lässt sich mit beiden kombinieren."
+            },
+            {
+              "en": "Der Postfach-Eintrag zu einer eingereichten Fassung nennt jetzt die Datei beim Namen und führt direkt zu ihr; er erledigt sich, sobald entschieden wurde.",
+              "de": "Der Postfach-Eintrag zu einer eingereichten Fassung nennt jetzt die Datei beim Namen und führt direkt zu ihr; er erledigt sich, sobald entschieden wurde."
+            },
+            {
+              "en": "Zu jedem Dokument gibt es jetzt „Besprechen\": in der Dateiablage, auf der Berichtskarte im Chat und auf der Freigabe-Aufforderung im Posteingang. Der Knopf öffnet ein Gespräch, das genau um diese Datei geht — überall mit demselben Wort, statt wie bisher nur an einer Stelle und unter einem anderen Namen.",
+              "de": "Zu jedem Dokument gibt es jetzt „Besprechen\": in der Dateiablage, auf der Berichtskarte im Chat und auf der Freigabe-Aufforderung im Posteingang. Der Knopf öffnet ein Gespräch, das genau um diese Datei geht — überall mit demselben Wort, statt wie bisher nur an einer Stelle und unter einem anderen Namen."
+            },
+            {
+              "en": "Publishing a document Piloti wrote is what makes it searchable. Until somebody in your office has approved it and published it, it stays out of the index — a draft, a document in review, one that is approved but not yet issued, and a rejected one are all outside it, and only the published version is ever indexed.",
+              "de": "Publishing a document Piloti wrote is what makes it searchable. Until somebody in your office has approved it and published it, it stays out of the index — a draft, a document in review, one that is approved but not yet issued, and a rejected one are all outside it, and only the published version is ever indexed."
+            },
+            {
               "en": "When Piloti searches more than once, the Herleitung now shows the conclusion that caused the next fetch — what it knew, what it still needed — instead of repeating the search query.",
               "de": "When Piloti searches more than once, the Herleitung now shows the conclusion that caused the next fetch — what it knew, what it still needed — instead of repeating the search query."
             },
             {
               "en": "When Piloti searches more than once, the Herleitung now shows each conclusion with the files that fetch returned and the tools it used — not one pile of sources at the end.",
               "de": "When Piloti searches more than once, the Herleitung now shows each conclusion with the files that fetch returned and the tools it used — not one pile of sources at the end."
+            },
+            {
+              "en": "Piloti now opens the exact Stelle a conclusion names — „OIB-Richtlinie 2, Pkt. 3.5.2\" — instead of searching for it a second time, and its first round is limited to two searches so the second one can be precise.",
+              "de": "Piloti now opens the exact Stelle a conclusion names — „OIB-Richtlinie 2, Pkt. 3.5.2\" — instead of searching for it a second time, and its first round is limited to two searches so the second one can be precise."
+            },
+            {
+              "en": "A document Piloti wrote and your office released can now be cited like any other source, and it says so: it appears as a Piloti-Dokument, with the name of the person who approved it and the date they did, both in the answer's sources and in the office colour rather than the colour of building law.",
+              "de": "A document Piloti wrote and your office released can now be cited like any other source, and it says so: it appears as a Piloti-Dokument, with the name of the person who approved it and the date they did, both in the answer's sources and in the office colour rather than the colour of building law."
+            },
+            {
+              "en": "A draft Piloti wrote can now be put into the project. Ask for it — \"leg das ins Projekt\", \"ablegen\" — and the document appears in Files, marked as a draft, with the card beside the answer linking straight to it.",
+              "de": "A draft Piloti wrote can now be put into the project. Ask for it — \"leg das ins Projekt\", \"ablegen\" — and the document appears in Files, marked as a draft, with the card beside the answer linking straight to it."
+            },
+            {
+              "en": "Asking a second time updates the same document instead of leaving a second copy beside the first, so a conversation that revises an Aktenvermerk three times ends with one file and its history rather than three files.",
+              "de": "Asking a second time updates the same document instead of leaving a second copy beside the first, so a conversation that revises an Aktenvermerk three times ends with one file and its history rather than three files."
+            },
+            {
+              "en": "A filed draft can be sent for approval, from the card or by asking Piloti, and it then appears in the reviewer's inbox. Approving, publishing and archiving stay where they were: they are things a person does, and Piloti cannot do them at all.",
+              "de": "A filed draft can be sent for approval, from the card or by asking Piloti, and it then appears in the reviewer's inbox. Approving, publishing and archiving stay where they were: they are things a person does, and Piloti cannot do them at all."
+            },
+            {
+              "en": "Piloti can now help tidy the project files. Ask it to move something into a folder, rename a file, create a folder or hand a document to a colleague, and it puts the change on a card beside the answer for you to apply or discard.",
+              "de": "Piloti can now help tidy the project files. Ask it to move something into a folder, rename a file, create a folder or hand a document to a colleague, and it puts the change on a card beside the answer for you to apply or discard."
+            },
+            {
+              "en": "A request that touches several files at once — putting the submission documents together, for instance — arrives as one card listing every move, so it is one decision rather than one per file.",
+              "de": "A request that touches several files at once — putting the submission documents together, for instance — arrives as one card listing every move, so it is one decision rather than one per file."
+            },
+            {
+              "en": "Sending a version back for changes now has a second form: „Piloti überarbeiten lassen\" stands beside „Änderungen anfordern\" in Freigabe und Fassungen and asks for the same written reason, and Piloti then drafts the next version and submits it for approval instead of leaving the work with whoever wrote it.",
+              "de": "Sending a version back for changes now has a second form: „Piloti überarbeiten lassen\" stands beside „Änderungen anfordern\" in Freigabe und Fassungen and asks for the same written reason, and Piloti then drafts the next version and submits it for approval instead of leaving the work with whoever wrote it."
+            },
+            {
+              "en": "Piloti can now write a document instead of describing one. Ask for an Aktenvermerk, a Protokoll, a Checkliste, a Flächenaufstellung or a Konzeptentwurf, and the finished text is written into a working folder that belongs to this conversation, with a card beside the answer naming what was written.",
+              "de": "Piloti can now write a document instead of describing one. Ask for an Aktenvermerk, a Protokoll, a Checkliste, a Flächenaufstellung or a Konzeptentwurf, and the finished text is written into a working folder that belongs to this conversation, with a card beside the answer naming what was written."
+            },
+            {
+              "en": "A follow-up like \"kürze Punkt 3\" changes that document in place instead of producing a second version of it, so the conversation keeps working on one draft rather than on a growing pile of near-copies.",
+              "de": "A follow-up like \"kürze Punkt 3\" changes that document in place instead of producing a second version of it, so the conversation keeps working on one draft rather than on a growing pile of near-copies."
             }
           ]
         },
@@ -59,6 +243,62 @@
               "de": "Piloti in chat now answers as a colleague in the planning office, not as a compliance checker. A ruling appears only when there is a copyable legal value, so summarising a plan or organising drawings no longer produces a verdict. Helping apply a rule is allowed. Piloti does not replace the Entwurfsverfasser or the Behoerde."
             },
             {
+              "en": "Archiving a file now takes it out of the file list, which is what archiving was always meant to mean. A new filter shows the archived files again whenever you want them back; nothing is deleted either way.",
+              "de": "Archiving a file now takes it out of the file list, which is what archiving was always meant to mean. A new filter shows the archived files again whenever you want them back; nothing is deleted either way."
+            },
+            {
+              "en": "When a draft is submitted for approval, you can now name who should look at it. Leave it as it is and everyone who may release files in the project is asked, so a draft nobody has taken on still reaches somebody.",
+              "de": "When a draft is submitted for approval, you can now name who should look at it. Leave it as it is and everyone who may release files in the project is asked, so a draft nobody has taken on still reaches somebody."
+            },
+            {
+              "en": "Piloti kann jetzt auch über einen Entwurf sprechen, den noch niemand veröffentlicht hat. Bisher war der Knopf ausgerechnet bei diesen Dateien ausgegraut, weil sie nicht durchsuchbar sind; Piloti liest die Fassung jetzt direkt und beantwortet Fragen wie „warum steht in Abschnitt 3 GK 4?\" aus dem Text selbst.",
+              "de": "Piloti kann jetzt auch über einen Entwurf sprechen, den noch niemand veröffentlicht hat. Bisher war der Knopf ausgerechnet bei diesen Dateien ausgegraut, weil sie nicht durchsuchbar sind; Piloti liest die Fassung jetzt direkt und beantwortet Fragen wie „warum steht in Abschnitt 3 GK 4?\" aus dem Text selbst."
+            },
+            {
+              "en": "Aus dem Gespräch heraus lässt sich derselbe Entwurf auch ändern und wieder ablegen. Es entsteht eine neue Fassung desselben Dokuments, kein zweites.",
+              "de": "Aus dem Gespräch heraus lässt sich derselbe Entwurf auch ändern und wieder ablegen. Es entsteht eine neue Fassung desselben Dokuments, kein zweites."
+            },
+            {
+              "en": "Jede Datei, die Piloti erstellt, sagt jetzt im Dokument selbst, woher sie kommt: eine Zeile oben nennt Piloti und Ihr Büro, eine Fußzeile auf jeder Seite weist die Datei als Entwurf ohne Freigabe aus.",
+              "de": "Jede Datei, die Piloti erstellt, sagt jetzt im Dokument selbst, woher sie kommt: eine Zeile oben nennt Piloti und Ihr Büro, eine Fußzeile auf jeder Seite weist die Datei als Entwurf ohne Freigabe aus."
+            },
+            {
+              "en": "Dazu stehen zwei Sätze auf jedem erstellten Bericht und jedem von Piloti verfassten Dokument: dass Piloti den Inhalt verfasst hat und dass die fachliche Verantwortung dafür bei der Person liegt, die ihn freigibt. Das steht in der Datei und bleibt beim Weiterleiten, Drucken und Einreichen erhalten.",
+              "de": "Dazu stehen zwei Sätze auf jedem erstellten Bericht und jedem von Piloti verfassten Dokument: dass Piloti den Inhalt verfasst hat und dass die fachliche Verantwortung dafür bei der Person liegt, die ihn freigibt. Das steht in der Datei und bleibt beim Weiterleiten, Drucken und Einreichen erhalten."
+            },
+            {
+              "en": "When a new version is published, the previous one leaves the index before the new one enters it, so Piloti never answers out of a version that has just been replaced. The older bytes stay in the version list and can still be opened.",
+              "de": "When a new version is published, the previous one leaves the index before the new one enters it, so Piloti never answers out of a version that has just been replaced. The older bytes stay in the version list and can still be opened."
+            },
+            {
+              "en": "An archived document stops answering questions. Until now it kept coming back as a source although it had left the working set — that now holds for every file, not only the ones Piloti wrote. The file and its versions stay exactly where they were; archiving is not deleting.",
+              "de": "An archived document stops answering questions. Until now it kept coming back as a source although it had left the working set — that now holds for every file, not only the ones Piloti wrote. The file and its versions stay exactly where they were; archiving is not deleting."
+            },
+            {
+              "en": "Such a document is never presented as the legal basis of an answer. Piloti quotes it for what your office decided and reaches for the OIB Richtlinien or the Bauordnung for what is required, so an approved office document can never end up standing in for a requirement.",
+              "de": "Such a document is never presented as the legal basis of an answer. Piloti quotes it for what your office decided and reaches for the OIB Richtlinien or the Bauordnung for what is required, so an approved office document can never end up standing in for a requirement."
+            },
+            {
+              "en": "Nothing Piloti files is approved or searchable. It arrives as a draft, says so on the card and in the answer, and only a version somebody has approved and published is ever added to what search can find.",
+              "de": "Nothing Piloti files is approved or searchable. It arrives as a draft, says so on the card and in the answer, and only a version somebody has approved and published is ever added to what search can find."
+            },
+            {
+              "en": "Filing happens under your own name and your own permissions. Piloti files as the person who asked, so a document it puts into a project is one you could have put there yourself — and the trail says who asked for it.",
+              "de": "Filing happens under your own name and your own permissions. Piloti files as the person who asked, so a document it puts into a project is one you could have put there yourself — and the trail says who asked for it."
+            },
+            {
+              "en": "Nothing is changed until you press Apply, and the change then runs as you, with your own permissions. Piloti never says a file has been moved, renamed or handed over while the card is still waiting.",
+              "de": "Nothing is changed until you press Apply, and the change then runs as you, with your own permissions. Piloti never says a file has been moved, renamed or handed over while the card is still waiting."
+            },
+            {
+              "en": "If part of a batch cannot be applied — a file somebody already moved, a colleague who has left the project — the card says which entries did not go through instead of reporting the whole thing as done.",
+              "de": "If part of a batch cannot be applied — a file somebody already moved, a colleague who has left the project — the card says which entries did not go through instead of reporting the whole thing as done."
+            },
+            {
+              "en": "The working folder belongs to the conversation and nothing in it is filed, indexed or quoted as a source. A draft becomes a project document only when somebody takes it into the project.",
+              "de": "The working folder belongs to the conversation and nothing in it is filed, indexed or quoted as a source. A draft becomes a project document only when somebody takes it into the project."
+            },
+            {
               "en": "A missing chat permission now names Piloti, not a research agent. The Herleitung's last node is the stand of what was read, not an Einschaetzung of the answer.",
               "de": "A missing chat permission now names Piloti, not a research agent. The Herleitung's last node is the stand of what was read, not an Einschaetzung of the answer."
             }
@@ -68,8 +308,53 @@
           "key": "fixes",
           "notes": [
             {
+              "en": "Uploading a corrected version of a file that is already in a project works again. The upload was refused while the previous version was still the published one.",
+              "de": "Uploading a corrected version of a file that is already in a project works again. The upload was refused while the previous version was still the published one."
+            },
+            {
+              "en": "Whoever commissioned a report can now release it themselves. Piloti files a report in the name of the person who asked for it, and that person was being treated as its author and refused the approval.",
+              "de": "Whoever commissioned a report can now release it themselves. Piloti files a report in the name of the person who asked for it, and that person was being treated as its author and refused the approval."
+            },
+            {
+              "en": "A document Piloti revises keeps the line that says it was written with Piloti. Only the first draft carried it; every later version arrived without it.",
+              "de": "A document Piloti revises keeps the line that says it was written with Piloti. Only the first draft carried it; every later version arrived without it."
+            },
+            {
+              "en": "Superseded and unpublished versions of a file now count towards the storage a workspace uses. They were being kept and not counted, so the figure shown was lower than what was actually stored.",
+              "de": "Superseded and unpublished versions of a file now count towards the storage a workspace uses. They were being kept and not counted, so the figure shown was lower than what was actually stored."
+            },
+            {
+              "en": "A document Piloti wrote can no longer take a filename away from a file somebody uploaded. A report could previously land on the same filename as the document it was written from; such documents now get a namespace of their own, and the database no longer accepts two documents under one name.",
+              "de": "A document Piloti wrote can no longer take a filename away from a file somebody uploaded. A report could previously land on the same filename as the document it was written from; such documents now get a namespace of their own, and the database no longer accepts two documents under one name."
+            },
+            {
               "en": "When Piloti searches twice, each Herleitung checkpoint now shows the files of that search, not both searches dumped on the first. A misspelled answer kind no longer turns a summary into a ruling. A commissioned report starts as a note. The signed-out composer talks about the workspace, not research.",
               "de": "When Piloti searches twice, each Herleitung checkpoint now shows the files of that search, not both searches dumped on the first. A misspelled answer kind no longer turns a summary into a ruling. A commissioned report starts as a note. The signed-out composer talks about the workspace, not research."
+            },
+            {
+              "en": "A question about a whole OIB-Richtlinie now reads every part of it — OIB-Richtlinie 2 covers 2, 2.1, 2.2 and 2.3 — and says plainly when a part was not read, instead of quietly answering from the parts it happened to find.",
+              "de": "A question about a whole OIB-Richtlinie now reads every part of it — OIB-Richtlinie 2 covers 2, 2.1, 2.2 and 2.3 — and says plainly when a part was not read, instead of quietly answering from the parts it happened to find."
+            },
+            {
+              "en": "The „Unterhaltung öffnen\" link on a task card now opens the conversation the task is running in. It pointed at an address that did not exist, so the one control on the card led nowhere.",
+              "de": "The „Unterhaltung öffnen\" link on a task card now opens the conversation the task is running in. It pointed at an address that did not exist, so the one control on the card led nowhere."
+            }
+          ]
+        },
+        {
+          "key": "upgrade",
+          "notes": [
+            {
+              "en": "Ein fertiger Recherchebericht wird ab sofort als ENTWURF im Projekt abgelegt und Ihnen zur Freigabe vorgelegt, statt sofort wie eine geprüfte Datei dazustehen. Inhalt, Deckblatt und Ablageort ändern sich nicht — nur der Zustand, den die Dateiablage anzeigt.",
+              "de": "Ein fertiger Recherchebericht wird ab sofort als ENTWURF im Projekt abgelegt und Ihnen zur Freigabe vorgelegt, statt sofort wie eine geprüfte Datei dazustehen. Inhalt, Deckblatt und Ablageort ändern sich nicht — nur der Zustand, den die Dateiablage anzeigt."
+            },
+            {
+              "en": "Die Datenbankmigration legt für jedes bestehende Dokument eine erste, veröffentlichte Fassung an — auch für die Berichte, die Piloti erstellt hat. Nichts landet dadurch in einer Prüfschlange: was abgelegt ist, gilt weiterhin als abgelegt.",
+              "de": "Die Datenbankmigration legt für jedes bestehende Dokument eine erste, veröffentlichte Fassung an — auch für die Berichte, die Piloti erstellt hat. Nichts landet dadurch in einer Prüfschlange: was abgelegt ist, gilt weiterhin als abgelegt."
+            },
+            {
+              "en": "Ersetzte Fassungen behalten ihre Dateien und zählen deshalb weiter auf das Speicherkontingent der Organisation. Eine Aufbewahrungsregel pro Organisation gibt es noch nicht.",
+              "de": "Ersetzte Fassungen behalten ihre Dateien und zählen deshalb weiter auf das Speicherkontingent der Organisation. Eine Aufbewahrungsregel pro Organisation gibt es noch nicht."
             }
           ]
         }
