@@ -596,6 +596,42 @@ describe('a model-written filename spelling never doubles a chip', () => {
     expect(citedPages(docs[0]!)).toEqual([1])
   })
 
+  it('a RIS source cited by URL is one chip even when the written URL differs', () => {
+    // The second face of the same defect: a RIS norm arrived on the wire with
+    // its lane, its binding note and `[6]`, and the written list spelled the
+    // URL differently (a `www.`, a `FassungVom=` the model added). Identity by
+    // normalised URL made them two documents, so the row showed the norm twice
+    // — once with the Bindungswirkung card, once bare.
+    const wireRis: CitationSource = {
+      id: 'ris-6',
+      content: '[RIS] Wiener Bautechnikverordnung 2023',
+      timestamp: new Date(0),
+      origin: 'ris',
+      kind: 'baurecht',
+      lane: 'baurecht_ris',
+      laneLabel: 'Verordnung',
+      title: 'Wiener Bautechnikverordnung 2023',
+      url: 'https://ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000456',
+      bindingStatus: 'binding',
+      bindingNote: 'Macht die OIB-Richtlinien in Wien verbindlich.',
+      number: 6,
+      isCited: true,
+    }
+    const docs = buildCitationModel({
+      citations: [wireRis],
+      entries: [
+        written(
+          6,
+          '[RIS] Wiener Bautechnikverordnung 2023 - https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=LrW&Gesetzesnummer=20000456&FassungVom=2024-01-01'
+        ),
+      ],
+    })
+
+    expect(docs).toHaveLength(1)
+    expect(docs[0]!.bindingNote).toBe('Macht die OIB-Richtlinien in Wien verbindlich.')
+    expect(citationNumbers(docs[0]!)).toEqual([6])
+  })
+
   it('a written line fills the page the wire left blank, and nothing more', () => {
     const pageless: CitationSource = { ...wire(1, 1), page: undefined, citationKey: WIRE_FILE }
     const docs = buildCitationModel({
