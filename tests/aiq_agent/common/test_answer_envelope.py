@@ -13,8 +13,11 @@ from __future__ import annotations
 import json
 
 from aiq_agent.agents.piloti.markers import detect_and_strip_confidence_marker
+from aiq_agent.common.answer_envelope import ANATOMY_FIELDS
+from aiq_agent.common.answer_envelope import CONTEXT_MAX_CHARS
 from aiq_agent.common.answer_envelope import ENVELOPE_VERSION
 from aiq_agent.common.answer_envelope import SUMMARY_MAX_CHARS
+from aiq_agent.common.answer_envelope import TOPIC_MAX_CHARS
 from aiq_agent.common.answer_envelope import AnswerMeta
 from aiq_agent.common.answer_envelope import extract_answer_envelope
 from aiq_agent.common.answer_envelope import gate_answer_meta
@@ -420,6 +423,8 @@ class TestWireCrossing:
             "kind": fixture["kind"],
             "summary": fixture["summary"],
             "verdict": fixture["verdict"],
+            "topic": fixture["topic"],
+            "context": fixture["context"],
             "callout": fixture["callout"],
             "takeaways": fixture["takeaways"],
         }
@@ -531,3 +536,106 @@ class TestSummaryGate:
         meta = AnswerMeta.model_validate({"summary": "   ", "verdict": _VERDICT})
         payload = gate_answer_meta(meta, prose_chars=100)
         assert payload is not None and "summary" not in payload
+
+
+class TestTopicContextGates:
+    """The masthead slots: nominal title plus one-line scope, both optional."""
+
+    def test_values_survive_stripped(self):
+        meta = AnswerMeta.model_validate({"topic": "  Brandschutz  ", "context": "  OIB-RL 2, Ausgabe Mai 2023 · Wien  "})
+        payload = gate_answer_meta(meta, prose_chars=100)
+        assert payload == {
+            "v": ENVELOPE_VERSION,
+            "topic": "Brandschutz",
+            "context": "OIB-RL 2, Ausgabe Mai 2023 · Wien",
+        }
+
+    def test_over_limit_values_are_dropped_whole(self):
+        meta = AnswerMeta.model_validate(
+            {"topic": "x" * (TOPIC_MAX_CHARS + 1), "context": "y" * (CONTEXT_MAX_CHARS + 1)}
+        )
+        assert gate_answer_meta(meta, prose_chars=100) is None
+
+    def test_blank_values_are_absent_not_empty(self):
+        meta = AnswerMeta.model_validate({"topic": "   ", "context": "\t "})
+        assert gate_answer_meta(meta, prose_chars=100) is None
+
+    def test_gated_out_fields_are_absent_not_null(self):
+        meta = AnswerMeta.model_validate(
+            {"topic": "x" * (TOPIC_MAX_CHARS + 1), "context": "OIB-RL 2", "summary": "REI 60."}
+        )
+        payload = gate_answer_meta(meta, prose_chars=100)
+        assert payload is not None
+        assert "topic" not in payload
+        assert payload["context"] == "OIB-RL 2"
+        assert payload["summary"] == "REI 60."
+
+    def test_no_gate_interaction_with_kind(self):
+        # Backend keeps both; the frontend prefers the verdict masthead when it
+        # shows. The model decides content, never placement.
+        for kind in ("direct", "walkthrough", "ruling", "handoff"):
+            meta = AnswerMeta.model_validate(
+                {"kind": kind, "topic": "Brandschutz", "context": "OIB-RL 2", "verdict": _VERDICT}
+            )
+            payload = gate_answer_meta(meta, prose_chars=100)
+            assert payload is not None
+            assert payload["topic"] == "Brandschutz"
+            assert payload["context"] == "OIB-RL 2"
+        # And without any kind at all (legacy envelope).
+        meta = AnswerMeta.model_validate({"topic": "Brandschutz", "context": "OIB-RL 2"})
+        payload = gate_answer_meta(meta, prose_chars=100)
+        assert payload is not None
+        assert payload["topic"] == "Brandschutz"
+
+
+class TestTopicContextRegistry:
+    def test_registry_order_is_the_render_order_contract(self):
+        assert [field.name for field in ANATOMY_FIELDS] == [
+            "kind",
+            "summary",
+            "verdict",
+            "topic",
+            "context",
+            "callout",
+            "takeaways",
+        ]
+
+    def test_the_taught_schema_names_topic_and_context(self):
+        schema = render_envelope_schema()
+        assert "\n  topic: string (" in schema
+        assert "\n  context: string (" in schema
+
+    def test_wire_payload_carries_topic_and_context(self):
+        meta = AnswerMeta.model_validate({"topic": "Brandschutz", "context": "OIB-RL 2"})
+        payload = gate_answer_meta(meta, prose_chars=100)
+        assert payload == {"v": ENVELOPE_VERSION, "topic": "Brandschutz", "context": "OIB-RL 2"}
+
+    def test_strict_format_round_trips_topic_and_context(self):
+        fmt = render_envelope_response_format()
+        properties = fmt["json_schema"]["schema"]["properties"]
+        assert "topic" in properties
+        assert "context" in properties
+        reply = json.dumps(
+            {
+                "answer": "Die Antwort [1].",
+                "kind": None,
+                "summary": None,
+                "verdict": None,
+                "topic": "Brandschutz",
+                "context": "OIB-RL 2, Ausgabe Mai 2023 · Wien",
+                "confidence": None,
+                "escalate_to_deep": None,
+                "escalation_reason": None,
+                "callout": None,
+                "takeaways": None,
+            }
+        )
+        prose, meta = extract_answer_envelope(reply)
+        assert prose == "Die Antwort [1]."
+        assert meta is not None
+        assert meta.topic == "Brandschutz"
+        assert meta.context == "OIB-RL 2, Ausgabe Mai 2023 · Wien"
+        payload = gate_answer_meta(meta, prose_chars=100)
+        assert payload is not None
+        assert payload["topic"] == "Brandschutz"
+        assert payload["context"] == "OIB-RL 2, Ausgabe Mai 2023 · Wien"
