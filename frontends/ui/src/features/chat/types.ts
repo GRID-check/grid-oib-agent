@@ -525,7 +525,14 @@ export interface ThinkingTraceLane {
   key: string
   label: string
   hitCount: number
-  sources: Array<{ name: string; title?: string; detail?: string; shelf?: Shelf }>
+  sources: Array<{
+    name: string
+    title?: string
+    detail?: string
+    shelf?: Shelf
+    /** Retrieval round that produced this hit. Lets the spine split a merged tool step. */
+    round?: number
+  }>
   /**
    * Canonical coarse source kind (ADR-0026), as classified by the backend.
    * Optional: lanes persisted before the `## Trace-Lanes` block carried it have
@@ -579,6 +586,15 @@ export interface ThinkingStep {
 export interface StoredTurnEvent {
   key: string
   values?: Record<string, string>
+  /**
+   * The model's own words: the conclusion that caused this fetch. Same
+   * discipline as an escalation `reason` — not interpolated into the live
+   * line, attributed on the Herleitung spine. Absent when the model skipped
+   * Thought; the graph then keeps the layer without inventing a caption.
+   */
+  reason?: string
+  /** Tool basenames this round actually called. Architect-facing labels come from the dictionary. */
+  tools?: string[]
 }
 
 /** Conversation/Session */

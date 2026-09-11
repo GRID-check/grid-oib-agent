@@ -232,6 +232,51 @@ describe('the turn event on a stored step', () => {
     })
   })
 
+  it('keeps a checkpoint reason, capped like other model-authored sentences', () => {
+    const result = sanitizeProvenance({
+      thinkingSteps: [
+        step({
+          turnEvent: {
+            key: 'status.retrieval.withQuery',
+            values: { corpus: 'knowledge', query: 'x' },
+            reason: 'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.',
+          },
+        }),
+        step({
+          id: 's2',
+          turnEvent: { key: 'status.retrieval.plain', reason: 'r'.repeat(800) },
+        }),
+      ],
+    })
+    expect(result!.thinkingSteps![0].turnEvent!.reason).toBe(
+      'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel.'
+    )
+    expect(result!.thinkingSteps![1].turnEvent!.reason).toHaveLength(600)
+  })
+
+  it('keeps the tools this round called, bounded', () => {
+    const result = sanitizeProvenance({
+      thinkingSteps: [
+        step({
+          turnEvent: {
+            key: 'status.retrieval.plain',
+            tools: ['ifc_measure', 'knowledge_search', ...Array.from({ length: 12 }, (_, i) => `t${i}`)],
+          },
+        }),
+      ],
+    })
+    expect(result!.thinkingSteps![0].turnEvent!.tools).toEqual([
+      'ifc_measure',
+      'knowledge_search',
+      't0',
+      't1',
+      't2',
+      't3',
+      't4',
+      't5',
+    ])
+  })
+
   it('caps every string and the number of values, and drops a keyless event', () => {
     const values = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`k${i}`, 'v'.repeat(500)]))
     const result = sanitizeProvenance({

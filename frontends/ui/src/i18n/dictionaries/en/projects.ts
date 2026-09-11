@@ -3,7 +3,7 @@ export const projects = {
   list: {
     heading: 'Projects',
     description:
-      'Every building project in one calm workspace — documents, members, OIB/RIS research, and chat, grounded together.',
+      'Every building project in one workspace — documents, members, and chat, grounded in the files, the office archive, and building law.',
     loading: 'Loading projects…',
     searchPlaceholder: 'Search projects…',
     searchAria: 'Search projects by name',
@@ -30,7 +30,7 @@ export const projects = {
     empty: {
       title: 'Start your first project',
       description:
-        'Piloti is an OIB/RIS building-compliance copilot. Create a project to bring its documents, members, and research into one workspace — then ask Piloti questions grounded in Austrian building law.',
+        'Piloti is the workspace in which a planning office runs a building project. Create a project to bring its documents, members, and chat together — then ask Piloti about the work, grounded in the files, the office archive, and Austrian building law.',
       action: 'Create your first project',
     },
   },
@@ -39,7 +39,7 @@ export const projects = {
   },
   card: {
     summaryFallback:
-      'OIB/RIS building-compliance workspace. Add documents and a brief to ground Piloti.',
+      'Planning-office workspace. Add documents and a brief so Piloti can work from this project.',
     status: {
       active: 'Active',
     },
@@ -84,7 +84,7 @@ export const projects = {
       oibBrandschutzAudit: { label: 'OIB fire-safety audit', name: 'OIB fire-safety audit' },
     },
     footnote:
-      'Create a focused workspace for documents, research, members, and chat, grounded in the OIB Richtlinien and RIS.',
+      'Create a workspace for documents, members, and chat, grounded in the project files, the office archive, and building law.',
     submit: 'Create project',
   },
   applicableStandards: {

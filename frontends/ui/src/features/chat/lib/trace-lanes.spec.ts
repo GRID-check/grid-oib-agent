@@ -120,6 +120,25 @@ describe('parseTraceLanesBlock', () => {
     })
   })
 
+  test('keeps the retrieval round the backend stamped on a hit', () => {
+    const [lane] = parseTraceLanesBlock(
+      [
+        '## Trace-Lanes',
+        JSON.stringify({
+          lanes: [
+            {
+              key: 'baurecht_oib',
+              label: 'OIB-Richtlinie',
+              hitCount: 1,
+              sources: [{ name: 'oib-rl_2.pdf', detail: 'p.12', round: 1 }],
+            },
+          ],
+        }),
+      ].join('\n')
+    )!
+    expect(lane.sources[0]).toEqual({ name: 'oib-rl_2.pdf', detail: 'p.12', round: 1 })
+  })
+
   test('keeps the shelf the backend stated for a hit, and drops one it does not know', () => {
     const cards = parseTraceLanesBlock(
       [
@@ -207,7 +226,10 @@ Results:
 })
 
 describe('mergeTraceLaneCards', () => {
-  const oib = (sources: Array<{ name: string; title?: string; detail?: string }>, hitCount = 1) => ({
+  const oib = (
+    sources: Array<{ name: string; title?: string; detail?: string; round?: number }>,
+    hitCount = 1
+  ) => ({
     key: 'baurecht_oib',
     label: 'OIB-Richtlinie',
     hitCount,
@@ -251,6 +273,17 @@ describe('mergeTraceLaneCards', () => {
       [oib([{ name: 'a.pdf', title: 'OIB-Richtlinie 2', detail: 'p.12' }])]
     )
     expect(merged[0].sources[0].title).toBe('OIB-Richtlinie 2')
+  })
+
+  test('keeps the same page from two retrieval rounds as two hits', () => {
+    const merged = mergeTraceLaneCards(
+      [oib([{ name: 'a.pdf', detail: 'p.12', round: 0 }])],
+      [oib([{ name: 'a.pdf', detail: 'p.12', round: 1 }])]
+    )
+    expect(merged[0].sources).toEqual([
+      { name: 'a.pdf', detail: 'p.12', round: 0 },
+      { name: 'a.pdf', detail: 'p.12', round: 1 },
+    ])
   })
 
   test('never lowers a hitCount a producer claimed without listing sources', () => {

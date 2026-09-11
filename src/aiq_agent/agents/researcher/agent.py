@@ -37,6 +37,7 @@ from langgraph.prebuilt import tools_condition
 
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
+from aiq_agent.common import content_to_text
 from aiq_agent.common import get_source_id_for_tool
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import begin_turn_capture
@@ -205,8 +206,8 @@ def _tool_call_shape(messages: Sequence[Any], *, limit: int = 24) -> list[str]:
     return shape
 
 
-def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -> tuple[int, int]:
-    """What this round COSTS, and to which budget: ``(research, interaction)`` totals.
+def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -> tuple[int, int, int]:
+    """What this round COSTS: ``(research, interaction, retrieval_round)``.
 
     ``max_tool_iterations`` is the RESEARCH budget, but every call used to be
     charged to it, ``emit_card`` and ``describe_card`` included. Those are
@@ -219,7 +220,7 @@ def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -
     """
     calls = getattr(response, "tool_calls", None) or []
     if not calls:
-        return state.tool_iterations, state.interaction_iterations
+        return state.tool_iterations, state.interaction_iterations, state.retrieval_round
     interaction_calls = _count_interaction_calls(calls)
     research_calls = len(calls) - interaction_calls
     exempt = min(interaction_calls, max(0, _INTERACTION_TOOL_ALLOWANCE - state.interaction_iterations))
@@ -238,8 +239,29 @@ def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -
         _INTERACTION_TOOL_ALLOWANCE,
     )
     # The same fact, said to the USER instead of the log: one line per ROUND.
-    emit_retrieval(calls, round_index=state.tool_iterations)
-    return research, interaction
+    # The Thought (if the model wrote one) rides as ``reason`` so the
+    # Herleitung can draw a checkpoint instead of the search query.
+    searched = emit_retrieval(
+        calls,
+        round_index=state.retrieval_round,
+        conclusion=_assistant_checkpoint(response),
+    )
+    retrieval_round = state.retrieval_round + (1 if searched else 0)
+    return research, interaction, retrieval_round
+
+
+def _assistant_checkpoint(response: Any) -> str | None:
+    """The one-sentence conclusion the model wrote before this tool round.
+
+    Empty when the model skipped Thought (common with tool-calling). The
+    Herleitung then keeps the round as a layer without a body — it must not
+    invent a conclusion, and it must not fall back to the search query (PF-12).
+    A fenced ``answer_json`` is the final answer, not a checkpoint.
+    """
+    text = " ".join(content_to_text(getattr(response, "content", "") or "").split())
+    if not text or text.startswith("```"):
+        return None
+    return text
 
 
 def _recursion_limit(ceiling: int) -> int:
@@ -569,11 +591,12 @@ class ResearcherAgent:
             response = await ainvoke_with_envelope_json_mode(llm_with_tools, messages)
         else:
             response = await llm_with_tools.ainvoke(messages)
-        research, interaction = _charge_tool_calls(response, state, binding.ceiling)
+        research, interaction, retrieval_round = _charge_tool_calls(response, state, binding.ceiling)
         return {
             "messages": [response],
             "tool_iterations": research,
             "interaction_iterations": interaction,
+            "retrieval_round": retrieval_round,
             "cached_system_prompt": system_prompt,
         }
 

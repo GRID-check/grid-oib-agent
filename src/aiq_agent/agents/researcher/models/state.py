@@ -66,6 +66,10 @@ class ResearchAgentState(BaseModel):
     in_flight_documents: list[str] | None = None
     collection_name: str | None = None
     tool_iterations: int = 0
+    #: How many SEARCH rounds this turn has already announced. Distinct from
+    #: ``tool_iterations`` so ``emit_card`` / ``remember`` cannot steal the
+    #: next ``status:retrieval:N`` slot.
+    retrieval_round: int = 0
     # Interaction-tool calls spent this turn (`emit_card`, `describe_card`,
     # `remember`). Counted APART from ``tool_iterations`` because those calls are
     # the answer's output channel rather than research: charging them to the

@@ -5,8 +5,19 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from sources.knowledge_layer.src.register import _format_results
 from sources.knowledge_layer.src.register import _trace_lanes_json
+
+
+@pytest.fixture(autouse=True)
+def _reset_retrieval_round():
+    from aiq_agent.common.turn_status import _retrieval_round
+
+    _retrieval_round.set(None)
+    yield
+    _retrieval_round.set(None)
 
 
 def _chunk(
@@ -96,6 +107,21 @@ def test_trace_lanes_omits_title_when_it_would_repeat_the_filename():
     source = payload["lanes"][0]["sources"][0]
     assert source["name"] == "Konzept.pdf"
     assert "title" not in source
+
+
+def test_trace_lanes_sources_carry_the_retrieval_round():
+    """The Herleitung assigns files by this stamp after the store merges fetches."""
+    from aiq_agent.common.turn_status import _retrieval_round
+    from aiq_agent.common.turn_status import emit_retrieval
+
+    emit_retrieval([{"name": "knowledge_search_tool", "args": {"query": "q"}}], round_index=1)
+    try:
+        payload = json.loads(
+            _trace_lanes_json([_chunk(file_name="Konzept.pdf", page=1, collection="proj_abc", shelf="project")])
+        )
+        assert payload["lanes"][0]["sources"][0]["round"] == 1
+    finally:
+        _retrieval_round.set(None)
 
 
 def test_format_results_appends_trace_lanes_block():

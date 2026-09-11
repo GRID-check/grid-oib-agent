@@ -274,7 +274,7 @@ describe('ChatArea', () => {
     expect(
       screen.getByText(/piloti opens after your organization is verified/i)
     ).toBeInTheDocument()
-    expect(screen.getByText(/sign in to unlock project-scoped/i)).toBeInTheDocument()
+    expect(screen.getByText(/sign in to unlock the project workspace/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /sign in with.*sso/i })).toBeInTheDocument()
   })
 

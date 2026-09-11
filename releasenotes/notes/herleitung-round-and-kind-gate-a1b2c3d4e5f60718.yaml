@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    When Piloti searches twice, each Herleitung checkpoint now shows the files
+    of that search, not both searches dumped on the first. A misspelled answer
+    kind no longer turns a summary into a ruling. A commissioned report starts
+    as a note. The signed-out composer talks about the workspace, not research.

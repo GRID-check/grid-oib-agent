@@ -130,3 +130,7 @@ def test_knowledge_search_description_is_the_evidence_tool() -> None:
     assert "WHEN TO CALL" in desc
     assert "WHEN NOT TO CALL" in desc
     assert "Citation" in desc
+    # The numeric budget is the ceiling. A two-call cap here told the model
+    # not to loop even after the prompt stopped saying so.
+    assert "At most 2 calls" not in desc
+    assert "tighter query" in desc

@@ -1238,7 +1238,7 @@ describe('project:chat gates the AGENT, not the conversation (the message-write 
       createConversationMessages(session, CONVERSATION_ID, [
         { id: 'msg_1', role: 'user', content: 'Und wie sieht es im EG aus?' },
       ])
-    ).rejects.toThrow(/research agent/i)
+    ).rejects.toThrow(/ask Piloti/i)
 
     // 403, not the 404 `requireProjectAccess` throws: the caller is looking at a
     // thread inside this project, so its existence is not a secret from them and

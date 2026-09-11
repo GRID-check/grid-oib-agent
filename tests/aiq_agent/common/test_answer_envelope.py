@@ -189,6 +189,40 @@ class TestGating:
     def test_nothing_surviving_yields_none_not_an_empty_object(self):
         assert self._gate({"takeaways": _TAKEAWAYS[:1]}, prose_chars=100) is None
 
+    def test_walkthrough_drops_verdict(self):
+        payload = self._gate({"kind": "walkthrough", "verdict": _VERDICT})
+        assert payload == {"v": ENVELOPE_VERSION, "kind": "walkthrough"}
+
+    def test_direct_and_handoff_drop_verdict(self):
+        for kind in ("direct", "handoff"):
+            payload = self._gate({"kind": kind, "verdict": _VERDICT})
+            assert payload == {"v": ENVELOPE_VERSION, "kind": kind}
+
+    def test_ruling_keeps_verdict(self):
+        payload = self._gate({"kind": "ruling", "verdict": _VERDICT})
+        assert payload == {
+            "v": ENVELOPE_VERSION,
+            "kind": "ruling",
+            "verdict": {"value": "REI 60", "subject": "Feuerwiderstand tragender Bauteile"},
+        }
+
+    def test_legacy_no_kind_keeps_verdict(self):
+        payload = self._gate({"verdict": _VERDICT})
+        assert payload is not None
+        assert "kind" not in payload
+        assert payload["verdict"]["value"] == "REI 60"
+
+    def test_unknown_kind_is_a_walkthrough_and_drops_the_verdict(self):
+        """Garbage is not legacy. Legacy is ABSENT kind.
+
+        Exclusive kinds used to fail open to a ruling the moment the model
+        missed the token (``Walkthrough``, ``essay``, ``Durchgang``).
+        """
+        meta = AnswerMeta.model_validate({"kind": "essay", "verdict": _VERDICT})
+        assert meta.kind == "walkthrough"
+        payload = gate_answer_meta(meta, prose_chars=1_000)
+        assert payload == {"v": ENVELOPE_VERSION, "kind": "walkthrough"}
+
 
 class TestControlFields:
     def test_confidence_rides_the_envelope(self):
@@ -228,11 +262,13 @@ class TestRenderedSchema:
         prompt in the same commit, or the model is validated against a schema
         it was never taught."""
         schema = render_envelope_schema()
-        for name in ("answer*", "confidence", "escalate_to_deep", "verdict", "takeaways", "callout"):
+        for name in ("answer*", "confidence", "escalate_to_deep", "kind", "verdict", "takeaways", "callout"):
             assert name in schema
         # And the enum values the frontend switches on.
         assert '"hinweis" | "achtung" | "frist" | "tipp"' in schema
         assert '"low" | "medium" | "high"' in schema
+        assert '"direct" | "walkthrough" | "ruling" | "handoff"' in schema
+        assert "kind=ruling" in schema
 
     def test_the_renderer_injects_the_schema_by_default(self):
         from aiq_agent.common.prompt_utils import render_prompt_template
@@ -263,6 +299,7 @@ class TestWireCrossing:
         envelope = {
             "answer": "irrelevant here",
             "confidence": {"level": "high", "reason": "OIB-RL 2 direkt belegt"},
+            "kind": fixture["kind"],
             "summary": fixture["summary"],
             "verdict": fixture["verdict"],
             "callout": fixture["callout"],
@@ -305,12 +342,16 @@ class TestStrictResponseFormat:
         assert callout["properties"]["kind"]["enum"] == ["hinweis", "achtung", "frist", "tipp"]
         confidence = schema["properties"]["confidence"]["anyOf"][0]
         assert confidence["properties"]["level"]["enum"] == ["low", "medium", "high"]
+        assert "kind=ruling" in schema["properties"]["kind"]["description"]
+        kind = schema["properties"]["kind"]["anyOf"][0]
+        assert kind["enum"] == ["direct", "walkthrough", "ruling", "handoff"]
 
     def test_an_enforced_reply_parses_through_the_same_validator(self):
         """Strict mode spells absence as null; extraction must not care."""
         reply = json.dumps(
             {
                 "answer": "Die Antwort [1].",
+                "kind": None,
                 "confidence": {"level": "medium", "reason": None},
                 "escalate_to_deep": None,
                 "verdict": {"value": "REI 60", "subject": "Feuerwiderstand", "reference": None},

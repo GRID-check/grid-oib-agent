@@ -14,11 +14,13 @@
 
 ## 1. Executive summary
 
-GRID is an **AI compliance assistant for Austrian building regulations** (the
-OIB Richtlinien). Architects work inside **projects**; within a project they
-chat with a multi-agent AI that answers building-code questions with **cited
-sources**, searches their uploaded plans, runs deep research, and **remembers
-what it learns** about the project across conversations.
+Piloti is the **workspace in which a planning office runs a building project**.
+Piloti the agent is a **member of that office**. Architects work inside
+**projects**; chat is how they talk to the agent, and **tasks** are how they
+hand it work. Every **normative claim** is grounded in a passage retrieved this
+turn from the project, the office archive, or the Austrian building-regulation
+corpus. Not every answer is a ruling. Piloti does not replace the
+Entwurfsverfasser or the Behörde.
 
 Architecturally, GRID is a **two-tier system**:
 
@@ -42,11 +44,11 @@ provider (the reference config uses OpenAI GPT-5.6 Luna via OpenRouter).
 
 ```mermaid
 flowchart TB
-    Architect["👤 Architect / Org member<br/>asks OIB questions, uploads plans"]
+    Architect["👤 Architect / Org member<br/>works in a project, talks to Piloti"]
     Admin["👤 Org admin<br/>manages projects, members, memory"]
 
     subgraph GRID["GRID"]
-        SYS["Multi-agent compliance assistant"]
+        SYS["Workspace for planning offices"]
     end
 
     WorkOS["WorkOS<br/>AuthKit SSO + FGA authorization"]

@@ -1,6 +1,6 @@
 # Grid Agent Contributor Guide
 
-Grid is an OIB building-regulation assistant: a Next.js UI and BFF
+Piloti is the workspace in which a planning office runs a building project: a Next.js UI and BFF
 (`frontends/ui`), a Python agent on the NeMo Agent Toolkit (`src/aiq_agent`),
 and a custom OIB knowledge source.
 

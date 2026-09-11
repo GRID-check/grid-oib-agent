@@ -59,7 +59,7 @@ import { MemoryNotedChip } from './MemoryNotedChip'
 import { turnMemoryItems, type TurnMemoryItem } from '../lib/turn-memory'
 import { answerMetaToAnatomy } from '../lib/answer-meta-cards'
 import { AnatomyBlock, AnatomyMasthead } from './AnswerAnatomy'
-import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
+import type { AnswerKind, AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { ConfidenceChip, type AnswerConfidence } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
 import { AnswerActions } from './AnswerActions'
@@ -253,11 +253,25 @@ export interface AgentResponseProps {
    * Which path the turn turned out to take, observed after the answer (WP-A
    * transparency extra). `'meta'` marks a conversational / clarifying reply (greetings,
    * capability questions, Rückfragen) — rendered with a quiet neutral "Hinweis"
-   * role tab so it reads clearly apart from a substantive Baurecht answer
-   * (`'shallow'`/`'deep'`, the ink "Ergebnis" tab). Absent/`'error'` fall back
-   * to the "Ergebnis" treatment, so existing callers render exactly as before.
+   * role tab when the envelope has no `kind`. Envelope `kind` wins when present:
+   * `direct` → Hinweis, `walkthrough` → Antwort, `ruling` (or a legacy
+   * no-kind verdict) → Ergebnis. Absent/`'error'` fall back to the "Ergebnis"
+   * treatment, so existing callers render exactly as before.
    */
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
+}
+
+/** Role-tab label for the default answer card. Envelope `kind` wins. */
+function answerRoleTab(
+  kind: AnswerKind | undefined,
+  routingDecision: AgentResponseProps['routingDecision'],
+  hasVerdict: boolean,
+): 'note' | 'answer' | 'result' {
+  if (kind === 'direct' || kind === 'handoff') return 'note'
+  if (kind === 'walkthrough') return 'answer'
+  if (kind === 'ruling' || (!kind && hasVerdict)) return 'result'
+  if (routingDecision === 'meta') return 'note'
+  return 'result'
 }
 
 /** Blinking caret shown at the tail of a still-streaming answer (C6). */
@@ -884,7 +898,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         {/* The answer's masthead — verdict and/or summary, flat above the prose. */}
         {anatomy && (anatomy.verdict || anatomy.summary) && (
           <CardSetProvider cards={cardSet}>
-            <AnatomyMasthead verdict={anatomy.verdict} summary={anatomy.summary} />
+            <AnatomyMasthead
+              verdict={anatomy.verdict}
+              summary={anatomy.summary}
+              kind={answerMeta?.kind}
+            />
           </CardSetProvider>
         )}
         {/* Response Content rendered as markdown (with streaming caret). While
@@ -1022,12 +1040,15 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // tinted shell whose white inner block carries the composed answer, then a
   // "Belegt durch" provenance row and the feedback row, hairline-separated.
   //
-  // A `meta`-routed turn (conversational reply / clarifying Rückfrage) swaps the
-  // ink "Ergebnis" tab for a quiet neutral "Hinweis" tab so it reads clearly
-  // apart from a substantive Baurecht answer — the only visual change; anatomy,
-  // spacing and provenance rows are identical. Any other routing (shallow/deep/
-  // error) or an absent signal keeps the "Ergebnis" tab (fail-open).
-  const isMeta = routingDecision === 'meta'
+  // Envelope `kind` names the document. `direct` swaps the ink tab for a quiet
+  // "Hinweis"; observed `meta` does the same when kind is absent and there is
+  // no legacy verdict. `walkthrough` keeps the ink shell but labels the tab
+  // "Antwort". `ruling`, a legacy no-kind verdict, and any other routing
+  // (shallow/deep/error) keep "Ergebnis" (fail-open).
+  const roleTab = answerRoleTab(answerMeta?.kind, routingDecision, Boolean(answerMeta?.verdict))
+  const isNote = roleTab === 'note'
+  const tabLabel =
+    roleTab === 'note' ? t('roles.note') : roleTab === 'answer' ? t('roles.answer') : t('roles.result')
   return (
     <DiagramFilingProvider target={diagramFilingTarget}>
     <AnswerCitations
@@ -1041,16 +1062,16 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         dead space beside it. */}
     <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col duration-base ease-entrance motion-reduce:animate-none">
       {/* Role tab — uppercase 10.5/600. Substantive answer: near-black action
-          fill + check. Meta reply: quiet secondary fill + conversation icon. */}
-      {isMeta ? (
+          fill + check. Meta / direct reply: quiet secondary fill + conversation icon. */}
+      {isNote ? (
         <SectionLabel as="div" className="ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-md bg-secondary px-2.5 py-1 text-secondary-foreground">
           <MessageCircle className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
-          {t('roles.note')}
+          {tabLabel}
         </SectionLabel>
       ) : (
         <SectionLabel as="div" className="ml-[14px] inline-flex w-fit items-center gap-1.5 rounded-t-md bg-primary px-2.5 py-1 text-primary-foreground">
           <Check className="size-2.5" strokeWidth={2.6} aria-hidden="true" />
-          {t('roles.result')}
+          {tabLabel}
         </SectionLabel>
       )}
 
@@ -1060,7 +1081,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           matching the composer's elevation so the answer never outranks it. */}
       <div
         className={
-          isMeta
+          isNote
             ? 'overflow-hidden rounded-lg border border-input bg-muted shadow-sm'
             : 'overflow-hidden rounded-lg border border-input bg-input-background shadow-sm'
         }
@@ -1073,7 +1094,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           {/* The answer's masthead — verdict and/or summary, flat above the prose. */}
           {anatomy && (anatomy.verdict || anatomy.summary) && (
           <CardSetProvider cards={cardSet}>
-            <AnatomyMasthead verdict={anatomy.verdict} summary={anatomy.summary} />
+            <AnatomyMasthead
+              verdict={anatomy.verdict}
+              summary={anatomy.summary}
+              kind={answerMeta?.kind}
+            />
           </CardSetProvider>
         )}
         {/* Response Content rendered as markdown (with streaming caret).

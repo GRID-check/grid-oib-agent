@@ -668,10 +668,10 @@ describe('ChatThinking', () => {
 
       await expandChain(user)
 
-      // The assessment node ("Assessment" eyebrow) now shows a reasoning-only
+      // The findings node ("Findings" eyebrow) now shows a reasoning-only
       // hit-lane summary ("Hits in: <lane>"), deduped to a single lane — not a
       // second copy of the answer's provenance chips.
-      expect(screen.getByText('Assessment')).toBeVisible()
+      expect(screen.getByText('Findings')).toBeVisible()
       expect(screen.getByText('Hits in: OIB-Richtlinie')).toBeVisible()
     })
 

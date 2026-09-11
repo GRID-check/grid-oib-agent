@@ -425,7 +425,7 @@ describe('InputArea', () => {
   test('shows sign in placeholder when not authenticated', () => {
     render(<InputArea isAuthenticated={false} />)
 
-    expect(screen.getByPlaceholderText('Sign in to start researching')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Sign in to start working')).toBeInTheDocument()
   })
 
   test('disables input when not authenticated', () => {

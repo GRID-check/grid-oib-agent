@@ -930,7 +930,7 @@ export async function createConversationMessages(
       await requireProjectAccess(session, access.container.projectId, CHAT_PERMISSIONS)
     } catch {
       throw new ForbiddenError(
-        'You do not have permission to use the research agent in this project.'
+        'You do not have permission to ask Piloti in this project.'
       )
     }
   }

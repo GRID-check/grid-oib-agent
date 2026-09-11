@@ -1,7 +1,11 @@
 /**
  * ReasoningFlow — the Herleitung rendered as a real node graph (@xyflow/react).
  *
- * Framing → the parallel Quellen fan-out → assessment → (live HITL) branches,
+ * Framing → (for two or more fetches: each checkpoint, then the files THAT
+ * fetch returned) → findings → (live HITL) branches. One retrieval stays the
+ * old fan. A second search is a new layer: conclusion, tools, then its own
+ * fan. Each layer speaks the model's thought when it wrote one, never the
+ * search query. Files hang off the checkpoint that fetched them.
  * derived from the SAME streamed props the old ReasoningChain used, so the graph
  * grows as a turn streams in. The canvas is non-interactive (no pan/zoom/drag)
  * and renders at 1:1 — its height comes from MEASURED node heights (no fitView,
@@ -142,6 +146,7 @@ import {
   type DeepResearchCutoff,
 } from '../../lib/turn-events'
 import { stepNameLabel } from '../../lib/executed-steps'
+import { documentsForRound, retrievalRounds } from '../../lib/retrieval-rounds'
 import type { ChoicePrompt } from './citations'
 
 /** Hidden connection handle (edges anchor to it; the dot itself is invisible). */
@@ -209,6 +214,8 @@ type SourceColumnData = {
   /** Single-column (phone) layout — the cards get the grouped container. */
   grouped: boolean
   groupLabel: string
+  /** Packed column width for this fan. Falls back to `--source-w` when omitted. */
+  colW?: number
   /**
    * The turn is still running.
    *
@@ -269,6 +276,14 @@ type FindingsData = {
   source: HandleSpec
 }
 type BranchesData = { prompt: ChoicePrompt; onRespond: (id: string, choice: string) => void; sub: string; targets: HandleSpec[] }
+type RoundData = {
+  label: string
+  text: string
+  /** Architect-facing names of the tools this checkpoint actually called. */
+  actions: string[]
+  targets: HandleSpec[]
+  sources: HandleSpec[]
+}
 
 // ── node components ───────────────────────────────────────────────────────────
 const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
@@ -280,6 +295,31 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
     </Eyebrow>
     <p className="mt-1 text-sm leading-relaxed text-foreground">{data.question}</p>
     {data.escalation && <p className="mt-1.5 text-xs leading-relaxed text-warning">{data.escalation}</p>}
+    {data.sources.map((h) => (
+      <Handle key={h.id} id={h.id} type="source" position={Position.Bottom} style={{ ...H, left: h.left }} />
+    ))}
+  </div>
+)
+
+const RoundFlowNode: FC<NodeProps<Node<RoundData>>> = ({ data }) => (
+  <div className="w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs">
+    {data.targets.map((h) => (
+      <Handle key={h.id} id={h.id} type="target" position={Position.Top} style={{ ...H, left: h.left }} />
+    ))}
+    <Eyebrow>{data.label}</Eyebrow>
+    {data.text ? <p className="mt-1 text-sm leading-relaxed text-foreground">{data.text}</p> : null}
+    {data.actions.length > 0 ? (
+      <ul className="mt-1.5 flex flex-wrap gap-1">
+        {data.actions.map((action) => (
+          <li
+            key={action}
+            className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] leading-snug text-muted-foreground"
+          >
+            {action}
+          </li>
+        ))}
+      </ul>
+    ) : null}
     {data.sources.map((h) => (
       <Handle key={h.id} id={h.id} type="source" position={Position.Bottom} style={{ ...H, left: h.left }} />
     ))}
@@ -343,7 +383,10 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
   )
 
   return (
-    <div className="w-[var(--source-w)] max-w-full">
+    <div
+      className="max-w-full"
+      style={{ width: data.colW !== undefined ? `${data.colW}px` : 'var(--source-w)' }}
+    >
       <Handle id="in" type="target" position={Position.Top} style={{ ...H, left: '50%' }} />
       {data.grouped ? (
         // No entrance on the container itself — the cards inside carry it, and
@@ -442,6 +485,7 @@ const BranchesFlowNode: FC<NodeProps<Node<BranchesData>>> = ({ data }) => (
 
 const nodeTypes = {
   framing: FramingFlowNode,
+  round: RoundFlowNode,
   sourceColumn: SourceColumnFlowNode,
   findings: FindingsFlowNode,
   branches: BranchesFlowNode,
@@ -876,27 +920,99 @@ export function buildGraph(
   const nodes: Node[] = []
   const edges: Edge[] = []
 
-  nodes.push({ id: 'framing', type: 'framing', position: { x: 0, y: 0 }, data: framingData as Record<string, unknown> })
-  columns.forEach((indices, i) => {
-    const columnData: SourceColumnData = {
-      cards: indices.map((idx) => cards[idx]!),
-      // "1 hits" on a card that is meant to prove rigour undercuts it; the
-      // translator has no plural support, so the singular is its own key.
-      hitLabel: (count: number) =>
-        count === 1 ? t('thinking.hitCountOne') : t('thinking.hitCount', { count }),
-      gapLabel: t('thinking.gapHit'),
-      enterOrder,
-      grouped,
-      groupLabel: t('thinking.sourcesFanOut'),
-      live: Boolean(props.live),
+  // One retrieval stays the old fan. Two or more are a spine: each checkpoint
+  // hangs the files THAT fetch returned, then the next conclusion. The body
+  // is the thought, never the query (PF-12). A missing Thought is an empty
+  // body, not a caption we invent. Tools sit on the checkpoint as the
+  // architect-facing names of what that round actually did.
+  const rounds = retrievalRounds(props.steps)
+  const spine = rounds.length >= 2
+  const roundIds = spine ? rounds.map((_, i) => `round-${i}`) : []
+  const hitLabel = (count: number) =>
+    count === 1 ? t('thinking.hitCountOne') : t('thinking.hitCount', { count })
+
+  const actionLabels = (tools: string[]): string[] => {
+    const out: string[] = []
+    const seen = new Set<string>()
+    for (const tool of tools) {
+      const label = stepNameLabel(tool, t)
+      if (!label || seen.has(label)) continue
+      seen.add(label)
+      out.push(label)
     }
-    nodes.push({
-      id: columnIds[i]!,
-      type: 'sourceColumn',
-      position: { x: columnX(i), y: 0 },
-      data: columnData as unknown as Record<string, unknown>,
+    return out
+  }
+
+  const fans = spine
+    ? rounds.map((round, i) => {
+        const roundCards = documentsForRound(round, cards)
+        const packed = planFan(layout.contentW, roundCards.length)
+        return { roundCards, packed, ids: packed.columns.map((_, c) => `r${i}-col-${c}`) }
+      })
+    : []
+
+  const pushColumns = (ids: string[], packed: FanLayout, roundCards: CitedDocument[]) => {
+    const xOf = (i: number) => packed.fanX + i * (packed.colW + packed.gap)
+    packed.columns.forEach((indices, i) => {
+      const columnData: SourceColumnData = {
+        cards: indices.map((idx) => roundCards[idx]!),
+        hitLabel,
+        gapLabel: t('thinking.gapHit'),
+        enterOrder,
+        grouped: packed.grouped,
+        groupLabel: t('thinking.sourcesFanOut'),
+        live: Boolean(props.live),
+        colW: packed.colW,
+      }
+      nodes.push({
+        id: ids[i]!,
+        type: 'sourceColumn',
+        position: { x: xOf(i), y: 0 },
+        data: columnData as unknown as Record<string, unknown>,
+      })
     })
-  })
+  }
+
+  nodes.push({ id: 'framing', type: 'framing', position: { x: 0, y: 0 }, data: framingData as Record<string, unknown> })
+  if (spine) {
+    rounds.forEach((round, i) => {
+      const text = round.reason?.trim() ?? ''
+      const fan = fans[i]!
+      const roundData: RoundData = {
+        label: t(text ? 'thinking.node.checkpointTab' : 'thinking.node.roundTab', { n: i + 1 }),
+        text,
+        actions: actionLabels(round.tools),
+        targets: [CENTRE_TOP],
+        sources: [CENTRE_BOTTOM],
+      }
+      nodes.push({
+        id: roundIds[i]!,
+        type: 'round',
+        position: { x: 0, y: 0 },
+        data: roundData as unknown as Record<string, unknown>,
+      })
+      pushColumns(fan.ids, fan.packed, fan.roundCards)
+    })
+  } else {
+    columns.forEach((indices, i) => {
+      const columnData: SourceColumnData = {
+        cards: indices.map((idx) => cards[idx]!),
+        hitLabel,
+        gapLabel: t('thinking.gapHit'),
+        enterOrder,
+        grouped,
+        groupLabel: t('thinking.sourcesFanOut'),
+        live: Boolean(props.live),
+        colW,
+      }
+      nodes.push({
+        id: columnIds[i]!,
+        type: 'sourceColumn',
+        position: { x: columnX(i), y: 0 },
+        data: columnData as unknown as Record<string, unknown>,
+      })
+    })
+  }
   if (findingsData) {
     nodes.push({ id: 'findings', type: 'findings', position: { x: 0, y: 0 }, data: findingsData as Record<string, unknown> })
   }
@@ -904,21 +1020,46 @@ export function buildGraph(
     nodes.push({ id: 'branches', type: 'branches', position: { x: 0, y: 0 }, data: branchesData as Record<string, unknown> })
   }
 
-  // Wiring: framing fans out to every column, every column converges on the
-  // assessment/branches node (parallel, never a chain). All of it through the
-  // single centred anchor on each banner, so the split and the merge are real.
-  if (hasSources) {
-    columnIds.forEach((cid) => edges.push(edge('framing', 'c-bottom', cid, 'in', 'split')))
-    if (convergeId) columnIds.forEach((cid) => edges.push(edge(cid, 'out', convergeId, 'c-top', 'merge')))
-  } else if (convergeId) {
-    edges.push(edge('framing', 'c-bottom', convergeId, 'c-top'))
+  // Wiring: a single retrieval still fans framing → columns → assessment
+  // (parallel, never a source-to-source chain). Two or more retrievals put
+  // each checkpoint above the files THAT fetch returned; the next conclusion
+  // hangs off that fan's merge.
+  if (spine) {
+    edges.push(edge('framing', 'c-bottom', roundIds[0]!, 'c-top'))
+    rounds.forEach((_, i) => {
+      const roundId = roundIds[i]!
+      const { ids } = fans[i]!
+      const next = i < rounds.length - 1 ? roundIds[i + 1]! : convergeId
+      if (ids.length > 0) {
+        ids.forEach((cid) => edges.push(edge(roundId, 'c-bottom', cid, 'in', 'split')))
+        if (next) ids.forEach((cid) => edges.push(edge(cid, 'out', next, 'c-top', 'merge')))
+      } else if (next) {
+        edges.push(edge(roundId, 'c-bottom', next, 'c-top'))
+      }
+    })
+  } else {
+    const fanFrom = 'framing'
+    if (hasSources) {
+      columnIds.forEach((cid) => edges.push(edge(fanFrom, 'c-bottom', cid, 'in', 'split')))
+      if (convergeId) columnIds.forEach((cid) => edges.push(edge(cid, 'out', convergeId, 'c-top', 'merge')))
+    } else if (convergeId) {
+      edges.push(edge(fanFrom, 'c-bottom', convergeId, 'c-top'))
+    }
   }
   if (findingsData && branchesData) edges.push(edge('findings', 'out', 'branches', 'c-top'))
 
-  // Row groups for the measured stacking pass — every column shares one row, so
-  // the assessment clears the TALLEST column.
+  // Row groups for the measured stacking pass — every column of one fan
+  // shares a row, so the next checkpoint clears the TALLEST column of this
+  // fetch, not a mix of two fetches.
   const rows: string[][] = [['framing']]
-  if (hasSources) rows.push(columnIds)
+  if (spine) {
+    fans.forEach((fan, i) => {
+      rows.push([roundIds[i]!])
+      if (fan.ids.length > 0) rows.push(fan.ids)
+    })
+  } else if (hasSources) {
+    rows.push(columnIds)
+  }
   if (findingsData) rows.push(['findings'])
   if (branchesData) rows.push(['branches'])
 

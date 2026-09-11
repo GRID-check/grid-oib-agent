@@ -293,9 +293,11 @@ def test_the_prompt_carries_the_voice_craft_the_retired_seed_taught():
     section = _prompt_section("stimme")
     body = _unwrapped(_effective_row("piloti-voice")["body"])
 
-    # The answer-first rule, and where a caveat may NOT sit.
+    # The answer-first rule, and where a caveat may NOT sit. Headings moved
+    # under kind=ruling so a walkthrough does not open as a Bescheid.
     assert "Der erste Satz ist die Antwort" in section
-    assert "Danach der Nachweis, zuletzt die Vorbehalte" in section
+    assert "kind=ruling" in section
+    assert "Vorbehalte" in section
     assert "mitten im Absatz" in section
     # The wrong-premise correction: leads, about the Richtlinie, Fundstelle in
     # the same sentence, no softener, and the origin of the wrong value named.
@@ -307,8 +309,12 @@ def test_the_prompt_carries_the_voice_craft_the_retired_seed_taught():
     # cannot carry the split.
     assert "pro TEIL, nicht pro Antwort" in section
     assert "richtet sich nach dem schwächeren Teil" in section
-    # Einschätzung, not Empfehlung.
-    assert "Einschätzung, nicht Empfehlung" in section
+    # Liability is identity, not a ban on helping apply a rule. A Bescheid is
+    # still not this answer; a colleague who cites and applies is.
+    assert "Entwurfsverfasser" in section
+    assert "Behörde" in section
+    assert "Bescheid" in section
+    assert "Einschätzung, nicht Empfehlung" not in section
     # Notation: the rules a reader copies into an Einreichung.
     assert "Dezimalkomma" in section and "Tausenderpunkt" in section
     assert "U+00A0" in section

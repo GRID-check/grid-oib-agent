@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 from contextlib import suppress
+from typing import Any
 from typing import Literal
 
 from pydantic import Field
@@ -83,8 +84,11 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "(statutes, Bauordnungen) is the RIS tools, not this index.\n"
     "HOW TO QUERY — rewrite the user question into a search query (topic + "
     "jurisdiction + implied year). Prefer one precise call over a broad dump. "
-    "At most 2 calls; change the query on the second. Never invent a "
-    "`file_name`; take it from the inventory or the user. The OIB base corpus "
+    "If a conclusion names a file, a Punkt, or a measure you have not opened, "
+    "search again with a tighter query. Empty results: change the query and "
+    "try again; do not invent a citation around a gap you could still close. "
+    "Never invent a `file_name`; take it from the inventory or the user. The "
+    "OIB base corpus "
     "is not enumerated there — reach it by `doc_class` (e.g. `oib_richtlinie`) "
     "or by plain semantic search, never a guessed name. Do not pass a raw "
     "`filters` object unless you need `content_type`.\n"
@@ -1236,7 +1240,7 @@ def _trace_lanes_json(
             sig = (name, detail or "")
             existing = {(s.get("name"), s.get("detail") or "") for s in bucket["sources"]}
             if name and sig not in existing:
-                entry: dict[str, str] = {"name": name}
+                entry: dict[str, Any] = {"name": name}
                 title = _hit_display_title(chunk, resolved_titles)
                 if title and title != name:
                     entry["title"] = title
@@ -1244,6 +1248,14 @@ def _trace_lanes_json(
                     entry["detail"] = detail
                 if isinstance(shelf, str) and shelf:
                     entry["shelf"] = shelf
+                try:
+                    from aiq_agent.common.turn_status import current_retrieval_round
+
+                    rnd = current_retrieval_round()
+                except Exception:  # noqa: BLE001 — a missing round stamp must not drop the hit
+                    rnd = None
+                if rnd is not None:
+                    entry["round"] = rnd
                 bucket["sources"].append(entry)
         return json.dumps({"lanes": list(lanes.values())}, ensure_ascii=False)
     except Exception:
