@@ -58,7 +58,16 @@ repos:
         # baseline entry would pin a hash to a line number that does not survive
         # the next recording — and JSON cannot carry the inline
         # `pragma: allowlist secret` comment that would be the other way out.
-        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$)
+        #
+        # screenshots.manifest.json is the same case a third time: every
+        # `routeHash` is the SHA-256 of a `/dev` preview's SOURCE FILE — hex by
+        # construction, secret by none, and the whole point of it is to be
+        # public (`visual/registry.spec.mjs` fails when one stops matching the
+        # file on disk). `visual/capture.mjs` rewrites the entry for every
+        # target it captures, so a baseline entry would pin a hash to a line
+        # number that moves on the next run, and JSON cannot carry the inline
+        # `pragma: allowlist secret` comment that would be the other way out.
+        exclude: (^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$|^frontends/ui/visual/screenshots\.manifest\.json$)
         # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
         # failing again a few commits later:
         #

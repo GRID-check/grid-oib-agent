@@ -486,12 +486,20 @@ export function FilePreviewPane({
               Neither chip is restated in the rail: the Status row and the
               Document type row are gone from Properties, because the same fact
               stated twice on one surface reads as two facts. */}
-            <div className="mt-1 flex min-w-0 items-center gap-1.5">
+            {/* `overflow-hidden` on the row and `shrink` on the type badge, and
+              both are load-bearing at phone width: `Badge` is `w-fit shrink-0`
+              by construction, so `min-w-0` alone never made it narrow — at
+              390px „Grundriss" simply ran out of the name column and under the
+              Download button beside it. It truncates now instead. The status
+              badge keeps `shrink-0` on purpose: „Wird verarbeitet" clipped to
+              „Wird ver…" is a state nobody can read, and it is the chip that
+              explains why the Ask button in the rail is grey. */}
+            <div className="mt-1 flex min-w-0 items-center gap-1.5 overflow-hidden">
               {!isCitable(file) && (
                 <DocumentStatusBadge status={file.status} className="shrink-0" />
               )}
               {showMetadataPanel && detectedType && (
-                <Badge variant="secondary" className="min-w-0 font-normal">
+                <Badge variant="secondary" className="min-w-0 max-w-full shrink font-normal">
                   <span className="truncate">{detectedType}</span>
                 </Badge>
               )}

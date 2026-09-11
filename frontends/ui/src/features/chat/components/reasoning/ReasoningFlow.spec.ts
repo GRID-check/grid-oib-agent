@@ -2,7 +2,14 @@
  * @vitest-environment node
  */
 import { describe, test, expect } from 'vitest'
-import { buildGraph, planFan, type ReasoningFlowProps } from './ReasoningFlow'
+import {
+  SPINE_FOLD_THRESHOLD,
+  buildGraph,
+  defaultFoldedRounds,
+  planFan,
+  type ReasoningFlowProps,
+  type SpineFolding,
+} from './ReasoningFlow'
 import type { CitedDocument } from '../../lib/citations'
 import type { ThinkingStep } from '../../types'
 import { de, en } from '@/i18n/dictionaries'
@@ -755,5 +762,171 @@ describe('a deep run that was cut off or degraded says so under the assessment',
       (key) => typeof getByPath(dictionary, `chat.thinking.node.limits.${key}`) !== 'string'
     )
     expect(missing).toEqual([])
+  })
+})
+
+describe('a checkpoint layer folds its own fan (ledger 19)', () => {
+  /** n rounds, each returning one file, wired to n cards. */
+  const spine = (n: number, folding?: SpineFolding) => {
+    const steps: ThinkingStep[] = []
+    for (let i = 0; i < n; i++) {
+      steps.push(retrievalStep(i, `query ${i}`, `Folgerung ${i}`))
+      steps.push(toolHit(`h${i}`, `s${i}`, i))
+    }
+    const cards = Array.from({ length: n }, (_, i) => card(`s${i}`))
+    return buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 1),
+      cards,
+      new Map(),
+      folding
+    )
+  }
+
+  const roundData = (g: ReturnType<typeof buildGraph>, i: number) =>
+    g.nodes.find((n) => n.id === `round-${i}`)!.data as unknown as {
+      foldable: boolean
+      folded: boolean
+      foldSummary: string
+      toggleLabel: string
+      onToggle: () => void
+    }
+
+  test('two rounds arrive open — folding half of a comparison hides the comparison', () => {
+    expect([...defaultFoldedRounds(2)]).toEqual([])
+    const g = spine(2, { folded: defaultFoldedRounds(2), onToggle: () => {} })
+    expect(g.nodes.map((n) => n.id)).toEqual([
+      'framing',
+      'round-0',
+      'r0-col-0',
+      'round-1',
+      'r1-col-0',
+      'findings',
+    ])
+    expect(roundData(g, 0).folded).toBe(false)
+    expect(roundData(g, 1).folded).toBe(false)
+  })
+
+  test('three or more rounds arrive with everything but the newest folded', () => {
+    expect([...defaultFoldedRounds(SPINE_FOLD_THRESHOLD)]).toEqual([0, 1])
+    expect([...defaultFoldedRounds(4)]).toEqual([0, 1, 2])
+    const g = spine(3, { folded: defaultFoldedRounds(3), onToggle: () => {} })
+    // The folded layers contribute NO column node — the fan is gone from the
+    // graph, not hidden with CSS, so the stacking pass reclaims the row.
+    expect(g.nodes.map((n) => n.id)).toEqual([
+      'framing',
+      'round-0',
+      'round-1',
+      'round-2',
+      'r2-col-0',
+      'findings',
+    ])
+    expect(g.rows).toEqual([
+      ['framing'],
+      ['round-0'],
+      ['round-1'],
+      ['round-2'],
+      ['r2-col-0'],
+      ['findings'],
+    ])
+  })
+
+  test('a folded checkpoint wires straight into the next one', () => {
+    const g = spine(3, { folded: new Set([0, 1]), onToggle: () => {} })
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-0', target: 'round-1' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'round-2' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-2', target: 'r2-col-0' }))
+    expect(g.edges).toContainEqual(expect.objectContaining({ source: 'r2-col-0', target: 'findings' }))
+    // Nothing may point at a column that is no longer in the graph.
+    const ids = new Set(g.nodes.map((n) => n.id))
+    for (const e of g.edges) {
+      expect(ids.has(e.source)).toBe(true)
+      expect(ids.has(e.target)).toBe(true)
+    }
+  })
+
+  test('the fold summary is a COUNT, never the query and never the filenames (PF-12)', () => {
+    const translator = createTranslator(de, 'chat') as Translator
+    const steps = [
+      retrievalStep(0, 'Fluchtweglänge GK4', 'Zuerst die Grundregel.'),
+      toolHit('a', 'OIB-RL_2', 0),
+      toolHit('b', 'Brandschutzkonzept', 0),
+      toolHit('c', 'Grundriss_EG', 0),
+      retrievalStep(1, 'Treppenraum Entrauchung', 'Offen ist der Treppenraum.'),
+      toolHit('d', 'Bauordnung', 1),
+    ]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      translator,
+      planFan(DESKTOP_W, 4),
+      [card('OIB-RL_2'), card('Brandschutzkonzept'), card('Grundriss_EG'), card('Bauordnung')],
+      new Map(),
+      { folded: new Set([0]), onToggle: () => {} }
+    )
+    const folded = roundData(g, 0)
+    expect(folded.foldSummary).toBe('3 Dateien')
+    expect(folded.foldSummary).not.toContain('Fluchtweg')
+    expect(folded.foldSummary).not.toContain('OIB-RL_2')
+    expect(folded.toggleLabel).toBe('Schritt 1 aufklappen')
+    expect(roundData(g, 1).toggleLabel).toBe('Schritt 2 zuklappen')
+  })
+
+  test('the singular is spelled, in both locales', () => {
+    for (const dictionary of [de, en]) {
+      const translator = createTranslator(dictionary, 'chat') as Translator
+      const g = buildGraph(
+        {
+          ...base,
+          steps: [
+            retrievalStep(0, 'q0'),
+            toolHit('a', 'a', 0),
+            retrievalStep(1, 'q1'),
+            toolHit('b', 'b', 1),
+          ],
+          answerConfidence: 'high',
+        },
+        translator,
+        planFan(DESKTOP_W, 2),
+        [card('a'), card('b')],
+        new Map(),
+        { folded: new Set([0]), onToggle: () => {} }
+      )
+      const summary = roundData(g, 0).foldSummary
+      expect(summary).toContain('1')
+      expect(summary).not.toContain('{')
+      expect(summary).not.toContain('thinking.')
+    }
+  })
+
+  test('a checkpoint that fetched nothing offers no fold — a control that removes nothing', () => {
+    const g = buildGraph(
+      { ...base, steps: [retrievalStep(0, 'q0'), retrievalStep(1, 'q1')], answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')],
+      new Map(),
+      { folded: new Set(), onToggle: () => {} }
+    )
+    expect(roundData(g, 0).foldable).toBe(false)
+    expect(roundData(g, 1).foldable).toBe(false)
+  })
+
+  test('the toggle reports which layer it belongs to', () => {
+    const seen: number[] = []
+    const g = spine(3, { folded: defaultFoldedRounds(3), onToggle: (i) => seen.push(i) })
+    roundData(g, 0).onToggle()
+    roundData(g, 2).onToggle()
+    expect(seen).toEqual([0, 2])
+  })
+
+  test('one retrieval is not a spine and gains no fold control', () => {
+    const g = buildGraph(
+      { ...base, steps: [retrievalStep(0, 'q0')], answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 1),
+      [card('a')]
+    )
+    expect(g.nodes.filter((n) => n.type === 'round')).toHaveLength(0)
   })
 })

@@ -46,28 +46,62 @@
  * not another block of content to read.
  */
 
-import { type FC } from 'react'
+import { type FC, useMemo } from 'react'
+import { PenLine } from 'lucide-react'
 import { FadeIn } from '@/components/motion'
-import { FollowUpChips, usableFollowUps } from '@/features/grid-cards/components/FollowUpChips'
+import {
+  FollowUpChips,
+  usableFollowUps,
+  type FollowUpAction,
+} from '@/features/grid-cards/components/FollowUpChips'
+import { useTranslations } from '@/i18n'
 import type { StoredFollowUp } from '@/lib/conversations/message-stages'
 
 interface FollowUpsRailProps {
   items: StoredFollowUp[]
+  /**
+   * Offer „Als Aktenvermerk schreiben" beside the questions (ledger 23). The
+   * CONDITION is decided by the caller through
+   * `features/chat/lib/aktenvermerk-chip`, because it depends on the turn (its
+   * answer kind, its project, the length of its body) and this component is
+   * handed one message's worth of chips; the COPY is decided here, because it
+   * is chat copy and this is the chat feature.
+   */
+  offerAktenvermerk?: boolean
 }
 
-export const FollowUpsRail: FC<FollowUpsRailProps> = ({ items }) => {
+export const FollowUpsRail: FC<FollowUpsRailProps> = ({ items, offerAktenvermerk = false }) => {
+  const t = useTranslations('chat')
+  const actions = useMemo<FollowUpAction[]>(
+    () =>
+      offerAktenvermerk
+        ? [
+            {
+              key: 'aktenvermerk',
+              label: t('cards.followUps.aktenvermerk'),
+              // The label is the offer; this is the ask. A chip that typed its
+              // own label would send „Als Aktenvermerk schreiben" as a message,
+              // which is a fragment and not a request.
+              prefill: t('cards.followUps.aktenvermerkPrefill'),
+              icon: PenLine,
+            },
+          ]
+        : [],
+    [offerAktenvermerk, t]
+  )
+
   // Checked HERE and not left to `FollowUpChips`, which would return null from
   // inside a wrapper that still exists: in the message column an empty wrapper
   // contributes the column's `gap-4` all the same, which is a 16px hole under
   // an answer that has nothing to offer — exactly the reserved space §8 refused.
-  if (usableFollowUps(items).length === 0) return null
+  if (usableFollowUps(items).length === 0 && actions.length === 0) return null
 
   return (
     <FadeIn distance={4} layout data-testid="follow-ups-rail">
       {/* No `mt-5`: inside the message column the parent's `gap-4` is the air,
           and a second margin would put the rail further from its answer than the
           answer is from the question. */}
-      <FollowUpChips items={items} />
+      <FollowUpChips items={items} actions={actions} />
     </FadeIn>
   )
 }

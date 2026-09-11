@@ -122,6 +122,12 @@ export const chat: typeof en.chat = {
     afternoon: 'Guten Tag',
     evening: 'Guten Abend',
     withName: '{greeting}, {name}.',
+    // Der leere Chat in einem Projekt sagt EINE Sache über sich: dass Piloti
+    // nicht nur antwortet, sondern schreibt. Sonst entdeckt das nur, wer eine
+    // Bitte zufällig als Auftrag formuliert (Ledger 23). Nur im Projekt, weil
+    // ohne Projekt kein Ablageort existiert, in den ein Entwurf ginge.
+    projectWrites:
+      'Piloti beantwortet nicht nur Fragen – auf Zuruf schreibt Piloti Aktenvermerke, Notizen und Entwürfe direkt in die Projektdateien.',
   },
   // Thread role tabs (click-dummy overhaul, WS-3).
   roles: {
@@ -335,6 +341,13 @@ export const chat: typeof en.chat = {
     followUps: {
       eyebrow: 'Weiterfragen',
       groupAria: 'Weiterführende Fragen',
+      // Der eine clientseitige Chip unter einer langen Antwort: das Angebot,
+      // das sonst niemand entdeckt — Piloti schreibt auch (Ledger 23).
+      aktenvermerk: 'Als Aktenvermerk schreiben',
+      // Was der Chip in den Eingabebereich schreibt. Bewusst nicht die
+      // Beschriftung: „Als Aktenvermerk schreiben“ ist ein Satzfragment und
+      // keine Bitte.
+      aktenvermerkPrefill: 'Schreib das als Aktenvermerk in mein Projekt.',
     },
     keyTakeaways: {
       eyebrow: 'Das Wichtigste',
@@ -1028,6 +1041,15 @@ export const chat: typeof en.chat = {
       // Same layer, when the model wrote a Thought: the conclusion that
       // caused the next fetch, not the search query (PF-12).
       checkpointTab: 'Folgerung {n}',
+      // Zugeklappte Schicht: was dieser Abruf zurückgebracht hat, als Zahl.
+      // Nie die Suchanfrage und nie die Dateinamen — eine Namensliste ist der
+      // Fächer noch einmal, nur schlechter gesetzt (PF-12).
+      roundFilesOne: '1 Datei',
+      roundFiles: '{count} Dateien',
+      // Barrierefreier Name der Schaltfläche, die die Schicht auf- und zuklappt.
+      // Der Kartentext selbst ist eine Folgerung und taugt nicht als Name.
+      roundFold: 'Schritt {n} zuklappen',
+      roundUnfold: 'Schritt {n} aufklappen',
       contextLabel: 'Kontext',
       sourcesTab: 'Quellen',
       sourcesTitle: 'Geprüfte Quellen',
@@ -1173,6 +1195,11 @@ export const chat: typeof en.chat = {
     // Wiederholaktion bei einer fehlgeschlagenen Antwort (Designsprache:
     // „hilfreiche Meldung + erneut versuchen“).
     retry: 'Erneut versuchen',
+    // Die Kennung der fehlgeschlagenen Anfrage. Angezeigt werden die ersten
+    // acht Zeichen – genau die, die im Log stehen –, kopiert wird die ganze.
+    reference: 'Referenz für den Support',
+    referenceCopyAria: 'Referenz {id} kopieren',
+    referenceCopied: 'Referenz kopiert',
   },
   errorRegistry: {
     connectionLost: {

@@ -23,6 +23,12 @@
  *   - live     → a turn mid-stream: completed steps + an in-progress web search,
  *     so the live activity phrase, animated edges, executed-step chips (with the
  *     running pulse) and the elapsed pill all render.
+ *   - spine    → TWO retrieval rounds: the fan becomes a spine of checkpoints,
+ *     each owning the files that fetch returned. Both layers open, because
+ *     folding half of a comparison hides the comparison.
+ *   - spine-folded → THREE rounds, which is where the graph stops being a shape
+ *     and becomes a scroll: the older two layers arrive folded to their counts
+ *     and the newest is open. Neither folded caption names a query (PF-12).
  */
 
 import { useEffect, useState } from 'react'
@@ -187,6 +193,121 @@ const denseCommon = {
   steps: [denseStep],
 }
 
+// ── the spine, and its folds ────────────────────────────────────────────────
+// Two or more retrieval rounds turn the fan into a SPINE: a checkpoint, the
+// files THAT fetch returned, then the next checkpoint. Each layer folds to its
+// count, and a spine of three or more arrives with everything but the newest
+// layer folded (`SPINE_FOLD_THRESHOLD`).
+//
+// The step shapes here are the wire's, taken from
+// `tests/fixtures/herleitung/two_search_rounds_steps.json`: the round stamp on
+// each hit is what splits one merged `knowledge_search` completion across the
+// fetches, and the `reason` is the model's own conclusion — never the query
+// (PF-12), which is why every `query` below is a string the graph must not show.
+
+/** One `status:retrieval:N` line: the checkpoint that caused fetch N. */
+const retrievalStep = (index: number, query: string, reason: string): ThinkingStep => ({
+  id: `retrieval-${index}`,
+  userMessageId: 'msg-1',
+  category: 'agents',
+  functionName: `status:retrieval:${index}`,
+  displayName: `status:retrieval:${index}`,
+  content: JSON.stringify({
+    kind: 'status',
+    channel: 'live',
+    slot: `retrieval:${index}`,
+    key: 'status.retrieval.withQuery',
+    values: { corpus: 'knowledge', query },
+    tools: ['knowledge_search'],
+    reason,
+  }),
+  isComplete: true,
+  timestamp: new Date('2024-01-15T14:30:00'),
+})
+
+/**
+ * ONE `knowledge_search` completion carrying every round's hits, which is what
+ * production actually delivers: the store merges completions by function name,
+ * so stream order cannot tell two fetches apart and the `round` stamp is the
+ * only join.
+ */
+const mergedHits = (
+  rounds: ReadonlyArray<
+    ReadonlyArray<{ name: string; detail: string; lane: 'law' | 'project' | 'office' }>
+  >
+): ThinkingStep => ({
+  id: 'kb-spine',
+  userMessageId: 'msg-1',
+  category: 'tools',
+  functionName: 'knowledge_search',
+  displayName: 'Knowledge Search',
+  content: '',
+  isComplete: true,
+  timestamp: new Date('2024-01-15T14:30:02'),
+  traceLanes: rounds.flatMap((hits, round) =>
+    (['law', 'project', 'office'] as const).flatMap((signal) => {
+      const laneHits = hits.filter((hit) => hit.lane === signal)
+      if (laneHits.length === 0) return []
+      return [
+        {
+          key: signal === 'law' ? 'baurecht_oib' : signal === 'project' ? 'projekt' : 'buero',
+          label:
+            signal === 'law'
+              ? 'OIB-Richtlinie'
+              : signal === 'project'
+                ? 'Projektwissen'
+                : 'Büroarchiv',
+          hitCount: laneHits.length,
+          signal,
+          sources: laneHits.map((hit) => ({ name: hit.name, detail: hit.detail, round })),
+        },
+      ]
+    })
+  ),
+})
+
+const SPINE_ROUNDS = [
+  {
+    query: 'Fluchtweglänge GK4',
+    reason: 'Ich brauche zuerst die Grundregel für Fluchtweglängen in der Gebäudeklasse 4.',
+    hits: [
+      { name: 'OIB-RL_2_Brandschutz.pdf', detail: 'Pkt. 3.2', lane: 'law' as const },
+      { name: 'Bauordnung für Wien', detail: '§ 108', lane: 'law' as const },
+    ],
+  },
+  {
+    query: 'Treppenraum Entrauchung',
+    reason:
+      'Die Grundregel steht — offen ist, ob der nördliche Treppenraum als Sicherheitstreppenhaus ausgeführt ist.',
+    hits: [
+      { name: 'Brandschutzkonzept.pdf', detail: 'Seite 4', lane: 'project' as const },
+      { name: 'Grundriss_EG.pdf', detail: 'Seite 2', lane: 'project' as const },
+      { name: 'Schnitt_A-A.pdf', detail: 'Seite 1', lane: 'project' as const },
+    ],
+  },
+  {
+    query: 'Referenzprojekt Sicherheitstreppenhaus RWA',
+    reason:
+      'Der Plan zeigt eine RWA im Treppenraum; wie das Büro das zuletzt nachgewiesen hat, steht im Archiv.',
+    hits: [
+      { name: 'Brandschutzkonzept_2023.pdf', detail: 'Referenzprojekt', lane: 'office' as const },
+    ],
+  },
+]
+
+const spineCommon = (roundCount: number) => ({
+  ...defaultCommon,
+  steps: [
+    ...SPINE_ROUNDS.slice(0, roundCount).map((round, i) =>
+      retrievalStep(i, round.query, round.reason)
+    ),
+    mergedHits(SPINE_ROUNDS.slice(0, roundCount).map((round) => round.hits)),
+  ],
+  citations: undefined,
+  userQuestion:
+    'Reichen die beiden Rettungswege im Regelgeschoss, wenn der nördliche Treppenraum kein Sicherheitstreppenhaus ist?',
+})
+
 // Branches scenario: a live choice prompt and NO findings, so the parallel
 // sources converge directly onto the branches node. A long question and four
 // branch options make the framing + branches nodes tall — the measured layout
@@ -265,7 +386,11 @@ export default function HerleitungPreviewPage() {
         ? liveCommon
         : variant === 'dense'
           ? denseCommon
-          : defaultCommon
+          : variant === 'spine'
+            ? spineCommon(2)
+            : variant === 'spine-folded'
+              ? spineCommon(3)
+              : defaultCommon
   const label =
     variant === 'branches'
       ? '/dev/herleitung?variant=branches — sources → branches (no findings)'
@@ -273,7 +398,11 @@ export default function HerleitungPreviewPage() {
         ? '/dev/herleitung?variant=live — mid-stream turn (live status + chips)'
         : variant === 'dense'
           ? '/dev/herleitung?variant=dense — 9 sources, packed into stacked columns'
-          : '/dev/herleitung — reasoning graph (desktop + mobile)'
+          : variant === 'spine'
+            ? '/dev/herleitung?variant=spine — two retrieval rounds, both layers open'
+            : variant === 'spine-folded'
+              ? '/dev/herleitung?variant=spine-folded — three rounds, older layers folded'
+              : '/dev/herleitung — reasoning graph (desktop + mobile)'
 
   return (
     <main className="min-h-dvh bg-background px-4 py-10">

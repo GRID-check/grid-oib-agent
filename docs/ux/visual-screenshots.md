@@ -107,6 +107,54 @@ in light and dark, the same bar as desktop.
    and never blocks the PR, and it runs for same-repo PRs only (fork tokens are
    read-only and cannot receive comments).
 
+## The registry gate (`visual/registry.spec.mjs`)
+
+A unit test, not a workflow, so it runs in `task fe:test` and in `task verify`
+like everything else. It holds four things the harness previously left to
+convention:
+
+1. **Every registry target has its PNGs committed** — two for a desktop-only
+   target, four when it sets `mobile: true`.
+2. **No PNG is orphaned.** An image whose target was renamed or deleted stays in
+   the repo forever, looking like the current state of something.
+3. **Every target's `/dev` route exists.**
+4. **No PNG is older than the preview it photographs.**
+
+(4) is the one that actually went wrong: PR #631 and #634 both shipped with the
+harness unrun (bun was unavailable in that session), so the `sessions*` images
+stopped describing the surface and nothing said so.
+
+**The mechanism is a checksum manifest**, `visual/screenshots.manifest.json`,
+written by `capture.mjs` after every successful run. Each entry records the
+SHA-256 of the target's `/dev` route source *as it was when the shot was taken*.
+Edit the preview and the hash no longer matches; the spec fails and names the
+command that fixes it.
+
+The two mechanisms it is deliberately **not**:
+
+- **File mtimes.** A checkout writes every file at checkout time, so on a CI
+  runner every PNG and every route are the same age. The comparison is
+  meaningless exactly where it has to run.
+- **`git log` dates.** Re-capturing a PNG leaves it *modified*; `git log -1` on
+  it still answers with the commit before the re-capture. The gate would fail on
+  the branch that fixes the staleness and pass once it was committed — precisely
+  backwards. It also needs full history, which not every CI job checks out.
+
+Do not hand-edit the manifest; re-run the harness. A partial run
+(`npm run screenshots -- sessions`) merges into it and leaves every other entry
+alone, which is what you want — a capture of six targets must not claim the
+other hundred and sixty were re-shot.
+
+Scope, stated plainly: the route file is one input and the components it renders
+are others. Hashing the whole import graph would gate every target on every
+shared-atom edit and be ignored within a week. The route is what the harness
+loads and where a preview change lands, so it is the honest unit; the
+`visual-coverage` workflow below covers the other half (a new component arriving
+with no preview at all).
+
+The manifest was bootstrapped from the tip when the gate landed, so it stops the
+*next* drift rather than certifying every image already committed.
+
 ## Visual coverage gate (CI)
 
 A new **user-visible component** (`frontends/ui/src/features/**/components/**`,

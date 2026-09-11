@@ -1,8 +1,15 @@
 /**
  * @vitest-environment node
  */
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, test, expect } from 'vitest'
-import { documentsForRound, retrievalRounds, unassignedDocuments } from './retrieval-rounds'
+import {
+  documentsForRound,
+  retrievalRounds,
+  unassignedDocuments,
+  type RoundStep,
+} from './retrieval-rounds'
 import type { ThinkingStep } from '../types'
 import type { CitedDocument } from './citations/model'
 
@@ -229,5 +236,57 @@ describe('documentsForRound', () => {
       sourceNames: ['oib-rl_2.pdf'],
     }
     expect(unassignedDocuments([round], [extra]).map((c) => c.id)).toEqual(['extra'])
+  })
+})
+
+/**
+ * The wire itself, not a copy of it.
+ *
+ * Every spec above builds its steps by hand, which proves the walker parses
+ * what THIS FILE believes the backend sends. `tests/fixtures/herleitung/two_search_rounds_steps.json`
+ * is written by the emitters (`tests/aiq_agent/agents/piloti/test_retrieval_rounds_spine.py`,
+ * `TestTheSharedFixtureIsCurrent`), and that contract test names this spec as
+ * its consumer: the Python side asserts the file is what the emitters produce,
+ * this side asserts the walker reads it. Change the wire and exactly one of the
+ * two goes red — which is how a spine that quietly stopped splitting its rounds
+ * is caught by something other than a person noticing.
+ */
+describe('the backend fixture, read by the round walker', () => {
+  const fixture = JSON.parse(
+    readFileSync(
+      fileURLToPath(
+        new URL(
+          '../../../../../../tests/fixtures/herleitung/two_search_rounds_steps.json',
+          import.meta.url
+        )
+      ),
+      'utf-8'
+    )
+  ) as RoundStep[]
+
+  const rounds = retrievalRounds(fixture)
+
+  test('two fetches, in index order', () => {
+    expect(rounds.map((r) => r.index)).toEqual([0, 1])
+  })
+
+  test('each round owns the file THAT fetch returned', () => {
+    expect(rounds[0]?.sourceNames).toEqual(['OIB-RL_2.pdf'])
+    expect(rounds[1]?.sourceNames).toEqual(['Brandschutzkonzept.pdf'])
+  })
+
+  test('each round speaks its own checkpoint, never the query (PF-12)', () => {
+    expect(rounds[0]?.reason).toBe('Ich brauche zuerst die Grundregel für Fluchtweglängen.')
+    expect(rounds[1]?.reason).toBe('Die Grundregel steht; offen ist der Treppenraum.')
+    expect(rounds[0]?.values?.query).toBe('Fluchtweglänge GK4')
+    expect(rounds[1]?.values?.query).toBe('Treppenraum Entrauchung')
+    for (const round of rounds) {
+      expect(round.reason).not.toContain(round.values?.query)
+    }
+  })
+
+  test('the merged tool step sits AHEAD of round 1 — stream order alone would strand it', () => {
+    const names = fixture.map((step) => step.functionName)
+    expect(names.indexOf('knowledge_search')).toBeLessThan(names.indexOf('status:retrieval:1'))
   })
 })

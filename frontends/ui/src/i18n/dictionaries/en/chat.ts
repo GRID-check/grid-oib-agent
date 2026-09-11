@@ -133,6 +133,13 @@ export const chat = {
     afternoon: 'Good afternoon',
     evening: 'Good evening',
     withName: '{greeting}, {name}.',
+    // The empty canvas inside a project says ONE thing about itself: that
+    // Piloti writes as well as answers. Otherwise the only people who find out
+    // are the ones who happen to phrase a request as a commission (ledger 23).
+    // Project-only, because without a project there is nowhere for a draft to
+    // be filed.
+    projectWrites:
+      'Piloti does more than answer — ask, and it writes file notes, memos and drafts straight into the project files.',
   },
   // Thread role tabs (click-dummy overhaul, WS-3).
   roles: {
@@ -344,6 +351,13 @@ export const chat = {
     followUps: {
       eyebrow: 'Ask on',
       groupAria: 'Follow-up questions',
+      // The one client-side chip under a long answer: the offer nobody
+      // otherwise discovers — Piloti writes, too (ledger 23).
+      aktenvermerk: 'Write this up as a file note',
+      // What the chip types into the composer. Deliberately not the label: the
+      // label is a sentence fragment, not a request. It is prefill and not a
+      // command, so the reader can edit it before pressing send.
+      aktenvermerkPrefill: 'Write that up as a file note in my project.',
     },
     keyTakeaways: {
       eyebrow: 'What matters most',
@@ -1028,6 +1042,15 @@ export const chat = {
       // Same layer, when the model wrote a Thought: the conclusion that
       // caused the next fetch, not the search query (PF-12).
       checkpointTab: 'Conclusion {n}',
+      // A folded layer: what this fetch brought back, as a number. Never the
+      // query and never the filenames — a list of names is the fan again, in
+      // worse typography (PF-12).
+      roundFilesOne: '1 file',
+      roundFiles: '{count} files',
+      // Accessible name of the control that folds and unfolds the layer. The
+      // card's own text is a conclusion and makes a poor control name.
+      roundFold: 'Collapse step {n}',
+      roundUnfold: 'Expand step {n}',
       contextLabel: 'Context',
       sourcesTab: 'Sources',
       sourcesTitle: 'Sources examined',
@@ -1168,6 +1191,11 @@ export const chat = {
     hideDetails: 'Hide details',
     // Retry action on an errored answer (design language: "helpful message + retry").
     retry: 'Try again',
+    // The failed request's id. The first eight characters are shown — the same
+    // ones the log line carries — and the whole id is what gets copied.
+    reference: 'Support reference',
+    referenceCopyAria: 'Copy reference {id}',
+    referenceCopied: 'Reference copied',
   },
   // Localized titles + default messages for the chat error registry
   // (features/chat/lib/error-registry.ts). Keyed by error code.

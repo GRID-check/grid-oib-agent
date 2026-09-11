@@ -56,6 +56,22 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '.react-flow__node',
   },
   {
+    id: 'herleitung-spine',
+    mobile: true,
+    path: '/dev/herleitung?variant=spine',
+    description:
+      'A turn that searched TWICE, drawn as a spine: checkpoint, the files that fetch returned, the next checkpoint, then the assessment. Both layers open — folding half of a comparison hides the comparison, so the fold only starts at the third round. Each layer carries a fold control (the whole card, with a chevron in its eyebrow) that a keyboard can reach; judge that the two conclusions read as the model’s own sentences and that NEITHER card shows a search query (PF-12) — the queries in this fixture are „Fluchtweglänge GK4“ and „Treppenraum Entrauchung“, and seeing either one is the failure.',
+    waitFor: '.react-flow__node',
+  },
+  {
+    id: 'herleitung-spine-folded',
+    mobile: true,
+    path: '/dev/herleitung?variant=spine-folded',
+    description:
+      'The same spine one round longer, which is where the graph stops being a shape and becomes a scroll: at three rounds the older layers arrive FOLDED and only the newest fan is drawn. What this pins is what a folded layer says instead of its fan — ‚2 files’ / ‚3 files’ (the preview is not locale-pinned, so it captures in the harness’s English), the count and nothing else. Not the filenames (that is the fan again, in worse typography) and not the query. The chevron on a folded card points right, the open one down, and the assessment now sits within one screen of the framing card, which is the whole reason the fold exists.',
+    waitFor: '.react-flow__node',
+  },
+  {
     id: 'pdf-passage',
     // The viewer's toolbar used to run off the right edge of a phone and take
     // the page's horizontal scroll with it; it wraps now, and this is the shot
@@ -390,6 +406,14 @@ export const SCREENSHOT_TARGETS = [
     description:
       'File-preview modal (real FilePreviewDialog, backend-free) with rich metadata — desktop split (both columns scroll) vs. mobile full-screen sheet (preview capped, all metadata reachable). What this pins is the SPLIT between the two halves of the chrome. The header is the file name plus the four controls that act on the file — Herunterladen, the actions menu, expand, close — and it is the same on every document, so it can be learned; it used to carry ten things, five of them conditional, in a row that wrapped on anything narrower than a laptop, so the chrome reflowed as the reader moved between files. Under the name sit the two subheading chips that say WHICH document this is: the ingestion-detected category, and a status chip that appears ONLY when Piloti cannot quote the document — „Zitierbar" is true of almost everything in the library, so a badge saying so appeared on every file and distinguished none of them, and this shot is the ordinary case where it is silent (`file-preview-authored` is the one where it speaks). Everything that describes what Piloti made of the document leads the rail instead: „Von Piloti erstellt", „Verantwortlich" with the faces and the Zuweisen popover, then „Piloti dazu fragen" and „Kollegin fragen" full-width, directly above the summary that says whether asking is worth it.',
     waitFor: '[role="dialog"]',
+  },
+  {
+    id: 'file-preview-review',
+    mobile: true,
+    path: '/dev/file-preview?variant=review',
+    description:
+      'The review rail, IN the pane — „Freigabe und Fassungen" on a version in Prüfung, with all five decisions (Freigeben, Änderungen anfordern, Piloti überarbeiten lassen, Ablehnen, Archivieren) and the version list under them. It had never been photographed anywhere: the section renders only for a project document whose reader’s lifecycle permissions the surface resolved, and no preview passed them, so the whole of ADR-0054’s reader-facing half shipped unseen. The MOBILE twin is the point (ledger 40): at 390px the rail stacks under the document instead of sitting beside it, the five controls wrap into rows of full-width buttons rather than a squeezed line, and the page must not scroll sideways.',
+    waitFor: '[data-testid="document-lifecycle-panel"]',
   },
   {
     id: 'file-preview-authored',
@@ -1328,5 +1352,13 @@ export const SCREENSHOT_TARGETS = [
     description:
       'Freigabe und Fassungen, the CMS-like half of Dateien (ADR-0054): the whole badge set in its two neutral registers, a freshly filed Entwurf with the one control it allows, a version In Pr\u00fcfung with Freigeben / \u00c4nderungen anfordern / Piloti \u00fcberarbeiten lassen / Ablehnen and the comment box open \u2014 the flow that must not be sendable without words \u2014 then the SAME state with the third control pressed instead, which is the one shot that shows what separates the two boxes: one line saying Piloti will write the next version and submit it. Judge that the third button reads as a variant of the second rather than as a fourth decision, and that the five controls still wrap legibly. Last, a published document with three versions, who submitted, approved and published each, and the comment that sent version 2 back. No chroma anywhere in it: colour belongs to provenance, and an editorial state is not provenance.',
     waitFor: '[data-testid="document-lifecycle-preview"]',
+  },
+  {
+    id: 'document-version-diff',
+    mobile: true,
+    path: '/dev/document-version-diff',
+    description:
+      'Was sich zwischen zwei Fassungen ge\u00e4ndert hat, zeilenweise (ledger item 14). Four blocks: a revised Aktenvermerk with a corrected Geb\u00e4udeklasse, a reworded sentence and a new section; a line inserted near the top of a long checklist, where the two line-number columns visibly drift apart from the insert onwards; one change in a thirty-paragraph report, with the unchanged run folded into a counted gap; and two identical versions, which say so in a sentence rather than rendering an empty box. Judge that an added line and a removed line are told apart with NO chroma at all \u2014 a solid left rule against a dashed one, a +/\u2212 gutter and the ink weight are the whole vocabulary, because colour belongs to provenance and an editorial change is not provenance. Judge too that the folded gap reads as "nothing happened here" rather than as a missing chunk.',
+    waitFor: '[data-testid="document-version-diff-preview"]',
   },
 ]
