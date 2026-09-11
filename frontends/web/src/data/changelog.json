@@ -96,6 +96,10 @@
           "key": "fixes",
           "notes": [
             {
+              "en": "The assistant could not start, so questions went unanswered. It starts again.",
+              "de": "The assistant could not start, so questions went unanswered. It starts again."
+            },
+            {
               "en": "Ein Budget für ein einzelnes Mitglied lässt sich nicht mehr auf eine Person setzen, die der Organisation gar nicht angehört. Bisher wurde so ein Limit gespeichert, in den Einstellungen angezeigt und hat nie gegriffen.",
               "de": "Ein Budget für ein einzelnes Mitglied lässt sich nicht mehr auf eine Person setzen, die der Organisation gar nicht angehört. Bisher wurde so ein Limit gespeichert, in den Einstellungen angezeigt und hat nie gegriffen."
             },
