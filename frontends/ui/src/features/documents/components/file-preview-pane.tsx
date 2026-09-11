@@ -653,8 +653,9 @@ export function FilePreviewPane({
             drawing on a desk actually looks like, and the whole reason this
             column exists rather than a download link. */}
         <div
+          data-testid="file-preview-well"
           className={cn(
-            'from-muted/25 to-muted/60 flex min-w-0 justify-center overflow-hidden bg-gradient-to-b',
+            'from-muted/25 to-muted/60 flex min-w-0 justify-center bg-gradient-to-b',
             peeking
               ? // THE GROUND IS THE DOCUMENT'S, and the document sits centred on
                 // it. A drawing fitted to the width of a 320px pane is a quarter
@@ -667,8 +668,20 @@ export function FilePreviewPane({
                 // it and changed colour. Centred on its own ground, with the
                 // summary as a footer band beneath, is the composition that reads
                 // as deliberate at every height.
-                'h-full min-h-0 flex-1 items-center p-3'
-              : '@2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7 h-[50dvh] min-h-[50dvh] shrink-0 p-5'
+                //
+                // The well is also the peek's document SCROLL container. The peek
+                // body above is `overflow-hidden` and a text page only scrolls
+                // horizontally, so a tall document used to clip here with no way
+                // to reach the rest. Bounded by `flex-1 min-h-0` in the peek
+                // column (the summary footer below is capped and shrink-0), in
+                // the same `scroll-fade-bottom` language the summary speaks.
+                // Centring is per-child `my-auto` rather than `items-center` on
+                // purpose: a centred flex container clips the TOP of overflowing
+                // content unreachably, while auto margins collapse to
+                // top-aligned the moment the document outgrows the well — short
+                // docs sit centred, tall ones scroll from the top.
+                'scroll-fade-bottom h-full min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain p-3 [&>*]:my-auto'
+              : '@2xl:h-auto @2xl:min-h-0 @2xl:flex-1 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:p-7 h-[50dvh] min-h-[50dvh] shrink-0 overflow-hidden p-5'
           )}
         >
           {isModel ? (

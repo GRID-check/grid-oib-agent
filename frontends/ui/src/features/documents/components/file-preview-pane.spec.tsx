@@ -932,6 +932,77 @@ describe('FilePreviewPane', () => {
       expect(screen.queryByText(/no longer available/i)).not.toBeInTheDocument()
     })
   })
+
+  describe('peek presentation', () => {
+    const markdownFile = {
+      ...mockFile,
+      id: 'doc-text',
+      filename: 'notiz.md',
+      contentType: 'text/markdown',
+    }
+
+    /** Tall enough that no 320px side pane shows it whole. */
+    const TALL_MARKDOWN = [
+      '# Fluchtwege',
+      ...Array.from(
+        { length: 60 },
+        (_, i) => `Absatz ${i + 1}: zwei voneinander unabhängige Fluchtwege je Nutzungseinheit.`
+      ),
+    ].join('\n\n')
+
+    const mockText = (text: string) => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ text, truncated: false }),
+      } as Response)
+    }
+
+    const renderPeekMarkdown = async (text: string) => {
+      mockText(text)
+      render(<FilePreviewPane file={markdownFile} presentation="peek" />)
+      await screen.findByRole('heading', { name: 'Fluchtwege' })
+      return screen.getByTestId('file-preview-well')
+    }
+
+    it('gives a tall markdown its own vertical scroll instead of clipping it', async () => {
+      // The peek body is `overflow-hidden` and the text page only scrolls
+      // horizontally, so without a scroll container on the well the rest of a
+      // tall document was simply unreachable.
+      const well = await renderPeekMarkdown(TALL_MARKDOWN)
+
+      expect(well.classList.contains('overflow-y-auto')).toBe(true)
+      expect(well.classList.contains('overflow-hidden')).toBe(false)
+      // The same scroll language the peek summary footer speaks.
+      expect(well.classList.contains('scroll-fade-bottom')).toBe(true)
+    })
+
+    it('keeps a short document centred in the peek well', async () => {
+      // Centring is per-child auto margins rather than `items-center`: a
+      // centred flex container clips the top of overflowing content
+      // unreachably, while auto margins collapse to top-aligned the moment the
+      // document outgrows the well.
+      const well = await renderPeekMarkdown('# Fluchtwege\n\nKurz.')
+
+      expect(well.classList.contains('justify-center')).toBe(true)
+      expect(well.classList.contains('[&>*]:my-auto')).toBe(true)
+      expect(well.classList.contains('items-center')).toBe(false)
+    })
+
+    it('leaves the modal/stacked well alone', async () => {
+      mockText(TALL_MARKDOWN)
+      render(<FilePreviewPane file={markdownFile} projectId="proj-1" />)
+
+      await screen.findByRole('heading', { name: 'Fluchtwege' })
+      const well = screen.getByTestId('file-preview-well')
+
+      // No bare vertical scroll (the `@2xl:` split-column token is a different
+      // class and stays), still clipped to the capped mobile block.
+      expect(well.classList.contains('overflow-y-auto')).toBe(false)
+      expect(well.classList.contains('overflow-hidden')).toBe(true)
+      expect(well.classList.contains('h-[50dvh]')).toBe(true)
+    })
+  })
 })
 
 describe('FilePreviewPane — a report Piloti wrote', () => {

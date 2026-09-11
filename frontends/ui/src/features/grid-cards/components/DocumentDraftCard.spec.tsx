@@ -8,10 +8,14 @@
  * the one claim that must never appear at any of them: that somebody approved
  * this.
  *
- * The unfiled action is asserted to write NOTHING: it prefills the composer, the
- * way a follow-up chip does. The card's header says why filing cannot happen in
- * the browser at all, and this spec is the guard on that decision — a future
- * change that gives the button a `fetch` fails here.
+ * The unfiled FILE action is asserted to write NOTHING: it prefills the
+ * composer, the way a follow-up chip does. The card's header says why filing
+ * cannot happen in the browser at all, and this spec is the guard on that
+ * decision — a future change that gives the FILE button a `fetch` fails here.
+ * The card's OTHER unfiled control, the preview, is a read: it fetches the
+ * draft's content through the BFF preview door into a dialog, and its own
+ * tests below pin that it does so only when opened, and only for this
+ * conversation.
  *
  * The byline is asserted by its WORDS rather than by the component being
  * imported, because the words are the point: a file says who wrote it the same
@@ -119,6 +123,90 @@ describe('DocumentDraftCard — the draft, before it is filed', () => {
     expect(screen.getByText('v1')).toBeInTheDocument()
     expect(screen.getByText('0 B')).toBeInTheDocument()
   })
+
+  it('offers the draft for reading beside the file request, and fetches nothing until asked', () => {
+    render(<DocumentDraftCard {...DRAFT} />)
+
+    expect(screen.getByRole('button', { name: 'View draft' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add to the project' })).toBeInTheDocument()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('opens the reading surface with the fetched markdown', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            path: DRAFT.path,
+            content: '# Aktenvermerk\n\nDer Text.',
+            version: 3,
+            bytes: 30,
+          }),
+        }),
+      ),
+    )
+    const user = userEvent.setup()
+    render(<DocumentDraftCard {...DRAFT} />)
+
+    await user.click(screen.getByRole('button', { name: 'View draft' }))
+
+    // The surface: the draft's own facts in the chrome, its words below.
+    expect(await screen.findByTestId('document-draft-preview')).toBeInTheDocument()
+    expect(screen.getByTestId('document-draft-preview-meta')).toHaveTextContent(DRAFT.path)
+    expect(screen.getByTestId('document-draft-preview-meta')).toHaveTextContent('v3')
+    expect(screen.getByTestId('document-draft-preview-meta')).toHaveTextContent('5 kB')
+    expect(screen.getByTestId('document-draft-preview-content')).toHaveTextContent('Der Text.')
+    // This conversation's draft, through the BFF door — never the agent tier.
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/conversations/conv-1/draft?path=%2Fentwuerfe%2Faktenvermerk-fluchtweg.md',
+      expect.objectContaining({ method: 'GET' }),
+    )
+  })
+
+  it('retries a failed load from the surface, never as a bare error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 500,
+          json: async () => ({ error: 'Upstream service error', code: 'UPSTREAM_ERROR' }),
+        }),
+      ),
+    )
+    const user = userEvent.setup()
+    render(<DocumentDraftCard {...DRAFT} />)
+
+    await user.click(screen.getByRole('button', { name: 'View draft' }))
+
+    // An actionable message: what failed is said AND the way back is offered.
+    expect(await screen.findByTestId('document-draft-preview-error')).toBeInTheDocument()
+    expect(screen.getByText('The draft could not be loaded.')).toBeInTheDocument()
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            path: DRAFT.path,
+            content: '# Aktenvermerk\n\nDer Text.',
+            version: 3,
+            bytes: 30,
+          }),
+        }),
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+
+    expect(await screen.findByTestId('document-draft-preview-content')).toHaveTextContent(
+      'Der Text.',
+    )
+  })
 })
 
 describe('DocumentDraftCard — filed, and still the reader’s to send', () => {
@@ -162,6 +250,13 @@ describe('DocumentDraftCard — filed, and still the reader’s to send', () => 
   it('says the document is in the project, as a draft', () => {
     render(<DocumentDraftCard {...FILED} />)
     expect(screen.getByTestId('document-draft-state')).toHaveTextContent('Filed in the project as a draft')
+  })
+
+  it('a filed card offers no draft preview — there is nothing unfiled left to read', () => {
+    render(<DocumentDraftCard {...FILED} />)
+
+    expect(screen.queryByRole('button', { name: 'View draft' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open in the project' })).toBeInTheDocument()
   })
 
   it('offers the document beside the conversation rather than instead of it', async () => {
