@@ -47,6 +47,25 @@ from aiq_agent.common.citation_verification import SourceRegistry
 RAN: list[str] = []
 
 
+def _batches(ran: list[str], *sizes: int) -> list[set[str]]:
+    """``ran`` cut into the graph's batches, each as a set.
+
+    The order BETWEEN batches is the loop's contract (round zero runs before
+    round one). The order WITHIN a batch is not: ``ToolNode`` runs a batch's
+    calls concurrently, sync tools on worker threads, and which thread appends
+    first is the scheduler's choice — CPython 3.13 makes a different one from
+    3.12 often enough that an ordered assertion here failed only on the 3.13 CI
+    leg. The cap decides which calls run, never in which order.
+    """
+    assert sum(sizes) == len(ran), f"expected {sum(sizes)} calls, got {ran}"
+    out: list[set[str]] = []
+    start = 0
+    for size in sizes:
+        out.append(set(ran[start : start + size]))
+        start += size
+    return out
+
+
 @tool
 def knowledge_search(query: str) -> str:
     """Search the OIB knowledge corpus."""
@@ -155,7 +174,9 @@ class TestRoundZero:
 
         result = await _run(agent)
 
-        assert RAN == ["knowledge_search:Fluchtweglänge GK4", "ris_search_tool:Wiener Bauordnung Fluchtweg"]
+        assert _batches(RAN, 2) == [
+            {"knowledge_search:Fluchtweglänge GK4", "ris_search_tool:Wiener Bauordnung Fluchtweg"}
+        ]
         notices = [m for m in _tool_messages(result) if m.content == _FANOUT_DROPPED_MESSAGE]
         assert [m.tool_call_id for m in notices] == ["c"]
         assert notices[0].name == "web_search_tool"
@@ -200,12 +221,9 @@ class TestRoundZero:
 
         result = await _run(agent)
 
-        assert RAN == [
-            "knowledge_search:a",
-            "ris_search_tool:b",
-            "knowledge_search:Pkt. 3.5.2",
-            "ris_search_tool:§ 108 BO",
-            "web_search_tool:OIB 2 Kommentar",
+        assert _batches(RAN, 2, 3) == [
+            {"knowledge_search:a", "ris_search_tool:b"},
+            {"knowledge_search:Pkt. 3.5.2", "ris_search_tool:§ 108 BO", "web_search_tool:OIB 2 Kommentar"},
         ]
         assert _FANOUT_DROPPED_MESSAGE not in [
             m.content for m in _tool_messages(result) if m.tool_call_id in {"d", "e", "f"}
@@ -219,7 +237,7 @@ class TestRoundZero:
 
         result = await _run(agent)
 
-        assert RAN == ["knowledge_search:a", "ris_search_tool:b"]
+        assert _batches(RAN, 2) == [{"knowledge_search:a", "ris_search_tool:b"}]
         assert all(m.content != _FANOUT_DROPPED_MESSAGE for m in _tool_messages(result))
 
     async def test_interaction_tools_are_never_the_call_that_is_dropped(self, scripted_agent):
@@ -238,9 +256,9 @@ class TestRoundZero:
 
         result = await _run(agent)
 
-        assert sorted(RAN) == sorted(
-            ["emit_card:legal_basis", "knowledge_search:a", "remember:GK4", "ris_search_tool:b"]
-        )
+        assert _batches(RAN, 4) == [
+            {"emit_card:legal_basis", "knowledge_search:a", "remember:GK4", "ris_search_tool:b"}
+        ]
         assert all(m.content != _FANOUT_DROPPED_MESSAGE for m in _tool_messages(result))
 
     async def test_an_action_round_before_the_first_search_does_not_consume_round_zero(self, scripted_agent):
@@ -259,7 +277,7 @@ class TestRoundZero:
 
         await _run(agent)
 
-        assert RAN == ["emit_card:legal_basis", "knowledge_search:a", "ris_search_tool:b"]
+        assert _batches(RAN, 1, 2) == [{"emit_card:legal_basis"}, {"knowledge_search:a", "ris_search_tool:b"}]
 
 
 class TestTheBudgetSurvives:
