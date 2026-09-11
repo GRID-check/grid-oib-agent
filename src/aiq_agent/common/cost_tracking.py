@@ -133,9 +133,16 @@ class BudgetSnapshot:
         return None
 
 
+#: ``role`` for the calls that are not chat completions and therefore never
+#: reach the LangChain callback path. The reranker is the first: one
+#: frontier-model call per ``knowledge_search``, on the answer's critical path,
+#: which until now appeared on no ledger at all (ledger row 25).
+USAGE_ROLE_RERANK = "rerank"
+
+
 @dataclass
 class UsageEvent:
-    """One LLM generation, as recorded in the ``llm_usage_events`` ledger."""
+    """One model call, as recorded in the ``llm_usage_events`` ledger."""
 
     model: str | None
     requested_model: str | None
@@ -146,8 +153,12 @@ class UsageEvent:
     cached_tokens: int
     reasoning_tokens: int
     cost_usd: float
-    cost_source: str  # 'usage_field' | 'missing'
+    cost_source: str  # 'usage_field' | 'estimate' | 'missing'
     is_byok: bool | None
+    #: What the call was FOR, for the events that are not a chat completion by
+    #: an agent. ``None`` for those, which is every event the callback path
+    #: produces: their role is the agent group the turn already carries.
+    role: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -162,6 +173,14 @@ class UsageEvent:
             "costUsd": self.cost_usd,
             "costSource": self.cost_source,
             "isByok": self.is_byok,
+            # `role` is deliberately NOT on the wire. The internal endpoint
+            # declares its fields (`app/api/internal/usage/route.ts`) and
+            # `test_payload_shape_matches_internal_endpoint` is the ratchet
+            # that keeps this dict equal to them; a key the route does not
+            # declare is dropped by zod, so sending it would buy nothing and
+            # cost the guarantee. The ledger's reserved `agent_group` column is
+            # where a role belongs, and wiring it is a BFF change: until then a
+            # rerank row is told apart by its `model`.
         }
 
 
@@ -328,6 +347,17 @@ class GridCostTracker(BaseCallbackHandler):
         if event is None:
             return
         event.requested_model = requested or self._requested_model
+        self.record(event)
+
+    def record(self, event: UsageEvent) -> None:
+        """Put one event on the turn's ledger batch and its running totals.
+
+        The callback path reaches this through :meth:`on_llm_end`; a bespoke
+        call site that is not a chat completion — the cross-encoder reranker —
+        reaches it through :func:`record_usage_event`. One accumulator either
+        way, so a turn's cost is the whole turn's cost and the budget gate sees
+        every unit it is supposed to bound.
+        """
         with self._lock:
             self._pending.append(event)
             self._events_recorded += 1
@@ -434,6 +464,62 @@ try:
 except Exception:  # pragma: no cover - defensive against langchain-core API drift
     logger.exception("Could not install LangChain configure hook; LLM cost tracking is DISABLED")
     _CONFIGURE_HOOK_INSTALLED = False
+
+
+def record_usage_event(
+    *,
+    model: str | None,
+    role: str,
+    prompt_tokens: int,
+    completion_tokens: int = 0,
+    total_tokens: int | None = None,
+    cost_usd: float = 0.0,
+    cost_source: str = "estimate",
+    is_byok: bool | None = None,
+) -> bool:
+    """Record a model call that does NOT go through LangChain. ``True`` if it landed.
+
+    The tracker is installed for every chat completion by a hook on LangChain's
+    callback manager, which is exactly why the calls that are not chat
+    completions were free: the cross-encoder rerank is one frontier-model call
+    per ``knowledge_search``, made with `httpx` against a `/rerank` endpoint,
+    and it appeared on no ledger, in no budget, and under no org's own key
+    (ledger row 25).
+
+    Attribution is the ambient tracker's: organization, user, project and
+    conversation are the turn's, resolved once by :func:`track_llm_costs`. A
+    call made outside a turn (an ingest thread, a CLI run) has no tracker and
+    is not recorded — the same answer the callback path gives, and the reason
+    this returns a bool instead of raising.
+
+    ``cost_source`` defaults to ``estimate`` on purpose: a rerank endpoint that
+    reports no usage still costs money, and a row that says "estimate" is
+    honest about which number it is, where a zero would read as free.
+    """
+    tracker = grid_cost_tracker_var.get()
+    if tracker is None:
+        return False
+    try:
+        tracker.record(
+            UsageEvent(
+                model=model,
+                requested_model=model,
+                generation_id=None,
+                prompt_tokens=max(0, prompt_tokens),
+                completion_tokens=max(0, completion_tokens),
+                total_tokens=max(0, total_tokens if total_tokens is not None else prompt_tokens + completion_tokens),
+                cached_tokens=0,
+                reasoning_tokens=0,
+                cost_usd=max(0.0, cost_usd),
+                cost_source=cost_source,
+                is_byok=is_byok,
+                role=role,
+            )
+        )
+    except Exception:  # noqa: BLE001 - accounting must never take a search down
+        logger.warning("Could not record a %s usage event", role, exc_info=True)
+        return False
+    return True
 
 
 def _read_identity_from_context() -> dict[str, str | None]:

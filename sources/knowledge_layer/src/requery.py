@@ -26,6 +26,7 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
@@ -49,6 +50,10 @@ DEFAULT_TIMEOUT_SECONDS = 15.0
 
 #: A proposed query longer than this is a paragraph, not a search.
 _MAX_QUERY_CHARS = 300
+
+#: How much of one alternative formulation the notice below prints. The notice
+#: is a line the model reads before the excerpts, not a transcript.
+_NOTICE_QUERY_CHARS = 120
 
 _SYSTEM_PROMPT = (
     "You judge whether a set of retrieved excerpts is enough to answer a question, "
@@ -188,3 +193,35 @@ async def judge_sufficiency(
     except Exception as e:
         logger.warning("Sufficiency judge failed (%s: %s); treating the pool as sufficient", type(e).__name__, e)
         return SUFFICIENT
+
+
+def requery_notice(queries: Sequence[str]) -> str:
+    """The one line about the widening that the MODEL reads, or ``""``.
+
+    Until this existed the loop was invisible to the agent that had asked for
+    the search: the judge decided the first pool could not answer the question,
+    the pipeline searched again in words the model never chose, and the model
+    was handed the widened excerpts as if they were the answer to its own
+    query. Whichever way the turn then went — an answer built on a paraphrase
+    of the question, or a second search repeating a formulation that had
+    already been tried — the model could not know which, because nothing told
+    it. The live status line said so to the READER (``emit_retrieval_requery``)
+    and to nobody else.
+
+    German, because the model writes German and this line sits in the tool
+    result beside German excerpts. One sentence, named formulations, no
+    instruction: what to do about it is the model's next decision, and a line
+    that told it would be the pipeline steering the loop a second time.
+
+    Returns ``""`` when nothing was widened, so the common one-shot search
+    carries no prefix at all.
+    """
+    named = [" ".join(query.split())[:_NOTICE_QUERY_CHARS] for query in queries if query and query.strip()]
+    if not named:
+        return ""
+    count = "eine Umformulierung" if len(named) == 1 else f"{len(named)} Umformulierungen"
+    formulations = "; ".join(f"„{query}“" for query in named)
+    return (
+        f"Hinweis: die Suche wurde um {count} erweitert ({formulations}), "
+        "weil die ersten Treffer die Frage nicht abdeckten.\n\n"
+    )

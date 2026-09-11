@@ -23,6 +23,7 @@ from typing import Any
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 
 from aiq_agent.common import content_to_text
@@ -113,6 +114,17 @@ def sentence_citing(body: str, number: int) -> str | None:
     return sentence or None
 
 
+def marker_for_quote(body: str, quote: UnverifiedQuote) -> int | None:
+    """The ``[N]`` a quote was attributed to: the nearest marker after it.
+
+    One reader of the citation grammar, two consumers: the lookup that
+    re-searches the failing text in the document that ``[N]`` verified against,
+    and the observation that tells the model WHICH marker to fix.
+    """
+    nearest = _CITATION_MARKER_RE.search(body, quote.end, min(len(body), quote.end + _CITATION_REACH))
+    return int(nearest.group(1)) if nearest else None
+
+
 def _file_by_citation_number(valid_citations: Sequence[dict[str, Any]]) -> dict[int, str]:
     """``[N]`` → the file its verified citation key names."""
     file_by_number: dict[int, str] = {}
@@ -153,8 +165,8 @@ def repair_lookups(
         text = quote.quote.strip()
         if not text:
             continue
-        nearest = _CITATION_MARKER_RE.search(body, quote.end, min(len(body), quote.end + _CITATION_REACH))
-        file_name = file_by_number.get(int(nearest.group(1))) if nearest else None
+        marker = marker_for_quote(body, quote)
+        file_name = file_by_number.get(marker) if marker is not None else None
         lookups.append((text[:300], file_name))
     for removed in removed_citations:
         number = removed.get("number")
@@ -230,13 +242,78 @@ async def _retrieve(tool: BaseTool, lookups: Sequence[tuple[str, str | None]]) -
     return grounding, sources
 
 
-def _rewrite_anchor(failures: VerificationFailures, grounding: Sequence[str]) -> HumanMessage:
-    """The rewrite request: every failure named, the fresh passages in hand."""
-    named = [f"- Quote not found verbatim in any retrieved passage: „{q.quote}“" for q in failures.unverified_quotes]
-    named += [
-        f"- Citation removed ({removed.get('reason') or 'unverifiable'}): {removed.get('line') or ''}".rstrip()
-        for removed in failures.removed_citations
+#: The name the verification result travels under in the transcript. It is not
+#: a bound tool and the model can never call it: what runs is the deterministic
+#: verifier (``common/citation_verification.py``), and this is its result,
+#: shaped like a tool result because that is the one slot in a transcript that
+#: means "this came back", as opposed to "I said it".
+VERIFICATION_TOOL_NAME = "citation_check"
+
+#: Fixed id: exactly one such call exists per repair, and the pair is built and
+#: consumed in one place. A provider rejects a tool result whose call it cannot
+#: find, so the two are always emitted together (``agents/piloti/AGENTS.md``).
+_VERIFICATION_CALL_ID = "repair-citation-check"
+
+
+def _failure_lines(body: str, failures: VerificationFailures) -> list[str]:
+    """One line per failure, each naming the marker in the answer it belongs to.
+
+    ``[?]`` is a real answer and not a gap: a quote with no citation within
+    reach was never attributed to anything, and saying so is what tells the
+    model to either cite it or drop the quotation marks.
+    """
+    lines: list[str] = []
+    for quote in failures.unverified_quotes:
+        marker = marker_for_quote(body, quote)
+        where = f"[{marker}]" if marker is not None else "[?]"
+        lines.append(f"- {where} quote not found verbatim in any retrieved passage: „{quote.quote}“")
+    for removed in failures.removed_citations:
+        number = removed.get("number")
+        where = f"[{number}]" if isinstance(number, int) else "[?]"
+        reason = removed.get("reason") or "unverifiable"
+        lines.append(f"- {where} citation removed ({reason}): {str(removed.get('line') or '').strip()}".rstrip())
+    return lines
+
+
+def verification_observation(prose: str, failures: VerificationFailures) -> list[Any]:
+    """The failed check as a tool call and its result, for the transcript.
+
+    The repair used to reach the model as an instruction alone -- "your
+    previous answer did not pass verification", with the failures rendered into
+    that same human turn. So the one thing the model never saw was the
+    OBSERVATION: which marker in its own text failed, and what the check
+    returned. It rewrote from a summary of a check it could not see (roadmap
+    section 3, "hidden loops the model does not own").
+
+    Two messages, always together: an assistant turn carrying the call and the
+    tool result answering it. A tool result with no matching call is a request
+    a provider refuses, and the refusal lands on the NEXT request rather than
+    this one.
+    """
+    lines = _failure_lines(_answer_body_before_sources(prose), failures)
+    summary = f"{len(lines)} problem(s) found in the answer above:" if lines else "No problems found."
+    return [
+        AIMessage(
+            content="",
+            tool_calls=[{"name": VERIFICATION_TOOL_NAME, "args": {}, "id": _VERIFICATION_CALL_ID}],
+        ),
+        ToolMessage(
+            content="\n".join([summary, *lines]),
+            name=VERIFICATION_TOOL_NAME,
+            tool_call_id=_VERIFICATION_CALL_ID,
+        ),
     ]
+
+
+def _rewrite_anchor(prose: str, failures: VerificationFailures, grounding: Sequence[str]) -> HumanMessage:
+    """The rewrite request: every failure named, the fresh passages in hand.
+
+    Says the failures again after the observation above has stated them as the
+    check's result. The observation is what the check RETURNED; this is what to
+    do about it, and a model reads its last turn hardest. Both render from
+    :func:`_failure_lines`, so a third wording cannot drift in.
+    """
+    named = _failure_lines(_answer_body_before_sources(prose), failures)
     return HumanMessage(
         content=(
             "Your previous answer did not pass verification. Problems found:\n"
@@ -289,8 +366,8 @@ async def repair_answer(
     if not lookups:
         return None
     emit_answer_repair(
-        removed_citations=len(failures.removed_citations),
-        unverified_quotes=len(failures.unverified_quotes),
+        citations_removed=len(failures.removed_citations),
+        quotes_failed=len(failures.unverified_quotes),
     )
     try:
         grounding, sources = await _retrieve(tool, lookups)
@@ -301,7 +378,12 @@ async def repair_answer(
         return None
 
     messages: list[Any] = [SystemMessage(content=system_prompt)] if system_prompt else []
-    messages += [*history, AIMessage(content=prose), _rewrite_anchor(failures, grounding)]
+    messages += [
+        *history,
+        AIMessage(content=prose),
+        *verification_observation(prose, failures),
+        _rewrite_anchor(prose, failures, grounding),
+    ]
     try:
         response = await ainvoke_with_envelope_json_mode(llm, messages)
     except Exception:  # noqa: BLE001 - see above

@@ -17,6 +17,15 @@ ever configured, and NVIDIA's hosted URL had gone (HTTP 410) by the time the
 feature was switched on. A self-hosted reranker that speaks the same shape
 still fits through ``AIQ_RERANKER_BASE_URL``.
 
+One key per SEARCH, not per process. The handle is built once at startup where
+no tenant is in scope, so for a release every organization's reranks went out
+on the platform key and onto the platform's bill; the credential is now
+resolved per call from the turn's organization, which is what lets a BYOK org
+pay for its own reranking. Each call also leaves a ``rerank`` usage event on
+the turn's ledger — the endpoint prices in search units and reports no cost, so
+the row carries estimated tokens and says ``estimate`` rather than inventing a
+dollar figure.
+
 Fail-open, like every other retrieval enhancement in this package: any
 transport error, timeout, unknown provider name, or unparseable body returns
 ``None`` and the caller keeps the order it already had. Per-search failure
@@ -29,11 +38,13 @@ process acquires no outbound dependency it did not ask for.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import os
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -224,18 +235,22 @@ def available_providers() -> tuple[str, ...]:
     return (PROVIDER,)
 
 
-def _resolve_api_key(base_url: str, model: str, organization_id: str | None) -> str:
-    """Resolve the reranker key through the shared resolver, with a local fallback.
+@dataclass(frozen=True)
+class _Credential:
+    """What one rerank call is made with. ``byok`` is what the ledger records."""
 
-    ``AIQ_RERANKER_API_KEY`` wins, then ``OPENROUTER_API_KEY``, then host
-    inference — the same chain every other bespoke call site in this deployment
-    uses.
+    api_key: str
+    base_url: str
+    byok: bool = False
 
-    BYOK is NOT wired here: the registration call site builds the reranker once
-    at startup with no organization in scope, so ``organization_id`` is always
-    ``None`` there and the platform key is used.
-    TODO(byok): resolve the key per search from the turn's organization id
-    instead of once at construction.
+
+def _resolve_credential(base_url: str, model: str, organization_id: str | None) -> _Credential:
+    """Resolve the reranker credential through the shared resolver, env as fallback.
+
+    An organization's own key (BYOK) wins when one is known, then
+    ``AIQ_RERANKER_API_KEY``, then ``OPENROUTER_API_KEY``, then host inference
+    — the same chain every other bespoke call site in this deployment uses. A
+    BYOK hit replaces the key AND the base URL, never the model (ADR-0022).
     """
     try:
         from aiq_agent.common.credential_resolution import resolve_llm_credential
@@ -248,7 +263,11 @@ def _resolve_api_key(base_url: str, model: str, organization_id: str | None) -> 
             organization_id=organization_id,
         )
         if resolved.api_key:
-            return resolved.api_key
+            return _Credential(
+                api_key=resolved.api_key,
+                base_url=_normalize_base_url(resolved.base_url) or base_url,
+                byok=resolved.source == "byok",
+            )
     except ImportError:
         # knowledge_layer is usable without the aiq_agent package.
         logger.debug("credential_resolution unavailable; falling back to a direct env read")
@@ -260,7 +279,91 @@ def _resolve_api_key(base_url: str, model: str, organization_id: str | None) -> 
         # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         logger.warning("Reranker credential resolution failed (%s); trying the env directly", type(e).__name__)
 
-    return os.environ.get("AIQ_RERANKER_API_KEY", "") or os.environ.get(_KEY_ENV, "")
+    env_key = os.environ.get("AIQ_RERANKER_API_KEY", "") or os.environ.get(_KEY_ENV, "")
+    return _Credential(api_key=env_key, base_url=base_url)
+
+
+def _resolve_api_key(base_url: str, model: str, organization_id: str | None) -> str:
+    """The key only — what the constructor needs to answer :attr:`configured`."""
+    return _resolve_credential(base_url, model, organization_id).api_key
+
+
+def _organization_id_in_scope() -> str | None:
+    """The organization this search belongs to, or ``None`` outside a turn.
+
+    The reranker is built ONCE at startup, where no organization is in scope,
+    which is why BYOK was unwired here: the key was resolved before any tenant
+    existed. The org id travels on the request context of every turn, so the
+    search — not the construction — is where it can be asked for.
+    """
+    try:
+        from aiq_agent.project_context import get_organization_id_from_context
+
+        return get_organization_id_from_context()
+    except Exception:  # noqa: BLE001 - no aiq_agent, or no request context: platform key
+        return None
+
+
+#: Characters per token, for the estimate below. Deliberately crude: the point
+#: is a number of the right ORDER on the ledger, not a token count nobody can
+#: reconcile. German runs longer per token than English, so this under-counts
+#: rather than over-counts, and the row says ``estimate`` either way.
+_CHARS_PER_TOKEN = 4
+
+
+def _reported_usage(payload: Any) -> dict[str, Any]:
+    """The provider's own usage object, if it sent one.
+
+    Cohere-shaped rerank replies carry ``meta.billed_units.search_units``;
+    OpenAI-shaped ones carry ``usage``. Neither is guaranteed, and a gateway in
+    between may drop it, so this returns ``{}`` and the caller estimates.
+    """
+    if not isinstance(payload, dict):
+        return {}
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        return usage
+    billed = (payload.get("meta") or {}).get("billed_units") if isinstance(payload.get("meta"), dict) else None
+    return billed if isinstance(billed, dict) else {}
+
+
+def _record_usage(model: str, query: str, documents: list[str], payload: Any, *, byok: bool) -> None:
+    """Put one rerank on the turn's ledger (ledger row 25).
+
+    A rerank is a frontier-model call on the answer's critical path — one per
+    ``knowledge_search``, sixty documents wide — and it went through `httpx`
+    rather than LangChain, so the cost tracker's callback hook never saw it. It
+    was charged to nobody: absent from the ledger, from the org's budget, and
+    from every "what did this turn cost" answer the product gives.
+
+    What it can honestly report is tokens, not dollars: the endpoint prices in
+    search units and does not return a cost, so the row is ``estimate`` and the
+    money stays 0 rather than being invented. An org limited in TOKENS (the
+    unit for an organization on its own key, migration 0080) is metered
+    correctly by that alone.
+
+    Never raises: accounting is not allowed to cost a search its ranking.
+    """
+    try:
+        from aiq_agent.common.cost_tracking import USAGE_ROLE_RERANK
+        from aiq_agent.common.cost_tracking import record_usage_event
+    except ImportError:  # knowledge_layer without the agent package
+        return
+
+    usage = _reported_usage(payload)
+    reported = usage.get("prompt_tokens") or usage.get("input_tokens") or usage.get("total_tokens")
+    if isinstance(reported, int) and reported > 0:
+        prompt_tokens, source = reported, "usage_field"
+    else:
+        prompt_tokens = (len(query) + sum(len(document) for document in documents)) // _CHARS_PER_TOKEN
+        source = "estimate"
+    record_usage_event(
+        model=model,
+        role=USAGE_ROLE_RERANK,
+        prompt_tokens=prompt_tokens,
+        cost_source=source,
+        is_byok=byok,
+    )
 
 
 def _parse_rankings(payload: Any, candidate_count: int) -> list[int] | None:
@@ -351,6 +454,31 @@ class CrossEncoderReranker:
             body["top_n"] = min(top_n, len(documents))
         return body
 
+    async def _credential_for_search(self) -> _Credential:
+        """The key and host THIS search runs on: the turn's org key when it has one.
+
+        Resolved per search rather than once at construction, which is the
+        whole of the BYOK fix: the reranker is built at startup, where there is
+        no tenant, so every organization's searches went out on the platform
+        key and the platform's bill. An org that brought its own key pays for
+        its own reranks now.
+
+        Off the event loop, because the resolution can reach the BFF on a cold
+        entry (it is cached for 60s in-process afterwards) and a blocked loop
+        would stall every other turn on the replica. No org in scope skips the
+        hop entirely: that is a ContextVar read and the common case for an
+        ingest thread or a CLI run.
+        """
+        organization_id = _organization_id_in_scope()
+        if not organization_id:
+            return _Credential(api_key=self._api_key, base_url=self.base_url)
+        resolved = await asyncio.to_thread(_resolve_credential, self.base_url, self.model, organization_id)
+        if resolved.api_key:
+            return resolved
+        # Nothing resolved for the org: the key this was built with still works,
+        # and a search that refuses to run is worse than one on the platform key.
+        return _Credential(api_key=self._api_key, base_url=self.base_url)
+
     async def rerank(self, query: str, chunks: list[Any], *, top_n: int | None = None) -> list[Any] | None:
         """Return ``chunks`` re-ordered by cross-encoder relevance, or ``None``.
 
@@ -367,21 +495,18 @@ class CrossEncoderReranker:
             return None
 
         documents = [str(getattr(chunk, "content", ""))[: self.max_doc_chars] for chunk in chunks]
-        url = f"{self.base_url}{_PATH}"
+        credential = await self._credential_for_search()
+        url = f"{credential.base_url}{_PATH}"
         try:
             # Imported inside the guard: httpx is an optional transitive dependency, and
             # an ImportError here must degrade to "no opinion" like every other failure.
             import httpx
 
-            # Cost is currently untracked: this call bypasses the LangChain callback
-            # path GridCostTracker hooks, so no ledger row is emitted for the rerank
-            # model. TODO(cost-tracking): emit a usage event (model, search_units)
-            # per call once the ledger accepts non-LLM events.
             async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
                 response = await client.post(
                     url,
                     headers={
-                        "Authorization": f"Bearer {self._api_key}",
+                        "Authorization": f"Bearer {credential.api_key}",
                         "Content-Type": "application/json",
                         "Accept": "application/json",
                     },
@@ -406,6 +531,7 @@ class CrossEncoderReranker:
             return None
 
         _record_success()
+        _record_usage(self.model, query, documents, payload, byok=credential.byok)
 
         ranked = [chunks[i] for i in indices]
         # A provider honouring top_n returns a subset. The unranked remainder keeps

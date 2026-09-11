@@ -17,6 +17,7 @@ from knowledge_layer.requery import SUFFICIENT
 from knowledge_layer.requery import SufficiencyVerdict
 from knowledge_layer.requery import _parse_verdict
 from knowledge_layer.requery import judge_sufficiency
+from knowledge_layer.requery import requery_notice
 
 from aiq_agent.common.retrieval_settings import reset_retrieval_settings_cache
 
@@ -163,6 +164,14 @@ def _grounding(merged, query):
     return "|".join(chunk.chunk_id for chunk in merged.chunks) or "no results"
 
 
+_NOTICE_MARK = "Hinweis: die Suche wurde um"
+
+
+def _body(out: str) -> str:
+    """The tool result without the widening notice, which has its own tests."""
+    return out.split("\n\n", 1)[1] if out.startswith(_NOTICE_MARK) else out
+
+
 @pytest.fixture
 def loop_harness(monkeypatch):
     def install(retriever, judge):
@@ -230,7 +239,7 @@ class TestRetrievalLoop:
         )
         loop_harness(retriever, _FakeLLM('{"sufficient": false, "queries": ["Gehweglänge Gebäudeklasse 4"]}'))
 
-        out = await _search(_config(requery_llm="judge", requery_max_queries=2))
+        out = _body(await _search(_config(requery_llm="judge", requery_max_queries=2)))
 
         assert [call["query"] for call in retriever.retrieve_calls] == ["Fluchtweg GK4", "Gehweglänge Gebäudeklasse 4"]
         assert set(out.split("|")) == {"shared", "new"}
@@ -257,7 +266,7 @@ class TestRetrievalLoop:
 
         out = await _search(_config(requery_llm="judge"))
 
-        assert out == "found"
+        assert _body(out) == "found"
 
     async def test_a_failing_judge_keeps_the_first_pool(self, loop_harness):
         retriever = _FakeRetriever({"Fluchtweg GK4": [_chunk("a", "a")]})
@@ -267,3 +276,68 @@ class TestRetrievalLoop:
 
         assert len(retriever.retrieve_calls) == 1
         assert out == "a"
+
+
+class TestTheNoticeTheModelReads:
+    """The widening is an observation, not a silent rewrite of the search.
+
+    ``emit_retrieval_requery`` tells the READER the pool was widened. Until the
+    line below existed, the agent that issued the search was the one party that
+    was never told: it received excerpts fetched for formulations it had not
+    chosen, and could neither build on that nor avoid repeating a query the
+    loop had already tried (roadmap §3, "hidden loops the model does not own").
+    """
+
+    def test_nothing_widened_is_no_line_at_all(self):
+        assert requery_notice([]) == ""
+        assert requery_notice(["", "   "]) == ""
+
+    def test_the_line_names_every_alternative_formulation(self):
+        notice = requery_notice(["Gehweglänge Gebäudeklasse 4", "Fluchtweglänge GK4"])
+        assert notice.startswith("Hinweis: die Suche wurde um 2 Umformulierungen erweitert (")
+        assert "„Gehweglänge Gebäudeklasse 4“" in notice
+        assert "„Fluchtweglänge GK4“" in notice
+        assert "weil die ersten Treffer die Frage nicht abdeckten." in notice
+        assert notice.endswith("\n\n"), "the notice is a LEADING line, not part of the first excerpt"
+
+    def test_one_formulation_reads_as_one(self):
+        assert "um eine Umformulierung erweitert" in requery_notice(["Gehweglänge"])
+
+    async def test_a_one_shot_search_carries_no_notice(self, loop_harness):
+        retriever = _FakeRetriever({"Fluchtweg GK4": [_chunk("a", "a")]})
+        loop_harness(retriever, _FakeLLM('{"sufficient": true, "queries": []}'))
+
+        out = await _search(_config(requery_llm="judge"))
+
+        assert _NOTICE_MARK not in out
+        assert out == "a"
+
+    async def test_a_widened_search_leads_with_the_notice(self, loop_harness):
+        retriever = _FakeRetriever(
+            {"Fluchtweg GK4": [_chunk("a", "a")], "Gehweglänge Gebäudeklasse 4": [_chunk("b", "b")]}
+        )
+        loop_harness(retriever, _FakeLLM('{"sufficient": false, "queries": ["Gehweglänge Gebäudeklasse 4"]}'))
+
+        out = await _search(_config(requery_llm="judge"))
+
+        assert out.startswith(_NOTICE_MARK)
+        assert "„Gehweglänge Gebäudeklasse 4“" in out
+        assert _body(out).split("|")[0] in {"a", "b"}
+
+    async def test_a_widened_search_that_still_finds_nothing_says_so_too(self, loop_harness):
+        """The case the model most needs: its own wording AND two paraphrases
+        came back empty, so a third rewording is not the next move."""
+        retriever = _FakeRetriever({})
+        loop_harness(retriever, _FakeLLM('{"sufficient": false, "queries": ["Gehweglänge"]}'))
+
+        out = await _search(_config(requery_llm="judge"))
+
+        assert out.startswith(_NOTICE_MARK)
+
+    async def test_a_file_scoped_lookup_never_carries_a_notice(self, loop_harness):
+        retriever = _FakeRetriever({"Fluchtweg GK4": [_chunk("a", "a")]})
+        loop_harness(retriever, _FakeLLM('{"sufficient": false, "queries": ["Gehweglänge"]}'))
+
+        out = await _search(_config(requery_llm="judge"), file_name="oib-rl_4.pdf")
+
+        assert _NOTICE_MARK not in out

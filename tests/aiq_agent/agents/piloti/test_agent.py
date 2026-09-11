@@ -18,6 +18,7 @@ from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.agents.piloti.repair import VerificationFailures
 from aiq_agent.agents.piloti.repair import repair_answer
 from aiq_agent.agents.piloti.repair import repair_lookups
+from aiq_agent.agents.piloti.repair import verification_observation
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common.answer_envelope import render_envelope_response_format
@@ -28,6 +29,12 @@ from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.data_source_registry import populate_from_config
 from aiq_agent.common.data_source_registry import reset_registry
+from tests.fixtures.drafting_turns import COMMISSION
+from tests.fixtures.drafting_turns import FILE
+from tests.fixtures.drafting_turns import REVISE
+from tests.fixtures.drafting_turns import SEEDED_DRAFT_PATH
+from tests.fixtures.drafting_turns import assert_turn_shape
+from tests.fixtures.drafting_turns import draft_cards
 
 
 async def _run_with_captured_registry(agent, state):
@@ -4230,3 +4237,322 @@ class TestTheTidyingBudget:
             {"name": "emit_card", "args": {}},
         ]
         assert _count_interaction_calls(calls) == 4
+
+
+class TestTheRepairIsAnObservationTheModelCanSee:
+    """What failed reaches the rewrite as a tool RESULT, not only as a request.
+
+    The repair is one of the two loops the model does not own (the other is
+    `knowledge_search`'s requery). It ran, rewrote, and the model was told in
+    prose that "verification failed" — never which marker in its own text, and
+    never in the one slot of a transcript that means "this came back".
+    """
+
+    _BODY = (
+        "Die Richtlinie fordert „Treppen muessen rot sein“ [3]. Weiter [4].\n\n"
+        "## Sources\n[3] OIB-330.pdf, p.12\n[4] b.pdf, p.2"
+    )
+
+    def _quote(self, inner: str):
+        from aiq_agent.common.citation_verification import UnverifiedQuote
+
+        span = f"„{inner}“"
+        start = self._BODY.index(span)
+        return UnverifiedQuote(quote=inner, span=span, start=start, end=start + len(span), best_coverage=0.1)
+
+    def _failures(self):
+        return VerificationFailures(
+            removed_citations=({"number": 4, "line": "[4] b.pdf, p.2", "reason": "not_in_registry"},),
+            unverified_quotes=(self._quote("Treppen muessen rot sein"),),
+            valid_citations=({"number": 3, "citation_key": "OIB-330.pdf, p.12"},),
+        )
+
+    def test_the_observation_names_the_failing_marker_and_the_quote(self):
+        _call, result = verification_observation(self._BODY, self._failures())
+        assert "[3] quote not found verbatim" in result.content
+        assert "Treppen muessen rot sein" in result.content
+        assert "[4] citation removed (not_in_registry)" in result.content
+
+    def test_a_quote_nobody_cited_says_so_rather_than_guessing(self):
+        body = "„Treppen muessen rot sein“ steht irgendwo."
+        from aiq_agent.common.citation_verification import UnverifiedQuote
+
+        span = "„Treppen muessen rot sein“"
+        start = body.index(span)
+        quote = UnverifiedQuote(
+            quote="Treppen muessen rot sein", span=span, start=start, end=start + len(span), best_coverage=0.1
+        )
+        _call, result = verification_observation(
+            body, VerificationFailures(removed_citations=(), unverified_quotes=(quote,))
+        )
+        assert "[?] quote not found verbatim" in result.content
+
+    def test_the_call_and_its_result_travel_together(self):
+        """A tool result with no matching call is a request providers refuse —
+        and the refusal lands on the NEXT request, not this one."""
+        call, result = verification_observation(self._BODY, self._failures())
+        assert call.type == "ai"
+        assert [tool_call["name"] for tool_call in call.tool_calls] == ["citation_check"]
+        assert result.type == "tool"
+        assert result.tool_call_id == call.tool_calls[0]["id"]
+
+    @pytest.mark.asyncio
+    async def test_the_rewrite_request_is_a_shape_a_provider_accepts(self, strict_provider_llm):
+        """Through the contract double: the observation sits between the answer
+        and the rewrite request, and the request still ends on a human turn."""
+
+        @tool
+        async def knowledge_search(query: str) -> str:
+            """Search the internal knowledge base."""
+            return f"passage for {query}"
+
+        reset_registry()
+        populate_from_config(
+            [
+                {
+                    "id": "oib_knowledge",
+                    "name": "OIB Knowledge",
+                    "description": "Search the internal OIB knowledge base.",
+                    "tools": ["knowledge_search"],
+                }
+            ]
+        )
+        try:
+            llm = strict_provider_llm(["rewritten"])
+            repaired = await repair_answer(
+                self._BODY,
+                failures=self._failures(),
+                tools=[knowledge_search],
+                llm=llm,
+                system_prompt="system",
+                history=[HumanMessage(content="Treppenhoehe?")],
+            )
+        finally:
+            reset_registry()
+
+        assert repaired is not None and repaired.prose == "rewritten"
+        sent = llm.received[-1]
+        kinds = [message.type for message in sent]
+        assert kinds[-3:] == ["ai", "tool", "human"], kinds
+        assert "[3] quote not found verbatim" in sent[-2].content
+
+
+class TestTheThreeDraftingTurnShapes:
+    """Commission, revise, file — the same three cases the live eval runs.
+
+    ``tests/benchmarks/test_turn_shapes_live.py`` puts these prompts to the
+    real model and skips without a key, so nothing about a drafting turn was
+    checked on any PR (ledger row 5). These are the same cases, the same
+    assertion (``tests/fixtures/drafting_turns.py``) and the same real tools —
+    the working directory, the card registry and the budget accounting — with
+    the model scripted, which is what makes them runnable in CI.
+
+    What they can prove and the live pair cannot: that the graph does the right
+    thing with the calls. What the live pair proves and these cannot: that the
+    model MAKES them.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _bypass_citation_pipeline(self):
+        with (
+            patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
+            patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as mock_verify,
+            patch("aiq_agent.agents.piloti.answer_pipeline.sanitize_report") as mock_sanitize,
+        ):
+            mock_verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
+                verified_report=content, removed_citations=[]
+            )
+            mock_sanitize.side_effect = lambda content: MagicMock(sanitized_report=content)
+            yield
+
+    @pytest.fixture
+    def scripted_llm(self):
+        llm = MagicMock()
+        llm.ainvoke = AsyncMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
+        return llm
+
+    @pytest.fixture
+    def provider(self, scripted_llm):
+        provider = MagicMock(spec=LLMProvider)
+        provider.get = MagicMock(return_value=scripted_llm)
+        return provider
+
+    @pytest.fixture
+    def cards(self):
+        from aiq_agent.cards.registry import CardRegistry
+        from aiq_agent.cards.registry import reset_card_registry
+        from aiq_agent.cards.registry import set_card_registry
+
+        registry = CardRegistry()
+        token = set_card_registry(registry)
+        try:
+            yield registry
+        finally:
+            reset_card_registry(token)
+
+    @pytest.fixture
+    def working_directory(self):
+        from langgraph.store.memory import InMemoryStore
+
+        from aiq_agent.tools.documents.draft_store import DraftBackend
+        from aiq_agent.tools.documents.tools import draft_tools
+
+        backend = DraftBackend(store=InMemoryStore(), conversation_id="conv-1")
+        return backend, draft_tools(backend)
+
+    @staticmethod
+    def _answer(text: str) -> AIMessage:
+        """The reply a drafting turn ends on: prose, a kind, and no verdict."""
+        import json as _json
+
+        return AIMessage(content=f"```answer_json\n{_json.dumps({'answer': text, 'kind': 'direct'})}\n```")
+
+    @staticmethod
+    def _call(name: str, args: dict, call_id: str) -> AIMessage:
+        return AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": call_id}])
+
+    def _agent(self, provider, tools):
+        # A research budget of ONE: writing is not researching, so a turn that
+        # charged the file verbs to it would be forced into synthesis before it
+        # reached the second call.
+        return PilotiAgent(llm_provider=provider, tools=[web_search_tool, *tools], max_tool_iterations=1)
+
+    async def _seed(self, backend, case):
+        for path, content in case.seed.items():
+            await backend.awrite(path, content)
+
+    def _file_draft_tool(self, monkeypatch, backend, posted):
+        """`file_draft` with only the HTTP call doubled, as the filing test does."""
+        from langchain_core.tools import StructuredTool
+
+        from aiq_agent.tools.documents import register as filing_tools
+
+        async def _same_backend(conversation_id: str, dsn: str | None = None):
+            return backend
+
+        monkeypatch.setattr(filing_tools, "get_draft_backend", _same_backend)
+        monkeypatch.setattr(
+            filing_tools,
+            "post_document_version",
+            lambda payload, envelope: (
+                posted.append(payload),
+                {"documentId": "doc-7", "version": {"id": "ver-7", "state": "draft", "contentHash": "h7"}},
+            )[1],
+        )
+        _bind_signed_turn(monkeypatch, conversation_id="conv-1")
+        return StructuredTool.from_function(
+            coroutine=filing_tools.run_file_draft, name="file_draft", description="legt ab"
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_commission_writes_the_document_and_does_not_file_it(
+        self, provider, scripted_llm, cards, working_directory
+    ):
+        backend, tools = working_directory
+        scripted_llm.ainvoke = AsyncMock(
+            side_effect=[
+                self._call(
+                    "write_file",
+                    {
+                        "file_path": SEEDED_DRAFT_PATH,
+                        "content": "# Aktenvermerk – Besprechung MA 37\n\n## 3. Fluchtweg\nBesprochen.\n",
+                    },
+                    "1",
+                ),
+                self._answer("Der Aktenvermerk liegt als Entwurf in dieser Unterhaltung."),
+            ]
+        )
+        agent = self._agent(provider, tools)
+
+        result = await agent.run(ResearchAgentState(messages=[HumanMessage(content=COMMISSION.prompt)]))
+
+        assert_turn_shape(
+            COMMISSION,
+            called_tools=_scripted_tool_names(scripted_llm),
+            cards=cards.snapshot(),
+            answer_meta=result.answer_meta,
+            escalated=result.escalation_requested,
+        )
+        assert draft_cards(cards.snapshot())[-1]["version"] == 1
+        assert result.answer_meta["kind"] == "direct", "the envelope's kind never reached the state"
+
+    @pytest.mark.asyncio
+    async def test_a_revision_edits_the_draft_it_was_given(self, provider, scripted_llm, cards, working_directory):
+        backend, tools = working_directory
+        await self._seed(backend, REVISE)
+        scripted_llm.ainvoke = AsyncMock(
+            side_effect=[
+                self._call(
+                    "edit_file",
+                    {
+                        "file_path": SEEDED_DRAFT_PATH,
+                        "old_string": "Die Behörde hält die Länge des Fluchtwegs für klärungsbedürftig und erwartet "
+                        "eine Darstellung im Einreichplan, aus der die Gehweglänge bis ins Freie hervorgeht.",
+                        "new_string": "Die Gehweglänge ist im Einreichplan darzustellen.",
+                    },
+                    "1",
+                ),
+                self._answer("Punkt 3 ist auf einen Satz gekürzt."),
+            ]
+        )
+        agent = self._agent(provider, tools)
+
+        result = await agent.run(ResearchAgentState(messages=[HumanMessage(content=REVISE.prompt)]))
+
+        assert_turn_shape(
+            REVISE,
+            called_tools=_scripted_tool_names(scripted_llm),
+            cards=cards.snapshot(),
+            answer_meta=result.answer_meta,
+            escalated=result.escalation_requested,
+        )
+        stored = backend._get_store().get(("conversation", "conv-1", "drafts"), SEEDED_DRAFT_PATH)
+        assert "klärungsbedürftig" not in stored.value["content"]
+        # The revision is a VERSION of the same path, not a second document.
+        assert draft_cards(cards.snapshot())[-1]["version"] == 2
+
+    @pytest.mark.asyncio
+    async def test_filing_puts_the_draft_in_the_project_and_the_card_can_act(
+        self, provider, scripted_llm, cards, working_directory, monkeypatch
+    ):
+        backend, tools = working_directory
+        await self._seed(backend, FILE)
+        posted: list[dict] = []
+        file_draft_tool = self._file_draft_tool(monkeypatch, backend, posted)
+        scripted_llm.ainvoke = AsyncMock(
+            side_effect=[
+                self._call("file_draft", {"path": SEEDED_DRAFT_PATH}, "1"),
+                self._answer("Der Aktenvermerk liegt als Entwurf im Projekt."),
+            ]
+        )
+        agent = self._agent(provider, [*tools, file_draft_tool])
+
+        result = await agent.run(ResearchAgentState(messages=[HumanMessage(content=FILE.prompt)]))
+
+        assert_turn_shape(
+            FILE,
+            called_tools=_scripted_tool_names(scripted_llm),
+            cards=cards.snapshot(),
+            answer_meta=result.answer_meta,
+            escalated=result.escalation_requested,
+        )
+        assert [payload["op"] for payload in posted] == ["create"]
+
+
+def _scripted_tool_names(scripted_llm) -> list[str]:
+    """Every tool the scripted turn actually asked for, in order.
+
+    Read off the replies the model made rather than off the tool doubles: the
+    graph may withhold a call (the round-zero fan-out cap answers the surplus
+    with an explanation), and what the shape assertion is about is what the
+    turn DID — a withheld call did not happen.
+    """
+    names: list[str] = []
+    for call in scripted_llm.ainvoke.await_args_list:
+        for message in call.args[0]:
+            for tool_call in getattr(message, "tool_calls", None) or []:
+                if tool_call["name"] not in names:
+                    names.append(tool_call["name"])
+    return names

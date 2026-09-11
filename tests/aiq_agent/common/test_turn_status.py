@@ -667,7 +667,7 @@ def _every_live_payload(steps) -> list[dict]:
     )
     turn_status.emit_retrieval_requery(query_count=2)
     turn_status.emit_citation_check(source_count=3)
-    turn_status.emit_answer_repair(removed_citations=1, unverified_quotes=1)
+    turn_status.emit_answer_repair(citations_removed=1, quotes_failed=1)
     turn_status.emit_escalation("Shallow agent emitted insufficiency marker")
     return _live(steps)
 
@@ -721,3 +721,32 @@ class TestNothingEmittedIsLanguageSpecific:
 
     def test_the_two_registries_do_not_overlap(self) -> None:
         assert not set(turn_status.ALL_STATUS_KEYS) & set(ALL_SKILL_KEYS)
+
+
+class TestTheRepairRecordCarriesItsCounts:
+    """`status:repair` is the reader's line AND the Herleitung's detail.
+
+    One step, because the frontend dedupes status steps by NAME: a second
+    ``status:repair`` on the technical channel would cost one of the two — on
+    exactly the turns that had a repair (:data:`turn_status.FANOUT_SLOT`
+    records that lesson). So the counts ride the live record as detail, which
+    is what ``emit_status``'s ``extra`` is for.
+    """
+
+    def test_one_step_named_status_repair(self, steps) -> None:
+        turn_status.emit_answer_repair(citations_removed=2, quotes_failed=1)
+        names = {name for name, event_type, _payload in steps if event_type.endswith("START")}
+        assert names == {"status:repair"}
+
+    def test_the_counts_are_the_camel_case_the_detail_panel_reads(self, steps) -> None:
+        turn_status.emit_answer_repair(citations_removed=2, quotes_failed=1)
+        payload = _live(steps)[0]
+        assert payload["citationsRemoved"] == 2
+        assert payload["quotesFailed"] == 1
+
+    def test_the_line_still_resolves_for_the_reader(self, steps) -> None:
+        """The record is detail; the sentence is still a dictionary id."""
+        turn_status.emit_answer_repair(citations_removed=0, quotes_failed=1)
+        payload = _live(steps)[0]
+        assert payload["key"] == turn_status.KEY_REPAIR
+        assert payload["values"] == {}

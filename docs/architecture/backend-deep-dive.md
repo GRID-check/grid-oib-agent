@@ -1065,7 +1065,10 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    collection in scope and fused into the same RRF as new channels (the
    original query keeps the tie-break seat), then reranked once more. The
    live line says `status.retrieval.requery`; the Langfuse retrieval span
-   records `requery_queries`. Fail-open at every step.
+   records `requery_queries`; and the tool result the MODEL reads leads with
+   one German line naming the alternative formulations and why they were tried
+   (`requery.requery_notice`), so the agent that issued the search is not the
+   one party the widening is hidden from. Fail-open at every step.
 
 4. **Retrieval-precision feedback** — a new `retrieval_precision` event kind in
    the citation-health pipeline (`src/aiq_agent/common/citation_events.py`):

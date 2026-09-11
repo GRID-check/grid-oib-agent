@@ -216,3 +216,132 @@ async def test_unusable_ranking_counts_toward_the_breaker(monkeypatch) -> None:
     assert await reranker.rerank("query", chunks) is None
     assert await reranker.rerank("query", chunks) is None
     assert ce._breaker_open()
+
+
+# --- Who pays for the rerank, and with whose key (ledger row 25) -------------
+
+
+class _Tracker:
+    """The cost tracker's one method this call site uses."""
+
+    def __init__(self) -> None:
+        self.events: list = []
+
+    def record(self, event) -> None:
+        self.events.append(event)
+
+
+@pytest.fixture()
+def tracker(monkeypatch):
+    """Install a tracker in the ambient ContextVar, as a turn does."""
+    from aiq_agent.common import cost_tracking
+
+    sink = _Tracker()
+    token = cost_tracking.grid_cost_tracker_var.set(sink)
+    try:
+        yield sink
+    finally:
+        cost_tracking.grid_cost_tracker_var.reset(token)
+
+
+def _ranked(_request: httpx.Request) -> httpx.Response:
+    return _ok({"results": [{"index": 0, "relevance_score": 0.9}, {"index": 1, "relevance_score": 0.4}]})
+
+
+async def test_a_rerank_lands_on_the_ledger_with_its_role_and_tokens(monkeypatch, tracker) -> None:
+    """It was a frontier-model call per search, charged to nobody."""
+    _serve(monkeypatch, _ranked)
+
+    await _reranker().rerank("Fluchtweg", [_chunk("a", "x" * 400), _chunk("b", "y" * 400)])
+
+    assert len(tracker.events) == 1
+    event = tracker.events[0]
+    assert event.role == "rerank"
+    assert event.model == "cohere/rerank-v3.5"
+    assert event.prompt_tokens > 100, "the documents that were sent are what it cost"
+    assert event.cost_source == "estimate", "the endpoint reports no cost; the row must not invent one"
+    assert event.cost_usd == 0.0
+
+
+async def test_a_provider_that_reports_usage_is_believed_over_the_estimate(monkeypatch, tracker) -> None:
+    _serve(
+        monkeypatch,
+        lambda request: _ok({"results": [{"index": 0, "relevance_score": 0.9}], "usage": {"prompt_tokens": 4242}}),
+    )
+
+    await _reranker().rerank("Fluchtweg", [_chunk("a", "x" * 400)])
+
+    event = tracker.events[0]
+    assert (event.prompt_tokens, event.cost_source) == (4242, "usage_field")
+
+
+async def test_a_failed_rerank_is_charged_to_nobody(monkeypatch, tracker) -> None:
+    """No ranking, no row: the turn kept the order it already had."""
+    _serve(monkeypatch, lambda request: httpx.Response(500))
+
+    await _reranker().rerank("Fluchtweg", [_chunk("a")])
+
+    assert tracker.events == []
+
+
+async def test_a_search_outside_a_turn_is_not_recorded_and_still_ranks(monkeypatch) -> None:
+    """An ingest thread or a CLI run has no tracker; the rerank still happens."""
+    _serve(monkeypatch, _ranked)
+
+    ranked = await _reranker().rerank("Fluchtweg", [_chunk("a"), _chunk("b")])
+
+    assert [chunk.chunk_id for chunk in ranked] == ["a", "b"]
+
+
+async def test_an_org_with_its_own_key_reranks_on_it(monkeypatch, tracker) -> None:
+    """BYOK, per search. The handle is built at startup where no org exists, so
+    resolving the key at construction is what made every org's rerank the
+    platform's bill."""
+    from aiq_agent.common import credential_resolution
+
+    seen = _serve(monkeypatch, _ranked)
+    monkeypatch.setattr(ce, "_organization_id_in_scope", lambda: "org_byok")
+
+    def _resolve(*, organization_id=None, default_base_url="", **_kw):
+        assert organization_id == "org_byok", "the search must ask for the turn's org"
+        return credential_resolution.ResolvedCredential(
+            api_key="org-own-key",  # pragma: allowlist secret
+            base_url="https://byok.example/api/v1",
+            model="m",
+            source="byok",
+        )
+
+    monkeypatch.setattr(credential_resolution, "resolve_llm_credential", _resolve)
+
+    await _reranker(api_key="platform-key").rerank("Fluchtweg", [_chunk("a")])  # pragma: allowlist secret
+
+    assert seen[0].headers["Authorization"] == "Bearer org-own-key"
+    assert str(seen[0].url) == "https://byok.example/api/v1/rerank"
+    assert tracker.events[0].is_byok is True
+
+
+async def test_without_an_org_the_platform_key_is_used(monkeypatch, tracker) -> None:
+    seen = _serve(monkeypatch, _ranked)
+    monkeypatch.setattr(ce, "_organization_id_in_scope", lambda: None)
+
+    await _reranker(api_key="platform-key").rerank("Fluchtweg", [_chunk("a")])  # pragma: allowlist secret
+
+    assert seen[0].headers["Authorization"] == "Bearer platform-key"
+    assert tracker.events[0].is_byok is False
+
+
+async def test_an_org_with_no_key_of_its_own_still_reranks(monkeypatch, tracker) -> None:
+    """A BYOK lookup that resolves nothing must not take reranking down."""
+    from aiq_agent.common import credential_resolution
+
+    seen = _serve(monkeypatch, _ranked)
+    monkeypatch.setattr(ce, "_organization_id_in_scope", lambda: "org_plain")
+    monkeypatch.setattr(
+        credential_resolution,
+        "resolve_llm_credential",
+        lambda **_kw: credential_resolution.ResolvedCredential(api_key="", base_url="", model="m", source="none"),
+    )
+
+    await _reranker(api_key="platform-key").rerank("Fluchtweg", [_chunk("a")])  # pragma: allowlist secret
+
+    assert seen[0].headers["Authorization"] == "Bearer platform-key"

@@ -11,6 +11,15 @@ judgment, pinned only by the ``<output_contract>`` block of
 2. a commissioned report is handed to deep research (``escalate_to_deep`` in
    the envelope) BEFORE any retrieval of its own.
 
+Three more cases cover the shape the Piloti-writes work added and nothing
+measured (ledger row 5): a commissioned Aktenvermerk is WRITTEN rather than
+described, a revision edits the draft instead of writing a second one, and
+„leg das ins Projekt ab" files it. Their prompts and their one assertion live
+in ``tests/fixtures/drafting_turns.py``, shared with the scripted-LLM pair in
+``tests/aiq_agent/agents/piloti/test_agent.py`` that runs them in CI — two
+harnesses asking different questions would stop being the same eval the first
+time either was edited.
+
 This file is the eval the ADR said those behaviours lacked. It builds the real
 ``PilotiAgent`` on the real system prompt against Piloti's own
 model through OpenRouter, with STUB tools in place of the retrieval stack: the
@@ -51,6 +60,9 @@ from aiq_agent.common.data_source_registry import populate_from_config
 from aiq_agent.common.data_source_registry import reset_registry
 from aiq_agent.common.llm_factory import apply_openrouter_structured_defaults
 from aiq_agent.common.llm_factory import enforce_chat_request_contract
+from tests.fixtures.drafting_turns import DRAFTING_CASES
+from tests.fixtures.drafting_turns import FILE
+from tests.fixtures.drafting_turns import assert_turn_shape
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +211,7 @@ def _research_model_name() -> str:
     return os.environ.get(env_var) or default
 
 
-def _build_agent() -> PilotiAgent:
+def _build_agent(extra_tools: list = []) -> PilotiAgent:  # noqa: B006 - read-only default
     """The real agent, the real prompt, the real model; stub tools."""
     from langchain_openai import ChatOpenAI
 
@@ -221,7 +233,7 @@ def _build_agent() -> PilotiAgent:
     provider.set_default(llm, group=AgentGroup.RESEARCH)
     return PilotiAgent(
         llm_provider=provider,
-        tools=_TOOLS,
+        tools=[*_TOOLS, *extra_tools],
         # The repair pass re-searches after a failed verification. That is a
         # second decision made by the pipeline, not the first one made by the
         # model, and the first is what this eval measures.
@@ -311,3 +323,131 @@ async def test_a_plain_domain_question_still_searches(agent):
     assert _data_source_calls(), f"a domain question retrieved nothing; answer was: {_answer_text(result)[:400]}"
     assert result.source_lookup_attempted is True
     assert result.escalation_requested is False, result.answer_escalation_reason
+
+
+# --- The drafting turn shapes (ledger row 5) ---------------------------------
+#
+# The retrieval stubs above stand in for a corpus. These do NOT stub the
+# working directory: `write_file`, `edit_file` and the `document_draft` card
+# are the real ones over an in-memory store, because what the case is about is
+# the file that exists and the card the reader gets afterwards. Only the two
+# doors into the project are doubles, and only their HTTP half — the BFF
+# decides identity and permission, and this eval has no BFF.
+
+
+def _filing_stubs(backend):
+    """`file_draft` and `submit_draft`, with the REAL descriptions.
+
+    The description is the last thing the model reads before choosing a verb,
+    so a stub that paraphrases it is measuring a different prompt. Imported
+    from the tool module rather than copied, underscore and all: a copy would
+    drift the day somebody edits the real one, and this eval would then be
+    green about a sentence production no longer says.
+
+    ``submit_draft`` is bound although no case asks for it: „ablegen" must not
+    put an item in a colleague's inbox, and a verb the model cannot reach
+    cannot be shown to be avoided.
+    """
+    from langchain_core.tools import StructuredTool
+
+    from aiq_agent.tools.documents.cards import emit_draft_card
+    from aiq_agent.tools.documents.register import _FILE_DRAFT_DESCRIPTION
+    from aiq_agent.tools.documents.register import _SUBMIT_DRAFT_DESCRIPTION
+
+    async def file_draft(path: str, title: str = "") -> str:
+        _CALLS.append(("file_draft", path))
+        usage = await backend.aread(path)
+        emit_draft_card(
+            path=path,
+            content=getattr(usage, "content", "") or "",
+            version=getattr(usage, "version", 1) or 1,
+            filing={
+                "grid_filed_document_id": "doc-live",
+                "grid_filed_version_id": "ver-live",
+                "grid_filed_state": "draft",
+            },
+            title=title or None,
+        )
+        return "Im Projekt abgelegt. Es bleibt ein Entwurf: niemand hat ihn freigegeben."
+
+    async def submit_draft(path: str, reviewer: str = "") -> str:
+        _CALLS.append(("submit_draft", path))
+        return "Zur Freigabe eingereicht."
+
+    return [
+        StructuredTool.from_function(coroutine=file_draft, name="file_draft", description=_FILE_DRAFT_DESCRIPTION),
+        StructuredTool.from_function(
+            coroutine=submit_draft, name="submit_draft", description=_SUBMIT_DRAFT_DESCRIPTION
+        ),
+    ]
+
+
+@pytest.fixture
+def drafting_turn():
+    """One drafting case: the seeded working directory, the agent, the cards.
+
+    Function-scoped and seeded per case, so the three run in any order and a
+    failure names one case rather than the one before it.
+    """
+    from langgraph.store.memory import InMemoryStore
+
+    from aiq_agent.cards.registry import CardRegistry
+    from aiq_agent.cards.registry import reset_card_registry
+    from aiq_agent.cards.registry import set_card_registry
+    from aiq_agent.tools.documents.draft_store import DraftBackend
+    from aiq_agent.tools.documents.tools import draft_tools
+
+    registries: list = []
+
+    async def _build(case):
+        backend = DraftBackend(store=InMemoryStore(), conversation_id="turn-shapes-live")
+        for path, content in case.seed.items():
+            await backend.awrite(path, content)
+        cards = CardRegistry()
+        registries.append(set_card_registry(cards))
+        agent = _build_agent([*draft_tools(backend), *_filing_stubs(backend)])
+        return agent, cards
+
+    try:
+        yield _build
+    finally:
+        for token in reversed(registries):
+            reset_card_registry(token)
+
+
+@pytest.mark.parametrize("case", DRAFTING_CASES, ids=[case.id for case in DRAFTING_CASES])
+async def test_a_drafting_turn_keeps_its_shape(case, drafting_turn):
+    """Commission, revise, file — the same three the scripted pair runs in CI.
+
+    The assertion is `tests/fixtures/drafting_turns.py::assert_turn_shape`, so
+    what a drafting turn owes the reader is written down once: the verb it
+    called, the card it left, an answer that is not a ruling, and no hand-off
+    to deep research.
+    """
+    agent, cards = await drafting_turn(case)
+
+    result = await _run_turn(agent, case.prompt)
+
+    assert_turn_shape(
+        case,
+        called_tools=[name for name, _query in _CALLS],
+        cards=cards.snapshot(),
+        answer_meta=result.answer_meta,
+        escalated=result.escalation_requested,
+    )
+    assert _answer_text(result).strip(), f"{case.id}: the turn produced no answer"
+
+
+async def test_filing_says_the_draft_is_still_a_draft(drafting_turn):
+    """The one sentence a filed draft's answer must not lose.
+
+    „Abgelegt" is not „freigegeben": the reader has to be able to tell that
+    nobody has reviewed the document and that it is not published. The card
+    carries the state; this is the answer prose agreeing with it.
+    """
+    agent, _cards = await drafting_turn(FILE)
+
+    result = await _run_turn(agent, FILE.prompt)
+
+    answer = _answer_text(result).lower()
+    assert "entwurf" in answer, f"a filed draft was not called a draft: {answer[:400]}"

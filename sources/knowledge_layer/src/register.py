@@ -1544,8 +1544,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     # Cross-encoder reranking, when configured. Primary when present; the LLM judge
     # above stays as the fallback. Returns None (never raises) for 'none', an unknown
     # provider, or a key that does not resolve. Built once at startup with no
-    # organization in scope, so org BYOK is not threaded here — the platform key
-    # is used (see cross_encoder._resolve_api_key).
+    # organization in scope, which is why the KEY is no longer decided here: the
+    # handle resolves its credential per search from the turn's organization, so
+    # a BYOK org's reranks go out on its own key
+    # (``cross_encoder.CrossEncoderReranker._credential_for_search``). The
+    # platform key still has to resolve at startup, because a handle that could
+    # never authenticate anything is one this returns None for.
     cross_encoder = None
     try:
         from knowledge_layer.cross_encoder import resolve_cross_encoder
@@ -2003,6 +2007,16 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             except Exception:  # noqa: BLE001 - tracing must never break the search path
                 logger.debug("Retrieval pick span failed", exc_info=True)
 
+            # The widening, said out loud to the model that asked for the search
+            # (roadmap: "hidden loops the model does not own"). Empty for the
+            # one-shot search every other turn runs, and carried on the
+            # empty-result message too: a search that widened AND still found
+            # nothing is the case where the model most needs to know that its
+            # own formulation was already given a second chance.
+            from knowledge_layer.requery import requery_notice
+
+            notice = requery_notice(requery_queries)
+
             # After the floor, not before: the floor is the only thing that can empty a
             # non-empty result set, and this message is the vocabulary for saying so.
             # A failed or degraded merge is NOT a miss: total fingerprint loss comes
@@ -2011,8 +2025,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # than the retry-hint below, which would read as "nothing matched".
             if not merged.chunks:
                 if not merged.success or getattr(merged, "error_message", None):
-                    return _format_results(merged, query)
-                return _empty_search_message(
+                    return notice + _format_results(merged, query)
+                return notice + _empty_search_message(
                     query,
                     file_name=file_name,
                     doc_class=doc_class,
@@ -2027,7 +2041,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             formatted = await asyncio.to_thread(_format_results, merged, query)
             logger.info(f"Knowledge search returned {len(merged.chunks)} chunks")
             logger.debug(f"Formatted result for LLM:\n{formatted[:500]}...")
-            return formatted
+            return notice + formatted
 
         except Exception as e:
             logger.error(f"Knowledge search failed: {e}")

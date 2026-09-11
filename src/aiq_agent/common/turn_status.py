@@ -906,19 +906,28 @@ def emit_citation_check(*, source_count: int | None = None) -> None:
     emit_status("citations", KEY_CITATIONS, source_count=source_count)
 
 
-def emit_answer_repair(*, removed_citations: int, unverified_quotes: int) -> None:
+def emit_answer_repair(*, citations_removed: int, quotes_failed: int) -> None:
     """The answer's own verification failed and one repair is being tried.
 
     Worth a line because it varies — most answers verify clean — and because
     it is the honest account of an answer that arrives a few seconds late:
     a citation nothing retrieved supports, or a quote no passage contains,
     is being re-searched and rewritten once rather than shipped marked.
+
+    The two counts ride this SAME step as technical detail rather than a
+    second, technical-channel step of their own: the frontend dedupes status
+    steps by name, so ``status:repair`` twice loses one of the two — on exactly
+    the turns that had a repair (the lesson :data:`FANOUT_SLOT` records). The
+    live line renders from ``key``; ``citationsRemoved`` and ``quotesFailed``
+    are what the opt-in Herleitung detail shows, and they are counts rather
+    than text for the same reason every other record here is: a quote is the
+    model's words about the reader's document, and telemetry keeps neither.
     """
     emit_status(
         "repair",
         KEY_REPAIR,
-        removed_citations=removed_citations,
-        unverified_quotes=unverified_quotes,
+        citationsRemoved=citations_removed,
+        quotesFailed=quotes_failed,
     )
 
 

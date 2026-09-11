@@ -454,11 +454,43 @@ conversation history.
 What holds the line today: fifteen invariant tests on the collection version
 (`tests/aiq_agent/knowledge/test_collection_version.py`), one VLM cache test,
 RIS key-shape tests, the two-interpreter enum test, and an autouse
-`reset_local_store()`. No test covers `common/cache.py` or `lib/cache/index.ts`
-at all; the fail-open contract ADR-0020 leans on is asserted nowhere. No lint
-rule or pre-commit hook touches caching. Neither cache module counts hits.
-Keys are ad-hoc f-strings at 28 call sites; the tenant leak that invites is
-already in `docs/contributing/gotchas.md:36` as something that happened.
+`reset_local_store()`.
+
+**[LANDED, the TypeScript half.]** `lib/cache/index.ts` now has
+`src/lib/cache/index.spec.ts`: a store that throws on every operation, and each
+public function asserted on three axes at once — it returns the fallback, it
+does not throw, and it warns exactly once (option E6). The module also counts
+hits, misses and errors (`readCacheCounters` / `resetCacheCounters`, option E7),
+which is what turns the ranking above from structural into measurable. And
+`grid/require-tenant-cache-key` (`frontends/ui/eslint-rules/`) is the lint rule
+that was missing: the key argument to an imported `getCached` or `setCached`
+must carry an organization segment — read through template literals, local
+consts and local key-builder functions — or be listed in
+`eslint-rules/global-cache-keys.mjs` with the reason it is safe to share
+(option E3). Eight keys are on that list, all platform- or upstream-scoped; the
+28 call sites produced exactly one violation, a builder that hid the
+organization inside a `parts.join(':')`, and it was rewritten rather than
+allowlisted.
+
+**[LANDED, the Python half.]** `tests/aiq_agent/common/test_cache.py` now puts
+a client that raises on every operation behind each of the five public
+functions — twice, once per failure class — and asserts the same three axes:
+the documented fallback comes back (the local value, `False` from a failed
+`delete`, `None` from `eval_script`), nothing raises, and twenty calls into a
+dead store produce exactly ONE warning rather than twenty tracebacks. The
+throttle that makes the third true is new (`_warn_store_down`, one warning per
+five minutes, the traceback on the first of a window), and it is the same shape
+`knowledge_layer.cross_encoder` already used. `common/cache.py` also counts
+now: `CacheCounters` separates the shared tier's hits and misses from the local
+one's and keeps errors apart from misses, because the two have different fixes
+(option E7). The counters are per-turn ContextVar state rather than a process
+global — a replica answers several turns at once — and `track_agent_profile`
+stamps them on the turn's root span, so a warm turn and a cold one are finally
+different rows there too.
+
+Still open: keys in `common/cache.py` are ad-hoc f-strings with no equivalent of
+E3's lint rule, which cannot be an ESLint rule; the tenant leak that invites is
+in `docs/contributing/gotchas.md:36` as something that happened.
 
 Options, most mechanical first:
 
@@ -466,11 +498,11 @@ Options, most mechanical first:
 |---|---|---|---|
 | E1 | A `DeterministicLLM` handle returned by a sibling of `get_langchain_llm`, whose `ainvoke` goes through the content-hash cache, and which is the **only** way to obtain `rerank_llm`, `requery_llm`, `ris_planner_llm` and the HyDE model | "did you cache it" cannot be answered no | one factory function, four call sites |
 | E2 | ruff `flake8-tidy-imports` `banned-api`: no `builder.get_llm` outside `common/llm_factory.py` | a new role that bypasses the seam | ten lines in `pyproject.toml:116-147` |
-| E3 | An ESLint rule beside `eslint-rules/require-tenant-scope.mjs`: the key argument to an imported `getCached` must interpolate an org identifier or be on a global-key allowlist | `gotchas.md:36` recurring | one rule file, three lines in `eslint.config.mjs` |
+| E3 | **[LANDED, BFF only — the Python tier has no equivalent]** An ESLint rule beside `eslint-rules/require-tenant-scope.mjs`: the key argument to an imported `getCached` must interpolate an org identifier or be on a global-key allowlist | `gotchas.md:36` recurring | one rule file, three lines in `eslint.config.mjs` |
 | E4 | Render every `agents/*/prompts/*.j2` in two fresh interpreters with fixed inputs and diff the prefix up to the volatile boundary | a timestamp, a set iteration, or a reordered schema creeping above the boundary | generalise the enum test |
 | E5 | A source-order test: the last static line of each template precedes the first volatile variable | the cheap version of E4 | text assertion |
-| E6 | Fail-open tests for both cache modules: a fake client that raises on every op; `get_json` returns the local value, `eval_script` returns `None`, the 30 s cooldown engages | the floor under ADR-0020 | one test file each |
-| E7 | Hit/miss counters in both modules through `observability/`, and a rollup over `llm_usage_events.cached_tokens` | every rule above arguing from theory | counters plus one query |
+| E6 | **[LANDED, both modules]** Fail-open tests for both cache modules: a fake client that raises on every op; `get_json` returns the local value, `eval_script` returns `None`, the 30 s cooldown engages | the floor under ADR-0020 | one test file each |
+| E7 | **[LANDED, both modules; the rollup query is still open]** Hit/miss counters in both modules through `observability/`, and a rollup over `llm_usage_events.cached_tokens` | every rule above arguing from theory | counters plus one query |
 | E8 | ADR-0020 amendment: LLM-response caching enters the policy, with a **Confirmation** section naming E1 and E2 as the gate | the doc half of the ratchet | review |
 
 One asymmetry worth a second look while in `cache.py`: `_mark_client_failed`

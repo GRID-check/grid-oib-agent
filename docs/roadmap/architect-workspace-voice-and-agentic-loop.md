@@ -36,10 +36,24 @@
 >    `status:coverage:<family>` counts listed against opened so the miss rate is
 >    a number.
 >
-> What is still open from §5's layer map: the Herleitung is drawn as a spine of
-> checkpoints, but the sources still hang off the round rather than off a
-> checkpoint the reader can fold, and requery/repair are still invisible to the
-> model that would react to them.
+> **Second landing, part 2 (ledger row 20): the two hidden loops now report to
+> the model.** §3's "hidden loops the model does not own" named requery and
+> repair as workflows the agent could neither see nor react to. Both now leave
+> an observation the model reads: a widened `knowledge_search` leads its result
+> with one German line naming the alternative formulations and why they were
+> tried (`sources/knowledge_layer/src/requery.py::requery_notice`), and a
+> failed verification reaches the rewrite as a `citation_check` tool result
+> naming the marker and the quote that failed
+> (`agents/piloti/repair.py::verification_observation`), with
+> `status:repair` carrying `{citationsRemoved, quotesFailed}` as the
+> Herleitung's technical detail. §5's layer map is now closed on the drawing
+> side too (ledger row 19): the sources hang off the checkpoint that fetched
+> them, each checkpoint FOLDS to the count of what that fetch returned, and a
+> spine of three or more rounds arrives with everything but the newest layer
+> folded. The frontend round walker is pinned to the backend's own bytes —
+> `tests/fixtures/herleitung/two_search_rounds_steps.json` is written by the
+> emitters and read by `retrieval-rounds.spec.ts`, so a change to the wire
+> fails exactly one side.
 > **Method.** Read the live system prompt, the answer envelope, the shallow ReAct loop, the Herleitung graph, and the production config. Cross-checked against the 2026-09-01 workspace architecture review, ADRs 0051–0052, and current industry writing on agentic RAG, coding agents, legal AI, and AEC clouds.
 
 **What “Harvey for architects” means here.** Harvey is a workspace for lawyers, not a statute chatbot. Piloti is a workspace for architects, not an OIB chatbot. Questions are about the work — files, drawings, the model, how to organise, what to tell a colleague. Answers are *grounded* in whichever of these actually bears: the project’s files, the office archive, and the Austrian building-regulation corpus. Not every question is a legal question. A ruling is only when there is a copyable legal value. Treating “workspace for architects” as “every answer is about law” is the same colocation this report is trying to kill.
@@ -292,6 +306,8 @@ Two quality loops already exist. Both are **workflows inside a tool or after the
 **Repair pass (evaluator-optimizer, after verification).** If a citation or quote fails, the turn may retrieve once more aimed at the failing text and rewrite, then re-verify (`repair_pass: true`). The reader may see `status.repair`. The model did not choose this.
 
 The 2026-09-01 review said there was no repair and no retrieval loop. On this develop tip the code has both. The review’s *product* claim still holds: the reader is not shown a decision, only a status key, and the model is not the one looping.
+
+**[LANDED — the model is now told, ledger row 20.]** Neither loop is silent to the agent any more. A widened search leads its tool result with `Hinweis: die Suche wurde um N Umformulierungen erweitert (…), weil die ersten Treffer die Frage nicht abdeckten.`, naming each alternative formulation (`requery.py::requery_notice`, prefixed in `register.py` onto both the excerpts and the empty-result message); a failed verification reaches the rewrite as a `citation_check` tool call and its result, naming which `[N]` and which quote failed (`agents/piloti/repair.py::verification_observation`). Neither instructs — what to do about it is the model's next decision, which is the whole point. Still true: the pipeline, not the model, DECIDES to widen and to repair.
 
 Deep research is the one place the backend is genuinely multi-agent (orchestrator, source router, planner, up to six researchers, writer). Chat-path shallow is a single agent with a short leash. Escalation is an envelope field, not a continuation of the same loop.
 
