@@ -542,7 +542,9 @@ class TestTopicContextGates:
     """The masthead slots: nominal title plus one-line scope, both optional."""
 
     def test_values_survive_stripped(self):
-        meta = AnswerMeta.model_validate({"topic": "  Brandschutz  ", "context": "  OIB-RL 2, Ausgabe Mai 2023 · Wien  "})
+        meta = AnswerMeta.model_validate(
+            {"topic": "  Brandschutz  ", "context": "  OIB-RL 2, Ausgabe Mai 2023 · Wien  "}
+        )
         payload = gate_answer_meta(meta, prose_chars=100)
         assert payload == {
             "v": ENVELOPE_VERSION,

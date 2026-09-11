@@ -19,8 +19,8 @@ from aiq_agent.tools.documents.cards import draft_title
 from aiq_agent.tools.documents.cards import emit_draft_card
 from aiq_agent.tools.documents.draft_store import DRAFT_ROOT
 from aiq_agent.tools.documents.draft_store import DraftBackend
-from aiq_agent.tools.documents.tools import DRAFT_TOOL_NAMES
 from aiq_agent.tools.documents.tools import _PERMISSIONS
+from aiq_agent.tools.documents.tools import DRAFT_TOOL_NAMES
 from aiq_agent.tools.documents.tools import draft_tools
 from aiq_agent.tools.documents.tools import draft_tools_for_turn
 
