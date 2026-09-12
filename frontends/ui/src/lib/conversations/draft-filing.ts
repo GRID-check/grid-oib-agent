@@ -36,7 +36,12 @@ import { requireResourceAccess } from '@/lib/sharing/access'
 import { fileAgentDocumentDraft } from '@/lib/documents/agent-document'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
-import { findActiveProjectDocumentByShownName, findDocumentAuthoredByRef } from '@/lib/documents/repository'
+import {
+  DOCUMENT_LIST_LIMIT,
+  findDocumentAuthoredByRef,
+  listProjectDocuments,
+  type DocumentListRow,
+} from '@/lib/documents/repository'
 import { findOpenVersion } from '@/lib/documents/version-repository'
 import { findConversationInOrg } from './repository'
 import { readConversationDraft } from './draft-preview'
@@ -47,15 +52,6 @@ export const MAX_FILING_REF_CHARS = 200
 /** The longest title a filing accepts — the lifecycle's own `title` ceiling. */
 export const MAX_FILING_TITLE_CHARS = 200
 
-/**
- * The short stable name inside the idempotency reference, from the file name.
- *
- * A MIRROR of the agent tier's `_slug` (`tools/documents/register.py`), kept
- * identical on purpose rather than improved: the whole point is that a browser
- * press and an agent turn compute the same string for one path, so the second
- * of the two finds the first's row. `draft-filing.spec.ts` pins the parity
- * vectors — change either side and it fails here first.
- */
 function filingSlug(path: string): string {
   const name = path.includes('/') ? path.slice(path.lastIndexOf('/') + 1) : path
   const stem = name.replace(/\.md$/i, '')
@@ -66,10 +62,7 @@ function filingSlug(path: string): string {
   return slug || 'entwurf'
 }
 
-/**
- * The working-directory path the preview door and the filing key both use.
- * Leading slashes and surrounding whitespace are not identity.
- */
+/** Leading slashes and surrounding whitespace are not identity. */
 export function normalizeDraftPath(path: string): string {
   return path.trim().replace(/^\/+/, '')
 }
@@ -80,7 +73,6 @@ function filingHash(conversationId: string, path: string): string {
 
 /**
  * The BFF's idempotency key: `{conversationId}-{slug}`, bounded.
- *
  * When the readable prefix would be truncated, a hash of the full
  * conversation id plus the normalized path is kept as a suffix so two
  * long keys that share a prefix do not collide.
@@ -93,18 +85,38 @@ export function filingReference(conversationId: string, path: string): string {
   return `${raw.slice(0, MAX_FILING_REF_CHARS - suffix.length)}${suffix}`
 }
 
-/** The file name when the card carried no title — never empty, never a path. */
+function sameTitle(a: string, b: string): boolean {
+  const key = (value: string): string => value.normalize('NFC').trim().toLowerCase()
+  return key(a) === key(b)
+}
+
 function fallbackTitle(path: string): string {
   const name = path.includes('/') ? path.slice(path.lastIndexOf('/') + 1) : path
   return name.trim() || 'Entwurf'
 }
 
+async function findActiveProjectDocumentByShownName(
+  projectId: string,
+  organizationId: string,
+  title: string,
+): Promise<DocumentListRow | null> {
+  const pageSize = DOCUMENT_LIST_LIMIT
+  let offset = 0
+  for (;;) {
+    const page = await listProjectDocuments(projectId, organizationId, {
+      limit: pageSize,
+      offset,
+    })
+    const clash = page.find((row) => sameTitle(documentDisplayName(row), title))
+    if (clash) return clash
+    if (page.length < pageSize) return null
+    offset += page.length
+  }
+}
+
 export interface FileConversationDraftInput {
-  /** Working-directory path as the card carries it (`/entwuerfe/….md`). */
   path: string
-  /** The card's title (first heading, or the file name); the path when absent. */
   title?: string
-  /** Set after the card showed the same-name 409 and the reader confirmed. */
   force?: boolean
 }
 
@@ -112,19 +124,9 @@ export interface FiledConversationDraft {
   documentId: string
   versionId: string
   state: DocumentVersionState
-  /** True when the reference was already filed and nothing was created. */
   alreadyFiled: boolean
 }
 
-/**
- * File one draft of one conversation into that conversation's project.
- *
- * The gates, in order: the conversation's own `viewer` grant (a denial is a
- * 404, so a refused id reads as an absent one), the conversation's project
- * (a project-less chat has no shelf — 422, not a filing), the draft's bytes
- * from the agent tier, the idempotency reference, the same-name veto, and
- * only then the create through `fileAgentDocumentDraft`.
- */
 export async function fileConversationDraft(
   session: AuthorizedSession,
   conversationId: string,
@@ -140,8 +142,6 @@ export async function fileConversationDraft(
   }
   const projectId = conversation.projectId
 
-  // The bytes, through the same read door the preview uses: the conversation
-  // gate above plus the internal service token below, never the browser.
   const path = normalizeDraftPath(input.path)
   const draft = await readConversationDraft(session, conversationId, path)
 
@@ -151,10 +151,6 @@ export async function fileConversationDraft(
   }
   const ref = filingReference(conversationId, path)
 
-  // Idempotency first: the agent may have filed this reference already (or the
-  // reader pressed twice). An open draft comes back as-is; a reference whose
-  // version has left the writing states is a conflict the Files pane owns —
-  // replacing `in_review` bytes from here would take them off a reviewer's desk.
   const refHit = await findDocumentAuthoredByRef(ref, session.organizationId, projectId, 'agent_document')
   if (refHit) {
     const open = await findOpenVersion(refHit.id, session.organizationId)
@@ -166,14 +162,8 @@ export async function fileConversationDraft(
     })
   }
 
-  // Same-name veto, before anything is created. Scans the complete active
-  // project scope rather than the Files list cap of 500.
   if (!input.force) {
-    const clash = await findActiveProjectDocumentByShownName(
-      projectId,
-      session.organizationId,
-      title,
-    )
+    const clash = await findActiveProjectDocumentByShownName(projectId, session.organizationId, title)
     if (clash) {
       throw new ConflictError('A document with this title is already in the project', {
         reason: 'same-name',
@@ -183,10 +173,6 @@ export async function fileConversationDraft(
     }
   }
 
-  // The one create this surface may run. `actingHuman` is left at its default:
-  // the internal agent route passes `false` for its machine caller, while this
-  // caller's session IS the person who pressed. `originConversationId` ties a
-  // later review decision back to this thread.
   const filed = await fileAgentDocumentDraft({
     session,
     projectId,
