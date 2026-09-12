@@ -97,6 +97,23 @@ export interface TransitionInput {
   comment?: string | null
   /** Who is asked to review. Empty falls back to the document's assignees. */
   reviewerUserIds?: readonly string[]
+  /**
+   * The Auftragssatz, in one sentence, for a `submit`.
+   *
+   * Per-round request text, not version history: it lives in the inbox payload
+   * (the request record, anchored on this version) and on the audit event, and
+   * deliberately NOT on the version row — a version is bytes plus editorial
+   * state, and the ask about them belongs to the round that asks it. Validated
+   * at the schema (`submitOrderMessageSchema`); the service trusts it but
+   * trims defensively.
+   */
+  orderMessage?: string | null
+  /**
+   * Optional Frist for the round, as an ISO date string on the wire.
+   * Normalised to an ISO timestamp for the payload; like the order it lives in
+   * the request record, not on the version row.
+   */
+  dueAt?: string | null
   /** The `content_hash` the caller believes it is replacing. */
   ifMatch?: string | null
   /** Source request, for the audit event's IP + user agent context. */
@@ -156,6 +173,78 @@ function reviewGroupKey(documentId: string, versionId: string): string {
   return inboxGroupKey('document.review_requested', 'document', documentId, versionId)
 }
 
+/**
+ * The Auftragssatz as stored/displayed: trimmed, or `null` when absent.
+ *
+ * The schema already enforces non-empty ≤500 when present; this is the
+ * defensive trim at the service boundary so `"  "` never reaches a payload.
+ */
+function normaliseOrderMessage(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? ''
+  return trimmed ? trimmed : null
+}
+
+/**
+ * The Frist as an ISO timestamp, or `null` when absent.
+ *
+ * The schema already refused the invalid date with a 400; here an unparsable
+ * value degrades to `null` rather than throwing inside an effect — effects run
+ * after the compare-and-swap, and a throw there would leave the version
+ * `in_review` with no inbox row pointing at it.
+ */
+function normaliseDueAt(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? ''
+  if (!trimmed) return null
+  const parsed = new Date(trimmed)
+  if (Number.isNaN(parsed.getTime())) return null
+  return parsed.toISOString()
+}
+
+/**
+ * The inbox excerpt for a review round: the order, with the Frist appended.
+ *
+ * The generic row renders `payload.excerpt` and knows nothing about review
+ * rounds; carrying the Frist inside it is what makes an existing row show both
+ * without a new view field. The structured `orderMessage`/`dueAt` ride beside
+ * it for the surface that will render them separately.
+ */
+function reviewExcerpt(orderMessage: string | null, dueAtIso: string | null): string | null {
+  if (!orderMessage) return null
+  if (!dueAtIso) return orderMessage
+  return `${orderMessage} — Frist: ${dueAtIso.slice(0, 10)}`
+}
+
+/**
+ * The version a diff compares against: the highest version number below the
+ * submitted one, or `null` for a first version.
+ *
+ * Read here rather than carried in the effect context because the context's
+ * `previous` is the publish path's superseded row — for a submit (a
+ * non-promoting transition) it is always `null`. A miss degrades to `null`
+ * rather than failing the round: triage then opens the file instead of
+ * pretending to compare.
+ */
+async function findPreviousVersionId(
+  documentId: string,
+  organizationId: string,
+  versionNumber: number,
+): Promise<string | null> {
+  try {
+    const versions = await listDocumentVersions(documentId, organizationId)
+    let previous: { id: string; versionNumber: number } | null = null
+    for (const candidate of versions) {
+      if (candidate.versionNumber < versionNumber) {
+        if (!previous || candidate.versionNumber > previous.versionNumber) {
+          previous = { id: candidate.id, versionNumber: candidate.versionNumber }
+        }
+      }
+    }
+    return previous?.id ?? null
+  } catch {
+    return null
+  }
+}
+
 const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
   /**
    * The audit event, with the row's own action.
@@ -186,6 +275,12 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
         // export that could not tell them apart would be the wrong record of a
         // professional act.
         selfReview: input.selfReview === true,
+        // The Auftragssatz and Frist of a submit, on the trail with the round
+        // they opened. Like the order itself they live here and in the inbox
+        // payload — the version row records bytes plus editorial state, and the
+        // ask about them belongs to the request, not to the history.
+        orderMessage: input.orderMessage?.trim() || null,
+        dueAt: normaliseDueAt(input.dueAt),
       },
       request: input.request,
     })
@@ -209,6 +304,13 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
       context.document,
       context.input.reviewerUserIds,
     )
+    const orderMessage = normaliseOrderMessage(context.input.orderMessage)
+    const dueAt = normaliseDueAt(context.input.dueAt)
+    const previousVersionId = await findPreviousVersionId(
+      context.document.id,
+      context.session.organizationId,
+      context.version.versionNumber,
+    )
     await emitInboxItems(
       reviewers.map((recipientUserId) => ({
         organizationId: context.session.organizationId,
@@ -223,10 +325,20 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
         // it out of the payload and interpolates it into „{actor} bittet Sie um
         // die Freigabe von {subject}". Without it the row named no file and the
         // reader had to open the link to find out which one was waiting.
+        //
+        // `excerpt` is the Auftragssatz (with the Frist appended): the row
+        // renders it under the title, which is what closes the ceremony that
+        // used to gate Einreichen on a sentence the request never carried.
+        // `previousVersionId` names the version a diff compares against — null
+        // for a first version, when triage opens the file instead of comparing.
         payload: {
           versionId: context.version.id,
           versionNumber: context.version.versionNumber,
           subject: documentDisplayName(context.document),
+          orderMessage,
+          dueAt,
+          previousVersionId,
+          excerpt: reviewExcerpt(orderMessage, dueAt),
         },
       })),
     )

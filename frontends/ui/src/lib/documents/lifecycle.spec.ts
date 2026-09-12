@@ -131,6 +131,7 @@ import {
   findPublishedVersion,
   insertDocumentVersion,
   insertPublishedVersion,
+  listDocumentVersions,
   promoteVersionToPublished,
 } from './version-repository'
 import {
@@ -570,6 +571,110 @@ describe('transitionDocumentVersion — effects', () => {
       'draft',
       expect.objectContaining({ submittedBy: session.userId, submittedByActor: 'agent' }),
     )
+  })
+
+  it('carries the order and Frist into the inbox payload and the audit event', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft', versionNumber: 2 }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(
+      version({ state: 'in_review', versionNumber: 2 }),
+    )
+    vi.mocked(listDocumentVersions).mockResolvedValue([])
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', {
+      reviewerUserIds: ['user_a'],
+      orderMessage: 'Bitte die Fluchtweglänge prüfen.',
+      dueAt: '2026-09-20',
+    })
+
+    const emissions = vi.mocked(emitInboxItems).mock.calls[0][0]
+    expect(emissions[0].payload).toMatchObject({
+      versionId: 'ver_1',
+      orderMessage: 'Bitte die Fluchtweglänge prüfen.',
+      previousVersionId: null,
+    })
+    expect(emissions[0].payload).toHaveProperty('dueAt')
+    expect(typeof (emissions[0].payload as { dueAt: unknown }).dueAt).toBe('string')
+    expect((emissions[0].payload as { excerpt: unknown }).excerpt).toContain(
+      'Bitte die Fluchtweglänge prüfen.',
+    )
+    expect((emissions[0].payload as { excerpt: unknown }).excerpt).toContain('2026-09-20')
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          orderMessage: 'Bitte die Fluchtweglänge prüfen.',
+        }),
+      }),
+    )
+  })
+
+  it('leaves the order absent when the caller states none', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft', versionNumber: 1 }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(
+      version({ state: 'in_review', versionNumber: 1 }),
+    )
+    vi.mocked(listDocumentVersions).mockResolvedValue([])
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', {
+      reviewerUserIds: ['user_a'],
+    })
+
+    const emissions = vi.mocked(emitInboxItems).mock.calls[0][0]
+    expect(emissions[0].payload).toMatchObject({
+      orderMessage: null,
+      dueAt: null,
+      excerpt: null,
+      previousVersionId: null,
+    })
+  })
+
+  it('names the previous version for a real diff link', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft', versionNumber: 3 }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(
+      version({ state: 'in_review', versionNumber: 3 }),
+    )
+    vi.mocked(listDocumentVersions).mockResolvedValue([
+      { id: 'ver_1', versionNumber: 1 } as never,
+      { id: 'ver_2', versionNumber: 2 } as never,
+      { id: 'ver_3', versionNumber: 3 } as never,
+    ])
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_3', 'submit', {
+      reviewerUserIds: ['user_a'],
+    })
+
+    const emissions = vi.mocked(emitInboxItems).mock.calls[0][0]
+    expect(emissions[0].payload).toMatchObject({ previousVersionId: 'ver_2' })
+  })
+
+  it('falls back to no previous version for a first version and on a listing failure', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft', versionNumber: 1 }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(
+      version({ state: 'in_review', versionNumber: 1 }),
+    )
+    vi.mocked(listDocumentVersions).mockResolvedValue([
+      { id: 'ver_1', versionNumber: 1 } as never,
+    ])
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', {
+      reviewerUserIds: ['user_a'],
+    })
+    expect(vi.mocked(emitInboxItems).mock.calls[0][0][0].payload).toMatchObject({
+      previousVersionId: null,
+    })
+
+    vi.clearAllMocks()
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft', versionNumber: 2 }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(
+      version({ state: 'in_review', versionNumber: 2 }),
+    )
+    vi.mocked(listDocumentVersions).mockRejectedValue(new Error('database went away'))
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_2', 'submit', {
+      reviewerUserIds: ['user_a'],
+    })
+    expect(vi.mocked(emitInboxItems).mock.calls[0][0][0].payload).toMatchObject({
+      previousVersionId: null,
+    })
   })
 
   it('resolves the round for every reviewer, not only the one who decided', async () => {

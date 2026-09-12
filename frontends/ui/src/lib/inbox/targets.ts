@@ -48,6 +48,15 @@ export interface InboxTargetLinkContext {
   itemType: InboxItemType
   /** The exact spot inside the target, when the type has one. */
   anchorId?: string | null
+  /**
+   * The delegated task this row is about, when the payload names one.
+   *
+   * Carried from `payload.taskId` by the read path (`service.toItemView`) so
+   * a run outcome lands on its result instead of on a run history. Absent is
+   * the ordinary case for every other type, and the link falls back to the
+   * target's own page.
+   */
+  taskId?: string | null
 }
 
 /**
@@ -145,12 +154,16 @@ const shareableTargets = Object.fromEntries(
  *
  * A job is project-scoped work, and its report is filed in the project, so the
  * place a "your run is done" row lands is the project's automation page, where
- * the run history already shows every run with its live status. Access is the
- * same question the page itself asks (`project:view`, re-derived at read time
- * per spec IB-13): a member removed from the project since the run ended sees a
- * redacted row rather than a link into a project they can no longer open.
- * `requireProjectAccess` throws for "no"; here "no" is the ordinary answer and
- * must not take the inbox down, so it is caught and returned as `null`.
+ * the run history already shows every run with its live status. When the row's
+ * payload names the delegated task (`taskId`), the link lands on that task's
+ * detail drawer (`?tab=tasks&task=`), where the result and the filed document
+ * already wait — otherwise it lands on the schedules view, which is never
+ * wrong, only less specific. Access is the same question the page itself asks
+ * (`project:view`, re-derived at read time per spec IB-13): a member removed
+ * from the project since the run ended sees a redacted row rather than a link
+ * into a project they can no longer open. `requireProjectAccess` throws for
+ * "no"; here "no" is the ordinary answer and must not take the inbox down, so
+ * it is caught and returned as `null`.
  */
 const projectTarget: InboxTargetDescriptor = {
   type: 'project',
@@ -161,7 +174,13 @@ const projectTarget: InboxTargetDescriptor = {
       return null
     }
     return {
-      deepLink: () => `/app/projects/${resourceId}/automation?tab=jobs`,
+      deepLink: (context) => {
+        const taskId = context.taskId?.trim() ? context.taskId.trim() : null
+        if (taskId) {
+          return `/app/projects/${resourceId}/automation?tab=tasks&task=${encodeURIComponent(taskId)}`
+        }
+        return `/app/projects/${resourceId}/automation?tab=jobs`
+      },
     }
   },
 }

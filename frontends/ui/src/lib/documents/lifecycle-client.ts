@@ -98,6 +98,7 @@ export interface DocumentLifecycleClient {
     documentId: string,
     versionId: string,
     reviewerUserIds?: readonly string[],
+    options?: { orderMessage?: string; dueAt?: string },
   ): Promise<DocumentVersionView>
   approve(documentId: string, versionId: string, comment?: string): Promise<DocumentVersionView>
   /**
@@ -145,13 +146,19 @@ export function createDocumentLifecycleClient(
         one,
       ),
 
-    submit: (documentId, versionId, reviewerUserIds = []) =>
-      request(
-        run,
-        `${version(documentId, versionId)}/submit`,
-        json({ reviewerUserIds: [...reviewerUserIds] }),
-        one,
-      ),
+    submit: (documentId, versionId, reviewerUserIds = [], options = {}) => {
+      // The Auftragssatz rides when the caller states one; the Frist rides
+      // when it is non-empty. An empty date input (`''`) is "no Frist", not
+      // an invalid one — omitting it keeps the wire exactly what it was for
+      // every caller that predates the order, while a present-but-empty order
+      // is sent as-is so the schema refuses it with a 400.
+      const body: { reviewerUserIds: string[]; orderMessage?: string; dueAt?: string } = {
+        reviewerUserIds: [...reviewerUserIds],
+      }
+      if (options.orderMessage !== undefined) body.orderMessage = options.orderMessage
+      if (options.dueAt !== undefined && options.dueAt.trim() !== '') body.dueAt = options.dueAt
+      return request(run, `${version(documentId, versionId)}/submit`, json(body), one)
+    },
 
     approve: (documentId, versionId, comment) =>
       request(

@@ -454,11 +454,67 @@ export const replaceContentRequestSchema = z
   })
   .strict()
 
+/**
+ * The order, in one sentence, that Einreichen states before it sends.
+ *
+ * Optional on the wire so the agent's `submit_draft` and every caller that
+ * predates the Auftragssatz keep working; when present it is non-empty and
+ * bounded so an order stays an order. The inbox excerpt renders it, which is
+ * what closes the ceremony that used to gate the button on a sentence the
+ * request never carried.
+ */
+export const MAX_SUBMIT_ORDER_LENGTH = 500
+
+export const submitOrderMessageSchema = z.string().trim().min(1).max(MAX_SUBMIT_ORDER_LENGTH)
+
+/**
+ * The optional Frist for the review round, as an ISO date string.
+ *
+ * A string on the wire (the picker sends `YYYY-MM-DD`); the service
+ * normalises it to an ISO timestamp for the payload. Validated as a real
+ * calendar date rather than "something `Date.parse` accepts": `Date.parse`
+ * rolls `2026-02-30` over to March instead of refusing it. No future check —
+ * "must be in the future" is a business rule that would make a same-day Frist
+ * flaky across time zones, and sanity here means "a real date".
+ */
+export const submitDueAtSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .refine(
+    (value) => {
+      if (!/^\d{4}-\d{2}-\d{2}(?:[T ].*)?$/.test(value)) return false
+      const parsed = new Date(value)
+      if (Number.isNaN(parsed.getTime())) return false
+      // Calendar check for date-only input: reject the rollover `Date`
+      // performs (`2026-02-30` -> March 2nd).
+      const datePart = value.slice(0, 10)
+      const [year, month, day] = datePart.split('-').map(Number)
+      if (value.length === 10 || value[10] === 'T' || value[10] === ' ') {
+        const utc = new Date(Date.UTC(year, (month ?? 1) - 1, day))
+        return (
+          utc.getUTCFullYear() === year &&
+          utc.getUTCMonth() === (month ?? 1) - 1 &&
+          utc.getUTCDate() === day
+        )
+      }
+      return true
+    },
+    { message: 'Invalid date' },
+  )
+
 /** `POST …/[versionId]/submit` */
 export const submitRequestSchema = z
   .object({
     /** Who is asked. Empty is legal: the item's assignees are asked instead. */
     reviewerUserIds: z.array(z.string().min(1)).max(20).default([]),
+    /**
+     * The Auftragssatz, in one sentence. Optional for the agent and for old
+     * callers; the UI gates Einreichen on it.
+     */
+    orderMessage: submitOrderMessageSchema.optional(),
+    /** Optional Frist, as an ISO date string. Carried into the inbox payload. */
+    dueAt: submitDueAtSchema.optional(),
   })
   .strict()
 

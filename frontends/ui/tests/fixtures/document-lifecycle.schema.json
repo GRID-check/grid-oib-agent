@@ -139,6 +139,15 @@
             "minLength": 1
           },
           "maxItems": 20
+        },
+        "orderMessage": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "dueAt": {
+          "type": "string",
+          "minLength": 1
         }
       },
       "additionalProperties": false
