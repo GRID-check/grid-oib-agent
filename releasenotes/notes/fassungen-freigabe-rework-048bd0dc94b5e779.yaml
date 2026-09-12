@@ -1,0 +1,18 @@
+---
+features:
+  - >
+    Sending a document for review now asks for a reviewer and a one-sentence
+    order before it can go out, and approving takes an explicit confirmation
+    that names the version and the date.
+  - >
+    Review requests can now be decided directly in the inbox — approve, ask
+    for changes, or reject — with the order, the deadline, and a link to the
+    file right on the row.
+improvements:
+  - >
+    Document cards and lists lead with the title and the review state instead
+    of version counters, and a version history only appears once a second
+    version exists.
+  - >
+    Approving and publishing are two visibly separate acts, so a released
+    review can never look like a filed submission.
