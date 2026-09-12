@@ -401,13 +401,24 @@ export const chat: typeof en.chat = {
       // Wie oft dieser Pfad in dieser Unterhaltung geschrieben wurde. Eigenes
       // Token neben der Größe, damit eine Sprache das „v" fallen lassen kann.
       version: 'v{version}',
-      // Der Entwurf liegt nur in dieser Unterhaltung. „Übernehmen" ist deshalb
-      // eine Bitte an Piloti und kein Formular: die Datei liegt im
-      // Arbeitsordner des Agenten, nicht im Browser, und Piloti legt sie in der
-      // Sitzung der Lesenden ab. Der Klick schreibt den Satz in die
-      // Eingabezeile, abgeschickt wird er von der Person.
-      file: 'Ins Projekt übernehmen',
-      fileRequest: 'Leg diesen Entwurf ins Projekt ab.',
+      // Der Stand eines einmal geschriebenen Entwurfs: Ein Schreibvorgang ist
+      // keine Geschichte, also nennt die Karte den Zustand, statt ihn zu zählen.
+      draftState: 'Entwurf',
+      // Der Entwurf liegt nur in dieser Unterhaltung. „Ins Projekt ablegen"
+      // legt ihn über die Ablagetür des BFF ab, in der Sitzung der Lesenden —
+      // ein Druck, keine Bitte, keine zweite Runde. Ein namensgleiches
+      // Dokument, das schon im Projekt liegt, ist ein 409, den die Karte mit
+      // einer ausdrücklichen Bestätigung beantwortet statt mit einer stillen
+      // zweiten Kopie.
+      file: 'Ins Projekt ablegen',
+      filing: 'Wird abgelegt …',
+      fileError: 'Das Ablegen hat nicht geklappt. Bitte erneut versuchen.',
+      fileConflict: 'Ein Dokument mit diesem Namen liegt bereits im Projekt.',
+      fileAnyway: 'Trotzdem ablegen',
+      // Die Referenz ist abgelegt und eine Person hat die Version
+      // weitergereicht: nichts erneut zu versuchen und nichts zu bestätigen —
+      // ab hier ist die Dateiablage zuständig.
+      fileSubmitted: 'Dieser Entwurf ist bereits abgelegt. Weiter in der Dateiablage.',
       // Die Lesefläche des unabgelegten Entwurfs: Die Bytes liegen im
       // Arbeitsordner des Agenten und kommen über die Entwurfs-Vorschautür des
       // BFF. Ein Lesen, also schreibt sie nichts und bleibt presentational.
@@ -427,6 +438,9 @@ export const chat: typeof en.chat = {
       changesRequested: 'Änderungen erbeten',
       approved: 'Freigegeben',
       published: 'Veröffentlicht',
+      // Eine Fassung, die eine neuere überholt hat: weder Entwurf noch
+      // Freigabe — sie ist gelesen, aber nicht mehr der Stand.
+      ersetzt: 'Ersetzt',
       error: 'Das Einreichen hat nicht geklappt. Bitte in der Dateiablage erneut versuchen.',
     },
     // Ein Auftrag, den Piloti nach diesem Gespräch selbständig erledigt
@@ -782,6 +796,13 @@ export const chat: typeof en.chat = {
   answerDetails: {
     trigger: 'Antwortdetails',
     triggerAria: 'Details zu dieser Antwort anzeigen',
+    // Gelesen, aber nicht zitiert: was die Recherche sonst noch gelesen hat.
+    // Nur Dokument-Chips — keine Stellen, keine neuen Aussagen.
+    readSources: {
+      label: 'Gelesen, nicht zitiert',
+      more: '+{count} weitere',
+      less: 'Weniger anzeigen',
+    },
   },
   profilePatchCard: {
     accept: 'Übernehmen',
@@ -1047,17 +1068,35 @@ export const chat: typeof en.chat = {
       framingTab: 'Einordnung',
       framingTitle: 'Frage verstanden',
       framingQuestion: 'Sie fragen: „{question}“',
-      // A second (or later) retrieval round on the Herleitung spine — the
-      // live line replaced this sentence; the graph keeps it as its own node.
-      roundTab: 'Suche {n}',
-      // Same layer, when the model wrote a Thought: the conclusion that
-      // caused the next fetch, not the search query (PF-12).
-      checkpointTab: 'Folgerung {n}',
-      // Zugeklappte Schicht: was dieser Abruf zurückgebracht hat, als Zahl.
-      // Nie die Suchanfrage und nie die Dateinamen — eine Namensliste ist der
-      // Fächer noch einmal, nur schlechter gesetzt (PF-12).
-      roundFilesOne: '1 Datei',
-      roundFiles: '{count} Dateien',
+      // Jede Abrufschicht auf der Herleitungs-Achse, in Ausführungsreihenfolge:
+      // ein Zähler, ein Wort. Die alte Zwei-Wort-Folge (`Suche 1`, dann
+      // `Folgerung 2…`) las sich als ein Lauf, zählte aber zwei Dinge — die
+      // Werkzeugaufrufe und die Schlussfolgerungen —, sodass die Nummern eine
+      // Schicht doppelt belegen konnten. WAS die Schicht getan hat, steht als
+      // typisierte Unterzeile dabei, nie als Nummer.
+      stepTab: 'Schritt {n}',
+      // Die typisierte Unterzeile neben `stepTab`: was diese Schicht getan
+      // hat, aus Folgerung × Dateien der Runde gelesen, die die Achse ohnehin
+      // besitzt. Eine Schicht, die auf Grundlage des Abgerufenen folgert, ist
+      // ein Befund; ein nackter Abruf ohne Treffer ist eine Suche. `Lesen`
+      // übernimmt bewusst das Wort von `stepName.reading`: ein Vokabular,
+      // nicht zwei.
+      stepKindSearch: 'Suche',
+      stepKindRead: 'Lesen',
+      stepKindFinding: 'Befund',
+      stepKindConclusion: 'Schluss',
+      // Zugeklappte Schicht: die Spur ihres Fächers — Anzahl plus oberste
+      // Dateinamen, nie eine nackte Zahl. Eine Zahl allein liest sich als
+      // „kein Beleg“. Weiterhin nie die Suchanfrage (PF-12).
+      roundFoldOne: '{name} · {locus}',
+      roundFoldOneBare: '{name}',
+      roundFoldTwo: '{first} · {second}',
+      roundFoldMany: '{count} Dateien · {first} u.a.',
+      // Die Fundstellen-Hälfte von `roundFoldOne`, in den Worten der Antwort
+      // (vgl. `answerSources.punktPage`): die Stelle, nicht der Mechanismus.
+      roundFoldLocusPage: 'S. {page}',
+      roundFoldLocusPunkt: 'Pkt. {punkt}',
+      roundFoldLocusPunktPage: 'Pkt. {punkt} · S. {page}',
       // Barrierefreier Name der Schaltfläche, die die Schicht auf- und zuklappt.
       // Der Kartentext selbst ist eine Folgerung und taugt nicht als Name.
       roundFold: 'Schritt {n} zuklappen',

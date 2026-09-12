@@ -411,13 +411,22 @@ export const chat = {
       // How often this path has been written in this conversation. Rendered as
       // its own token beside the size, so a locale can drop the „v".
       version: 'v{version}',
-      // The draft lives in this conversation only. "Add to the project" is
-      // therefore a request to Piloti rather than a form: the file is in the
-      // agent's working directory, not in the browser, and Piloti files it in
-      // the reader's own session. The click puts the sentence in the composer;
-      // the person sends it.
-      file: 'Add to the project',
-      fileRequest: 'File this draft into the project.',
+      // The stand of a draft written once: a single write is no history, so
+      // the card names the state instead of numbering it.
+      draftState: 'Draft',
+      // The draft lives in this conversation only. "File into the project"
+      // files it through the BFF's draft-file door, in the reader's own
+      // session — one press, no prompt, no second turn. A same-name document
+      // already in the project is a 409 the card answers with an explicit
+      // confirmation rather than a silent second copy.
+      file: 'File into the project',
+      filing: 'Filing …',
+      fileError: 'Filing failed. Please try again.',
+      fileConflict: 'A document with this name is already in the project.',
+      fileAnyway: 'File anyway',
+      // The reference filed and a person moved the version on: nothing to
+      // retry and nothing to confirm — the Files pane owns it from here.
+      fileSubmitted: 'This draft has already been filed. Continue in the Files pane.',
       // The unfiled draft's reading surface: the bytes live in the agent's
       // working directory, fetched through the BFF draft-preview door. A read,
       // so it writes nothing and stays presentational.
@@ -437,6 +446,9 @@ export const chat = {
       changesRequested: 'Changes requested',
       approved: 'Approved',
       published: 'Published',
+      // A version a newer one overtook: neither a draft nor an approval —
+      // it reads, but it is no longer the stand.
+      ersetzt: 'Superseded',
       error: 'Sending for approval failed. Please try again from the Files pane.',
     },
     // Work Piloti has taken on and will finish after this conversation
@@ -791,6 +803,13 @@ export const chat = {
   answerDetails: {
     trigger: 'Answer details',
     triggerAria: 'Show details for this answer',
+    // Retrieved-but-uncited documents: what the turn read beyond what the
+    // answer claims. Document chips only — no passages, no new claims.
+    readSources: {
+      label: 'Read, not cited',
+      more: '+{count} more',
+      less: 'Show less',
+    },
   },
   profilePatchCard: {
     accept: 'Accept',
@@ -1047,17 +1066,34 @@ export const chat = {
       framingTab: 'Framing',
       framingTitle: 'Question understood',
       framingQuestion: 'You asked: “{question}”',
-      // A second (or later) retrieval round on the Herleitung spine — the
-      // live line replaced this sentence; the graph keeps it as its own node.
-      roundTab: 'Search {n}',
-      // Same layer, when the model wrote a Thought: the conclusion that
-      // caused the next fetch, not the search query (PF-12).
-      checkpointTab: 'Conclusion {n}',
-      // A folded layer: what this fetch brought back, as a number. Never the
-      // query and never the filenames — a list of names is the fan again, in
-      // worse typography (PF-12).
-      roundFilesOne: '1 file',
-      roundFiles: '{count} files',
+      // Every retrieval layer on the Herleitung spine, in execution order:
+      // one counter, one noun. The old two-noun sequence (`Search 1`, then
+      // `Conclusion 2…`) read as one run but counted two things — the tool
+      // calls and the inferences — so the numbers could double-book a layer.
+      // WHAT the layer did rides along as the typed sublabel below, never as
+      // the number.
+      stepTab: 'Step {n}',
+      // The typed sublabel beside `stepTab`: what this layer actually did,
+      // read off reason × files from the round the spine already owns. A
+      // layer that concluded on the back of what it fetched is a finding; a
+      // bare fetch that returned nothing is a search. `Read` reuses
+      // `stepName.reading`'s word on purpose: one vocabulary, not two.
+      stepKindSearch: 'Search',
+      stepKindRead: 'Reading',
+      stepKindFinding: 'Finding',
+      stepKindConclusion: 'Conclusion',
+      // A folded layer keeps the scent of its fan: the count plus the top
+      // filename(s), never a bare count — evidence hidden by default reads
+      // as no evidence. Still never the query (PF-12).
+      roundFoldOne: '{name} · {locus}',
+      roundFoldOneBare: '{name}',
+      roundFoldTwo: '{first} · {second}',
+      roundFoldMany: '{count} files · {first} and others',
+      // The locus half of `roundFoldOne`, in the answer's own words (cf.
+      // `answerSources.punktPage`): the passage, not the mechanism.
+      roundFoldLocusPage: 'p. {page}',
+      roundFoldLocusPunkt: 'Pkt. {punkt}',
+      roundFoldLocusPunktPage: 'Pkt. {punkt} · p. {page}',
       // Accessible name of the control that folds and unfolds the layer. The
       // card's own text is a conclusion and makes a poor control name.
       roundFold: 'Collapse step {n}',
