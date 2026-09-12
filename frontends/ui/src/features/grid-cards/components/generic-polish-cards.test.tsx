@@ -178,3 +178,140 @@ describe('CalloutCard', () => {
     ).toHaveClass('max-w-[46ch]')
   })
 })
+
+/**
+ * The semantic color contract: muted, flat, rule-based. Every colored
+ * treatment pairs hue + left-rule position + label/icon, never hue alone, and
+ * running text stays ink on every wash.
+ */
+describe('KeyTakeawaysCard distillation marker', () => {
+  it('paints a 2px green rule and a dark-green eyebrow with a check icon, washed at the pill only', () => {
+    const { container } = render(<KeyTakeawaysCard title={null} items={[{ text: 'Erstens' }]} />)
+
+    const card = container.querySelector('[data-slot="card"]')
+    expect(card).toHaveClass('border-l-2', 'border-l-success')
+    expect(
+      card?.className,
+      'the wash must not fill behind the running text — it rides the eyebrow pill alone',
+    ).not.toContain('var(--source-project)')
+
+    const eyebrow = screen.getByText('Das Wichtigste')
+    expect(eyebrow).toHaveClass('text-success')
+    expect(
+      eyebrow.className,
+      'the wash is the project green at ~7%, not the full-strength chip tint',
+    ).toContain('var(--source-project)')
+    // Hue never travels alone: the written label, the left rule above and a
+    // check glyph beside the label.
+    expect(eyebrow.querySelector('svg.lucide-circle-check')).not.toBeNull()
+  })
+
+  it('keeps the running text ink on the shell ground', () => {
+    const { container } = render(<KeyTakeawaysCard title={null} items={[{ text: 'Erstens' }]} />)
+
+    expect(screen.getByText('Erstens')).toHaveClass('text-foreground')
+    expect(container.querySelector('[data-slot="card"]')?.className).not.toContain(
+      'var(--source-project)',
+    )
+  })
+
+  it('carries the same rule in the flat register, the wash on the eyebrow alone', () => {
+    const { container } = render(
+      <KeyTakeawaysCard flat title={null} items={[{ text: 'Erstens' }]} />,
+    )
+
+    const flat = container.firstElementChild
+    expect(flat).toHaveClass('border-l-2', 'border-l-success')
+    expect(flat?.className).not.toContain('var(--source-project)')
+    expect(screen.getByText('Das Wichtigste')).toHaveClass('text-success')
+    expect(screen.getByText('Das Wichtigste').className).toContain('var(--source-project)')
+  })
+})
+
+describe('CalloutCard action-axis tiers', () => {
+  it('marks Frist amber: rule, clock and a washed kind pill — the one warm constant', () => {
+    const { container } = render(
+      <CalloutCard kind="frist" text="Die Bauverhandlung ist binnen sechs Wochen anzuberaumen." />,
+    )
+
+    const card = container.querySelector('[data-slot="card"]')
+    // The wash marks the kind pill, never the remark behind it.
+    expect(card?.className).not.toContain('var(--source-office)')
+    expect(card?.querySelector('span[aria-hidden="true"]')).toHaveClass('bg-warning')
+    const pill = screen.getByText('Frist')
+    expect(pill).toHaveClass('text-warning')
+    expect(pill.className).toContain('var(--source-office)')
+    expect(card?.querySelector('svg.lucide-calendar-clock')).not.toBeNull()
+  })
+
+  it('marks Achtung brick red: rule, triangle and a washed kind pill', () => {
+    const { container } = render(
+      <CalloutCard kind="achtung" text="Die Wiener Bauordnung weicht bei der Berechnung ab." />,
+    )
+
+    const card = container.querySelector('[data-slot="card"]')
+    expect(card?.className).not.toContain('var(--signal-error)')
+    expect(card?.querySelector('span[aria-hidden="true"]')).toHaveClass('bg-danger')
+    const pill = screen.getByText('Achtung')
+    expect(pill).toHaveClass('text-error')
+    expect(pill.className).toContain('var(--signal-error)')
+    expect(card?.querySelector('svg.lucide-triangle-alert')).not.toBeNull()
+  })
+
+  it('keeps Hinweis neutral: slate rule, almost no wash, subdued eyebrow', () => {
+    const { container } = render(
+      <CalloutCard kind="hinweis" text="Die Frist läuft ab Zustellung des Bescheids." />,
+    )
+
+    const card = container.querySelector('[data-slot="card"]')
+    const cls = card?.className ?? ''
+    // The slate rule …
+    expect(card?.querySelector('span[aria-hidden="true"]')).toHaveClass('bg-muted-foreground/40')
+    // … and no chromatic hue anywhere on the card: no wash, no tinted edge.
+    for (const chromatic of [
+      'bg-warning',
+      'bg-danger',
+      'bg-success',
+      'bg-info',
+      'var(--source-office)',
+      'var(--signal-error)',
+      'var(--source-project)',
+    ]) {
+      expect(cls, `a neutral aside must not carry ${chromatic}`).not.toContain(chromatic)
+    }
+    const eyebrow = screen.getByText('Hinweis')
+    expect(eyebrow).toHaveClass('text-muted-foreground')
+    // Still triple-coded: the word, the rule and the glyph.
+    expect(card?.querySelector('svg.lucide-info')).not.toBeNull()
+  })
+
+  it('renders Tipp on the neutral tier, not in a second green', () => {
+    // A Tipp in success green would put a second green beside the takeaways'
+    // distillation marker with a different meaning — the bulb and the word
+    // carry it instead.
+    const { container } = render(
+      <CalloutCard kind="tipp" text="Ein Schnitt durch das Treppenhaus erspart Rückfragen." />,
+    )
+
+    const card = container.querySelector('[data-slot="card"]')
+    const cls = card?.className ?? ''
+    expect(card?.querySelector('span[aria-hidden="true"]')).toHaveClass('bg-muted-foreground/40')
+    expect(cls).not.toContain('bg-success')
+    expect(cls).not.toContain('var(--source-project)')
+    expect(screen.getByText('Tipp')).toHaveClass('text-muted-foreground')
+    expect(card?.querySelector('svg.lucide-lightbulb')).not.toBeNull()
+  })
+
+  it('carries the tier edge in the flat register, the wash on the kind pill alone', () => {
+    const { container } = render(
+      <CalloutCard flat kind="frist" text="Binnen sechs Wochen anzuberaumen." />,
+    )
+
+    const flat = container.firstElementChild
+    expect(flat?.className).not.toContain('var(--source-office)')
+    expect(flat?.querySelector('span[aria-hidden="true"]')).toHaveClass('bg-warning')
+    const pill = screen.getByText('Frist')
+    expect(pill).toHaveClass('text-warning')
+    expect(pill.className).toContain('var(--source-office)')
+  })
+})

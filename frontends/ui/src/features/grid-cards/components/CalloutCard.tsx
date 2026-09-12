@@ -14,6 +14,14 @@
  * hues with a coloured box and no idea whether it is a tip or a trap — and the
  * whole point of the card is that this one sentence lands.
  *
+ * THREE MUTED TIERS, not four hues (`TONES`): Hinweis is the neutral aside
+ * (slate rule, no wash, subdued eyebrow — petrol was considered for the
+ * eyebrow and rejected to hold the viewport's hue budget); Frist is the one
+ * warm constant (amber wash + rule + clock); Achtung is brick red (wash + rule
+ * + triangle). Tipp renders on the neutral tier: a second green would collide
+ * with the takeaways' distillation marker, and the bulb + the written word
+ * still triple-code it. No new alarm colors beyond these two.
+ *
  * `detail` is a disclosure, not a second paragraph: the background is one click
  * away rather than doubling the height of a card whose value is being small.
  * Local `useState` only — nothing is committed, so there is nothing to persist
@@ -28,7 +36,7 @@
  */
 
 import { useState, type FC } from 'react'
-import { CalendarClock, ChevronDown, CircleAlert, Info, Lightbulb, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, CalendarClock, ChevronDown, Info, Lightbulb, type LucideIcon } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { StatCardIcon, type StatCardIconTone } from '@/components/ui/stat-card'
@@ -63,22 +71,37 @@ interface CalloutTone {
   iconTone: StatCardIconTone
   /** The 3px accent edge. */
   edge: string
+  /**
+   * The muted wash behind the eyebrow pill: the tier's hue at ~6-7% via
+   * `color-mix`, never a fill behind running text (the body stays on the
+   * shell ground). Empty for the neutral tier, which keeps the eyebrow bare.
+   */
+  wash: string
 }
+
+/** Amber at 7% — the Frist wash, the one warm constant. */
+const AMBER_WASH = 'bg-[color-mix(in_oklch,var(--source-office)_7%,transparent)]'
+/** Brick red at 6% — the Achtung wash. */
+const RED_WASH = 'bg-[color-mix(in_oklch,var(--signal-error)_6%,transparent)]'
+/** Slate — the neutral tier's rule (warm-gray ink at 40%, no chromatic hue). */
+const SLATE_EDGE = 'bg-muted-foreground/40'
 
 const TONES: Record<CalloutKind, CalloutTone> = {
   hinweis: {
     label: (t) => t('cards.callout.hinweis'),
     icon: Info,
-    ink: 'text-info',
-    iconTone: 'info',
-    edge: 'bg-info',
+    ink: 'text-muted-foreground',
+    iconTone: 'muted',
+    edge: SLATE_EDGE,
+    wash: '',
   },
   achtung: {
     label: (t) => t('cards.callout.achtung'),
-    icon: CircleAlert,
+    icon: AlertTriangle,
     ink: 'text-error',
     iconTone: 'destructive',
     edge: 'bg-danger',
+    wash: RED_WASH,
   },
   frist: {
     label: (t) => t('cards.callout.frist'),
@@ -86,13 +109,19 @@ const TONES: Record<CalloutKind, CalloutTone> = {
     ink: 'text-warning',
     iconTone: 'warning',
     edge: 'bg-warning',
+    wash: AMBER_WASH,
   },
+  // Deliberately the neutral tier, not a fourth hue: Tipp in success green
+  // would put a second green beside the takeaways' distillation marker with a
+  // different meaning, and the viewport's chromatic budget is spent already
+  // (takeaway green, Frist amber, Achtung red, evidence lane tint).
   tipp: {
     label: (t) => t('cards.callout.tipp'),
     icon: Lightbulb,
-    ink: 'text-success',
-    iconTone: 'success',
-    edge: 'bg-success',
+    ink: 'text-muted-foreground',
+    iconTone: 'muted',
+    edge: SLATE_EDGE,
+    wash: '',
   },
 }
 
@@ -113,11 +142,13 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail, f
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             {/* Hand-rolled rather than `SectionLabel`, because this eyebrow
                 carries the kind's ink where SectionLabel hard-codes the muted
-                one — so it reaches for the ramp's Eyebrow step directly. And
-                it shares a baseline with the title instead of sitting on a row
+                one — so it reaches for the ramp's Eyebrow step directly. The
+                tier's wash rides this pill alone, never the remark below: the
+                marker marks the kind word, it never fills behind running text.
+                And it shares a baseline with the title instead of sitting on a row
                 of its own: that quirk is this card's identity and stays
                 (grid-card-charter.md §B1 — do not "fix" it). */}
-            <span className={cn('card-eyebrow', tone.ink)}>{tone.label(t)}</span>
+            <span className={cn('card-eyebrow rounded-sm px-1.5 py-0.5', tone.wash, tone.ink)}>{tone.label(t)}</span>
             {title && <p className="card-title text-foreground">{title}</p>}
           </div>
 
@@ -164,7 +195,9 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail, f
     return (
       // The edge alone carries the tone — inset from the block's ends and
       // rounded, so it reads as an emphasis rule beside the remark rather
-      // than as the border of a missing box.
+      // than as the border of a missing box. The tier's wash rides the kind
+      // pill above, so the flat register keeps the same marker as the framed
+      // one without filling behind the remark.
       <div className="relative max-w-[46ch] py-1 pl-5 pr-1">
         <span aria-hidden="true" className={cn('absolute inset-y-1 left-0 w-[3px] rounded-full', tone.edge)} />
         {body}
@@ -173,7 +206,9 @@ export const CalloutCard: FC<CalloutCardProps> = ({ kind, text, title, detail, f
   }
 
   return (
-    <Card className={cn(CARD_SHELL, 'relative max-w-[46ch] gap-0 overflow-hidden py-3.5 pl-5 pr-4')}>
+    <Card
+      className={cn(CARD_SHELL, 'relative max-w-[46ch] gap-0 overflow-hidden py-3.5 pl-5 pr-4')}
+    >
       {/* The accent edge rides the card's own left border rather than being a
           border-left of its own: `overflow-hidden` clips it to the radius, so
           the tone reads at full strength without rounding the corner twice. */}
