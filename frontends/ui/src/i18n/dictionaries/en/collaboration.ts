@@ -417,6 +417,31 @@ export const collaboration = {
     /** Fallback when the actor cannot be resolved (deactivated user, etc.). */
     unknownActor: 'Someone',
     untitledConversation: 'Untitled conversation',
+    /**
+     * Triage of a version waiting for a decision, inline on the row: the three
+     * decisions without leaving the inbox. Approving carries the same minimum
+     * ceremony as on the file (explicit confirmation, never one click); the
+     * two refusals carry their words, as the transition table requires.
+     */
+    review: {
+      approve: 'Approve',
+      requestChanges: 'Request changes',
+      reject: 'Reject',
+      changesLabel: 'What needs to change',
+      reasonLabel: 'Reason for rejection',
+      approveConfirm: 'I release this version',
+      // The signature mirrors the file pane: which stand is released (the row
+      // names the document and when the round opened — the version number
+      // itself stays on the payload) and who acts when. No viewer name is
+      // known here, so the acting line is always the date-only form.
+      approveStand: '{subject} · as of {date}',
+      approveActing: 'Acting: {date}',
+      send: 'Send',
+      cancel: 'Cancel',
+      open: 'Open file',
+      decided: 'Decision sent — refreshing.',
+      failed: 'That did not go through. Nothing has changed.',
+    },
   },
 
   /** Chat-thread additions that only appear once a conversation is shared. */

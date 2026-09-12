@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/adapters/auth'
 import { MainLayout } from '@/features/layout'
 import { useChatStore, useLoadJobData, useDeepResearchTitle } from '@/features/chat'
+import { conversationMatchesProject } from '@/features/chat/lib/project-scope'
 import type { ResearchPanelTab } from '@/features/layout/types'
 import { newChatDropsFilePreview } from '@/features/documents/lib/ask-arrival'
 import { fileItemFromStatus } from '@/features/documents/lib/document-question'
@@ -55,6 +56,12 @@ const ProjectChatContent = ({
   const loadServerConversations = useChatStore((s) => s.loadServerConversations)
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const startNewSessionDraft = useChatStore((s) => s.startNewSessionDraft)
+  const selectConversation = useChatStore((s) => s.selectConversation)
+  // Retry triggers, not values: a deep-linked id this browser has never seen
+  // only becomes resolvable once the server list lands (or identity arrives).
+  const sessionConversationCount = useChatStore((s) => s.conversations.length)
+  const sessionServerLoaded = useChatStore((s) => s.serverConversationsLoaded)
+  const sessionUserId = useChatStore((s) => s.currentUserId)
 
   // Deep link from the project Research page: /projects/:id/chat?job=<jobId>
   // loads that job's report into the research panel. An optional &tab= selects
@@ -121,6 +128,62 @@ const ProjectChatContent = ({
     void loadServerConversations(projectId)
     return () => setProjectId(null)
   }, [projectId, setProjectId, loadServerConversations])
+
+  // `?session=` deep link — including the job-output threads the sessions
+  // panel hides. `useSessionUrl` (mounted inside MainLayout below) resolves a
+  // session only against the personal list, so a task row's "continue in
+  // chat" link into a job-produced conversation reads as a stale id there,
+  // gets stripped from the URL, and lands on whatever thread was last active.
+  // This hydrates the same param against every conversation in THIS project
+  // first: the lookup deliberately includes job conversations
+  // (`lib/project-scope.ts` promises `?session=<id>` selects one), while the
+  // switch itself stays with `selectConversation`, whose ownership and
+  // project-context guards remain authoritative (UX-8).
+  const sessionParam = searchParams?.get('session') ?? null
+  const sessionHydratedRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    // A fresh draft wins over a thread: `?new=1` always lands on an empty
+    // chat, and hydrating a session underneath it would undo that.
+    if (!isAuthenticated || !sessionParam || newParam) return
+    if (sessionHydratedRef.current === sessionParam) return
+    // Identity first, like `useSessionUrl`: the selection guard stamps rows
+    // to the fetcher, so attempting before the user is known can only refuse.
+    if (!sessionUserId) return
+    const state = useChatStore.getState()
+    if (state.currentConversation?.id === sessionParam) {
+      sessionHydratedRef.current = sessionParam
+      return
+    }
+    const target = state.conversations.find((c) => c.id === sessionParam)
+    if (!target) {
+      // Not stale, just not fetched yet: a deep-linked id this browser never
+      // saw only resolves once the server list lands. Giving up here would
+      // strand every task link on its first open.
+      if (!sessionServerLoaded) return
+      sessionHydratedRef.current = sessionParam
+      return
+    }
+    // Never activate another project's session under this socket, and never
+    // another person's: both stay `selectConversation`'s call, which refuses
+    // them the same way. Unknown ids are left for `useSessionUrl`'s stale
+    // handling rather than landing on the wrong thread here.
+    if (!conversationMatchesProject(target, projectId) || target.userId !== sessionUserId) {
+      sessionHydratedRef.current = sessionParam
+      return
+    }
+    selectConversation(sessionParam)
+    sessionHydratedRef.current = sessionParam
+  }, [
+    isAuthenticated,
+    sessionParam,
+    newParam,
+    projectId,
+    sessionConversationCount,
+    sessionServerLoaded,
+    sessionUserId,
+    selectConversation,
+  ])
 
   useEffect(() => {
     // Files, IFC walls and applicable standards all land here: one Ask Piloti

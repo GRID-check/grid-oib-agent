@@ -3,11 +3,20 @@
 /**
  * One inbox row — the generic, registry-driven renderer (spec IB-6).
  *
- * **There is deliberately no `switch (item.type)` in this file.** Every visual
- * decision comes from `INBOX_TYPE_PRESENTATION[item.type]`: which icon to draw,
- * which pair of translation keys to read, and whether the row reads as a request
- * or as an FYI. That is the whole extensibility promise — a new notification type
- * is a registry entry plus two strings, never a new component.
+ * **There is deliberately no `switch (item.type)` in this file for LOOKS.**
+ * Every visual decision comes from `INBOX_TYPE_PRESENTATION[item.type]`: which
+ * icon to draw, which pair of translation keys to read, and whether the row
+ * reads as a request or as an FYI. That is the whole extensibility promise — a
+ * new notification type is a registry entry plus two strings, never a new
+ * component.
+ *
+ * The ONE exception below is BEHAVIOUR, not looks: a version waiting for a
+ * decision carries its three decisions inline, so triage happens here instead
+ * of forcing a round-trip through Files. It keys on the actionable document
+ * type alone, renders through the same atoms, and resolves server-side — the
+ * decision settles the round for every reviewer (`resolveReviewInbox`) and the
+ * list re-reads on the `inbox.changed` nudge. Nothing persists on a chat
+ * message, so `useCardDecision` does not apply here.
  *
  * The row answers **who / what / where / when without being opened** (IB-20):
  * the title carries the actor, the body the subject, the excerpt the actual
@@ -23,7 +32,7 @@
  *     link's accessible name include the button's.
  */
 
-import { forwardRef } from 'react'
+import { forwardRef, useState } from 'react'
 import Link from 'next/link'
 import {
   Archive,
@@ -47,6 +56,8 @@ import {
 } from '@/lib/inbox/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Item,
   ItemActions,
@@ -57,6 +68,10 @@ import {
 } from '@/components/ui/item'
 import { motion, motionQuick } from '@/components/motion'
 import { cn } from '@/lib/utils'
+import type {
+  DocumentLifecycleClient,
+} from '@/lib/documents/lifecycle-client'
+import { documentLifecycleClient } from '@/lib/documents/lifecycle-client'
 import { DiscussDocumentButton } from '@/features/documents/components/discuss-document-button'
 import { projectIdFromDocumentHref } from '@/features/documents/lib/document-question'
 
@@ -99,10 +114,16 @@ export interface InboxItemRowProps {
   onOpen?: (item: InboxItemView) => void
   /** Called by the archive button. Omit to hide the control. */
   onArchive?: (itemId: string) => void
+  /**
+   * Runs an inline review decision. Injected by the specs; the browser gets
+   * the real typed client. Narrowed to the three decisions a reviewer may
+   * take — nothing else on this row writes lifecycle state.
+   */
+  reviewClient?: Pick<DocumentLifecycleClient, 'approve' | 'requestChanges' | 'reject'>
 }
 
 export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(function InboxItemRow(
-  { item, onOpen, onArchive },
+  { item, onOpen, onArchive, reviewClient = documentLifecycleClient },
   ref,
 ): JSX.Element {
   const t = useTranslations('collaboration')
@@ -193,6 +214,58 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
     : bodyLeaf
       ? t(`inbox.types.${presentation.i18nKey}.${bodyLeaf}`, vars)
       : null
+
+  /*
+    Inline triage for a version waiting for a decision (ADR-0054): the three
+    decisions on the row, so the reviewer answers here instead of navigating
+    to Files first. Offered only while the round is still open for this
+    reader — actionable, unresolved, reachable, and naming its version. The
+    server enforces who may decide (project:edit, never the submitter); a
+    refusal there surfaces as an error line, never as a silent nothing.
+  */
+  const canDecideReview =
+    item.type === 'document.review_requested' &&
+    item.actionable &&
+    !resolved &&
+    !inert &&
+    item.resourceType === 'document' &&
+    item.anchorId !== null
+  const [reviewing, setReviewing] = useState<'approve' | 'request_changes' | 'reject' | null>(null)
+  const [reviewComment, setReviewComment] = useState('')
+  const [reviewChecked, setReviewChecked] = useState(false)
+  const [reviewBusy, setReviewBusy] = useState(false)
+  const [reviewFailed, setReviewFailed] = useState(false)
+  const [reviewDecided, setReviewDecided] = useState(false)
+
+  const sendReview = async () => {
+    if (!canDecideReview || !reviewing || !item.anchorId || reviewBusy) return
+    // Approval is signed, refusals are worded — the transition table's own
+    // requirements, read at the same point the file pane reads them.
+    if (reviewing === 'approve' && !reviewChecked) return
+    const words = reviewComment.trim()
+    if (reviewing !== 'approve' && words === '') return
+    setReviewBusy(true)
+    setReviewFailed(false)
+    try {
+      if (reviewing === 'approve') {
+        await reviewClient.approve(item.resourceId, item.anchorId)
+      } else if (reviewing === 'request_changes') {
+        await reviewClient.requestChanges(item.resourceId, item.anchorId, words)
+      } else {
+        await reviewClient.reject(item.resourceId, item.anchorId, words)
+      }
+      // Decided here; resolved everywhere by the server, which settles the
+      // round for every reviewer and nudges this list to re-read it.
+      setReviewDecided(true)
+      setReviewing(null)
+      setReviewComment('')
+      setReviewChecked(false)
+    } catch {
+      setReviewFailed(true)
+    } finally {
+      setReviewBusy(false)
+    }
+  }
 
   return (
     /* The row owns its own <li>, so it is the element that animates — wrapping it
@@ -294,6 +367,192 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
             <p className="mt-1.5 line-clamp-2 border-l border-border pl-2.5 text-sm leading-relaxed text-muted-foreground">
               {item.excerpt}
             </p>
+          )}
+
+          {/* The excerpt above is the order once the submit request carries
+              one; the open link below is the file behind the decision. A real
+              diff needs the previous version, which the payload does not name
+              — so triage opens the file, it does not pretend to compare. */}
+          {canDecideReview && (
+            <div className="relative z-10 mt-2" data-testid="inbox-review-actions">
+              {reviewDecided ? (
+                <p
+                  className="text-muted-foreground text-xs"
+                  data-testid="inbox-review-decided"
+                >
+                  {t('inbox.review.decided')}
+                </p>
+              ) : reviewing === null ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7 text-xs"
+                    disabled={reviewBusy}
+                    data-testid="inbox-review-approve"
+                    onClick={() => {
+                      setReviewFailed(false)
+                      setReviewChecked(false)
+                      setReviewing('approve')
+                    }}
+                  >
+                    {t('inbox.review.approve')}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    disabled={reviewBusy}
+                    data-testid="inbox-review-request-changes"
+                    onClick={() => {
+                      setReviewFailed(false)
+                      setReviewComment('')
+                      setReviewing('request_changes')
+                    }}
+                  >
+                    {t('inbox.review.requestChanges')}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs"
+                    disabled={reviewBusy}
+                    data-testid="inbox-review-reject"
+                    onClick={() => {
+                      setReviewFailed(false)
+                      setReviewComment('')
+                      setReviewing('reject')
+                    }}
+                  >
+                    {t('inbox.review.reject')}
+                  </Button>
+                  {item.href && (
+                    <a
+                      href={item.href}
+                      className="text-primary text-xs font-medium hover:underline"
+                      data-testid="inbox-review-open"
+                    >
+                      {t('inbox.review.open')}
+                    </a>
+                  )}
+                </div>
+              ) : reviewing === 'approve' ? (
+                /* The same minimum ceremony as on the file: never one click,
+                   and the signature names the same facts — which stand is
+                   released and who acts when — resolved from what the row
+                   already carries (subject + round opening), never fetched. */
+                <div
+                  className="space-y-2 rounded-lg border p-2"
+                  data-testid="inbox-review-approve-confirm"
+                >
+                  <p className="text-xs font-medium" data-testid="inbox-review-approve-stand">
+                    {t('inbox.review.approveStand', {
+                      subject: item.subject ?? t('inbox.untitledConversation'),
+                      date: formatAbsoluteTime(item.createdAt, locale),
+                    })}
+                  </p>
+                  <p
+                    className="text-muted-foreground text-xs"
+                    data-testid="inbox-review-approve-acting"
+                  >
+                    {t('inbox.review.approveActing', {
+                      date: formatAbsoluteTime(new Date().toISOString(), locale),
+                    })}
+                  </p>
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id={`inbox-review-approve-${item.id}`}
+                      checked={reviewChecked}
+                      onCheckedChange={(checked) => setReviewChecked(checked === true)}
+                      data-testid="inbox-review-approve-checkbox"
+                    />
+                    <label
+                      htmlFor={`inbox-review-approve-${item.id}`}
+                      className="text-xs leading-snug"
+                    >
+                      {t('inbox.review.approveConfirm')}
+                    </label>
+                  </div>
+                  <div className="flex items-center justify-end gap-1.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        setReviewing(null)
+                        setReviewChecked(false)
+                      }}
+                    >
+                      {t('inbox.review.cancel')}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-7 text-xs"
+                      disabled={!reviewChecked || reviewBusy}
+                      data-testid="inbox-review-approve-send"
+                      onClick={() => void sendReview()}
+                    >
+                      {t('inbox.review.approve')}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                /* A refusal without words is refused by the transition itself;
+                   the button stays shut until something is typed. */
+                <div className="space-y-2 rounded-lg border p-2" data-testid="inbox-review-comment">
+                  <label
+                    htmlFor={`inbox-review-comment-${item.id}`}
+                    className="text-muted-foreground block text-xs"
+                  >
+                    {t(
+                      reviewing === 'reject'
+                        ? 'inbox.review.reasonLabel'
+                        : 'inbox.review.changesLabel',
+                    )}
+                  </label>
+                  <Textarea
+                    id={`inbox-review-comment-${item.id}`}
+                    value={reviewComment}
+                    autoFocus
+                    rows={2}
+                    onChange={(event) => setReviewComment(event.target.value)}
+                  />
+                  <div className="flex items-center justify-end gap-1.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        setReviewing(null)
+                        setReviewComment('')
+                      }}
+                    >
+                      {t('inbox.review.cancel')}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-7 text-xs"
+                      disabled={reviewComment.trim() === '' || reviewBusy}
+                      data-testid="inbox-review-comment-send"
+                      onClick={() => void sendReview()}
+                    >
+                      {t('inbox.review.send')}
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {reviewFailed && (
+                <p className="text-error mt-1.5 text-xs" data-testid="inbox-review-failed">
+                  {t('inbox.review.failed')}
+                </p>
+              )}
+            </div>
           )}
 
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
