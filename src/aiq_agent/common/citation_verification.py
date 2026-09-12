@@ -1978,6 +1978,43 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
     return {key: value for key, value in payload.items() if value is not None}
 
 
+#: The wire keys a READ-BUT-UNCITED source keeps: identity (which document,
+#: which page) and placement (which kind, which lane) — never prose.
+#:
+#: Dropped structurally rather than by convention: no ``snippet`` (the
+#: retrieved passage), no ``content`` locator line, no ``score``/``punkt``,
+#: no ``[N]`` number, no binding claims. A reader checking "what else did it
+#: read" gets document chips; anything that could restate evidence stays on
+#: the cited channel.
+_READ_SOURCE_WIRE_KEYS = frozenset(
+    {
+        "document_id",
+        "citation_key",
+        "file_name",
+        "page",
+        "collection",
+        "shelf",
+        "kind",
+        "lane",
+        "lane_label",
+        "title",
+        "url",
+    }
+)
+
+
+def read_source_to_wire(entry: SourceEntry) -> dict[str, Any]:
+    """Serialize a :class:`SourceEntry` for the read-but-uncited wire (``read_sources``).
+
+    The same derivation as :func:`source_entry_to_wire` — the same document
+    identity the chips group on, the same kind/lane placement — minus every
+    key that carries prose or a claim: no passage, no locator line, no score,
+    no citation number, no binding classification. What travels names the
+    document and where it sits, nothing more.
+    """
+    return {key: value for key, value in source_entry_to_wire(entry).items() if key in _READ_SOURCE_WIRE_KEYS}
+
+
 #: How much of a retrieved passage travels to the client.
 #:
 #: A passage is located by matching it against the document's own text, and the

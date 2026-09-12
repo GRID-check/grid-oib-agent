@@ -1489,6 +1489,13 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
             const citations = encodeCitations(message.citations)
             return citations ? { citations } : {}
           })(),
+          // Retrieved-but-uncited documents, same envelope as the citations:
+          // they have to outlive the tab for the reloaded thread to say what
+          // else the turn read.
+          ...(() => {
+            const readSources = encodeCitations(message.readSources)
+            return readSources ? { readSources } : {}
+          })(),
         },
         createdAt: message.timestamp instanceof Date
           ? message.timestamp.toISOString()

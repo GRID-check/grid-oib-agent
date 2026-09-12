@@ -61,6 +61,7 @@ import type {
   StatusType,
   ThinkingStep,
   ErrorCode,
+  AnswerTransparency,
 } from '../types'
 import {
   parseFunctionName,
@@ -1524,8 +1525,18 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         // (full text + cards) then an empty complete", which finalizes the same
         // one bubble — identical to the previous single-shot behaviour.
         const citations = citationsFromWireList(sources)
+        // Retrieved-but-uncited documents ride the transparency bundle as raw
+        // wire entries and are normalized here, like `sources` above — the
+        // store and every renderer downstream read `CitationSource`. The
+        // bundle is rebuilt only when there is something to put in it;
+        // otherwise the very same object (including `undefined`) rides on.
+        const readSources = citationsFromWireList(transparency?.readSources)
+        const answerTransparency: AnswerTransparency | undefined =
+          readSources && readSources.length > 0
+            ? { ...transparency, readSources }
+            : (transparency as AnswerTransparency | undefined)
         if (isFinal) {
-          finalizeAgentResponse(content, validatedCards, answerConfidence, citations, transparency)
+          finalizeAgentResponse(content, validatedCards, answerConfidence, citations, answerTransparency)
         } else if ((content && content.trim()) || validatedCards.length > 0) {
           appendAgentResponseDelta(content, validatedCards, answerConfidence, citations)
         }

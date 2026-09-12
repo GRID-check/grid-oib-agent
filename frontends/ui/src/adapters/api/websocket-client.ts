@@ -50,6 +50,12 @@ export interface ResponseTransparency {
   /** Present only when citation verification removed ≥1 citation. */
   citationsRemoved?: { count: number; reasons: string[] }
   /**
+   * Retrieved-but-uncited document identities (no prose) for the
+   * "Gelesen, nicht zitiert" disclosure. Raw wire entries — the hook maps
+   * them through `citationsFromWireList` like `sources`.
+   */
+  readSources?: unknown[]
+  /**
    * Skills whose instructions the agent LOADED this turn, in activation order.
    * Absent when none were — availability is not activation.
    */
@@ -693,6 +699,7 @@ export class NATWebSocketClient {
             answerConfidenceCappedReason: message.answer_confidence_capped_reason,
             answerConfidenceReason: message.answer_confidence_reason,
             citationsRemoved: message.citations_removed,
+            readSources: message.read_sources,
             researchTruncated: message.research_truncated,
             truncationReason: message.truncation_reason,
             degradedReasons: message.degraded_reasons,

@@ -103,6 +103,7 @@ ANSWER_LIFTS: tuple[tuple[str, str], ...] = (
     ("answer_confidence_marker_reason", "answer_confidence_reason"),
     ("answer_confidence_capped_reason", "answer_confidence_capped_reason"),
     ("verified_sources", "verified_sources"),
+    ("read_sources", "read_sources"),
     ("citations_removed", "citations_removed"),
     ("skills_activated", "skills_activated"),
     ("skills_hidden", "skills_hidden"),

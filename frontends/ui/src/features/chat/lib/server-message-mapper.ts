@@ -103,6 +103,9 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
   // The message's own time, not the clock: a citation restored from history was
   // captured when the answer was written, not when the page was reopened.
   const citations = decodeCitations(metadata.citations, timestamp)
+  // Retrieved-but-uncited documents, stored under their own key in the same
+  // envelope: the reloaded thread says what else the turn read, or nothing.
+  const readSources = decodeCitations(metadata.readSources, timestamp)
 
   return {
     id: String(message.id),
@@ -124,6 +127,7 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
       return addressees ? { addressees } : {}
     })(),
     ...(citations ? { citations } : {}),
+    ...(readSources ? { readSources } : {}),
     ...(metadata.errorData ? { errorData: metadata.errorData as ErrorCardData } : {}),
     ...(metadata.fileData ? { fileData: metadata.fileData as FileCardData } : {}),
     // Validated, not cast. The live websocket path runs `validateGridCards`;

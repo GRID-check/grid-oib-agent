@@ -1642,6 +1642,49 @@ describe('useWebSocketChat', () => {
     )
   })
 
+  test('onResponse normalizes read_sources into the finalized answer', () => {
+    renderWebSocketHook()
+
+    mockStoreState.isStreaming = true
+
+    act(() => {
+      capturedCallbacks.onResponse?.(
+        'Answer with reads',
+        'complete',
+        true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          readSources: [
+            {
+              document_id: 'doc:oib_knowledge:oib-rl_2.pdf',
+              citation_key: 'oib-rl_2.pdf, p.12',
+              file_name: 'oib-rl_2.pdf',
+              page: 12,
+              kind: 'baurecht',
+              lane: 'baurecht_oib',
+            },
+          ],
+        }
+      )
+    })
+
+    expect(mockFinalizeAgentResponse).toHaveBeenCalledWith(
+      'Answer with reads',
+      [],
+      undefined,
+      undefined,
+      expect.objectContaining({
+        readSources: [
+          expect.objectContaining({ fileName: 'oib-rl_2.pdf', page: 12, kind: 'baurecht' }),
+        ],
+      })
+    )
+  })
+
   // --- Queue-rejection (job admission) terminal frame ---
   // A "queue full" rejection is surfaced as a warning banner, NOT an answer
   // bubble. On old backends the rejection prose still arrives as in_progress

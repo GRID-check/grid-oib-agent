@@ -572,6 +572,9 @@ _TRANSPARENCY_EXTRA_FIELDS = (
     "research_truncated",
     "job_admission_rejected",
     "retry_after_seconds",
+    # Retrieved-but-uncited document identities, with no prose, for the
+    # read-but-uncited disclosure — same lift as ``sources``.
+    "read_sources",
     # The answer's structured anatomy (verdict / takeaways / callout) — a
     # native answer field, gated backend-side, rendered as answer typography.
     "answer_meta",
@@ -768,6 +771,7 @@ async def persist_assistant_message(
     answer_confidence_reason: Any = None,
     answer_confidence_capped_reason: Any = None,
     sources: Any = None,
+    read_sources: Any = None,
     skills_activated: Any = None,
 ) -> bool:
     """Persist a finished assistant turn to the BFF when the client is gone.
@@ -809,6 +813,8 @@ async def persist_assistant_message(
         metadata["answer_confidence_capped_reason"] = answer_confidence_capped_reason
     if sources:
         metadata["sources"] = sources
+    if read_sources:
+        metadata["read_sources"] = read_sources
     if skills_activated:
         metadata["skills_activated"] = skills_activated
 
@@ -1377,6 +1383,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             answer_confidence_reason = dump.get("answer_confidence_reason")
             answer_confidence_capped_reason = dump.get("answer_confidence_capped_reason")
             sources = dump.get("sources")
+            read_sources = dump.get("read_sources")
             skills_activated = dump.get("skills_activated")
 
             if not (text and text.strip()) and not cards:
@@ -1393,6 +1400,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 answer_confidence_reason=answer_confidence_reason,
                 answer_confidence_capped_reason=answer_confidence_capped_reason,
                 sources=sources,
+                read_sources=read_sources,
                 skills_activated=skills_activated,
             )
         except Exception:  # noqa: BLE001 — never let persistence crash the handler

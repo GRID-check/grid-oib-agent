@@ -257,6 +257,49 @@ export const NATGenerateResponseContentSchema = z.object({
  */
 export const ANSWER_CONFIDENCE_REASON_MAX_CHARS = 300
 
+/** One structured source on the wire (`source_entry_to_wire` spelling). */
+const wireSourceSchema = z
+  .object({
+    content: z.string().optional(),
+    url: z.string().nullable().optional(),
+    title: z.string().nullable().optional(),
+    citation_key: z.string().nullable().optional(),
+    collection: z.string().nullable().optional(),
+    source_type: z.string().nullable().optional(),
+    tool: z.string().nullable().optional(),
+    origin: z.string().nullable().optional(),
+    // The [N] citation label this source carries in the answer prose, so
+    // the provenance block can render as the answer's numbered source
+    // list instead of duplicating a written one.
+    number: z.number().nullable().optional(),
+    file_name: z.string().nullable().optional(),
+    page: z.number().nullable().optional(),
+    punkt: z.string().nullable().optional(),
+    score: z.number().nullable().optional(),
+  })
+  .passthrough()
+
+/**
+ * A list of structured wire sources, tolerant per entry.
+ *
+ * Fail-open: PER-ENTRY tolerance — a single malformed source degrades to
+ * undefined and is dropped, while the remaining (valid) citations survive.
+ * The outer `.catch(undefined)` still guards against a non-array value.
+ * The per-entry `.catch(undefined)` holes are compacted out so consumers
+ * only see the well-formed entries.
+ */
+const wireSourcesField = z
+  .array(
+    // Per-entry tolerance: `.optional()` makes `undefined` a valid element
+    // output so `.catch(undefined)` can degrade a single malformed source to
+    // a hole (rather than needing a full object fallback), which the
+    // transform below compacts out.
+    wireSourceSchema.optional().catch(undefined)
+  )
+  .optional()
+  .catch(undefined)
+  .transform((arr) => (arr ? arr.filter((entry) => entry != null) : arr))
+
 /** System Response Message - final or streaming response */
 export const NATSystemResponseMessageSchema = z.object({
   type: z.literal(NATMessageType.SYSTEM_RESPONSE),
@@ -285,43 +328,12 @@ export const NATSystemResponseMessageSchema = z.object({
   // failing the whole message parse and dropping the response text.
   answer_confidence: z.enum(['low', 'medium', 'high']).optional().catch(undefined),
   // Structured sources from the source registry (KB file/page/collection, RIS/web URLs).
-  // Fail-open: PER-ENTRY tolerance — a single malformed source degrades to
-  // undefined and is dropped, while the remaining (valid) citations survive.
-  // The outer `.catch(undefined)` still guards against a non-array `sources`.
-  sources: z
-    .array(
-      z
-        .object({
-          content: z.string().optional(),
-          url: z.string().nullable().optional(),
-          title: z.string().nullable().optional(),
-          citation_key: z.string().nullable().optional(),
-          collection: z.string().nullable().optional(),
-          source_type: z.string().nullable().optional(),
-          tool: z.string().nullable().optional(),
-          origin: z.string().nullable().optional(),
-          // The [N] citation label this source carries in the answer prose, so
-          // the provenance block can render as the answer's numbered source
-          // list instead of duplicating a written one.
-          number: z.number().nullable().optional(),
-          file_name: z.string().nullable().optional(),
-          page: z.number().nullable().optional(),
-          punkt: z.string().nullable().optional(),
-          score: z.number().nullable().optional(),
-        })
-        .passthrough()
-        // Per-entry tolerance: `.optional()` makes `undefined` a valid element
-        // output so `.catch(undefined)` can degrade a single malformed source to
-        // a hole (rather than needing a full object fallback), which the
-        // transform below compacts out.
-        .optional()
-        .catch(undefined)
-    )
-    .optional()
-    .catch(undefined)
-    // Compact out the per-entry `.catch(undefined)` holes so consumers only see
-    // the well-formed citations.
-    .transform((arr) => (arr ? arr.filter((entry) => entry != null) : arr)),
+  // Fail-open per entry — see `wireSourcesField`.
+  sources: wireSourcesField,
+  // Retrieved-but-uncited document identities (no prose) for the
+  // "Gelesen, nicht zitiert" disclosure. Same shape and same tolerance as
+  // `sources` — the producer only ever drops prose keys, never adds any.
+  read_sources: wireSourcesField,
 
   // ── Transparency extras (WP-A → WP-B wire contract) ──────────────────────
   // All optional + per-field `.catch(undefined)`: one malformed extra degrades

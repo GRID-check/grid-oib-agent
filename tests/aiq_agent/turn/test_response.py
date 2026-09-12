@@ -94,6 +94,16 @@ class TestResponseLifts:
         for name in ("skills_activated", "answer_meta", "citations_removed"):
             assert getattr(response, name, None) is None
 
+    def test_read_sources_ride_only_when_present(self):
+        response = _response()
+        apply_state_extras(response, _state())
+        assert getattr(response, "read_sources", None) is None
+
+        read = [{"document_id": "doc:oib_knowledge:oib-rl_2.pdf", "file_name": "oib-rl_2.pdf"}]
+        response = _response()
+        apply_state_extras(response, _state(read_sources=read))
+        assert response.read_sources == read
+
 
 class TestBuildResponse:
     def test_the_last_message_is_the_answer_and_cards_attach(self):

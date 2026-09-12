@@ -209,6 +209,11 @@ boundary in `ConversationGraph.run()`:
   measurement, so an operation nobody thought to list still grants nothing.
 - `citations_removed` (`{count, reasons[]}`, deduped, max 5) — from the research
   result's `verify_citations` summary when ≥1 citation was removed.
+- `read_sources` (list of wire dicts, or absent) — the documents this turn
+  retrieved but did NOT cite, one entry per document (document key +
+  lane/kind + page, no prose). Computed in `ledger.assemble_result` off this
+  turn's captures minus the cited documents; the frontend renders the
+  collapsed "Gelesen, nicht zitiert" disclosure from it.
 - `job_admission_rejected` + `retry_after_seconds` — set in the deep-research
   node's `JobAdmissionError` catch; marks the text as a queue-rejection notice,
   not a research answer.

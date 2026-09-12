@@ -10,7 +10,8 @@
  *   * the **Python backend**, over the internal service-token route, when the
  *     client dropped mid-turn (`websocket_reconnect.persist_assistant_message`)
  *     or when the jobs runner materialises a finished run. That writer posts the
- *     wire spelling it already holds: `sources`, `answer_confidence`,
+ *     wire spelling it already holds: `sources`, `read_sources`,
+ *     `answer_confidence`,
  *     `answer_confidence_reason`, `answer_confidence_capped_reason`,
  *     `deep_research_job_id`, and the marks the run left on its own answer
  *     (`research_truncated`, `truncation_reason`, `degraded_reasons`,
@@ -63,6 +64,9 @@ import { sanitizeAnswerMeta } from './message-answer-meta'
  */
 const BACKEND_ANSWER_KEYS = [
   'sources',
+  // Retrieved-but-uncited document identities (no prose) for the
+  // "Gelesen, nicht zitiert" disclosure — same lift as `sources`.
+  'read_sources',
   'answer_confidence',
   'answer_confidence_reason',
   'answer_confidence_capped_reason',
@@ -354,6 +358,13 @@ export function normalizeAgentAnswerMetadata(
   if (out.citations === undefined) {
     const citations = encodeBackendSources(metadata.sources)
     if (citations) out.citations = citations
+  }
+
+  // The read-but-uncited disclosure, stored under the camelCase key the
+  // browser writer uses so history reads one dialect.
+  if (out.readSources === undefined) {
+    const readSources = encodeBackendSources(metadata.read_sources)
+    if (readSources) out.readSources = readSources
   }
 
   if (out.provenance === undefined) {
