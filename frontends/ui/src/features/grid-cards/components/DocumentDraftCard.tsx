@@ -229,8 +229,9 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
   const stateKey = versionState ? STATE_LABEL[versionState] : undefined
 
   // The stand, in words. A filed card reports the version's state; an unfiled
-  // one is a draft by definition — and a single write is no history, so the
-  // counter in the row below appears only past the first write.
+  // one is a draft by definition — and no count ever numbers it here. One
+  // write is no history and ten writes are still no headline: the counter, like
+  // the size, lives in the preview dialog beside the words it measures.
   const stand =
     filed && submitted && stateKey
       ? t(`cards.documentDraft.${stateKey}` as 'cards.documentDraft.inReview')
@@ -319,22 +320,10 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
       {/* The stand and the actions on one line, in that order — the diagram
           card's meta row, for the same reason: what the card KNOWS outranks what
           it offers, and a control on a line of its own reads as a hole in a card
-          this small. The size is not here at all: it lives in the preview
-          dialog, beside the words it measures. */}
+          this small. Neither the counter nor the size is here at all: both live
+          in the preview dialog, beside the words they measure. */}
       <p className="card-caption flex flex-wrap items-center gap-x-3 text-muted-foreground">
-        <span className="flex items-center gap-x-2">
-          <span data-testid="document-draft-state">{stand}</span>
-          {/* One write is no history: the counter appears only once the path
-              has been written again, after the stand it numbers. */}
-          {version > 1 && (
-            <>
-              <span aria-hidden className="text-muted-foreground/40">
-                ·
-              </span>
-              <span className="tabular-nums">{t('cards.documentDraft.version', { version })}</span>
-            </>
-          )}
-        </span>
+        <span data-testid="document-draft-state">{stand}</span>
 
         {!shownFiled && conversationId && (
           // Reads nothing but the draft, through the BFF preview door into the

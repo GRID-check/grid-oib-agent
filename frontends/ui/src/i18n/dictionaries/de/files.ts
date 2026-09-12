@@ -287,6 +287,10 @@ export const files: typeof en.files = {
       relevance: 'Relevanz',
       name: 'Name',
       status: 'Status',
+      // Der redaktionelle Stand (Freigabe), neben dem Verarbeitungsstatus: die
+      // Spalte, die den Freigabe-Stand dort sichtbar macht, wo stapelweise
+      // gearbeitet wird.
+      approval: 'Freigabe',
       pages: 'Seiten',
       size: 'Größe',
       added: 'Hinzugefügt',
@@ -514,6 +518,55 @@ export const files: typeof en.files = {
     reviewer: {
       every: 'Alle Bearbeiter',
     },
+    // Die Einreichung zur Freigabe ist ein haftungsnaher Akt: Wer einreicht,
+    // benennt eine Prüferin oder einen Prüfer und formuliert den Auftrag in
+    // einem Satz. Beides verriegelt den Knopf — ein deaktivierter Knopf mit
+    // Begründung, nie eine stille Verweigerung oder eine offene Runde, von der
+    // niemand erfahren hat.
+    submit: {
+      reviewerLabel: 'Prüferin oder Prüfer',
+      reviewerPlaceholder: 'Bitte wählen',
+      orderLabel: 'Auftrag an die Prüfung',
+      orderPlaceholder: 'In einem Satz: Was soll geprüft werden?',
+      dueLabel: 'Frist (optional)',
+      needReviewer: 'Bitte wählen Sie, wer prüfen soll.',
+      needOrder: 'Bitte formulieren Sie den Auftrag in einem Satz.',
+      selfReviewNote:
+        'Keine weiteren Bearbeiter — die Freigabe wird als Selbstprüfung festgehalten.',
+    },
+    // Die Freigabe ist die Behauptung des Büros über den Inhalt, deshalb ist
+    // sie nie ein Klick: Der Akt nennt seinen Geltungsstand (Fassung und
+    // Datum), die handelnde Person und den Zeitpunkt, und die Checkbox ist die
+    // Unterschrift.
+    approveConfirm: {
+      stand: 'Fassung {number} · Stand vom {date}',
+      actingWithName: 'Handelnd: {name} · {date}',
+      actingDateOnly: 'Handelnd: {date}',
+      checkbox: 'Ich gebe diesen Stand frei',
+    },
+    // Die Veröffentlichung ist ein eigener Akt im eigenen Abschnitt — nie ein
+    // Knopf neben der Freigabe. Die Freigabe behauptet den Inhalt, die
+    // Veröffentlichung gibt ihn an Einreichmappe und Behörde heraus.
+    publishSection: {
+      heading: 'Veröffentlichung',
+      blurb: 'Ziel: Einreichmappe/Behörde — Fassung {number} wird zum zitierbaren Stand.',
+    },
+    // Ein Knopf, der nicht angeboten wird, ist eine gedeckte Zeile, nie
+    // nichts: Die Leserin sieht, worauf die Fassung wartet, und — wo das eine
+    // bekannte Tatsache ist — wer sie eingereicht hat. Wer GEBETEN wurde, löst
+    // der Server auf (die Prüferkette), deshalb wird dafür kein Name erfunden.
+    waiting: {
+      draft: 'Entwurf — wartet auf Einreichung zur Freigabe.',
+      inReview: 'In Prüfung — wartet auf Freigabe.',
+      inReviewBy: 'In Prüfung — wartet auf Freigabe · eingereicht von {name}.',
+      changesRequested: 'Änderungen erbeten — wartet auf neue Fassung.',
+      approved: 'Freigegeben — wartet auf Veröffentlichung.',
+      published: 'Veröffentlicht — kein weiterer Schritt.',
+      rejected: 'Abgelehnt — kein weiterer Schritt.',
+      superseded: 'Durch neuere Fassung ersetzt.',
+      archived: 'Archiviert.',
+      none: 'Noch keine Fassung.',
+    },
     comment: {
       reasonLabel: 'Grund der Ablehnung',
       changesLabel: 'Was geändert werden soll',
@@ -544,6 +597,11 @@ export const files: typeof en.files = {
       submitted: 'Eingereicht',
       approved: 'Freigegeben',
       published: 'Veröffentlicht',
+      // Auch eine Zurückweisung hinterlässt einen Meilenstein: Eine
+      // zurückgeschickte Fassung muss nennen, wer sie wann geschickt hat,
+      // sonst ist die Ablehnung in der Geschichte unsichtbar.
+      changesRequested: 'Änderungen erbeten',
+      rejected: 'Abgelehnt',
       byAt: 'von {name}, {time}',
       you: 'Ihnen',
       someone: 'jemandem',

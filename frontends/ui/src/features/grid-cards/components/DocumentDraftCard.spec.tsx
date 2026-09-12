@@ -75,16 +75,16 @@ describe('DocumentDraftCard — the draft, before it is filed', () => {
   })
   afterEach(() => vi.unstubAllGlobals())
 
-  it('reports the draft: title, path, stand and — past the first write — the version', () => {
+  it('reports the draft: title, path and stand — never a version number', () => {
     render(<DocumentDraftCard {...DRAFT} />)
 
     expect(screen.getByText(DRAFT.title)).toBeInTheDocument()
     expect(screen.getByText(DRAFT.path)).toBeInTheDocument()
     // The stand, in words: an unfiled draft is a draft by definition.
     expect(screen.getByTestId('document-draft-state')).toHaveTextContent('Draft')
-    // Past the first write the counter stays — a single write is the only
-    // count that never renders.
-    expect(screen.getByText('v3')).toBeInTheDocument()
+    // No counter at any count: one write is no history, and ten writes are
+    // still no headline — the number lives in the preview beside the words.
+    expect(screen.queryByText('v3')).not.toBeInTheDocument()
     // The size lives in the preview beside the words it measures, never on
     // the card — so neither the human size nor the raw bytes stand here.
     expect(screen.queryByText('5 kB')).not.toBeInTheDocument()
@@ -460,8 +460,8 @@ describe('DocumentDraftCard — filed, and still the reader’s to send', () => 
   it('says the document is in the project, as a draft', () => {
     render(<DocumentDraftCard {...FILED} />)
     expect(screen.getByTestId('document-draft-state')).toHaveTextContent('Filed in the project as a draft')
-    // Written three times, so the counter stands beside the stand.
-    expect(screen.getByText('v3')).toBeInTheDocument()
+    // Filed or not, the card carries no counter — not even past the first write.
+    expect(screen.queryByText('v3')).not.toBeInTheDocument()
   })
 
   it('a filed card offers no draft preview — there is nothing unfiled left to read', () => {

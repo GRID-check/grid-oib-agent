@@ -309,6 +309,9 @@ export const files = {
       relevance: 'Relevance',
       name: 'Name',
       status: 'Status',
+      // The editorial state (Freigabe), beside the ingestion status: the column
+      // that makes bulk approval state visible where bulk work happens.
+      approval: 'Approval',
       pages: 'Pages',
       size: 'Size',
       added: 'Added',
@@ -549,6 +552,61 @@ export const files = {
     reviewer: {
       every: 'All editors',
     },
+    /**
+     * Submitting for approval is a liability-adjacent act: the submitter names
+     * a reviewer and states the order in one sentence. Both gate the button —
+     * a disabled button with its reason, never a silent refusal or an open
+     * round nobody was told about.
+     */
+    submit: {
+      reviewerLabel: 'Reviewer',
+      reviewerPlaceholder: 'Choose a reviewer',
+      orderLabel: 'Order for the reviewer',
+      orderPlaceholder: 'In one sentence: what should be checked?',
+      dueLabel: 'Due date (optional)',
+      needReviewer: 'Choose who should review this version.',
+      needOrder: 'State the order in one sentence.',
+      selfReviewNote:
+        'No other editors — the approval will be recorded as a self-review.',
+    },
+    /**
+     * Approving is the office asserting the content, so it is never one click:
+     * the act names its stand (version + date), the acting person and the
+     * moment, and the checkbox is the signature.
+     */
+    approveConfirm: {
+      stand: 'Version {number} · as of {date}',
+      actingWithName: 'Acting: {name} · {date}',
+      actingDateOnly: 'Acting: {date}',
+      checkbox: 'I release this version',
+    },
+    /**
+     * Publication is its own act in its own section — never a sibling button
+     * beside approval. Approving asserts the content; publishing issues it to
+     * the submission set / the authority.
+     */
+    publishSection: {
+      heading: 'Publication',
+      blurb: 'Target: submission set / authority — version {number} becomes the citable stand.',
+    },
+    /**
+     * A control that is not offered is a muted line, never nothing: the reader
+     * sees what the version is waiting for and — where that is a known fact —
+     * who submitted it. Who was ASKED is server-side (the reviewer chain), so
+     * no name is invented for them.
+     */
+    waiting: {
+      draft: 'Draft — waiting to be submitted for approval.',
+      inReview: 'In review — waiting for approval.',
+      inReviewBy: 'In review — waiting for approval · submitted by {name}.',
+      changesRequested: 'Changes requested — waiting for a new version.',
+      approved: 'Approved — waiting to be published.',
+      published: 'Published — no further step.',
+      rejected: 'Rejected — no further step.',
+      superseded: 'Superseded by a newer version.',
+      archived: 'Archived.',
+      none: 'No version yet.',
+    },
     comment: {
       /** Rejecting needs a reason; asking for changes needs the changes. */
       reasonLabel: 'Reason for rejection',
@@ -588,6 +646,10 @@ export const files = {
       submitted: 'Submitted',
       approved: 'Approved',
       published: 'Published',
+      // Refusals leave milestones too: a version sent back must name who sent
+      // it and when, or the refusal is invisible in the history.
+      changesRequested: 'Changes requested',
+      rejected: 'Rejected',
       byAt: 'by {name}, {time}',
       you: 'you',
       someone: 'someone',

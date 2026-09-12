@@ -4,6 +4,8 @@ import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { FileItem } from './project-file-workspace'
 import { DocumentStatusBadge } from './document-status'
+import { DocumentVersionStateBadge } from './document-version-badge'
+import { documentBadgeState } from '../lib/document-lifecycle'
 import { extChipTint, fileExtensionLabel } from '../document-kind'
 import { DEFAULT_FILE_SORT, RELEVANCE_SORT, nextSort, sortFiles, type FileSort, type FileSortKey } from '../lib/file-sort'
 import { useLocale, useTranslations } from '@/i18n'
@@ -208,7 +210,15 @@ export function FileListView({
               className="w-[104px]"
             />
             {/* Below `sm` the row keeps only what identifies and what acts:
-                name and status. Pages, size and date are reference columns. */}
+                name and status. Pages, size and date are reference columns.
+                The Freigabe column steps out with them: triage is bulk work,
+                and bulk work happens where the table has room. */}
+            <TableHead
+              scope="col"
+              className="hidden h-auto w-[120px] px-2 py-1.5 text-[10.5px] font-medium tracking-wider sm:table-cell"
+            >
+              {t('list.columns.approval')}
+            </TableHead>
             <TableHead
               scope="col"
               className="hidden h-auto w-[76px] px-2 py-1.5 text-right text-[10.5px] font-medium tracking-wider lg:table-cell"
@@ -238,6 +248,16 @@ export function FileListView({
           {rows.map((file, index) => {
             const ext = fileExtensionLabel(file.filename)
             const isSelected = selectedFileId === file.id
+            // The badge rule's subject, with the listing's nulls narrowed to
+            // what the rule reads: `null` lifecycle is "the working set", i.e.
+            // absent, and an unknown state is no badge.
+            const approvalSubject = {
+              versionState: file.versionState ?? null,
+              versionCount: file.versionCount ?? null,
+              lifecycle: file.lifecycle ?? undefined,
+              authoredBy: file.authoredBy ?? null,
+            }
+            const approvalState = documentBadgeState(approvalSubject)
             const row = (
               <TableRow
                 key={file.id}
@@ -336,6 +356,28 @@ export function FileListView({
                       that do get clipped, which are the transient ones. */}
                   {file.status && (
                     <DocumentStatusBadge status={file.status} className="max-w-full truncate" />
+                  )}
+                </TableCell>
+                <TableCell className={cn('hidden sm:table-cell', CELL)}>
+                  {/* The editorial state, in the same words the card badge uses:
+                      the column that makes bulk approval state visible where
+                      bulk work happens. Silent by the same rule as the card — a
+                      plain upload has one published version and shows nothing —
+                      so the triage signal is exactly the rows that need work.
+                      `documentBadgeState` is the rule read directly, so an empty
+                      slot renders the same `—` a missing page count does. */}
+                  {approvalState ? (
+                    <DocumentVersionStateBadge
+                      versionState={approvalSubject.versionState}
+                      versionCount={approvalSubject.versionCount}
+                      lifecycle={approvalSubject.lifecycle}
+                      authoredBy={approvalSubject.authoredBy}
+                      className="max-w-full truncate"
+                    />
+                  ) : (
+                    <span className="text-xs text-muted-foreground" data-testid="file-list-approval-empty">
+                      —
+                    </span>
                   )}
                 </TableCell>
                 <TableCell
@@ -479,6 +521,7 @@ export function FileListSkeleton({ rows = 6 }: { rows?: number }) {
             <Skeleton className="h-3 w-2/3" />
           </div>
           <Skeleton className="h-4 w-16 shrink-0 rounded-full" />
+          <Skeleton className="hidden h-4 w-20 shrink-0 rounded-full sm:block" />
           <Skeleton className="hidden h-3 w-12 shrink-0 sm:block" />
           <Skeleton className="hidden h-3 w-16 shrink-0 md:block" />
         </div>
@@ -494,6 +537,7 @@ function FileListSkeletonHeader(): JSX.Element {
     <div className="text-muted-foreground flex items-center gap-2.5 border-b px-2 pb-1.5 text-[10.5px] font-medium tracking-wider">
       <span className="min-w-0 flex-1">{t('list.columns.name')}</span>
       <span className="w-[104px] shrink-0">{t('list.columns.status')}</span>
+      <span className="hidden w-[120px] shrink-0 sm:block">{t('list.columns.approval')}</span>
       <span className="hidden w-[76px] shrink-0 text-right lg:block">{t('list.columns.pages')}</span>
       <span className="hidden w-[104px] shrink-0 text-right sm:block">{t('list.columns.size')}</span>
       <span className="hidden w-[104px] shrink-0 text-right sm:block">{t('list.columns.added')}</span>
