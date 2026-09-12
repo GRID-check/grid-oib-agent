@@ -975,8 +975,10 @@ export interface GridConfig {
    * **Self-hosted OSS only.** No license key is configured anywhere in this
    * program, deliberately: everything wired here is MIT-licensed core Langfuse.
    * The consequence that matters operationally is that DATA RETENTION POLICIES
-   * are an Enterprise feature, so nothing expires on its own — see
-   * `clickhouseStorageSize` and the ADR's Consequences section.
+   * are an Enterprise feature, so trace data never expires on its own — see
+   * `clickhouseStorageSize` and the ADR's Consequences section. (The server's
+   * own diagnostic logs are the exception: `installClickHouse` TTL-bounds
+   * those at 14 days. That covers ClickHouse chatter, not product data.)
    */
   langfuse: {
     /**
@@ -1000,10 +1002,13 @@ export interface GridConfig {
     /** ClickHouse server image, digest-pinned. */
     clickhouseImage: string;
     /**
-     * PVC for ClickHouse. This is the tier's one unbounded resource: with
-     * retention policies behind the Enterprise license, the trace store grows
-     * for as long as the deployment runs. Size it for the retention you intend
-     * to keep by hand, and watch it.
+     * PVC for ClickHouse. The TRACE store is still the tier's unbounded
+     * resource: retention policies are an Enterprise feature, so observations
+     * grow for as long as the deployment runs - size for the history you
+     * intend to keep by hand, and watch it. The SERVER's own system logs are
+     * the exception: `installClickHouse` gives them a 14-day TTL, so they can
+     * no longer fill the disk the way `system.trace_log` did on dev in August
+     * 2026. The 50 Gi default covers both with headroom.
      */
     clickhouseStorageSize: string;
     /** Ingestion-queue dataset cap and pod memory limit (see `LANGFUSE.queue`). */
@@ -2373,7 +2378,11 @@ export function loadConfig(): GridConfig {
       clickhouseImage:
         cfg.get("clickhouseImage") ??
         "clickhouse/clickhouse-server@sha256:aec6fb9892becb6a20eb8d57708b8cf9c777b2ad1f4eb70bbece7a70eaed9fd0",
-      clickhouseStorageSize: cfg.get("clickhouseStorageSize") ?? "20Gi",
+      // 50 Gi: fourteen days of TTL-bounded system logs plus headroom for the
+      // trace store itself, which still grows without bound (OSS has no
+      // retention policies) - see the interface comment. Raised from 20 Gi
+      // after system.trace_log alone filled that on dev in August 2026.
+      clickhouseStorageSize: cfg.get("clickhouseStorageSize") ?? "50Gi",
       // The queue holds references to events already durable in S3, not the
       // events themselves, so it stays small — but eviction is OFF (see
       // `installLangfuseQueue`), which means "small" has to mean "big enough".
