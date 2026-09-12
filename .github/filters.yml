@@ -112,7 +112,7 @@ packages:
   - '.github/filters.yml'
   - '.github/actions/**'
 
-# ── Image build scopes ───────────────────────────────────────────────────────
+# ── Image build scopes ───────────────────────────────────────────
 # The three images Docker Build compiles on a PR. Each watches its Dockerfile,
 # its build context and its dependency manifests — and this file, plus the
 # workflow itself, so a change to how the image is built always rebuilds it.
@@ -143,3 +143,26 @@ web_image:
   - 'frontends/web/**'
   - '.github/workflows/docker-build.yml'
   - '.github/filters.yml'
+
+# ── Security workflow scopes ────────────────────────────────
+# Separate from the test/image families: a vitest change cannot introduce a
+# lockfile CVE or a pinned-image CVE, and must not pay for trivy/OSV.
+security_images:
+  - 'deploy/pulumi/**'
+  - '.trivyignore.yaml'
+  - '.github/workflows/security.yml'
+security_deps:
+  - '**/uv.lock'
+  - '**/package-lock.json'
+  - '**/bun.lock'
+  - '**/pnpm-lock.yaml'
+  - 'pyproject.toml'
+  - '.github/workflows/security.yml'
+security_sast:
+  - 'src/**'
+  - 'frontends/**'
+  - 'sources/**'
+  - 'packages/**'
+  - 'deploy/**'
+  - 'scripts/**'
+  - '.github/**'
