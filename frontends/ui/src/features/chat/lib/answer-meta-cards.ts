@@ -137,6 +137,6 @@ function normalizeForComparison(value: string): string {
 function firstBodySentence(body: string): string {
   const paragraph = body.trimStart().split(/\n\s*\n/)[0] ?? ''
   // No `s` flag: the tsconfig target predates dotAll, so `[\s\S]` stands in.
-  const match = paragraph.match(/^[\s\S]*?[.!?…](?=\s|$)/)
+  const match = paragraph.match(/^[\s\S]*?[.!?\u2026](?:\s*\[\d+\])*(?=\s|$)/)
   return (match ? match[0] : paragraph).trim()
 }
