@@ -169,4 +169,49 @@ describe('TasksPanel', () => {
     expect(screen.getByText('Aktenvermerk Fluchtwege')).toBeInTheDocument()
     expect(screen.queryByText('The task list could not be loaded')).not.toBeInTheDocument()
   })
+
+  test('a successful poll recovers from a failed first load', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('offline'))
+    render(<TasksPanel projectId="proj-1" />)
+    await flush()
+    expect(screen.getByText('The task list could not be loaded')).toBeInTheDocument()
+
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ tasks: [row()] }) })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TASKS_POLL_MS)
+    })
+
+    expect(screen.queryByText('The task list could not be loaded')).not.toBeInTheDocument()
+    expect(screen.getByText('Aktenvermerk Fluchtwege')).toBeInTheDocument()
+  })
+
+  test('switching project drops the previous list and fetches the new one', async () => {
+    const pending: Array<(value: { ok: true; json: () => Promise<{ tasks: TaskWireRow[] }> }) => void> =
+      []
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: true; json: () => Promise<{ tasks: TaskWireRow[] }> }>((resolve) => {
+          pending.push(resolve)
+        })
+    )
+    const { rerender } = render(<TasksPanel projectId="proj-1" />)
+    await flush()
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/proj-1/tasks')
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ tasks: [row({ id: 'task-2', title: 'Prüfung Brandschutz' })] }),
+    })
+    rerender(<TasksPanel projectId="proj-2" />)
+    await flush()
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/proj-2/tasks')
+    expect(screen.getByText('Prüfung Brandschutz')).toBeInTheDocument()
+
+    // The in-flight fetch for proj-1 must not overwrite proj-2's list.
+    await act(async () => {
+      pending[0]?.({ ok: true, json: async () => ({ tasks: [row()] }) })
+    })
+    expect(screen.getByText('Prüfung Brandschutz')).toBeInTheDocument()
+    expect(screen.queryByText('Aktenvermerk Fluchtwege')).not.toBeInTheDocument()
+  })
 })

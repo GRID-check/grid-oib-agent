@@ -43,11 +43,15 @@ export function TasksPanel({ projectId }: TasksPanelProps): JSX.Element {
   // and the two could settle out of order. A skipped refresh is delayed,
   // never lost — the chain re-asks on its cadence anyway.
   const inFlightRef = useRef(false)
+  // Bumped when `projectId` changes so a request started for the previous
+  // project cannot write its list (or hold the flight lock) after the switch.
+  const generationRef = useRef(0)
 
   const load = useCallback(
     async (quiet: boolean): Promise<void> => {
       if (inFlightRef.current) return
       inFlightRef.current = true
+      const startedFor = generationRef.current
       try {
         const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tasks`)
         if (!response.ok) throw new Error(`tasks ${response.status}`)
@@ -59,18 +63,25 @@ export function TasksPanel({ projectId }: TasksPanelProps): JSX.Element {
           ...row,
           status: normalizeTaskStatus(row.status),
         }))
+        if (startedFor !== generationRef.current) return
         setTasks(rows)
-        if (!quiet) setFailed(false)
+        // A successful fetch always clears the first-load error: a quiet poll
+        // that recovers after a failed mount must show the work, not keep the
+        // empty-state. Quiet only governs the *failure* path below.
+        setFailed(false)
       } catch {
+        if (startedFor !== generationRef.current) return
         // A failed poll keeps the stale list rather than replacing it with
         // an error: the work is still there, only the refresh missed. Only
         // the first load — with nothing to show yet — reports the failure.
         if (!quiet && firstLoadRef.current) setFailed(true)
       } finally {
-        inFlightRef.current = false
-        if (firstLoadRef.current) {
-          firstLoadRef.current = false
-          setLoading(false)
+        if (startedFor === generationRef.current) {
+          inFlightRef.current = false
+          if (firstLoadRef.current) {
+            firstLoadRef.current = false
+            setLoading(false)
+          }
         }
       }
     },
@@ -78,7 +89,9 @@ export function TasksPanel({ projectId }: TasksPanelProps): JSX.Element {
   )
 
   useEffect(() => {
+    generationRef.current += 1
     firstLoadRef.current = true
+    inFlightRef.current = false
     setLoading(true)
     setFailed(false)
     let cancelled = false
