@@ -74,6 +74,11 @@ describe('submitJob', () => {
     })
   })
 
+  it('accepts the backend snake_case job_id (SkillSubmitResponse)', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ job_id: 'job-2' }), { status: 200 }))
+    await expect(submitJob(payload, {})).resolves.toEqual({ jobId: 'job-2' })
+  })
+
   it('maps a 429 to SkippedError carrying Retry-After', async () => {
     fetchMock.mockResolvedValue(
       new Response('cap', { status: 429, headers: { 'retry-after': '13' } })
