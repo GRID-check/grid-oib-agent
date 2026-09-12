@@ -71,7 +71,9 @@ function find(type: string, name: string) {
 
 /**
  * Every MergeTree-backed system log table the pinned 25.8 image creates,
- * verified live by SHOW TABLES FROM system LIKE '%log'. Exact, not
+ * verified live by SHOW TABLES FROM system LIKE '%log', minus
+ * opentelemetry_span_log (custom `<engine>` in the image: a standalone
+ * `<ttl>` there fails the server at startup - asserted below). Exact, not
  * aspirational: a name here that the image does not configure fails the
  * server at startup, and a missing one re-opens unbounded growth.
  */
@@ -80,7 +82,6 @@ const SYSTEM_LOG_TABLES = [
   "asynchronous_metric_log",
   "error_log",
   "metric_log",
-  "opentelemetry_span_log",
   "part_log",
   "processors_profile_log",
   "query_log",
@@ -122,15 +123,13 @@ describe("ClickHouse system-log TTLs", () => {
     }
   });
 
-  it("gives opentelemetry_span_log the date column it actually carries", () => {
-    // The only log table without event_date (verified live against the pinned
-    // image - it carries finish_date instead). A TTL over a missing column
-    // fails the server at startup, which is a total tier outage.
-    const match = ttlXml.match(/<opentelemetry_span_log>[\s\S]*?<\/opentelemetry_span_log>/);
-    expect(match, "opentelemetry_span_log section missing").not.toBeNull();
-    const section = match?.[0] ?? "";
-    expect(section).toContain("finish_date + INTERVAL 14 DAY");
-    expect(section).not.toContain("event_date");
+  it("leaves opentelemetry_span_log alone: its image section uses <engine>", () => {
+    // The pinned image defines this one table with a custom `<engine>`, and
+    // a standalone `<ttl>` next to an `<engine>` fails the server at startup
+    // with Code 36 - the first version of this drop-in CrashLoopBackOffed dev
+    // exactly that way. It stays unbounded deliberately: 46 KiB with no
+    // producer behind it, so it cannot fill a disk.
+    expect(ttlXml).not.toContain("opentelemetry_span_log");
   });
 
   it("mounts the drop-in by subPath so docker_related_config.xml survives", () => {

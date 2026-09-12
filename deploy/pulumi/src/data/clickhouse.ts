@@ -49,17 +49,20 @@ const SYSTEM_LOG_TTL_DAYS = 14;
  *
  * The table list is exact, and `clickhouse.spec.ts` asserts it: the eleven
  * MergeTree-backed log tables the pinned 25.8 image creates (verified by
- * `SHOW TABLES FROM system LIKE '%log'`), each with the date column it
- * actually carries. `opentelemetry_span_log` has no `event_date`, only
- * `finish_date` - a TTL over a missing column fails the server at startup,
- * so it gets its own expression rather than sharing the common one.
+ * `SHOW TABLES FROM system LIKE '%log'`) that takes a standalone `<ttl>`.
+ * That last clause is load-bearing: the image defines
+ * `opentelemetry_span_log` with a custom `<engine>`, and a standalone
+ * `<ttl>` next to an `<engine>` fails the server at startup with Code 36
+ * (BAD_ARGUMENTS) - which is exactly what the first version of this
+ * drop-in did on dev. That table stays unbounded deliberately: 46 KiB
+ * with no producer behind it (nothing uses ClickHouse as an OTel
+ * backend here), so it cannot fill a disk.
  */
 const SYSTEM_LOG_TTL_XML = `<clickhouse>
   <asynchronous_insert_log><table>asynchronous_insert_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></asynchronous_insert_log>
   <asynchronous_metric_log><table>asynchronous_metric_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></asynchronous_metric_log>
   <error_log><table>error_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></error_log>
   <metric_log><table>metric_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></metric_log>
-  <opentelemetry_span_log><table>opentelemetry_span_log</table><ttl>finish_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></opentelemetry_span_log>
   <part_log><table>part_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></part_log>
   <processors_profile_log><table>processors_profile_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></processors_profile_log>
   <query_log><table>query_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></query_log>
