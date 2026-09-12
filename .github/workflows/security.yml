@@ -37,8 +37,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Same last-push contract as ci.yml / docker-build.yml: opened diffs the
+  # whole PR, synchronize diffs this push only. Job-level `if` so a skipped
+  # check still posts (branch protection) instead of a filtered-out workflow
+  # that never appears.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.filter.outputs.security_images }}
+      deps: ${{ steps.filter.outputs.security_deps }}
+      sast: ${{ steps.filter.outputs.security_sast }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.action == 'synchronize' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: .github/filters.yml
+          token: ''
+          base: ${{ github.event.action == 'synchronize' && github.event.before || github.event.pull_request.base.sha || github.event.before }}
+
   semgrep:
     name: SAST (Semgrep)
+    needs: changes
+    if: github.event_name == 'schedule' || needs.changes.outputs.sast == 'true'
     runs-on: ubuntu-latest
     container:
       image: semgrep/semgrep
@@ -98,6 +124,8 @@ jobs:
 
   deps-osv:
     name: Dependency vulns (OSV-Scanner)
+    needs: changes
+    if: github.event_name == 'schedule' || needs.changes.outputs.deps == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -122,6 +150,8 @@ jobs:
 
   image-scan:
     name: Image vulns (trivy)
+    needs: changes
+    if: github.event_name == 'schedule' || needs.changes.outputs.images == 'true'
     runs-on: ubuntu-latest
     env:
       TRIVY_VERSION: "0.61.1"
