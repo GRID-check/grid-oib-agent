@@ -34,17 +34,8 @@ export function TasksPanel({ projectId }: TasksPanelProps): JSX.Element {
   const [tasks, setTasks] = useState<readonly TaskWireRow[]>([])
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
-  // Whether this is still the first load, which owns the skeleton and the
-  // error state. A later poll must never flash either over a list the reader
-  // is already reading — it updates silently, or not at all.
   const firstLoadRef = useRef(true)
-  // Single-flight guard for the chained poll and the out-of-chain `onFocus`
-  // refresh: a focus landing mid-poll would otherwise start a second load,
-  // and the two could settle out of order. A skipped refresh is delayed,
-  // never lost — the chain re-asks on its cadence anyway.
   const inFlightRef = useRef(false)
-  // Bumped when `projectId` changes so a request started for the previous
-  // project cannot write its list (or hold the flight lock) after the switch.
   const generationRef = useRef(0)
 
   const load = useCallback(
@@ -56,24 +47,15 @@ export function TasksPanel({ projectId }: TasksPanelProps): JSX.Element {
         const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tasks`)
         if (!response.ok) throw new Error(`tasks ${response.status}`)
         const body = (await response.json()) as { tasks?: TaskWireRow[] }
-        // Submission words never reach the row: `submitted`/`pending` are
-        // folded to the planner word `queued` at this boundary, so no
-        // surface below has to know the wire ever said them.
         const rows = (body.tasks ?? []).map((row) => ({
           ...row,
           status: normalizeTaskStatus(row.status),
         }))
         if (startedFor !== generationRef.current) return
         setTasks(rows)
-        // A successful fetch always clears the first-load error: a quiet poll
-        // that recovers after a failed mount must show the work, not keep the
-        // empty-state. Quiet only governs the *failure* path below.
         setFailed(false)
       } catch {
         if (startedFor !== generationRef.current) return
-        // A failed poll keeps the stale list rather than replacing it with
-        // an error: the work is still there, only the refresh missed. Only
-        // the first load — with nothing to show yet — reports the failure.
         if (!quiet && firstLoadRef.current) setFailed(true)
       } finally {
         if (startedFor === generationRef.current) {
@@ -97,19 +79,25 @@ export function TasksPanel({ projectId }: TasksPanelProps): JSX.Element {
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
 
-    // Chained, not `setInterval`: an interval fires again whether or not the
-    // previous refresh came back, so a slow endpoint could land an older
-    // response after a newer one. Scheduling the next poll only once the
-    // current one settles keeps at most one in flight, in order.
+    const clearTimer = () => {
+      if (timer) clearTimeout(timer)
+      timer = null
+    }
+
+    const schedule = () => {
+      clearTimer()
+      if (cancelled || document.visibilityState !== 'visible') return
+      timer = setTimeout(tick, TASKS_POLL_MS)
+    }
+
     const tick = () => {
       if (cancelled) return
       void load(true).finally(() => {
-        if (!cancelled && document.visibilityState === 'visible') {
-          timer = setTimeout(tick, TASKS_POLL_MS)
-        } else if (!cancelled) {
-          // Hidden: park until the tab is visible again rather than polling
-          // a page nobody is reading.
-          timer = null
+        if (cancelled) return
+        if (document.visibilityState === 'visible') {
+          schedule()
+        } else {
+          clearTimer()
         }
       })
     }
@@ -117,30 +105,21 @@ export function TasksPanel({ projectId }: TasksPanelProps): JSX.Element {
     const onVisibilityChange = () => {
       if (cancelled) return
       if (document.visibilityState !== 'visible') {
-        // Park immediately: a poll scheduled while visible must not fire
-        // into a tab nobody is reading.
-        if (timer) clearTimeout(timer)
-        timer = null
+        clearTimer()
         return
       }
-      // Becoming visible resumes with an immediate refresh, so the list is
-      // current when seen.
-      if (timer) clearTimeout(timer)
+      clearTimer()
       void load(true).finally(() => {
-        if (!cancelled) timer = setTimeout(tick, TASKS_POLL_MS)
+        if (!cancelled) schedule()
       })
     }
 
     const onFocus = () => {
-      // Returning from another window: re-ask once, outside the chain, so a
-      // review decided elsewhere is visible without waiting for the interval.
       if (!cancelled) void load(true)
     }
 
     void load(false).finally(() => {
-      if (!cancelled && document.visibilityState === 'visible') {
-        timer = setTimeout(tick, TASKS_POLL_MS)
-      }
+      if (!cancelled) schedule()
     })
     document.addEventListener('visibilitychange', onVisibilityChange)
     window.addEventListener('focus', onFocus)
