@@ -334,14 +334,17 @@ export function FileCard({
             {/* The editorial state, on the same side as the byline and nowhere
                 near the footer, for exactly that reason: „freigegeben" is a
                 statement about the CONTENT and „Unvergeben" one about
-                responsibility (ADR-0047's addendum, ADR-0054). Silent on a plain
-                upload — see `showsVersionStateBadge`. */}
-            <DocumentVersionStateBadge
-              versionState={file.versionState}
-              versionCount={file.versionCount}
-              authoredBy={file.authoredBy}
-              className="mt-1"
-            />
+                responsibility (ADR-0047's addendum, ADR-0054). Silent without a
+                history: one version distinguishes nothing, so the badge appears
+                only once a second version exists — even for a draft Piloti wrote. */}
+            {(file.versionCount ?? 0) > 1 && (
+              <DocumentVersionStateBadge
+                versionState={file.versionState}
+                versionCount={file.versionCount}
+                authoredBy={file.authoredBy}
+                className="mt-1"
+              />
+            )}
             {match ? (
               <SemanticMatch snippet={match.snippet} page={match.page} score={match.score} />
             ) : isFailed ? (

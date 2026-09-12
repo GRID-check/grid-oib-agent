@@ -5,7 +5,8 @@
  * `../lib/document-lifecycle.spec.ts`, over the transition table itself. What is
  * asserted here is the part only a mounted panel can show: that the pane renders
  * those controls, that a refusal cannot be sent without words, that a lost race
- * says so and re-reads, and that the history is legible.
+ * says so and re-reads, that the history is legible — and that a lone version
+ * collapses to its stand rather than a one-row list.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -292,14 +293,16 @@ describe('DocumentLifecyclePanel — the version list', () => {
     // Its bytes ARE the document's bytes — the item mirrors them — so the route
     // that knows the content type serves it.
     const client = fakeClient({
-      listVersions: () => Promise.resolve(listing([makeVersion(1, 'published')])),
+      listVersions: () =>
+        Promise.resolve(listing([makeVersion(1, 'superseded'), makeVersion(2, 'published')])),
     })
     render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
 
-    expect(await screen.findByTestId('document-version-open')).toHaveAttribute(
-      'href',
-      '/api/documents/doc_1/file',
-    )
+    // Newest first, so the published row stands above the superseded one.
+    const opens = await screen.findAllByTestId('document-version-open')
+    expect(opens).toHaveLength(2)
+    expect(opens[0]).toHaveAttribute('href', '/api/documents/doc_1/file')
+    expect(opens[1]).toHaveAttribute('href', '/api/documents/doc_1/versions/ver_1/content')
   })
 
   it('marks what changed between the two versions', async () => {
@@ -342,6 +345,73 @@ describe('DocumentLifecyclePanel — the version list', () => {
 
     expect(await screen.findByTestId('document-version-compare-failed')).toBeInTheDocument()
     expect(screen.getAllByTestId('document-version-row')).toHaveLength(2)
+  })
+})
+
+describe('DocumentLifecyclePanel — a lone version is a state line, not a list', () => {
+  it('collapses one version to its stand: no header, no row, no counter', async () => {
+    const client = fakeClient({
+      listVersions: () =>
+        Promise.resolve(
+          listing([
+            makeVersion(1, 'in_review', {
+              submittedBy: 'user_author',
+              submittedAt: '2026-09-02T09:00:00.000Z',
+            }),
+          ]),
+        ),
+    })
+    render(
+      <DocumentLifecyclePanel
+        documentId="doc_1"
+        viewer={reviewer}
+        names={{ user_author: 'Anna Berger' }}
+        client={client}
+      />,
+    )
+
+    expect(await screen.findByTestId('document-version-state-line')).toBeInTheDocument()
+    // No „Versionen" header and no one-row list around it.
+    expect(screen.queryByText('Versions')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('document-version-row')).not.toBeInTheDocument()
+    // The stand: the state, who moved it and when — never a „Version 1".
+    const line = screen.getByTestId('document-version-state-line')
+    expect(line).toHaveTextContent('In review')
+    expect(line).toHaveTextContent('Anna Berger')
+    expect(line).not.toHaveTextContent('Version 1')
+    // Nothing to compare against and nowhere to open from: the document the
+    // rail hangs off is already open beside it.
+    expect(screen.queryByTestId('document-version-open')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('document-version-compare')).not.toBeInTheDocument()
+  })
+
+  it('marks the lone version current when it is the published one', async () => {
+    const client = fakeClient({
+      listVersions: () => Promise.resolve(listing([makeVersion(1, 'published')])),
+    })
+    render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
+
+    const line = await screen.findByTestId('document-version-state-line')
+    expect(line).toHaveTextContent('Published')
+    expect(line).toHaveTextContent('Current')
+  })
+
+  it('keeps the reviewer’s words on the lone version they are about', async () => {
+    const client = fakeClient({
+      listVersions: () =>
+        Promise.resolve(
+          listing([
+            makeVersion(1, 'changes_requested', {
+              reviewComment: 'Bitte die Fluchtweglänge ergänzen.',
+            }),
+          ]),
+        ),
+    })
+    render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
+
+    expect(await screen.findByTestId('document-version-comment')).toHaveTextContent(
+      'Bitte die Fluchtweglänge ergänzen.',
+    )
   })
 })
 

@@ -87,6 +87,51 @@ export function DocumentVersionList({
     return names?.[userId] ?? t('lifecycle.versions.someone')
   }
 
+  if (versions.length === 1) {
+    const only = versions[0]
+    if (!only) return null
+    // A single version has no history to list: no „Versionen" header, no
+    // one-row table, no comparison. The stand — the state, who moved it and
+    // when — is one line, and the reviewer's words stay quoted under it.
+    const acts = MILESTONES.flatMap(({ key, by, at }) => {
+      const actor = only[by]
+      const when = only[at]
+      if (typeof actor !== 'string' || typeof when !== 'string') return []
+      return [
+        `${t(`lifecycle.versions.${key}`)} ${t('lifecycle.versions.byAt', {
+          name: nameOf(actor),
+          time: formatAbsoluteTime(when, locale),
+        })}`,
+      ]
+    })
+    return (
+      <div className={cn('space-y-1.5', className)} data-testid="document-version-list">
+        <p
+          data-testid="document-version-state-line"
+          data-state={only.state}
+          data-version={only.versionNumber}
+          className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]"
+        >
+          <DocumentVersionStateBadge versionState={only.state} always />
+          {only.id === publishedVersionId && (
+            <span className="text-muted-foreground shrink-0">{t('lifecycle.versions.live')}</span>
+          )}
+          {acts.length > 0 && <span className="text-muted-foreground">{acts.join(' · ')}</span>}
+        </p>
+        {only.reviewComment && (
+          /* The reviewer's words, quoted on the version they are about — the
+             same adjunct the full list renders under its row. */
+          <p
+            className="text-foreground mt-1.5 border-l-2 pl-2 text-[11px] leading-[1.5]"
+            data-testid="document-version-comment"
+          >
+            {only.reviewComment}
+          </p>
+        )}
+      </div>
+    )
+  }
+
   // Newest first: „was ist gerade los" is the question a version list is opened
   // with, and the answer is at the top of the table in the database.
   const ordered = [...versions].sort((a, b) => b.versionNumber - a.versionNumber)
