@@ -39,7 +39,8 @@ export const nav = {
   },
   sectionSubtitles: {
     files: 'Documents that ground Piloti’s answers in this project.',
-    automation: 'Skills the organization reuses, and prompts this project runs on a timer.',
+    automation:
+      'Skills the organization reuses, schedules this project runs, and the tasks Piloti was handed.',
     knowledge: 'What the knowledge base currently contains.',
     settings: 'Project profile, members, memory, and danger zone.',
     intake: 'Guided briefing for this project.',

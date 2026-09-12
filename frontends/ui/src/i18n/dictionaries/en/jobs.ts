@@ -12,7 +12,7 @@ export const jobs = {
   // One line: it sits in the tab's header BAR, next to the title. The long
   // version of this explanation is the empty state, which has room for it.
   subtitle:
-    'Prompts this project runs on a timer — as a chat or a report, optionally with a skill.',
+    'Schedules this project runs — as a chat or a report, optionally with a skill. Every run lands as a task under Tasks.',
   backToList: 'Back to jobs',
   loadError: 'The jobs could not be loaded.',
   tryAgain: 'Try again',
