@@ -3,7 +3,6 @@
  */
 import { describe, test, expect } from 'vitest'
 import {
-  SPINE_FOLD_THRESHOLD,
   buildGraph,
   defaultFoldedRounds,
   planFan,
@@ -302,16 +301,82 @@ describe('buildGraph — parallel wiring (P1-4)', () => {
       planFan(DESKTOP_W, 2),
       [card('a'), card('b')]
     )
-    const round0 = g.nodes.find((n) => n.id === 'round-0')!.data as { label: string; text: string }
-    const round1 = g.nodes.find((n) => n.id === 'round-1')!.data as { label: string; text: string }
+    const round0 = g.nodes.find((n) => n.id === 'round-0')!.data as {
+      label: string
+      sub: string
+      text: string
+    }
+    const round1 = g.nodes.find((n) => n.id === 'round-1')!.data as {
+      label: string
+      sub: string
+      text: string
+    }
     expect(round0.text).toBe('')
-    expect(round0.label).toBe('thinking.node.roundTab')
+    // ONE numbering language: every layer counts the same 1-based execution
+    // order, whatever it did. The old two-noun sequence (`Suche 1`, then
+    // `Folgerung 2…`) read as one run while counting tool calls and
+    // inferences apart.
+    expect(round0.label).toBe('thinking.node.stepTab')
+    expect(round1.label).toBe('thinking.node.stepTab')
+    // WHAT the layer did rides along as the typed sublabel, never as the
+    // number: a bare fetch is a search, a Thought without new files is the
+    // conclusion it states.
+    expect(round0.sub).toBe('thinking.node.stepKindSearch')
+    expect(round1.sub).toBe('thinking.node.stepKindConclusion')
     expect(round1.text).toBe(
       'OIB 3 Pkt. 3.4.2 verweist auf den lichten Einfallswinkel — messe den Überhang.'
     )
-    expect(round1.label).toBe('thinking.node.checkpointTab')
     expect(round0.text).not.toContain('OIB 3 Pkt. 3.4.2')
     expect(round1.text).not.toContain('Überhang Dachrand')
+  })
+
+  test('the typed sublabel reads reason × files off the round', () => {
+    // A Thought grounded in what the fetch returned is a finding; files with
+    // no Thought were read but never concluded upon.
+    const steps = [
+      retrievalStep(0, 'q0', 'Die Grundregel steht.'),
+      toolHit('a', 'a', 0),
+      retrievalStep(1, 'q1'),
+      toolHit('b', 'b', 1),
+    ]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+    const sub = (i: number) =>
+      (g.nodes.find((n) => n.id === `round-${i}`)!.data as { sub: string }).sub
+    expect(sub(0)).toBe('thinking.node.stepKindFinding')
+    expect(sub(1)).toBe('thinking.node.stepKindRead')
+  })
+
+  test.each(['de', 'en'])('%s numbers every layer Schritt N / Step N, with the kind beside it', (locale) => {
+    const dictionary = locale === 'de' ? de : en
+    const translator = createTranslator(dictionary, 'chat') as Translator
+    const steps = [
+      retrievalStep(0, 'q0', 'Zuerst die Grundregel.'),
+      toolHit('a', 'a', 0),
+      retrievalStep(1, 'q1'),
+    ]
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high' },
+      translator,
+      planFan(DESKTOP_W, 1),
+      [card('a')]
+    )
+    const layer = (i: number) =>
+      g.nodes.find((n) => n.id === `round-${i}`)!.data as { label: string; sub: string }
+    expect(layer(0).label).toContain('1')
+    expect(layer(1).label).toContain('2')
+    for (const i of [0, 1]) {
+      expect(layer(i).label).not.toContain('thinking.')
+      expect(layer(i).sub).not.toContain('thinking.')
+      expect(layer(i).sub.trim().length).toBeGreaterThan(0)
+    }
+    // No layer wears a tool-call id as its number: the counter is the
+    // position on the spine, so two layers never share one.
+    expect(layer(0).label).not.toEqual(layer(1).label)
   })
 
   test('stacked columns keep exactly two straight edges each — nothing pierces a card', () => {
@@ -808,16 +873,17 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
     expect(roundData(g, 1).folded).toBe(false)
   })
 
-  test('three or more rounds arrive with everything but the newest folded', () => {
-    expect([...defaultFoldedRounds(SPINE_FOLD_THRESHOLD)]).toEqual([0, 1])
-    expect([...defaultFoldedRounds(4)]).toEqual([0, 1, 2])
+  test('three rounds arrive open — evidence hidden by default reads as no evidence', () => {
+    expect([...defaultFoldedRounds(3)]).toEqual([])
+    expect([...defaultFoldedRounds(4)]).toEqual([])
     const g = spine(3, { folded: defaultFoldedRounds(3), onToggle: () => {} })
-    // The folded layers contribute NO column node — the fan is gone from the
-    // graph, not hidden with CSS, so the stacking pass reclaims the row.
+    // Every layer keeps its fan: nothing is reclaimed, nothing is hidden.
     expect(g.nodes.map((n) => n.id)).toEqual([
       'framing',
       'round-0',
+      'r0-col-0',
       'round-1',
+      'r1-col-0',
       'round-2',
       'r2-col-0',
       'findings',
@@ -825,7 +891,9 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
     expect(g.rows).toEqual([
       ['framing'],
       ['round-0'],
+      ['r0-col-0'],
       ['round-1'],
+      ['r1-col-0'],
       ['round-2'],
       ['r2-col-0'],
       ['findings'],
@@ -846,8 +914,7 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
     }
   })
 
-  test('the fold summary is a COUNT, never the query and never the filenames (PF-12)', () => {
-    const translator = createTranslator(de, 'chat') as Translator
+  test('the fold summary carries scent — count plus the top filenames, never the query', () => {
     const steps = [
       retrievalStep(0, 'Fluchtweglänge GK4', 'Zuerst die Grundregel.'),
       toolHit('a', 'OIB-RL_2', 0),
@@ -856,25 +923,47 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
       retrievalStep(1, 'Treppenraum Entrauchung', 'Offen ist der Treppenraum.'),
       toolHit('d', 'Bauordnung', 1),
     ]
+    const cards = [card('OIB-RL_2'), card('Brandschutzkonzept'), card('Grundriss_EG'), card('Bauordnung')]
+    for (const dictionary of [de, en]) {
+      const translator = createTranslator(dictionary, 'chat') as Translator
+      const g = buildGraph(
+        { ...base, steps, answerConfidence: 'high' },
+        translator,
+        planFan(DESKTOP_W, 4),
+        cards,
+        new Map(),
+        { folded: new Set([0]), onToggle: () => {} }
+      )
+      const folded = roundData(g, 0)
+      // Three files: the count, the first name, and "u.a." — never a bare count.
+      expect(folded.foldSummary).toContain('3')
+      expect(folded.foldSummary).toContain('OIB-RL_2')
+      expect(folded.foldSummary).toContain(dictionary === de ? 'u.a.' : 'and others')
+      // …and never the query that produced them (PF-12).
+      expect(folded.foldSummary).not.toContain('Fluchtweg')
+    }
     const g = buildGraph(
       { ...base, steps, answerConfidence: 'high' },
-      translator,
+      createTranslator(de, 'chat') as Translator,
       planFan(DESKTOP_W, 4),
-      [card('OIB-RL_2'), card('Brandschutzkonzept'), card('Grundriss_EG'), card('Bauordnung')],
+      cards,
       new Map(),
       { folded: new Set([0]), onToggle: () => {} }
     )
-    const folded = roundData(g, 0)
-    expect(folded.foldSummary).toBe('3 Dateien')
-    expect(folded.foldSummary).not.toContain('Fluchtweg')
-    expect(folded.foldSummary).not.toContain('OIB-RL_2')
-    expect(folded.toggleLabel).toBe('Schritt 1 aufklappen')
+    expect(roundData(g, 0).toggleLabel).toBe('Schritt 1 aufklappen')
     expect(roundData(g, 1).toggleLabel).toBe('Schritt 2 zuklappen')
   })
 
   test('the singular is spelled, in both locales', () => {
     for (const dictionary of [de, en]) {
       const translator = createTranslator(dictionary, 'chat') as Translator
+      // One file with a known page: document PLUS locus, not a bare "1 Datei".
+      // (The card carries the wire title `a` as-is — the short name only
+      // derives a nicer one when the wire sent none.)
+      const paged: CitedDocument = {
+        ...card('a'),
+        loci: [{ key: 'p3', page: 3, isCited: true }],
+      }
       const g = buildGraph(
         {
           ...base,
@@ -888,14 +977,67 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
         },
         translator,
         planFan(DESKTOP_W, 2),
-        [card('a'), card('b')],
+        [paged, card('b')],
         new Map(),
         { folded: new Set([0]), onToggle: () => {} }
       )
-      const summary = roundData(g, 0).foldSummary
-      expect(summary).toContain('1')
-      expect(summary).not.toContain('{')
-      expect(summary).not.toContain('thinking.')
+      expect(roundData(g, 0).foldSummary).toBe(dictionary === de ? 'a · S. 3' : 'a · p. 3')
+    }
+  })
+
+  test('two files name both, with no count at all', () => {
+    const translator = createTranslator(de, 'chat') as Translator
+    const g = buildGraph(
+      {
+        ...base,
+        steps: [
+          retrievalStep(0, 'q0', 'Zwei Treffer.'),
+          toolHit('a', 'OIB-RL_2', 0),
+          toolHit('b', 'Brandschutzkonzept', 0),
+          retrievalStep(1, 'q1'),
+        ],
+        answerConfidence: 'high',
+      },
+      translator,
+      planFan(DESKTOP_W, 2),
+      [card('OIB-RL_2'), card('Brandschutzkonzept')],
+      new Map(),
+      { folded: new Set([0]), onToggle: () => {} }
+    )
+    const summary = roundData(g, 0).foldSummary
+    expect(summary).toContain('OIB-RL_2')
+    expect(summary).toContain('Brandschutzkonzept')
+    expect(summary).not.toContain('2 Dateien')
+  })
+
+  test('a document the answer never cited folds to its bare name — no borrowed locus', () => {
+    // Cited keeps its locus (the singular test above); retrieved-but-uncited
+    // names none. The fan card already marks it "abgerufen, nicht zitiert",
+    // so a fold naming "S. 3" beside it would promise a Beleg the fan
+    // withholds — while the filename itself still shows.
+    for (const dictionary of [de, en]) {
+      const translator = createTranslator(dictionary, 'chat') as Translator
+      const retrieved: CitedDocument = {
+        ...card('a'),
+        loci: [{ key: 'p3', page: 3, isCited: false }],
+      }
+      const g = buildGraph(
+        {
+          ...base,
+          steps: [
+            retrievalStep(0, 'q0', 'Zuerst die Grundregel.'),
+            toolHit('a', 'a', 0),
+            retrievalStep(1, 'q1'),
+          ],
+          answerConfidence: 'high',
+        },
+        translator,
+        planFan(DESKTOP_W, 1),
+        [retrieved],
+        new Map(),
+        { folded: new Set([0]), onToggle: () => {} }
+      )
+      expect(roundData(g, 0).foldSummary).toBe('a')
     }
   })
 

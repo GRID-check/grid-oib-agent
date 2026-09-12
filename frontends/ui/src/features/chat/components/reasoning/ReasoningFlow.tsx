@@ -5,14 +5,15 @@
  * fetch returned) → findings → (live HITL) branches. One retrieval stays the
  * old fan. A second search is a new layer: conclusion, tools, then its own
  * fan. Each layer speaks the model's thought when it wrote one, never the
- * search query. Files hang off the checkpoint that fetched them, and each
- * checkpoint FOLDS: a click on the layer replaces its fan with the count of
- * what that fetch returned („3 Dateien") and a second click brings it back. A
- * spine of three or more rounds arrives with everything but the newest layer
- * folded, because past the third the graph stops being a shape and becomes a
- * scroll — see `SPINE_FOLD_THRESHOLD`. A folded layer contributes no column
- * nodes at all, so the measured stacking pass reclaims the row rather than
- * leaving a gap where the fan was.
+ * search query. Every layer is numbered in execution order (`Schritt N`) with
+ * a typed sublabel for what it did — tool-call ids are never shown as numbers.
+ * Files hang off the checkpoint that fetched them, and each checkpoint FOLDS:
+ * a click on the layer replaces its fan with the scent of what that fetch
+ * returned (the count plus the top filename(s)) and a second click brings it
+ * back. Every layer arrives EXPANDED — evidence hidden by default reads as no
+ * evidence, so there is no auto-fold; see `defaultFoldedRounds`. A folded
+ * layer contributes no column nodes at all, so the measured stacking pass
+ * reclaims the row rather than leaving a gap where the fan was.
  * derived from the SAME streamed props the old ReasoningChain used, so the graph
  * grows as a turn streams in. The canvas is non-interactive (no pan/zoom/drag)
  * and renders at 1:1 — its height comes from MEASURED node heights (no fitView,
@@ -141,7 +142,8 @@ import { useLayoutStore } from '@/features/layout/store'
 import { TechnicalSteps } from './TechnicalSteps'
 import type { ThinkingStep, CitationSource } from '../../types'
 import { deriveTraceLanes } from '../../lib/trace-lanes'
-import { buildCitationModel, totalHits, type CitedDocument } from '../../lib/citations'
+import { buildCitationModel, citedLoci, totalHits, type CitedDocument, type CitationLocus } from '../../lib/citations'
+import { documentShortName } from '../../lib/document-names'
 import { SourceCard } from './SourceCard'
 import { SectionLabel } from '@/components/ui/section-label'
 import { BranchOptions } from './BranchOptions'
@@ -285,7 +287,14 @@ type FindingsData = {
 }
 type BranchesData = { prompt: ChoicePrompt; onRespond: (id: string, choice: string) => void; sub: string; targets: HandleSpec[] }
 type RoundData = {
+  /** `Schritt N` — one counter for every layer, in 1-based execution order. */
   label: string
+  /**
+   * WHAT the layer did (Suche / Lesen / Befund / Schluss), read off
+   * reason × files — see `roundKind`. The number is the order; this is the
+   * type. Tool-call ids never appear as numbers.
+   */
+  sub: string
   text: string
   /** Architect-facing names of the tools this checkpoint actually called. */
   actions: string[]
@@ -299,7 +308,13 @@ type RoundData = {
   foldable: boolean
   /** Folded — the fan is gone and {@link foldSummary} stands in its place. */
   folded: boolean
-  /** „3 Dateien". The COUNT, never the query — the same PF-12 rule as the body. */
+  /**
+   * The scent of the folded fan: the count plus the top filename(s) — one
+   * file is document + its cited locus (bare name when uncited), two are
+   * both names, three or more are count + first name + "u.a."
+   * (see `foldSummary`). Never a bare count, and never
+   * the query — the same PF-12 rule as the body.
+   */
   foldSummary: string
   /** Accessible name of the fold control; the card's own text is the context. */
   toggleLabel: string
@@ -354,7 +369,9 @@ const RoundFlowNode: FC<NodeProps<Node<RoundData>>> = ({ data }) => (
       />
     )}
     <div className="flex items-start justify-between gap-2">
-      <Eyebrow>{data.label}</Eyebrow>
+      <Eyebrow>
+        {data.label} · {data.sub}
+      </Eyebrow>
       {data.foldable && (
         <ChevronDown
           aria-hidden="true"
@@ -378,9 +395,9 @@ const RoundFlowNode: FC<NodeProps<Node<RoundData>>> = ({ data }) => (
         ))}
       </ul>
     ) : null}
-    {/* Folded: the fan collapses to what it WAS — a count. Not the query, and
-        not the filenames either: a list of names is the fan again, in worse
-        typography. */}
+    {/* Folded: the fan collapses to its scent — the count plus the top
+        filename(s). Not the query (PF-12), and never a bare count: evidence
+        hidden behind a number reads as no evidence. */}
     {data.foldable && data.folded ? (
       <p className="mt-1.5 border-t border-base pt-1.5 text-xs leading-relaxed text-muted-foreground">
         {data.foldSummary}
@@ -832,24 +849,84 @@ export interface BuiltGraph {
  * How many retrieval rounds a spine may show in full before the older layers
  * arrive folded.
  *
- * Two is a comparison — "it looked here, then it looked there" — and folding
- * either half of a comparison hides the thing the reader came for. Three is
- * where the graph stops being a shape and starts being a scroll: at the 680px
- * thread column a checkpoint plus its fan is ~230px, so the third layer is the
- * one that pushes the assessment below the fold on a laptop. From there the
- * newest round is the live one and the older ones are the record, so the record
- * arrives closed and opens on a click.
+ * RESERVED, not read: every layer currently arrives expanded, because evidence
+ * hidden by default reads as no evidence. The manual fold control stays — the
+ * reader can still close any layer by hand — and should a turn shape arrive
+ * that needs an auto-fold again, this is the dial, not a new rule.
  */
 export const SPINE_FOLD_THRESHOLD = 3
 
 /**
  * Which layers a spine of `count` rounds opens with, before the reader touches
- * anything. Exported because it is the rule, not an implementation detail —
- * `ReasoningFlow` seeds its state from it and the spec asserts it directly.
+ * anything: all of them. Exported because it is the rule, not an
+ * implementation detail — `ReasoningFlow` seeds its state from it and the spec
+ * asserts it directly.
  */
-export function defaultFoldedRounds(count: number): Set<number> {
-  if (count < SPINE_FOLD_THRESHOLD) return new Set()
-  return new Set(Array.from({ length: count - 1 }, (_, i) => i))
+export function defaultFoldedRounds(_count: number): Set<number> {
+  return new Set()
+}
+
+/**
+ * WHAT a retrieval layer did, from the two facts the spine already owns about
+ * it: whether the model wrote a Thought (it concluded something) and whether
+ * the fetch returned files. A layer that concluded on the back of what it
+ * fetched is a finding; a bare fetch that returned nothing is a search. The
+ * NUMBER on the layer (`Schritt N`) is the execution order; this is the type.
+ */
+function roundKind(hasThought: boolean, fileCount: number, t: Translator): string {
+  if (hasThought && fileCount > 0) return t('thinking.node.stepKindFinding')
+  if (hasThought) return t('thinking.node.stepKindConclusion')
+  if (fileCount > 0) return t('thinking.node.stepKindRead')
+  return t('thinking.node.stepKindSearch')
+}
+
+/**
+ * The locus a folded single-file layer names beside the document: the cited
+ * passage when the answer cited one, else nothing. A document the answer never
+ * cited names NO locus — its fan card already reads "abgerufen, nicht
+ * zitiert", so a fold naming a passage beside it would promise a Beleg the
+ * fan withholds. Punkt wins over page — it is the finer address.
+ */
+function foldLocusOf(doc: CitedDocument): CitationLocus | undefined {
+  const loci = citedLoci(doc)
+  if (loci.length === 0) return undefined
+  return (
+    loci.find((locus) => locus.punkt?.trim()) ??
+    loci.find((locus) => typeof locus.page === 'number') ??
+    loci[0]
+  )
+}
+
+function foldLocusLabel(doc: CitedDocument, t: Translator): string | undefined {
+  const locus = foldLocusOf(doc)
+  if (!locus) return undefined
+  const punkt = locus.punkt?.trim()
+  const page = typeof locus.page === 'number' ? locus.page : undefined
+  if (punkt && page !== undefined) return t('thinking.node.roundFoldLocusPunktPage', { punkt, page })
+  if (punkt) return t('thinking.node.roundFoldLocusPunkt', { punkt })
+  if (page !== undefined) return t('thinking.node.roundFoldLocusPage', { page })
+  return undefined
+}
+
+/**
+ * The scent of a folded fan, from the round's own cards (no new backend):
+ * one file is document + its cited locus (bare name when the answer never
+ * cited it — see `foldLocusOf`), two files are both names, three or more are
+ * count + first name + "u.a.". Short names throughout — the edition tail says
+ * nothing a folded layer needs. Empty when the fetch returned nothing (the
+ * layer is then not foldable, so this never renders).
+ */
+function foldSummary(roundCards: CitedDocument[], t: Translator): string {
+  const names = roundCards.map((doc) => documentShortName(doc.fileName ?? doc.title, doc.title))
+  if (names.length === 0) return ''
+  if (names.length === 1) {
+    const locus = foldLocusLabel(roundCards[0]!, t)
+    return locus
+      ? t('thinking.node.roundFoldOne', { name: names[0], locus })
+      : t('thinking.node.roundFoldOneBare', { name: names[0] })
+  }
+  if (names.length === 2) return t('thinking.node.roundFoldTwo', { first: names[0], second: names[1] })
+  return t('thinking.node.roundFoldMany', { count: names.length, first: names[0] })
 }
 
 /**
@@ -1103,17 +1180,15 @@ export function buildGraph(
       const fan = fans[i]!
       const fileCount = fan.roundCards.length
       const roundData: RoundData = {
-        label: t(text ? 'thinking.node.checkpointTab' : 'thinking.node.roundTab', { n: i + 1 }),
+        label: t('thinking.node.stepTab', { n: i + 1 }),
+        sub: roundKind(text.length > 0, fileCount, t),
         text,
         actions: actionLabels(round.tools),
         targets: [CENTRE_TOP],
         sources: [CENTRE_BOTTOM],
         foldable: fileCount > 0,
         folded: fan.folded,
-        foldSummary: t(
-          fileCount === 1 ? 'thinking.node.roundFilesOne' : 'thinking.node.roundFiles',
-          { count: fileCount }
-        ),
+        foldSummary: foldSummary(fan.roundCards, t),
         toggleLabel: t(fan.folded ? 'thinking.node.roundUnfold' : 'thinking.node.roundFold', {
           n: i + 1,
         }),
@@ -1438,9 +1513,9 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
 
   /**
    * Which checkpoint layers the reader has folded or unfolded BY HAND, keyed by
-   * round index. Absent means "whatever `defaultFoldedRounds` says", so a turn
-   * that streams a third round folds the older two on arrival — and a layer the
-   * reader opened stays open when the fourth lands.
+   * round index. Absent means "whatever `defaultFoldedRounds` says" — which is
+   * currently nothing, so every layer arrives expanded and only a click folds
+   * one. A layer the reader folded stays folded when later rounds stream in.
    *
    * Component state, and not the thinking store, because there is no natural
    * place for it there: `ReasoningFlow` is handed steps, not a message id
