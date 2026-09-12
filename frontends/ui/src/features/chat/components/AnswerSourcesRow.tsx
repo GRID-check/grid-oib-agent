@@ -64,6 +64,14 @@ interface AnswerSourcesRowProps {
    * drawing a second one there produced the doubled line above the chips.
    */
   withDivider?: boolean
+  /**
+   * Render the chips in the muted/neutral variant: labels, authority badges
+   * and links stay, the lane tint fills go. `AgentResponse` sets this once the
+   * answer's chromatic spend reaches two (evidence block, takeaways, a
+   * frist/achtung callout) so the provenance row stops spending hue the answer
+   * already spent. Defaults to false — the current tinted behavior.
+   */
+  muted?: boolean
 }
 
 /**
@@ -91,6 +99,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
   routingDecision,
   isStreaming = false,
   withDivider = true,
+  muted = false,
 }) => {
   const t = useTranslations('chat')
   const metaFor = useSourceMeta()
@@ -102,6 +111,12 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
   const numbered = documents.filter((doc) => citationNumbers(doc).length > 0)
   const rest = documents.filter((doc) => citationNumbers(doc).length === 0)
   const shown = [...numbered, ...rest.slice(0, Math.max(0, MAX_ANSWER_SOURCES - numbered.length))]
+  // Muted chips keep everything the chip SAYS (label, authority, markers,
+  // links) and lose only the lane tint fills: the tint is repainted to the
+  // neutral `auto` family, which every chip shape already knows how to paint.
+  const display: CitedDocument[] = muted
+    ? shown.map((doc) => (doc.tint === 'auto' ? doc : { ...doc, tint: 'auto' as CitedDocument['tint'] }))
+    : shown
 
   if (shown.length === 0) {
     // Honest "Lücke" treatment (design language §Domain-specific): a substantive
@@ -134,7 +149,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
     )
   }
 
-  const refs: CitationRef[] = shown.map((doc) => ({ document: doc }))
+  const refs: CitationRef[] = display.map((doc) => ({ document: doc }))
 
   return (
     <div
@@ -143,7 +158,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
       aria-label={t('answerSources.ariaLabel')}
     >
       <SectionLabel>{t('answerSources.label')}</SectionLabel>
-      {shown.map((doc) => {
+      {display.map((doc) => {
         const numbers = citationNumbers(doc)
         // The chip the reader just asked about, from an inline [N] or a shared
         // link. Marking it is what turns "the page scrolled" into "THIS is the
