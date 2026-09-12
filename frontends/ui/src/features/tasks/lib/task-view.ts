@@ -36,3 +36,22 @@ export interface TaskWireRow {
   /** The sanitized, user-safe error the worker reported. */
   error: string | null
 }
+
+/**
+ * Submission words the wire may still carry, mapped to planner words.
+ *
+ * The task vocabulary talks about WORK (`queued`/`running`/…), but a status
+ * that names the submission (`submitted`, `pending`) can still reach this
+ * surface — and the row would then render the raw token to an architect.
+ * Both mean "accepted, not started", which is exactly what `queued` says, so
+ * they are folded there. Backend enums are untouched: this maps at the view
+ * boundary only. Anything else passes through unchanged — an unknown status
+ * is rendered as before, not reworded into a claim about the work.
+ */
+const SUBMISSION_STATUS_TO_PLANNER: Record<string, TaskStatus> = {
+  submitted: 'queued',
+  pending: 'queued',
+}
+
+export const normalizeTaskStatus = (status: string): TaskStatus =>
+  SUBMISSION_STATUS_TO_PLANNER[status.trim().toLowerCase()] ?? (status as TaskStatus)

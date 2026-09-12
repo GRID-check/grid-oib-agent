@@ -137,17 +137,20 @@ export const CARD_INTERACTIVITY: Record<GridCard['type'], CardInteractivity> = {
   // decision, so there is nothing to remember across a reload.
   follow_ups: 'presentational',
   document_grid: 'presentational',
-  // Reports a draft the working directory holds, and — once `file_draft` has
-  // run — the project document it became. „Zur Freigabe einreichen" on a filed
-  // card is a real write through the lifecycle client: it opens an inbox item
-  // on a reviewer and moves the version to `in_review`, from which it can no
-  // longer be replaced. Pressing it twice is not idempotent, and a card that
-  // forgot it had been pressed would ask a colleague twice.
+  // Reports a draft the working directory holds, and — once it has been filed,
+  // whether by Piloti or by the reader's own press — the project document it
+  // became. „Zur Freigabe einreichen" on a filed card is a real write through
+  // the lifecycle client: it opens an inbox item on a reviewer and moves the
+  // version to `in_review`, from which it can no longer be replaced. Pressing
+  // it twice is not idempotent, and a card that forgot it had been pressed
+  // would ask a colleague twice.
   //
-  // The UNFILED card's „Ins Projekt übernehmen" writes nothing at all — it
-  // prefills the composer, like a follow-up chip — so it is not what makes this
-  // line interactive. See `DocumentDraftCard` for why filing cannot happen from
-  // the browser.
+  // The UNFILED card's „Ins Projekt ablegen" files the draft directly through
+  // the BFF's draft-file door, in the reader's own session, and records
+  // `filed` — see `DocumentDraftCard`. The decision is record-only: a
+  // `CardInteraction` carries no document id, so the open link lives in the
+  // card's own mount state and a reload restores it through the same
+  // idempotent press.
   document_draft: 'interactive',
   // Reports a task row the BFF has ALREADY created — `create_task` returns the
   // id this card carries. There is nothing to accept: the only controls a
@@ -233,6 +236,16 @@ export const CARD_DECISIONS = [
    * Files pane — honest about what it knows and about what it does not.
    */
   'partiallyApplied',
+  /**
+   * document_draft: the reader filed the unfiled draft into the project
+   * themselves, through the BFF's draft-file door.
+   *
+   * Record-only, like every decision here: the open link is NOT stored (a
+   * `CardInteraction` is a decision plus a timestamp, ADR-0030), so after a
+   * reload the card knows it was filed and restores the link through the same
+   * idempotent press rather than remembering it.
+   */
+  'filed',
   /**
    * document_draft: the filed draft was sent for approval.
    *

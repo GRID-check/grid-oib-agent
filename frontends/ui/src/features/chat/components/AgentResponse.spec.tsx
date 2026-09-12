@@ -5,6 +5,7 @@ import { AgentResponse } from './AgentResponse'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
 import type { LayoutStore } from '@/features/layout/types'
 import type { ChatStoreWithHydration } from '../store'
+import type { SourcePreviewChipProps } from './SourcePreview'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 
 /**
@@ -75,6 +76,23 @@ vi.mock('../hooks', () => ({
     clearError: vi.fn(),
   }),
 }))
+
+// The provenance chips render their tint as a CSS-var inline style, which
+// jsdom's CSS parser drops — so the hue-budget tests below read the signal
+// off a wrapper around the REAL chip instead of off the DOM. Rendering stays
+// real (links, badges, popovers), which is why every other test in this file
+// is unaffected.
+vi.mock('./SourcePreview', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./SourcePreview')>()
+  return {
+    ...actual,
+    SourcePreviewChip: (props: SourcePreviewChipProps) => (
+      <span data-signal={props.citation.document.tint}>
+        <actual.SourcePreviewChip {...props} />
+      </span>
+    ),
+  }
+})
 
 // Mock MarkdownRenderer to render content as plain text for testing
 vi.mock('@/shared/components/MarkdownRenderer', () => ({
@@ -245,10 +263,10 @@ describe('AgentResponse', () => {
     expect(screen.getByText('Summary content')).toBeInTheDocument()
     expect(screen.getByText('Point one')).toBeInTheDocument()
     // An unplaced legal_basis is not a fallback-grid item: it renders flat
-    // above the prose (`EvidenceBlock`) — eyebrow, law, quote and disclaimer,
-    // but never the framed card's plain-language summary.
+    // above the prose (`EvidenceBlock`) — eyebrow, one Fundstelle line, quote
+    // and disclaimer, but never the framed card's plain-language summary.
     expect(screen.getByText('Legal basis')).toBeInTheDocument()
-    expect(screen.getByText('GDPR')).toBeInTheDocument()
+    expect(screen.getByText('GDPR · 5 · 1')).toBeInTheDocument()
     expect(screen.getByText('Original legal text')).toBeInTheDocument()
     expect(screen.queryByText('Summary of the legal basis')).not.toBeInTheDocument()
     const text = container.textContent ?? ''
@@ -977,6 +995,132 @@ describe('AgentResponse', () => {
       expect(text).not.toContain('Binnen sechs Wochen')
       // The takeaways still close the answer.
       expect(text).toContain('Maßgeblich ist das Fluchtniveau')
+    })
+
+    test('a summary that restates the body’s opening is dropped from the masthead', () => {
+      // The same statement twice: the body states it once, so the masthead —
+      // with no verdict and no topic — renders nothing at all.
+      const { container } = render(
+        <AgentResponse
+          content="In GK 4 gilt REI 60."
+          answerMeta={{ v: 1, kind: 'walkthrough', summary: 'In GK 4 gilt REI 60.' }}
+        />
+      )
+      expect(container.textContent?.match(/In GK 4 gilt REI 60\./g)).toHaveLength(1)
+      expect(container.querySelector('header')).toBeNull()
+    })
+
+    test('a citation-suffixed restatement is dropped too', () => {
+      const { container } = render(
+        <AgentResponse
+          content="In GK 4 gilt REI 60."
+          answerMeta={{ v: 1, kind: 'walkthrough', summary: 'In GK 4 gilt REI 60. [1]' }}
+        />
+      )
+      expect(container.querySelector('header')).toBeNull()
+      expect(container.textContent).toContain('In GK 4 gilt REI 60.')
+    })
+
+    test('a genuinely different summary still headlines the answer', () => {
+      const { container } = render(
+        <AgentResponse content="REI 60 gilt, und maßgeblich ist das Fluchtniveau." answerMeta={answerMeta} />
+      )
+      expect(container.querySelector('header')?.textContent).toContain('In GK 4 gilt REI 60')
+    })
+  })
+
+  describe('the provenance row’s hue budget', () => {
+    const citations = [
+      {
+        id: 'hue-c1',
+        content: '[KB] oib-rl_2.pdf, p.12',
+        timestamp: new Date('2026-08-18T09:00:00Z'),
+        title: 'OIB-Richtlinie 2',
+        citationKey: 'oib-rl_2.pdf, p.12',
+        fileName: 'oib-rl_2.pdf',
+        collection: 'oib_knowledge',
+        kind: 'baurecht' as const,
+        origin: 'kb' as const,
+        page: 12,
+        number: 1,
+        isCited: true,
+      },
+    ]
+    const takeaways = [
+      { text: 'Maßgeblich ist das Fluchtniveau' },
+      { text: 'Tragende Bauteile mindestens REI 60' },
+    ]
+    const legalBasis = {
+      type: 'legal_basis' as const,
+      law: 'OIB-Richtlinie 2',
+      lane: 'baurecht_oib' as const,
+      edition: 'Ausgabe Mai 2023',
+      article: '3.1.1',
+      section: '2.3',
+      summary: 'Tragende Bauteile in GK 4: mindestens REI 60.',
+      original_text: 'Tragende Bauteile sind in REI 60 auszuführen.',
+    }
+
+    const chipSignal = (container: HTMLElement): string | null =>
+      container.querySelector('[data-signal]')?.getAttribute('data-signal') ?? null
+
+    test('one chromatic accent keeps the chips tinted', async () => {
+      // Takeaways alone spend one hue — the Baurecht chip keeps its lane tint
+      // (the OIB accent, resolved off the fixture's filename).
+      const { container } = render(
+        <AgentResponse
+          content="Maßgeblich ist das Fluchtniveau."
+          citations={citations}
+          answerMeta={{ v: 1, kind: 'walkthrough', takeaways }}
+        />
+      )
+      expect(chipSignal(container)).toBe('oib')
+    })
+
+    test('evidence plus takeaways mute the chips (spend two)', async () => {
+      const { container } = render(
+        <AgentResponse
+          content="Die Antwort steht in der Richtlinie."
+          citations={citations}
+          cards={[legalBasis]}
+          answerMeta={{ v: 1, kind: 'walkthrough', takeaways }}
+        />
+      )
+      expect(chipSignal(container)).toBe('auto')
+    })
+
+    test('a frist callout plus takeaways mute the chips', async () => {
+      const { container } = render(
+        <AgentResponse
+          content="Maßgeblich ist das Fluchtniveau."
+          citations={citations}
+          answerMeta={{
+            v: 1,
+            kind: 'walkthrough',
+            callout: { kind: 'frist' as const, text: 'Binnen sechs Wochen anzuberaumen.' },
+            takeaways,
+          }}
+        />
+      )
+      expect(chipSignal(container)).toBe('auto')
+    })
+
+    test('a hinweis callout plus takeaways keep the chips tinted', async () => {
+      // Hinweis rides the neutral tier — it spends no hue, so the spend stays
+      // at one and the chips keep their tint.
+      const { container } = render(
+        <AgentResponse
+          content="Maßgeblich ist das Fluchtniveau."
+          citations={citations}
+          answerMeta={{
+            v: 1,
+            kind: 'walkthrough',
+            callout: { kind: 'hinweis' as const, text: 'Die Frist läuft ab Zustellung.' },
+            takeaways,
+          }}
+        />
+      )
+      expect(chipSignal(container)).toBe('oib')
     })
   })
 

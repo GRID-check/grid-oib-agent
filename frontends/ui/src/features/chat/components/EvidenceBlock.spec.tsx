@@ -114,16 +114,17 @@ const legalBasis = (law: string): LegalBasisCardData => ({
 })
 
 describe('EvidenceBlock', () => {
-  test('renders law, reference, quote, Fundstelle and the muted disclaimer', () => {
+  test('renders one Fundstelle line, the quote and the muted disclaimer', () => {
     renderDeBare(<EvidenceBlock card={legalBasis('OIB-Richtlinie 2')} />)
 
     expect(screen.getByRole('region', { name: 'Rechtsgrundlage' })).toBeInTheDocument()
-    expect(screen.getByText('OIB-Richtlinie 2')).toBeInTheDocument()
-    expect(screen.getByText(/3\.1\.1 · 2\.3/)).toBeInTheDocument()
+    // Law, article, section and edition merge into ONE muted sentence above
+    // the quote — never a semibold law line plus a separate edition line.
+    const fundstelle = screen.getByText('OIB-Richtlinie 2 · 3.1.1 · 2.3 · Ausgabe Mai 2023')
+    expect(fundstelle).toHaveClass('text-muted-foreground')
     expect(
       screen.getByText('Tragende Bauteile sind in REI 60 auszuführen.')
     ).toBeInTheDocument()
-    expect(screen.getByText('Ausgabe Mai 2023')).toBeInTheDocument()
     expect(screen.getByText(EVIDENCE_DE)).toBeInTheDocument()
   })
 
@@ -144,7 +145,24 @@ describe('EvidenceBlock', () => {
     )
   })
 
-  test('a bare citation renders law, eyebrow and disclaimer — nothing else', () => {
+  test('borrows no hue of its own — the rule is the cited norm’s lane tint, never red', () => {
+    // The semantic color contract: RECHTSGRUNDLAGE argues from a source, it
+    // never warns — so no alarm wash, edge or ink may appear on this block in
+    // any lane, including an unclassified one.
+    for (const lane of ['baurecht_oib', 'baurecht_ris', null] as const) {
+      const { container, unmount } = renderDeBare(
+        <EvidenceBlock card={{ ...legalBasis('OIB-RL 2'), lane }} />
+      )
+      const cls = container.querySelector('section')?.className ?? ''
+      expect(cls).toContain('border-l-2')
+      for (const alarm of ['danger', 'error', 'warning', 'success']) {
+        expect(cls, `lane ${String(lane)} must not carry ${alarm}`).not.toContain(alarm)
+      }
+      unmount()
+    }
+  })
+
+  test('a bare citation renders the law as the whole Fundstelle line — nothing else', () => {
     const { container } = renderDeBare(
       <EvidenceBlock
         card={{
@@ -217,7 +235,7 @@ describe('AgentResponse evidence wiring', () => {
   })
 
   test('only the first unplaced legal_basis goes flat — the second keeps its framed fallback', () => {
-    renderDe(
+    const { container } = renderDe(
       <AgentResponse
         content="Die Antwort steht in zwei Quellen."
         cards={[legalBasis('OIB-Richtlinie 2'), legalBasis('Wiener Bauordnung')]}
@@ -225,8 +243,12 @@ describe('AgentResponse evidence wiring', () => {
     )
     expect(screen.getAllByText(EVIDENCE_DE)).toHaveLength(1)
     expect(screen.getAllByText(FRAMED_DE)).toHaveLength(1)
-    expect(screen.getByText('OIB-Richtlinie 2')).toBeInTheDocument()
-    expect(screen.getByText('Wiener Bauordnung')).toBeInTheDocument()
+    // One law per register: the flat Fundstelle line names the first, the
+    // framed card the second — asserted on the whole text because both
+    // registers word the law itself the same way.
+    const text = container.textContent ?? ''
+    expect(text).toContain('OIB-Richtlinie 2')
+    expect(text).toContain('Wiener Bauordnung')
   })
 
   test('without a legal_basis card there is no evidence block', () => {

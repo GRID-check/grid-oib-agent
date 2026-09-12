@@ -37,6 +37,7 @@ RESPONSE_LIFTS: tuple[tuple[str, str, str | None], ...] = (
     ("deep_research_job_id", "deep_research_job_id", None),
     ("answer_confidence", "answer_confidence", None),
     ("verified_sources", "sources", None),
+    ("read_sources", "read_sources", None),
     ("routing_decision", "routing_decision", None),
     ("escalation_reason", "escalation_reason", None),
     ("answer_confidence_capped_reason", "answer_confidence_capped_reason", None),

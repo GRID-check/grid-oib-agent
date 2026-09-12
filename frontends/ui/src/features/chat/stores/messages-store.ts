@@ -686,6 +686,11 @@ const buildAgentResponseMessage = (
     ...(opts.transparency?.citationsRemoved
       ? { citationsRemoved: opts.transparency.citationsRemoved }
       : {}),
+    // Retrieved-but-uncited documents for the "Gelesen, nicht zitiert"
+    // disclosure. Absent when everything retrieved was cited.
+    ...(opts.transparency?.readSources && opts.transparency.readSources.length > 0
+      ? { readSources: opts.transparency.readSources }
+      : {}),
     ...(opts.transparency?.researchTruncated ? { researchTruncated: true as const } : {}),
     // The answer's structured anatomy — already sanitized at the wire boundary.
     ...(opts.transparency?.answerMeta ? { answerMeta: opts.transparency.answerMeta } : {}),
@@ -1553,6 +1558,9 @@ export const createMessagesSlice: StateCreator<ChatStore, [["zustand/devtools", 
           ? { answerConfidenceReason: transparency.answerConfidenceReason }
           : {}),
         ...(transparency?.citationsRemoved ? { citationsRemoved: transparency.citationsRemoved } : {}),
+        ...(transparency?.readSources && transparency.readSources.length > 0
+          ? { readSources: transparency.readSources }
+          : {}),
         ...(transparency?.researchTruncated ? { researchTruncated: true as const } : {}),
         ...(transparency?.answerMeta ? { answerMeta: transparency.answerMeta } : {}),
         ...(transparency?.truncationReason ? { truncationReason: transparency.truncationReason } : {}),

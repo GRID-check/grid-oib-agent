@@ -8,7 +8,12 @@
  * while the draft is unfiled: it lives only in the agent store under
  * `/entwuerfe/`. So this renders the fetched markdown directly through
  * `FileTextPage` (which itself uses `MarkdownRenderer`), with the draft's own
- * facts — version, bytes, path — in the chrome above it.
+ * facts — path, and past the first write the version, and bytes — in the
+ * chrome above it.
+ *
+ * One fixed header, one scroll container: the dialog itself never scrolls, so
+ * a long draft gets a single scrollbar on its words rather than one per
+ * nesting level.
  *
  * Presentational view state only: opening it writes nothing, which is why the
  * card stays in its `CARD_INTERACTIVITY` classification. Errors render as an
@@ -59,19 +64,30 @@ export const DocumentDraftPreviewDialog: FC<DocumentDraftPreviewDialogProps> = (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent
         data-testid="document-draft-preview"
-        className="flex max-h-[85vh] flex-col sm:max-w-[720px]"
+        className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-3xl"
       >
-        <DialogTitle className="truncate pr-8" title={title}>
-          {title}
-        </DialogTitle>
-        <p
-          className="card-caption truncate font-mono text-muted-foreground"
-          title={path}
-          data-testid="document-draft-preview-meta"
-        >
-          {path} · {t('cards.documentDraft.version', { version })} · {formatBytes(bytes, locale)}
-        </p>
-        <div className="min-h-0 overflow-y-auto">
+        {/* Fixed chrome: the title and the facts never scroll away, and never
+            shrink under the words below. `leading-snug`, because the dialog
+            title's `leading-none` clipped the first line's ascenders; the
+            `title` keeps the whole string reachable past the truncation. */}
+        <div className="min-w-0 shrink-0">
+          <DialogTitle className="truncate pr-8 leading-snug" title={title}>
+            {title}
+          </DialogTitle>
+          <p
+            className="card-caption truncate font-mono text-muted-foreground"
+            title={path}
+            data-testid="document-draft-preview-meta"
+          >
+            {path}
+            {/* One write is no history: the counter appears only once the path
+                has been written again. The size stays — this is the surface
+                that shows the words it measures. */}
+            {version > 1 && ` · ${t('cards.documentDraft.version', { version })}`} ·{' '}
+            {formatBytes(bytes, locale)}
+          </p>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {loading ? (
             <p className="py-8 text-center text-sm text-muted-foreground" data-testid="document-draft-preview-loading">
               {t('cards.documentDraft.previewLoading')}
@@ -94,11 +110,15 @@ export const DocumentDraftPreviewDialog: FC<DocumentDraftPreviewDialogProps> = (
             </div>
           ) : (
             <div data-testid="document-draft-preview-content">
+              {/* Unconstrained: the page's own 720px cap already matches this
+                  dialog's content width, so capping it again would only
+                  re-narrow what the dialog just widened. */}
               <FileTextPage
                 text={content}
                 truncated={false}
                 contentType="text/markdown"
                 truncatedLabel=""
+                className="max-w-none"
               />
             </div>
           )}

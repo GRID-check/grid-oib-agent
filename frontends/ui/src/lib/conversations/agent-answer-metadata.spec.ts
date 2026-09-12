@@ -270,6 +270,7 @@ describe('normalizeAgentAnswerMetadata', () => {
 
     for (const key of [
       'sources',
+      'read_sources',
       'answer_confidence',
       'answer_confidence_reason',
       'deep_research_job_id',
@@ -280,6 +281,29 @@ describe('normalizeAgentAnswerMetadata', () => {
     ]) {
       expect(result).not.toHaveProperty(key)
     }
+  })
+
+  it('translates read_sources into the readSources envelope the mapper restores', () => {
+    // The backend-written row for a turn whose client dropped mid-turn must
+    // reopen with the same disclosure a live tab showed.
+    const result = normalizeAgentAnswerMetadata({
+      sources: [kbSource()],
+      read_sources: [
+        {
+          document_id: 'doc:oib_knowledge:oib-rl_3.pdf',
+          citation_key: 'OIB-RL-3.pdf, p.4',
+          file_name: 'OIB-RL-3.pdf',
+          page: 4,
+          kind: 'baurecht',
+          lane: 'baurecht_oib',
+        },
+      ],
+    })
+
+    expect(result?.readSources).toMatchObject({ v: CITATIONS_PAYLOAD_VERSION })
+    const decoded = decodeCitations(result?.readSources, new Date('2026-09-01T10:00:00.000Z'))
+    expect(decoded).toHaveLength(1)
+    expect(decoded![0]).toMatchObject({ fileName: 'OIB-RL-3.pdf', page: 4 })
   })
 
   it("normalizes a row that carries ONLY the run's marks", () => {

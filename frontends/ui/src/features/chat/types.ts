@@ -169,6 +169,13 @@ export interface AnswerTransparency {
   answerConfidenceReason?: string
   citationsRemoved?: { count: number; reasons: string[] }
   /**
+   * Retrieved-but-uncited documents for this answer (document key +
+   * lane/kind + page, no prose). Renders the collapsed "Gelesen, nicht
+   * zitiert" disclosure under the answer; absent when everything retrieved
+   * was cited.
+   */
+  readSources?: CitationSource[]
+  /**
    * The turn's research was CUT OFF at its tool-iteration ceiling: the answer
    * rests on the evidence gathered up to that point, not on a finished search.
    * Present or absent, never false. Independent of `answerConfidence` — a
@@ -460,6 +467,13 @@ export interface ChatMessage {
    * sources row when present.
    */
   citationsRemoved?: { count: number; reasons: string[] }
+  /**
+   * Retrieved-but-uncited documents for this answer (document key +
+   * lane/kind + page, no prose). Renders the collapsed "Gelesen, nicht
+   * zitiert" disclosure under the answer; absent when everything retrieved
+   * was cited.
+   */
+  readSources?: CitationSource[]
   /**
    * The turn's research was CUT OFF at its tool-iteration ceiling: the answer
    * rests on the evidence gathered up to that point, not on a finished search.

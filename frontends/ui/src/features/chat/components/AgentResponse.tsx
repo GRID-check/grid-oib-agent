@@ -9,8 +9,9 @@
 'use client'
 
 import { type FC, memo, useCallback, useId, useMemo, useState } from 'react'
-import { Check, ChevronDown, ChevronRight, MessageCircle } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, FileText, MessageCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Chip } from '@/components/ui/chip'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Spinner } from '@/components/ui/spinner'
 import { useShallow } from 'zustand/react/shallow'
@@ -57,7 +58,7 @@ import { SkillsUsedDisclosure } from '@/features/skills/components/SkillsUsedDis
 import { AnswerSourcesRow } from './AnswerSourcesRow'
 import { MemoryNotedChip } from './MemoryNotedChip'
 import { turnMemoryItems, type TurnMemoryItem } from '../lib/turn-memory'
-import { answerMetaToAnatomy } from '../lib/answer-meta-cards'
+import { answerMetaToAnatomy, summaryDuplicatesBody } from '../lib/answer-meta-cards'
 import { AnatomyBlock, AnatomyMasthead } from './AnswerAnatomy'
 import { EvidenceBlock } from './EvidenceBlock'
 import type { AnswerKind, AnswerMeta } from '@/lib/conversations/message-answer-meta'
@@ -176,6 +177,13 @@ export interface AgentResponseProps {
    * "Belegt durch" sources row when present.
    */
   citationsRemoved?: { count: number; reasons: string[] }
+  /**
+   * Retrieved-but-uncited documents for this answer (document key +
+   * lane/kind + page, no prose). Renders the collapsed "Gelesen, nicht
+   * zitiert" disclosure inside the answer details; absent when everything
+   * retrieved was cited.
+   */
+  readSources?: CitationSource[]
   /**
    * The turn's research was cut off at its budget ceiling: this answer rests on
    * the evidence gathered up to that point rather than on a finished search.
@@ -488,6 +496,82 @@ const AnswerDegradedNote: FC<{ degradedReasons?: string[] }> = ({ degradedReason
 }
 
 /**
+ * How many read-but-uncited documents the disclosure shows before it stops.
+ * A summary, not a dump — the same cap the "Belegt durch" row uses, so the
+ * two never disagree about what "a handful" means.
+ */
+const MAX_READ_SOURCES = 8
+
+/**
+ * "Gelesen, nicht zitiert": what the turn read beyond what the answer claims.
+ *
+ * Muted document chips only — a name plus the page, never a passage and
+ * never a claim about what the document says. The label is the document's
+ * identity (`fileName ?? title ?? citationKey`) and nothing else: the entries
+ * ride a `.passthrough()` schema, so `content` on a verbose entry is a locator
+ * line or a passage, and falling back to it would render evidence prose as a
+ * chip. An entry without any identity is skipped, never rendered. The entries
+ * carry no prose by construction (the backend drops every prose key), and this
+ * renders no field that could restate evidence, so an uncited document cannot
+ * ground anything here. Renders nothing when everything retrieved was cited.
+ *
+ * Past eight the list folds behind a disclosure control — the count first,
+ * every name on expand — so a wide retrieval still names each document
+ * without burying the footer. Dedupe stays backend-side: one row per entry.
+ */
+const ReadSourcesSection: FC<{ readSources?: CitationSource[] }> = ({ readSources }) => {
+  const t = useTranslations('chat')
+  const [expanded, setExpanded] = useState(false)
+  const named = useMemo(
+    () =>
+      (readSources ?? []).flatMap((source) => {
+        const label = source.fileName ?? source.title ?? source.citationKey
+        return label === undefined ? [] : [{ source, label }]
+      }),
+    [readSources]
+  )
+  if (named.length === 0) return null
+  const visible = expanded ? named : named.slice(0, MAX_READ_SOURCES)
+  const hidden = named.length - visible.length
+
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="read-sources">
+      <SectionLabel>{t('answerDetails.readSources.label')}</SectionLabel>
+      <div
+        className="flex flex-wrap items-center gap-1.5"
+        role="list"
+        aria-label={t('answerDetails.readSources.label')}
+      >
+        {visible.map(({ source, label }) => (
+          <span key={source.id} role="listitem">
+            <Chip size="sm" variant="muted" data-testid="read-source-chip">
+              <FileText aria-hidden />
+              {label}
+              {typeof source.page === 'number' && (
+                <span className="opacity-80">{t('answerSources.page', { page: source.page })}</span>
+              )}
+            </Chip>
+          </span>
+        ))}
+        {named.length > MAX_READ_SOURCES && (
+          <button
+            type="button"
+            onClick={() => setExpanded((open) => !open)}
+            aria-expanded={expanded}
+            data-testid="read-sources-more"
+            className="cursor-pointer rounded-xs text-xs leading-relaxed text-muted-foreground underline decoration-dotted underline-offset-2 transition-colors duration-quick ease-out hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          >
+            {expanded
+              ? t('answerDetails.readSources.less')
+              : t('answerDetails.readSources.more', { count: hidden })}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
  * The single disclosure in the answer footer.
  *
  * The footer keeps verdict, body, the "Belegt durch" sources row, the copy
@@ -512,6 +596,7 @@ const AnswerDetails: FC<{
   truncationReason?: string
   degradedReasons?: string[]
   citationsRemoved?: { count: number; reasons: string[] }
+  readSources?: CitationSource[]
   hasAnswerSources: boolean
   timestamp?: Date | string
 }> = ({
@@ -527,6 +612,7 @@ const AnswerDetails: FC<{
   truncationReason,
   degradedReasons,
   citationsRemoved,
+  readSources,
   hasAnswerSources,
   timestamp,
 }) => {
@@ -570,6 +656,7 @@ const AnswerDetails: FC<{
           />
           <AnswerDegradedNote degradedReasons={degradedReasons} />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
+          <ReadSourcesSection readSources={readSources} />
           {timestamp && <span className="text-subtle text-xs">{formatTime(timestamp, locale)}</span>}
         </div>
       </CollapsibleContent>
@@ -598,6 +685,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   answerConfidenceCappedReason,
   answerConfidenceReason,
   citationsRemoved,
+  readSources,
   researchTruncated,
   truncationReason,
   degradedReasons,
@@ -658,7 +746,17 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // feeds every CardSetProvider so cross-card rules (charter §A2) see the
   // anatomy too, even though it never joins the `cards` array.
   const anatomy = useMemo(() => answerMetaToAnatomy(answerMeta), [answerMeta])
-  const ledeClass = opensWithLede(body, stillArriving) && !anatomy?.summary && !anatomy?.topic ? LEDE_CLASS : ''
+  // A summary that restates the body's opening is the same statement twice,
+  // so the masthead drops it (see `summaryDuplicatesBody` in the module
+  // above). The lede gate reads the DROPPED value: a hidden summary hands
+  // the emphasis back to the first paragraph instead of leaving the answer
+  // with none.
+  const effectiveSummary = useMemo(
+    () =>
+      anatomy?.summary && summaryDuplicatesBody(anatomy.summary, body) ? undefined : anatomy?.summary,
+    [anatomy, body]
+  )
+  const ledeClass = opensWithLede(body, stillArriving) && !effectiveSummary && !anatomy?.topic ? LEDE_CLASS : ''
   // The files this answer NAMES, as opposed to the ones it cites. A sentence
   // like „Beginnen Sie mit pd8280-2.pdf" is pointing at a document the reader
   // owns, and until the index below resolved that name it was dead text. The
@@ -713,6 +811,25 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     }
     return anatomy.below
   }, [anatomy, body])
+  // The viewport's hue budget: the evidence lane tint, the takeaways'
+  // distillation green and a frist/achtung callout each spend chromatic
+  // presence, so once two of them are on screen the provenance chips mute to
+  // neutral rather than spending a third hue beside them. Labels, authority
+  // badges and links are unaffected — only the lane tint fills go
+  // (`AnswerSourcesRow`'s `muted`).
+  const sourcesMuted = useMemo(() => {
+    let spend = 0
+    if (!stillArriving && evidenceCard?.type === 'legal_basis') spend += 1
+    if (!stillArriving && anatomyBelow.some((card) => card.type === 'key_takeaways')) spend += 1
+    const callout = anatomy?.callout
+    if (callout?.type === 'callout' && (callout.kind === 'frist' || callout.kind === 'achtung')) {
+      const placed = hasPlacedCalloutMarker(body)
+      if (placed || (!stillArriving && anatomyBelow.some((card) => card.type === 'callout'))) {
+        spend += 1
+      }
+    }
+    return spend >= 2
+  }, [stillArriving, evidenceCard, anatomyBelow, anatomy, body])
   // Renders nothing when the index has no card yet — while streaming a marker
   // routinely arrives several frames before the card it names, and a hole is
   // better than a crash or a raw `[[card:2]]`.
@@ -881,7 +998,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     (skillsActivated?.length ?? 0) > 0 ||
     Boolean(researchTruncated) ||
     (degradedReasons?.length ?? 0) > 0 ||
-    (citationsRemoved?.count ?? 0) > 0
+    (citationsRemoved?.count ?? 0) > 0 ||
+    (readSources?.length ?? 0) > 0
 
   /**
    * Where a diagram inside this answer may be filed — or nothing at all.
@@ -1017,6 +1135,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           anchorPrefix={anchorPrefix}
           routingDecision={routingDecision}
           isStreaming={stillArriving}
+          muted={sourcesMuted}
         />
 
         {/* No copy actions here, deliberately. This variant is the box-less
@@ -1050,6 +1169,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 truncationReason={truncationReason}
                 degradedReasons={degradedReasons}
                 citationsRemoved={citationsRemoved}
+                readSources={readSources}
                 hasAnswerSources={hasAnswerSources}
                 timestamp={timestamp}
               />
@@ -1121,11 +1241,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             one considered object with sections — not a card floating in a tray. */}
         <div className="flex flex-col gap-2 break-words border-b bg-card px-[22px] pb-[17px] pt-[18px]">
           {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
-          {anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic) && (
+          {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
           <CardSetProvider cards={cardSet}>
             <AnatomyMasthead
               verdict={anatomy.verdict}
-              summary={anatomy.summary}
+              summary={effectiveSummary}
               topic={anatomy.topic}
               context={anatomy.context}
               kind={answerMeta?.kind}
@@ -1224,6 +1344,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             routingDecision={routingDecision}
             isStreaming={stillArriving}
             withDivider={false}
+            muted={sourcesMuted}
           />
           {reserveMetaRow && (
             <div
@@ -1267,6 +1388,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   truncationReason={truncationReason}
                   degradedReasons={degradedReasons}
                   citationsRemoved={citationsRemoved}
+                  readSources={readSources}
                   hasAnswerSources={hasAnswerSources}
                   timestamp={timestamp}
                 />

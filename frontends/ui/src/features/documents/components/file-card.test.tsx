@@ -327,7 +327,7 @@ describe('FileCard and the version state badge', () => {
     expect(screen.getByTestId('document-version-badge')).toHaveTextContent('In review')
   })
 
-  it('speaks for a first draft Piloti wrote, and keeps it out of the footer', () => {
+  it('stays silent on a first draft Piloti wrote — one version is no history', () => {
     render(
       <FileCard
         file={{
@@ -343,12 +343,10 @@ describe('FileCard and the version state badge', () => {
       />,
     )
 
-    const badge = screen.getByTestId('document-version-badge')
-    expect(badge).toHaveTextContent('Draft')
-    // The footer is the assignment slot — „Unvergeben" and the faces. The
-    // editorial state is a statement about the CONTENT and must not be read as
-    // one about responsibility (ADR-0047 addendum, ADR-0054).
-    expect(screen.getByTestId('file-card').lastElementChild).not.toContainElement(badge)
+    // The byline still says who wrote it; the badge waits for a second
+    // version, when there is something to distinguish.
+    expect(screen.queryByTestId('document-version-badge')).not.toBeInTheDocument()
+    expect(screen.getByText('Created by Piloti')).toBeInTheDocument()
   })
 
   it('says nothing when the listing never read the state', () => {

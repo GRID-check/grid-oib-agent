@@ -80,7 +80,7 @@ describe('the fold control', () => {
     }
   })
 
-  test('a click folds the layer to its count and a second click brings it back', async () => {
+  test('a click folds the layer to its scent and a second click brings it back', async () => {
     const user = userEvent.setup()
     render(<ReasoningFlow steps={spineSteps(2)} userQuestion="Frage?" answerConfidence="high" />)
     expect(cards()).toBe(2)
@@ -88,10 +88,11 @@ describe('the fold control', () => {
     await user.click(toggles()[0]!)
     expect(toggles()[0]!.getAttribute('aria-expanded')).toBe('false')
     expect(cards()).toBe(1)
-    // The count stands in for the fan — and says nothing about the query.
-    // (The suite's default locale is English; the German wording is asserted
-    // against the real dictionary in `ReasoningFlow.spec.ts`.)
-    expect(screen.getByText('1 file')).toBeTruthy()
+    // The scent stands in for the fan: the document name, not a bare count —
+    // and nothing about the query. (The suite's default locale is English;
+    // the German wording is asserted against the real dictionary in
+    // `ReasoningFlow.spec.ts`.)
+    expect(screen.getByText('Quelle 0')).toBeTruthy()
     expect(screen.queryByText(/Suchbegriff/)).toBeNull()
 
     await user.click(toggles()[0]!)
@@ -111,22 +112,22 @@ describe('the fold control', () => {
     expect(toggles()[0]!.getAttribute('aria-expanded')).toBe('false')
   })
 
-  test('three rounds arrive with the older layers already folded', () => {
+  test('three rounds arrive expanded — evidence hidden by default reads as no evidence', () => {
     render(<ReasoningFlow steps={spineSteps(3)} userQuestion="Frage?" answerConfidence="high" />)
     expect(toggles().map((c) => c.getAttribute('aria-expanded'))).toEqual([
-      'false',
-      'false',
+      'true',
+      'true',
       'true',
     ])
-    // Only the newest layer's file is on screen.
-    expect(cards()).toBe(1)
+    // Every layer's file is on screen.
+    expect(cards()).toBe(3)
   })
 
-  test('a layer the reader opened stays open', async () => {
+  test('a layer the reader folded stays folded', async () => {
     const user = userEvent.setup()
     render(<ReasoningFlow steps={spineSteps(3)} userQuestion="Frage?" answerConfidence="high" />)
     await user.click(toggles()[0]!)
-    expect(toggles().map((c) => c.getAttribute('aria-expanded'))).toEqual(['true', 'false', 'true'])
+    expect(toggles().map((c) => c.getAttribute('aria-expanded'))).toEqual(['false', 'true', 'true'])
     expect(cards()).toBe(2)
   })
 

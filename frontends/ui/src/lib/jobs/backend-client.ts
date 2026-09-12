@@ -151,11 +151,14 @@ export async function submitJob(
   }
 
   try {
-    const json = (await response.json()) as { jobId?: string }
-    if (typeof json.jobId !== 'string' || json.jobId.length === 0) {
+    const json = (await response.json()) as { jobId?: string; job_id?: string }
+    // Backend sends snake_case `job_id` (SkillSubmitResponse); accept camelCase
+    // too so either deploy order works.
+    const jobId = json.jobId ?? json.job_id
+    if (typeof jobId !== 'string' || jobId.length === 0) {
       throw new JobSubmitError('backend returned no jobId', 502)
     }
-    return { jobId: json.jobId }
+    return { jobId }
   } catch (err) {
     if (err instanceof JobSubmitError) throw err
     throw new JobSubmitError('malformed backend response', 502)

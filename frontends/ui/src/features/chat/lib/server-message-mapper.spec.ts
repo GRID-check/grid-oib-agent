@@ -340,6 +340,40 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
       expect(mapped!.thinkingSteps).toBeUndefined()
     }
   })
+
+  it('restores the read-but-uncited disclosure from its own envelope', () => {
+    // Stored under `readSources` in the same versioned envelope as the
+    // citations, so a reloaded thread still says what else the turn read.
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: {
+          readSources: {
+            v: 1,
+            sources: [
+              {
+                document_id: 'doc:oib_knowledge:oib-rl_2.pdf',
+                citation_key: 'oib-rl_2.pdf, p.12',
+                file_name: 'oib-rl_2.pdf',
+                page: 12,
+                kind: 'baurecht',
+                lane: 'baurecht_oib',
+              },
+            ],
+          },
+        },
+      }),
+    )
+
+    expect(mapped!.readSources).toHaveLength(1)
+    expect(mapped!.readSources![0]).toMatchObject({ fileName: 'oib-rl_2.pdf', page: 12 })
+  })
+
+  it('adds no disclosure when the row never recorded one', () => {
+    const mapped = mapServerMessageToChatMessage(serverMessage({ role: 'assistant' }))
+
+    expect(mapped!.readSources).toBeUndefined()
+  })
 })
 
 /**

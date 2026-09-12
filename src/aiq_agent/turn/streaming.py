@@ -24,6 +24,9 @@ STREAM_EXTRA_FIELDS = (
     "deep_research_job_id",
     "answer_confidence",
     "sources",
+    # Retrieved-but-uncited document identities (no prose) for the
+    # "Gelesen, nicht zitiert" disclosure — same lift as ``sources``.
+    "read_sources",
     # Transparency extras (WP-A).
     "routing_decision",
     "escalation_reason",

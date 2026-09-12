@@ -1202,6 +1202,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           answerConfidenceCappedReason={message.answerConfidenceCappedReason}
           answerConfidenceReason={message.answerConfidenceReason}
           citationsRemoved={message.citationsRemoved}
+          readSources={message.readSources}
           researchTruncated={message.researchTruncated}
           truncationReason={message.truncationReason}
           degradedReasons={message.degradedReasons}

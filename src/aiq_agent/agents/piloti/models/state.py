@@ -162,6 +162,13 @@ class ResearchAgentState(BaseModel):
     # ``source_entry_to_wire``). Surfaced on the final ChatResponse so the FE
     # can open document previews without inventing filenames.
     verified_sources: list[dict[str, Any]] | None = None
+    # Retrieved-but-NOT-cited documents this turn (wire-ready dicts from
+    # ``read_source_to_wire``: document key + lane/kind + page, NO prose).
+    # Set by ``ledger.assemble_result`` from this turn's captures minus the
+    # cited documents; the frontend renders them as the collapsed
+    # "Gelesen, nicht zitiert" disclosure. None when everything retrieved
+    # was cited (or nothing was retrieved) — absent, never an empty list.
+    read_sources: list[dict[str, Any]] | None = None
     # Skill names FORCED for this turn by the incoming request (parsed from the
     # WS content JSON's `skills` array by Piloti). Resolved
     # against the run's skill set into the forced-activation list. None = no

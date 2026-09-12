@@ -121,6 +121,13 @@ class ConversationState(BaseModel):
     # Structured sources from Piloti's registry (wire dicts with
     # file_name/page/collection/origin). Attached to ChatResponse as ``sources``.
     verified_sources: list[dict[str, Any]] | None = None
+    # Retrieved-but-uncited documents from Piloti's turn (wire dicts with
+    # document key + lane/kind + page, no prose). Lifted unchanged onto the
+    # terminal ChatResponse as ``read_sources`` for the "Gelesen, nicht
+    # zitiert" disclosure. Plain dicts only, like ``verified_sources`` — a
+    # new pydantic type here would also need the checkpointer serde
+    # allowlist (``aiq_agent/common/__init__.py``).
+    read_sources: list[dict[str, Any]] | None = None
     # --- Transparency extras (WP-A) -------------------------------------------
     # All optional/additive: absent means "unknown/not applicable". Lifted onto
     # the terminal ChatResponseChunk (``turn.streaming.STREAM_EXTRA_FIELDS``) and onto

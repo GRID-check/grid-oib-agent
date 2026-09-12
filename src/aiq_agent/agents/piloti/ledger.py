@@ -1,10 +1,12 @@
 """What leaves the turn on the wire, and what the citation-health ledger records.
 
-The wire carries only the sources the model cited in THIS turn's answer
-(never the cumulative session registry) plus this turn's measurements, each
-on its own coarse ``kind``. The ledger row is one batch per turn that
-consulted a source or measured the model; a direct reply has nothing to
-cite, and counting it would inflate the clean rate.
+The wire carries the sources the model cited in THIS turn's answer (never the
+cumulative session registry) plus this turn's measurements, each on its own
+coarse ``kind`` — and, separately, the identities of the documents this turn
+retrieved but did NOT cite (``read_sources``: document key + lane/kind + page,
+no prose). The ledger row is one batch per turn that consulted a source or
+measured the model; a direct reply has nothing to cite, and counting it would
+inflate the clean rate.
 """
 
 from __future__ import annotations
@@ -15,6 +17,8 @@ from typing import Any
 
 from aiq_agent.common import citation_events
 from aiq_agent.common.citation_verification import SourceEntry
+from aiq_agent.common.citation_verification import document_key
+from aiq_agent.common.citation_verification import read_source_to_wire
 from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.citation_verification import source_label
 from aiq_agent.common.citation_verification import source_origin_token
@@ -66,6 +70,45 @@ def wire_sources(cited: Sequence[CitedSource]) -> list[dict[str, Any]]:
                 exc_info=True,
             )
     return wire
+
+
+def read_but_uncited(
+    turn_sources: Sequence[SourceEntry],
+    cited: Sequence[CitedSource],
+) -> list[dict[str, Any]] | None:
+    """Retrieved-but-not-cited documents for the ``read_sources`` wire channel.
+
+    One entry per DOCUMENT (first-seen page wins — the frontend folds pages
+    onto one chip anyway), excluding every document the answer cited. Identity
+    is :func:`document_key`, the same grouping the chips use, so a document
+    cited at p.12 never reappears as "read" via its p.30 passage.
+
+    Entries that identify nothing (a bare tool-result source with neither
+    citation key nor URL — see :func:`source_label`) are dropped: a chip that
+    can open nothing is not transparency, it is noise. Serialised per entry
+    like :func:`wire_sources`, so one malformed source cannot zero out the
+    rest. ``None`` when nothing uncited remains, so the field stays absent
+    rather than null-spammed.
+    """
+    cited_docs = {document_key(source.entry) for source in cited}
+    seen: set[str] = set()
+    wire: list[dict[str, Any]] = []
+    for entry in turn_sources:
+        if source_label(entry) is None:
+            continue
+        key = document_key(entry)
+        if key in cited_docs or key in seen:
+            continue
+        seen.add(key)
+        try:
+            wire.append(read_source_to_wire(entry))
+        except Exception:  # noqa: BLE001 - one bad entry must not drop the turn's disclosure
+            logger.warning(
+                "Skipping read-but-uncited source that failed wire serialization: %s",
+                entry.url or entry.citation_key,
+                exc_info=True,
+            )
+    return wire or None
 
 
 def record_turn_ledger(
@@ -140,6 +183,11 @@ def assemble_result(
         "source_lookup_attempted": final.source_lookup_attempted,
         "answer_meta": final.answer_meta,
         "verified_sources": (wire + measurement_sources_to_wire(list(turn_measurements))) or None,
+        # Retrieved-but-not-cited document identities (no prose): what the
+        # turn read beyond what the answer claims. Computed off the same two
+        # inputs as the ledger row — this turn's captures minus the cited
+        # documents — and lifted unchanged like ``verified_sources``.
+        "read_sources": read_but_uncited(turn_sources, final.cited),
     }
     summary = citations_removed_summary(final.removed_citations)
     if summary is not None:

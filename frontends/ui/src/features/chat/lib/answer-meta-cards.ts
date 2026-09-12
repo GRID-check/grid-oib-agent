@@ -97,3 +97,46 @@ export function answerMetaToAnatomy(meta: AnswerMeta | undefined): AnswerAnatomy
   const all: GridCard[] = verdict ? [verdict, ...below] : [...below]
   return { summary, topic, context, verdict, callout, takeaways, below, all }
 }
+
+/**
+ * Whether the masthead's summary merely restates how the body opens.
+ *
+ * The envelope's `summary` is the whole answer in 1–2 sentences, and the body
+ * it headlines is asked to lead with the ruling or the number — so the two
+ * routinely open with the same sentence, and the masthead then states twice
+ * what the lede already states once. The mapping above is pure (it never sees
+ * the body), so the gate lives in `AgentResponse`, which holds both: it hides
+ * the summary when this returns true.
+ *
+ * Comparison is normalized, not literal: surrounding whitespace is collapsed,
+ * trailing citation markers (`[1]`, `[2][3]` — the shape the backend is told
+ * to write) are stripped from both sides, and case is folded. The body side
+ * is the body's first unit only — up to the first blank line, then up to the
+ * first sentence terminator within it — because the summary restating the
+ * opening is the duplication; a summary that matches a sentence three
+ * paragraphs down is a different statement about the answer.
+ */
+export function summaryDuplicatesBody(
+  summary: string | undefined | null,
+  body: string | undefined | null
+): boolean {
+  if (!summary || !body) return false
+  const normalizedSummary = normalizeForComparison(summary)
+  if (!normalizedSummary) return false
+  const first = firstBodySentence(body)
+  if (!first) return false
+  return normalizedSummary === normalizeForComparison(first)
+}
+
+function normalizeForComparison(value: string): string {
+  const collapsed = value.trim().replace(/\s+/g, ' ')
+  const withoutCitations = collapsed.replace(/(\s*\[\d+\])+$/, '').trim()
+  return withoutCitations.toLowerCase()
+}
+
+function firstBodySentence(body: string): string {
+  const paragraph = body.trimStart().split(/\n\s*\n/)[0] ?? ''
+  // No `s` flag: the tsconfig target predates dotAll, so `[\s\S]` stands in.
+  const match = paragraph.match(/^[\s\S]*?[.!?\u2026](?:\s*\[\d+\])*(?=\s|$)/)
+  return (match ? match[0] : paragraph).trim()
+}
