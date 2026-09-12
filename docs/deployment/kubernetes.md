@@ -1801,6 +1801,21 @@ before that change still needs one manual clear — `TRUNCATE TABLE
 system.trace_log` (and `system.text_log`) buys the space back, and the TTL
 keeps it free afterwards.
 
+Two sharp edges found while landing this, kept here so the next one does not
+re-learn them:
+
+- `opentelemetry_span_log` is the one system table a standalone `<ttl>` must
+  NOT touch: the image defines it with a custom `<engine>`, and `<ttl>` next
+  to `<engine>` fails the server at startup with Code 36 (BAD_ARGUMENTS) —
+  CrashLoopBackOff with all pods otherwise healthy. It stays unbounded on
+  purpose (46 KiB, no producer behind it).
+- A crashing ClickHouse logs to FILES (`/var/log/...`, ephemeral), so
+  `kubectl logs` ends right after "Logging errors to ..." with no error. To
+  see the real message, patch the live ConfigMap with
+  `<logger><console>1</console></logger>`, delete the pod, and read the
+  crashed container's log. Do not ship that section: it duplicates every log
+  line to stdout permanently.
+
 Ground truth is a single ClickHouse query — rows here within seconds of a chat
 turn mean every layer works, whatever the UI's dashboard filters claim:
 

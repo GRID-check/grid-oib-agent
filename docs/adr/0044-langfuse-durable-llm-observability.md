@@ -316,8 +316,10 @@ Two gaps this amendment deliberately does NOT close:
 ## Amendment (2026-09-12): ClickHouse system logs TTL-bounded
 
 The "Nothing expires" consequence above now holds for trace data only. The
-server's own diagnostic logs (`system.trace_log`, `system.text_log`, ...) are
-TTL-bounded at 14 days by a `config.d` drop-in the deployment mounts
+server's own diagnostic logs (`system.trace_log`, `system.text_log`, ... —
+all but `opentelemetry_span_log`, whose image-defined custom `<engine>` a
+standalone TTL would break with Code 36) are TTL-bounded at 14 days by a
+`config.d` drop-in the deployment mounts
 (`system-log-ttl.xml` in `src/data/clickhouse.ts`) — after
 `system.trace_log` alone grew to 17 GiB on dev and filled the PVC, failing
 every insert while all pods stayed Ready. Trace and observation data itself
