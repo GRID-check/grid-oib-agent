@@ -811,25 +811,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     }
     return anatomy.below
   }, [anatomy, body])
-  // The viewport's hue budget: the evidence lane tint, the takeaways'
-  // distillation green and a frist/achtung callout each spend chromatic
-  // presence, so once two of them are on screen the provenance chips mute to
-  // neutral rather than spending a third hue beside them. Labels, authority
-  // badges and links are unaffected — only the lane tint fills go
-  // (`AnswerSourcesRow`'s `muted`).
-  const sourcesMuted = useMemo(() => {
-    let spend = 0
-    if (!stillArriving && evidenceCard?.type === 'legal_basis') spend += 1
-    if (!stillArriving && anatomyBelow.some((card) => card.type === 'key_takeaways')) spend += 1
-    const callout = anatomy?.callout
-    if (callout?.type === 'callout' && (callout.kind === 'frist' || callout.kind === 'achtung')) {
-      const placed = hasPlacedCalloutMarker(body)
-      if (placed || (!stillArriving && anatomyBelow.some((card) => card.type === 'callout'))) {
-        spend += 1
-      }
-    }
-    return spend >= 2
-  }, [stillArriving, evidenceCard, anatomyBelow, anatomy, body])
+  // Citation chips ("Belegt durch") always wear their lane tints: lane tint
+  // is provenance (where it stands), not decoration — washes/alarms spend the
+  // hue budget elsewhere, never by muting the source signal. Grey chips read
+  // as broken, so there is no muted variant and no spend counting here.
   // Renders nothing when the index has no card yet — while streaming a marker
   // routinely arrives several frames before the card it names, and a hole is
   // better than a crash or a raw `[[card:2]]`.
@@ -1135,7 +1120,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           anchorPrefix={anchorPrefix}
           routingDecision={routingDecision}
           isStreaming={stillArriving}
-          muted={sourcesMuted}
         />
 
         {/* No copy actions here, deliberately. This variant is the box-less
@@ -1344,7 +1328,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             routingDecision={routingDecision}
             isStreaming={stillArriving}
             withDivider={false}
-            muted={sourcesMuted}
           />
           {reserveMetaRow && (
             <div

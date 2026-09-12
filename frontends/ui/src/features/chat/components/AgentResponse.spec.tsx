@@ -1029,7 +1029,7 @@ describe('AgentResponse', () => {
     })
   })
 
-  describe('the provenance row’s hue budget', () => {
+  describe('the provenance row always keeps its lane tints', () => {
     const citations = [
       {
         id: 'hue-c1',
@@ -1077,7 +1077,10 @@ describe('AgentResponse', () => {
       expect(chipSignal(container)).toBe('oib')
     })
 
-    test('evidence plus takeaways mute the chips (spend two)', async () => {
+    test('evidence plus takeaways keep the chips tinted', async () => {
+      // Lane tint is provenance, not decoration: the evidence block and the
+      // takeaways spend the hue budget elsewhere, never by muting the source
+      // signal.
       const { container } = render(
         <AgentResponse
           content="Die Antwort steht in der Richtlinie."
@@ -1086,10 +1089,11 @@ describe('AgentResponse', () => {
           answerMeta={{ v: 1, kind: 'walkthrough', takeaways }}
         />
       )
-      expect(chipSignal(container)).toBe('auto')
+      expect(chipSignal(container)).toBe('oib')
     })
 
-    test('a frist callout plus takeaways mute the chips', async () => {
+    test('a frist callout plus takeaways keep the chips tinted', async () => {
+      // Same: a frist callout spends its alarm hue beside tinted chips.
       const { container } = render(
         <AgentResponse
           content="Maßgeblich ist das Fluchtniveau."
@@ -1102,7 +1106,7 @@ describe('AgentResponse', () => {
           }}
         />
       )
-      expect(chipSignal(container)).toBe('auto')
+      expect(chipSignal(container)).toBe('oib')
     })
 
     test('a hinweis callout plus takeaways keep the chips tinted', async () => {
