@@ -51,6 +51,20 @@ interface TaskDetailProps {
   job: Job | null
   /** Whether this member may pause/resume/retry schedules (`project:skills:manage`). */
   canManageJobs: boolean
+  /**
+   * Why the selection resolves to nothing. `deleted` is a row the drawer saw
+   * and that left — the existing gone copy, which is exactly that claim.
+   * `unresolved` is a deep link that never matched a row in this project: the
+   * drawer cannot say it left, only that it is not here. Defaults to
+   * `deleted`, which is the only way a row-clicked selection can read.
+   */
+  goneReason?: 'deleted' | 'unresolved'
+  /**
+   * The deep link has not been checked against a loaded list yet. Neither
+   * gone claim is earned while the first load is pending, so the drawer waits
+   * instead of flashing "not found" at a row that is still arriving.
+   */
+  resolving?: boolean
   onJobChanged?: (job: Job) => void
   onClose: () => void
 }
@@ -64,10 +78,14 @@ export function TaskDetail({
   task,
   job,
   canManageJobs,
+  goneReason = 'deleted',
+  resolving = false,
   onJobChanged,
   onClose,
 }: TaskDetailProps): JSX.Element {
   const t = useTranslations('tasks')
+  const tCommon = useTranslations('common')
+  const gone = selection === null || (selection.kind === 'task' ? !task : !job)
 
   return (
     <Sheet open={selection !== null} onOpenChange={(open) => !open && onClose()}>
@@ -77,12 +95,21 @@ export function TaskDetail({
         data-testid="task-detail"
         className="flex flex-col"
       >
-        {!selection || (selection.kind === 'task' ? !task : !job) ? (
+        {gone ? (
           <div className="py-8">
             <SheetHeader>
               <SheetTitle>{t('detail.goneTitle')}</SheetTitle>
             </SheetHeader>
-            <p className="text-muted-foreground mt-2 text-sm">{t('detail.gone')}</p>
+            {resolving ? (
+              <p className="text-muted-foreground mt-2 flex items-center gap-2 text-sm">
+                <Spinner size="sm" aria-hidden />
+                {tCommon('states.loading')}
+              </p>
+            ) : (
+              <p className="text-muted-foreground mt-2 text-sm">
+                {goneReason === 'unresolved' ? t('detail.goneUnresolved') : t('detail.gone')}
+              </p>
+            )}
           </div>
         ) : selection.kind === 'task' && task ? (
           <InstanceDetail projectId={projectId} task={task} t={t} />
@@ -233,6 +260,10 @@ function TemplateDetail({
       }
     } catch (err) {
       if (err instanceof JobApiError && err.status === 409) {
+        // The row was stale-enabled: the schedule is paused server-side, so
+        // the row moves now rather than on the next poll — the paused chip,
+        // the switch and the disabled retry all render from this one object.
+        onJobChanged?.({ ...job, enabled: false })
         toast.error(tj('run.disabled'))
       } else {
         toast.error(tj('run.error'))

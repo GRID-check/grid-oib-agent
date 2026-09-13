@@ -1,4 +1,4 @@
-import { render, screen } from '@/test-utils'
+import { act, render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { AutomationPanel } from './automation-panel'
@@ -16,20 +16,33 @@ vi.mock('@/features/skills/components/skills-panel', () => ({
     <div data-testid="skills-panel" data-can-manage={canManageOrgSkills} />
   ),
 }))
+// Set before the mock below runs (hoisted), written by the stub on render.
+const tasksPanelHarness = vi.hoisted(() => ({
+  onDeepLinkSettled: null as ((resolved: boolean) => void) | null,
+}))
+
 vi.mock('@/features/tasks/components/tasks-panel', () => ({
   TasksPanel: ({
     canManageJobs,
     canChatInProject = true,
+    onDeepLinkSettled,
   }: {
     canManageJobs: boolean
     canChatInProject?: boolean
-  }) => (
-    <div
-      data-testid="tasks-panel"
-      data-can-manage={canManageJobs}
-      data-can-chat={canChatInProject}
-    />
-  ),
+    onDeepLinkSettled?: (resolved: boolean) => void
+  }) => {
+    // The settle callback is the deep-link contract under test: the stub
+    // holds it where a test can fire it, standing in for the real panel's
+    // first-load resolution.
+    tasksPanelHarness.onDeepLinkSettled = onDeepLinkSettled ?? null
+    return (
+      <div
+        data-testid="tasks-panel"
+        data-can-manage={canManageJobs}
+        data-can-chat={canChatInProject}
+      />
+    )
+  },
 }))
 
 const baseProps = {
@@ -41,6 +54,7 @@ const baseProps = {
 
 beforeEach(() => {
   window.history.replaceState(null, '', '/')
+  tasksPanelHarness.onDeepLinkSettled = null
 })
 
 describe('parseAutomationTab', () => {
@@ -126,6 +140,53 @@ describe('AutomationPanel — one mounted tab at a time', () => {
     const params = new URL(window.location.href).searchParams
     expect(params.get('tab')).toBe('tasks')
     expect(params.get('schedule')).toBe('job-1')
+  })
+
+  test('an unmatched drawer deep link restores the requested tab instead of stranding', async () => {
+    window.history.replaceState(null, '', '/app/projects/p1/automation?tab=skills&schedule=nope')
+    render(<AutomationPanel {...baseProps} initialTab="skills" />)
+
+    // Forced onto Aufgaben for the drawer, URL corrected like every knock.
+    expect(screen.getByTestId('tasks-panel')).toBeInTheDocument()
+    expect(new URL(window.location.href).searchParams.get('tab')).toBe('tasks')
+
+    // The link never matches a row here: the requested tab comes back, so the
+    // reader is not stranded on the rewrite. The drawer itself stays open on
+    // the unresolved copy — only the tab moves back.
+    await act(async () => {
+      tasksPanelHarness.onDeepLinkSettled?.(false)
+    })
+    expect(screen.getByTestId('skills-panel')).toBeInTheDocument()
+    expect(new URL(window.location.href).searchParams.get('tab')).toBe('skills')
+  })
+
+  test('a matched drawer deep link keeps the corrected tab', async () => {
+    window.history.replaceState(null, '', '/app/projects/p1/automation?tab=jobs&task=task-1')
+    render(<AutomationPanel {...baseProps} initialTab="jobs" />)
+    expect(screen.getByTestId('tasks-panel')).toBeInTheDocument()
+
+    await act(async () => {
+      tasksPanelHarness.onDeepLinkSettled?.(true)
+    })
+    expect(screen.getByTestId('tasks-panel')).toBeInTheDocument()
+    expect(new URL(window.location.href).searchParams.get('tab')).toBe('tasks')
+  })
+
+  test('a manual tab switch wins over a later unsettled link', async () => {
+    const user = userEvent.setup()
+    window.history.replaceState(null, '', '/app/projects/p1/automation?tab=skills&schedule=nope')
+    render(<AutomationPanel {...baseProps} initialTab="skills" />)
+    expect(screen.getByTestId('tasks-panel')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: 'Jobs' }))
+    expect(screen.getByTestId('jobs-panel')).toBeInTheDocument()
+
+    await act(async () => {
+      tasksPanelHarness.onDeepLinkSettled?.(false)
+    })
+    // Untouched would have restored skills; the reader chose jobs instead.
+    expect(screen.getByTestId('jobs-panel')).toBeInTheDocument()
+    expect(new URL(window.location.href).searchParams.get('tab')).toBe('jobs')
   })
 
   test('hands each panel its own authorization, not a shared one', () => {

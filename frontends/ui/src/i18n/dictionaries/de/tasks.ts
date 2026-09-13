@@ -39,6 +39,15 @@ export const tasks: typeof en.tasks = {
     prompt: 'Prompt',
     runs: 'Läufe',
     gone: 'Das gibt es nicht mehr — möglicherweise wurde es gelöscht.',
+    /**
+     * Ein Deep Link, der in diesem Projekt auf keine Zeile passt — weder auf
+     * einen Lauf noch auf einen Zeitplan. Der Link zeigt möglicherweise auf ein
+     * anderes Projekt, oder der Eintrag wurde gelöscht, bevor diese Liste lud.
+     * „Nicht hier" statt „weg": Die Detailansicht hat ihn nie gesehen, also
+     * kann sie nicht behaupten, er sei gegangen.
+     */
+    goneUnresolved:
+      'Das wurde hier nicht gefunden. Der Link zeigt möglicherweise auf ein anderes Projekt, oder der Eintrag wurde gelöscht.',
     goneTitle: 'Nicht gefunden',
   },
   list: {

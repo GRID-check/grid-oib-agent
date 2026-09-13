@@ -46,6 +46,14 @@ export const tasks = {
     runs: 'Runs',
     /** A deep link whose row is gone — deleted, or never visible to this reader. */
     gone: 'This no longer exists. It may have been deleted.',
+    /**
+     * A deep link that never matched a row in this project — neither a run
+     * nor a schedule. The link may target another project, or the item was
+     * deleted before this list loaded. Said as "not here" rather than "gone":
+     * the drawer never saw it, so it cannot claim it left.
+     */
+    goneUnresolved:
+      'This could not be found here. The link may point to another project, or the item was deleted.',
     /** The title over the gone body — never the close label over gone content. */
     goneTitle: 'Not found',
   },

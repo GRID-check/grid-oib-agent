@@ -4,8 +4,8 @@
  * Aufgaben tab root — the project's delegated work, refreshed while visible.
  *
  * ONE list in two shapes: recurring schedules on top, single runs below
- * (`TaskList`). The panel owns both requests — tasks polled on the job-history
- * cadence, jobs loaded alongside — and the names. Two create gestures, split
+ * (`TaskList`). The panel owns both requests — tasks AND jobs polled on the
+ * job-history cadence while visible — and the names. Two create gestures, split
  * by capability: Delegieren links into the project chat, where one-shot
  * delegation happens for every editor, and renders disabled with the locked
  * composer's own reason for a reader without `project:chat`; Zeitplan
@@ -52,6 +52,16 @@ interface TasksPanelProps {
    * decision through; the server still enforces on send.
    */
   canChatInProject?: boolean
+  /**
+   * The mount deep link settled: called once, when the first load of BOTH
+   * lists lands while the drawer still holds the `?task=` / `?schedule=` the
+   * URL carried on mount. `true` is "it matched a row here", `false` is "it
+   * never did" — the caller owns the tab that forced open and decides whether
+   * the reader is stranded on it. Never called without a mount deep link, and
+   * never when the reader moved on (another selection, or none) before the
+   * lists landed.
+   */
+  onDeepLinkSettled?: (resolved: boolean) => void
 }
 
 type Mode = 'list' | 'schedule'
@@ -85,11 +95,28 @@ function syncSelectionToUrl(selection: TaskSelection | null): void {
   }
 }
 
+/**
+ * Why an unmatched selection reads the way it does.
+ *
+ * A selection the drawer SAW resolve and that a later poll dropped was
+ * deleted under it — the existing gone copy, which is exactly that claim. A
+ * deep link that never matched was never here: it names another project's
+ * row, or nothing at all. `undefined` is "matched or shut" — no gone branch.
+ */
+function goneReasonFor(
+  selectionResolved: boolean,
+  everResolved: boolean,
+): 'deleted' | 'unresolved' | undefined {
+  if (selectionResolved) return undefined
+  return everResolved ? 'deleted' : 'unresolved'
+}
+
 export function TasksPanel({
   projectId,
   projectCollection,
   canManageJobs,
   canChatInProject = true,
+  onDeepLinkSettled,
 }: TasksPanelProps): JSX.Element {
   const t = useTranslations('tasks')
   const tChat = useTranslations('chat')
@@ -120,6 +147,19 @@ export function TasksPanel({
   // overwrite the new project's list after a project switch. Shared by both
   // loads — tasks and schedules belong to the same project.
   const generationRef = useRef(0)
+  // The project this panel's selection belongs to. Compared inside the
+  // project effect below — a drawer selection names rows of ONE project.
+  const projectIdRef = useRef(projectId)
+  // The `?task=` / `?schedule=` the URL carried on mount, if any. Settles
+  // once, when the first load of both lists lands (the effect at the bottom):
+  // matched is a deep link home, unmatched is one the drawer explains.
+  const mountSelectionRef = useRef<TaskSelection | null>(selection)
+  const settledRef = useRef(false)
+  // Whether the CURRENT selection id ever resolved against a loaded list. A
+  // row-clicked selection that a later poll drops was deleted; a mount deep
+  // link that never matched was never here. Reset whenever the selection
+  // itself changes.
+  const everResolvedRef = useRef(false)
 
   const load = useCallback(
     async (quiet: boolean): Promise<void> => {
@@ -186,6 +226,17 @@ export function TasksPanel({
 
   useEffect(() => {
     generationRef.current += 1
+    // A drawer selection names rows of ONE project: switching projects drops
+    // it — and its URL params, which name the old project's rows — rather
+    // than reading the new project's lists as "gone". On mount the ref equals
+    // the prop, so a deep link survives. Stale in-flight responses are already
+    // losers — the generation guard in each load drops them — so there is
+    // nothing new to say here and no new copy for it.
+    if (projectIdRef.current !== projectId) {
+      projectIdRef.current = projectId
+      setSelection(null)
+      syncSelectionToUrl(null)
+    }
     firstLoadRef.current = true
     inFlightRef.current = false
     jobsInFlightRef.current = false
@@ -214,6 +265,11 @@ export function TasksPanel({
 
     const tick = () => {
       if (cancelled) return
+      // The cadence re-asks BOTH lists: a pause flipped on the Jobs tab (or
+      // in a second tab) must reach the templates group without a focus event,
+      // the same way a finished run reaches the instances. `loadJobs` arms no
+      // timer of its own, so the one chain below stays one chain.
+      void loadJobs(true)
       void load(true).finally(() => {
         if (cancelled) return
         if (document.visibilityState === 'visible') {
@@ -284,6 +340,50 @@ export function TasksPanel({
 
   const selectedTask = selection?.kind === 'task' ? (tasks.find((row) => row.id === selection.id) ?? null) : null
   const selectedJob = selection?.kind === 'job' ? (jobs.find((job) => job.id === selection.id) ?? null) : null
+  const selectionResolved = selection === null || selectedTask !== null || selectedJob !== null
+  // Still on the first load of either list: an unmatched deep link is
+  // unchecked, not gone — the drawer waits rather than claiming anything.
+  const selectionResolving =
+    selection !== null && !selectionResolved && (loading || jobsLoading)
+  const selectionKey = selection === null ? null : `${selection.kind}:${selection.id}`
+
+  useEffect(() => {
+    everResolvedRef.current = false
+  }, [selectionKey])
+
+  useEffect(() => {
+    if (selection !== null && (selectedTask !== null || selectedJob !== null)) {
+      everResolvedRef.current = true
+    }
+  }, [selection, selectedTask, selectedJob])
+
+  // The mount deep link settles once, when the first load of BOTH lists has
+  // landed. Matched is a deep link home; unmatched drops its dead params and
+  // reports `false` so the caller can restore the tab it forced open. The
+  // drawer itself stays open on the unresolved copy either way.
+  useEffect(() => {
+    const mountSelection = mountSelectionRef.current
+    if (settledRef.current || mountSelection === null) return
+    if (loading || jobsLoading) return
+    // The reader moved on before the lists landed — a row of their own, or a
+    // closed drawer. The mount link is abandoned, and the forced tab is that
+    // drawer's home: nothing to settle, nothing to report.
+    if (selection?.kind !== mountSelection.kind || selection?.id !== mountSelection.id) {
+      settledRef.current = true
+      return
+    }
+    settledRef.current = true
+    const found =
+      mountSelection.kind === 'task'
+        ? tasks.some((row) => row.id === mountSelection.id)
+        : jobs.some((row) => row.id === mountSelection.id)
+    if (found) {
+      onDeepLinkSettled?.(true)
+      return
+    }
+    syncSelectionToUrl(null)
+    onDeepLinkSettled?.(false)
+  }, [loading, jobsLoading, selection, tasks, jobs, onDeepLinkSettled])
   const isList = mode === 'list'
   const chatHref = `/app/projects/${encodeURIComponent(projectId)}/chat`
 
@@ -374,6 +474,8 @@ export function TasksPanel({
         task={selectedTask}
         job={selectedJob}
         canManageJobs={canManageJobs}
+        goneReason={goneReasonFor(selectionResolved, everResolvedRef.current)}
+        resolving={selectionResolving}
         onJobChanged={handleJobChanged}
         onClose={closeDetail}
       />

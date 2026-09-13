@@ -20,8 +20,18 @@ import {
 import type { DocumentVersionState } from './lifecycle-types'
 import { DOCUMENT_VERSION_STATES, OPEN_DOCUMENT_VERSION_STATES } from './lifecycle-types'
 
-/** A document's version list is a page, like every other list in this tier. */
-export const DOCUMENT_VERSION_LIST_LIMIT = 200
+/**
+ * A document's version list is a page, like every other list in this tier.
+ *
+ * 500, matching `DOCUMENT_LIST_LIMIT`: version rows are light display rows,
+ * and the page no longer feeds any logic — the diff base is a direct
+ * `findPreviousVersion` query, never a scan of this page — so the cap is a
+ * render bound only. It is still a cap, not a promise: past it the list keeps
+ * the oldest rows (`ORDER BY version_number ASC` below), and a true
+ * newest-first page (offset/desc) is the follow-up when a history that long
+ * stops being theoretical.
+ */
+export const DOCUMENT_VERSION_LIST_LIMIT = 500
 
 export async function insertDocumentVersion(values: NewDocumentVersion): Promise<DocumentVersion> {
   const db = getDb()

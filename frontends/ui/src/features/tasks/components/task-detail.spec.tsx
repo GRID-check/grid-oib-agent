@@ -111,6 +111,43 @@ describe('TaskDetail instances', () => {
     expect(screen.getByText(/This no longer exists/)).toBeInTheDocument()
   })
 
+  test('a deep link that never matched reads as "not here", not as "gone"', () => {
+    render(
+      <TaskDetail
+        {...baseProps}
+        selection={{ kind: 'task', id: 'task-foreign' }}
+        task={null}
+        job={null}
+        goneReason="unresolved"
+      />,
+    )
+    expect(screen.getByTestId('task-detail')).toBeInTheDocument()
+    // The title is shared; the body must not claim a departure it never saw.
+    expect(screen.getByText('Not found')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'This could not be found here. The link may point to another project, or the item was deleted.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/This no longer exists/)).toBeNull()
+  })
+
+  test('an unchecked deep link waits instead of claiming anything', () => {
+    render(
+      <TaskDetail
+        {...baseProps}
+        selection={{ kind: 'task', id: 'task-1' }}
+        task={null}
+        job={null}
+        goneReason="unresolved"
+        resolving
+      />,
+    )
+    expect(screen.getByText('Loading…')).toBeInTheDocument()
+    expect(screen.queryByText(/This no longer exists/)).toBeNull()
+    expect(screen.queryByText(/could not be found here/)).toBeNull()
+  })
+
   test('homes a deep-research result in the filed document', () => {
     render(
       <TaskDetail
@@ -214,6 +251,53 @@ describe('TaskDetail templates', () => {
       expect(onJobChanged).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'job-1', lastRunAt: expect.any(String) }),
       )
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  test('a 409 on retry marks the stale-enabled row paused immediately', async () => {
+    vi.mocked(toast.error).mockClear()
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      text: async () => JSON.stringify({ error: 'Job is disabled', code: 'CONFLICT' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const onJobChanged = vi.fn()
+      const { rerender } = render(
+        <TaskDetail
+          {...baseProps}
+          selection={{ kind: 'job', id: 'job-1' }}
+          task={null}
+          job={job()}
+          onJobChanged={onJobChanged}
+        />,
+      )
+
+      fireEvent.click(screen.getByTestId('task-detail-run-now'))
+
+      await waitFor(() => {
+        expect(onJobChanged).toHaveBeenCalledWith(
+          expect.objectContaining({ id: 'job-1', enabled: false }),
+        )
+      })
+      // The 409 handling stays: the reader is told to enable first.
+      expect(vi.mocked(toast.error)).toHaveBeenCalledWith('Enable the job before running it.')
+
+      // The paused state renders from the row — the same object the list reads.
+      rerender(
+        <TaskDetail
+          {...baseProps}
+          selection={{ kind: 'job', id: 'job-1' }}
+          task={null}
+          job={job({ enabled: false })}
+          onJobChanged={onJobChanged}
+        />,
+      )
+      expect(screen.getByText('Disabled')).toBeInTheDocument()
+      expect(screen.getByTestId('task-detail-run-now')).toBeDisabled()
     } finally {
       vi.unstubAllGlobals()
     }

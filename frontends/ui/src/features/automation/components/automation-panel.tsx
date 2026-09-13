@@ -85,6 +85,11 @@ export function AutomationPanel({
   // it closing the drawer would leave `?tab=jobs` over the Aufgaben list, and
   // a copied link would reopen the wrong tab.
   const correctedTabRef = useRef(false)
+  // The tab the URL asked for, and whether the reader has picked one since.
+  // A drawer deep link that never matches a row must not strand them on the
+  // rewritten `?tab=tasks`: untouched since mount, they go back to this.
+  const initialTabRef = useRef(initialTab)
+  const tabTouchedRef = useRef(false)
 
   useEffect(() => {
     if (correctedTabRef.current || !hasDrawerSelection() || initialTab === 'tasks') return
@@ -97,8 +102,26 @@ export function AutomationPanel({
     }
   }, [initialTab])
 
+  // A mount deep link that never matched a row here restores the requested
+  // tab — but only when the reader has not picked one since: their explicit
+  // switch wins over the link's failure. The drawer stays open on the
+  // unresolved copy either way; the TasksPanel already dropped the dead
+  // `?task=` / `?schedule=` params, so this only moves `?tab=` back.
+  const handleDeepLinkSettled = (resolved: boolean): void => {
+    if (resolved) return
+    if (tabTouchedRef.current) return
+    if (initialTabRef.current === 'tasks') return
+    setTab(initialTabRef.current)
+    try {
+      window.history.replaceState(null, '', tabHref(initialTabRef.current))
+    } catch {
+      // History unavailable (embedded preview) — the tab still switches.
+    }
+  }
+
   const selectTab = (value: string): void => {
     const next = parseAutomationTab(value)
+    tabTouchedRef.current = true
     setTab(next)
     try {
       // Shareable without a server round-trip; replace (not push) so the back
@@ -135,6 +158,7 @@ export function AutomationPanel({
           projectCollection={projectCollection}
           canManageJobs={canManageJobs}
           canChatInProject={canChatInProject}
+          onDeepLinkSettled={handleDeepLinkSettled}
         />
       </TabsContent>
       <TabsContent value="jobs" className="min-h-0 overflow-hidden">

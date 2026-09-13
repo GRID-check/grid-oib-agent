@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@/test-utils'
+import { fireEvent, render, screen, within } from '@/test-utils'
 import type { DocumentVersionState, DocumentVersionView } from '@/lib/documents/lifecycle-types'
 import { DocumentVersionList } from './document-version-list'
 
@@ -175,8 +175,7 @@ describe('DocumentVersionList — refusals leave milestones in the full list', (
     expect(rows[0]).toHaveTextContent('Clara Schmid')
   })
 
-  it('never renders a refusal row for an approval — the same columns, a different act', () => {
-    // Approving stamps `reviewedBy`/`reviewedAt` too. Without the state gate
+  it('never renders a refusal row for an approval — the same columns, a different act', () => {    // Approving stamps `reviewedBy`/`reviewedAt` too. Without the state gate
     // every approval would read as a refusal beside its own milestone.
     render(
       <DocumentVersionList
@@ -197,5 +196,41 @@ describe('DocumentVersionList — refusals leave milestones in the full list', (
     expect(screen.queryByText('Changes requested')).not.toBeInTheDocument()
     expect(screen.queryByText('Rejected')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('document-version-row')[0]).toHaveTextContent('Approved')
+  })
+})
+
+describe('DocumentVersionList — past the old 200-version page', () => {
+  // The repository page used to end at 200 rows, and the diff base was found
+  // by scanning that page — past 200 versions the predecessor named was the
+  // top of the window, not the true one. The cap is raised since, but the
+  // component's half of the contract stands on its own: whatever page arrives
+  // renders newest-first, and every compare pairs a version with its TRUE
+  // predecessor, at any depth.
+  const many = (count: number): DocumentVersionView[] =>
+    Array.from({ length: count }, (_, index) =>
+      makeVersion(index + 1, index === count - 1 ? 'published' : 'superseded'),
+    )
+
+  it('renders every row newest-first past 200, each compare naming the true predecessor', async () => {
+    const onCompare = vi.fn(() => Promise.reject(new Error('not stubbed')))
+    // Fed ascending, like the repository page — the list still leads newest.
+    render(<DocumentVersionList {...propsOf(many(250), { onCompare })} />)
+
+    const rows = screen.getAllByTestId('document-version-row')
+    expect(rows).toHaveLength(250)
+    expect(rows[0]).toHaveAttribute('data-version', '250')
+    expect(rows[rows.length - 1]).toHaveAttribute('data-version', '1')
+
+    // The newest row compares against 249 — not against the top of a window.
+    const newestCompare = within(rows[0]).getByTestId('document-version-compare')
+    expect(newestCompare).toHaveTextContent('Compare with 249')
+    fireEvent.click(newestCompare)
+    await screen.findByTestId('document-version-compare-failed')
+    expect(onCompare).toHaveBeenCalledWith('ver_249', 'ver_250')
+
+    // The oldest row has no predecessor, so no compare affordance.
+    expect(
+      within(rows[rows.length - 1]).queryByTestId('document-version-compare'),
+    ).toBeNull()
   })
 })

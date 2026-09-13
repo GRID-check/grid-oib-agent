@@ -6,8 +6,9 @@
  * until someone reloaded. The panel therefore polls the tasks on the
  * job-history cadence while visible, parks while hidden, and re-asks on
  * focus. Polls are quiet: no skeleton, no error state over a list the reader
- * already has. Schedules ride along (loaded on mount, refreshed on focus and
- * after every save), because the templates group is jobs with a timer.
+ * already has. Schedules ride along (loaded on mount, refreshed on focus, on
+ * every poll tick and after every save), because the templates group is jobs
+ * with a timer.
  */
 
 import type { ReactNode } from 'react'
@@ -102,13 +103,20 @@ const jobsCalls = (): string[] =>
 
 let visibility = 'visible'
 
-const renderPanel = (props: { canManageJobs?: boolean; canChatInProject?: boolean } = {}) =>
+const renderPanel = (
+  props: {
+    canManageJobs?: boolean
+    canChatInProject?: boolean
+    onDeepLinkSettled?: (resolved: boolean) => void
+  } = {}
+) =>
   render(
     <TasksPanel
       projectId="proj-1"
       projectCollection="col-1"
       canManageJobs={props.canManageJobs ?? true}
       canChatInProject={props.canChatInProject ?? true}
+      onDeepLinkSettled={props.onDeepLinkSettled}
     />
   )
 
@@ -189,6 +197,41 @@ describe('TasksPanel', () => {
       await vi.advanceTimersByTimeAsync(TASKS_POLL_MS)
     })
     expect(tasksCalls()).toHaveLength(2)
+  })
+
+  test('the poll cadence re-asks schedules alongside tasks', async () => {
+    renderPanel()
+    await flush()
+    expect(tasksCalls()).toHaveLength(1)
+    expect(jobsCalls()).toHaveLength(1)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TASKS_POLL_MS)
+    })
+    expect(tasksCalls()).toHaveLength(2)
+    expect(jobsCalls()).toHaveLength(2)
+  })
+
+  test('the visibility resume refreshes schedules too, not just tasks', async () => {
+    renderPanel()
+    await flush()
+    expect(tasksCalls()).toHaveLength(1)
+    expect(jobsCalls()).toHaveLength(1)
+
+    visibility = 'hidden'
+    document.dispatchEvent(new Event('visibilitychange'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TASKS_POLL_MS * 3)
+    })
+    expect(tasksCalls()).toHaveLength(1)
+    expect(jobsCalls()).toHaveLength(1)
+
+    visibility = 'visible'
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flush()
+    // The resume refreshes immediately rather than waiting for the interval.
+    expect(tasksCalls()).toHaveLength(2)
+    expect(jobsCalls()).toHaveLength(2)
   })
 
   test('parks while hidden and resumes with a refresh when visible again', async () => {
@@ -459,6 +502,103 @@ describe('TasksPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Close details' }))
     expect(window.location.search).not.toContain('task=')
+  })
+
+  test('switching project closes an open drawer and drops its deep link', async () => {
+    tasksPayload = {
+      tasks: [row({ filedDocumentId: 'doc-9', conversationId: 'conv-3' })],
+    }
+    const { rerender } = render(
+      <TasksPanel projectId="proj-1" projectCollection="col-1" canManageJobs />,
+    )
+    await flush()
+
+    fireEvent.click(screen.getByTestId('task-title'))
+    expect(screen.getByTestId('task-detail')).toBeInTheDocument()
+    expect(window.location.search).toContain('task=task-1')
+
+    // The drawer belonged to proj-1: shut, with no stale ?task= left behind
+    // to read the new project's lists as gone.
+    rerender(<TasksPanel projectId="proj-2" projectCollection="col-1" canManageJobs />)
+    await flush()
+
+    expect(screen.queryByTestId('task-detail')).toBeNull()
+    expect(window.location.search).not.toContain('task=')
+  })
+
+  test('a mount deep link waits for the first load instead of reading as gone', async () => {
+    tasksPayload = { tasks: [row({ filedDocumentId: 'doc-9' })] }
+    const pending: Array<(value: { ok: true; json: () => Promise<unknown> }) => void> = []
+    fetchMock.mockImplementationOnce(
+      (url: unknown) =>
+        new Promise<{ ok: true; json: () => Promise<unknown> }>((resolve) => {
+          if (typeof url === 'string' && url.endsWith('/jobs')) {
+            resolve({ ok: true, json: async () => jobsPayload })
+          } else {
+            pending.push(resolve)
+          }
+        })
+    )
+    window.history.replaceState(null, '', '/app/projects/proj-1/automation?tab=tasks&task=task-1')
+    renderPanel()
+    await flush()
+
+    // The drawer is open on the link, but neither list has answered: neither
+    // gone claim is earned yet.
+    expect(screen.getByTestId('task-detail')).toBeInTheDocument()
+    expect(screen.getByText('Loading…')).toBeInTheDocument()
+    expect(screen.queryByText(/This no longer exists/)).toBeNull()
+    expect(screen.queryByText(/could not be found here/)).toBeNull()
+
+    await act(async () => {
+      pending[0]?.({ ok: true, json: async () => tasksPayload })
+    })
+    expect(screen.getByTestId('task-detail-result-doc')).toBeInTheDocument()
+  })
+
+  test('a mount deep link that matches reports settled-resolved', async () => {
+    const settled = vi.fn()
+    window.history.replaceState(null, '', '/app/projects/proj-1/automation?tab=tasks&task=task-1')
+    renderPanel({ onDeepLinkSettled: settled })
+    await flush()
+
+    expect(settled).toHaveBeenCalledWith(true)
+    expect(window.location.search).toContain('task=task-1')
+  })
+
+  test('a mount deep link that never matches reports settled-unresolved and drops its params', async () => {
+    const settled = vi.fn()
+    window.history.replaceState(null, '', '/app/projects/proj-1/automation?tab=tasks&task=nope')
+    renderPanel({ onDeepLinkSettled: settled })
+    await flush()
+
+    expect(settled).toHaveBeenCalledWith(false)
+    // Dead params dropped so a copied link or a refresh cannot resurrect the
+    // drawer — but the drawer itself stays open on the honest copy.
+    expect(window.location.search).not.toContain('task=')
+    expect(screen.getByTestId('task-detail')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'This could not be found here. The link may point to another project, or the item was deleted.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  test('a row that a poll drops reads as deleted', async () => {
+    renderPanel()
+    await flush()
+
+    fireEvent.click(screen.getByTestId('task-title'))
+    expect(screen.queryByText(/This no longer exists/)).toBeNull()
+
+    // The drawer saw this row resolve; the next poll no longer carries it.
+    tasksPayload = { tasks: [] }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TASKS_POLL_MS)
+    })
+
+    expect(screen.getByTestId('task-detail')).toBeInTheDocument()
+    expect(screen.getByText('This no longer exists. It may have been deleted.')).toBeInTheDocument()
   })
 
   test('a successful poll recovers from a failed first load', async () => {
