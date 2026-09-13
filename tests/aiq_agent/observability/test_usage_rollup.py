@@ -5,15 +5,16 @@ Pins the sibling contract to the citation-health ledger:
 1. **The payload shape** — calls, prompt/completion/total tokens, cost and
    its source. A renamed or silently dropped field makes per-turn waste
    unmeasurable without anything erroring.
-2. **No row for a call-free turn** — like the citation ledger's direct
-   replies (nothing to cite, no row), a turn that spent nothing records
-   nothing rather than a zero row.
-3. **Fail-open recording** — stamping the trace must never take a turn down,
-   and a tracker that saw no calls is absence, not an error.
+2. **A zero row for a call-free turn** — a turn that spent nothing records an
+   explicit zero row with an error flag, rather than silence: "no calls" and
+   "the rollup failed" must read differently on the dashboard.
+3. **Fail-open recording** — stamping the trace must never take a turn down;
+   only an unreadable tracker is absence (None), never a quiet zero.
 """
 
 import pytest
 
+from aiq_agent.observability.usage_rollup import NO_CALLS_ERROR
 from aiq_agent.observability.usage_rollup import build_usage_rollup
 from aiq_agent.observability.usage_rollup import from_tracker
 from aiq_agent.observability.usage_rollup import record_usage_turn
@@ -44,6 +45,7 @@ class TestBuildUsageRollup:
             "totalTokens": 1535,
             "costUsd": pytest.approx(0.00214),
             "costSource": "usage_field",
+            "error": None,
         }
 
     def test_explicit_total_is_kept(self):
@@ -55,8 +57,19 @@ class TestBuildUsageRollup:
         assert rollup.total_tokens == 130
         assert rollup.cost_source == "missing"
 
-    def test_a_call_free_turn_records_nothing(self):
-        assert build_usage_rollup(llm_calls=0, prompt_tokens=0, completion_tokens=0) is None
+    def test_a_call_free_turn_records_a_zero_row_with_an_error_flag(self):
+        rollup = build_usage_rollup(llm_calls=0, prompt_tokens=0, completion_tokens=0)
+
+        assert rollup is not None
+        assert rollup.to_payload() == {
+            "llmCalls": 0,
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "costUsd": 0.0,
+            "costSource": "missing",
+            "error": NO_CALLS_ERROR,
+        }
 
 
 class TestFromTracker:
@@ -67,9 +80,11 @@ class TestFromTracker:
         assert (rollup.llm_calls, rollup.prompt_tokens, rollup.completion_tokens) == (2, 500, 100)
         assert rollup.cost_usd == pytest.approx(0.001)
 
-    def test_empty_tracker_is_absence_not_an_error(self):
-        assert from_tracker(_Tracker()) is None
-        assert from_tracker(None) is None
+    def test_empty_tracker_is_a_zero_row_not_an_error(self):
+        for rollup in (from_tracker(_Tracker()), from_tracker(None)):
+            assert rollup is not None
+            assert rollup.llm_calls == 0
+            assert rollup.error == NO_CALLS_ERROR
 
 
 class TestRecordUsageTurn:
@@ -106,8 +121,28 @@ class TestRecordUsageTurn:
         assert payload["turnId"] == "turn_7"
         assert payload["jobId"] == "job_9"
 
-    def test_call_free_turn_records_nothing(self):
-        assert record_usage_turn(tracker=_Tracker()) is None
+    def test_call_free_turn_records_a_zero_row(self):
+        payload = record_usage_turn(tracker=_Tracker())
+
+        assert payload is not None
+        assert payload["rollup"]["llmCalls"] == 0
+        assert payload["rollup"]["error"] == NO_CALLS_ERROR
+
+    def test_zero_row_stamps_zero_totals_on_the_trace(self):
+        from aiq_agent.observability.langfuse_trace_attributes import snapshot_contributions
+
+        payload = record_usage_turn(tracker=_Tracker())
+
+        assert payload is not None
+        metadata = (snapshot_contributions() or {}).get("metadata", {})
+        assert metadata["usage_llm_calls"] == 0
+        assert metadata["usage_cost_usd"] == 0.0
 
     def test_recording_never_raises_into_the_turn(self):
-        assert record_usage_turn(tracker=object()) is None
+        class _BrokenTracker:
+            @property
+            def events_recorded(self):
+                raise RuntimeError("trace store is gone")
+
+        assert from_tracker(_BrokenTracker()) is None
+        assert record_usage_turn(tracker=_BrokenTracker()) is None

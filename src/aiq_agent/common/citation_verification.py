@@ -1452,6 +1452,29 @@ def _title_prefix_tails(text: str) -> list[str]:
     return sorted(set(tails), key=len)
 
 
+def _is_digest_shaped_line(ref_text: str) -> bool:
+    """Whether a source line is an already-read DIGEST line, not a citation.
+
+    The digest (``knowledge.already_read``) is an index, not evidence: one line
+    per opened document — ``"<file> | <collection> | Seiten <p> | Punkte <n> |
+    Turn <k>"`` — and its own prompt block says the line itself is never cited;
+    quoting or citing re-opens the passage with ``read_passage`` first. A source
+    line in that shape cites the INDEX, so verification rejects it even when the
+    filename names a genuinely retrieved document (the registry scan below would
+    otherwise accept it on the filename alone).
+
+    Structural, not imported: ``already_read.parse_digest_line`` is the same
+    test, but that module imports ``_parse_citation_key`` from HERE, so sharing
+    it would be a cycle. The last three pipe segments are the digest's own
+    markers; a real citation key never carries them.
+    """
+    parts = [part.strip() for part in ref_text.split("|")]
+    if len(parts) < 5:
+        return False
+    lowered = [part.lower() for part in parts[-3:]]
+    return lowered[0].startswith("seiten ") and lowered[1].startswith("punkte ") and lowered[2].startswith("turn ")
+
+
 def _is_knowledge_citation(ref_text: str, registry: SourceRegistry | None = None) -> tuple[bool, str | None]:
     """Check if reference text looks like a knowledge-layer citation.
 
@@ -1857,6 +1880,170 @@ def agent_authored_document_names(registry: SourceRegistry | None) -> frozenset[
         names.update(normalize_document_name(value) for value in (base_name, entry.title))
     names.discard("")
     return frozenset(names)
+
+
+# ---------------------------------------------------------------------------
+# Trailer-value grounding: a copyable value needs a Fundstelle this turn.
+#
+# The verdict, a takeaway and a detail are the three trailer fields that carry
+# VALUES a reader copies into a Nachweis — a measurement (Zahl), a class
+# (Klasse: REI 60, GK 4) or a deadline (Frist: vier Wochen). The prose around
+# them is citation-checked, but the trailer is not prose: nothing requires its
+# numbers to come from anywhere. So a value in one of these fields survives
+# only when a Fundstelle stands behind it that resolves to a source THIS turn
+# actually retrieved (``get_turn_captures``) — the verdict's ``reference``, a
+# takeaway's ``detail``, the detail text itself. Otherwise the FIELD drops (the
+# verdict, the takeaway item, the detail key) while the prose keeps every word:
+# enrichment is lost, the answer never is.
+#
+# Mechanical on purpose: "carries a value" is three regexes (a bare number is
+# NOT one — ``Tabelle 1b``, ``Pkt. 3.5.2`` and ``§ 63`` are locators, not
+# measurements, and flagging them would empty every trailer), and "resolves" is
+# the same either-direction normalised-name match the verdict's
+# agent-authored gate uses. A verdict like ``Nicht geregelt`` carries no value
+# and is never touched. With no turn sources to judge against the gate
+# abstains — an empty capture log is "nothing retrieved", not "nothing
+# grounded".
+# ---------------------------------------------------------------------------
+
+#: A measurement with its unit: ``100 cm``, ``1,10 m``, ``55 dB``, ``6 %``.
+#: The unit is what separates a copyable value from a locator — a bare number
+#: is a table, a Punkt or a paragraph, never something a reader builds from.
+_VALUE_ZAHL_RE = re.compile(
+    r"\b\d+(?:[.,]\d+)?\s*(?:m²|m³|cm\b|mm\b|km\b|m\b|dB\b|%|°C\b|kWh\b|Stpl\.?\b|Stück\b|kg\b|\bh\b|min\b)",
+    re.IGNORECASE,
+)
+
+#: A fire-resistance or building class: ``REI 60``, ``EI 30``, ``R 90``,
+#: ``F 90``, ``GK 4``, ``Gebäudeklasse 4``. The digit floor (2–3 for
+#: resistances) keeps ``R 2``-shaped fragments from firing.
+_VALUE_KLASSE_RE = re.compile(
+    r"\b(?:REI|EI?|R|F)\s*-?\s*\d{2,3}\b|\bGK\s*\d\b|\b\w*klasse\s+\d\b",
+    re.IGNORECASE,
+)
+
+#: A deadline span: ``4 Jahre``, ``sechs Wochen``, ``binnen``, ``unverzüglich``.
+#: Word-numbers are closed (ein–zwölf) because an open ``\w+`` before a time
+#: noun matches ``nächste Woche`` — a pointer, not a span.
+_VALUE_FRIST_RE = re.compile(
+    r"\b\d+\s*(?:Tag|Woche|Monat|Jahr|Stunde|Minute|Sekunde)\w*\b"
+    r"|\b(?:ein(?:e|er|em|en|es)?|zwei|drei|vier|fünf|sechs|sieben|acht|neun|zehn|elf|zwölf)"
+    r"\s+(?:Tag|Woche|Monat|Jahr|Stunde|Minute|Sekunde)\w*\b"
+    r"|\bbinnen\b|\bunverzüglich\b",
+    re.IGNORECASE,
+)
+
+#: A Fundstelle shorter than this, once normalised, is not a document name a
+#: substring test can judge — mirrors the verdict gate's own floor.
+_VALUE_MIN_MATCHABLE_NAME_CHARS = 4
+
+
+def _copyable_value_present(text: str) -> bool:
+    """Whether ``text`` states a Zahl, Klasse or Frist a reader would copy."""
+    if not text:
+        return False
+    return bool(_VALUE_ZAHL_RE.search(text) or _VALUE_KLASSE_RE.search(text) or _VALUE_FRIST_RE.search(text))
+
+
+def _turn_source_names(turn_sources: Sequence[SourceEntry]) -> frozenset[str]:
+    """Normalised names of the documents this turn retrieved.
+
+    Both identities a trailer Fundstelle could name — the indexed basename and
+    the display title — reduced through ``normalize_document_name``, exactly
+    like :func:`agent_authored_document_names`. Short names are dropped at the
+    match, not here.
+    """
+    from aiq_agent.common.provenance import normalize_document_name
+
+    names: set[str] = set()
+    for entry in turn_sources or ():
+        file_name, _page = _parse_citation_key(entry.citation_key or "")
+        base_name = file_name.rsplit("/", 1)[-1]
+        names.update(normalize_document_name(value) for value in (base_name, entry.title))
+    names.discard("")
+    return frozenset(names)
+
+
+def _names_turn_source(signal: str, names: frozenset[str]) -> bool:
+    """Whether a Fundstelle signal names a document this turn retrieved."""
+    from aiq_agent.common.provenance import normalize_document_name
+
+    named = normalize_document_name(signal)
+    if len(named) < _VALUE_MIN_MATCHABLE_NAME_CHARS:
+        return False
+    return any(name in named or named in name for name in names if len(name) >= _VALUE_MIN_MATCHABLE_NAME_CHARS)
+
+
+def drop_ungrounded_trailer_values(
+    meta: dict[str, Any] | None,
+    turn_sources: Sequence[SourceEntry],
+) -> dict[str, Any] | None:
+    """Drop trailer VALUES no retrieved source stands behind; the prose survives.
+
+    Operates on the GATED ``answer_meta`` wire dict (``gate_answer_meta`` has
+    already run): a verdict whose value carries a Zahl/Klasse/Frist but whose
+    ``reference`` names no turn source is dropped; a takeaway item whose text
+    carries one is dropped unless its ``detail`` names one; a ``detail`` (on a
+    takeaway item or the callout) that carries one itself but names none is
+    dropped while its claim stays. Fields without a value are never touched,
+    and with no turn sources the gate abstains. Returns ``None`` when no
+    anatomy survives — the same empty-means-absent contract ``gate_answer_meta``
+    keeps.
+    """
+    if not meta:
+        return None
+    sources = list(turn_sources or [])
+    if not sources:
+        return meta
+    names = _turn_source_names(sources)
+    pruned = dict(meta)
+
+    verdict = pruned.get("verdict")
+    if isinstance(verdict, dict):
+        reference = verdict.get("reference")
+        document = reference.get("document") if isinstance(reference, dict) else None
+        if _copyable_value_present(str(verdict.get("value") or "")) and not (
+            isinstance(document, str) and _names_turn_source(document, names)
+        ):
+            pruned.pop("verdict", None)
+
+    takeaways = pruned.get("takeaways")
+    if isinstance(takeaways, list):
+        kept: list[dict[str, Any]] = []
+        for item in takeaways:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text") or "")
+            detail = item.get("detail")
+            if _copyable_value_present(text) and not (isinstance(detail, str) and _names_turn_source(detail, names)):
+                continue
+            if (
+                isinstance(detail, str)
+                and detail.strip()
+                and _copyable_value_present(detail)
+                and not _names_turn_source(detail, names)
+            ):
+                item = {key: value for key, value in item.items() if key != "detail"}
+            kept.append(item)
+        if kept:
+            pruned["takeaways"] = kept
+        else:
+            pruned.pop("takeaways", None)
+
+    callout = pruned.get("callout")
+    if isinstance(callout, dict):
+        detail = callout.get("detail")
+        if (
+            isinstance(detail, str)
+            and detail.strip()
+            and _copyable_value_present(detail)
+            and not _names_turn_source(detail, names)
+        ):
+            pruned["callout"] = {key: value for key, value in callout.items() if key != "detail"}
+
+    if not any(key != "v" for key in pruned):
+        return None
+    return pruned
 
 
 def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> dict[str, Any]:
@@ -2441,6 +2628,12 @@ class UnverifiedQuote:
     # Best coverage achieved against any source chunk text (0.0–1.0). Below
     # ``QUOTE_MATCH_THRESHOLD`` by construction; retained for diagnostics.
     best_coverage: float
+    # WHY the span was flagged: ``"not_verbatim"`` (the fuzzy match failed),
+    # ``"too_long"`` (over ``_QUOTE_MAX_WORDS`` — a passage pasted as a quote),
+    # ``"uncited"`` (no ``[N]`` in its sentence). Combined with ``"+"`` when
+    # several fire. The annotation is the same either way; the reason tells the
+    # repair which failure it is looking at.
+    reason: str = "not_verbatim"
 
 
 def _normalize_for_quote_match(text: str) -> str:
@@ -2545,6 +2738,75 @@ def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
     return best
 
 
+# ---------------------------------------------------------------------------
+# Mechanical quote gates: form, not wording.
+#
+# The fuzzy match above proves a quoted sentence APPEARS in the evidence. Two
+# abuses pass it untouched: a whole passage pasted between quote marks (verbatim
+# and therefore "verified", but a quote no reader asked for and no repair would
+# dare trim), and a quote with no citation anywhere near it (verbatim, but
+# unattributable — the reader cannot tell WHICH source it came from). Both are
+# decidable without any passage text, so they run as part of
+# :func:`verify_quoted_spans` — the strictest existing layer — wherever that
+# layer runs. Where it does NOT run (no source carries chunk text) nothing is
+# flagged either way: ``test_no_chunk_text_fails_open`` pins that a URL-only
+# turn stays silent, and a mechanical gate must not be stricter than the layer
+# that hosts it.
+# ---------------------------------------------------------------------------
+
+#: A quote longer than this is a pasted passage, not a quotation — flagged
+#: whatever the fuzzy match says. Forty words is roughly three German legal
+#: sentences; anything a reader should check belongs in the cited channel
+#: (the passage snippet on the wire), not between quote marks in the prose.
+_QUOTE_MAX_WORDS = 40
+
+#: What ends the sentence a quote sits in, for the citation-proximity check. A
+#: period between digits is a decimal point (``2.50 m``), not an end — the same
+#: guard ``piloti.grounding`` uses. Single newlines count: a list item is its
+#: own sentence for attribution purposes. Deliberately NOT abbreviation-aware
+#: (``vgl.``, ``z. B.`` split the window): the one-sentence lookahead below
+#: absorbs exactly that shape, and a closed abbreviation list would be a second
+#: thing to keep in sync with the language the models actually write.
+_QUOTE_SENTENCE_END_RE = re.compile(r"(?<!\d)\.(?!\d)|[!?…]|\n")
+
+
+def _quote_sentence_windows(body: str, start: int, end: int) -> tuple[tuple[int, int], tuple[int, int] | None]:
+    """The sentence holding ``[start, end)`` and the one right after it.
+
+    Returns ``(containing, following_or_None)`` as half-open offsets. A
+    boundary strictly INSIDE the span (``Pkt.`` in the quoted text) does not
+    split its window: the quote is one unit, and only the text around it is
+    judged. The lookahead exists for the two shapes that put the marker one
+    segment late — a citation trailing its sentence (``… Satz. [1] …``) and an
+    abbreviation split (``… „Quote" vgl. … [1].``). A quote two sentences from
+    any marker is unattributed under either window and is flagged.
+    """
+    ends = list(_QUOTE_SENTENCE_END_RE.finditer(body))
+    win_start = 0
+    for match in ends:
+        if match.end() <= start:
+            win_start = match.end()
+        else:
+            break
+    win_end = len(body)
+    following: tuple[int, int] | None = None
+    for match in ends:
+        if match.start() >= end:
+            win_end = match.start()
+            after = next((later for later in ends if later.start() >= match.end()), None)
+            following = (match.end(), after.start() if after is not None else len(body))
+            break
+    return (win_start, win_end), following
+
+
+def _quote_has_citation_in_sentence(body: str, start: int, end: int) -> bool:
+    """Whether an ``[N]`` marker shares the quote's sentence (or the next one)."""
+    (win_start, win_end), following = _quote_sentence_windows(body, start, end)
+    if _INLINE_CITATION_RE.search(body, win_start, win_end):
+        return True
+    return following is not None and _INLINE_CITATION_RE.search(body, following[0], following[1]) is not None
+
+
 def _answer_body_before_sources(answer_text: str) -> str:
     """Return the answer prose before the ``## Sources``/references section.
 
@@ -2573,7 +2835,19 @@ def verify_quoted_spans(
     (never the source section). Fail-open: when no source carries chunk text
     (e.g. URL-only web sources), there is nothing to verify against and an empty
     list is returned — nothing is ever flagged on a best-effort miss.
+
+    Mechanical gates run first, on every span the fuzzy match would see: a span
+    over ``_QUOTE_MAX_WORDS`` words, or with no ``[N]`` in its sentence, is
+    flagged (``reason="too_long"`` / ``"uncited"``) even when it IS verbatim —
+    verbatim is not attributable. Flagged means annotated downstream, never
+    stripped: the sentence stays, the marker names the doubt.
     """
+    body = _answer_body_before_sources(answer_text)
+    # Code is not prose and carries nothing to verify — see `_code_spans`.
+    # Skipped by OFFSET rather than by stripping the code out, so every
+    # `start`/`end` below still indexes the text `annotate_unverified_quotes`
+    # will be handed.
+    code = _code_spans(body)
     normalized_chunks = [
         norm
         for source in registry.all_sources()
@@ -2583,12 +2857,6 @@ def verify_quoted_spans(
     if not normalized_chunks:
         return []
 
-    body = _answer_body_before_sources(answer_text)
-    # Code is not prose and carries nothing to verify — see `_code_spans`.
-    # Skipped by OFFSET rather than by stripping the code out, so every
-    # `start`/`end` below still indexes the text `annotate_unverified_quotes`
-    # will be handed.
-    code = _code_spans(body)
     unverified: list[UnverifiedQuote] = []
     for match in _QUOTED_SPAN_RE.finditer(body):
         if _inside(match.start(), code):
@@ -2599,8 +2867,13 @@ def verify_quoted_spans(
         norm_quote = _normalize_for_quote_match(inner)
         if len(norm_quote) < min_quote_len:
             continue
+        too_long = len(inner.split()) > _QUOTE_MAX_WORDS
+        uncited = not _quote_has_citation_in_sentence(body, match.start(), match.end())
         best_coverage = max(_quote_coverage(norm_quote, chunk) for chunk in normalized_chunks)
-        if best_coverage < threshold:
+        if too_long or uncited or best_coverage < threshold:
+            reasons = (
+                "+".join(name for name, hit in (("too_long", too_long), ("uncited", uncited)) if hit) or "not_verbatim"
+            )
             unverified.append(
                 UnverifiedQuote(
                     quote=inner,
@@ -2608,6 +2881,7 @@ def verify_quoted_spans(
                     start=match.start(),
                     end=match.end(),
                     best_coverage=best_coverage,
+                    reason=reasons,
                 )
             )
     return unverified
@@ -2746,6 +3020,14 @@ def verify_citations(
         token_match = _ORIGIN_TOKEN_RE.match(ref_text)
         already_tokenized = token_match is not None
         match_text = ref_text[token_match.end() :] if token_match else ref_text
+
+        # A digest line cites the conversation's read-index, not a retrieved
+        # passage (see ``_is_digest_shaped_line``): rejected before either the
+        # URL or the filename scan can accept it on a fragment it contains.
+        if _is_digest_shaped_line(match_text):
+            logger.debug("[CitationVerify]   [%d] REMOVE — digest_line_not_citable: %s", num, ref_text[:80])
+            removed_citations.append({"number": num, "line": full_line, "reason": "digest_line_not_citable"})
+            continue
 
         # Try URL match first
         url_match = _URL_IN_LINE_RE.search(match_text)

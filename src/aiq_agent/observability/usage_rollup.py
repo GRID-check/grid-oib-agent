@@ -40,6 +40,11 @@ class UsageRollup:
     #: 'usage_field' when dollars were observed, 'missing' when the provider
     #: reported no cost (per-call provenance stays in ``llm_usage_events``).
     cost_source: str
+    #: Why this row exists despite no spend: ``NO_CALLS_ERROR`` on a zero row.
+    #: None on a spending turn. A turn that spent nothing still records a row —
+    #: "no calls" and "the rollup failed" must read differently on the
+    #: dashboard, and only a flag on the row itself survives the trace export.
+    error: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -49,7 +54,13 @@ class UsageRollup:
             "totalTokens": self.total_tokens,
             "costUsd": self.cost_usd,
             "costSource": self.cost_source,
+            "error": self.error,
         }
+
+
+#: The ``error`` flag a zero row carries: the turn made no LLM calls, so there
+#: is no spend to attribute — recorded as a row rather than as silence.
+NO_CALLS_ERROR = "no_llm_calls"
 
 
 def build_usage_rollup(
@@ -60,16 +71,25 @@ def build_usage_rollup(
     total_tokens: int | None = None,
     cost_usd: float = 0.0,
     cost_source: str | None = None,
-) -> UsageRollup | None:
-    """Assemble one turn's rollup. None when the turn made no LLM calls.
+) -> UsageRollup:
+    """Assemble one turn's rollup — a zero row with an error flag when the turn made no LLM calls.
 
-    A call-free turn has no spend to attribute; like the citation ledger's
-    direct replies (nothing to cite, no row), it records nothing rather than
-    a zero row. Pure and side-effect free.
+    A call-free turn still records a row: like every other turn, it spent an
+    observable zero, and silence on the dashboard reads as "the rollup failed".
+    The ``error`` flag (``NO_CALLS_ERROR``) is what tells the two apart. Pure
+    and side-effect free.
     """
     calls = max(0, int(llm_calls or 0))
     if calls <= 0:
-        return None
+        return UsageRollup(
+            llm_calls=0,
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+            cost_usd=0.0,
+            cost_source=cost_source or "missing",
+            error=NO_CALLS_ERROR,
+        )
     prompt = max(0, int(prompt_tokens or 0))
     completion = max(0, int(completion_tokens or 0))
     total = max(0, int(total_tokens)) if total_tokens is not None else prompt + completion
@@ -85,7 +105,12 @@ def build_usage_rollup(
 
 
 def from_tracker(tracker: Any) -> UsageRollup | None:
-    """Build the rollup off a ``GridCostTracker``. None when it saw no calls.
+    """Build the rollup off a ``GridCostTracker``.
+
+    A tracker that saw no calls yields the zero row (see
+    :func:`build_usage_rollup`); ``None`` only when the tracker itself is
+    missing or unreadable — unknown is not zero, and a fabricated row would
+    claim a measurement that never happened.
 
     Duck-typed (``events_recorded``/``prompt_tokens``/``completion_tokens``/
     ``turn_cost_usd``) like ``stages.runner._cost_metadata``: the tracker is
@@ -93,8 +118,6 @@ def from_tracker(tracker: Any) -> UsageRollup | None:
     turn's cost. The tracker aggregates no cached/reasoning split and no
     model list — that detail stays per-call in ``llm_usage_events``.
     """
-    if tracker is None:
-        return None
     try:
         return build_usage_rollup(
             llm_calls=int(getattr(tracker, "events_recorded", 0) or 0),
@@ -138,12 +161,14 @@ def record_usage_turn(
     job_id: str | None = None,
     identity: dict[str, str | None] | None = None,
 ) -> dict[str, Any] | None:
-    """Record one turn's usage rollup. Never raises; None when there is nothing to record.
+    """Record one turn's usage rollup. Never raises; None only when the tracker is unreadable.
 
     Stamps the totals as Langfuse trace metadata (per-turn dollars queryable
-    next to the spans) and returns the payload. Call once per turn, where the
-    turn finalizes — currently ``profiler.flush_after_answer``, the single
-    funnel that already holds every turn's ledgers after the answer is out.
+    next to the spans) and returns the payload — including the zero row of a
+    call-free turn, whose ``error`` flag says it spent nothing. Call once per
+    turn, where the turn finalizes — currently ``profiler.flush_after_answer``,
+    the single funnel that already holds every turn's ledgers after the answer
+    is out.
     """
     try:
         rollup = from_tracker(tracker)
