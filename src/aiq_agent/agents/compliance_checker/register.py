@@ -1,9 +1,12 @@
 """NAT register function for the OIB compliance-check pipeline.
 
-Registered as ``compliance_check`` and listed on ``shallow_research_agent``
-so a chat turn can doorbell the staged Soll-Ist pipeline. See README.md.
+RETIRED as a chat tool (implementation and tests stay in place): formerly
+registered as ``compliance_check`` and listed on ``shallow_research_agent``
+so a chat turn could doorbell the staged Soll-Ist pipeline. No workflow
+config binds it any more and the ``aiq_compliance_checker`` plugin entry
+point is removed, so this module is never loaded in production. See README.md.
 
-Configuration example in YAML:
+Former configuration example in YAML:
     functions:
       compliance_check:
         _type: compliance_check_agent

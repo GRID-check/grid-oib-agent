@@ -1,6 +1,9 @@
-from . import register  # noqa: F401
-from .register import compliance_check_agent  # noqa: F401
+"""OIB compliance-check pipeline (RETIRED as a chat tool).
 
-__all__ = [
-    "compliance_check_agent",
-]
+The staged Soll-Ist implementation in :mod:`agent`, :mod:`models` and
+:mod:`report` stays importable, but importing this package must NOT register
+the ``compliance_check_agent`` NAT function: no workflow config binds the tool
+to any agent and the ``aiq_compliance_checker`` plugin entry point is removed.
+Reach the registration explicitly via
+``aiq_agent.agents.compliance_checker.register`` (tests do exactly that).
+"""

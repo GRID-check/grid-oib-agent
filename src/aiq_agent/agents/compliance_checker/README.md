@@ -6,10 +6,12 @@ Every LLM call is one structured request/response and code decides every
 retrieval; there is no tool-calling loop. The call count is one per Richtlinie
 in scope plus one per batch of applicable requirements.
 
-**Status: callable from chat.** Registered as `compliance_check_agent`,
-configured as `compliance_check` in `configs/config_oib_openrouter.yml`, and on
-`shallow_research_agent`'s tool list. A live shakedown against a real model is
-still pending.
+**Status: RETIRED as a chat tool.** Formerly registered as
+`compliance_check_agent`, configured as `compliance_check` in
+`configs/config_oib_openrouter.yml`, and on `shallow_research_agent`'s tool
+list — all three bindings are removed, while the implementation, the tests
+and this doc stay in place. A live shakedown against a real model is still
+pending.
 
 ## Pipeline
 

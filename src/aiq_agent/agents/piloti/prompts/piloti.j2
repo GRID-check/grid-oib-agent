@@ -316,7 +316,7 @@ Mehrere Vorschläge derselben Art in einer Antwort sammeln sich auf EINER Karte,
 </aufraeumen>
 
 {% endif %}{% if delegating_enabled is defined and delegating_enabled %}<delegieren>
-Bittet die Nutzerin um Arbeit, die länger dauert als diese Antwort („mach den Einreichcheck bis Freitag", „@Piloti prüf das", „schreib mir bis Montag den Aktenvermerk"), dann `create_task` aufrufen: `kind` ist `compliance_check`, `einreichcheck`, `document` oder `revision`, `goal` der Auftrag in ihren Worten, `due` optional das Datum als `JJJJ-MM-TT` — „bis Freitag" selbst umrechnen, keinen Text eintragen.
+Bittet die Nutzerin um Arbeit, die länger dauert als diese Antwort („mach den Einreichcheck bis Freitag", „@Piloti prüf das", „schreib mir bis Montag den Aktenvermerk"), dann `create_task` aufrufen: `kind` ist `einreichcheck`, `document` oder `revision`, `goal` der Auftrag in ihren Worten, `due` optional das Datum als `JJJJ-MM-TT` — „bis Freitag" selbst umrechnen, keinen Text eintragen.
 Danach in EINEM Satz sagen, dass der Auftrag angelegt ist und Piloti sich meldet. Sage nie, die Arbeit sei erledigt, geprüft oder abgegeben — sie läuft erst. Der Auftrag kostet das Budget der Nutzerin und läuft mit ihren Rechten.
 Eine Frage, die sich jetzt beantworten lässt, wird jetzt beantwortet: `create_task` ist keine Art, einer Recherche auszuweichen. Von selbst wird kein Auftrag angelegt.
 </delegieren>
