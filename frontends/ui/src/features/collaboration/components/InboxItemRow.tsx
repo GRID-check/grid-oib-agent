@@ -32,7 +32,7 @@
  *     link's accessible name include the button's.
  */
 
-import { forwardRef, useState } from 'react'
+import { forwardRef, useEffect, useState } from 'react'
 import Link from 'next/link'
 import {
   Archive,
@@ -71,7 +71,11 @@ import { cn } from '@/lib/utils'
 import type {
   DocumentLifecycleClient,
 } from '@/lib/documents/lifecycle-client'
-import { documentLifecycleClient } from '@/lib/documents/lifecycle-client'
+import {
+  DocumentLifecycleError,
+  documentLifecycleClient,
+} from '@/lib/documents/lifecycle-client'
+import type { DocumentVersionView } from '@/lib/documents/lifecycle-types'
 import { DiscussDocumentButton } from '@/features/documents/components/discuss-document-button'
 import { projectIdFromDocumentHref } from '@/features/documents/lib/document-question'
 
@@ -117,9 +121,12 @@ export interface InboxItemRowProps {
   /**
    * Runs an inline review decision. Injected by the specs; the browser gets
    * the real typed client. Narrowed to the three decisions a reviewer may
-   * take — nothing else on this row writes lifecycle state.
+   * take — nothing else on this row writes lifecycle state — plus the version
+   * read that names the STAND (Fassung number, date) and carries its
+   * `contentHash` as the `ifMatch` the decisions send.
    */
-  reviewClient?: Pick<DocumentLifecycleClient, 'approve' | 'requestChanges' | 'reject'>
+  reviewClient?: Pick<DocumentLifecycleClient, 'approve' | 'requestChanges' | 'reject'> &
+    Partial<Pick<DocumentLifecycleClient, 'getVersion'>>
 }
 
 export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(function InboxItemRow(
@@ -219,9 +226,11 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
     Inline triage for a version waiting for a decision (ADR-0054): the three
     decisions on the row, so the reviewer answers here instead of navigating
     to Files first. Offered only while the round is still open for this
-    reader — actionable, unresolved, reachable, and naming its version. The
-    server enforces who may decide (project:edit, never the submitter); a
-    refusal there surfaces as an error line, never as a silent nothing.
+    reader — actionable, unresolved, reachable, naming its version AND its
+    Fassung (the subject is required: without it the confirm could not name
+    which document the signature releases). The server enforces who may decide
+    (project:edit, never the submitter); a refusal there surfaces as an error
+    line, never as a silent nothing.
   */
   const canDecideReview =
     item.type === 'document.review_requested' &&
@@ -229,30 +238,90 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
     !resolved &&
     !inert &&
     item.resourceType === 'document' &&
-    item.anchorId !== null
+    item.anchorId !== null &&
+    item.subject !== null
   const [reviewing, setReviewing] = useState<'approve' | 'request_changes' | 'reject' | null>(null)
   const [reviewComment, setReviewComment] = useState('')
   const [reviewChecked, setReviewChecked] = useState(false)
   const [reviewBusy, setReviewBusy] = useState(false)
   const [reviewFailed, setReviewFailed] = useState(false)
+  const [reviewStale, setReviewStale] = useState(false)
   const [reviewDecided, setReviewDecided] = useState(false)
+  const [reviewVersion, setReviewVersion] = useState<DocumentVersionView | null>(null)
+  const [reviewVersionError, setReviewVersionError] = useState(false)
+
+  // The STAND the decisions act on: version number for the signature (Fassung
+  // required — nothing is released without naming it) and `contentHash` as the
+  // `ifMatch` the calls below send, so a stale row 409s instead of deciding on
+  // bytes the reviewer never saw. Read with the row, not when a decision
+  // opens: the signature must already name the Fassung when it appears, and a
+  // refusal must already carry the expected bytes when it is sent — waiting
+  // for the read inside the confirm would race the send. One attempt per
+  // version anchor; a failed read falls back to deciding on state alone,
+  // exactly as before, rather than stranding the row.
+  //
+  // Deliberately NO loading flag: setting one before the `await` would re-run
+  // this effect (it is in the deps) and its cleanup would flip `live` to false
+  // while the read is still in flight — the resolve below would then be
+  // discarded and the STAND would never arrive. The pending state is visible
+  // anyway: the stand renders '…' and the approve send stays shut until the
+  // Fassung number is known.
+  useEffect(() => {
+    if (!canDecideReview || !item.anchorId) return
+    if (reviewVersion !== null || reviewVersionError) return
+    if (typeof reviewClient.getVersion !== 'function') return
+    let live = true
+    void reviewClient
+      .getVersion(item.resourceId, item.anchorId)
+      .then((version) => {
+        if (live) {
+          setReviewVersion(version)
+        }
+      })
+      .catch(() => {
+        if (live) {
+          setReviewVersionError(true)
+        }
+      })
+    return () => {
+      live = false
+    }
+  }, [
+    canDecideReview,
+    item.anchorId,
+    item.resourceId,
+    reviewClient,
+    reviewVersion,
+    reviewVersionError,
+  ])
 
   const sendReview = async () => {
     if (!canDecideReview || !reviewing || !item.anchorId || reviewBusy) return
     // Approval is signed, refusals are worded — the transition table's own
-    // requirements, read at the same point the file pane reads them.
+    // requirements, read at the same point the file pane reads them. Approval
+    // additionally requires the Fassung number: the stand is not released
+    // without naming which version it releases.
     if (reviewing === 'approve' && !reviewChecked) return
+    if (reviewing === 'approve' && typeof reviewClient.getVersion === 'function') {
+      if (reviewVersion?.versionNumber == null) return
+    }
     const words = reviewComment.trim()
     if (reviewing !== 'approve' && words === '') return
     setReviewBusy(true)
     setReviewFailed(false)
+    setReviewStale(false)
+    // The expected bytes, when the STAND above could be read. Absent when the
+    // read never ran (old callers, a version without a digest): the server
+    // then decides on state alone, exactly as before, and a provided-but-stale
+    // digest 409s with the current STAND.
+    const ifMatch = reviewVersion?.contentHash ?? undefined
     try {
       if (reviewing === 'approve') {
-        await reviewClient.approve(item.resourceId, item.anchorId)
+        await reviewClient.approve(item.resourceId, item.anchorId, undefined, ifMatch)
       } else if (reviewing === 'request_changes') {
-        await reviewClient.requestChanges(item.resourceId, item.anchorId, words)
+        await reviewClient.requestChanges(item.resourceId, item.anchorId, words, undefined, ifMatch)
       } else {
-        await reviewClient.reject(item.resourceId, item.anchorId, words)
+        await reviewClient.reject(item.resourceId, item.anchorId, words, ifMatch)
       }
       // Decided here; resolved everywhere by the server, which settles the
       // round for every reviewer and nudges this list to re-read it.
@@ -260,8 +329,16 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
       setReviewing(null)
       setReviewComment('')
       setReviewChecked(false)
-    } catch {
-      setReviewFailed(true)
+    } catch (error) {
+      // A 409 is not a failed decision, it is a moved STAND: somebody decided
+      // first, or the bytes changed under the row. Surfaced distinctly, with
+      // the file as the way back to the current Fassung — never as a silent
+      // nothing, and never as the generic red line.
+      if (error instanceof DocumentLifecycleError && error.status === 409) {
+        setReviewStale(true)
+      } else {
+        setReviewFailed(true)
+      }
     } finally {
       setReviewBusy(false)
     }
@@ -392,6 +469,7 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
                     data-testid="inbox-review-approve"
                     onClick={() => {
                       setReviewFailed(false)
+                      setReviewStale(false)
                       setReviewChecked(false)
                       setReviewing('approve')
                     }}
@@ -407,6 +485,7 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
                     data-testid="inbox-review-request-changes"
                     onClick={() => {
                       setReviewFailed(false)
+                      setReviewStale(false)
                       setReviewComment('')
                       setReviewing('request_changes')
                     }}
@@ -422,6 +501,7 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
                     data-testid="inbox-review-reject"
                     onClick={() => {
                       setReviewFailed(false)
+                      setReviewStale(false)
                       setReviewComment('')
                       setReviewing('reject')
                     }}
@@ -440,9 +520,12 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
                 </div>
               ) : reviewing === 'approve' ? (
                 /* The same minimum ceremony as on the file: never one click,
-                   and the signature names the same facts — which stand is
-                   released and who acts when — resolved from what the row
-                   already carries (subject + round opening), never fetched. */
+                   and the signature names the same facts — which Fassung is
+                   released (subject + number + round opening) and who acts
+                   when. The number is required: without the STAND read above
+                   nothing is released. Who asked is already in the title, so
+                   the acting line stays date-only like the file pane's own
+                   fallback when no viewer name is known. */
                 <div
                   className="space-y-2 rounded-lg border p-2"
                   data-testid="inbox-review-approve-confirm"
@@ -450,7 +533,11 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
                   <p className="text-xs font-medium" data-testid="inbox-review-approve-stand">
                     {t('inbox.review.approveStand', {
                       subject: item.subject ?? t('inbox.untitledConversation'),
-                      date: formatAbsoluteTime(item.createdAt, locale),
+                      number: reviewVersion?.versionNumber ?? '…',
+                      date: formatAbsoluteTime(
+                        reviewVersion?.updatedAt ?? item.createdAt,
+                        locale,
+                      ),
                     })}
                   </p>
                   <p
@@ -492,7 +579,12 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
                       type="button"
                       size="sm"
                       className="h-7 text-xs"
-                      disabled={!reviewChecked || reviewBusy}
+                      disabled={
+                        !reviewChecked ||
+                        reviewBusy ||
+                        (typeof reviewClient.getVersion === 'function' &&
+                          reviewVersion?.versionNumber == null)
+                      }
                       data-testid="inbox-review-approve-send"
                       onClick={() => void sendReview()}
                     >
@@ -546,6 +638,20 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
                     </Button>
                   </div>
                 </div>
+              )}
+              {reviewStale && (
+                <p className="mt-1.5 text-xs" data-testid="inbox-review-stale">
+                  <span className="text-error">{t('inbox.review.stale')}</span>{' '}
+                  {item.href && (
+                    <a
+                      href={item.href}
+                      className="text-primary font-medium hover:underline"
+                      data-testid="inbox-review-reload"
+                    >
+                      {t('inbox.review.reload')}
+                    </a>
+                  )}
+                </p>
               )}
               {reviewFailed && (
                 <p className="text-error mt-1.5 text-xs" data-testid="inbox-review-failed">

@@ -587,7 +587,7 @@ export const files = {
      */
     publishSection: {
       heading: 'Publication',
-      blurb: 'Target: submission set / authority — version {number} becomes the citable stand.',
+      blurb: 'Target: submission set / authority — version {number} is issued.',
     },
     /**
      * A control that is not offered is a muted line, never nothing: the reader

@@ -340,8 +340,10 @@ export const DOCUMENT_VERSION_TRANSITIONS = [
     actor: 'human',
     permission: ['project:edit'],
     // Not the submitter, because approval is the office asserting the content
-    // and an assertion nobody but the author has read is not one.
-    requires: { notSubmitter: true },
+    // and an assertion nobody but the author has read is not one. `ifMatch`
+    // guards stale bytes: a provided digest that no longer matches is a 409
+    // with the current STAND, never a signature on what the reviewer saw.
+    requires: { notSubmitter: true, ifMatch: true },
     auditAction: 'document.version.approved',
     effects: ['resolveReviewInbox', 'audit', 'eventHint'],
   },
@@ -351,7 +353,7 @@ export const DOCUMENT_VERSION_TRANSITIONS = [
     op: 'request_changes',
     actor: 'human',
     permission: ['project:edit'],
-    requires: { comment: true },
+    requires: { comment: true, ifMatch: true },
     auditAction: 'document.version.changes_requested',
     effects: ['resolveReviewInbox', 'openRevisionTask', 'audit', 'eventHint'],
   },
@@ -361,7 +363,7 @@ export const DOCUMENT_VERSION_TRANSITIONS = [
     op: 'reject',
     actor: 'human',
     permission: ['project:edit'],
-    requires: { comment: true },
+    requires: { comment: true, ifMatch: true },
     auditAction: 'document.version.rejected',
     effects: ['resolveReviewInbox', 'audit', 'eventHint'],
   },
@@ -519,7 +521,17 @@ export const submitRequestSchema = z
   .strict()
 
 /** `POST …/[versionId]/approve` */
-export const approveRequestSchema = z.object({ comment: reviewCommentSchema.optional() }).strict()
+export const approveRequestSchema = z
+  .object({
+    comment: reviewCommentSchema.optional(),
+    /**
+     * The `content_hash` the reviewer acted on. Reuses the `update` row's
+     * expected-state name rather than inventing a second one: a mismatch is a
+     * 409 with the current STAND, never a decision on stale bytes.
+     */
+    ifMatch: z.string().min(1).optional(),
+  })
+  .strict()
 
 /**
  * `POST …/[versionId]/changes` and `…/reject` — both require words.
@@ -537,7 +549,15 @@ export const approveRequestSchema = z.object({ comment: reviewCommentSchema.opti
  * with no origin opens one either way.
  */
 export const refuseRequestSchema = z
-  .object({ comment: reviewCommentSchema, delegateRevision: z.boolean().optional() })
+  .object({
+    comment: reviewCommentSchema,
+    delegateRevision: z.boolean().optional(),
+    /**
+     * The `content_hash` the reviewer acted on, like `approve` above: a
+     * mismatch is a 409 with the current STAND, never a refusal of stale bytes.
+     */
+    ifMatch: z.string().min(1).optional(),
+  })
   .strict()
 
 /** `POST /api/documents/[id]/archive` */

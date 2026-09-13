@@ -431,16 +431,19 @@ export const collaboration = {
       reasonLabel: 'Reason for rejection',
       approveConfirm: 'I release this version',
       // The signature mirrors the file pane: which stand is released (the row
-      // names the document and when the round opened — the version number
-      // itself stays on the payload) and who acts when. No viewer name is
-      // known here, so the acting line is always the date-only form.
-      approveStand: '{subject} · as of {date}',
+      // names the document, the version number and when the round opened — the
+      // number is required, nothing is released without it) and who acts when.
+      // No viewer name is known here, so the acting line is always the
+      // date-only form; who asked is already in the title.
+      approveStand: '{subject} · version {number} · as of {date}',
       approveActing: 'Acting: {date}',
       send: 'Send',
       cancel: 'Cancel',
       open: 'Open file',
       decided: 'Decision sent — refreshing.',
       failed: 'That did not go through. Nothing has changed.',
+      stale: 'This has moved on — the current version is in the file.',
+      reload: 'Open current version',
     },
   },
 

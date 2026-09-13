@@ -648,7 +648,8 @@ function assertGuards(
   if (
     transition.requires.ifMatch &&
     version.contentHash !== null &&
-    (input.ifMatch ?? null) !== version.contentHash
+    input.ifMatch != null &&
+    input.ifMatch !== version.contentHash
   ) {
     throw new ConflictError('The version changed since you read it', {
       op: transition.op,

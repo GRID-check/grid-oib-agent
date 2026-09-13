@@ -24,13 +24,13 @@ type Params = { id: string; versionId: string }
 
 export const POST = apiRoute<Params>(
   async ({ session, params, request }) => {
-    const { comment, delegateRevision } = await parseJsonBody(request, refuseRequestSchema)
+    const { comment, delegateRevision, ifMatch } = await parseJsonBody(request, refuseRequestSchema)
     const version = await transitionDocumentVersion(
       session,
       params.id,
       params.versionId,
       'request_changes',
-      { comment, delegateRevision, request }
+      { comment, delegateRevision, ifMatch, request }
     )
     return { version: toDocumentVersionView(version) }
   },

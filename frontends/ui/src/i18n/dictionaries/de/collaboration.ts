@@ -277,18 +277,20 @@ export const collaboration: typeof en.collaboration = {
       changesLabel: 'Was geändert werden soll',
       reasonLabel: 'Grund der Ablehnung',
       approveConfirm: 'Ich gebe diesen Stand frei',
-      // Die Unterschrift wie an der Datei: welcher Stand freigegeben wird (die
-      // Zeile nennt das Dokument und wann die Runde eröffnet wurde — die
-      // Fassungsnummer selbst bleibt auf der Payload) und wer wann handelt.
-      // Der Name der handelnden Person ist hier unbekannt, daher immer die
-      // Form ohne Namen.
-      approveStand: '{subject} · Stand vom {date}',
+      // Die Unterschrift wie an der Datei: welcher Stand freigegeben wird (das
+      // Dokument, die Fassungsnummer und wann die Runde eröffnet wurde — die
+      // Nummer ist Pflicht, ohne sie wird nicht freigegeben) und wer wann
+      // handelt. Der Name der handelnden Person ist hier unbekannt, daher
+      // immer die Form ohne Namen; wer gebeten hat, nennt bereits der Titel.
+      approveStand: '{subject} · Fassung {number} · Stand vom {date}',
       approveActing: 'Handelnd: {date}',
       send: 'Senden',
       cancel: 'Abbrechen',
       open: 'Datei öffnen',
       decided: 'Entscheidung gesendet — wird aktualisiert.',
       failed: 'Das hat nicht geklappt. Es hat sich nichts geändert.',
+      stale: 'Der Stand hat sich geändert — die aktuelle Fassung liegt in der Datei.',
+      reload: 'Aktuelle Fassung öffnen',
     },
   },
 

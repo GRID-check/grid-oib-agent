@@ -549,7 +549,7 @@ export const files: typeof en.files = {
     // Veröffentlichung gibt ihn an Einreichmappe und Behörde heraus.
     publishSection: {
       heading: 'Veröffentlichung',
-      blurb: 'Ziel: Einreichmappe/Behörde — Fassung {number} wird zum zitierbaren Stand.',
+      blurb: 'Ziel: Einreichmappe/Behörde — Fassung {number} wird herausgegeben.',
     },
     // Ein Knopf, der nicht angeboten wird, ist eine gedeckte Zeile, nie
     // nichts: Die Leserin sieht, worauf die Fassung wartet, und — wo das eine
