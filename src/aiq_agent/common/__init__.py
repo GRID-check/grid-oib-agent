@@ -185,8 +185,17 @@ def _create_chat_response(
     content: str,
     response_id: str = "conversational_response",
     model: str | None = None,
+    *,
+    usage: Usage | None = None,
 ) -> ChatResponse:
-    """Create a standardized ChatResponse object."""
+    """Create a standardized ChatResponse object.
+
+    ``usage`` carries the turn's provider totals when the caller has them
+    (see :func:`attach_tracker_usage`); it defaults to an empty ``Usage()``
+    so the five turn-finalize call sites that have no tracker in scope keep
+    their shape. An empty usage renders as empty ``usageDetails`` downstream,
+    so any site that DOES hold the tracker must pass it.
+    """
     return ChatResponse(
         id=response_id,
         model=model or "unknown-model",
@@ -198,8 +207,37 @@ def _create_chat_response(
             )
         ],
         created=datetime.datetime.now(datetime.UTC),
-        usage=Usage(),
+        usage=usage if usage is not None else Usage(),
     )
+
+
+def attach_tracker_usage(response: ChatResponse, tracker: object | None) -> ChatResponse:
+    """Stamp a cost tracker's turn totals onto a wire response. Never raises.
+
+    The provider usage enters through ``GridCostTracker`` (OpenRouter's usage
+    object, cost included); without this call the response keeps the empty
+    ``Usage()`` from :func:`_create_chat_response` and the turn's generation
+    observation is unattributable. A tracker with no recorded calls leaves
+    the response untouched — absent usage stays absent rather than zeroed.
+    Duck-typed (``prompt_tokens``/``completion_tokens``/``events_recorded``)
+    like ``stages.runner._cost_metadata`` so tests need no real tracker.
+    """
+    try:
+        if tracker is None:
+            return response
+        prompt_tokens = max(0, int(getattr(tracker, "prompt_tokens", 0) or 0))
+        completion_tokens = max(0, int(getattr(tracker, "completion_tokens", 0) or 0))
+        calls = max(0, int(getattr(tracker, "events_recorded", 0) or 0))
+        if calls <= 0 and prompt_tokens <= 0 and completion_tokens <= 0:
+            return response
+        response.usage = Usage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+        )
+    except Exception:
+        logger.debug("Could not attach tracker usage to the wire response", exc_info=True)
+    return response
 
 
 def is_postgres_dsn(value: str) -> bool:

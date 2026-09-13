@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from aiq_agent.observability.langfuse_trace_attributes import LangfuseTraceAttributeProcessor
+from aiq_agent.observability.langfuse_trace_attributes import UsageAttributeProcessor
 from aiq_agent.observability.langfuse_trace_attributes import identity_attributes_enabled
 from nat.builder.builder import Builder
 from nat.cli.register_workflow import register_telemetry_exporter
@@ -135,6 +136,27 @@ async def otelcollector_redaction_telemetry_exporter(
         redaction_value=getattr(config, "redaction_value", "[REDACTED]"),
         tags=config.tags,
     )
+
+    # Usage attribution (per-call input/output/total onto generation
+    # observations). Unlike identity, counts and the model name are not
+    # personal data, so this is always installed — no env gate. `position=0`
+    # puts it ahead of redaction: it reads the provider usage object out of
+    # `nat.metadata`, which a redaction pass configured to cover metadata
+    # would otherwise blank first. The attributes it ADDS (counts, model,
+    # usage/cost JSON) are numbers and names, redaction-proof by content.
+    if UsageAttributeProcessor is not None:
+        try:
+            exporter.add_processor(
+                UsageAttributeProcessor(),
+                name="grid_usage_attributes",
+                position=0,
+            )
+        except Exception:
+            logger.warning(
+                "otelcollector_redaction: could not install the usage attribute "
+                "processor - generation observations will export without usage.",
+                exc_info=True,
+            )
 
     # Langfuse session/user attribution (ADR-0044). Same availability rule as
     # the exporter itself: the deployment sets GRID_TRACE_IDENTITY_ATTRIBUTES
