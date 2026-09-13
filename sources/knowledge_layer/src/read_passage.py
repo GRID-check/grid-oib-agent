@@ -269,8 +269,11 @@ _MAX_DID_YOU_MEAN = 3
 
 #: Minimum similarity (difflib ratio over case-folded names) for a guess to be
 #: named. Below this the closest inventory title is noise rather than help,
-#: and the refusal stands on the two recovery ways alone.
-_DID_YOU_MEAN_CUTOFF = 0.4
+#: and the refusal stands on the two recovery ways alone. 0.6 is the stdlib
+#: ``get_close_matches`` default: 0.4 let cross-document titles with a shared
+#: suffix ("Plan.pdf" vs "Brandschutzkonzept.pdf" at 0.40) spend a guess the
+#: caller cannot use.
+_DID_YOU_MEAN_CUTOFF = 0.6
 
 
 def _suggestion_names(wanted: str, documents: list[Any], *, limit: int = _MAX_DID_YOU_MEAN) -> list[str]:
@@ -308,23 +311,44 @@ def _suggestion_names(wanted: str, documents: list[Any], *, limit: int = _MAX_DI
 
 
 def _unknown_document_message(document: str, known: int, suggestions: Sequence[str] | None = None) -> str:
-    """Refuse a name nothing in scope carries, and say how to recover it."""
-    base = (
-        f"No document in scope is named {document!r}. This tool never guesses a name: it opens "
-        "the document you name or nothing.\n"
-        f"{known} document(s) are readable this turn. Take the name from a hit's `Source:` or "
-        "`Citation:` line, or from the knowledge-base inventory, and call again — or call "
-        "`knowledge_search` with the topic when you do not yet know which document holds it. "
-        "Do not invent a citation."
-    )
-    names = [name for name in (suggestions or []) if str(name).strip()][:_MAX_DID_YOU_MEAN]
-    if not names:
+    """Refuse a name nothing in scope carries, and say how to recover it.
+
+    Never a dead end: with no readable documents the refusal points at the
+    inventory (which is empty) and the topic search; with readable documents
+    it names how to take a name from a hit or the inventory. When more
+    candidates clear the bar than fit, the refusal shows the first three and
+    names how many more exist, so the model refines the name instead of
+    retyping the same near-miss.
+    """
+    names = [name for name in (suggestions or []) if str(name).strip()]
+    shown = names[:_MAX_DID_YOU_MEAN]
+    remaining = len(names) - len(shown)
+    if known <= 0:
+        base = (
+            f"No document in scope is named {document!r}. No documents are readable this turn — "
+            "the inventory is empty. Check the knowledge-base inventory (`surface_documents`) for "
+            "what is filed, or call `knowledge_search` with the topic when you do not yet know "
+            "which document holds it. Do not invent a citation."
+        )
+    else:
+        base = (
+            f"No document in scope is named {document!r}. This tool never guesses a name: it opens "
+            "the document you name or nothing.\n"
+            f"{known} document(s) are readable this turn. Take the name from a hit's `Source:` or "
+            "`Citation:` line, or from the knowledge-base inventory, and call again — or call "
+            "`knowledge_search` with the topic when you do not yet know which document holds it. "
+            "Do not invent a citation."
+        )
+    if not shown:
         return base
-    guesses = "\n".join(f"- {name}" for name in names)
-    return (
+    guesses = "\n".join(f"- {name}" for name in shown)
+    message = (
         base + "\nDid you mean (guesses — pass one back verbatim as `document=` if it is the file "
         "you want, do not modify it):\n" + guesses
     )
+    if remaining > 0:
+        message += f"\n(+{remaining} more candidate(s) not shown — refine the name to narrow it down.)"
+    return message
 
 
 def _no_passage_message(document: str, punkt: str | None, page: int | None) -> str:
@@ -434,7 +458,9 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
             listings = await asyncio.gather(*(_documents_in(e.collection) for e in entries))
             known = sum(len(docs) for docs in listings)
             scoped = [doc for docs in listings for doc in docs]
-            return _unknown_document_message(document, known, _suggestion_names(document, scoped))
+            # Full candidate list: the message shows the first three and names
+            # how many more clear the bar, so truncating never hides the count.
+            return _unknown_document_message(document, known, _suggestion_names(document, scoped, limit=1000))
 
         query = _fetch_query(document, punkt, page)
         fetched = await asyncio.gather(

@@ -264,6 +264,12 @@ _STRONG_MIN_CHUNKS = 3
 #: collection drags in what the caller did not ask for. Casefolded search;
 #: each pattern is deliberately narrow so a topic question ("Brandschutz im
 #: Wohnbau") never matches.
+#:
+#: Entity mention alone never skips the judge — the gate additionally requires
+#: a narrow scope (see :data:`_NARROW_ANCHOR_RE` or a caller filter), so a
+#: topic question that merely mentions a table ("Welche Tabelle gilt für
+#: GK 4?") stays eligible while an addressed locator ("Tabelle 1b",
+#: "OIB-RL 2 Pkt. 5.1") skips.
 _KNOWN_ENTITY_PATTERNS = (
     r"oib[-\s_]*rl",  # OIB-RL 2, OIB_RL_2, OIB RL 2.1
     r"richtlinie\s*\d",  # Richtlinie 2
@@ -280,10 +286,74 @@ _KNOWN_ENTITY_PATTERNS = (
 
 _KNOWN_ENTITY_RE = re.compile("|".join(_KNOWN_ENTITY_PATTERNS), re.IGNORECASE)
 
+#: Narrow scope anchored to the entity mention: a specific locator, not a
+#: topic word. Each pattern names the identifier WITH its marker, so a bare
+#: "Tabelle" or a distant number elsewhere in the question ("Welche Tabelle
+#: gilt für GK 4?") does not count — only "Tabelle 1b", "Pkt. 5.1", "§ 12",
+#: "Seite 12", "OIB-RL 2" or a file name does. A question that merely
+#: mentions a table therefore stays eligible for the judge.
+_NARROW_ANCHOR_PATTERNS = (
+    r"oib[-\s_]*rl\s*\d",  # OIB-RL 2
+    r"richtlinie\s*\d",  # Richtlinie 2
+    r"\brl\s*\d",  # RL 2
+    r"\bpkt\.?\s*\d",  # Pkt. 5.1
+    r"\bpunkt\s*\d",  # Punkt 3.5.2
+    r"§",  # § 12 — the symbol itself is specific
+    r"\bseite\s*\d",  # Seite 12
+    r"\bpage\s*\d",  # page 12
+    r"\btabelle\w*\s+(?:nr\.?\s+)?\S*\d",  # Tabelle 1b, Tabellen 3, Tabelle Nr. 3
+    r"\.pdf\b",  # an indexed file name
+    r"oib-rl_",  # the corpus file stem
+)
+
+_NARROW_ANCHOR_RE = re.compile("|".join(_NARROW_ANCHOR_PATTERNS), re.IGNORECASE)
+
 #: Hard cap: one requery firing per turn. The flag lives on a ContextVar so
 #: sequential searches in one turn share it and tests can reset it; the
-#: caller resets it on round zero (see register.py).
+#: caller resets it per turn id with the round stamp as fallback
+#: (see :func:`reset_requery_slot_for_turn` and register.py).
 _REQUERY_FIRED: ContextVar[bool] = ContextVar("knowledge_requery_fired", default=False)
+
+#: The turn that spent the slot, when a turn id was visible at reset time.
+#: Lets sequential turns share one process-wide ContextVar without leaking
+#: the cap across turns: a new turn id opens a fresh slot even when the
+#: round stamp never reaches us.
+_REQUERY_TURN_ID: ContextVar[str | None] = ContextVar("knowledge_requery_turn", default=None)
+
+
+def _current_turn_id() -> str | None:
+    """This turn's id when the NAT context states one, else ``None``.
+
+    Prefers the per-turn user message id and falls back to the workflow run
+    id. The conversation id alone is per-conversation, not per-turn, so it
+    is never a turn id. Fail-open to ``None`` (unstamped): instrumentation
+    never breaks the search.
+    """
+    try:
+        from nat.builder.context import Context
+
+        ctx = Context.get()
+        if ctx is None:
+            return None
+        for attr in ("user_message_id", "workflow_run_id"):
+            value = getattr(ctx, attr, None)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+    except Exception:
+        return None
+
+
+def _has_narrow_anchor(query: str) -> bool:
+    """True when ``query`` carries a specific locator, not just a topic word.
+
+    Pure string test: the identifier WITH its marker ("Tabelle 1b",
+    "Pkt. 5.1", "OIB-RL 2", a file name). A bare mention ("Welche Tabelle
+    gilt …") returns False, so the gate keeps such topic questions eligible.
+    """
+    if not isinstance(query, str) or not query.strip():
+        return False
+    return _NARROW_ANCHOR_RE.search(query) is not None
 
 
 def _head_scores(chunks: Sequence[Any]) -> list[float]:
@@ -328,21 +398,48 @@ def is_known_entity_lookup(query: str) -> bool:
     return _KNOWN_ENTITY_RE.search(query) is not None
 
 
-def should_skip_judge(query: str, chunks: Sequence[Any], *, file_name: str | None = None) -> tuple[bool, str]:
+def should_skip_judge(
+    query: str,
+    chunks: Sequence[Any],
+    *,
+    file_name: str | None = None,
+    doc_class: str | None = None,
+    title_contains: str | None = None,
+    folder: str | None = None,
+) -> tuple[bool, str]:
     """Whether the judge should not run, and the machine-readable reason.
 
     Returns ``(True, reason)`` with reason one of ``"file_pinned"``,
     ``"strong_scores"`` or ``"known_entity"``, else ``(False, "")``.
     A pinned ``file_name`` is the existing precision-lookup rule, stated here
     so instrumentation and tests read one gate instead of two. Never raises.
+
+    Two load-bearing guards:
+
+    * Empty pool forces the judge: even with every skip signal present, an
+      empty pool widens once (bounded by the per-turn cap) rather than
+      answering from nothing.
+    * ``known_entity`` needs anchoring: the entity mention
+      (:func:`is_known_entity_lookup`) PLUS a narrow scope — a specific
+      locator in the query (:func:`_has_narrow_anchor`) or a caller filter
+      (``file_name``/``doc_class``/``title_contains``/``folder``). A topic
+      question that merely mentions a table stays eligible.
     """
     try:
+        pool = list(chunks or [])
+        if not pool:
+            return False, ""
         if file_name and str(file_name).strip():
             return True, "file_pinned"
-        if scores_decisively_strong(chunks):
+        if scores_decisively_strong(pool):
             return True, "strong_scores"
         if is_known_entity_lookup(query):
-            return True, "known_entity"
+            narrowed_by_caller = any(
+                isinstance(value, str) and bool(value.strip()) for value in (doc_class, title_contains, folder)
+            )
+            if narrowed_by_caller or _has_narrow_anchor(query):
+                return True, "known_entity"
+            return False, ""
         return False, ""
     except Exception:
         return False, ""
@@ -376,5 +473,51 @@ def reset_requery_slot() -> None:
     """Open a new turn's firing slot. Fail-open; never raises."""
     try:
         _REQUERY_FIRED.set(False)
+    except Exception:
+        pass
+    try:
+        _REQUERY_TURN_ID.set(None)
+    except Exception:
+        pass
+
+
+def reset_requery_slot_for_turn(span_round: int | None = None, *, turn_id: str | None = None) -> None:
+    """Open the slot when a new turn starts; unstamped callers get a slot.
+
+    Resolution order: the explicit ``turn_id`` (tests) else the context turn
+    id (:func:`_current_turn_id`); when no turn id is visible, the
+    executing-round stamp (0 opens a new turn); when neither is visible
+    (tests, standalone callers), open the slot so the caller gets one firing
+    rather than inheriting another context's spent cap. Fail-open; never
+    raises.
+    """
+    try:
+        current = turn_id if turn_id is not None else _current_turn_id()
+        if current is not None:
+            try:
+                stored = _REQUERY_TURN_ID.get()
+            except Exception:
+                stored = None
+            if stored != current:
+                try:
+                    _REQUERY_TURN_ID.set(current)
+                except Exception:
+                    pass
+                try:
+                    _REQUERY_FIRED.set(False)
+                except Exception:
+                    pass
+            return
+        if span_round is not None:
+            if span_round == 0:
+                try:
+                    _REQUERY_FIRED.set(False)
+                except Exception:
+                    pass
+            return
+        try:
+            _REQUERY_FIRED.set(False)
+        except Exception:
+            pass
     except Exception:
         pass

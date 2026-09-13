@@ -72,6 +72,13 @@ class TestSuggestions:
 
         assert rp._suggestion_names("xyz-voellig-fremd-12345", docs) == []
 
+    def test_cross_document_low_overlap_is_not_a_guess(self):
+        # "Plan.pdf" vs "Brandschutzkonzept.pdf" sits at 0.40: the old bar
+        # named it, the raised bar (0.6, the stdlib default) does not.
+        docs = [_doc("Brandschutzkonzept.pdf")]
+
+        assert rp._suggestion_names("Plan.pdf", docs) == []
+
 
 class TestRefusalMessage:
     def test_guesses_are_appended_and_labelled_verbatim(self):
@@ -85,5 +92,20 @@ class TestRefusalMessage:
         message = rp._unknown_document_message("xyz-voellig-fremd-12345", 4, [])
 
         assert "No document in scope is named" in message
+        assert "knowledge_search" in message
+        assert "Did you mean" not in message
+
+    def test_truncation_names_the_further_count(self):
+        guesses = [f"bericht_{index}.pdf" for index in range(5)]
+        message = rp._unknown_document_message("bericht.pdf", 6, guesses)
+
+        assert "- bericht_0.pdf" in message
+        assert "+2 more candidate(s)" in message
+
+    def test_zero_readable_documents_points_at_the_inventory(self):
+        message = rp._unknown_document_message("irgendwas.pdf", 0, [])
+
+        assert "No document in scope is named" in message
+        assert "inventory" in message
         assert "knowledge_search" in message
         assert "Did you mean" not in message

@@ -1771,18 +1771,18 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             [(entry.collection, entry.shelf) for entry in target_collections],
         )
 
-        # Per-turn requery budget: round zero opens a new turn's slot, so three
-        # sequential searches in one turn cost at most one second round. Read
-        # off the executing-round stamp (set around the ToolNode invocation);
-        # fail-open when unstamped (tests, standalone callers).
+        # Per-turn requery budget: one firing per turn. Reset per turn id when
+        # the NAT context states one (user message id), falling back to the
+        # executing-round stamp (round zero opens a new turn); unstamped
+        # callers (tests, standalone) get a slot rather than inheriting a
+        # spent cap. Fail-open when neither is visible.
         span_round = _current_span_round()
-        if span_round == 0:
-            try:
-                from knowledge_layer.requery import reset_requery_slot
+        try:
+            from knowledge_layer.requery import reset_requery_slot_for_turn
 
-                reset_requery_slot()
-            except Exception:
-                logger.debug("Requery slot reset skipped", exc_info=True)
+            reset_requery_slot_for_turn(span_round)
+        except Exception:
+            logger.debug("Requery slot reset skipped", exc_info=True)
 
         async def _retrieve_collection(entry, search_query: str = retrieval_query):
             coll = entry.collection

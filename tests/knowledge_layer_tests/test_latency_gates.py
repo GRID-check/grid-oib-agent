@@ -12,10 +12,12 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from knowledge_layer.requery import _has_narrow_anchor
 from knowledge_layer.requery import claim_requery_slot
 from knowledge_layer.requery import is_known_entity_lookup
 from knowledge_layer.requery import requery_already_fired
 from knowledge_layer.requery import reset_requery_slot
+from knowledge_layer.requery import reset_requery_slot_for_turn
 from knowledge_layer.requery import scores_decisively_strong
 from knowledge_layer.requery import should_skip_judge
 
@@ -81,7 +83,7 @@ class TestIsKnownEntityLookup:
 
 class TestShouldSkipJudge:
     def test_file_pinned_is_the_precision_lookup(self):
-        skip, reason = should_skip_judge("anything", [], file_name="oib-rl_2.pdf")
+        skip, reason = should_skip_judge("anything", [_scored(0.5)], file_name="oib-rl_2.pdf")
         assert (skip, reason) == (True, "file_pinned")
 
     def test_strong_scores_skip(self):
@@ -97,6 +99,40 @@ class TestShouldSkipJudge:
         assert should_skip_judge("Wie lang darf der Fluchtweg sein?", chunks) == (False, "")
 
 
+class TestKnownEntityAnchoring:
+    def test_table_topic_without_number_stays_eligible(self):
+        chunks = [_scored(0.5), _scored(0.4), _scored(0.3)]
+        assert is_known_entity_lookup("Welche Tabelle gilt für GK 4?") is True
+        assert _has_narrow_anchor("Welche Tabelle gilt für GK 4?") is False
+        assert should_skip_judge("Welche Tabelle gilt für GK 4?", chunks) == (False, "")
+
+    def test_table_with_number_skips(self):
+        chunks = [_scored(0.5), _scored(0.4), _scored(0.3)]
+        assert should_skip_judge("Tabelle 1b Fluchtwegbreite", chunks) == (True, "known_entity")
+
+    def test_bare_family_without_number_stays_eligible(self):
+        chunks = [_scored(0.5), _scored(0.4), _scored(0.3)]
+        assert should_skip_judge("Erzähl mir was über OIB-RL", chunks) == (False, "")
+
+    def test_caller_narrow_scope_rescues_bare_mention(self):
+        chunks = [_scored(0.5), _scored(0.4), _scored(0.3)]
+        assert should_skip_judge("Welche Tabelle gilt?", chunks, doc_class="oib_richtlinie") == (
+            True,
+            "known_entity",
+        )
+
+
+class TestEmptyPoolForcing:
+    def test_empty_pool_with_file_pinned_still_judges(self):
+        assert should_skip_judge("OIB-RL 2 Pkt 5.1", [], file_name="oib-rl_2.pdf") == (False, "")
+
+    def test_empty_pool_with_known_entity_still_judges(self):
+        assert should_skip_judge("OIB-RL 2 Pkt 5.1", []) == (False, "")
+
+    def test_empty_pool_with_topic_still_judges(self):
+        assert should_skip_judge("Wie lang darf der Fluchtweg sein?", []) == (False, "")
+
+
 class TestRequeryCap:
     def test_first_claim_wins_second_loses(self):
         assert requery_already_fired() is False
@@ -109,6 +145,48 @@ class TestRequeryCap:
         reset_requery_slot()
         assert requery_already_fired() is False
         assert claim_requery_slot() is True
+
+
+class TestSlotResetPerTurn:
+    def test_same_turn_id_keeps_the_cap(self):
+        reset_requery_slot_for_turn(turn_id="turn-1")
+        assert claim_requery_slot() is True
+        reset_requery_slot_for_turn(turn_id="turn-1")
+        assert claim_requery_slot() is False
+
+    def test_new_turn_id_opens_a_slot(self):
+        reset_requery_slot_for_turn(turn_id="turn-1")
+        assert claim_requery_slot() is True
+        reset_requery_slot_for_turn(turn_id="turn-2")
+        assert claim_requery_slot() is True
+
+    def test_stamp_fallback_zero_opens_nonzero_keeps(self):
+        reset_requery_slot_for_turn(turn_id="turn-1")
+        assert claim_requery_slot() is True
+        # Stamp path without a turn id: 1 keeps the spent cap, 0 opens a new one.
+        import knowledge_layer.requery as requery_mod
+
+        original = requery_mod._current_turn_id
+        requery_mod._current_turn_id = lambda: None
+        try:
+            reset_requery_slot_for_turn(span_round=1)
+            assert claim_requery_slot() is False
+            reset_requery_slot_for_turn(span_round=0)
+            assert claim_requery_slot() is True
+        finally:
+            requery_mod._current_turn_id = original
+
+    def test_unstamped_caller_gets_a_slot(self):
+        import knowledge_layer.requery as requery_mod
+
+        original = requery_mod._current_turn_id
+        requery_mod._current_turn_id = lambda: None
+        try:
+            assert claim_requery_slot() is True
+            reset_requery_slot_for_turn(span_round=None)
+            assert claim_requery_slot() is True
+        finally:
+            requery_mod._current_turn_id = original
 
 
 # --- The loop inside knowledge_search ---------------------------------------
@@ -230,10 +308,13 @@ class TestGateSkipsTheJudge:
         assert [call["query"] for call in retriever.retrieve_calls] == ["OIB-RL 2 Pkt 5.1"]
         assert "a" in out
 
-    async def test_one_firing_per_turn_second_search_is_one_shot(self, loop_harness):
-        # Two sequential searches in one turn (no round stamp in tests, so no
-        # reset between them): the first fires, the second stays one-shot even
-        # though its judge would also have asked for more.
+    async def test_one_firing_per_turn_second_search_is_one_shot(self, loop_harness, monkeypatch):
+        # Two sequential searches in one turn (same turn id): the first fires,
+        # the second stays one-shot even though its judge would also have asked
+        # for more.
+        import knowledge_layer.requery as requery_mod
+
+        monkeypatch.setattr(requery_mod, "_current_turn_id", lambda: "turn-1")
         first = [_chunk("a", "a")]
         retriever = _FakeRetriever(
             {
@@ -256,6 +337,52 @@ class TestGateSkipsTheJudge:
         # The cap held: no second judge call, no second fan-out.
         assert len(judge.calls) == 1
         assert [call["query"] for call in retriever.retrieve_calls].count("Fluchtweglänge") == 0
+
+    async def test_unstamped_searches_each_get_a_slot(self, loop_harness, monkeypatch):
+        # No turn id, no round stamp: each caller gets a slot rather than
+        # inheriting the previous search's spent cap.
+        import knowledge_layer.requery as requery_mod
+
+        monkeypatch.setattr(requery_mod, "_current_turn_id", lambda: None)
+        retriever = _FakeRetriever(
+            {
+                "erste Frage": [_chunk("a", "a")],
+                "Gehweglänge": [_chunk("new", "new")],
+                "zweite Frage": [_chunk("b", "b")],
+                "Fluchtweglänge": [_chunk("new2", "new2")],
+            }
+        )
+        judge = _FakeLLM('{"sufficient": false, "queries": ["Gehweglänge"]}')
+        loop_harness(retriever, judge)
+
+        await _search(_config(requery_llm="judge"), query="erste Frage")
+        assert len(judge.calls) == 1
+
+        judge.reply = '{"sufficient": false, "queries": ["Fluchtweglänge"]}'
+        await _search(_config(requery_llm="judge"), query="zweite Frage")
+
+        assert len(judge.calls) == 2
+        assert [call["query"] for call in retriever.retrieve_calls].count("Fluchtweglänge") == 1
+
+    async def test_empty_pool_widens_once_despite_lookup_shape(self, loop_harness, monkeypatch):
+        # Empty pool forces the judge even for a lookup-shaped query: the
+        # first pool is nothing, so the loop still tries one reformulation.
+        import knowledge_layer.requery as requery_mod
+
+        monkeypatch.setattr(requery_mod, "_current_turn_id", lambda: None)
+        retriever = _FakeRetriever(
+            {
+                "OIB-RL 2 Pkt 5.1": [],
+                "Gehweglänge": [_chunk("new", "new")],
+            }
+        )
+        judge = _FakeLLM('{"sufficient": false, "queries": ["Gehweglänge"]}')
+        loop_harness(retriever, judge)
+
+        out = await _search(_config(requery_llm="judge"), query="OIB-RL 2 Pkt 5.1")
+
+        assert len(judge.calls) == 1
+        assert "new" in out
 
 
 class TestSpanEnrichment:
