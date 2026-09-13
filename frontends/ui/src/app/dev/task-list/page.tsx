@@ -101,21 +101,21 @@ export default function TaskListPreview() {
           title="Was gerade läuft, und was schon beurteilt ist"
           note="Vier Zeilen, vier verschiedene Antworten auf „was ist daraus geworden“. Zu beurteilen: ob die Zeile bei einem langen Titel zusammenbleibt, ob „Zurückgeschickt“ und die Begründung darunter zusammengehören, und ob die beiden Links am Fuß als Orte lesen."
         >
-          <TaskList tasks={TASKS} />
+          <TaskList projectId="preview" tasks={TASKS} jobs={[]} />
         </Panel>
 
         <Panel
           title="Noch nichts übergeben"
           note="Der Zustand am ersten Tag. Er muss als Einladung lesen, nicht als Liste, die nicht geladen hat — genau diesen Unterschied trägt der Fehlerzustand darunter."
         >
-          <TaskList tasks={[]} />
+          <TaskList projectId="preview" tasks={[]} jobs={[]} />
         </Panel>
 
         <Panel
           title="Die Liste konnte nicht geladen werden"
           note="Der Unterschied zum Zustand darüber ist die eine Lüge, auf die jemand hin handeln würde."
         >
-          <TaskList tasks={[]} failed />
+          <TaskList projectId="preview" tasks={[]} jobs={[]} failed />
         </Panel>
       </div>
     </I18nProvider>

@@ -10,7 +10,7 @@ import type { en } from '../en'
 export const jobs: typeof en.jobs = {
   title: 'Jobs',
   subtitle:
-    'Prompts, die dieses Projekt nach Zeitplan ausführt — als Chat oder Bericht, auf Wunsch mit Skill.',
+    'Zeitpläne, die dieses Projekt ausführt — als Chat oder Bericht, auf Wunsch mit Skill. Jeder Lauf landet als Aufgabe unter Aufgaben.',
   backToList: 'Zurück zu den Jobs',
   loadError: 'Die Jobs konnten nicht geladen werden.',
   tryAgain: 'Erneut versuchen',

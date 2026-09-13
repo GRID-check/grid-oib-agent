@@ -108,20 +108,29 @@ describe('DocumentLifecyclePanel — what the state allows', () => {
     expect(screen.queryByRole('button', { name: 'Publish' })).not.toBeInTheDocument()
   })
 
-  it('offers a reader with only project:view no controls at all', async () => {
+  it('shows a reader with only project:view the wait instead of no controls at all', async () => {
     const client = fakeClient({
-      listVersions: () => Promise.resolve(listing([makeVersion(1, 'in_review')])),
+      listVersions: () =>
+        Promise.resolve(
+          listing([makeVersion(1, 'in_review', { submittedBy: 'user_author' })]),
+        ),
     })
     render(
       <DocumentLifecyclePanel
         documentId="doc_1"
         viewer={{ permissions: ['project:view'], userId: 'user_x' }}
+        names={{ user_author: 'Anna Berger' }}
         client={client}
       />,
     )
 
     expect(await screen.findByTestId('document-lifecycle-panel')).toBeInTheDocument()
-    expect(screen.queryByTestId('document-review-controls')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+    // No gesture for this reader is a muted line, never nothing: what the
+    // version waits for, and who submitted it.
+    const waiting = screen.getByTestId('document-review-waiting')
+    expect(waiting).toHaveTextContent('In review')
+    expect(waiting).toHaveTextContent('Anna Berger')
   })
 
   it('shows the state as a badge even for a document whose card carries none', async () => {
@@ -201,15 +210,32 @@ describe('DocumentLifecyclePanel — a refusal carries words', () => {
     )
   })
 
-  it('sends Freigeben without asking for a comment', async () => {
+  it('releases Freigeben only once the stand is signed', async () => {
     const approve = vi.fn().mockResolvedValue(makeVersion(1, 'approved'))
     const client = fakeClient({
       listVersions: () => Promise.resolve(listing([makeVersion(1, 'in_review')])),
       approve,
     })
-    render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
+    render(
+      <DocumentLifecyclePanel
+        documentId="doc_1"
+        viewer={reviewer}
+        names={{ user_reviewer: 'DI Huber' }}
+        client={client}
+      />,
+    )
 
     await userEvent.click(await screen.findByRole('button', { name: 'Approve' }))
+    // Never one click: the press opens the signature, it does not release.
+    expect(approve).not.toHaveBeenCalled()
+    expect(screen.getByTestId('document-review-approve-stand')).toHaveTextContent('Version 1')
+    expect(screen.getByTestId('document-review-approve-acting')).toHaveTextContent('DI Huber')
+    const send = screen.getByTestId('document-review-approve-send')
+    expect(send).toBeDisabled()
+
+    await userEvent.click(screen.getByRole('checkbox', { name: 'I release this version' }))
+    await userEvent.click(send)
+
     await waitFor(() => expect(approve).toHaveBeenCalledWith('doc_1', 'ver_1', undefined))
     expect(screen.queryByTestId('document-review-comment')).not.toBeInTheDocument()
   })
@@ -228,6 +254,8 @@ describe('DocumentLifecyclePanel — the compare-and-swap lost', () => {
 
     render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
     await userEvent.click(await screen.findByRole('button', { name: 'Approve' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'I release this version' }))
+    await userEvent.click(screen.getByTestId('document-review-approve-send'))
 
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith('This has moved on — reloading the current state.'),
@@ -245,9 +273,63 @@ describe('DocumentLifecyclePanel — the compare-and-swap lost', () => {
     render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
 
     await userEvent.click(await screen.findByRole('button', { name: 'Approve' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'I release this version' }))
+    await userEvent.click(screen.getByTestId('document-review-approve-send'))
     await waitFor(() => expect(toastError).toHaveBeenCalled())
     // The optimistic „Freigegeben" is gone again; the version is where it was.
     expect(await screen.findByTestId('document-lifecycle-state')).toHaveTextContent('In review')
+  })
+})
+
+describe('DocumentLifecyclePanel — submitting states its order', () => {
+  it('keeps Einreichen shut until the order is stated', async () => {
+    const submit = vi.fn().mockResolvedValue(makeVersion(1, 'in_review'))
+    const client = fakeClient({
+      listVersions: () => Promise.resolve(listing([makeVersion(1, 'draft')])),
+      submit,
+    })
+    render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
+
+    const send = await screen.findByTestId('document-lifecycle-submit')
+    expect(send).toBeDisabled()
+    expect(submit).not.toHaveBeenCalled()
+
+    await userEvent.type(screen.getByTestId('document-review-order'), 'Bitte prüfen.')
+    expect(send).toBeEnabled()
+    await userEvent.click(send)
+
+    // No candidates in this tree, so the round falls back to the wire's own
+    // waiver rather than reaching nobody — and the stated order rides the call
+    // into the round's inbox payload.
+    await waitFor(() =>
+      expect(submit).toHaveBeenCalledWith('doc_1', 'ver_1', undefined, {
+        orderMessage: 'Bitte prüfen.',
+        dueAt: undefined,
+      }),
+    )
+  })
+})
+
+describe('DocumentLifecyclePanel — publishing is its own act', () => {
+  it('publishes from its own section, never beside approval', async () => {
+    const publish = vi.fn().mockResolvedValue(makeVersion(1, 'published'))
+    const client = fakeClient({
+      listVersions: () => Promise.resolve(listing([makeVersion(1, 'approved')])),
+      publish,
+    })
+    render(
+      <DocumentLifecyclePanel
+        documentId="doc_1"
+        viewer={{ permissions: ['project:view', 'project:documents:write'], userId: 'user_x' }}
+        client={client}
+      />,
+    )
+
+    const section = await screen.findByTestId('document-review-publish')
+    expect(section).toHaveTextContent('submission set / authority')
+    await userEvent.click(screen.getByTestId('document-lifecycle-publish'))
+
+    await waitFor(() => expect(publish).toHaveBeenCalledWith('doc_1', 'ver_1'))
   })
 })
 

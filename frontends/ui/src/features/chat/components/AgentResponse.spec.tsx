@@ -1021,6 +1021,21 @@ describe('AgentResponse', () => {
       expect(container.textContent).toContain('In GK 4 gilt REI 60.')
     })
 
+    test('the inline variant drops a restating summary from the masthead too', () => {
+      // The dedup gate is variant-independent: the inline rendering carries
+      // the same masthead, so a summary the body already states once must not
+      // headline it twice there either.
+      const { container } = render(
+        <AgentResponse
+          content="In GK 4 gilt REI 60."
+          variant="inline"
+          answerMeta={{ v: 1, kind: 'walkthrough', summary: 'In GK 4 gilt REI 60.' }}
+        />
+      )
+      expect(container.textContent?.match(/In GK 4 gilt REI 60\./g)).toHaveLength(1)
+      expect(container.querySelector('header')).toBeNull()
+    })
+
     test('a genuinely different summary still headlines the answer', () => {
       const { container } = render(
         <AgentResponse content="REI 60 gilt, und maßgeblich ist das Fluchtniveau." answerMeta={answerMeta} />
@@ -1029,7 +1044,7 @@ describe('AgentResponse', () => {
     })
   })
 
-  describe('the provenance row’s hue budget', () => {
+  describe('the provenance row always keeps its lane tints', () => {
     const citations = [
       {
         id: 'hue-c1',
@@ -1077,7 +1092,10 @@ describe('AgentResponse', () => {
       expect(chipSignal(container)).toBe('oib')
     })
 
-    test('evidence plus takeaways mute the chips (spend two)', async () => {
+    test('evidence plus takeaways keep the chips tinted', async () => {
+      // Lane tint is provenance, not decoration: the evidence block and the
+      // takeaways spend the hue budget elsewhere, never by muting the source
+      // signal.
       const { container } = render(
         <AgentResponse
           content="Die Antwort steht in der Richtlinie."
@@ -1086,10 +1104,11 @@ describe('AgentResponse', () => {
           answerMeta={{ v: 1, kind: 'walkthrough', takeaways }}
         />
       )
-      expect(chipSignal(container)).toBe('auto')
+      expect(chipSignal(container)).toBe('oib')
     })
 
-    test('a frist callout plus takeaways mute the chips', async () => {
+    test('a frist callout plus takeaways keep the chips tinted', async () => {
+      // Same: a frist callout spends its alarm hue beside tinted chips.
       const { container } = render(
         <AgentResponse
           content="Maßgeblich ist das Fluchtniveau."
@@ -1102,7 +1121,7 @@ describe('AgentResponse', () => {
           }}
         />
       )
-      expect(chipSignal(container)).toBe('auto')
+      expect(chipSignal(container)).toBe('oib')
     })
 
     test('a hinweis callout plus takeaways keep the chips tinted', async () => {

@@ -57,6 +57,7 @@ from aiq_agent.common.turn_status import emit_retrieval
 from aiq_agent.common.turn_status import is_retrieval_round
 from aiq_agent.common.turn_status import is_search_call
 from aiq_agent.common.turn_status import retrieval_round_scope
+from aiq_agent.knowledge.already_read import merge_digest
 from aiq_agent.tools.bim.measurement_sources import begin_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import end_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import get_measurement_captures
@@ -499,6 +500,20 @@ def _cap_notices(dropped: Sequence[Any]) -> list[ToolMessage]:
         )
         for call in dropped
     ]
+
+
+def _turn_index(state: ResearchAgentState) -> int:
+    """The 1-indexed conversation turn this run is, read off its human turns.
+
+    Best-effort by construction: the input messages are history-trimmed, so
+    after trimming the count runs low again. That only ever LOWERs a display
+    number — retention is by position, never by this number, and staleness is
+    answered by miss-then-search, never by comparing it.
+    """
+    try:
+        return max(1, sum(1 for message in state.messages if isinstance(message, HumanMessage)))
+    except Exception:  # noqa: BLE001 — a turn number must never take a turn down
+        return 1
 
 
 def _assistant_checkpoint(response: Any) -> str | None:
@@ -1035,9 +1050,16 @@ class PilotiAgent:
             repair=self._repairer(binding, graph_result),
         )
         self._emit_final_report(final)
-        return assemble_result(
+        # The "already read" digest, appended at turn end: this turn's captures
+        # (plus an adopted repair's reads) merged over the incoming lines, so
+        # the next turn re-opens with `read_passage` instead of re-searching.
+        combined_sources = [*turn_sources, *final.repair_sources]
+        merged_digest = merge_digest(state.already_read_digest, combined_sources, _turn_index(state))
+        result = assemble_result(
             graph_result,
             final,
-            turn_sources=[*turn_sources, *final.repair_sources],
+            turn_sources=combined_sources,
             turn_measurements=turn_measurements,
         )
+        result.already_read_digest = merged_digest
+        return result

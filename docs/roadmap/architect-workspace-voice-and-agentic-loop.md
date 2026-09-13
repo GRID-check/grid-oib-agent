@@ -172,9 +172,17 @@ There is no shape for: “help me file these plans”, “walk this drawing with
 
 The four examples in the prompt are: identity, cake, commission a Brandschutz report, “Was regelt die OIB-Richtlinie 2 grundsätzlich?”. Zero workspace examples.
 
-### The compliance checker is still a bound tool
+### The compliance checker is retired as a bound tool
 
-`compliance_check` sits on `shallow_research_agent`'s tool list (`configs/config_oib_openrouter.yml:609`). It is a deterministic three-stage Soll-Ist pipeline (requirement profile → evidence batches → matrix), explicitly **not** an open tool loop (`agents/compliance_checker/README.md`). Live shakedown is still pending. So the chat agent can *delegate* a full compliance check, while its own default voice already *is* a lighter version of the same job.
+`compliance_check` used to sit on `shallow_research_agent`'s tool list. That
+binding is retired — removed from the workflow config, the chat tool list and
+the plugin entry point, while the implementation, the tests and the README
+(`agents/compliance_checker/README.md`) stay in place. It was a deterministic
+three-stage Soll-Ist pipeline (requirement profile → evidence batches →
+matrix), explicitly **not** an open tool loop. Live shakedown is still
+pending. A full compliance check now runs as a task of kind
+`compliance_check` through delegation, while the chat agent's own default
+voice already *is* a lighter version of the same job.
 
 That is the right split if chat is a colleague who sometimes runs a check. It is the wrong split if chat *is* the check.
 
@@ -271,7 +279,7 @@ The shallow agent is a LangGraph loop (`agent_node` ↔ tools):
 
 Production ceiling: `max_tool_iterations: 7` charged research calls, plus reserved `use_skill` for forced house skills, plus a separate allowance so `emit_card` / `describe_card` / `remember` do not steal the research budget (`config_oib_openrouter.yml:611–674`, `shallow_researcher/agent.py:509–549, 923–965`). Parallel calls each cost one, so three searches in one round spend three of seven. **One greedy parallel batch can spend the whole ceiling before the model ever observes a result.** That is not seven think–act rounds.
 
-Tools on the chat agent today include `web_search_tool`, `knowledge_search`, `view_knowledge_image`, RIS search/fetch/catalog, `remember`, `emit_card`, `describe_card`, `surface_documents`, `ifc_query`, `ifc_measure`, `ask_user`, `compliance_check`, and `use_skill`. Two of those write (`remember`, and RIS fetch into the session shelf). There is **no `think` tool** on the shallow path. Deep research has `think` / `write_todos`; chat does not.
+Tools on the chat agent today include `web_search_tool`, `knowledge_search`, `view_knowledge_image`, RIS search/fetch/catalog, `remember`, `emit_card`, `describe_card`, `surface_documents`, `ifc_query`, `ifc_measure`, `ask_user`, and `use_skill` (`compliance_check` was removed from this list — retired as a direct tool, still available as the task kind `compliance_check`). Two of those write (`remember`, and RIS fetch into the session shelf). There is **no `think` tool** on the shallow path. Deep research has `think` / `write_todos`; chat does not.
 
 Routing is observed *after* the answer, not classified before it (`observed_routing` in `chat_researcher/agent.py`): `meta` if no data-source tool and no confidence, `shallow` otherwise, `deep` only on the envelope flag. Chat-path deep research is usually an **async job submit**, not an in-process multi-agent run in the same bubble.
 
@@ -431,7 +439,7 @@ Do A, then:
 4. Redraw the Herleitung as a spine of those checkpoints, with source cards hanging off the checkpoint that fetched them. A later checkpoint may fan out again. Keep the current fan-out as the *intra-checkpoint* layout so the graph work is not thrown away.
 5. Persist the retrieval query on the message (already required by the 2026-09-01 review; PF-12 was about showing it, not storing it).
 
-**Keeps:** LangGraph ReAct, 7-call research ceiling (raise only if checkpointing shows truncation on real chains), citation verification, hidden requery as a safety net under the model’s own second search, `compliance_check` as a tool for actual Soll-Ist.
+**Keeps:** LangGraph ReAct, 7-call research ceiling (raise only if checkpointing shows truncation on real chains), citation verification, hidden requery as a safety net under the model’s own second search, a task of kind `compliance_check` for actual Soll-Ist (the direct `compliance_check` chat tool is retired).
 
 **Effect:** the thing the user asked for, without replacing the runtime. This is IRCoT on top of the loop we already have, plus a document type that is not always a Urteil.
 
@@ -457,7 +465,7 @@ A turn like “können wir den Fluchtweg so führen?” should be allowed to loo
 
 A turn like “ordne die Pläne in Ordnern” should never grow a verdict, a Das-Wichtigste block, or a Prüfreihenfolge. It should still be allowed to `surface_documents` and `remember`.
 
-A turn like “Soll-Ist über alle OIB-Richtlinien” should call `compliance_check` (or a task of kind `compliance_check`), not pretend the chat envelope is that matrix.
+A turn like “Soll-Ist über alle OIB-Richtlinien” should create a task of kind `compliance_check`, not pretend the chat envelope is that matrix.
 
 ---
 
@@ -478,7 +486,7 @@ A turn like “Soll-Ist über alle OIB-Richtlinien” should call `compliance_ch
 - `src/aiq_agent/agents/shallow_researcher/prompts/researcher.j2` — identity, output contract, stimme, envelope teaching, 2-call cap
 - `src/aiq_agent/common/answer_envelope.py` — schema, gates, “verdict is the headline”
 - `src/aiq_agent/agents/shallow_researcher/agent.py` — ReAct loop, budgets, forced synthesis, repair
-- `configs/config_oib_openrouter.yml` — tool list, `max_tool_iterations: 7`, `repair_pass`, `compliance_check`
+- `configs/config_oib_openrouter.yml` — tool list, `max_tool_iterations: 7`, `repair_pass` (the `compliance_check` binding is retired; see §1)
 - `src/aiq_agent/common/turn_status.py` — live status keys, requery/repair events, replace-not-accumulate
 - `sources/knowledge_layer/src/requery.py` — hidden sufficiency judge
 - `frontends/ui/src/features/chat/components/reasoning/ReasoningFlow.tsx` + `.spec.ts` — fan-out, never a chain
@@ -517,4 +525,4 @@ A turn like “Soll-Ist über alle OIB-Richtlinien” should call `compliance_ch
 - No production Langfuse traces were pulled, so how often a **second agent round** of `knowledge_search` happens after observing hits (vs one parallel batch + hidden requery) is unmeasured. The prompt, the tool description, and the per-call budget all push toward the latter.
 - Whether the shallow model emits non-empty `AIMessage.content` alongside `tool_calls` is unread by the Herleitung even if present.
 - Whether `piloti-voice` / `piloti-cards` are still `delivery: standard` in the live org catalog (repo builtins no longer ship them; YAML comments and UI tests still assume they exist).
-- How often `compliance_check` is actually doorbell'd; README still says live shakedown is pending. Deferred tool loading may hide its schema on turn 1.
+- The direct `compliance_check` chat tool is retired (see §1), so there is no doorbell rate to measure; the README still says live shakedown is pending for the pipeline behind the task kind.

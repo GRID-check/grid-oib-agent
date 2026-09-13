@@ -461,6 +461,103 @@ def _normative_claim_uncited(content: str, grounding: _Grounding) -> bool:
     return not model_cited and answer_mentions_normative_claim(prose_without_references(content))
 
 
+#: Short-overview card floor. Below this a non-ruling answer without a
+#: copyable verdict has not earned cards: the prose IS the answer, and the
+#: describe_card + emit_card generations (each a full-context LLM round,
+#: ~2 s in the production trace) buy the reader nothing to copy. Mirrors the
+#: takeaway floor's judgement (600) with headroom: cards are heavier than
+#: takeaways, so they are earned later. Mechanical only — the prompt doctrine
+#: that teaches WHEN to emit is untouched.
+_CARD_SUPPRESS_MIN_PROSE_CHARS = 800
+
+#: The marker emit_card hands back (``[[card:N]]``); stripped when cards are
+#: suppressed so the reader never meets a marker with nothing behind it.
+_CARD_MARKER_RE = re.compile(r"\[\[card:\d+\]\]")
+
+
+def _should_suppress_meta_cards(content: str, gated_meta: dict[str, Any] | None) -> bool:
+    """Whether a short overview's trailer cards should be dropped.
+
+    Pure, so tests pin it without a registry: ``False`` when there is nothing
+    to drop, when the prose reaches the floor, or when the answer carries a
+    copyable value (a verdict, or ``kind=ruling`` which exists to carry one).
+    A short walkthrough/direct answer with takeaways/callout/summary but no
+    verdict is the shape that pays full-context card generations for prose
+    the reader finishes in one screen.
+    """
+    if not gated_meta:
+        return False
+    try:
+        prose_chars = len(prose_without_references(content))
+    except Exception:
+        return False
+    if prose_chars >= _CARD_SUPPRESS_MIN_PROSE_CHARS:
+        return False
+    if gated_meta.get("verdict") is not None:
+        return False
+    return gated_meta.get("kind") != "ruling"
+
+
+def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[str, dict[str, Any] | None, bool]:
+    """Drop unearned cards on a short overview; ``(content, meta, suppressed)``.
+
+    Clears the turn's emit_card registry (fail-open when unbound) and strips
+    ``[[card:N]]`` markers so no dangling marker reaches the reader, and drops
+    the gated answer_meta trailer. Logs the drop: a turn that came back with
+    no cards must read as "suppressed", never as "the model never tried".
+    Mechanical — no prompt wording, no doctrine change.
+
+    System cards are the product, not the trailer: ``document_draft`` (and
+    every other ``SYSTEM_CARD_TYPES`` member) is pushed by the tool that did
+    the work, and a short drafting answer (kind=direct, <800 chars, no
+    verdict) matches the suppression floor exactly. Clearing the registry
+    there would eat the announcement of the work just done, so any system
+    card in the registry vetoes the whole suppression — cards, markers and
+    meta all stay.
+    """
+    if not _should_suppress_meta_cards(content, gated_meta):
+        return content, gated_meta, False
+    try:
+        from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
+        from aiq_agent.cards.registry import get_card_registry as _get_registry_for_guard
+
+        _guard_registry = _get_registry_for_guard()
+        if _guard_registry is not None and any(
+            card.get("type") in SYSTEM_CARD_TYPES for card in _guard_registry.snapshot()
+        ):
+            logger.info("Piloti: answer cards suppressed: system card present, keeping cards and meta")
+            return content, gated_meta, False
+    except Exception:
+        logger.debug("System-card suppression guard skipped", exc_info=True)
+    try:
+        prose_chars = len(prose_without_references(content))
+    except Exception:
+        prose_chars = -1
+    logger.info(
+        "Piloti: answer cards suppressed: prose %d chars under the %d floor with no verdict",
+        prose_chars,
+        _CARD_SUPPRESS_MIN_PROSE_CHARS,
+    )
+    try:
+        from aiq_agent.cards.registry import get_card_registry
+
+        registry = get_card_registry()
+        if registry is not None and len(registry) > 0:
+            logger.info("Piloti: answer cards suppressed: dropping %d emit_card card(s)", len(registry))
+            registry.clear()
+    except Exception:
+        logger.debug("Card registry suppression skipped", exc_info=True)
+    try:
+        stripped = _CARD_MARKER_RE.sub("", content)
+        # A dropped own-line marker leaves a blank paragraph that reads as a
+        # rendering fault; collapse three-plus newlines to two.
+        stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()
+        content = stripped if stripped else content
+    except Exception:
+        pass
+    return content, None, True
+
+
 async def finalize_answer(
     messages: Sequence[Any],
     *,
@@ -491,6 +588,7 @@ async def finalize_answer(
     sanitized = sanitize_report(grounding.content)
     content = sanitized.sanitized_report
     meta = _gated_meta(extracted, content, registry)
+    content, meta, _cards_suppressed = _suppress_cards(content, meta)
     content = resolve_callout_marker(content, has_callout=bool(meta and "callout" in meta))
     final_messages = list(messages)
     final_messages[index] = messages[index].model_copy(update={"content": content})

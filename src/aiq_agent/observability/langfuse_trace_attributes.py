@@ -186,6 +186,57 @@ def reset_contributions() -> None:
     _CONTRIBUTED.set(None)
 
 
+# ---------------------------------------------------------------------------
+# Usage attribution: input/output/total (+cost) onto generation observations
+# ---------------------------------------------------------------------------
+#
+# Production showed empty ``usageDetails``/``costDetails`` on every
+# generation observation. The provider numbers DO enter the process:
+# OpenRouter's ``usage`` object (prompt/completion/total + ``cost`` +
+# cached/reasoning details) arrives on every chat completion and
+# ``GridCostTracker`` records it to ``llm_usage_events``. It never reaches
+# the spans Langfuse renders, through two drops:
+#
+# 1. NAT's ``LangchainProfilerHandler.on_llm_end`` reads ONLY LangChain's
+#    normalized ``message.usage_metadata`` (no cost field exists on its
+#    ``TokenUsageBaseModel`` at all), and the span exporter forwards only
+#    ``llm.token_count.prompt/completion/total``. The OpenRouter object —
+#    the only place ``cost`` lives — survives solely inside the span's
+#    ``nat.metadata`` JSON (``chat_responses[].message.response_metadata``).
+# 2. The turn's terminal ``ChatResponse`` is built with an empty
+#    ``Usage()`` (see ``aiq_agent.common._create_chat_response``), so even
+#    the API-level generation object carries no totals.
+#
+# This processor closes drop 1 at export time, where every LLM span passes
+# regardless of which handler built it (NAT's stock handler on chat turns,
+# ``SpanClosingProfilerHandler`` on async jobs): it mirrors the counts into
+# the ``gen_ai.usage.*`` namespace Langfuse's OTel ingestion maps to
+# ``usageDetails``, pins the model so Langfuse can infer ``costDetails``
+# from its own model price table, and — when the provider object is present
+# in the span metadata — ingests the OpenRouter-reported cost verbatim.
+#
+# No client-side price table is consulted: the only ``PricingRegistry`` in
+# this repo (``aiq_agent.tokenomics.pricing``) is eval-only, built from the
+# ``tokenomics.pricing`` section of an eval YAML that is never deployed.
+# Per-span cost computation against a deployed table is the follow-up; until
+# then spans carry usage (+model for server-side inference, +verbatim cost
+# when the provider reported one) and per-turn dollars land on the trace
+# via ``aiq_agent.observability.usage_rollup``.
+
+#: OTel GenAI semconv usage keys Langfuse maps to ``usageDetails`` (it
+#: normalizes cache buckets server-side, so these stay provider-verbatim).
+GEN_AI_USAGE_INPUT_TOKENS = "gen_ai.usage.input_tokens"
+GEN_AI_USAGE_OUTPUT_TOKENS = "gen_ai.usage.output_tokens"
+#: The model a generation ran on — what Langfuse matches against its model
+#: price table to infer ``costDetails`` when no cost is ingested.
+GEN_AI_REQUEST_MODEL = "gen_ai.request.model"
+#: Flat Langfuse-style keys, stored verbatim (no server normalization), so
+#: their buckets must already be exclusive — see ``usage_observation_attributes``.
+OBSERVATION_USAGE_DETAILS = "langfuse.observation.usage_details"
+OBSERVATION_COST_DETAILS = "langfuse.observation.cost_details"
+OBSERVATION_MODEL_NAME = "langfuse.observation.model.name"
+
+
 def identity_attributes_enabled() -> bool:
     """Whether to stamp per-request identity onto spans.
 
@@ -193,6 +244,144 @@ def identity_attributes_enabled() -> bool:
     decision the deployment makes, not a performance toggle.
     """
     return os.environ.get(IDENTITY_ATTRIBUTES_ENV, "").strip().lower() == "true"
+
+
+def _as_count(value: Any) -> int:
+    """A token count as a non-negative int; anything else is 0."""
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _find_provider_usage(node: Any, depth: int = 0) -> dict[str, Any] | None:
+    """First OpenRouter-shaped usage object under ``node``, or None.
+
+    A bounded recursive scan (not a fixed path) because the span metadata
+    serializer normalizes shapes across NAT versions while the provider key
+    names (``prompt_tokens``/``completion_tokens``) are stable. Depth-capped
+    so a pathological payload cannot recurse.
+    """
+    if depth > 6 or node is None:
+        return None
+    if isinstance(node, dict):
+        prompt = node.get("prompt_tokens")
+        completion = node.get("completion_tokens")
+        if isinstance(prompt, int | float) and isinstance(completion, int | float):
+            return node
+        for value in node.values():
+            found = _find_provider_usage(value, depth + 1)
+            if found is not None:
+                return found
+        return None
+    if isinstance(node, list):
+        for value in node:
+            found = _find_provider_usage(value, depth + 1)
+            if found is not None:
+                return found
+    return None
+
+
+def extract_provider_usage(metadata_json: Any) -> dict[str, int | float] | None:
+    """Provider token counts (+cost) out of a span's serialized metadata.
+
+    Reads the OpenRouter ``usage`` object NAT keeps inside ``nat.metadata``
+    (``chat_responses[].message.response_metadata.token_usage``): the only
+    span-side carrier of ``cost`` and of cached/reasoning detail. Returns the
+    counts with ``cost_usd`` (or None when the provider reported no cost), or
+    None when no usage object is present. Pure, so tests pin it without a span.
+    """
+    if not isinstance(metadata_json, str) or not metadata_json:
+        return None
+    try:
+        import json
+
+        payload = json.loads(metadata_json)
+    except Exception:
+        return None
+    try:
+        usage = _find_provider_usage(payload)
+        if usage is None:
+            return None
+        prompt_details = usage.get("prompt_tokens_details") or {}
+        completion_details = usage.get("completion_tokens_details") or {}
+        raw_cost = usage.get("cost")
+        return {
+            "prompt_tokens": _as_count(usage.get("prompt_tokens")),
+            "completion_tokens": _as_count(usage.get("completion_tokens")),
+            "total_tokens": _as_count(usage.get("total_tokens")),
+            "cached_tokens": _as_count(prompt_details.get("cached_tokens")),
+            "reasoning_tokens": _as_count(completion_details.get("reasoning_tokens")),
+            "cost_usd": float(raw_cost) if isinstance(raw_cost, int | float) else None,  # type: ignore[dict-item]
+        }
+    except Exception:
+        logger.debug("Failed to extract provider usage from span metadata", exc_info=True)
+        return None
+
+
+def extract_span_token_counts(attributes: dict[str, Any]) -> dict[str, int] | None:
+    """The ``llm.token_count.*`` counts NAT's exporter already set, or None.
+
+    The fallback when the provider object is absent from the metadata (older
+    traces, stripped payloads): token-only, no cached/reasoning/cost split.
+    None when all three are zero — absent usage stays absent rather than
+    rendering as a real measurement of zero tokens.
+    """
+    prompt = _as_count(attributes.get("llm.token_count.prompt"))
+    completion = _as_count(attributes.get("llm.token_count.completion"))
+    total = _as_count(attributes.get("llm.token_count.total"))
+    if prompt <= 0 and completion <= 0 and total <= 0:
+        return None
+    return {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total}
+
+
+def usage_observation_attributes(
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+    total_tokens: int,
+    cached_tokens: int = 0,
+    reasoning_tokens: int = 0,
+    cost_usd: int | float | None = None,
+    model: str | None = None,
+) -> dict[str, Any]:
+    """The span attributes that land input/output/total (+cost) on a generation.
+
+    ``gen_ai.usage.*`` carries the provider-verbatim counts (Langfuse
+    normalizes cache buckets server-side on that path).
+    ``langfuse.observation.usage_details`` is stored VERBATIM, so its buckets
+    are exclusive here: ``input`` excludes cached tokens (which ride their own
+    ``input_cached_tokens`` bucket) and ``output`` excludes reasoning tokens
+    (own ``output_reasoning_tokens`` bucket) — otherwise Langfuse's
+    per-bucket cost math would bill the same token twice.
+    ``cost_details`` carries the provider-reported total when known; without
+    it Langfuse infers cost from ``model`` + usage via its model table.
+    Pure, so the mapping is testable without a span or an event loop.
+    """
+    import json
+
+    exclusive_input = max(0, prompt_tokens - cached_tokens)
+    exclusive_output = max(0, completion_tokens - reasoning_tokens)
+    details: dict[str, Any] = {
+        "input": exclusive_input,
+        "output": exclusive_output,
+        "total": total_tokens,
+    }
+    if cached_tokens > 0:
+        details["input_cached_tokens"] = cached_tokens
+    if reasoning_tokens > 0:
+        details["output_reasoning_tokens"] = reasoning_tokens
+    attributes: dict[str, Any] = {
+        GEN_AI_USAGE_INPUT_TOKENS: prompt_tokens,
+        GEN_AI_USAGE_OUTPUT_TOKENS: completion_tokens,
+        OBSERVATION_USAGE_DETAILS: json.dumps(details, separators=(",", ":")),
+    }
+    if model:
+        attributes[GEN_AI_REQUEST_MODEL] = model
+        attributes[OBSERVATION_MODEL_NAME] = model
+    if isinstance(cost_usd, int | float):
+        attributes[OBSERVATION_COST_DETAILS] = json.dumps({"total": float(cost_usd)}, separators=(",", ":"))
+    return attributes
 
 
 def langfuse_attributes_for(
@@ -307,8 +496,67 @@ try:
                 item.set_attribute(key, value)
             return item
 
+    class UsageAttributeProcessor(Processor[Span, Span]):
+        """Mirror provider usage onto generation spans in the namespaces Langfuse reads.
+
+        NAT's exporter sets only ``llm.token_count.*`` (token-only, and zero
+        whenever ``usage_metadata`` was absent), while Langfuse's OTel
+        ingestion maps ``gen_ai.usage.*`` / ``langfuse.observation.*`` to
+        ``usageDetails``/``costDetails`` — hence empty usage on every
+        generation. This processor runs ahead of redaction and adds the
+        missing namespaces from what the span already carries, preferring the
+        provider object in ``nat.metadata`` (has cost + cached/reasoning)
+        over the bare ``llm.token_count.*`` counts.
+
+        Counts and the model name are not sensitive, so — unlike the identity
+        processor — this one is always installed. Never raises: enrichment
+        must degrade the trace, never fail the export.
+        """
+
+        async def process(self, item: Span) -> Span:
+            """Stamp usage (+model, +verbatim cost when known) onto one LLM span.
+
+            Non-LLM spans and spans with no usage anywhere pass through
+            untouched: absent usage stays absent rather than rendering as a
+            real measurement of zero tokens.
+            """
+            try:
+                attributes = item.attributes or {}
+                event_type = next(
+                    (value for key, value in attributes.items() if key.endswith(".event_type")),
+                    None,
+                )
+                if not isinstance(event_type, str) or not event_type.startswith("LLM"):
+                    return item
+                counts: dict[str, Any] | None = None
+                for key, value in attributes.items():
+                    if not key.endswith(".metadata") or not isinstance(value, str):
+                        continue
+                    counts = extract_provider_usage(value)
+                    if counts is not None:
+                        break
+                if counts is None:
+                    counts = extract_span_token_counts(attributes)
+                if counts is None:
+                    return item
+                model = item.name or None
+                for key, value in usage_observation_attributes(
+                    prompt_tokens=int(counts.get("prompt_tokens") or 0),
+                    completion_tokens=int(counts.get("completion_tokens") or 0),
+                    total_tokens=int(counts.get("total_tokens") or 0),
+                    cached_tokens=int(counts.get("cached_tokens") or 0),
+                    reasoning_tokens=int(counts.get("reasoning_tokens") or 0),
+                    cost_usd=counts.get("cost_usd"),
+                    model=model,
+                ).items():
+                    item.set_attribute(key, value)
+            except Exception:
+                logger.debug("Failed to stamp usage attributes onto a span", exc_info=True)
+            return item
+
 except Exception:  # pragma: no cover - exercised only without the NAT extras
     # Mirrors the import guards in `otel_header_redaction_exporter.py`: the
     # pure mapping above stays importable (and testable) even where the NAT
     # observability extras are not installed.
     LangfuseTraceAttributeProcessor = None  # type: ignore[assignment,misc]
+    UsageAttributeProcessor = None  # type: ignore[assignment,misc]

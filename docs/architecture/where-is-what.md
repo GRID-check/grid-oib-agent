@@ -38,7 +38,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | Who a version may be sent to for release, and what a one-person project does | `frontends/ui/src/lib/documents/reviewers.ts` — `resolveReviewers`, `listReviewCandidates` | same | ADR-0054 |
 | Whether an archived document is in a listing | `frontends/ui/src/lib/documents/repository.ts` — `listProjectDocuments`'s `includeArchived` | same | ADR-0054 |
 | What a superseded version costs the organization | `frontends/ui/src/lib/storage/repository.ts` — `versionOverheadBytes` | [`../database/schema.md`](../database/schema.md) | ADR-0054, ADR-0042 |
-| Where a project's delegated work is shown | `frontends/ui/src/features/tasks/components/task-list.tsx`, the Aufgaben tab of `frontends/ui/src/features/automation/components/automation-panel.tsx` | same | ADR-0051 |
+| Where a project's delegated work is shown (Aufgaben, primary) | `frontends/ui/src/features/tasks/components/tasks-panel.tsx` — the Aufgaben tab root (owns both fetches); `frontends/ui/src/features/tasks/components/task-list.tsx` — the one list in two shapes (recurring schedules on top, single runs below); schedule management lives on the Jobs tab (`frontends/ui/src/features/jobs/components/jobs-panel.tsx`), all inside `frontends/ui/src/features/automation/components/automation-panel.tsx`. Tasks are the work object, jobs the recurring trigger behind them | [`docs/roadmap/agentic-workspace-architecture.md`](../roadmap/agentic-workspace-architecture.md) | ADR-0051 |
 | Version rows and the atomic publish | `frontends/ui/src/lib/documents/version-repository.ts` — `promoteVersionToPublished` | [`docs/database/schema.md`](../database/schema.md) | ADR-0054 |
 | Version table | `frontends/ui/src/lib/db/schema/document-versions.ts` | [`docs/database/schema.md`](../database/schema.md) | ADR-0054 |
 | The lifecycle's typed client (every consumer is one) | `frontends/ui/src/lib/documents/lifecycle-client.ts` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0055 |
@@ -123,21 +123,21 @@ does not exist, so a moved file is caught; a missing row is not.
 | Internal routes (backend calls the BFF) | `frontends/ui/src/app/api/internal` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0003 |
 | Row-level security | `frontends/ui/src/lib/db/tenant-context.ts`; coverage in `frontends/ui/src/lib/db/rls-coverage.spec.ts` | [`docs/database/row-level-security.md`](../database/row-level-security.md) | ADR-0041 |
 | Session and sign-in | `frontends/ui/src/lib/auth` | [`docs/technical-reference/authentication-flow.md`](../technical-reference/authentication-flow.md) | ADR-0002, ADR-0007 |
-| Pinned requester session (a job acts as the human who scheduled it) | `frontends/ui/src/lib/auth/pinned-session.ts` — `resolvePinnedRequesterSession` | [`usage-budgets.md`](usage-budgets.md) | ADR-0023 |
+| Pinned requester session (scheduled or delegated work acts as the human who asked for it) | `frontends/ui/src/lib/auth/pinned-session.ts` — `resolvePinnedRequesterSession` | [`usage-budgets.md`](usage-budgets.md) | ADR-0023 |
 | Verifying the signed request envelope in the BFF | `frontends/ui/src/lib/request-context.ts` — `verifyGridRequestContextEnvelope` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0054 |
 
 ## Delegated work
 
 | Concept | Owning code | Doc of record | Decision |
 |---|---|---|---|
-| Tasks | `frontends/ui/src/lib/tasks/service.ts` — `createTaskForRun`, `reviewTask` | [`docs/roadmap/agentic-workspace-architecture.md`](../roadmap/agentic-workspace-architecture.md) | ADR-0051 |
+| Tasks — the work object (one row per attempt: pinned requester, lifecycle, filed result, review decision). A job says WHEN, a `job_runs` row says THAT it was submitted | `frontends/ui/src/lib/tasks/service.ts` — `createTaskForRun`, `reviewTask` | [`docs/roadmap/agentic-workspace-architecture.md`](../roadmap/agentic-workspace-architecture.md) | ADR-0051 |
 | Delegating work from a chat turn, and what each kind runs on | `frontends/ui/src/lib/tasks/delegation.ts` — `delegateTask`, `TASK_ENGINES` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | ADR-0051, ADR-0055 |
 | The route a machine delegates through (verified envelope, pinned requester, op `create` only) | `frontends/ui/src/app/api/internal/tasks/route.ts`; `frontends/ui/src/lib/tasks/wire.ts` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0051, ADR-0055 |
 | The `create_task` tool | `src/aiq_agent/tools/tasks/register.py`; its one call in `src/aiq_agent/tools/tasks/client.py` | same | ADR-0051 |
 | The identity pair every internal route with an acting person uses | `frontends/ui/src/lib/api/internal-envelope.ts` — `requireVerifiedContext`, `requirePinnedSession` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0054, ADR-0055 |
 | What a finished task leaves behind, by kind | `frontends/ui/src/lib/tasks/service.ts` — `fileResultFor`, `FILES_ITS_RESULT` | [`docs/roadmap/agentic-workspace-architecture.md`](../roadmap/agentic-workspace-architecture.md) | ADR-0051 |
 | Closing a delegated task that has no `job_runs` row | `frontends/ui/src/lib/tasks/service.ts` — `recordTaskOutcome`; the fallback in `frontends/ui/src/app/api/internal/jobs/[jobId]/outcome/route.ts` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0051 |
-| Jobs and runs | `frontends/ui/src/lib/jobs/service.ts`, `frontends/ui/src/lib/db/schema/jobs.ts` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0021, ADR-0023 |
+| Jobs — the recurring trigger (a project-scoped prompt on a timer, cron or manual-only) — and runs — the receipt (`job_runs`, append-only submission history; `schedule_id` still names the parent `jobs` row because `job_id` already means the backend async id) | `frontends/ui/src/lib/jobs/service.ts`, `frontends/ui/src/lib/db/schema/jobs.ts` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0021, ADR-0023 |
 | Schedules | `frontends/ui/src/lib/jobs/schedule.ts` | same | ADR-0023 |
 | Worker outcome route | `frontends/ui/src/app/api/internal/jobs/[jobId]/outcome/route.ts` | [`docs/api/bff-routes.md`](../api/bff-routes.md) | ADR-0021, ADR-0051 |
 | Project and organization memory (BFF) | `frontends/ui/src/lib/projects/memory-service.ts` — `buildProjectMemoryDigest` | [`project-memory-design.md`](project-memory-design.md) | ADR-0008 |

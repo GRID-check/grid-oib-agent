@@ -3806,11 +3806,13 @@ class TestTheDelegationBlock:
         """`create_task` refuses without a project AND without a signed envelope."""
         assert "<delegieren>" not in _render_researcher_prompt(delegating_enabled=False)
 
-    def test_it_names_the_tool_and_the_four_kinds(self):
+    def test_it_names_the_tool_and_the_delegatable_kinds(self):
+        """`compliance_check` lost its tool, so chat no longer delegates it."""
         block = _delegieren_block()
         assert "`create_task`" in block
-        for kind in ("compliance_check", "einreichcheck", "document", "revision"):
+        for kind in ("einreichcheck", "document", "revision"):
             assert f"`{kind}`" in block
+        assert "`compliance_check`" not in block
 
     def test_it_names_the_requests_a_person_actually_makes(self):
         """So the model recognises the handoff instead of judging every long task one."""

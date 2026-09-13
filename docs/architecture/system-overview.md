@@ -8,7 +8,7 @@
 >
 > Altitude: **context → containers → components → flows.** Not a route/endpoint
 > reference (see `docs/api/` for that). Last reconciled against the code
-> 2026-07-05.
+> 2026-09-13.
 
 ---
 
@@ -16,8 +16,9 @@
 
 Piloti is the **workspace in which a planning office runs a building project**.
 Piloti the agent is a **member of that office**. Architects work inside
-**projects**; chat is how they talk to the agent, and **tasks** are how they
-hand it work. Every **normative claim** is grounded in a passage retrieved this
+**projects**; chat is how they talk to the agent, and **tasks** (Aufgaben)
+are how they hand it work — a task is the work object, a job the recurring
+schedule behind it (§5.12). Every **normative claim** is grounded in a passage retrieved this
 turn from the project, the office archive, or the Austrian building-regulation
 corpus. Not every answer is a ruling. Piloti does not replace the
 Entwurfsverfasser or the Behörde.
@@ -219,7 +220,9 @@ Written only through the internal single-writer API. → `docs/architecture/proj
 Deep research runs as a **Dask job** on the backend, streamed to the UI over SSE
 (the only surviving SSE path). Progress, thinking, citations, and the final
 report populate a research panel. The turn that dispatches a job returns a
-structured `deep_research_job_id` so the UI opens the panel reliably.
+structured `deep_research_job_id` so the UI opens the panel reliably. These
+backend async jobs are not the BFF `jobs` schedule table — that naming
+collision is unpacked in §5.12.
 
 ### 5.6 Documents & ingestion
 Uploads go to SeaweedFS (server-side) under a tenant-scoped key
@@ -266,6 +269,49 @@ The agent emits intermediate steps (thinking, tool calls, `remember` writes) to
 the UI trace view, plus token/cost accounting (`tokenomics`) and structured
 logging. Memory capture is silent but observable in these traces.
 
+### 5.12 Delegated work — Aufgaben, Jobs, Runs (the unified model)
+Delegated work has three nouns and they are not interchangeable (ADR-0051):
+
+- A **task** is the work object: one row per attempt with the pinned
+  requester (whose permissions it runs under and whose budget it spends), a
+  lifecycle (`queued → running → succeeded | failed | interrupted`, plus a
+  separate `accepted | rejected` review), a result that lands somewhere
+  durable, and a review decision the next attempt reads.
+- A **job** is the recurring trigger: a project-scoped prompt on a timer
+  (cron, or manual-only when no cron is set) with an optional skill snapshot
+  and an output kind. It says WHEN Piloti should work.
+- A **job run** (`job_runs`) is the receipt: append-only submission history.
+  `schedule_id` still names the parent `jobs` row — the name was kept because
+  `job_id` on the same row already means the backend async id — with the
+  trigger (`manual | schedule`) and the outcome (`submitted | skipped |
+  error`).
+
+`fireJob` creates the task beside the `job_runs` row; a chat delegation
+(`create_task`: `compliance_check | einreichcheck | document | revision`) or a
+reviewer's "change request" with nobody in the conversation creates a task
+with no `job_runs` row by design. The worker's outcome closes the task and,
+for a finished run, files its report as the requester.
+
+The **Aufgaben list is primary**: the Automation section shows Aufgaben
+(`TasksPanel` root, `TaskList` rendering recurring schedules on top and
+single runs below), Jobs (schedule management, `JobsPanel`), and Skills (the
+org toolbox) as tabs, with Aufgaben the default. Review happens in the inbox,
+where the person was told about the result.
+
+Two naming collisions to keep straight. The BFF `jobs`/`job_runs` tables
+live in `grid_app` (schedules + receipts); the backend async/Dask jobs live
+in `aiq_jobs` (deep-research runs, §5.5) — a `job_runs.job_id` /
+`tasks.backendJobId` value names one of the latter. And `compliance_check`
+is a **task kind**, not a chat tool: the `compliance_check` direct tool
+binding (workflow config, chat tool list, plugin entry point) is retired —
+the implementation, tests and README under
+`src/aiq_agent/agents/compliance_checker/` stay in place — and a full
+Soll-Ist now runs as a task of kind `compliance_check` through delegation.
+
+→ `docs/architecture/where-is-what.md` § Delegated work,
+`docs/roadmap/agentic-workspace-architecture.md` §6,
+`docs/api/bff-routes.md` (tasks + jobs routes).
+
 ---
 
 ## 6. Key flows
@@ -299,8 +345,8 @@ marks it purged. Restore is possible only while the row is un-claimed.
 
 | Store | Owner | Holds |
 |---|---|---|
-| **`grid_app`** (Postgres) | BFF (single writer) | projects, conversations, messages, documents, folders, **project_memory**, **platform_lessons** (+ reports/events), **deletion_queue**, **legal_holds**, user_preferences |
-| **`aiq_jobs`** (Postgres) | backend | job info/access/events (deep research), document summaries |
+| **`grid_app`** (Postgres) | BFF (single writer) | projects, conversations, messages, documents, folders, **project_memory**, **platform_lessons** (+ reports/events), **deletion_queue**, **legal_holds**, user_preferences, **tasks** (the work object), **jobs** (recurring triggers) + **job_runs** (receipts), **skills** |
+| **`aiq_jobs`** (Postgres) | backend | backend async-run info/access/events (deep research) — not the BFF `jobs` schedule table (§5.12), document summaries |
 | **`aiq_checkpoints`** (Postgres) | backend | LangGraph conversation checkpoints (thread state) |
 | **SeaweedFS** (`grid-documents`) | BFF writes, backend/purger read | OIB PDFs + uploaded documents, keyed by org/project |
 | **ChromaDB** | backend | vector collections: `oib_knowledge` (global), `archiv_<org>` (org Archiv), `proj_<id>` (per project), `s_<conversation>` (session). Memory and lessons are not in Chroma — they live in `grid_app`, with row-resident embeddings for recall ([semantic-notes.md](./semantic-notes.md)). |

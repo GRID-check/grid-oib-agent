@@ -190,8 +190,12 @@ class TestPipelineWiring:
 
         async with otelcollector_redaction_telemetry_exporter(config, None) as exporter:
             span = Span(name="llm-call")
-            for processor in exporter._processors[:2]:
-                span = await processor.process(span)
+            # Addressed by NAME, not slice: the pipeline grows (usage
+            # attribution sits between identity and redaction now) and a
+            # positional slice would silently stop exercising redaction.
+            by_name = {name: exporter._processors[pos] for name, pos in exporter._processor_names.items()}
+            span = await by_name["langfuse_trace_attributes"].process(span)
+            span = await by_name["header_redaction"].process(span)
 
         assert span.attributes[USER_ID_ATTRIBUTE] == "[REDACTED]"
 
@@ -406,3 +410,252 @@ class TestContributionIsolation:
         fresh = snapshot_contributions()
         assert fresh["metadata"].get("ifc_op") == "early"
         assert "feature:ifc" not in fresh["tags"]
+
+
+class TestUsageObservationMapping:
+    """Input/output/total (+cost) onto generation observations.
+
+    Production showed empty `usageDetails`/`costDetails` on every generation:
+    NAT's exporter sets only `llm.token_count.*` (token-only, and zero
+    whenever `usage_metadata` was absent), while Langfuse's OTel ingestion
+    maps `gen_ai.usage.*` / `langfuse.observation.*`. These pin the mirror.
+    """
+
+    def test_provider_verbatim_counts_and_exclusive_detail_buckets(self):
+        import json
+
+        from aiq_agent.observability.langfuse_trace_attributes import GEN_AI_REQUEST_MODEL
+        from aiq_agent.observability.langfuse_trace_attributes import GEN_AI_USAGE_INPUT_TOKENS
+        from aiq_agent.observability.langfuse_trace_attributes import GEN_AI_USAGE_OUTPUT_TOKENS
+        from aiq_agent.observability.langfuse_trace_attributes import OBSERVATION_COST_DETAILS
+        from aiq_agent.observability.langfuse_trace_attributes import OBSERVATION_MODEL_NAME
+        from aiq_agent.observability.langfuse_trace_attributes import OBSERVATION_USAGE_DETAILS
+        from aiq_agent.observability.langfuse_trace_attributes import usage_observation_attributes
+
+        attributes = usage_observation_attributes(
+            prompt_tokens=1204,
+            completion_tokens=331,
+            total_tokens=1535,
+            cached_tokens=512,
+            reasoning_tokens=128,
+            cost_usd=0.00214,
+            model="openrouter/deepseek-v4",
+        )
+
+        # gen_ai.* stays provider-verbatim (Langfuse normalizes that path itself).
+        assert attributes[GEN_AI_USAGE_INPUT_TOKENS] == 1204
+        assert attributes[GEN_AI_USAGE_OUTPUT_TOKENS] == 331
+        # usage_details is stored VERBATIM, so its buckets are exclusive:
+        # input excludes cached, output excludes reasoning.
+        assert json.loads(attributes[OBSERVATION_USAGE_DETAILS]) == {
+            "input": 692,
+            "output": 203,
+            "total": 1535,
+            "input_cached_tokens": 512,
+            "output_reasoning_tokens": 128,
+        }
+        assert json.loads(attributes[OBSERVATION_COST_DETAILS]) == {"total": 0.00214}
+        assert attributes[GEN_AI_REQUEST_MODEL] == "openrouter/deepseek-v4"
+        assert attributes[OBSERVATION_MODEL_NAME] == "openrouter/deepseek-v4"
+
+    def test_token_only_fallback_omits_cost_and_model(self):
+        import json
+
+        from aiq_agent.observability.langfuse_trace_attributes import OBSERVATION_COST_DETAILS
+        from aiq_agent.observability.langfuse_trace_attributes import OBSERVATION_USAGE_DETAILS
+        from aiq_agent.observability.langfuse_trace_attributes import usage_observation_attributes
+
+        attributes = usage_observation_attributes(prompt_tokens=100, completion_tokens=20, total_tokens=120)
+
+        assert json.loads(attributes[OBSERVATION_USAGE_DETAILS]) == {
+            "input": 100,
+            "output": 20,
+            "total": 120,
+        }
+        assert OBSERVATION_COST_DETAILS not in attributes
+        assert "gen_ai.request.model" not in attributes
+
+
+class TestExtractProviderUsage:
+    def test_reads_the_openrouter_object_inside_span_metadata(self):
+        import json
+
+        from aiq_agent.observability.langfuse_trace_attributes import extract_provider_usage
+
+        metadata = json.dumps(
+            {
+                "chat_responses": [
+                    {
+                        "message": {
+                            "response_metadata": {
+                                "token_usage": {
+                                    "prompt_tokens": 1204,
+                                    "completion_tokens": 331,
+                                    "total_tokens": 1535,
+                                    "cost": 0.00214,
+                                    "prompt_tokens_details": {"cached_tokens": 512},
+                                    "completion_tokens_details": {"reasoning_tokens": 128},
+                                }
+                            }
+                        }
+                    }
+                ]
+            }
+        )
+
+        assert extract_provider_usage(metadata) == {
+            "prompt_tokens": 1204,
+            "completion_tokens": 331,
+            "total_tokens": 1535,
+            "cached_tokens": 512,
+            "reasoning_tokens": 128,
+            "cost_usd": 0.00214,
+        }
+
+    def test_missing_cost_reports_none_not_zero(self):
+        """A missing cost is unknown, not free — zero would read as free."""
+        import json
+
+        from aiq_agent.observability.langfuse_trace_attributes import extract_provider_usage
+
+        metadata = json.dumps({"token_usage": {"prompt_tokens": 10, "completion_tokens": 5}})
+
+        usage = extract_provider_usage(metadata)
+        assert usage is not None
+        assert usage["cost_usd"] is None
+
+    def test_no_usage_object_is_absent_not_zeroed(self):
+        from aiq_agent.observability.langfuse_trace_attributes import extract_provider_usage
+
+        assert extract_provider_usage('{"chat_responses": []}') is None
+        assert extract_provider_usage("not-json") is None
+        assert extract_provider_usage(None) is None
+
+
+class TestSpanTokenCounts:
+    def test_zero_counts_are_absent_not_zeroed(self):
+        from aiq_agent.observability.langfuse_trace_attributes import extract_span_token_counts
+
+        assert extract_span_token_counts({}) is None
+        assert (
+            extract_span_token_counts(
+                {
+                    "llm.token_count.prompt": 0,
+                    "llm.token_count.completion": 0,
+                    "llm.token_count.total": 0,
+                }
+            )
+            is None
+        )
+
+    def test_partial_counts_still_land(self):
+        from aiq_agent.observability.langfuse_trace_attributes import extract_span_token_counts
+
+        assert extract_span_token_counts({"llm.token_count.prompt": 50}) == {
+            "prompt_tokens": 50,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+
+
+class TestUsageAttributeProcessor:
+    def _llm_span(self, **attributes):
+        from nat.data_models.span import Span
+
+        base = {
+            "nat.event_type": "LLM_START",
+            "llm.token_count.prompt": 1204,
+            "llm.token_count.completion": 331,
+            "llm.token_count.total": 1535,
+        }
+        base.update(attributes)
+        return Span(name="openrouter/deepseek-v4", attributes=base)
+
+    async def test_llm_span_gains_the_gen_ai_namespace(self):
+        from aiq_agent.observability.langfuse_trace_attributes import UsageAttributeProcessor
+
+        span = await UsageAttributeProcessor().process(self._llm_span())
+
+        assert span.attributes["gen_ai.usage.input_tokens"] == 1204
+        assert span.attributes["gen_ai.usage.output_tokens"] == 331
+        assert span.attributes["gen_ai.request.model"] == "openrouter/deepseek-v4"
+
+    async def test_provider_object_in_metadata_beats_bare_counts(self):
+        import json
+
+        from aiq_agent.observability.langfuse_trace_attributes import UsageAttributeProcessor
+
+        metadata = json.dumps(
+            {
+                "token_usage": {
+                    "prompt_tokens": 1204,
+                    "completion_tokens": 331,
+                    "total_tokens": 1535,
+                    "cost": 0.00214,
+                    "prompt_tokens_details": {"cached_tokens": 512},
+                }
+            }
+        )
+        span = await UsageAttributeProcessor().process(self._llm_span(**{"nat.metadata": metadata}))
+
+        assert json.loads(span.attributes["langfuse.observation.usage_details"]) == {
+            "input": 692,
+            "output": 331,
+            "total": 1535,
+            "input_cached_tokens": 512,
+        }
+        assert json.loads(span.attributes["langfuse.observation.cost_details"]) == {"total": 0.00214}
+
+    async def test_metadata_recovers_usage_when_counts_are_zero(self):
+        """The production symptom: `usage_metadata` absent, counts zeroed,
+        provider object still in the metadata. The span must still land usage."""
+        import json
+
+        from aiq_agent.observability.langfuse_trace_attributes import UsageAttributeProcessor
+
+        metadata = json.dumps({"token_usage": {"prompt_tokens": 40, "completion_tokens": 8}})
+        span = self._llm_span(**{"nat.metadata": metadata})
+        span.attributes["llm.token_count.prompt"] = 0
+        span.attributes["llm.token_count.completion"] = 0
+        span.attributes["llm.token_count.total"] = 0
+
+        span = await UsageAttributeProcessor().process(span)
+
+        assert span.attributes["gen_ai.usage.input_tokens"] == 40
+        assert span.attributes["gen_ai.usage.output_tokens"] == 8
+
+    async def test_non_llm_spans_pass_through_untouched(self):
+        from aiq_agent.observability.langfuse_trace_attributes import UsageAttributeProcessor
+        from nat.data_models.span import Span
+
+        span = Span(name="knowledge_search", attributes={"nat.event_type": "TOOL_START"})
+        result = await UsageAttributeProcessor().process(span)
+
+        assert result is span
+        assert "gen_ai.usage.input_tokens" not in result.attributes
+
+    async def test_llm_span_without_any_usage_stays_absent_not_zeroed(self):
+        from aiq_agent.observability.langfuse_trace_attributes import UsageAttributeProcessor
+        from nat.data_models.span import Span
+
+        span = Span(name="m", attributes={"nat.event_type": "LLM_START"})
+        result = await UsageAttributeProcessor().process(span)
+
+        assert "gen_ai.usage.input_tokens" not in result.attributes
+        assert "langfuse.observation.usage_details" not in result.attributes
+
+
+class TestUsagePipelineWiring:
+    async def test_installed_without_the_identity_flag_and_ahead_of_redaction(self, monkeypatch):
+        from aiq_agent.observability.langfuse_trace_attributes import IDENTITY_ATTRIBUTES_ENV
+        from aiq_agent.observability.otel_header_redaction_exporter import otelcollector_redaction_telemetry_exporter
+
+        monkeypatch.delenv(IDENTITY_ATTRIBUTES_ENV, raising=False)
+
+        async with otelcollector_redaction_telemetry_exporter(_make_config(), None) as exporter:
+            positions = exporter._processor_names
+
+            # Usage counts are not personal data: no env gate, unlike identity.
+            assert "grid_usage_attributes" in positions
+            assert "langfuse_trace_attributes" not in positions
+            assert positions["grid_usage_attributes"] < positions["header_redaction"]

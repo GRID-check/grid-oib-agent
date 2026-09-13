@@ -76,7 +76,7 @@ type Translate = ReturnType<typeof useTranslations>
 const GRID_CLASS = 'grid gap-4 lg:grid-cols-2 2xl:grid-cols-3'
 
 /** Humanized schedule summary for a card, including the timezone. */
-function scheduleSummary(t: Translate, cron: string | null, timezone: string): string {
+export function scheduleSummary(t: Translate, cron: string | null, timezone: string): string {
   if (!cron) return t('list.manualOnly')
   const preset = presetForCron(cron)
   const summary =

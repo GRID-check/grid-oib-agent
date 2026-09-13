@@ -147,6 +147,30 @@ describe('the project target', () => {
     expect(requireProjectAccess).toHaveBeenCalledWith(expect.objectContaining({ userId: 'user_1' }), 'proj_1', 'project:view')
   })
 
+  it('lands on the task detail when the payload names the delegated task', async () => {
+    vi.mocked(requireProjectAccess).mockResolvedValueOnce({ role: 'project-viewer' })
+    const access = await projectTarget.resolve(makeSession(), 'proj_1')
+    expect(access).not.toBeNull()
+    expect(
+      access!.deepLink({ itemType: 'job.completed', anchorId: 'backend-job-1', taskId: 'task-1' }),
+    ).toBe('/app/projects/proj_1/automation?tab=tasks&task=task-1')
+  })
+
+  it('falls back to the automation page when the task id is absent or blank', async () => {
+    vi.mocked(requireProjectAccess).mockResolvedValue({ role: 'project-viewer' })
+    const access = await projectTarget.resolve(makeSession(), 'proj_1')
+    expect(access).not.toBeNull()
+    expect(access!.deepLink({ itemType: 'job.completed', anchorId: 'backend-job-1' })).toBe(
+      '/app/projects/proj_1/automation?tab=jobs',
+    )
+    expect(
+      access!.deepLink({ itemType: 'job.completed', anchorId: 'backend-job-1', taskId: null }),
+    ).toBe('/app/projects/proj_1/automation?tab=jobs')
+    expect(
+      access!.deepLink({ itemType: 'job.completed', anchorId: 'backend-job-1', taskId: '   ' }),
+    ).toBe('/app/projects/proj_1/automation?tab=jobs')
+  })
+
   it('redacts the row, rather than throwing, for a project the reader can no longer open', async () => {
     vi.mocked(requireProjectAccess).mockRejectedValueOnce(new Error('forbidden'))
     await expect(projectTarget.resolve(makeSession(), 'proj_gone')).resolves.toBeNull()

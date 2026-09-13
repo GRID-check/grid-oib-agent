@@ -29,6 +29,7 @@ vi.mock('./access', () => ({ getAccessibleDocument: vi.fn() }))
 vi.mock('./version-repository', () => ({
   findDocumentVersion: vi.fn(),
   findOpenVersion: vi.fn(),
+  findPreviousVersion: vi.fn().mockResolvedValue(null),
   findPublishedVersion: vi.fn(),
   insertDocumentVersion: vi.fn(),
   insertPublishedVersion: vi.fn(),
@@ -128,9 +129,11 @@ import {
   compareAndSwapVersionState,
   findDocumentVersion,
   findOpenVersion,
+  findPreviousVersion,
   findPublishedVersion,
   insertDocumentVersion,
   insertPublishedVersion,
+  listDocumentVersions,
   promoteVersionToPublished,
 } from './version-repository'
 import {
@@ -570,6 +573,130 @@ describe('transitionDocumentVersion — effects', () => {
       'draft',
       expect.objectContaining({ submittedBy: session.userId, submittedByActor: 'agent' }),
     )
+  })
+
+  it('carries the order and Frist into the inbox payload and the audit event', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft', versionNumber: 2 }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(
+      version({ state: 'in_review', versionNumber: 2 }),
+    )
+    vi.mocked(findPreviousVersion).mockResolvedValue(null)
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', {
+      reviewerUserIds: ['user_a'],
+      orderMessage: 'Bitte die Fluchtweglänge prüfen.',
+      dueAt: '2026-09-20',
+    })
+
+    const emissions = vi.mocked(emitInboxItems).mock.calls[0][0]
+    expect(emissions[0].payload).toMatchObject({
+      versionId: 'ver_1',
+      orderMessage: 'Bitte die Fluchtweglänge prüfen.',
+      previousVersionId: null,
+    })
+    expect(emissions[0].payload).toHaveProperty('dueAt')
+    expect(typeof (emissions[0].payload as { dueAt: unknown }).dueAt).toBe('string')
+    expect((emissions[0].payload as { excerpt: unknown }).excerpt).toContain(
+      'Bitte die Fluchtweglänge prüfen.',
+    )
+    expect((emissions[0].payload as { excerpt: unknown }).excerpt).toContain('2026-09-20')
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          orderMessage: 'Bitte die Fluchtweglänge prüfen.',
+        }),
+      }),
+    )
+  })
+
+  it('leaves the order absent when the caller states none', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft', versionNumber: 1 }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(
+      version({ state: 'in_review', versionNumber: 1 }),
+    )
+    vi.mocked(findPreviousVersion).mockResolvedValue(null)
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', {
+      reviewerUserIds: ['user_a'],
+    })
+
+    const emissions = vi.mocked(emitInboxItems).mock.calls[0][0]
+    expect(emissions[0].payload).toMatchObject({
+      orderMessage: null,
+      dueAt: null,
+      excerpt: null,
+      previousVersionId: null,
+    })
+  })
+
+  it('names the previous version for a real diff link', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft', versionNumber: 3 }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(
+      version({ state: 'in_review', versionNumber: 3 }),
+    )
+    vi.mocked(findPreviousVersion).mockResolvedValue(
+      version({ id: 'ver_2', versionNumber: 2 }),
+    )
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_3', 'submit', {
+      reviewerUserIds: ['user_a'],
+    })
+
+    const emissions = vi.mocked(emitInboxItems).mock.calls[0][0]
+    expect(emissions[0].payload).toMatchObject({ previousVersionId: 'ver_2' })
+    // Direct predecessor query — never the bounded list scanned in memory.
+    expect(findPreviousVersion).toHaveBeenCalledWith('doc_1', 'org_1', 3)
+    expect(listDocumentVersions).not.toHaveBeenCalled()
+  })
+
+  it('asks the direct predecessor query even past 200 versions', async () => {
+    // The old asc-limited-200 scan no longer contained the predecessor at
+    // all past 200 versions and named the wrong row. The repository now
+    // answers `version_number < $n ORDER BY version_number DESC LIMIT 1`.
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft', versionNumber: 201 }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(
+      version({ state: 'in_review', versionNumber: 201 }),
+    )
+    vi.mocked(findPreviousVersion).mockResolvedValue(
+      version({ id: 'ver_200', versionNumber: 200 }),
+    )
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_201', 'submit', {
+      reviewerUserIds: ['user_a'],
+    })
+
+    expect(findPreviousVersion).toHaveBeenCalledWith('doc_1', 'org_1', 201)
+    const emissions = vi.mocked(emitInboxItems).mock.calls[0][0]
+    expect(emissions[0].payload).toMatchObject({ previousVersionId: 'ver_200' })
+  })
+
+  it('falls back to no previous version for a first version and on a query failure', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft', versionNumber: 1 }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(
+      version({ state: 'in_review', versionNumber: 1 }),
+    )
+    vi.mocked(findPreviousVersion).mockResolvedValue(null)
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', {
+      reviewerUserIds: ['user_a'],
+    })
+    expect(vi.mocked(emitInboxItems).mock.calls[0][0][0].payload).toMatchObject({
+      previousVersionId: null,
+    })
+
+    vi.clearAllMocks()
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft', versionNumber: 2 }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(
+      version({ state: 'in_review', versionNumber: 2 }),
+    )
+    vi.mocked(findPreviousVersion).mockRejectedValue(new Error('database went away'))
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_2', 'submit', {
+      reviewerUserIds: ['user_a'],
+    })
+    expect(vi.mocked(emitInboxItems).mock.calls[0][0][0].payload).toMatchObject({
+      previousVersionId: null,
+    })
   })
 
   it('resolves the round for every reviewer, not only the one who decided', async () => {

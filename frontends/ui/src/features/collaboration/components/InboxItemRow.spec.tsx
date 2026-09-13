@@ -3,6 +3,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { fireEvent, render, screen } from '@/test-utils'
 
 import type { InboxItemView } from '@/lib/inbox/types'
+import { formatAbsoluteTime } from '@/lib/format'
 import { InboxItemRow } from './InboxItemRow'
 
 vi.mock('next/link', () => ({
@@ -314,9 +315,13 @@ describe('InboxItemRow — a version waiting for a decision (ADR-0054)', () => {
       screen.getByText('Anna Weber asked you to review Brandschutzkonzept_Wohnbau-Nord.md'),
     ).toBeInTheDocument()
     expect(screen.getByText('A new version is waiting for your approval.')).toBeInTheDocument()
-    // The deep link is the document's own — the pane it opens is where the
-    // review controls are.
-    expect(screen.getByRole('link')).toHaveAttribute('href', '/app/projects/p1/files?doc=doc_1')
+    // The deep links are the document's own — the title row and the explicit
+    // open control both land on the pane where the review controls are.
+    const links = screen.getAllByRole('link')
+    expect(links.length).toBeGreaterThan(0)
+    for (const link of links) {
+      expect(link).toHaveAttribute('href', '/app/projects/p1/files?doc=doc_1')
+    }
   })
 
   test('reads as an outstanding request while it is open', () => {
@@ -333,6 +338,168 @@ describe('InboxItemRow — a version waiting for a decision (ADR-0054)', () => {
   })
 })
 
+describe('InboxItemRow — inline review decisions (triage without Files)', () => {
+  const reviewRequest = (overrides: Partial<InboxItemView> = {}): InboxItemView =>
+    item({
+      id: 'i-review',
+      type: 'document.review_requested',
+      resourceType: 'document',
+      resourceId: 'doc_1',
+      anchorId: 'ver_2',
+      actorName: 'Anna Weber',
+      actorUserId: 'u-anna',
+      subject: 'Brandschutzkonzept_Wohnbau-Nord.md',
+      excerpt: 'Bitte die Fluchtweglänge prüfen.',
+      href: '/app/projects/p1/files?doc=doc_1',
+      ...overrides,
+    })
+
+  const reviewClient = (overrides: Record<string, unknown> = {}) => ({
+    approve: vi.fn().mockResolvedValue({}),
+    requestChanges: vi.fn().mockResolvedValue({}),
+    reject: vi.fn().mockResolvedValue({}),
+    ...overrides,
+  })
+
+  test('offers the three decisions and the file beside them', () => {
+    render(<InboxItemRow item={reviewRequest()} reviewClient={reviewClient()} />)
+
+    expect(screen.getByTestId('inbox-review-approve')).toBeInTheDocument()
+    expect(screen.getByTestId('inbox-review-request-changes')).toBeInTheDocument()
+    expect(screen.getByTestId('inbox-review-reject')).toBeInTheDocument()
+    // The order excerpt stays visible, and the file opens from the row.
+    expect(screen.getByText('Bitte die Fluchtweglänge prüfen.')).toBeInTheDocument()
+    expect(screen.getByTestId('inbox-review-open')).toHaveAttribute(
+      'href',
+      '/app/projects/p1/files?doc=doc_1',
+    )
+  })
+
+  test('approval is signed, never one click', async () => {
+    const client = reviewClient()
+    render(<InboxItemRow item={reviewRequest()} reviewClient={client} />)
+
+    fireEvent.click(screen.getByTestId('inbox-review-approve'))
+    expect(client.approve).not.toHaveBeenCalled()
+    const send = screen.getByTestId('inbox-review-approve-send')
+    expect(send).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I release this version' }))
+    expect(send).toBeEnabled()
+    fireEvent.click(send)
+
+    expect(client.approve).toHaveBeenCalledWith('doc_1', 'ver_2')
+    expect(await screen.findByTestId('inbox-review-decided')).toBeInTheDocument()
+    expect(screen.queryByTestId('inbox-review-approve')).not.toBeInTheDocument()
+  })
+
+  test('approval names the stand, the actor, the acting moment and the date — like the file pane', () => {
+    // Fixed time: the acting line stamps the viewer's own press, so the exact
+    // timestamp is asserted in full — never just its prefix.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-04T10:00:00Z'))
+    try {
+      render(<InboxItemRow item={reviewRequest()} reviewClient={reviewClient()} />)
+
+      fireEvent.click(screen.getByTestId('inbox-review-approve'))
+
+      // Which stand: the document and when the round opened (≈ submission).
+      expect(screen.getByTestId('inbox-review-approve-stand')).toHaveTextContent(
+        `Brandschutzkonzept_Wohnbau-Nord.md · as of ${formatAbsoluteTime('2026-07-24T09:00:00Z', 'en')}`,
+      )
+      // Actor identity: whose request this stand answers — no name is stamped
+      // on the acting line itself (none is known here), so the row title carries it.
+      expect(
+        screen.getByText('Anna Weber asked you to review Brandschutzkonzept_Wohnbau-Nord.md'),
+      ).toBeInTheDocument()
+      // Who acts when: the viewer signs now — the full stamped moment, date and all.
+      expect(screen.getByTestId('inbox-review-approve-acting').textContent).toBe(
+        `Acting: ${formatAbsoluteTime('2026-08-04T10:00:00Z', 'en')}`,
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('requesting changes requires words', async () => {
+    const client = reviewClient()
+    render(<InboxItemRow item={reviewRequest()} reviewClient={client} />)
+
+    fireEvent.click(screen.getByTestId('inbox-review-request-changes'))
+    const send = screen.getByTestId('inbox-review-comment-send')
+    expect(send).toBeDisabled()
+    expect(client.requestChanges).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'Die Fluchtweglänge fehlt.' },
+    })
+    fireEvent.click(send)
+
+    expect(client.requestChanges).toHaveBeenCalledWith(
+      'doc_1',
+      'ver_2',
+      'Die Fluchtweglänge fehlt.',
+    )
+    expect(await screen.findByTestId('inbox-review-decided')).toBeInTheDocument()
+  })
+
+  test('rejecting requires a reason', async () => {
+    const client = reviewClient()
+    render(<InboxItemRow item={reviewRequest()} reviewClient={client} />)
+
+    fireEvent.click(screen.getByTestId('inbox-review-reject'))
+    expect(screen.getByText('Reason for rejection')).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'Falsches Gebäude.' },
+    })
+    fireEvent.click(screen.getByTestId('inbox-review-comment-send'))
+
+    expect(client.reject).toHaveBeenCalledWith('doc_1', 'ver_2', 'Falsches Gebäude.')
+    expect(await screen.findByTestId('inbox-review-decided')).toBeInTheDocument()
+  })
+
+  test('a refused decision says so and keeps the row decidable', async () => {
+    const client = reviewClient({ approve: vi.fn().mockRejectedValue(new Error('403')) })
+    render(<InboxItemRow item={reviewRequest()} reviewClient={client} />)
+
+    fireEvent.click(screen.getByTestId('inbox-review-approve'))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I release this version' }))
+    fireEvent.click(screen.getByTestId('inbox-review-approve-send'))
+
+    expect(await screen.findByTestId('inbox-review-failed')).toBeInTheDocument()
+    // One error red: the product `text-error` token, like every other surface.
+    expect(screen.getByTestId('inbox-review-failed')).toHaveClass('text-error')
+    // Nothing settled: the decisions stay offered for a retry.
+    expect(screen.getByTestId('inbox-review-approve-confirm')).toBeInTheDocument()
+  })
+
+  test('no inline decisions once the round is settled, unreachable, or anchorless', () => {
+    const { unmount } = render(
+      <InboxItemRow item={reviewRequest({ state: 'resolved' })} reviewClient={reviewClient()} />,
+    )
+    expect(screen.queryByTestId('inbox-review-actions')).not.toBeInTheDocument()
+    unmount()
+
+    render(
+      <InboxItemRow
+        item={reviewRequest({ state: 'inert', href: null })}
+        reviewClient={reviewClient()}
+      />,
+    )
+    expect(screen.queryByTestId('inbox-review-actions')).not.toBeInTheDocument()
+  })
+
+  test('no inline decisions without a version anchor or on other types', () => {
+    const { unmount } = render(
+      <InboxItemRow item={reviewRequest({ anchorId: null })} reviewClient={reviewClient()} />,
+    )
+    expect(screen.queryByTestId('inbox-review-actions')).not.toBeInTheDocument()
+    unmount()
+
+    render(<InboxItemRow item={item()} reviewClient={reviewClient()} />)
+    expect(screen.queryByTestId('inbox-review-actions')).not.toBeInTheDocument()
+  })
+})
 describe('InboxItemRow — a row whose target is a document', () => {
   const reviewRequest = (overrides: Partial<InboxItemView> = {}): InboxItemView =>
     item({
