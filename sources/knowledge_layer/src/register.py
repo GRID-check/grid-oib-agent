@@ -1492,6 +1492,57 @@ def _format_results(retrieval_result, query: str) -> str:
     return degraded_banner + "\n".join(lines)
 
 
+def _normalized_query_for_span(text: str) -> str:
+    """Latency-span form of a query: whitespace-folded, casefolded.
+
+    Local (not imported) so the span path never depends on the judge module:
+    tracing must stay up when the loop module cannot be imported. Mirrors
+    ``knowledge_layer.requery._normalised``.
+    """
+    import re as _re
+
+    try:
+        return _re.sub(r"\s+", " ", str(text or "")).strip().casefold()
+    except Exception:
+        return ""
+
+
+def _citation_key_for_span(chunk) -> str | None:
+    """The citation key a returned chunk will be cited by, for the span.
+
+    Mirrors ``_format_results`` without its shelf-qualification: the span
+    needs a stable per-fetch key loop_eval can count (repeat_query,
+    cross_turn, family_overlap), not the rendering. Prefers the stored
+    display citation when the backend populated it. Never raises.
+    """
+    try:
+        stored = getattr(chunk, "display_citation", None)
+        if isinstance(stored, str) and stored.strip():
+            return " ".join(stored.split())
+        name = getattr(chunk, "file_name", None) or ""
+        page = getattr(chunk, "page_number", None)
+        if not name:
+            return None
+        if isinstance(page, int) and page > 0:
+            return f"{name}, p.{page}"
+        return str(name)
+    except Exception:
+        return None
+
+
+def _current_span_round() -> int | None:
+    """The retrieval round this fetch runs in, or ``None`` when unstamped.
+
+    Fail-open: instrumentation never breaks the search.
+    """
+    try:
+        from aiq_agent.common.turn_status import current_retrieval_round
+
+        return current_retrieval_round()
+    except Exception:
+        return None
+
+
 @register_function(config_type=KnowledgeRetrievalConfig)
 async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builder):
     """
@@ -1720,6 +1771,19 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             [(entry.collection, entry.shelf) for entry in target_collections],
         )
 
+        # Per-turn requery budget: round zero opens a new turn's slot, so three
+        # sequential searches in one turn cost at most one second round. Read
+        # off the executing-round stamp (set around the ToolNode invocation);
+        # fail-open when unstamped (tests, standalone callers).
+        span_round = _current_span_round()
+        if span_round == 0:
+            try:
+                from knowledge_layer.requery import reset_requery_slot
+
+                reset_requery_slot()
+            except Exception:
+                logger.debug("Requery slot reset skipped", exc_info=True)
+
         async def _retrieve_collection(entry, search_query: str = retrieval_query):
             coll = entry.collection
             # File exclusions + caller filters apply to the base collection only;
@@ -1879,48 +1943,84 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # queries agree on rises, one only a paraphrase found enters), and the
             # widened pool is reranked once more. Never raises: the judge fails
             # open to "sufficient", and a failed fan-out keeps the first ranking.
+            #
+            # Latency gate: the judge is skipped when the first pool already
+            # answers (decisively strong scores, or a known-entity/family
+            # lookup), and the turn fires at most ONCE no matter what the judge
+            # says — on lookups the verdict manufactures the second round.
+            requery_skipped_reason: str | None = None
+
             async def _judged(chunks):
+                nonlocal requery_skipped_reason
                 # A search pinned to one document is a precision lookup — the
                 # caller knows where the passage is and wants that passage.
                 # Paraphrasing it across every collection in scope is the
                 # opposite of what was asked, and every document it drags in
                 # lands in the Herleitung as "read".
                 if requery_llm_obj is None or file_name:
+                    if file_name:
+                        requery_skipped_reason = "file_pinned"
                     return None
+                try:
+                    from knowledge_layer.requery import requery_already_fired
+                    from knowledge_layer.requery import should_skip_judge
+
+                    if requery_already_fired():
+                        requery_skipped_reason = "already_fired"
+                        logger.info("Retrieval loop judge skipped (already_fired) for %r", query[:60])
+                        return None
+                    skip, reason = should_skip_judge(query, chunks, file_name=file_name)
+                    if skip:
+                        requery_skipped_reason = reason
+                        logger.info("Retrieval loop judge skipped (%s) for %r", reason, query[:60])
+                        return None
+                except Exception:
+                    logger.debug("Requery gate failed open to the judge", exc_info=True)
                 from knowledge_layer.requery import judge_sufficiency
 
                 return await judge_sufficiency(requery_llm_obj, query, chunks, max_queries=config.requery_max_queries)
 
             reranked, verdict = await asyncio.gather(_reranked(merged.chunks), _judged(merged.chunks))
             requery_queries: list[str] = []
+            requery_fired = False
             if verdict is not None and verdict.wants_requery:
                 try:
-                    from aiq_agent.common.turn_status import emit_retrieval_requery
+                    from knowledge_layer.requery import claim_requery_slot
 
-                    emit_retrieval_requery(query_count=len(verdict.queries))
-                    extra = await asyncio.gather(
-                        *(
-                            _retrieve_collection(entry, alternative)
-                            for alternative in verdict.queries
-                            for entry in target_collections
-                        ),
-                        return_exceptions=True,
-                    )
-                    # The original query's channels stay first: RRF breaks exact
-                    # ties by channel order, and the question as asked keeps the
-                    # tie-break seat over any rewording of it.
-                    widened = _merge_results(
-                        [*results, *extra], query, candidate_k, retriever.backend_name, max_per_document=0
-                    )
-                    widened = widened.model_copy(update={"chunks": _narrowed(widened)})
-                    reranked = await _reranked(widened.chunks)
-                    merged = widened
-                    requery_queries = list(verdict.queries)
-                    logger.info(
-                        "Retrieval loop widened the pool with %d alternative quer(y/ies) to %d candidate(s)",
-                        len(requery_queries),
-                        len(merged.chunks),
-                    )
+                    if not claim_requery_slot():
+                        requery_skipped_reason = "already_fired"
+                        logger.info(
+                            "Retrieval loop requery suppressed (already_fired): "
+                            "one firing per turn already spent, keeping the first pool"
+                        )
+                    else:
+                        from aiq_agent.common.turn_status import emit_retrieval_requery
+
+                        emit_retrieval_requery(query_count=len(verdict.queries))
+                        extra = await asyncio.gather(
+                            *(
+                                _retrieve_collection(entry, alternative)
+                                for alternative in verdict.queries
+                                for entry in target_collections
+                            ),
+                            return_exceptions=True,
+                        )
+                        # The original query's channels stay first: RRF breaks exact
+                        # ties by channel order, and the question as asked keeps the
+                        # tie-break seat over any rewording of it.
+                        widened = _merge_results(
+                            [*results, *extra], query, candidate_k, retriever.backend_name, max_per_document=0
+                        )
+                        widened = widened.model_copy(update={"chunks": _narrowed(widened)})
+                        reranked = await _reranked(widened.chunks)
+                        merged = widened
+                        requery_queries = list(verdict.queries)
+                        requery_fired = True
+                        logger.info(
+                            "Retrieval loop widened the pool with %d alternative quer(y/ies) to %d candidate(s)",
+                            len(requery_queries),
+                            len(merged.chunks),
+                        )
                 except Exception:  # noqa: BLE001 - the first ranking is always a valid answer
                     logger.warning("Retrieval loop fan-out failed; keeping the first pool", exc_info=True)
             merged = merged.model_copy(update={"chunks": reranked})
@@ -1930,7 +2030,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # description promises: at most `max_chunks_per_document` per document
             # where possible, filled back from the deferred ranks when there are not
             # enough distinct documents. With the cap disabled this is the plain trim.
+            pre_cap_count = len(merged.chunks)
             capped = _apply_diversity_cap(merged.chunks, effective_top_k, effective_max_per_document)
+            dropped_by_cap = max(0, pre_cap_count - len(capped))
             merged = merged.model_copy(update={"chunks": capped})
 
             # Relevance floor. Without one, top_k is ALWAYS filled: a question this
@@ -1990,19 +2092,65 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             from aiq_agent.observability.retrieval_trace import emit_retrieval_span
 
             try:
+                search_input = build_retrieval_input(
+                    query=query,
+                    retrieval_query=retrieval_query,
+                    collections=target_collections,
+                    candidate_k=candidate_k,
+                    top_k=effective_top_k,
+                    reranked=rerank_llm_obj is not None or cross_encoder is not None,
+                    dropped_by_floor=dropped_by_floor,
+                    requery_queries=requery_queries,
+                )
+                # Per-fetch latency instrumentation (additive only; no behavior
+                # change — tracing must never break the search). These are the
+                # fields loop_eval counts double-fetch rates off: which round
+                # and tool fetched, the normalized query to spot repeat_query,
+                # the locator args to spot locator_eligible, the returned
+                # citation keys to spot cross_turn/family_overlap, and the
+                # requery/cap/refusal flags to spot cap_retry/repair_fetch.
+                # No usage/cost telemetry by design: counts and keys only.
+                try:
+                    search_input["round"] = span_round
+                    search_input["tool"] = "knowledge_search"
+                    search_input["normalized_query"] = _normalized_query_for_span(query)
+                    if file_name:
+                        search_input["file_name"] = file_name
+                    if doc_class:
+                        search_input["doc_class"] = doc_class
+                    if title_contains:
+                        search_input["title_contains"] = title_contains
+                    if folder:
+                        search_input["folder"] = folder
+                    if requery_skipped_reason:
+                        search_input["requery_skipped"] = requery_skipped_reason
+                    search_input["requery_fired"] = bool(requery_fired)
+                    if dropped_by_cap:
+                        search_input["dropped_by_cap"] = dropped_by_cap
+                    if not merged.chunks:
+                        search_input["empty"] = True
+                    if getattr(merged, "error_message", None):
+                        search_input["degraded"] = True
+                    if not getattr(merged, "success", True):
+                        search_input["refused"] = True
+                except Exception:
+                    logger.debug("Retrieval span enrichment skipped", exc_info=True)
+                picks = build_retrieval_output(chunks=merged.chunks)
+                try:
+                    keys = [_citation_key_for_span(chunk) for chunk in merged.chunks]
+                    keys = [key for key in keys if key]
+                    if keys:
+                        picks["citation_keys"] = keys
+                    punkt_ids = [(getattr(chunk, "metadata", None) or {}).get("punkt_id") for chunk in merged.chunks]
+                    punkt_ids = [str(value) for value in punkt_ids if value]
+                    if punkt_ids:
+                        picks["punkt_ids"] = punkt_ids
+                except Exception:
+                    logger.debug("Retrieval picks enrichment skipped", exc_info=True)
                 emit_retrieval_span(
                     tool_name="knowledge_search",
-                    search_input=build_retrieval_input(
-                        query=query,
-                        retrieval_query=retrieval_query,
-                        collections=target_collections,
-                        candidate_k=candidate_k,
-                        top_k=effective_top_k,
-                        reranked=rerank_llm_obj is not None or cross_encoder is not None,
-                        dropped_by_floor=dropped_by_floor,
-                        requery_queries=requery_queries,
-                    ),
-                    picks=build_retrieval_output(chunks=merged.chunks),
+                    search_input=search_input,
+                    picks=picks,
                 )
             except Exception:  # noqa: BLE001 - tracing must never break the search path
                 logger.debug("Retrieval pick span failed", exc_info=True)

@@ -102,6 +102,12 @@ class Observation:
     Every field is a fact about the turn, never a judgement about the answer:
     "the citation names Pkt. 5.1" is checkable, "the answer is right" is not,
     and a harness that pretends otherwise measures its own opinion.
+
+    The six ``double-fetch`` flags turn the latency anecdote into countable
+    rates: each is ``"yes"``/``"no"`` (``""`` only when the turn errored
+    before any fetch), read off the turn's own steps — never off anybody's
+    words — so a before/after run shows whether a loop change removed work
+    or merely moved it.
     """
 
     id: str = ""
@@ -119,6 +125,19 @@ class Observation:
     #: ("2 3/4" — three of the four parts of OIB-RL 2). Empty when the turn
     #: touched no family, which is the honest answer for a project question.
     family_coverage: str = ""
+    #: The same normalized query fetched twice in one turn.
+    repeat_query: str = ""
+    #: A search named a document+Punkt/page the locator could have opened.
+    locator_eligible: str = ""
+    #: A capped fetch (fanout/budget/diversity cap) followed by another fetch.
+    cap_retry: str = ""
+    #: A fetch done for the post-answer repair pass.
+    repair_fetch: str = ""
+    #: The same citation key fetched in two rounds (cross-round refetch, the
+    #: single-turn proxy for cross-turn double-fetch).
+    cross_turn: str = ""
+    #: The turn read more than one family, or a family it was not asked for.
+    family_overlap: str = ""
     error: str = ""
 
 
@@ -127,8 +146,19 @@ class Observation:
 #: and comparing across versions silently is how a delta comes out of nowhere.
 FIELDS: tuple[str, ...] = tuple(f.name for f in dataclass_fields(Observation))
 
+#: Columns added for double-fetch rates. Old CSVs (without them) still read:
+#: :func:`read_csv` fills them with ``""`` rather than refusing the file.
+_DOUBLE_FETCH_FIELDS: tuple[str, ...] = (
+    "repeat_query",
+    "locator_eligible",
+    "cap_retry",
+    "repair_fetch",
+    "cross_turn",
+    "family_overlap",
+)
+
 #: Columns whose value is a yes/no, counted as a rate by :func:`summarise`.
-_BOOLEAN_FIELDS = ("verdict", "read_passage", "truncated")
+_BOOLEAN_FIELDS = ("verdict", "read_passage", "truncated", *_DOUBLE_FETCH_FIELDS)
 
 
 def _yes_no(value: bool) -> str:
@@ -192,10 +222,204 @@ def punkt_matches(expected: str | None, cited: Sequence[str]) -> str:
     return "no"
 
 
+# --- Double-fetch flags (per-fetch instrumentation consumers) ----------------
+#
+# Each flag is a pure function of the turn's own steps, so the rates are
+# countable offline and pin-able in tests. They read the SAME events the
+# product emits: ``status:retrieval:N`` live lines, ``retrieve.*`` spans
+# (extended with round/tool/normalized_query/citation_keys/requery and
+# cap/refusal flags), ``status:budget*`` cap records and ``status:repair``.
+# No usage/cost telemetry: queries, keys and counts only.
+
+
+def _normalise_query(text: object) -> str:
+    """Whitespace-folded, casefolded query for repeat detection."""
+    try:
+        return re.sub(r"\s+", " ", str(text or "")).strip().casefold()
+    except Exception:
+        return ""
+
+
+#: A search that names a document+Punkt/page the locator could have opened.
+#: Mirrors the requery gate's known-entity test (duplicated on purpose:
+#: this harness must keep working when the knowledge package is absent).
+_LOCATOR_ELIGIBLE_RE = re.compile(
+    r"oib[-\s_]*rl|richtlinie\s*\d|\brl\s*\d|\bpkt\.?\b|\bpunkt\b|§|\bseite\b|\bpage\b|\btabelle\b|\.pdf\b|oib-rl_",
+    re.IGNORECASE,
+)
+
+#: Step names that record a capped fetch (fanout guard, budget exhaustion).
+_CAP_STEP_NAMES = frozenset({"status:budget", "status:budget:fanout"})
+
+_REPAIR_STEP_NAME = "status:repair"
+
+
+def _retrieval_queries(payloads: Sequence[tuple[str, dict]]) -> list[str]:
+    """Normalized queries across live lines and retrieve spans, in order."""
+    queries: list[str] = []
+    for name, body in payloads:
+        if _ROUND_STEP_RE.match(name):
+            values = body.get("values") or {}
+            query = values.get("query") or body.get("query")
+            normalised = _normalise_query(query)
+            if normalised:
+                queries.append(normalised)
+            continue
+        if name.startswith("retrieve."):
+            raw = body.get("input") or body.get("output") or body
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except json.JSONDecodeError:
+                    raw = {}
+            if isinstance(raw, dict):
+                for key in ("normalized_query", "query", "retrieval_query"):
+                    normalised = _normalise_query(raw.get(key))
+                    if normalised:
+                        queries.append(normalised)
+                        break
+    return queries
+
+
+def flag_repeat_query(payloads: Sequence[tuple[str, dict]]) -> str:
+    """``"yes"`` when one normalized query was fetched twice in the turn."""
+    seen: set[str] = set()
+    for query in _retrieval_queries(payloads):
+        if query in seen:
+            return "yes"
+        seen.add(query)
+    return "no"
+
+
+def flag_locator_eligible(question: Question, payloads: Sequence[tuple[str, dict]], tools: Sequence[str]) -> str:
+    """``"yes"`` when a search named a passage ``read_passage`` could open.
+
+    Eligible means the QUESTION or any fetched query names a family,
+    Fundstelle or file — and the turn searched anyway without locating.
+    A turn that located is never eligible: it already chose the cheap path.
+    """
+    if "read_passage" in list(tools or []):
+        return "no"
+    candidates = [question.question, *(_retrieval_queries(payloads))]
+    if any(isinstance(text, str) and _LOCATOR_ELIGIBLE_RE.search(text) for text in candidates if text):
+        return "yes"
+    return "no"
+
+
+def flag_cap_retry(payloads: Sequence[tuple[str, dict]], rounds: int) -> str:
+    """``"yes"`` when a capped fetch was followed by another fetch."""
+    capped = any(name in _CAP_STEP_NAMES for name, _ in payloads)
+    if not capped:
+        # A retrieve span that records a diversity-cap drop is the same fact
+        # on the span channel.
+        for name, body in payloads:
+            if name.startswith("retrieve."):
+                raw = body.get("input") or {}
+                if isinstance(raw, str):
+                    try:
+                        raw = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                if isinstance(raw, dict) and (raw.get("dropped_by_cap") or 0):
+                    capped = True
+                    break
+    return "yes" if capped and rounds > 1 else "no"
+
+
+def flag_repair_fetch(payloads: Sequence[tuple[str, dict]]) -> str:
+    """``"yes"`` when the post-answer repair pass ran on this turn."""
+    return "yes" if any(name == _REPAIR_STEP_NAME for name, _ in payloads) else "no"
+
+
+def _citation_keys_by_round(payloads: Sequence[tuple[str, dict]]) -> dict[int | None, set[str]]:
+    """Citation keys per round, from retrieve spans (preferred) or lanes."""
+    by_round: dict[int | None, set[str]] = {}
+    for name, body in payloads:
+        if not name.startswith("retrieve."):
+            continue
+        raw_out = body.get("output") or {}
+        raw_in = body.get("input") or {}
+        for raw in (raw_out, raw_in):
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+            if not isinstance(raw, dict):
+                continue
+        out = raw_out if isinstance(raw_out, dict) else {}
+        inp = raw_in if isinstance(raw_in, dict) else {}
+        keys = out.get("citation_keys") or out.get("picked") or []
+        if isinstance(keys, list) and keys and isinstance(keys[0], dict):
+            keys = [str(item.get("citation_key") or item.get("file") or "") for item in keys]
+        keys = {str(key).strip().casefold() for key in keys if str(key).strip()}
+        if not keys:
+            continue
+        try:
+            round_index: int | None = int(inp.get("round")) if inp.get("round") is not None else None
+        except (TypeError, ValueError):
+            round_index = None
+        by_round.setdefault(round_index, set()).update(keys)
+    return by_round
+
+
+def flag_cross_turn(payloads: Sequence[tuple[str, dict]]) -> str:
+    """``"yes"`` when one citation key was fetched in two rounds.
+
+    Single-turn proxy for cross-turn double-fetch: the eval sees one turn at
+    a time, so history overlap is unmeasurable here — but a key paid for
+    twice across rounds is the same redundant work, and countable.
+    """
+    by_round = _citation_keys_by_round(payloads)
+    if len(by_round) < 2:
+        # Fall back to lane sources stamped per round (pre-span turns).
+        return "no"
+    seen: set[str] = set()
+    for keys in by_round.values():
+        if seen & keys:
+            return "yes"
+        seen.update(keys)
+    return "no"
+
+
+def _expected_family_number(family: str | None) -> str | None:
+    """``"OIB-RL 2.1"`` → ``"2"``; ``"Bauordnung"``/None → None."""
+    if not family:
+        return None
+    match = re.search(r"OIB-RL\s*(\d+)", str(family), re.IGNORECASE)
+    return match.group(1) if match else None
+
+
+def flag_family_overlap(expected_family: str | None, family_cell: str) -> str:
+    """``"yes"`` when the turn read across families or past the asked one."""
+    touched = [family for family, _o, _l in family_coverage(family_cell)]
+    if len(touched) > 1:
+        return "yes"
+    expected = _expected_family_number(expected_family)
+    if expected and touched and expected not in touched:
+        return "yes"
+    return "no"
+
+
 def observe(question: Question, steps: Sequence[dict], answer: str, envelope: dict | None) -> Observation:
     """One turn's row, from the events it emitted and the envelope it produced."""
     payloads = _status_payloads(steps)
     rounds = {int(m.group(1)) for name, _ in payloads if (m := _ROUND_STEP_RE.match(name))}
+    # Retrieve spans stamp their own round; a turn that only emitted spans
+    # (no live line, e.g. a locator-only round) still counts its rounds.
+    for name, body in payloads:
+        if name.startswith("retrieve."):
+            raw = body.get("input") or {}
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+            if isinstance(raw, dict) and raw.get("round") is not None:
+                try:
+                    rounds.add(int(raw["round"]))
+                except (TypeError, ValueError):
+                    pass
     checkpoints = {
         int(m.group(1)): str(body.get("source") or "none")
         for name, body in payloads
@@ -209,6 +433,7 @@ def observe(question: Question, steps: Sequence[dict], answer: str, envelope: di
     }
     truncated = any(name == _BUDGET_STEP and body.get("truncated") for name, body in payloads)
     envelope = envelope or {}
+    family_cell = " ".join(f"{family} {opened}/{listed}" for family, (opened, listed) in sorted(coverage.items()))
     return Observation(
         id=question.id,
         expected_family=question.family or "",
@@ -221,9 +446,13 @@ def observe(question: Question, steps: Sequence[dict], answer: str, envelope: di
         punkt_match=punkt_matches(question.punkt, cited_punkte(answer)),
         truncated=_yes_no(truncated),
         checkpoint_sources=">".join(checkpoints[index] for index in sorted(checkpoints)),
-        family_coverage=" ".join(
-            f"{family} {opened}/{listed}" for family, (opened, listed) in sorted(coverage.items())
-        ),
+        family_coverage=family_cell,
+        repeat_query=flag_repeat_query(payloads),
+        locator_eligible=flag_locator_eligible(question, payloads, tools),
+        cap_retry=flag_cap_retry(payloads, len(rounds)),
+        repair_fetch=flag_repair_fetch(payloads),
+        cross_turn=flag_cross_turn(payloads),
+        family_overlap=flag_family_overlap(question.family, family_cell),
     )
 
 
@@ -245,7 +474,9 @@ def read_csv(path: Path) -> list[Observation]:
 
     The header is the contract. A CSV from another version of this script has
     different columns, and comparing the two without noticing produces a delta
-    that came from the schema rather than from the agent.
+    that came from the schema rather than from the agent. The one exception is
+    the double-fetch columns: runs written before they existed read with those
+    cells empty rather than refused, so an old ``before.csv`` still compares.
     """
     with path.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -253,6 +484,10 @@ def read_csv(path: Path) -> list[Observation]:
         if header != FIELDS:
             missing = [name for name in FIELDS if name not in header]
             extra = [name for name in header if name not in FIELDS]
+            legacy_missing = [name for name in missing if name not in _DOUBLE_FETCH_FIELDS]
+            legacy_extra = [name for name in extra]
+            if set(missing) <= set(_DOUBLE_FETCH_FIELDS) and not legacy_extra and not legacy_missing:
+                return [Observation(**{name: str(row.get(name) or "") for name in FIELDS}) for row in reader]
             raise ValueError(
                 f"{path} does not carry this script's columns "
                 f"(missing={missing or '-'}, unexpected={extra or '-'}). Re-run the eval to produce it."
@@ -329,6 +564,7 @@ _COMPARED_FIELDS = (
     "truncated",
     "checkpoint_sources",
     "family_coverage",
+    *_DOUBLE_FETCH_FIELDS,
 )
 
 

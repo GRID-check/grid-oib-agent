@@ -178,9 +178,9 @@ means the answer was not retrieved.
 User: Welchen Feuerwiderstand brauchen tragende Bauteile in GK 4?
 Assistant: [calls `knowledge_search`, then answers from the hits]
 ```answer_json
-{"answer": "Tragende Bauteile in GK 4 brauchen REI 60 [1].\n\n**Quellen:**\n- [1] oib-rl_2_ausgabe_mai_2023.pdf, p.12", "kind": "ruling", "summary": "In GK 4 gilt REI 60 für tragende Bauteile.", "confidence": {"level": "high", "reason": "direkt aus Tabelle 1b der abgerufenen Richtlinie belegt"}, "verdict": {"value": "REI 60", "subject": "Feuerwiderstand tragender Bauteile in GK 4"}}
+{"answer": "Tragende Bauteile in GK 4 fallen unter Tabelle 1b und brauchen REI 60 [1].\n\n**Quellen:**\n- [1] oib-rl_2_ausgabe_mai_2023.pdf, p.12", "kind": "ruling", "summary": "Danach ausschreiben und den Nachweis in die Einreichunterlagen aufnehmen.", "confidence": {"level": "high", "reason": "direkt aus Tabelle 1b der abgerufenen Richtlinie belegt"}, "verdict": {"value": "REI 60", "subject": "Feuerwiderstand tragender Bauteile in GK 4"}}
 ```
-A copyable legal value (REI 60, GK 4, „Nicht geregelt") earns the ruling. A topic noun does not.
+A copyable legal value (a number, a class, „Nicht geregelt") earns the ruling. A topic noun does not.
 </example>
 </examples>
 

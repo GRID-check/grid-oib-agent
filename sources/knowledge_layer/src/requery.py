@@ -27,6 +27,7 @@ import json
 import logging
 import re
 from collections.abc import Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
@@ -225,3 +226,155 @@ def requery_notice(queries: Sequence[str]) -> str:
         f"Hinweis: die Suche wurde um {count} erweitert ({formulations}), "
         "weil die ersten Treffer die Frage nicht abdeckten.\n\n"
     )
+
+
+# ---------------------------------------------------------------------------
+# Latency gate: skip the judge when the pool is already decisive.
+#
+# A production trace (28 s for a 684-token OIB overview) showed the loop's
+# cost centre: 3 sequential search rounds (~9 s), 3 requery-judge firings
+# (~4 s) and 2 full-context card generations (~4 s+). Token cost is not the
+# concern; seconds and redundant work are. On lookups the judge manufactures
+# the insufficiency verdict that causes an entire second retrieval round
+# (~3 s+) plus its own latency, so the gate below skips it when the first
+# pool already answers the question, and the per-turn cap bounds the worst
+# case to one firing no matter what the judge says.
+#
+# Fail-open throughout: any missing score, unparseable query or absent
+# context reads as "judge", never as "skip".
+# ---------------------------------------------------------------------------
+
+#: Top-1 cosine at or above this reads as decisive. Calibrated against the
+#: golden set on multilingual-e5-small, where answerable questions run
+#: 0.799-0.933 and unanswerable ones 0.795-0.865: 0.88 sits above the
+#: overlap, so only a pool the embedding itself is confident about skips.
+_STRONG_TOP1_FLOOR = 0.88
+
+#: Mean of the top-3 cosines at or above this reads as decisive together
+#: with the top-1 floor. A single strong hit beside two weak ones is a
+#: neighbour, not an answer; three strong hits are the corpus agreeing.
+_STRONG_TOP3_MEAN_FLOOR = 0.80
+
+#: How many head scores the mean is read off. Fewer chunks than this never
+#: skip on scores alone (fail-open to the judge).
+_STRONG_MIN_CHUNKS = 3
+
+#: A query naming a norm family, a Fundstelle or a file is a lookup, not an
+#: exploration: the first pool is addressed, and paraphrasing it across every
+#: collection drags in what the caller did not ask for. Casefolded search;
+#: each pattern is deliberately narrow so a topic question ("Brandschutz im
+#: Wohnbau") never matches.
+_KNOWN_ENTITY_PATTERNS = (
+    r"oib[-\s_]*rl",  # OIB-RL 2, OIB_RL_2, OIB RL 2.1
+    r"richtlinie\s*\d",  # Richtlinie 2
+    r"\brl\s*\d",  # RL 2
+    r"\bpkt\.?\b",  # Pkt. 5.1
+    r"\bpunkt\b",  # Punkt 5.1
+    r"§",  # § 12
+    r"\bseite\b",  # Seite 12
+    r"\bpage\b",  # page 12
+    r"\btabelle\b",  # Tabelle 1b
+    r"\.pdf\b",  # an indexed file name
+    r"oib-rl_",  # the corpus file stem
+)
+
+_KNOWN_ENTITY_RE = re.compile("|".join(_KNOWN_ENTITY_PATTERNS), re.IGNORECASE)
+
+#: Hard cap: one requery firing per turn. The flag lives on a ContextVar so
+#: sequential searches in one turn share it and tests can reset it; the
+#: caller resets it on round zero (see register.py).
+_REQUERY_FIRED: ContextVar[bool] = ContextVar("knowledge_requery_fired", default=False)
+
+
+def _head_scores(chunks: Sequence[Any]) -> list[float]:
+    """The head cosine scores, best first, or ``[]`` when unreadable."""
+    try:
+        scores: list[float] = []
+        for chunk in list(chunks or [])[:_STRONG_MIN_CHUNKS]:
+            score = getattr(chunk, "score", None)
+            if isinstance(score, bool) or not isinstance(score, (int, float)):
+                return []
+            value = float(score)
+            if not 0.0 <= value <= 1.0:
+                return []
+            scores.append(value)
+        return scores
+    except Exception:
+        return []
+
+
+def scores_decisively_strong(chunks: Sequence[Any]) -> bool:
+    """True when the pool's head is strong enough that judging wastes a call.
+
+    Pure, so tests pin it without a model: top-1 at or above
+    :data:`_STRONG_TOP1_FLOOR` AND the top-3 mean at or above
+    :data:`_STRONG_TOP3_MEAN_FLOOR`. Anything unreadable is not strong.
+    """
+    scores = _head_scores(chunks)
+    if len(scores) < _STRONG_MIN_CHUNKS:
+        return False
+    return scores[0] >= _STRONG_TOP1_FLOOR and (sum(scores) / len(scores)) >= _STRONG_TOP3_MEAN_FLOOR
+
+
+def is_known_entity_lookup(query: str) -> bool:
+    """True when ``query`` names a family, a Fundstelle or a file.
+
+    Pure string test, no model: an OIB-RL mention, a Punkt/paragraph/page
+    marker or a filename means the caller is addressing evidence, and the
+    judge's paraphrases are the opposite of what was asked.
+    """
+    if not isinstance(query, str) or not query.strip():
+        return False
+    return _KNOWN_ENTITY_RE.search(query) is not None
+
+
+def should_skip_judge(query: str, chunks: Sequence[Any], *, file_name: str | None = None) -> tuple[bool, str]:
+    """Whether the judge should not run, and the machine-readable reason.
+
+    Returns ``(True, reason)`` with reason one of ``"file_pinned"``,
+    ``"strong_scores"`` or ``"known_entity"``, else ``(False, "")``.
+    A pinned ``file_name`` is the existing precision-lookup rule, stated here
+    so instrumentation and tests read one gate instead of two. Never raises.
+    """
+    try:
+        if file_name and str(file_name).strip():
+            return True, "file_pinned"
+        if scores_decisively_strong(chunks):
+            return True, "strong_scores"
+        if is_known_entity_lookup(query):
+            return True, "known_entity"
+        return False, ""
+    except Exception:
+        return False, ""
+
+
+def requery_already_fired() -> bool:
+    """Whether this turn already spent its one requery firing."""
+    try:
+        return bool(_REQUERY_FIRED.get())
+    except Exception:
+        return False
+
+
+def claim_requery_slot() -> bool:
+    """Claim the turn's one firing; False means it was already spent.
+
+    The first caller wins; every later firing in the same context loses, so
+    three sequential searches cost at most one second round no matter what
+    three judges would have said.
+    """
+    try:
+        if _REQUERY_FIRED.get():
+            return False
+        _REQUERY_FIRED.set(True)
+        return True
+    except Exception:
+        return True
+
+
+def reset_requery_slot() -> None:
+    """Open a new turn's firing slot. Fail-open; never raises."""
+    try:
+        _REQUERY_FIRED.set(False)
+    except Exception:
+        pass
