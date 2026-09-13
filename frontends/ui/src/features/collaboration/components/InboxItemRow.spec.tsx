@@ -393,17 +393,32 @@ describe('InboxItemRow — inline review decisions (triage without Files)', () =
     expect(screen.queryByTestId('inbox-review-approve')).not.toBeInTheDocument()
   })
 
-  test('approval names the stand, the acting moment and the date — like the file pane', () => {
-    render(<InboxItemRow item={reviewRequest()} reviewClient={reviewClient()} />)
+  test('approval names the stand, the actor, the acting moment and the date — like the file pane', () => {
+    // Fixed time: the acting line stamps the viewer's own press, so the exact
+    // timestamp is asserted in full — never just its prefix.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-04T10:00:00Z'))
+    try {
+      render(<InboxItemRow item={reviewRequest()} reviewClient={reviewClient()} />)
 
-    fireEvent.click(screen.getByTestId('inbox-review-approve'))
+      fireEvent.click(screen.getByTestId('inbox-review-approve'))
 
-    // Which stand: the document and when the round opened (≈ submission).
-    expect(screen.getByTestId('inbox-review-approve-stand')).toHaveTextContent(
-      `Brandschutzkonzept_Wohnbau-Nord.md · as of ${formatAbsoluteTime('2026-07-24T09:00:00Z', 'en')}`,
-    )
-    // Who acts when: the viewer signs now — no name is known here, so date only.
-    expect(screen.getByTestId('inbox-review-approve-acting').textContent).toMatch(/^Acting: /)
+      // Which stand: the document and when the round opened (≈ submission).
+      expect(screen.getByTestId('inbox-review-approve-stand')).toHaveTextContent(
+        `Brandschutzkonzept_Wohnbau-Nord.md · as of ${formatAbsoluteTime('2026-07-24T09:00:00Z', 'en')}`,
+      )
+      // Actor identity: whose request this stand answers — no name is stamped
+      // on the acting line itself (none is known here), so the row title carries it.
+      expect(
+        screen.getByText('Anna Weber asked you to review Brandschutzkonzept_Wohnbau-Nord.md'),
+      ).toBeInTheDocument()
+      // Who acts when: the viewer signs now — the full stamped moment, date and all.
+      expect(screen.getByTestId('inbox-review-approve-acting').textContent).toBe(
+        `Acting: ${formatAbsoluteTime('2026-08-04T10:00:00Z', 'en')}`,
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('requesting changes requires words', async () => {

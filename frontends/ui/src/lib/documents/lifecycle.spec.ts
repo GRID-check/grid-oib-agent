@@ -29,6 +29,7 @@ vi.mock('./access', () => ({ getAccessibleDocument: vi.fn() }))
 vi.mock('./version-repository', () => ({
   findDocumentVersion: vi.fn(),
   findOpenVersion: vi.fn(),
+  findPreviousVersion: vi.fn().mockResolvedValue(null),
   findPublishedVersion: vi.fn(),
   insertDocumentVersion: vi.fn(),
   insertPublishedVersion: vi.fn(),
@@ -128,6 +129,7 @@ import {
   compareAndSwapVersionState,
   findDocumentVersion,
   findOpenVersion,
+  findPreviousVersion,
   findPublishedVersion,
   insertDocumentVersion,
   insertPublishedVersion,
@@ -578,7 +580,7 @@ describe('transitionDocumentVersion — effects', () => {
     vi.mocked(compareAndSwapVersionState).mockResolvedValue(
       version({ state: 'in_review', versionNumber: 2 }),
     )
-    vi.mocked(listDocumentVersions).mockResolvedValue([])
+    vi.mocked(findPreviousVersion).mockResolvedValue(null)
 
     await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', {
       reviewerUserIds: ['user_a'],
@@ -612,7 +614,7 @@ describe('transitionDocumentVersion — effects', () => {
     vi.mocked(compareAndSwapVersionState).mockResolvedValue(
       version({ state: 'in_review', versionNumber: 1 }),
     )
-    vi.mocked(listDocumentVersions).mockResolvedValue([])
+    vi.mocked(findPreviousVersion).mockResolvedValue(null)
 
     await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', {
       reviewerUserIds: ['user_a'],
@@ -632,11 +634,9 @@ describe('transitionDocumentVersion — effects', () => {
     vi.mocked(compareAndSwapVersionState).mockResolvedValue(
       version({ state: 'in_review', versionNumber: 3 }),
     )
-    vi.mocked(listDocumentVersions).mockResolvedValue([
-      { id: 'ver_1', versionNumber: 1 } as never,
-      { id: 'ver_2', versionNumber: 2 } as never,
-      { id: 'ver_3', versionNumber: 3 } as never,
-    ])
+    vi.mocked(findPreviousVersion).mockResolvedValue(
+      version({ id: 'ver_2', versionNumber: 2 }),
+    )
 
     await transitionDocumentVersion(session, 'doc_1', 'ver_3', 'submit', {
       reviewerUserIds: ['user_a'],
@@ -644,16 +644,38 @@ describe('transitionDocumentVersion — effects', () => {
 
     const emissions = vi.mocked(emitInboxItems).mock.calls[0][0]
     expect(emissions[0].payload).toMatchObject({ previousVersionId: 'ver_2' })
+    // Direct predecessor query — never the bounded list scanned in memory.
+    expect(findPreviousVersion).toHaveBeenCalledWith('doc_1', 'org_1', 3)
+    expect(listDocumentVersions).not.toHaveBeenCalled()
   })
 
-  it('falls back to no previous version for a first version and on a listing failure', async () => {
+  it('asks the direct predecessor query even past 200 versions', async () => {
+    // The old asc-limited-200 scan no longer contained the predecessor at
+    // all past 200 versions and named the wrong row. The repository now
+    // answers `version_number < $n ORDER BY version_number DESC LIMIT 1`.
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft', versionNumber: 201 }))
+    vi.mocked(compareAndSwapVersionState).mockResolvedValue(
+      version({ state: 'in_review', versionNumber: 201 }),
+    )
+    vi.mocked(findPreviousVersion).mockResolvedValue(
+      version({ id: 'ver_200', versionNumber: 200 }),
+    )
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_201', 'submit', {
+      reviewerUserIds: ['user_a'],
+    })
+
+    expect(findPreviousVersion).toHaveBeenCalledWith('doc_1', 'org_1', 201)
+    const emissions = vi.mocked(emitInboxItems).mock.calls[0][0]
+    expect(emissions[0].payload).toMatchObject({ previousVersionId: 'ver_200' })
+  })
+
+  it('falls back to no previous version for a first version and on a query failure', async () => {
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft', versionNumber: 1 }))
     vi.mocked(compareAndSwapVersionState).mockResolvedValue(
       version({ state: 'in_review', versionNumber: 1 }),
     )
-    vi.mocked(listDocumentVersions).mockResolvedValue([
-      { id: 'ver_1', versionNumber: 1 } as never,
-    ])
+    vi.mocked(findPreviousVersion).mockResolvedValue(null)
 
     await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'submit', {
       reviewerUserIds: ['user_a'],
@@ -667,7 +689,7 @@ describe('transitionDocumentVersion — effects', () => {
     vi.mocked(compareAndSwapVersionState).mockResolvedValue(
       version({ state: 'in_review', versionNumber: 2 }),
     )
-    vi.mocked(listDocumentVersions).mockRejectedValue(new Error('database went away'))
+    vi.mocked(findPreviousVersion).mockRejectedValue(new Error('database went away'))
 
     await transitionDocumentVersion(session, 'doc_1', 'ver_2', 'submit', {
       reviewerUserIds: ['user_a'],

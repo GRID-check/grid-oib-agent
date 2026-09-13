@@ -1,60 +1,25 @@
 /**
  * File an unfiled working-directory draft into the project — from the browser,
  * as the signed-in user.
- *
- * The agent's own filing (`file_draft` → `POST /api/internal/document-versions`)
- * and this route converge on ONE document through the same idempotency
- * reference (`{conversationId}-{slug}`, {@link filingReference}): whichever of
- * the two files first wins the `(authored_by_ref, producer)` probe inside
- * `fileGeneratedDocument`, and the second gets `alreadyFiled` with the open
- * version rather than a duplicate. Browser filing and agent filing are two
- * doors into the same `fileAgentDocumentDraft`, never two implementations.
- *
- * The session is the reader's own, so `actingHuman` stays at its default: the
- * internal agent route passes `false` because a machine acts there, while here
- * a person presses the button. Every permission check, every `created_by` and
- * every audit actor downstream is that person — the same gate, reached
- * directly rather than through a second turn.
- *
- * Only the `create` op is reachable here (a draft version, never a review
- * decision): the route calls `fileAgentDocumentDraft` and nothing else, so
- * approve, publish, reject and archive keep having no path from this surface,
- * exactly as the transition table's `actor` field requires.
- *
- * A same-name guard runs before anything is created: a project document whose
- * shown name already equals the draft's title is a 409 carrying that row, and
- * the card answers it with an explicit „Trotzdem ablegen" confirmation
- * (`force`). Filing never versions onto an unrelated document — the reference
- * decides identity, the title only vetoes.
  */
 
 import 'server-only'
+import { createHash } from 'node:crypto'
 import { BadRequestError, ConflictError, NotFoundError, UnprocessableError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireResourceAccess } from '@/lib/sharing/access'
 import { fileAgentDocumentDraft } from '@/lib/documents/agent-document'
 import { documentDisplayName } from '@/lib/documents/display-name'
 import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
-import { findDocumentAuthoredByRef, listProjectDocuments } from '@/lib/documents/repository'
+import { findDocumentAuthoredByRef, listProjectDocuments, DOCUMENT_LIST_LIMIT } from '@/lib/documents/repository'
+import type { DocumentListRow } from '@/lib/documents/repository'
 import { findOpenVersion } from '@/lib/documents/version-repository'
 import { findConversationInOrg } from './repository'
 import { readConversationDraft } from './draft-preview'
 
-/** Mirrors the agent tier's `MAX_REF_CHARS` (`tools/documents/register.py`). */
 export const MAX_FILING_REF_CHARS = 200
-
-/** The longest title a filing accepts — the lifecycle's own `title` ceiling. */
 export const MAX_FILING_TITLE_CHARS = 200
 
-/**
- * The short stable name inside the idempotency reference, from the file name.
- *
- * A MIRROR of the agent tier's `_slug` (`tools/documents/register.py`), kept
- * identical on purpose rather than improved: the whole point is that a browser
- * press and an agent turn compute the same string for one path, so the second
- * of the two finds the first's row. `draft-filing.spec.ts` pins the parity
- * vectors — change either side and it fails here first.
- */
 function filingSlug(path: string): string {
   const name = path.includes('/') ? path.slice(path.lastIndexOf('/') + 1) : path
   const stem = name.replace(/\.md$/i, '')
@@ -65,35 +30,68 @@ function filingSlug(path: string): string {
   return slug || 'entwurf'
 }
 
-/**
- * The BFF's idempotency key: `{conversationId}-{slug}`, bounded.
- *
- * Two turns of one conversation writing „Aktenvermerk" land on ONE document
- * with two versions — and a browser press for the same path lands on that same
- * document rather than beside it.
- */
-export function filingReference(conversationId: string, path: string): string {
-  return `${conversationId}-${filingSlug(path)}`.slice(0, MAX_FILING_REF_CHARS)
+export function normalizeDraftPath(path: string): string {
+  return path.trim().replace(/^\/+/, '')
 }
 
-/** Two shown names the same to a person: one Unicode form, no fringe, no case. */
+function filingHash(conversationId: string, path: string): string {
+  return createHash('sha256').update(`${conversationId}\0${path}`).digest('hex').slice(0, 8)
+}
+
+export function filingReference(conversationId: string, path: string): string {
+  const normalized = normalizeDraftPath(path)
+  const raw = `${conversationId}-${filingSlug(normalized)}`
+  if (raw.length <= MAX_FILING_REF_CHARS) return raw
+  // PAIRED CHANGE (deferred agent-side mirror): the agent tier mints the same
+  // reference (`tools/documents/register.py::filing_reference`), which today
+  // truncates plainly with `[:MAX_REF_CHARS]` — the hash suffix here is
+  // unconfirmed there. Change this truncation or the hash, and change that
+  // side in the same commit: long keys would otherwise diverge and a browser
+  // filing would land beside the agent's document as a duplicate.
+  const suffix = `-${filingHash(conversationId, normalized)}`
+  return `${raw.slice(0, MAX_FILING_REF_CHARS - suffix.length)}${suffix}`
+}
+
 function sameTitle(a: string, b: string): boolean {
   const key = (value: string): string => value.normalize('NFC').trim().toLowerCase()
   return key(a) === key(b)
 }
 
-/** The file name when the card carried no title — never empty, never a path. */
 function fallbackTitle(path: string): string {
   const name = path.includes('/') ? path.slice(path.lastIndexOf('/') + 1) : path
   return name.trim() || 'Entwurf'
 }
 
+/**
+ * The same-name veto's scan: every project document whose SHOWN name already
+ * equals the draft's title — the thing a reader would confuse.
+ *
+ * Paginated, page by page: the repository bounds every listing
+ * (`DOCUMENT_LIST_LIMIT`), so a single page misses the veto past 500 rows and
+ * files the duplicate this exists to stop. Stops at the first short page; a
+ * concurrent create landing mid-scan is found by the next filing, not this one.
+ */
+async function findSameTitleDocument(
+  projectId: string,
+  organizationId: string,
+  title: string,
+): Promise<DocumentListRow | null> {
+  let offset = 0
+  for (;;) {
+    const rows = await listProjectDocuments(projectId, organizationId, {
+      limit: DOCUMENT_LIST_LIMIT,
+      offset,
+    })
+    const clash = rows.find((row) => sameTitle(documentDisplayName(row), title))
+    if (clash) return clash
+    if (rows.length < DOCUMENT_LIST_LIMIT) return null
+    offset += rows.length
+  }
+}
+
 export interface FileConversationDraftInput {
-  /** Working-directory path as the card carries it (`/entwuerfe/….md`). */
   path: string
-  /** The card's title (first heading, or the file name); the path when absent. */
   title?: string
-  /** Set after the card showed the same-name 409 and the reader confirmed. */
   force?: boolean
 }
 
@@ -101,19 +99,9 @@ export interface FiledConversationDraft {
   documentId: string
   versionId: string
   state: DocumentVersionState
-  /** True when the reference was already filed and nothing was created. */
   alreadyFiled: boolean
 }
 
-/**
- * File one draft of one conversation into that conversation's project.
- *
- * The gates, in order: the conversation's own `viewer` grant (a denial is a
- * 404, so a refused id reads as an absent one), the conversation's project
- * (a project-less chat has no shelf — 422, not a filing), the draft's bytes
- * from the agent tier, the idempotency reference, the same-name veto, and
- * only then the create through `fileAgentDocumentDraft`.
- */
 export async function fileConversationDraft(
   session: AuthorizedSession,
   conversationId: string,
@@ -129,20 +117,20 @@ export async function fileConversationDraft(
   }
   const projectId = conversation.projectId
 
-  // The bytes, through the same read door the preview uses: the conversation
-  // gate above plus the internal service token below, never the browser.
-  const draft = await readConversationDraft(session, conversationId, input.path)
+  // Normalized ONCE, reused for the read, the title fallback and the
+  // reference: the raw card path carries fringe (a leading `/`, whitespace)
+  // that must reach none of the three. A ref minted from the raw path misses
+  // the agent's row, and a title fallen back from it misses the veto below —
+  // both as a duplicate document.
+  const path = normalizeDraftPath(input.path)
+  const draft = await readConversationDraft(session, conversationId, path)
 
-  const title = (input.title ?? '').trim() || fallbackTitle(input.path)
+  const title = (input.title ?? '').trim() || fallbackTitle(path)
   if (title.length > MAX_FILING_TITLE_CHARS) {
     throw new BadRequestError('Title is too long')
   }
-  const ref = filingReference(conversationId, input.path)
+  const ref = filingReference(conversationId, path)
 
-  // Idempotency first: the agent may have filed this reference already (or the
-  // reader pressed twice). An open draft comes back as-is; a reference whose
-  // version has left the writing states is a conflict the Files pane owns —
-  // replacing `in_review` bytes from here would take them off a reviewer's desk.
   const refHit = await findDocumentAuthoredByRef(ref, session.organizationId, projectId, 'agent_document')
   if (refHit) {
     const open = await findOpenVersion(refHit.id, session.organizationId)
@@ -154,13 +142,10 @@ export async function fileConversationDraft(
     })
   }
 
-  // Same-name veto, before anything is created. The listing is bounded by the
-  // repository, and the comparison is over the SHOWN name — the thing a reader
-  // would confuse. The reference above already returned, so any match here is
-  // an unrelated document, never this draft's own row.
   if (!input.force) {
-    const rows = await listProjectDocuments(projectId, session.organizationId)
-    const clash = rows.find((row) => sameTitle(documentDisplayName(row), title))
+    // The reference above already returned, so any match here is an unrelated
+    // document, never this draft's own row — filing never versions onto one.
+    const clash = await findSameTitleDocument(projectId, session.organizationId, title)
     if (clash) {
       throw new ConflictError('A document with this title is already in the project', {
         reason: 'same-name',
@@ -170,10 +155,13 @@ export async function fileConversationDraft(
     }
   }
 
-  // The one create this surface may run. `actingHuman` is left at its default:
-  // the internal agent route passes `false` for its machine caller, while this
-  // caller's session IS the person who pressed. `originConversationId` ties a
-  // later review decision back to this thread.
+  // No serialized admission here, deliberately (deferred): concurrent presses
+  // for the SAME reference converge through the ref probe above — the second
+  // gets `alreadyFiled`, never a second document — so the only race left is
+  // two different references filing one title in the same instant. Closing
+  // that needs a lock or a partial unique index on the shown name, a bigger
+  // change than this veto; filing is a low-contention human gesture, so the
+  // scan above is the decided scope.
   const filed = await fileAgentDocumentDraft({
     session,
     projectId,

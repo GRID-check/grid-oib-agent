@@ -82,6 +82,7 @@ import {
   findDocumentVersion,
   listDocumentVersionSummaries,
   findOpenVersion,
+  findPreviousVersion,
   findPublishedVersion,
   insertDocumentVersion,
   insertPublishedVersion,
@@ -230,15 +231,7 @@ async function findPreviousVersionId(
   versionNumber: number,
 ): Promise<string | null> {
   try {
-    const versions = await listDocumentVersions(documentId, organizationId)
-    let previous: { id: string; versionNumber: number } | null = null
-    for (const candidate of versions) {
-      if (candidate.versionNumber < versionNumber) {
-        if (!previous || candidate.versionNumber > previous.versionNumber) {
-          previous = { id: candidate.id, versionNumber: candidate.versionNumber }
-        }
-      }
-    }
+    const previous = await findPreviousVersion(documentId, organizationId, versionNumber)
     return previous?.id ?? null
   } catch {
     return null

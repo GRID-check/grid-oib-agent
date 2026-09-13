@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { and, asc, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, lt, ne, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   documentVersions,
@@ -121,6 +121,36 @@ export async function findDocumentVersion(
         eq(documentVersions.organizationId, organizationId),
       ),
     )
+    .limit(1)
+  return row ?? null
+}
+
+/**
+ * The version a diff compares against: the highest version number below the
+ * given one, or `null` for a first version.
+ *
+ * A DIRECT `version_number < $n ORDER BY version_number DESC LIMIT 1` — never
+ * the asc-limited-200 page scanned in memory. Past 200 versions the page no
+ * longer contains the predecessor at all, and the scan then names the wrong
+ * row (the highest inside the window) as the diff base.
+ */
+export async function findPreviousVersion(
+  documentId: string,
+  organizationId: string,
+  versionNumber: number,
+): Promise<DocumentVersion | null> {
+  const db = getDb()
+  const [row] = await db
+    .select()
+    .from(documentVersions)
+    .where(
+      and(
+        eq(documentVersions.documentId, documentId),
+        eq(documentVersions.organizationId, organizationId),
+        lt(documentVersions.versionNumber, versionNumber),
+      ),
+    )
+    .orderBy(desc(documentVersions.versionNumber))
     .limit(1)
   return row ?? null
 }

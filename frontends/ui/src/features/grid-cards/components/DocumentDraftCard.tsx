@@ -49,20 +49,23 @@
  *
  * ## What IS interactive
  *
- * Filing („Ins Projekt ablegen", on an unfiled card) and „Zur Freigabe
- * einreichen" (on a filed one). Filing is a real write through the BFF's
- * draft-file door and idempotent by reference, but its `filed` outcome is
- * still recorded through `useCardDecision` — a reload must not present a
- * filed draft as unfiled. Submitting moves the version to `in_review` and
- * opens an inbox item on a reviewer, and is not idempotent at all: the
- * outcome is recorded so a reload does not ask a colleague a second time.
+  * Filing („Ins Projekt ablegen", on an unfiled card) and „Zur Freigabe
+  * einreichen" (on a filed one). Filing is a real write through the BFF's
+  * draft-file door and idempotent by reference, but its `filed` outcome is
+  * still recorded through `useCardDecision` — a reload must not present a
+  * filed draft as unfiled. The ids themselves are NOT recorded (a
+  * `CardInteraction` carries no document id): a reload re-enters the same
+  * idempotent door, which answers `alreadyFiled` with the link instead of a
+  * second document. Submitting moves the version to `in_review` and
+  * opens an inbox item on a reviewer, and is not idempotent at all: the
+  * outcome is recorded so a reload does not ask a colleague a second time.
  *
  * Quiet ink, not a `Button`, and the style is `diagram-filing-controls`': a
  * filled control here would outweigh the draft's own name two lines above it,
  * and this is the same kind of secondary action in the same kind of meta row.
  */
 
-import { useState, type FC } from 'react'
+import { useEffect, useState, type FC } from 'react'
 import { FileText } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -187,6 +190,9 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
   // the frame the turn emitted and is never rewritten — so the open link below
   // reads these ids until a re-emitted card carries them itself.
   const [filedDoc, setFiledDoc] = useState<{ documentId: string; versionId: string } | null>(null)
+  // A restore that failed and left no link: the file action below is re-offered
+  // as its retry, because the recorded `filed` already hid it.
+  const [restoreFailed, setRestoreFailed] = useState(false)
   // A same-name 409, waiting on the reader's explicit confirmation.
   const [conflict, setConflict] = useState<{ documentId: string; displayName: string } | null>(null)
   // The preview's view state — what is open, what arrived, what failed. Local
@@ -212,6 +218,48 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
   // frame the turn emitted and is never rewritten.
   const submitted = decision === 'submitted' || (versionState ? !SUBMITTABLE.has(versionState) : false)
 
+  // A recorded `filed` against an unfiled card: this press already filed, and
+  // the card re-mounted (a reload) before any re-emitted card carried the ids.
+  // The decision record says THAT it happened; the effect below restores the
+  // link, so the stand never renders Draft for a filed draft.
+  const filedDecision = decision === 'filed'
+  const filedKnown = shownFiled || filedDecision
+
+  // Restores the open link after a reload without another press. The same
+  // idempotent file door is re-entered, and its reference probe answers
+  // `alreadyFiled` with the ids instead of a second document. Nothing is
+  // remembered — a `CardInteraction` carries no document id — so the lookup
+  // runs on every such mount. A reference that moved on (409
+  // `already-submitted`) names the Files pane instead of a link, exactly as a
+  // press would; any other refusal re-offers the file action as its retry.
+  useEffect(() => {
+    if (filed || filedDoc !== null || decision !== 'filed' || !conversationId) return
+    let cancelled = false
+    setRestoreFailed(false)
+    void fileConversationDraft(conversationId, { path, title, force: false }).then(
+      (result) => {
+        if (cancelled) return
+        setFiledDoc({ documentId: result.documentId, versionId: result.versionId })
+        setConflict(null)
+      },
+      (restoreError: unknown) => {
+        if (cancelled) return
+        const row = conflictRow(restoreError)
+        if (row) {
+          setConflict(row)
+        } else if (isAlreadySubmitted(restoreError)) {
+          setError(t('cards.documentDraft.fileSubmitted'))
+        } else {
+          setError(t('cards.documentDraft.fileError'))
+          setRestoreFailed(true)
+        }
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [filed, filedDoc, decision, conversationId, path, title, t])
+
   const submit = async () => {
     if (!documentId || !versionId) return
     setError(null)
@@ -235,7 +283,7 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
   const stand =
     filed && submitted && stateKey
       ? t(`cards.documentDraft.${stateKey}` as 'cards.documentDraft.inReview')
-      : shownFiled
+      : filedKnown
         ? t('cards.documentDraft.filed')
         : t('cards.documentDraft.draftState')
 
@@ -246,8 +294,9 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
   // every other refusal is an actionable message with the file button still
   // offered as the retry. The `filed` outcome is recorded through
   // `useCardDecision` like `submitted` — record-only, because a
-  // `CardInteraction` carries no document id and the link above reads this
-  // mount's ids.
+  // `CardInteraction` carries no document id. The ids live in this mount's
+  // state, and a reload restores them through the effect above: the same
+  // idempotent door, re-entered, answering `alreadyFiled` with the link.
   const file = async (force: boolean) => {
     if (!conversationId) return
     setError(null)
@@ -325,7 +374,7 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
       <p className="card-caption flex flex-wrap items-center gap-x-3 text-muted-foreground">
         <span data-testid="document-draft-state">{stand}</span>
 
-        {!shownFiled && conversationId && (
+        {!filedKnown && conversationId && (
           // Reads nothing but the draft, through the BFF preview door into the
           // dialog below. Presentational view state — see the header.
           <button type="button" className={ACTION} onClick={openPreview}>
@@ -333,7 +382,7 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
           </button>
         )}
 
-        {!shownFiled && canDecide && conversationId && (
+        {!shownFiled && canDecide && conversationId && (!filedDecision || restoreFailed) && (
           // Files the draft in the reader's own session — see the header.
           // Hidden where the answer could not be kept (`canDecide`): a filing
           // whose outcome dies on reload would file twice behind one press.
