@@ -1021,6 +1021,21 @@ describe('AgentResponse', () => {
       expect(container.textContent).toContain('In GK 4 gilt REI 60.')
     })
 
+    test('the inline variant drops a restating summary from the masthead too', () => {
+      // The dedup gate is variant-independent: the inline rendering carries
+      // the same masthead, so a summary the body already states once must not
+      // headline it twice there either.
+      const { container } = render(
+        <AgentResponse
+          content="In GK 4 gilt REI 60."
+          variant="inline"
+          answerMeta={{ v: 1, kind: 'walkthrough', summary: 'In GK 4 gilt REI 60.' }}
+        />
+      )
+      expect(container.textContent?.match(/In GK 4 gilt REI 60\./g)).toHaveLength(1)
+      expect(container.querySelector('header')).toBeNull()
+    })
+
     test('a genuinely different summary still headlines the answer', () => {
       const { container } = render(
         <AgentResponse content="REI 60 gilt, und maßgeblich ist das Fluchtniveau." answerMeta={answerMeta} />

@@ -37,6 +37,14 @@ interface AutomationPanelProps {
   canManageOrgSkills: boolean
   /** May create/edit/run/delete this project's jobs (`project:skills:manage`). */
   canManageJobs: boolean
+  /**
+   * Whether this member may use the agent in this project (`project:chat`).
+   * Resolved server-side beside the jobs gate and forwarded into Aufgaben:
+   * without it Delegieren would link a reader into a locked composer.
+   * Fail-open until the section threads the server decision through; the
+   * server still enforces on send.
+   */
+  canChatInProject?: boolean
   initialTab: AutomationTab
 }
 
@@ -63,6 +71,7 @@ export function AutomationPanel({
   projectCollection,
   canManageOrgSkills,
   canManageJobs,
+  canChatInProject = true,
   initialTab,
 }: AutomationPanelProps): JSX.Element {
   const t = useTranslations('nav')
@@ -125,6 +134,7 @@ export function AutomationPanel({
           projectId={projectId}
           projectCollection={projectCollection}
           canManageJobs={canManageJobs}
+          canChatInProject={canChatInProject}
         />
       </TabsContent>
       <TabsContent value="jobs" className="min-h-0 overflow-hidden">

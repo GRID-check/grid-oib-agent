@@ -46,6 +46,8 @@ export const tasks = {
     runs: 'Runs',
     /** A deep link whose row is gone — deleted, or never visible to this reader. */
     gone: 'This no longer exists. It may have been deleted.',
+    /** The title over the gone body — never the close label over gone content. */
+    goneTitle: 'Not found',
   },
   list: {
     emptyTitle: 'Nothing delegated yet',

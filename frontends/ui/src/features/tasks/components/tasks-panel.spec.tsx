@@ -251,6 +251,104 @@ describe('TasksPanel', () => {
     expect(tasksCalls()).toHaveLength(1)
   })
 
+  test('a visibility resume landing mid-poll does not double-chain the timer', async () => {
+    const pending: Array<(value: { ok: true; json: () => Promise<unknown> }) => void> = []
+    fetchMock.mockImplementationOnce(
+      (url: unknown) =>
+        new Promise<{ ok: true; json: () => Promise<unknown> }>((resolve) => {
+          if (typeof url === 'string' && url.endsWith('/jobs')) {
+            resolve({ ok: true, json: async () => jobsPayload })
+          } else {
+            pending.push(resolve)
+          }
+        })
+    )
+    renderPanel()
+    await flush()
+    expect(tasksCalls()).toHaveLength(1)
+
+    // The mount load is still in flight when the tab becomes visible again:
+    // the resume must not start a second load nor arm a second timer — the
+    // in-flight load's own `finally` reschedules the one chain.
+    visibility = 'visible'
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flush()
+    expect(tasksCalls()).toHaveLength(1)
+
+    await act(async () => {
+      pending[0]?.({ ok: true, json: async () => ({ tasks: [row()] }) })
+    })
+    expect(tasksCalls()).toHaveLength(1)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TASKS_POLL_MS)
+    })
+    // Exactly one chained poll — two timers would have asked twice.
+    expect(tasksCalls()).toHaveLength(2)
+  })
+
+  test('a post-save schedules reload is queued while a jobs fetch is in flight', async () => {
+    const pendingJobs: Array<(value: { ok: true; json: () => Promise<unknown> }) => void> = []
+    fetchMock.mockImplementation(
+      (url: unknown): Promise<{ ok: boolean; json: () => Promise<unknown> }> => {
+        if (typeof url === 'string' && url.endsWith('/jobs')) {
+          return new Promise<{ ok: true; json: () => Promise<unknown> }>((resolve) => {
+            pendingJobs.push(resolve)
+          })
+        }
+        return Promise.resolve({ ok: true, json: async () => tasksPayload })
+      }
+    )
+    renderPanel({ canManageJobs: true })
+    await flush()
+    expect(jobsCalls()).toHaveLength(1)
+
+    fireEvent.click(screen.getByTestId('tasks-new-schedule'))
+    fireEvent.click(screen.getByText('save-stub'))
+    await flush()
+    // The save asked while the mount fetch was still in flight: queued, not lost.
+    expect(jobsCalls()).toHaveLength(1)
+
+    await act(async () => {
+      pendingJobs[0]?.({ ok: true, json: async () => jobsPayload })
+    })
+    // The queued reload fires once the in-flight fetch lands.
+    expect(jobsCalls()).toHaveLength(2)
+  })
+
+  test('switching project drops a stale schedules response', async () => {
+    const pendingJobs: Array<(value: { ok: true; json: () => Promise<unknown> }) => void> = []
+    fetchMock.mockImplementation(
+      (url: unknown): Promise<{ ok: boolean; json: () => Promise<unknown> }> => {
+        // Only proj-1's schedules park; everything else resolves.
+        if (typeof url === 'string' && url === '/api/projects/proj-1/jobs') {
+          return new Promise<{ ok: true; json: () => Promise<unknown> }>((resolve) => {
+            pendingJobs.push(resolve)
+          })
+        }
+        if (typeof url === 'string' && url.endsWith('/jobs')) {
+          return Promise.resolve({ ok: true, json: async () => ({ jobs: [recurringJob] }) })
+        }
+        return Promise.resolve({ ok: true, json: async () => tasksPayload })
+      }
+    )
+    const { rerender } = render(
+      <TasksPanel projectId="proj-1" projectCollection="col-1" canManageJobs />
+    )
+    await flush()
+    expect(jobsCalls()).toHaveLength(1)
+
+    rerender(<TasksPanel projectId="proj-2" projectCollection="col-1" canManageJobs />)
+    await flush()
+    expect(screen.getByTestId('template-row')).toBeInTheDocument()
+
+    // The stale proj-1 schedules response must not wipe proj-2's list.
+    await act(async () => {
+      pendingJobs[0]?.({ ok: true, json: async () => ({ jobs: [] }) })
+    })
+    expect(screen.getByTestId('template-row')).toBeInTheDocument()
+  })
+
   test('a failed poll keeps the stale list instead of erroring', async () => {
     renderPanel()
     await flush()
@@ -361,5 +459,52 @@ describe('TasksPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Close details' }))
     expect(window.location.search).not.toContain('task=')
+  })
+
+  test('a successful poll recovers from a failed first load', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('offline'))
+    renderPanel()
+    await flush()
+    expect(screen.getByText('The task list could not be loaded')).toBeInTheDocument()
+
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ tasks: [row()] }) })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TASKS_POLL_MS)
+    })
+
+    expect(screen.queryByText('The task list could not be loaded')).not.toBeInTheDocument()
+    expect(screen.getByText('Aktenvermerk Fluchtwege')).toBeInTheDocument()
+  })
+
+  test('switching project drops the previous list and fetches the new one', async () => {
+    const pending: Array<(value: { ok: true; json: () => Promise<{ tasks: TaskWireRow[] }> }) => void> =
+      []
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: true; json: () => Promise<{ tasks: TaskWireRow[] }> }>((resolve) => {
+          pending.push(resolve)
+        })
+    )
+    const { rerender } = render(
+      <TasksPanel projectId="proj-1" projectCollection="col-1" canManageJobs />,
+    )
+    await flush()
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/proj-1/tasks')
+
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ tasks: [row({ id: 'task-2', title: 'Prüfung Brandschutz' })] }),
+    })
+    rerender(<TasksPanel projectId="proj-2" projectCollection="col-1" canManageJobs />)
+    await flush()
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/proj-2/tasks')
+    expect(screen.getByText('Prüfung Brandschutz')).toBeInTheDocument()
+
+    // The in-flight fetch for proj-1 must not overwrite proj-2's list.
+    await act(async () => {
+      pending[0]?.({ ok: true, json: async () => ({ tasks: [row()] }) })
+    })
+    expect(screen.getByText('Prüfung Brandschutz')).toBeInTheDocument()
+    expect(screen.queryByText('Aktenvermerk Fluchtwege')).not.toBeInTheDocument()
   })
 })

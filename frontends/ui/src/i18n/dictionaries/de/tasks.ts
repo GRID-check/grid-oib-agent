@@ -39,6 +39,7 @@ export const tasks: typeof en.tasks = {
     prompt: 'Prompt',
     runs: 'Läufe',
     gone: 'Das gibt es nicht mehr — möglicherweise wurde es gelöscht.',
+    goneTitle: 'Nicht gefunden',
   },
   list: {
     emptyTitle: 'Noch nichts übergeben',

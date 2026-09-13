@@ -249,6 +249,60 @@ function normalizeSource(input: unknown): StoredCitationSource | null {
 }
 
 /**
+ * One stored READ-BUT-UNCITED source, in the wire spelling the reader decodes.
+ *
+ * Identity + placement only — the same eleven fields the live wire schema
+ * keeps (`wireReadSourceSchema` in `adapters/api/schemas.ts`). A document the
+ * answer never cited must never carry prose into storage: `content`,
+ * `snippet`, `punkt` and `score` would let an uncited document ground the
+ * passage surfaces (the viewer highlight, the "Zitierte Stelle" box) that read
+ * the stored envelope. An entry with no identity at all is not a weaker
+ * disclosure row — it is not a row, and drops to null like above.
+ */
+function normalizeReadSource(input: unknown): StoredCitationSource | null {
+  if (!isRecord(input)) return null
+
+  const source: StoredCitationSource = {
+    document_id: text(input.document_id, MAX_IDENTIFIER),
+    citation_key: text(input.citation_key, MAX_IDENTIFIER),
+    file_name: text(input.file_name, MAX_TEXT),
+    page: positiveInt(input.page),
+    collection: text(input.collection, MAX_IDENTIFIER),
+    shelf: text(input.shelf, MAX_IDENTIFIER),
+    kind: text(input.kind, MAX_IDENTIFIER),
+    lane: text(input.lane, MAX_IDENTIFIER),
+    lane_label: text(input.lane_label, MAX_TEXT),
+    title: text(input.title, MAX_TEXT),
+    url: text(input.url, MAX_TEXT),
+  }
+
+  const identifying =
+    source.url ??
+    source.file_name ??
+    source.document_id ??
+    source.citation_key ??
+    source.title
+  if (!identifying) return null
+
+  // Same absent-vs-dropped distinction as above: no explicit nulls stored.
+  return Object.fromEntries(
+    Object.entries(source).filter(([, value]) => value !== undefined)
+  ) as StoredCitationSource
+}
+
+function encodeSources(
+  input: unknown,
+  normalize: (input: unknown) => StoredCitationSource | null
+): StoredCitations | undefined {
+  if (!Array.isArray(input)) return undefined
+  const sources = input
+    .slice(0, MAX_SOURCES)
+    .map(normalize)
+    .filter((source): source is StoredCitationSource => source !== null)
+  return sources.length > 0 ? { v: CITATIONS_PAYLOAD_VERSION, sources } : undefined
+}
+
+/**
  * Encode the backend's `sources` array as the stored citations envelope.
  *
  * Returns undefined when nothing usable survives, so a message with no
@@ -257,12 +311,19 @@ function normalizeSource(input: unknown): StoredCitationSource | null {
  * written.
  */
 export function encodeBackendSources(input: unknown): StoredCitations | undefined {
-  if (!Array.isArray(input)) return undefined
-  const sources = input
-    .slice(0, MAX_SOURCES)
-    .map(normalizeSource)
-    .filter((source): source is StoredCitationSource => source !== null)
-  return sources.length > 0 ? { v: CITATIONS_PAYLOAD_VERSION, sources } : undefined
+  return encodeSources(input, normalizeSource)
+}
+
+/**
+ * Encode the backend's `read_sources` array as the stored disclosure envelope.
+ *
+ * Identity + placement only (see `normalizeReadSource`): the full
+ * `encodeBackendSources` keeps the passage fields a cited source needs, and
+ * routing read sources through it stored prose under answers that never cited
+ * it. Returns undefined when nothing usable survives, like above.
+ */
+export function encodeBackendReadSources(input: unknown): StoredCitations | undefined {
+  return encodeSources(input, normalizeReadSource)
 }
 
 /**
@@ -361,9 +422,11 @@ export function normalizeAgentAnswerMetadata(
   }
 
   // The read-but-uncited disclosure, stored under the camelCase key the
-  // browser writer uses so history reads one dialect.
+  // browser writer uses so history reads one dialect. Identity + placement
+  // only — never the full `encodeBackendSources`, which would store prose
+  // under an answer that never cited it.
   if (out.readSources === undefined) {
-    const readSources = encodeBackendSources(metadata.read_sources)
+    const readSources = encodeBackendReadSources(metadata.read_sources)
     if (readSources) out.readSources = readSources
   }
 

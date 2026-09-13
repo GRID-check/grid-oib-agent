@@ -17,8 +17,18 @@ vi.mock('@/features/skills/components/skills-panel', () => ({
   ),
 }))
 vi.mock('@/features/tasks/components/tasks-panel', () => ({
-  TasksPanel: ({ canManageJobs }: { canManageJobs: boolean }) => (
-    <div data-testid="tasks-panel" data-can-manage={canManageJobs} />
+  TasksPanel: ({
+    canManageJobs,
+    canChatInProject = true,
+  }: {
+    canManageJobs: boolean
+    canChatInProject?: boolean
+  }) => (
+    <div
+      data-testid="tasks-panel"
+      data-can-manage={canManageJobs}
+      data-can-chat={canChatInProject}
+    />
   ),
 }))
 
@@ -129,5 +139,18 @@ describe('AutomationPanel — one mounted tab at a time', () => {
     render(<AutomationPanel {...baseProps} initialTab="tasks" />)
     // Same check the Jobs tab uses — mirrored, not invented.
     expect(screen.getByTestId('tasks-panel')).toHaveAttribute('data-can-manage', 'false')
+  })
+
+  test('forwards the chat gate so viewers get no live Delegieren link', () => {
+    render(<AutomationPanel {...baseProps} canChatInProject={false} initialTab="tasks" />)
+    // Without `project:chat` the composer is locked — the panel must say so
+    // instead of linking into a dead end. Fail-open (true) until the section
+    // threads the server decision through.
+    expect(screen.getByTestId('tasks-panel')).toHaveAttribute('data-can-chat', 'false')
+  })
+
+  test('chat gate fail-opens while the server decision is not threaded through', () => {
+    render(<AutomationPanel {...baseProps} initialTab="tasks" />)
+    expect(screen.getByTestId('tasks-panel')).toHaveAttribute('data-can-chat', 'true')
   })
 })

@@ -17,6 +17,7 @@
  */
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { FileText, MessageSquare, Play, Sparkles } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -79,7 +80,7 @@ export function TaskDetail({
         {!selection || (selection.kind === 'task' ? !task : !job) ? (
           <div className="py-8">
             <SheetHeader>
-              <SheetTitle>{t('detail.close')}</SheetTitle>
+              <SheetTitle>{t('detail.goneTitle')}</SheetTitle>
             </SheetHeader>
             <p className="text-muted-foreground mt-2 text-sm">{t('detail.gone')}</p>
           </div>
@@ -143,18 +144,18 @@ function InstanceDetail({
           <div className="mt-2 flex flex-col items-start gap-2">
             {documentHref && (
               <Button asChild size="sm" data-testid="task-detail-result-doc">
-                <a href={documentHref}>
+                <Link href={documentHref}>
                   <FileText aria-hidden />
                   {t('detail.openDocument')}
-                </a>
+                </Link>
               </Button>
             )}
             {conversationHref && (
               <Button asChild size="sm" variant="outline" data-testid="task-detail-continue-chat">
-                <a href={conversationHref}>
+                <Link href={conversationHref}>
                   <MessageSquare aria-hidden />
                   {t('detail.continueChat')}
-                </a>
+                </Link>
               </Button>
             )}
           </div>

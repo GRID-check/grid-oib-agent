@@ -156,6 +156,23 @@ describe('TaskList instances', () => {
     expect(screen.queryByText('Nothing delegated yet')).toBeNull()
   })
 
+  test('a failed task load errors inline without hiding healthy schedules', () => {
+    // The two fetches fail independently, so the two groups report
+    // independently: a task-fail must never take healthy schedules with it.
+    render(<TaskList projectId="p1" tasks={[]} jobs={[job()]} failed />)
+
+    expect(screen.getByTestId('template-row')).toBeInTheDocument()
+    expect(screen.getByText('The task list could not be loaded')).toBeInTheDocument()
+    expect(screen.queryByTestId('task-row')).toBeNull()
+  })
+
+  test('templates answer only to the schedules load, never to the task load', () => {
+    render(<TaskList projectId="p1" tasks={[task()]} jobs={[]} jobsFailed />)
+
+    expect(screen.getByText('The schedules could not be loaded.')).toBeInTheDocument()
+    expect(screen.getByTestId('task-row')).toBeInTheDocument()
+  })
+
   test('shows a skeleton while it is loading, not the empty state', () => {
     render(<TaskList projectId="p1" tasks={[]} jobs={[]} loading />)
     expect(screen.getByTestId('task-list-loading')).toBeInTheDocument()

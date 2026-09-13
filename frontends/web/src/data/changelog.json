@@ -32,6 +32,33 @@
   },
   "releases": [
     {
+      "id": "2026-09-12",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-12",
+      "summary": null,
+      "sections": [
+        {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Answers now say what else they read. The answer details disclose the documents Piloti retrieved but did not cite, as quiet document chips — so you can see the breadth of the research behind an answer, without those documents grounding any claim in it.",
+              "de": "Answers now say what else they read. The answer details disclose the documents Piloti retrieved but did not cite, as quiet document chips — so you can see the breadth of the research behind an answer, without those documents grounding any claim in it."
+            }
+          ]
+        },
+        {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "The Aufgaben list now stays current while it is visible and refreshes when you return to it, instead of showing the state from when the tab was opened. Early submission states also read as queued work rather than as raw technical labels.",
+              "de": "The Aufgaben list now stays current while it is visible and refreshes when you return to it, instead of showing the state from when the tab was opened. Early submission states also read as queued work rather than as raw technical labels."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-09-11",
       "kind": "date",
       "version": null,

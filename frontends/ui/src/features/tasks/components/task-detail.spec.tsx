@@ -23,6 +23,24 @@ vi.mock('@/features/jobs/components/job-run-history', () => ({
   ),
 }))
 
+// In-app doc/chat links must stay client-side: a plain `<a>` would reload the
+// whole shell, dropping the drawer state the deep link just opened.
+vi.mock('next/link', () => ({
+  default: ({
+    href,
+    children,
+    ...rest
+  }: {
+    href: string
+    children: React.ReactNode
+    [key: string]: unknown
+  }) => (
+    <a href={href} data-next-link="true" {...rest}>
+      {children}
+    </a>
+  ),
+}))
+
 import { toast } from 'sonner'
 
 const task = (overrides: Partial<TaskWireRow> = {}): TaskWireRow => ({
@@ -88,6 +106,8 @@ describe('TaskDetail instances', () => {
       />,
     )
     expect(screen.getByTestId('task-detail')).toBeInTheDocument()
+    // The title names the absence — never the close label over gone content.
+    expect(screen.getByText('Not found')).toBeInTheDocument()
     expect(screen.getByText(/This no longer exists/)).toBeInTheDocument()
   })
 
@@ -105,6 +125,8 @@ describe('TaskDetail instances', () => {
       'href',
       '/app/projects/p1/files?doc=doc-9',
     )
+    // Client-side navigation — a plain `<a>` would reload the shell.
+    expect(screen.getByTestId('task-detail-result-doc')).toHaveAttribute('data-next-link', 'true')
     expect(screen.getByTestId('task-detail-goal')).toHaveTextContent('Prüfe die Fluchtweglängen')
     // No chat run, no continue link — and no history link anywhere.
     expect(screen.queryByTestId('task-detail-continue-chat')).toBeNull()
@@ -121,6 +143,7 @@ describe('TaskDetail instances', () => {
     )
     const link = screen.getByTestId('task-detail-continue-chat')
     expect(link).toHaveAttribute('href', '/app/projects/p1/chat?session=conv-3')
+    expect(link).toHaveAttribute('data-next-link', 'true')
     expect(link).toHaveTextContent('Continue in chat')
   })
 

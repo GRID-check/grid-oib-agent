@@ -30,6 +30,15 @@ describe('summaryDuplicatesBody', () => {
     )
   })
 
+  test('a citation glued to the first terminator is still the opening sentence', () => {
+    // `REI 60.[1] Weitere Details.` — the first period is followed by a
+    // marker, not whitespace. The sentence cut has to consume the marker
+    // or the comparison swallows the next sentence and misses the duplicate.
+    expect(
+      summaryDuplicatesBody('In GK 4 gilt REI 60.', 'In GK 4 gilt REI 60.[1] Weitere Details.')
+    ).toBe(true)
+  })
+
   test('whitespace and case differences are not a second statement', () => {
     expect(
       summaryDuplicatesBody('  In  GK 4\ngilt REI 60. ', 'in gk 4 gilt rei 60.\n\nWeiter.')

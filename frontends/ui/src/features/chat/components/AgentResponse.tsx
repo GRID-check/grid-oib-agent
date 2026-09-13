@@ -503,6 +503,20 @@ const AnswerDegradedNote: FC<{ degradedReasons?: string[] }> = ({ degradedReason
 const MAX_READ_SOURCES = 8
 
 /**
+ * The label the "Gelesen, nicht zitiert" disclosure shows for one entry — the
+ * document's identity and nothing else.
+ *
+ * The single definition of "renderable" for this disclosure: the section below
+ * skips every entry without one (never falling back to `content`, which on a
+ * verbose entry is a locator line or a passage), and `hasDetailsContent`
+ * counts the same entries — otherwise the details trigger opens onto an empty
+ * section.
+ */
+function readSourceLabel(source: CitationSource): string | undefined {
+  return source.fileName ?? source.title ?? source.citationKey
+}
+
+/**
  * "Gelesen, nicht zitiert": what the turn read beyond what the answer claims.
  *
  * Muted document chips only — a name plus the page, never a passage and
@@ -525,7 +539,7 @@ const ReadSourcesSection: FC<{ readSources?: CitationSource[] }> = ({ readSource
   const named = useMemo(
     () =>
       (readSources ?? []).flatMap((source) => {
-        const label = source.fileName ?? source.title ?? source.citationKey
+        const label = readSourceLabel(source)
         return label === undefined ? [] : [{ source, label }]
       }),
     [readSources]
@@ -975,7 +989,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const reserveMetaRow = hasMetaRow || stillArriving
   // What the single footer disclosure would actually hold. The copy actions
   // and the feedback stay visible beside its trigger, so a bare answer shows
-  // the action and no empty trigger line.
+  // the action and no empty trigger line. Read sources count only when at
+  // least one entry is renderable (same `readSourceLabel` filter as the
+  // section itself): unrenderable entries alone must not mount a trigger
+  // that opens onto an empty section.
+  const hasRenderableReadSources = (readSources ?? []).some(
+    (source) => readSourceLabel(source) !== undefined
+  )
   const hasDetailsContent =
     hasConfidence ||
     Boolean(timestamp) ||
@@ -984,7 +1004,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     Boolean(researchTruncated) ||
     (degradedReasons?.length ?? 0) > 0 ||
     (citationsRemoved?.count ?? 0) > 0 ||
-    (readSources?.length ?? 0) > 0
+    hasRenderableReadSources
 
   /**
    * Where a diagram inside this answer may be filed — or nothing at all.
@@ -1020,11 +1040,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     >
       <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
         {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
-        {anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic) && (
+        {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
           <CardSetProvider cards={cardSet}>
             <AnatomyMasthead
               verdict={anatomy.verdict}
-              summary={anatomy.summary}
+              summary={effectiveSummary}
               topic={anatomy.topic}
               context={anatomy.context}
               kind={answerMeta?.kind}

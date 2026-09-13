@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    The source chips under an answer keep their lane colours. Grey chips read
+    as broken references, so where each source stands stays visible at a
+    glance, no matter what the answer above them looks like.

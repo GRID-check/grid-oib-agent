@@ -111,34 +111,42 @@ export function TasksPanel({
   // never lost — the chain re-asks on its cadence anyway.
   const inFlightRef = useRef(false)
   const jobsInFlightRef = useRef(false)
+  // A jobs reload asked for while a jobs fetch is in flight (notably the
+  // post-save reload) is queued, never lost — the in-flight fetch resolves
+  // with stale data by construction, so dropping the second read would leave
+  // the just-saved schedule out of the list until the next focus.
+  const jobsPendingRef = useRef(false)
+  // Project generation: a slow response for the previous project must not
+  // overwrite the new project's list after a project switch. Shared by both
+  // loads — tasks and schedules belong to the same project.
+  const generationRef = useRef(0)
 
   const load = useCallback(
     async (quiet: boolean): Promise<void> => {
       if (inFlightRef.current) return
       inFlightRef.current = true
+      const startedFor = generationRef.current
       try {
         const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/tasks`)
         if (!response.ok) throw new Error(`tasks ${response.status}`)
         const body = (await response.json()) as { tasks?: TaskWireRow[] }
-        // Submission words never reach the row: `submitted`/`pending` are
-        // folded to the planner word `queued` at this boundary, so no
-        // surface below has to know the wire ever said them.
         const rows = (body.tasks ?? []).map((row) => ({
           ...row,
           status: normalizeTaskStatus(row.status),
         }))
+        if (startedFor !== generationRef.current) return
         setTasks(rows)
-        if (!quiet) setFailed(false)
+        setFailed(false)
       } catch {
-        // A failed poll keeps the stale list rather than replacing it with
-        // an error: the work is still there, only the refresh missed. Only
-        // the first load — with nothing to show yet — reports the failure.
+        if (startedFor !== generationRef.current) return
         if (!quiet && firstLoadRef.current) setFailed(true)
       } finally {
-        inFlightRef.current = false
-        if (firstLoadRef.current) {
-          firstLoadRef.current = false
-          setLoading(false)
+        if (startedFor === generationRef.current) {
+          inFlightRef.current = false
+          if (firstLoadRef.current) {
+            firstLoadRef.current = false
+            setLoading(false)
+          }
         }
       }
     },
@@ -147,26 +155,41 @@ export function TasksPanel({
 
   const loadJobs = useCallback(
     async (quiet: boolean): Promise<void> => {
-      if (jobsInFlightRef.current) return
+      if (jobsInFlightRef.current) {
+        jobsPendingRef.current = true
+        return
+      }
       jobsInFlightRef.current = true
+      const startedFor = generationRef.current
       try {
         const next = await listJobs(projectId)
+        if (startedFor !== generationRef.current) return
         setJobs(next)
         setJobsFailed(false)
       } catch {
         // Like the tasks poll: a quiet refresh keeps the stale schedules, only
         // the first load reports.
+        if (startedFor !== generationRef.current) return
         if (!quiet) setJobsFailed(true)
       } finally {
+        if (startedFor !== generationRef.current) return
         jobsInFlightRef.current = false
         setJobsLoading(false)
+        if (jobsPendingRef.current) {
+          jobsPendingRef.current = false
+          void loadJobs(true)
+        }
       }
     },
     [projectId]
   )
 
   useEffect(() => {
+    generationRef.current += 1
     firstLoadRef.current = true
+    inFlightRef.current = false
+    jobsInFlightRef.current = false
+    jobsPendingRef.current = false
     setLoading(true)
     setFailed(false)
     setJobsLoading(true)
@@ -174,19 +197,29 @@ export function TasksPanel({
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | null = null
 
-    // Chained, not `setInterval`: an interval fires again whether or not the
-    // previous refresh came back, so a slow endpoint could land an older
-    // response after a newer one. Scheduling the next poll only once the
-    // current one settles keeps at most one in flight, in order.
+    const clearTimer = () => {
+      if (timer) clearTimeout(timer)
+      timer = null
+    }
+
+    // The ONE place a poll timer is armed: clears any prior timer first, so
+    // every reschedule replaces rather than chains. All three reschedule
+    // sites (chain, resume, mount) go through here — a second `setTimeout`
+    // anywhere else is a second chain.
+    const reschedule = () => {
+      clearTimer()
+      if (cancelled || document.visibilityState !== 'visible') return
+      timer = setTimeout(tick, TASKS_POLL_MS)
+    }
+
     const tick = () => {
       if (cancelled) return
       void load(true).finally(() => {
-        if (!cancelled && document.visibilityState === 'visible') {
-          timer = setTimeout(tick, TASKS_POLL_MS)
-        } else if (!cancelled) {
-          // Hidden: park until the tab is visible again rather than polling
-          // a page nobody is reading.
-          timer = null
+        if (cancelled) return
+        if (document.visibilityState === 'visible') {
+          reschedule()
+        } else {
+          clearTimer()
         }
       })
     }
@@ -194,39 +227,35 @@ export function TasksPanel({
     const onVisibilityChange = () => {
       if (cancelled) return
       if (document.visibilityState !== 'visible') {
-        // Park immediately: a poll scheduled while visible must not fire
-        // into a tab nobody is reading.
-        if (timer) clearTimeout(timer)
-        timer = null
+        clearTimer()
         return
       }
-      // Becoming visible resumes with an immediate refresh, so the list is
-      // current when seen.
-      if (timer) clearTimeout(timer)
-      void load(true).finally(() => {
-        if (!cancelled) timer = setTimeout(tick, TASKS_POLL_MS)
-      })
+      // Becoming visible resumes with an immediate refresh — without
+      // double-chaining the poll. A load already in flight will reschedule
+      // when it lands; starting another here would skip on the single-flight
+      // guard yet still arm a second timer in its `finally`.
       void loadJobs(true)
+      if (inFlightRef.current) return
+      clearTimer()
+      void load(true).finally(() => {
+        if (!cancelled) reschedule()
+      })
     }
 
     const onFocus = () => {
-      // Returning from another window: re-ask once, outside the chain, so a
-      // review decided elsewhere is visible without waiting for the interval.
       if (!cancelled) void load(true)
       if (!cancelled) void loadJobs(true)
     }
 
     void load(false).finally(() => {
-      if (!cancelled && document.visibilityState === 'visible') {
-        timer = setTimeout(tick, TASKS_POLL_MS)
-      }
+      if (!cancelled) reschedule()
     })
     void loadJobs(false)
     document.addEventListener('visibilitychange', onVisibilityChange)
     window.addEventListener('focus', onFocus)
     return () => {
       cancelled = true
-      if (timer) clearTimeout(timer)
+      clearTimer()
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('focus', onFocus)
     }

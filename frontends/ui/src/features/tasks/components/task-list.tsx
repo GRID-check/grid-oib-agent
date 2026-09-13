@@ -14,6 +14,11 @@
  * Read-only except the template's pause switch. Reviewing happens in the
  * inbox, where the person was told about the result; editing a schedule
  * happens on the Jobs tab, which is the schedule management.
+ *
+ * A failed tasks load errors INLINE in the instances group — a task-fail never
+ * hides healthy schedules. Only the templates group answers to the jobs load
+ * (`jobsLoading` / `jobsFailed`); the two fetches fail independently, so the
+ * two groups report independently.
  */
 
 import { CalendarClock, CheckCircle2, CircleDashed, FileText, MessageSquare, XCircle } from 'lucide-react'
@@ -114,19 +119,6 @@ export function TaskList({
     )
   }
 
-  if (failed) {
-    return (
-      <div className="p-4 md:p-6">
-        <EmptyState
-          icon={CircleDashed}
-          tone="destructive"
-          title={t('list.errorTitle')}
-          description={t('list.errorDescription')}
-        />
-      </div>
-    )
-  }
-
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6" data-testid="task-list">
       <section aria-label={t('groups.templates')} data-testid="task-templates">
@@ -174,7 +166,19 @@ export function TaskList({
 
       <section aria-label={t('groups.instances')}>
         <SectionLabel as="h2">{t('groups.instances')}</SectionLabel>
-        {tasks.length === 0 ? (
+        {failed ? (
+          // Inline, never whole-list: the schedules above are healthy — their
+          // load already answered — and hiding them behind a task failure
+          // would report on work this error says nothing about.
+          <div className="mt-2">
+            <EmptyState
+              icon={CircleDashed}
+              tone="destructive"
+              title={t('list.errorTitle')}
+              description={t('list.errorDescription')}
+            />
+          </div>
+        ) : tasks.length === 0 ? (
           <div className="mt-2">
             <EmptyState
               icon={CircleDashed}
