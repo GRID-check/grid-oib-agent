@@ -16,10 +16,67 @@ export const CLICKHOUSE_PASSWORD_SECRET_KEY = "clickhouse-password"; // pragma: 
 
 const SECRET_NAME = "clickhouse-auth"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
 
+/**
+ * How long ClickHouse keeps its own diagnostic logs: fourteen days.
+ *
+ * These are logs ABOUT the server, not the product's trace data, and nothing
+ * on this stack reads them after the incident they belong to is over. Two
+ * weeks covers the last deploy cycle; anything older is disk with no reader.
+ */
+const SYSTEM_LOG_TTL_DAYS = 14;
+
+/**
+ * `config.d` drop-in bounding every MergeTree-backed system log table the
+ * pinned image creates.
+ *
+ * The stock image ships all of these WITHOUT a TTL ("by default, table growth
+ * is unlimited" - ClickHouse docs), and in August 2026 `system.trace_log`
+ * alone grew to 17 GiB on dev and filled the PVC: from then on every insert
+ * failed with "Cannot reserve ... not enough space", the Langfuse worker
+ * dropped every batch it flushed, and the UI sat on "Waiting for first trace"
+ * with all pods Ready. Nothing in `kubectl get pods` pointed at the disk -
+ * the failure surfaces two layers away from its cause.
+ *
+ * This covers the SERVER's logs only. Langfuse trace/observation data keeps
+ * growing without bound (retention policies are an Enterprise feature), so
+ * the sizing note on `clickhouseStorageSize` still applies - to that, not to
+ * this.
+ *
+ * Overlay, not a full config: each `<ttl>` MERGES with the image's own
+ * `config.xml` section for that log (same tags), so partition_by, flush
+ * intervals and the rest stay upstream's. `<table>` is repeated so no entry
+ * dangles off an image default a future bump could rename.
+ *
+ * The table list is exact, and `clickhouse.spec.ts` asserts it: the eleven
+ * MergeTree-backed log tables the pinned 25.8 image creates (verified by
+ * `SHOW TABLES FROM system LIKE '%log'`) that takes a standalone `<ttl>`.
+ * That last clause is load-bearing: the image defines
+ * `opentelemetry_span_log` with a custom `<engine>`, and a standalone
+ * `<ttl>` next to an `<engine>` fails the server at startup with Code 36
+ * (BAD_ARGUMENTS) - which is exactly what the first version of this
+ * drop-in did on dev. That table stays unbounded deliberately: 46 KiB
+ * with no producer behind it (nothing uses ClickHouse as an OTel
+ * backend here), so it cannot fill a disk.
+ */
+const SYSTEM_LOG_TTL_XML = `<clickhouse>
+  <asynchronous_insert_log><table>asynchronous_insert_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></asynchronous_insert_log>
+  <asynchronous_metric_log><table>asynchronous_metric_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></asynchronous_metric_log>
+  <error_log><table>error_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></error_log>
+  <metric_log><table>metric_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></metric_log>
+  <part_log><table>part_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></part_log>
+  <processors_profile_log><table>processors_profile_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></processors_profile_log>
+  <query_log><table>query_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></query_log>
+  <query_metric_log><table>query_metric_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></query_metric_log>
+  <text_log><table>text_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></text_log>
+  <trace_log><table>trace_log</table><ttl>event_date + INTERVAL ${SYSTEM_LOG_TTL_DAYS} DAY DELETE</ttl></trace_log>
+</clickhouse>`;
+
 export interface ClickHouse {
   statefulSet: k8s.apps.v1.StatefulSet;
   service: k8s.core.v1.Service;
   secret: k8s.core.v1.Secret;
+  /** `config.d` drop-in bounding the server's own system logs (see SYSTEM_LOG_TTL_XML). */
+  config: k8s.core.v1.ConfigMap;
   /** `CLICKHOUSE_URL` — the HTTP interface Langfuse's app code queries. */
   httpUrl: pulumi.Output<string>;
   /** `CLICKHOUSE_MIGRATION_URL` — the native TCP interface its migrator uses. */
@@ -71,6 +128,20 @@ export function installClickHouse(
     { provider, dependsOn },
   );
 
+  // Bounds the server's own logs (see SYSTEM_LOG_TTL_XML). Plain data, never
+  // secrets - but content-hashed into the pod annotation below anyway: a
+  // mounted ConfigMap restarts nothing by itself, and subPath mounts (used
+  // here) do not even refresh in a running pod, so without the checksum a TTL
+  // change would deploy successfully and never take effect anywhere.
+  const syslogTtl = new k8s.core.v1.ConfigMap(
+    `${name}-config`,
+    {
+      metadata: { name: `${name}-config`, namespace, labels },
+      data: { "system-log-ttl.xml": SYSTEM_LOG_TTL_XML },
+    },
+    { provider, dependsOn },
+  );
+
   const statefulSet = new k8s.apps.v1.StatefulSet(
     name,
     {
@@ -90,7 +161,13 @@ export function installClickHouse(
             // password would otherwise leave this pod enforcing the old one
             // while every consumer holds the new one — a total outage that
             // `pulumi up` reports as success (rollout.ts §5).
-            annotations: secretChecksumAnnotations(secretChecksum(secretValues)),
+            // The system-log TTL drop-in rides the same checksum with one extra
+            // turn of the screw: subPath mounts never refresh in a running pod,
+            // so without this a TTL change would land in the ConfigMap and in
+            // nothing else.
+            annotations: secretChecksumAnnotations(
+              secretChecksum({ ...secretValues, "system-log-ttl.xml": SYSTEM_LOG_TTL_XML }),
+            ),
           },
           spec: {
             enableServiceLinks: false,
@@ -102,6 +179,7 @@ export function installClickHouse(
             securityContext: { runAsNonRoot: true, runAsUser: 101, runAsGroup: 101, fsGroup: 101 },
             terminationGracePeriodSeconds:
               gracefulShutdown(ROLLOUT.dataPlane).terminationGracePeriodSeconds,
+            volumes: [{ name: "syslog-ttl", configMap: { name: syslogTtl.metadata.name } }],
             containers: [
               {
                 name: "clickhouse",
@@ -138,7 +216,22 @@ export function installClickHouse(
                   // on a non-UTC server.
                   { name: "TZ", value: "UTC" },
                 ],
-                volumeMounts: [{ name: "data", mountPath: "/var/lib/clickhouse" }],
+                volumeMounts: [
+                  { name: "data", mountPath: "/var/lib/clickhouse" },
+                  // subPath, NOT a whole-directory mount over config.d: the
+                  // image ships docker_related_config.xml there (listen_host
+                  // ::/0.0.0.0), and mounting a ConfigMap over the directory
+                  // would shadow it - leaving ClickHouse listening on
+                  // localhost only, with Langfuse unable to connect and no
+                  // error naming the mount. config.d merging still applies:
+                  // drop-ins are read by filename, not by volume shape.
+                  {
+                    name: "syslog-ttl",
+                    mountPath: "/etc/clickhouse-server/config.d/system-log-ttl.xml",
+                    subPath: "system-log-ttl.xml",
+                    readOnly: true,
+                  },
+                ],
                 resources: DATA_RESOURCES.clickhouse,
                 // `/ping` answers before the server will accept queries, which
                 // is exactly what a startup probe wants and exactly what a
@@ -182,7 +275,7 @@ export function installClickHouse(
     },
     {
       provider,
-      dependsOn: [...dependsOn, secret],
+      dependsOn: [...dependsOn, secret, syslogTtl],
       // Immutable volumeClaimTemplates — grow via a PVC patch (see seaweedfs.ts).
       ignoreChanges: ["spec.volumeClaimTemplates"],
       // Fixed-name StatefulSet: create-before-delete collides with the existing
@@ -234,6 +327,7 @@ export function installClickHouse(
     statefulSet,
     service,
     secret,
+    config: syslogTtl,
     httpUrl: pulumi.output(`http://${name}:${PORT.clickhouseHttp}`),
     migrationUrl: pulumi.output(`clickhouse://${name}:${PORT.clickhouseNative}`),
   };

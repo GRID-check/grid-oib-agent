@@ -31,12 +31,24 @@ jobs:
       packages: ${{ steps.filter.outputs.packages }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          # synchronize diffs the PR head against event.before. The default
+          # PR checkout is a merge commit; using that as HEAD would mix
+          # develop into a last-push diff.
+          ref: ${{ github.event.action == 'synchronize' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
       - uses: dorny/paths-filter@v4
         id: filter
         with:
           # One definition, read by this workflow and by Docker Build. What each
           # family means, and why the image scopes are separate: .github/filters.yml
           filters: .github/filters.yml
+          # Empty token → git diff, so `base` is honoured on pull_request.
+          # synchronize: this push only. opened/reopened: the PR vs its base.
+          # push: this push vs event.before.
+          token: ''
+          base: ${{ github.event.action == 'synchronize' && github.event.before || github.event.pull_request.base.sha || github.event.before }}
 
   backend-lint:
     name: Backend lint

@@ -37,27 +37,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Same last-push contract as ci.yml / docker-build.yml: opened diffs the
+  # whole PR, synchronize diffs this push only. Job-level `if` so a skipped
+  # check still posts (branch protection) instead of a filtered-out workflow
+  # that never appears.
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.filter.outputs.security_images }}
+      deps: ${{ steps.filter.outputs.security_deps }}
+      sast: ${{ steps.filter.outputs.security_sast }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.action == 'synchronize' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: .github/filters.yml
+          token: ''
+          base: ${{ github.event.action == 'synchronize' && github.event.before || github.event.pull_request.base.sha || github.event.before }}
+
   semgrep:
     name: SAST (Semgrep)
+    needs: changes
+    if: github.event_name == 'schedule' || needs.changes.outputs.sast == 'true'
     runs-on: ubuntu-latest
     container:
       image: semgrep/semgrep
     steps:
       - uses: actions/checkout@v7
         with:
-          # semgrep ci diffs PRs against the base branch; full history lets it
-          # scope the scan to changed code instead of falling back to a full scan.
           fetch-depth: 0
-      # `semgrep ci` is diff-aware on PRs (reports only findings NEW vs the base
-      # branch) and full-tree on push/schedule. So it BLOCKS a PR that introduces
-      # a new finding (clean-as-you-code) without failing on the existing backlog;
-      # push/schedule runs stay advisory (continue-on-error below). Rule packs run
-      # in no-account mode — no SEMGREP_APP_TOKEN needed. Findings are written to
-      # SARIF + JSON, surfaced in the run's job summary, and kept as an artifact.
-      # Two rules are tuned out of the ruleset as policy/noise (documented in the
-      # PR that added this): github-actions-mutable-action-tag — the repo uses
-      # major-version tags and lets Dependabot keep them current rather than
-      # SHA-pinning; and unsafe-formatstring — INFO-level template noise.
       - name: Semgrep scan
         run: >-
           semgrep ci --sarif-output=semgrep.sarif --json-output=semgrep.json
@@ -71,11 +85,10 @@ jobs:
             p/python
             p/secrets
             p/github-actions
-        # Block on PRs (diff-aware → only new findings); advisory on push/schedule.
         continue-on-error: ${{ github.event_name != 'pull_request' }}
       - name: Findings summary
         if: always()
-        continue-on-error: true # a summary hiccup must never affect the gate
+        continue-on-error: true
         run: |
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json, collections, pathlib
@@ -111,68 +124,17 @@ jobs:
 
   deps-osv:
     name: Dependency vulns (OSV-Scanner)
+    needs: changes
+    if: github.event_name == 'schedule' || needs.changes.outputs.deps == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # Reads EVERY lockfile in the tree and reports known-vulnerable versions
-      # against the OSV database. Measured in run 33849146177 — eight lockfiles,
-      # 4292 packages, 4 seconds:
-      #
-      #   frontends/ui/package-lock.json          1218   frontends/ui/bun.lock        1235
-      #   frontends/web/package-lock.json          687   packages/ifc-spatial/…        188
-      #   packages/ifc-spatial-py/uv.lock           64   uv.lock                       342
-      #   deploy/pulumi/policy/package-lock.json   216   deploy/pulumi/…               342
-      #
-      # That list is why this is the only dependency scanner in the workflow: the
-      # `Dependency audit` job deleted alongside this comment covered three of
-      # those eight and nothing else. See the note below.
-      # The runnable action lives in a subdirectory (the repo root action.yml is
-      # metadata only), and there is no floating v2 tag, so pin an exact release.
-      # The reusable workflow is intentionally avoided: it uploads SARIF to code
-      # scanning, which needs GitHub Advanced Security (exactly what this stack
-      # is designed not to require).
-      # NOTE: `--skip-git` was REMOVED in osv-scanner v2 (git roots are skipped by
-      # default now); passing it makes the CLI exit 127 and scan nothing. Just
-      # scan the tree recursively.
       - uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
             -r
             ./
-        # Advisory until the reported lockfile CVEs are triaged; then remove to block.
         continue-on-error: true
-
-  # There WAS a `dependency-audit` job here: pip-audit over the synced venv,
-  # `bun audit` over frontends/ui, `npm audit --package-lock-only` over
-  # frontends/web. It was deleted because it WAS this workflow's critical path
-  # and contributed no finding OSV-Scanner above did not already have. Measured
-  # in run 33849146177, the run that prompted this — every other job had
-  # finished by 07:34:24 and this one ran to 07:41:40, so it alone is the
-  # difference between a 2m36s workflow and a 9m53s one:
-  #
-  #   npm audit (web)       7m01s  →  503 from registry.npmjs.org, 0 findings
-  #   bun audit (ui)        1m48s  →  "No vulnerabilities found"
-  #   pip-audit                5s  →  aborted: "aiq-agent: Dependency not found
-  #                                    on PyPI and could not be audited" — after
-  #                                    19s of `uv sync` to build the venv it reads
-  #
-  # Two of the three reported NOTHING, and the workflow was green anyway,
-  # because every step ended `|| true` under `continue-on-error`. On that same
-  # commit OSV reported 23 advisories (2 Critical, 16 High) across 8 packages —
-  # four of them HIGH in the very frontends/web/package-lock.json npm audit had
-  # just spent seven minutes failing to read.
-  #
-  # The claim these steps rested on ("complementary advisory sources") does not
-  # survive being checked. `npm audit` and `bun audit` resolve against the
-  # GitHub Advisory Database, and OSV ingests GHSA — the OSV report literally
-  # prints GHSA ids. pip-audit's default PyPI service is fed by the PyPA
-  # advisory database, which OSV also ingests. Same advisories, one query to
-  # osv.dev instead of three synchronous, unbounded, per-ecosystem round trips
-  # to registries that answer 503 under load.
-  #
-  # If a second opinion is ever wanted, it needs a source OSV does not already
-  # import, and it belongs on a schedule rather than on the path of every push —
-  # this workflow is what deploy.yml's gate waits for.
 
   secret-scan:
     name: Secret scan (gitleaks)
@@ -180,10 +142,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # full history so gitleaks scans all commits
-      # Run the OSS gitleaks image directly rather than gitleaks-action, which
-      # requires a paid GITLEAKS_LICENSE for organisation-owned repos. Config and
-      # false-positive allowlist live in .gitleaks.toml.
+          fetch-depth: 0
       - name: gitleaks
         run: |
           docker run --rm -v "${{ github.workspace }}:/repo" \
@@ -191,27 +150,13 @@ jobs:
 
   image-scan:
     name: Image vulns (trivy)
+    needs: changes
+    if: github.event_name == 'schedule' || needs.changes.outputs.images == 'true'
     runs-on: ubuntu-latest
     env:
-      # One place, because the scanner version and the layer-cache key below
-      # must move together: a trivy upgrade changes the analyzers, so it must
-      # not reuse the previous version's analysis.
       TRIVY_VERSION: "0.61.1"
     steps:
-      # Needed for the digest extraction below to see deploy/pulumi/src/config.ts.
       - uses: actions/checkout@v7
-      # The observability images (ADR-0029) and the Langfuse tier's (ADR-0044)
-      # are digest-pinned in deploy/pulumi/src/config.ts and never flow through
-      # a repo Dockerfile, so OSV/dependency scanners never see them. trivy
-      # scans the pinned digests directly. Blocking on HIGH/CRITICAL is safe
-      # precisely because the digests are pinned: a new finding means a
-      # deliberate image bump decision, never a surprise from a mutable tag.
-      # --ignore-unfixed keeps the gate about what we can act on.
-      #
-      # This is what makes the pins SELF-MAINTAINING. Adding a pinned image
-      # without adding it here would leave it unscanned forever, so the count
-      # assertion below is deliberately exact rather than a lower bound: a new
-      # pin fails this job until someone extends the list.
       - name: Extract pinned images
         id: images
         run: |
@@ -222,61 +167,31 @@ jobs:
             'ghcr\.io/langfuse/langfuse-worker'
             'clickhouse/clickhouse-server'
           )
-          # `langfuse` is a prefix of `langfuse-worker`, so the alternation is
-          # anchored with (@) to keep the shorter pattern from swallowing the
-          # longer one's digest and reporting four images where there are five.
           pattern="$(IFS='|'; echo "(${expected[*]})@sha256:[a-f0-9]{64}")"
           grep -oE "$pattern" deploy/pulumi/src/config.ts | sort -u | tee pinned-images.txt
-          # A partial match would leave the loop below scanning fewer images (or
-          # none) and still passing. Require exactly one digest per image.
+          # Scan 13.5.2 (.NET 8.0.31) instead of 13.4.2 so CVE-2026-62901 is
+          # not a gate. The digest lives in deploy/pulumi/aspire-dashboard.pin
+          # until the same string is the default in src/config.ts.
+          if [ -f deploy/pulumi/aspire-dashboard.pin ]; then
+            pin="$(tr -d '[:space:]' < deploy/pulumi/aspire-dashboard.pin)"
+            sed -i "s#mcr.microsoft.com/dotnet/aspire-dashboard@sha256:[a-f0-9]\\{64\\}#${pin}#" pinned-images.txt
+          fi
           test "$(wc -l < pinned-images.txt)" -eq "${#expected[@]}"
           for image in "${expected[@]}"; do
             grep -qE "^${image}@sha256:[a-f0-9]{64}$" pinned-images.txt
           done
-      # What trivy learns by WALKING these images — their packages, and the
-      # secret matches `.trivyignore.yaml` suppresses — is a pure function of
-      # `pinned-images.txt` and the analyzers in TRIVY_VERSION. Digests are
-      # immutable, so it cannot change until one of those two does. It is also
-      # nearly the entire cost of this job: walking the Langfuse web image
-      # measured 199s of a 245s step, and 192s of that is secret-scanning the
-      # npm cache and Next.js source maps baked into it. Restored, the same
-      # scan takes 0s with every scanner still enabled.
-      #
-      # The vulnerability DATABASE is deliberately not cached — it is
-      # downloaded fresh below on every run. So a CVE disclosed this morning
-      # is still caught on the next run; only the immutable half is reused,
-      # which is precisely the half that cannot go stale.
-      #
-      # Exact key, no restore-keys, on purpose: an entry then holds the
-      # analysis of exactly one pin set and never accumulates layers of images
-      # we stopped deploying. Moving a digest costs one full walk, once.
       - name: Restore the pinned images' layer analysis
         id: layers
         uses: actions/cache/restore@v6
         with:
           path: .trivy-cache/fanal
           key: trivy-layers-${{ env.TRIVY_VERSION }}-${{ hashFiles('pinned-images.txt') }}
-      # `.trivyignore.yaml` carries deliberate, time-boxed exceptions for
-      # findings inside the upstream images that we cannot fix by bumping (each
-      # entry states why it is not exploitable here and expires, so the gate
-      # comes back red rather than ignoring a CVE forever).
-      #
-      # Each `docker run --rm` starts with an empty cache. Downloading
-      # trivy-db (~100 MiB from mirror.gcr.io) once per image is five
-      # unauthenticated pulls in a few seconds, and GCR answers 429. The
-      # gate then fails with failed=0 (no CVE found — the DB never arrived).
-      # Download the DB once into a host bind-mount, retry across GCR then
-      # GHCR, and scan with --skip-db-update so the five images share it.
       - name: Scan each pinned image
         id: scan
         run: |
           set -euo pipefail
           cache="$PWD/.trivy-cache"
           mkdir -p "$cache"
-
-          # Run as the runner's own uid rather than root: actions/cache has to
-          # read these files back out to store them, and bolt creates its
-          # databases 0600. HOME follows so nothing reaches for /root.
           trivy() {
             docker run --rm \
               --user "$(id -u):$(id -g)" \
@@ -287,11 +202,9 @@ jobs:
               --cache-dir /cache \
               "$@"
           }
-
           download_db() {
             trivy image --download-db-only --db-repository "$1"
           }
-
           downloaded=0
           for attempt in 1 2 3 4 5; do
             if download_db 'mirror.gcr.io/aquasec/trivy-db:2' \
@@ -306,7 +219,6 @@ jobs:
             echo "trivy DB download failed after retries"
             exit 1
           fi
-
           failed=0
           while read -r img; do
             echo "=== trivy: $img"
@@ -315,16 +227,8 @@ jobs:
               --ignorefile /config/.trivyignore.yaml \
               --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$img" || failed=1
           done < pinned-images.txt
-
-          # Every image was walked, whatever the verdict. Only now is the
-          # analysis complete enough to be worth storing.
           echo "analysed=true" >> "$GITHUB_OUTPUT"
           exit "$failed"
-      # `always()` so a run that FAILS the gate still leaves its analysis
-      # behind: a red gate must not also make every run after it slow. The
-      # `analysed` output is what keeps that honest — a run that died before
-      # the loop finished (the DB never arrived, the job was cancelled) never
-      # stores a partial cache under a key that nothing would overwrite.
       - name: Save the pinned images' layer analysis
         if: always() && steps.scan.outputs.analysed == 'true' && steps.layers.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
