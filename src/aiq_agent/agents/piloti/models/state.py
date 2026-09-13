@@ -169,6 +169,13 @@ class ResearchAgentState(BaseModel):
     # "Gelesen, nicht zitiert" disclosure. None when everything retrieved
     # was cited (or nothing was retrieved) — absent, never an empty list.
     read_sources: list[dict[str, Any]] | None = None
+    # The conversation's "already read" digest, IN for the prompt and OUT for
+    # the merge: ``conversation._research_input`` threads the checkpointed lines
+    # in (so the prompt can render ``## Bereits gelesen`` and the locator rule
+    # can act on it) and ``PilotiAgent.run`` writes the merged lines back
+    # (previous plus this turn's captures). Plain strings only, like the
+    # conversation field it mirrors — never a new pydantic type.
+    already_read_digest: list[str] | None = None
     # Skill names FORCED for this turn by the incoming request (parsed from the
     # WS content JSON's `skills` array by Piloti). Resolved
     # against the run's skill set into the forced-activation list. None = no

@@ -87,7 +87,7 @@ LEGACY_ESCALATION_REASON = "Shallow agent emitted insufficiency marker"
 #: id, a prior self-assessment, last turn's routing — can leak onto this one.
 #: ``deep_research_declined`` is STICKY for the conversation on purpose: the
 #: user said no to a research plan once and should not have to say it again.
-CONVERSATION_SCOPED_FIELDS: frozenset[str] = frozenset({"messages", "deep_research_declined"})
+CONVERSATION_SCOPED_FIELDS: frozenset[str] = frozenset({"messages", "deep_research_declined", "already_read_digest"})
 TURN_SCOPED_FIELDS: frozenset[str] = frozenset(ConversationState.model_fields) - CONVERSATION_SCOPED_FIELDS
 
 #: ``(Piloti state attribute, conversation state field)``: what a finished
@@ -104,6 +104,7 @@ ANSWER_LIFTS: tuple[tuple[str, str], ...] = (
     ("answer_confidence_capped_reason", "answer_confidence_capped_reason"),
     ("verified_sources", "verified_sources"),
     ("read_sources", "read_sources"),
+    ("already_read_digest", "already_read_digest"),
     ("citations_removed", "citations_removed"),
     ("skills_activated", "skills_activated"),
     ("skills_hidden", "skills_hidden"),
@@ -143,6 +144,11 @@ def _escalation_update(message: BaseMessage, result: ResearchAgentState) -> dict
         "escalate_to_deep": True,
         "escalation_ask_reason": result.answer_escalation_reason or LEGACY_ESCALATION_REASON,
         "verified_sources": result.verified_sources,
+        # The turn still read: the deep report replaces the answer, not the
+        # digest the next turn re-opens from. Absent (never nulled) when the
+        # turn digested nothing, so a mocked result without the field cannot
+        # wipe the checkpointed lines either.
+        **({"already_read_digest": list(result.already_read_digest)} if result.already_read_digest else {}),
     }
 
 
@@ -326,6 +332,7 @@ class ConversationGraph:
             user_info=state.user_info,
             available_documents=state.available_documents,
             in_flight_documents=state.in_flight_documents,
+            already_read_digest=list(state.already_read_digest) if state.already_read_digest else None,
             project_context=state.project_context,
             platform_lessons=state.platform_lessons,
             focus_file_name=state.focus_file_name,
@@ -366,7 +373,14 @@ class ConversationGraph:
         message = _answer_message(result.messages[len(trimmed) :])
         if message is None:
             return {"messages": []}
-        return _finalize_answer(message, result)
+        update = _finalize_answer(message, result)
+        if isinstance(result, ResearchAgentState) and not update.get("already_read_digest"):
+            # A result that carries no digest (a mocked research_fn, an older
+            # caller) must not wipe the checkpointed lines: the digest only
+            # ever grows within a conversation, it is never cleared by a turn.
+            if state.already_read_digest:
+                update["already_read_digest"] = list(state.already_read_digest)
+        return update
 
     async def _submit_deep_job(self, state: ConversationState) -> dict[str, Any]:
         assert self.deep_research_job_submitter is not None

@@ -128,6 +128,19 @@ class ConversationState(BaseModel):
     # new pydantic type here would also need the checkpointer serde
     # allowlist (``aiq_agent/common/__init__.py``).
     read_sources: list[dict[str, Any]] | None = None
+    # Conversation-scoped "already read" digest: one line per document opened
+    # earlier in THIS conversation (``"<file> | <collection> | Seiten <p> |
+    # Punkte <n> | Turn <k>"``, max 20 docs / ~800 tokens — see
+    # ``knowledge.already_read``). Same lifetime as ``messages``: it is how the
+    # next turn knows what it may re-open with ``read_passage`` instead of
+    # re-searching. NOT project memory (no other conversation may see it) and
+    # NOT platform lessons (no anonymized cross-conversation learning): single
+    # conversation scope only, no key versioning — a stale entry answers with
+    # no-passage/unknown and the turn falls back to ``knowledge_search``.
+    # NOTE: plain types only (list[str] | None) — a new pydantic TYPE would
+    # also need registering in the checkpointer serde allowlist
+    # (aiq_agent/common/__init__.py).
+    already_read_digest: list[str] | None = None
     # --- Transparency extras (WP-A) -------------------------------------------
     # All optional/additive: absent means "unknown/not applicable". Lifted onto
     # the terminal ChatResponseChunk (``turn.streaming.STREAM_EXTRA_FIELDS``) and onto

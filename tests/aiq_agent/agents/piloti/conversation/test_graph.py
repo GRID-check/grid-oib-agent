@@ -569,7 +569,7 @@ class TestTurnBoundary:
     """
 
     def test_the_reset_set_is_every_field_that_is_not_conversation_scoped(self):
-        assert CONVERSATION_SCOPED_FIELDS == {"messages", "deep_research_declined"}
+        assert CONVERSATION_SCOPED_FIELDS == {"messages", "deep_research_declined", "already_read_digest"}
         assert TURN_SCOPED_FIELDS == set(ConversationState.model_fields) - CONVERSATION_SCOPED_FIELDS
 
     @pytest.mark.asyncio
