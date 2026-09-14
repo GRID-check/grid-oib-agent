@@ -119,7 +119,7 @@ flowchart TB
 | Container | Tech | Responsibility |
 |---|---|---|
 | **frontend** | Next.js 16, React 18, TypeScript | The UI, the BFF (all `/api/*`), and the `server.js` gateway. System of record for `grid_app`. |
-| **aiq-agent** | Python 3.13, FastAPI, NAT, LangGraph, Dask | Stateless AI orchestration; owns the vector store and the job/checkpoint DBs. |
+| **aiq-agent** | Python 3.14, FastAPI, NAT, LangGraph, Dask | Stateless AI orchestration; owns the vector store and the job/checkpoint DBs. |
 | **postgres** | PostgreSQL 16 | Three logical DBs: `grid_app` (app state), `aiq_jobs` (jobs/events/summaries), `aiq_checkpoints` (LangGraph state). |
 | **seaweedfs** | SeaweedFS (S3-compatible) | Object storage for OIB PDFs and uploaded documents (`grid-documents` bucket). |
 | **ChromaDB** | in-process in aiq-agent | Vector store (collections persisted to a volume). Not a separate container. |
@@ -387,7 +387,7 @@ frontend start). → `docs/database/`.
 | Relational DB | PostgreSQL 16 (Drizzle ORM on the BFF side) |
 | Object storage | SeaweedFS (S3-compatible) |
 | Identity / authz | WorkOS AuthKit (SSO) + WorkOS FGA |
-| Packaging / deploy | Docker Compose (backend Python 3.13; frontend Node 22) |
+| Packaging / deploy | Docker Compose (backend Python 3.14; frontend Node 22) |
 
 ---
 

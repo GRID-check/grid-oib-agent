@@ -121,19 +121,20 @@ jobs:
         run: task agents:audit
 
   backend-test:
-    name: Backend tests (py${{ matrix.python }})
+    name: Backend tests
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-env
         with:
-          python-version: ${{ matrix.python }}
+          # ONE version, stated once, everywhere: the interpreter the backend
+          # image ships (`deploy/Dockerfile`) is the one this suite runs on.
+          # The old 3.12/3.13 matrix guarded a version nobody deployed and
+          # cost real debugging time (ToolNode batch order differs per
+          # interpreter; see the gotchas register).
+          python-version: "3.14"
       - uses: ./.github/actions/setup-task
       - name: Core suite (coverage-gated)
         run: task be:test:ci
@@ -146,7 +147,7 @@ jobs:
       - name: sources/ package suites
         run: task be:test:sources
       - name: Coverage comment (backend)
-        if: github.event_name == 'pull_request' && matrix.python == '3.13'
+        if: github.event_name == 'pull_request'
         continue-on-error: true # never fail CI on a comment hiccup
         uses: MishaKav/pytest-coverage-comment@main
         with:

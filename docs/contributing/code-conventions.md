@@ -6,7 +6,7 @@ tooling (`ruff`, `eslint`, `tsconfig`), not here.
 
 ## Python
 
-Ruff, line length 120, Python 3.11. New tools use `@register_function` with a
+Ruff, line length 120, Python 3.14. New tools use `@register_function` with a
 `FunctionBaseConfig` subclass.
 
 ### Shape of a function

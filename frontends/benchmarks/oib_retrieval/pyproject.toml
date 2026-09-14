@@ -11,7 +11,7 @@ name = "oib-retrieval-eval"
 version = "1.0.0"
 description = "Retrieval evaluation harness for the OIB corpus - structural retrievability, lexical recall, and a gated dense arm"
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.14,<3.15"
 license = {text = "Apache-2.0"}
 dependencies = [
     "nvidia-nat-eval==1.7.0",

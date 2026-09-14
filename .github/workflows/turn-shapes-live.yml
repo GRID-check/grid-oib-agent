@@ -40,7 +40,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-python-env
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - uses: ./.github/actions/setup-task
       - name: Require the model key
         env:

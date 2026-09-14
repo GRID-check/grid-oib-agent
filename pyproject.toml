@@ -13,7 +13,7 @@ name = "aiq-agent"
 version = "2.0.0"
 description = "NVIDIA AI-Q Blueprint - An enterprise-grade agent for intelligent research assistance"
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.14,<3.15"
 license = {text = "Apache-2.0"}
 dependencies = [
     "nvidia-nat-core==1.7.0",
@@ -250,6 +250,11 @@ override-dependencies = [
     "banks>=2.4.2,<3",
     "lxml>=6.1.0,<7",
     "nltk>=3.9.4,<4",
+    # `oci` (via `nvidia-nat[langchain]`) pins crc32c==2.7.1, whose newest
+    # wheels stop at cp313: on 3.14 every install fell back to the sdist, which
+    # needs MSVC on Windows and a compiler everywhere else. 2.9.post0 ships
+    # cp314 wheels for every platform with the same public API.
+    "crc32c>=2.9.post0,<3",
     "pyasn1>=0.6.3,<0.7",
 ]
 
