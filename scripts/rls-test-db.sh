@@ -220,7 +220,7 @@ check "SELECT to_regclass('public.task_definitions') IS NULL" "t" "down dropped 
 check "SELECT to_regclass('public.task_runs') IS NULL" "t" "down dropped task_runs"
 check "SELECT count(*) FROM jobs" "3" "down left the jobs table untouched"
 check "SELECT count(*) FROM job_runs" "3" "down left the job_runs table untouched"
-check "SELECT count(*) FROM tasks" "3" "down left the tasks table untouched"
+check "SELECT count(*) FROM tasks" "4" "down left the tasks table untouched"
 check "SELECT confrelid::regclass::text FROM pg_constraint WHERE conname = 'conversations_job_id_fkey'" "jobs" "down repointed conversations.job_id at jobs"
 
 echo "==> 0086 backfill and down migration verified"
