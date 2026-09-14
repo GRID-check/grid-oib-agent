@@ -166,7 +166,7 @@
     },
     "automation-panel": {
       "route": "src/app/dev/automation/page.tsx",
-      "routeHash": "51a09e2fde70d1f4573261c1d30d7e67c2071f141bcb015a19f05139e3bbcff7",
+      "routeHash": "ead24fea63b5cd30c4bcdc12859213373f345dfad759a99f18a49c41ce8ba9cf",
       "shots": [
         "automation-panel.light.png",
         "automation-panel.dark.png",
