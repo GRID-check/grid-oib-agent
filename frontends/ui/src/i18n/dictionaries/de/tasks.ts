@@ -10,13 +10,9 @@ import type { en } from '../en'
  * Sache fragt, um die man gebeten hat.
  */
 export const tasks: typeof en.tasks = {
-  panel: {
-    description:
-      'An Piloti übergebene Arbeit — aus einem Chat, aus einer Freigabe oder aus einem Job nach Zeitplan. Wiederkehrende Zeitpläne stehen oben, jeder einzelne Lauf darunter.',
-  },
   groups: {
     templates: 'Zeitpläne',
-    templatesEmpty: 'Keine wiederkehrenden Zeitpläne. Ein Zeitplan lässt Piloti nach Timer arbeiten.',
+    templatesEmpty: 'Noch keine Zeitpläne. Legen Sie einen an — Piloti arbeitet dann nach Timer.',
     templatesError: 'Die Zeitpläne konnten nicht geladen werden.',
     instances: 'Läufe',
   },

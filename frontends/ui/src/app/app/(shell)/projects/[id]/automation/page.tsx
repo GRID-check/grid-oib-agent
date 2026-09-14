@@ -51,9 +51,9 @@ export default async function AutomationPage({
       notFound()
     }
 
-    // Reading needs `project:view` (proved above); job mutations need
+    // Reading needs `project:view` (proved above); schedule mutations need
     // `project:skills:manage`. Denial throws, so a caught denial simply means
-    // the Jobs tab renders read-only. Mutations are gated again server-side at
+    // the schedules render read-only. Mutations are gated again server-side at
     // every route.
     let canManageJobs = false
     try {

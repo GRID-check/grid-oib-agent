@@ -210,12 +210,34 @@ describe('TaskList templates', () => {
     expect(row).not.toHaveClass('border-l-info')
   })
 
-  test('a manual-only job is no template — it stays on the Jobs tab', () => {
+  test('a manual-only definition is a template too, labelled "Manual only"', () => {
+    // The old Jobs tab was its only home; with the tab retired, filtering it
+    // out here would make the definition invisible and uneditable.
     render(
       <TaskList projectId="p1" tasks={[]} jobs={[job({ id: 'j-man', scheduleCron: null })]} />,
     )
-    expect(screen.queryByTestId('template-row')).toBeNull()
-    expect(screen.getByText(/No recurring schedules/)).toBeInTheDocument()
+    expect(screen.getByTestId('template-row')).toBeInTheDocument()
+    expect(screen.getByTestId('template-cadence')).toHaveTextContent('Manual only')
+  })
+
+  test('the schedules group offers the create action where a reader looks', () => {
+    const onCreateSchedule = vi.fn()
+    render(
+      <TaskList
+        projectId="p1"
+        tasks={[]}
+        jobs={[]}
+        canManageJobs
+        onCreateSchedule={onCreateSchedule}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('task-templates-new'))
+    expect(onCreateSchedule).toHaveBeenCalledTimes(1)
+  })
+
+  test('no create affordance without project:skills:manage', () => {
+    render(<TaskList projectId="p1" tasks={[]} jobs={[]} onCreateSchedule={vi.fn()} />)
+    expect(screen.queryByTestId('task-templates-new')).toBeNull()
   })
 
   test('pausing a schedule toggles it optimistically', async () => {

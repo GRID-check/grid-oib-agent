@@ -3,15 +3,14 @@
 /**
  * Aufgaben tab root — the project's delegated work, refreshed while visible.
  *
- * ONE list in two shapes: recurring schedules on top, single runs below
- * (`TaskList`). The panel owns both requests — tasks AND jobs polled on the
- * job-history cadence while visible — and the names. Two create gestures, split
- * by capability: Delegieren links into the project chat, where one-shot
- * delegation happens for every editor, and renders disabled with the locked
- * composer's own reason for a reader without `project:chat`; Zeitplan
+ * ONE list in two shapes: definitions on top (schedules and manual-only ones),
+ * single runs below (`TaskList`). The panel owns both requests - tasks AND jobs
+ * polled on the job-history cadence while visible - and the names. Two create
+ * gestures, split by capability: Delegieren links into the project chat, where
+ * one-shot delegation happens for every editor, and renders disabled with the
+ * locked composer's own reason for a reader without `project:chat`; Zeitplan
  * erstellen opens the schedule flow (the job builder, re-homed here) and is
- * mirrored on the same `project:skills:manage` gate the Jobs tab uses —
- * hidden here, enforced by the server there.
+ * mirrored on the same `project:skills:manage` gate the server enforces.
  *
  * A row opens its detail in a drawer, and a `?task=` / `?schedule=` deep link
  * opens it directly — that is the half the inbox needs: its payload already
@@ -265,8 +264,8 @@ export function TasksPanel({
 
     const tick = () => {
       if (cancelled) return
-      // The cadence re-asks BOTH lists: a pause flipped on the Jobs tab (or
-      // in a second tab) must reach the templates group without a focus event,
+      // The cadence re-asks BOTH lists: a pause flipped in the drawer (or in
+      // a second tab) must reach the templates group without a focus event,
       // the same way a finished run reaches the instances. `loadJobs` arms no
       // timer of its own, so the one chain below stays one chain.
       void loadJobs(true)
@@ -414,8 +413,9 @@ export function TasksPanel({
                 </Button>
               </span>
             )}
-            {/* The schedule flow, mirrored on the Jobs tab's gate: hidden
-                without `project:skills:manage`, enforced by the server. */}
+            {/* The schedule flow: hidden without `project:skills:manage`,
+                enforced by the server. The templates group carries the same
+                action for a reader who is already looking at the schedules. */}
             {canManageJobs && (
               <Button size="sm" onClick={openScheduleCreate} data-testid="tasks-new-schedule">
                 <Plus className="size-4" aria-hidden />
@@ -436,9 +436,10 @@ export function TasksPanel({
         )}
       </ProjectSectionActions>
 
-      <p className="text-muted-foreground border-border shrink-0 border-b px-4 py-2.5 text-xs md:px-6">
-        {t('panel.description')}
-      </p>
+      {/* The section frame above already renders the title and its subtitle;
+          a second description strip here stacked a third full-width bar under
+          the tab row and said the same thing twice. The panel starts at the
+          list. */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {isList ? (
           <TaskList
@@ -454,6 +455,7 @@ export function TasksPanel({
             onJobChanged={handleJobChanged}
             onSelectTask={(task) => openDetail({ kind: 'task', id: task.id })}
             onSelectJob={(job) => openDetail({ kind: 'job', id: job.id })}
+            onCreateSchedule={openScheduleCreate}
           />
         ) : (
           <div className="p-4 md:p-6">

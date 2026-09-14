@@ -8,14 +8,10 @@
  * asked for, and the technical detail lives with the job run.
  */
 export const tasks = {
-  panel: {
-    description:
-      'Work handed to Piloti — from a chat, from a review, or from a job on its schedule. Recurring schedules sit on top; every single run lands below.',
-  },
   groups: {
-    /** Recurring schedules (templates): jobs with a cron, shown with their cadence. */
+    /** Standing definitions: scheduled rows and manual-only ones alike. */
     templates: 'Schedules',
-    templatesEmpty: 'No recurring schedules. A schedule has Piloti work on a timer.',
+    templatesEmpty: 'No schedules yet. Create one and Piloti works on a timer.',
     templatesError: 'The schedules could not be loaded.',
     /** Single runs (instances): every task row, each of which happened once. */
     instances: 'Runs',

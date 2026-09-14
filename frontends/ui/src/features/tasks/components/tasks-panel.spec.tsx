@@ -176,16 +176,18 @@ describe('TasksPanel', () => {
     expect(screen.queryByText('Pending')).not.toBeInTheDocument()
   })
 
-  test('recurring schedules render as templates; manual jobs stay on the Jobs tab', async () => {
+  test('schedules AND manual-only definitions render as templates, each labelled', async () => {
     jobsPayload = { jobs: [recurringJob, manualJob] }
     renderPanel()
     await flush()
 
-    expect(screen.getByTestId('template-row')).toBeInTheDocument()
-    expect(screen.getByTestId('template-cadence')).toHaveTextContent(
-      'Weekly on Monday at 06:00 · Europe/Vienna',
-    )
-    expect(screen.queryByText('Einmal prüfen')).not.toBeInTheDocument()
+    const rows = screen.getAllByTestId('template-row')
+    expect(rows).toHaveLength(2)
+    expect(screen.getByText('Wöchentlicher OIB-Check')).toBeInTheDocument()
+    // The manual definition has no home elsewhere since the Jobs tab retired;
+    // its row says what it is instead of disappearing.
+    expect(screen.getByText('Einmal prüfen')).toBeInTheDocument()
+    expect(screen.getByText('Manual only')).toBeInTheDocument()
   })
 
   test('re-asks on the poll cadence while visible', async () => {

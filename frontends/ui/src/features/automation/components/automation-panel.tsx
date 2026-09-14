@@ -133,7 +133,10 @@ export function AutomationPanel({
 
   return (
     <Tabs value={tab} onValueChange={selectTab} className="h-full min-h-0 gap-0">
-      <div className="border-border shrink-0 border-b px-4 py-3 md:px-6">
+      {/* One slim bar. The frame above already carries the section title and
+          its subtitle, so a second full-width description strip here read as a
+          doubled header; the tabs are the only thing this row owes. */}
+      <div className="border-border shrink-0 border-b px-4 py-2 md:px-6">
         <TabsList>
           <TabsTrigger value="tasks">
             <ListChecks aria-hidden />

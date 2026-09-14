@@ -160,7 +160,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/automation',
     description:
-      'The merged Automation section — Jobs and Skills as a segmented tab control inside ONE project section (they were two rail entries with identical framing and one shared flag). Only the active tab is mounted; the shot shows the Jobs tab leading with the Skills tab beside it.',
+      'The merged Automation section — Aufgaben and Skills behind one slim tab bar under the section frame (its title and subtitle ARE the header; the panel adds no second description strip). Only the active tab is mounted; the shot shows Aufgaben leading with Skills beside it, and the schedules group carrying its own create action so a reader does not have to hunt the section header for it. An empty list is the subject, not a bug: the preview serves empty sets so the chrome is what the image is evidence of.',
     waitFor: '[data-slot="tabs-trigger"]',
   },
   {

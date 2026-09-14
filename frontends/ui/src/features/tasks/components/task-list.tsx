@@ -3,17 +3,17 @@
 /**
  * The project's delegated work as ONE list with two shapes (ADR-0051).
  *
- * Templates are recurring schedules — jobs with a cron — and instances are
- * single runs, each of which happened once. The two are deliberately NOT one
- * row shape: a template answers "when does this fire next, and is it paused"
- * (cadence chip + next fire + enable switch inline), an instance answers
- * "where did this one get to, how was it judged, where is its result" (planner
- * status + review + result link). A shared row would average both questions
- * into neither.
+ * Templates are the STANDING DEFINITIONS - scheduled ones and manual-only ones
+ * alike - and instances are single runs, each of which happened once. The two
+ * are deliberately NOT one row shape: a template answers "when does this fire
+ * next, and is it paused" (cadence chip + next fire + enable switch inline), an
+ * instance answers "where did this one get to, how was it judged, where is its
+ * result" (planner status + review + result link). A shared row would average
+ * both questions into neither.
  *
  * Read-only except the template's pause switch. Reviewing happens in the
- * inbox, where the person was told about the result; editing a schedule
- * happens on the Jobs tab, which is the schedule management.
+ * inbox, where the person was told about the result; opening a template (or
+ * creating one) is the row's and the group's own action.
  *
  * A failed tasks load errors INLINE in the instances group — a task-fail never
  * hides healthy schedules. Only the templates group answers to the jobs load
@@ -21,11 +21,12 @@
  * two groups report independently.
  */
 
-import { CalendarClock, CheckCircle2, CircleDashed, FileText, MessageSquare, XCircle } from 'lucide-react'
+import { CalendarClock, CheckCircle2, CircleDashed, FileText, MessageSquare, Plus, XCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { useState } from 'react'
 
+import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
 import { EmptyState } from '@/components/ui/empty-state'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -82,16 +83,25 @@ export interface TaskListProps {
   onJobChanged?: (job: Job) => void
   onSelectTask?: (task: TaskWireRow) => void
   onSelectJob?: (job: Job) => void
+  /**
+   * Opens the schedule builder. The section header carries the same action for
+   * a manage-capable reader; this is the one INSIDE the schedules group, where
+   * a person looks when the group is empty or when they want another timer.
+   */
+  onCreateSchedule?: () => void
 }
 
 /**
- * The recurring schedules among the jobs: a template is a job WITH a timer.
- * A manual-only job has no cadence to show inline and stays on the Jobs tab,
- * which is the schedule management — putting it here would be a template row
- * with nothing a template row promises.
+ * The standing definitions the project lists: every job the API returns —
+ * scheduled ones with a cadence and manual-only ones ("Nur manuell") alike.
+ *
+ * The old Jobs tab was the only home of a manual-only job; when it retired
+ * into Aufgaben, filtering them out here would have made such a job invisible
+ * and uneditable. They are templates too: a standing instruction with no timer
+ * is still a standing instruction, and the row says so in its cadence chip.
  */
-export function recurringJobs(jobs: readonly Job[]): Job[] {
-  return jobs.filter((job) => job.scheduleCron !== null)
+export function templateJobs(jobs: readonly Job[]): Job[] {
+  return [...jobs]
 }
 
 export function TaskList({
@@ -107,16 +117,30 @@ export function TaskList({
   onJobChanged,
   onSelectTask,
   onSelectJob,
+  onCreateSchedule,
 }: TaskListProps): JSX.Element {
   const t = useTranslations('tasks')
   const tj = useTranslations('jobs')
   const { locale } = useLocale()
-  const templates = recurringJobs(jobs)
+  const templates = templateJobs(jobs)
 
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6" data-testid="task-list">
       <section aria-label={t('groups.templates')} data-testid="task-templates">
-        <SectionLabel as="h2">{t('groups.templates')}</SectionLabel>
+        <div className="flex items-center justify-between gap-2">
+          <SectionLabel as="h2">{t('groups.templates')}</SectionLabel>
+          {canManageJobs && onCreateSchedule && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onCreateSchedule}
+              data-testid="task-templates-new"
+            >
+              <Plus className="size-4" aria-hidden />
+              {t('create.schedule')}
+            </Button>
+          )}
+        </div>
         {jobsLoading ? (
           <div className="mt-2 flex flex-col gap-2" data-testid="template-list-loading" aria-hidden="true">
             {[0, 1].map((row) => (
@@ -213,9 +237,9 @@ export function TaskList({
 type Translate = ReturnType<typeof useTranslations>
 
 /**
- * One recurring schedule. Cadence chip + next fire + the pause switch inline —
- * everything a template promises, nothing an instance carries (no planner
- * status: a schedule is not work, so it has no lifecycle to report).
+ * One standing definition — a recurring schedule or a manual-only one.
+ * Cadence chip + next fire + the pause switch inline. No planner status: a
+ * definition is not work, so it has no lifecycle to report.
  */
 function TemplateRow({
   job,
@@ -260,7 +284,11 @@ function TemplateRow({
             )}
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-            <Chip size="sm" variant="info" data-testid="template-cadence">
+            <Chip
+              size="sm"
+              variant={job.scheduleCron ? 'info' : 'outline'}
+              data-testid="template-cadence"
+            >
               <CalendarClock aria-hidden className="size-3.5" />
               {scheduleSummary(tj, job.scheduleCron, job.scheduleTimezone)}
             </Chip>

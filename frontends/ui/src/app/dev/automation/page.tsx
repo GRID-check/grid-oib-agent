@@ -6,10 +6,12 @@
  * linked anywhere and 404s outside development.
  *
  * The two panels have their own richer previews (`/dev/tasks-panel`,
- * `/dev/skills-panel`); what THIS page is evidence of is the join — the
- * segmented control, which tab leads, and that only the active tab mounts. The
- * fetch shim answers both panels' list calls with empty sets so the chrome is
- * the subject, not the fixtures.
+ * `/dev/skills-panel`); what THIS page is evidence of is the join — the single
+ * slim tab bar under the section frame (the frame owns title and subtitle, so
+ * the panel adds no second description strip), that only the active tab mounts,
+ * and that the schedules group carries its own create action. The fetch shim
+ * answers both panels' list calls with empty sets so the chrome is the subject,
+ * not the fixtures.
  */
 
 import { notFound } from 'next/navigation'
