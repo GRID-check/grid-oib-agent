@@ -10,7 +10,7 @@
  * two ends from drifting.
  */
 
-import type { TaskKind, TaskReview, TaskRunStatus, TaskStatus } from '@/lib/tasks/task-vocabulary'
+import type { TaskKind, TaskReview, TaskRunStatus } from '@/lib/tasks/task-vocabulary'
 
 export interface TaskWireRow {
   id: string

@@ -56,4 +56,3 @@ export default function AutomationDevPage(): JSX.Element {
     </I18nProvider>
   )
 }
-
