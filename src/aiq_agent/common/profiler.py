@@ -563,6 +563,29 @@ async def flush_after_answer(*ledgers: Any, timeout_seconds: float | None = None
             continue
         if future is not None:
             futures.append(future)
+    # Per-turn usage rollup in dollars: the batches above are per CALL, with
+    # no turn id anywhere — per-turn waste is not a GROUP BY. The tracker's
+    # totals ride the trace metadata via usage_rollup (one record per turn,
+    # alongside the citation-health ledger pattern), so waste IS measurable
+    # per turn in Langfuse. Best-effort like everything else here; runs even
+    # when there was nothing left to flush (a spent tracker may already be
+    # empty) and never raises.
+    try:
+        from aiq_agent.observability.usage_rollup import record_usage_turn
+
+        profiler_like = next((entry for entry in ledgers if hasattr(entry, "turn_id")), None)
+        for ledger in ledgers:
+            if ledger is None or ledger is profiler_like:
+                continue
+            if not (hasattr(ledger, "turn_cost_usd") and hasattr(ledger, "events_recorded")):
+                continue
+            record_usage_turn(
+                tracker=ledger,
+                agent="chat",
+                turn_id=getattr(profiler_like, "turn_id", None) if profiler_like is not None else None,
+            )
+    except Exception:
+        logger.warning("Failed to record the turn usage rollup after the answer", exc_info=True)
     if not futures:
         return
     budget = _REQUEST_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds

@@ -632,19 +632,13 @@ functions:
     _type: ifc_measure
     default_limit: 50
 
-  # Purpose-built OIB Soll-Ist-Abgleich (backlog T4-3): staged pipeline
-  # (requirement profile per Richtlinie -> batched evidence judgment ->
-  # deterministic matrix + German report) — the structured alternative to
-  # running compliance checks through open-ended deep research. See
-  # src/aiq_agent/agents/compliance_checker/README.md.
-  compliance_check:
-    _type: compliance_check_agent
-    llm: compliance_llm
-    knowledge_search_tool: knowledge_search
-    max_concurrency: 3
-    richtlinien: [1, 2, 3, 4, 5, 6]
-    requirement_batch_size: 9
-    verbose: false
+  # RETIRED as a chat tool: the purpose-built OIB Soll-Ist-Abgleich
+  # (backlog T4-3, staged requirement-profile -> evidence-judgment pipeline)
+  # is no longer bound to any agent. The `compliance_check` function block and
+  # its `shallow_research_agent` tool-list entry were removed together with the
+  # `aiq_compliance_checker` plugin entry point; the implementation stays in
+  # place (src/aiq_agent/agents/compliance_checker/) for reference. See its
+  # README.
 
   # The FUNCTION NAME here is deliberately still `shallow_research_agent` while
   # the `_type` is `research_agent`. NAT puts the function name — not the type —
@@ -683,7 +677,6 @@ functions:
       - ifc_query
       - ifc_measure
       - ask_user
-      - compliance_check
     verbose: true
     max_llm_turns: 10
     # A CEILING, NOT A QUOTA — and the number is the floor of the longest chain

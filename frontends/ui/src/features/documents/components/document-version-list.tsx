@@ -35,6 +35,7 @@ import { formatAbsoluteTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import type {
   DocumentVersionDiffResponse,
+  DocumentVersionState,
   DocumentVersionView,
 } from '@/lib/documents/lifecycle-types'
 import { DocumentVersionStateBadge } from './document-version-badge'
@@ -64,6 +65,26 @@ const MILESTONES = [
   at: keyof DocumentVersionView
 }[]
 
+/**
+ * A refusal's who and when — who sent the version back, and when.
+ *
+ * `submitted`/`approved`/`published` have columns of their own; a refusal has
+ * only the generic review columns (`reviewedBy`/`reviewedAt` beside the
+ * comment). Those columns are ALSO stamped by an approval, so the refusal row
+ * is gated on the version's state: it renders only on the version the refusal
+ * stopped. A later revision clears all three (`stampFor`'s `draft` case), so a
+ * refusal never outlives its subject — and an approval never renders as one.
+ */
+const REFUSAL_MILESTONES = [
+  { state: 'changes_requested', key: 'changesRequested', by: 'reviewedBy', at: 'reviewedAt' },
+  { state: 'rejected', key: 'rejected', by: 'reviewedBy', at: 'reviewedAt' },
+] as const satisfies readonly {
+  state: DocumentVersionState
+  key: string
+  by: keyof DocumentVersionView
+  at: keyof DocumentVersionView
+}[]
+
 export function DocumentVersionList({
   documentId,
   versions,
@@ -87,23 +108,44 @@ export function DocumentVersionList({
     return names?.[userId] ?? t('lifecycle.versions.someone')
   }
 
+  /**
+   * Every act this version reports — the persistent milestones first, then the
+   * refusal that stopped it, if one did. Shared by the collapsed stand line and
+   * the full rows, so a refusal is visible in both and never only in one.
+   */
+  const actsOf = (version: DocumentVersionView): { key: string; actor: string; when: string }[] => {
+    const acts: { key: string; actor: string; when: string }[] = MILESTONES.flatMap(
+      ({ key, by, at }) => {
+        const actor = version[by]
+        const when = version[at]
+        if (typeof actor !== 'string' || typeof when !== 'string') return []
+        return [{ key, actor, when }]
+      },
+    )
+    const refusal = REFUSAL_MILESTONES.find((row) => row.state === version.state)
+    if (refusal) {
+      const actor = version[refusal.by]
+      const when = version[refusal.at]
+      if (typeof actor === 'string' && typeof when === 'string') {
+        acts.push({ key: refusal.key, actor, when })
+      }
+    }
+    return acts
+  }
+
   if (versions.length === 1) {
     const only = versions[0]
     if (!only) return null
     // A single version has no history to list: no „Versionen" header, no
     // one-row table, no comparison. The stand — the state, who moved it and
     // when — is one line, and the reviewer's words stay quoted under it.
-    const acts = MILESTONES.flatMap(({ key, by, at }) => {
-      const actor = only[by]
-      const when = only[at]
-      if (typeof actor !== 'string' || typeof when !== 'string') return []
-      return [
+    const acts = actsOf(only).map(
+      ({ key, actor, when }) =>
         `${t(`lifecycle.versions.${key}`)} ${t('lifecycle.versions.byAt', {
           name: nameOf(actor),
           time: formatAbsoluteTime(when, locale),
         })}`,
-      ]
-    })
+    )
     return (
       <div className={cn('space-y-1.5', className)} data-testid="document-version-list">
         <p
@@ -223,22 +265,17 @@ export function DocumentVersionList({
               </div>
 
               <dl className="mt-1 space-y-0.5">
-                {MILESTONES.map(({ key, by, at }) => {
-                  const actor = version[by]
-                  const when = version[at]
-                  if (typeof actor !== 'string' || typeof when !== 'string') return null
-                  return (
-                    <div key={key} className="text-muted-foreground flex gap-1.5 text-[11px]">
-                      <dt className="shrink-0">{t(`lifecycle.versions.${key}`)}</dt>
-                      <dd className="min-w-0 truncate">
-                        {t('lifecycle.versions.byAt', {
-                          name: nameOf(actor),
-                          time: formatAbsoluteTime(when, locale),
-                        })}
-                      </dd>
-                    </div>
-                  )
-                })}
+                {actsOf(version).map(({ key, actor, when }) => (
+                  <div key={key} className="text-muted-foreground flex gap-1.5 text-[11px]">
+                    <dt className="shrink-0">{t(`lifecycle.versions.${key}`)}</dt>
+                    <dd className="min-w-0 truncate">
+                      {t('lifecycle.versions.byAt', {
+                        name: nameOf(actor),
+                        time: formatAbsoluteTime(when, locale),
+                      })}
+                    </dd>
+                  </div>
+                ))}
               </dl>
 
               {version.reviewComment && (

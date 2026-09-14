@@ -2,6 +2,7 @@ import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { CHAT_PERMISSIONS } from '@/lib/authz/chat'
 import { canManageSkills } from '@/lib/authz/organizations'
 import { isSkillsEnabled } from '@/lib/authz/feature-flags'
 import { findProjectInOrg } from '@/lib/projects/repository'
@@ -62,12 +63,27 @@ export default async function AutomationPage({
       // Read-only.
     }
 
+    // Delegieren links into the project chat, whose composer is locked without
+    // `project:chat` — resolved here because the authz modules are
+    // `server-only`, and forwarded so Aufgaben disables the link with the
+    // locked composer's own reason instead of landing a reader in a dead end.
+    // Fail-closed like the chat page: a denial (or an FGA outage, which reads
+    // as a denial) locks the affordance; the server still enforces on send.
+    let canChatInProject = false
+    try {
+      await requireProjectAccess(session, id, CHAT_PERMISSIONS)
+      canChatInProject = true
+    } catch {
+      // Read-only chat.
+    }
+
     return (
       <AutomationPanel
         projectId={id}
         projectCollection={project.collectionName}
         canManageOrgSkills={canManageSkills(session)}
         canManageJobs={canManageJobs}
+        canChatInProject={canChatInProject}
         initialTab={parseAutomationTab(tab)}
       />
     )

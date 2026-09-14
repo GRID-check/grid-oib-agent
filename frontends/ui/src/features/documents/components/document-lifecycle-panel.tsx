@@ -175,9 +175,14 @@ export function DocumentLifecyclePanel({
   const act = useCallback(
     async (
       gesture: DocumentLifecycleGesture,
-      options: { comment?: string; reviewerUserIds?: readonly string[] } = {},
+      options: {
+        comment?: string
+        reviewerUserIds?: readonly string[]
+        orderMessage?: string
+        dueAt?: string
+      } = {},
     ) => {
-      const { comment, reviewerUserIds } = options
+      const { comment, reviewerUserIds, orderMessage, dueAt } = options
       if (!listing) return
       const version = newestVersion(listing.versions)
       if (!version) return
@@ -213,6 +218,9 @@ export function DocumentLifecyclePanel({
             comment,
             delegateRevision,
             reviewerUserIds,
+            orderMessage,
+            dueAt,
+            version.contentHash ?? undefined,
           )
         }
         // Re-read rather than patch: publish supersedes another version and
@@ -273,6 +281,11 @@ export function DocumentLifecyclePanel({
         pending={pending}
         onAct={(gesture, options) => void act(gesture, options)}
         reviewers={reviewers}
+        // The signature line of the approve confirm: the viewer's own name
+        // where the surface already knows one (its assignees), else the
+        // control states the moment alone rather than a raw user id.
+        actingName={viewer.userId ? (names?.[viewer.userId] ?? null) : null}
+        names={names}
       />
 
       {showVersions && (
@@ -304,21 +317,27 @@ async function runVersionOp(
   comment?: string,
   delegateRevision = false,
   reviewerUserIds?: readonly string[],
+  orderMessage?: string,
+  dueAt?: string,
+  // The bytes this pane was showing when the reviewer decided. A decision on a
+  // version somebody has since replaced 409s instead of landing on the new one.
+  ifMatch?: string,
 ): Promise<void> {
   const calls: Record<typeof action, () => Promise<DocumentVersionView>> = {
     // `undefined` when nobody was singled out, which is the picker's default:
     // the fallback chain (`lib/documents/reviewers.ts`) asks whoever is on the
-    // hook and then every editor in the project.
-    submit: () => client.submit(documentId, versionId, reviewerUserIds),
-    approve: () => client.approve(documentId, versionId, comment),
+    // hook and then every editor in the project. The order and Frist ride the
+    // same call into the round's inbox payload.
+    submit: () => client.submit(documentId, versionId, reviewerUserIds, { orderMessage, dueAt }),
+    approve: () => client.approve(documentId, versionId, comment, ifMatch),
     // The flag is PASSED only when it is true, the same decision the client
     // makes one tier down about the wire: „Änderungen anfordern" is the call it
     // always was, and the third control is the only caller that adds anything.
     request_changes: () =>
       delegateRevision
-        ? client.requestChanges(documentId, versionId, comment ?? '', true)
-        : client.requestChanges(documentId, versionId, comment ?? ''),
-    reject: () => client.reject(documentId, versionId, comment ?? ''),
+        ? client.requestChanges(documentId, versionId, comment ?? '', true, ifMatch)
+        : client.requestChanges(documentId, versionId, comment ?? '', undefined, ifMatch),
+    reject: () => client.reject(documentId, versionId, comment ?? '', ifMatch),
     publish: () => client.publish(documentId, versionId),
   }
   await calls[action]()

@@ -98,8 +98,14 @@ export interface DocumentLifecycleClient {
     documentId: string,
     versionId: string,
     reviewerUserIds?: readonly string[],
+    options?: { orderMessage?: string; dueAt?: string },
   ): Promise<DocumentVersionView>
-  approve(documentId: string, versionId: string, comment?: string): Promise<DocumentVersionView>
+  approve(
+    documentId: string,
+    versionId: string,
+    comment?: string,
+    ifMatch?: string,
+  ): Promise<DocumentVersionView>
   /**
    * `delegateRevision` is the reviewer's third action: the version moves to
    * `changes_requested` either way, and with it set Piloti is additionally asked
@@ -110,8 +116,14 @@ export interface DocumentLifecycleClient {
     versionId: string,
     comment: string,
     delegateRevision?: boolean,
+    ifMatch?: string,
   ): Promise<DocumentVersionView>
-  reject(documentId: string, versionId: string, comment: string): Promise<DocumentVersionView>
+  reject(
+    documentId: string,
+    versionId: string,
+    comment: string,
+    ifMatch?: string,
+  ): Promise<DocumentVersionView>
   publish(documentId: string, versionId: string): Promise<DocumentVersionView>
   archive(documentId: string): Promise<DocumentArchiveResponse>
   diff(documentId: string, from: string, to: string): Promise<DocumentVersionDiffResponse>
@@ -145,35 +157,55 @@ export function createDocumentLifecycleClient(
         one,
       ),
 
-    submit: (documentId, versionId, reviewerUserIds = []) =>
-      request(
-        run,
-        `${version(documentId, versionId)}/submit`,
-        json({ reviewerUserIds: [...reviewerUserIds] }),
-        one,
-      ),
+    submit: (documentId, versionId, reviewerUserIds = [], options = {}) => {
+      // The Auftragssatz rides when the caller states one; the Frist rides
+      // when it is non-empty. An empty date input (`''`) is "no Frist", not
+      // an invalid one — omitting it keeps the wire exactly what it was for
+      // every caller that predates the order, while a present-but-empty order
+      // is sent as-is so the schema refuses it with a 400.
+      const body: { reviewerUserIds: string[]; orderMessage?: string; dueAt?: string } = {
+        reviewerUserIds: [...reviewerUserIds],
+      }
+      if (options.orderMessage !== undefined) body.orderMessage = options.orderMessage
+      if (options.dueAt !== undefined && options.dueAt.trim() !== '') body.dueAt = options.dueAt
+      return request(run, `${version(documentId, versionId)}/submit`, json(body), one)
+    },
 
-    approve: (documentId, versionId, comment) =>
+    approve: (documentId, versionId, comment, ifMatch) =>
       request(
         run,
         `${version(documentId, versionId)}/approve`,
-        json(comment === undefined ? {} : { comment }),
+        json({
+          ...(comment === undefined ? {} : { comment }),
+          ...(ifMatch === undefined ? {} : { ifMatch }),
+        }),
         one,
       ),
 
-    requestChanges: (documentId, versionId, comment, delegateRevision) =>
+    requestChanges: (documentId, versionId, comment, delegateRevision, ifMatch) =>
       request(
         run,
         `${version(documentId, versionId)}/changes`,
         // Omitted rather than sent as `false`: the schema is `.strict()` and an
         // absent optional is the same decision as a false one, so the wire stays
         // exactly what it was for every caller that does not use the third action.
-        json(delegateRevision ? { comment, delegateRevision: true } : { comment }),
+        // `ifMatch` rides the same way: absent when the caller holds no STAND,
+        // present when it does, so old callers keep working and stale ones 409.
+        json({
+          comment,
+          ...(delegateRevision ? { delegateRevision: true } : {}),
+          ...(ifMatch === undefined ? {} : { ifMatch }),
+        }),
         one,
       ),
 
-    reject: (documentId, versionId, comment) =>
-      request(run, `${version(documentId, versionId)}/reject`, json({ comment }), one),
+    reject: (documentId, versionId, comment, ifMatch) =>
+      request(
+        run,
+        `${version(documentId, versionId)}/reject`,
+        json({ comment, ...(ifMatch === undefined ? {} : { ifMatch }) }),
+        one,
+      ),
 
     publish: (documentId, versionId) =>
       request(run, `${version(documentId, versionId)}/publish`, json({}), one),

@@ -306,6 +306,65 @@ describe('normalizeAgentAnswerMetadata', () => {
     expect(decoded![0]).toMatchObject({ fileName: 'OIB-RL-3.pdf', page: 4 })
   })
 
+  it('stores read_sources as identity + placement only — no prose, punkt or score', () => {
+    // A document the answer never cited must not carry evidence text into the
+    // row: the passage surfaces read the stored envelope, and prose stored
+    // under an uncited document would let it ground highlights it never earned.
+    const result = normalizeAgentAnswerMetadata({
+      read_sources: [
+        {
+          document_id: 'doc:oib_knowledge:oib-rl_3.pdf',
+          citation_key: 'OIB-RL-3.pdf, p.4',
+          file_name: 'OIB-RL-3.pdf',
+          page: 4,
+          collection: 'oib_base',
+          kind: 'baurecht',
+          lane: 'baurecht_oib',
+          lane_label: 'OIB-Richtlinie',
+          title: 'OIB-Richtlinie 3',
+          content: '[KB] OIB-RL-3.pdf, p.4 — Die Fluchtweglänge darf 40 m nicht überschreiten.',
+          snippet: 'Die Fluchtweglänge darf 40 m nicht überschreiten.',
+          punkt: '3.5.2',
+          score: 0.87,
+          number: 2,
+          source_type: 'knowledge_layer',
+          tool: 'knowledge_search',
+          origin: 'kb',
+        },
+      ],
+    })
+
+    const stored = (result?.readSources as { sources: Record<string, unknown>[] }).sources[0]
+    expect(stored).toMatchObject({ file_name: 'OIB-RL-3.pdf', page: 4 })
+    for (const key of [
+      'content',
+      'snippet',
+      'punkt',
+      'score',
+      'number',
+      'source_type',
+      'tool',
+      'origin',
+    ]) {
+      expect(stored).not.toHaveProperty(key)
+    }
+    // Still decodable: the locator the disclosure renders survived.
+    const decoded = decodeCitations(result?.readSources, new Date('2026-09-01T10:00:00.000Z'))
+    expect(decoded![0]).toMatchObject({ fileName: 'OIB-RL-3.pdf', page: 4 })
+  })
+
+  it('keeps storing the passage fields for cited sources', () => {
+    // The stripping above is read-only: a cited source still needs its
+    // passage, its Punkt and its score.
+    const result = normalizeAgentAnswerMetadata({ sources: [kbSource({ punkt: '3.5.2', score: 0.87 })] })
+    const stored = (result?.citations as { sources: Record<string, unknown>[] }).sources[0]
+    expect(stored).toMatchObject({
+      content: '[KB] OIB-Richtlinie 2, S. 18',
+      punkt: '3.5.2',
+      score: 0.87,
+    })
+  })
+
   it("normalizes a row that carries ONLY the run's marks", () => {
     // The row a cut-off deep run writes has no confidence and no sources to
     // translate. If those were what triggered the translation, this row — the

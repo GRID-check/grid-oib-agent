@@ -12,7 +12,45 @@ import type { en } from '../en'
 export const tasks: typeof en.tasks = {
   panel: {
     description:
-      'An Piloti übergebene Arbeit — aus einem Chat, aus einer Freigabe oder aus einem Job nach Zeitplan.',
+      'An Piloti übergebene Arbeit — aus einem Chat, aus einer Freigabe oder aus einem Job nach Zeitplan. Wiederkehrende Zeitpläne stehen oben, jeder einzelne Lauf darunter.',
+  },
+  groups: {
+    templates: 'Zeitpläne',
+    templatesEmpty: 'Keine wiederkehrenden Zeitpläne. Ein Zeitplan lässt Piloti nach Timer arbeiten.',
+    templatesError: 'Die Zeitpläne konnten nicht geladen werden.',
+    instances: 'Läufe',
+  },
+  cadence: {
+    once: 'Einmalig',
+  },
+  create: {
+    delegate: 'Delegieren',
+    delegateHint: 'Übergeben wird im Chat: Bitten Sie Piloti, etwas zu übernehmen.',
+    schedule: 'Neuer Zeitplan',
+    back: 'Zurück zu den Aufgaben',
+  },
+  detail: {
+    close: 'Details schließen',
+    result: 'Ergebnis',
+    openDocument: 'Dokument öffnen',
+    continueChat: 'Im Chat fortsetzen',
+    request: 'Auftrag',
+    schedule: 'Zeitplan',
+    prompt: 'Prompt',
+    runs: 'Läufe',
+    gone: 'Das gibt es nicht mehr — möglicherweise wurde es gelöscht.',
+    /**
+     * Ein Deep Link, der in diesem Projekt auf keine Zeile passt — weder auf
+     * einen Lauf noch auf einen Zeitplan. Der Link zeigt möglicherweise auf ein
+     * anderes Projekt, oder der Eintrag wurde gelöscht, bevor diese Liste lud.
+     * „Nicht hier" statt „weg": Die Detailansicht hat ihn nie gesehen, also
+     * kann sie nicht behaupten, er sei gegangen.
+     */
+    goneUnresolved:
+      'Das wurde hier nicht gefunden. Der Link zeigt möglicherweise auf ein anderes Projekt, oder der Eintrag wurde gelöscht.',
+    goneTitle: 'Nicht gefunden',
+    /** Die Überschrift, solange ein Deep Link noch geprüft wird — kein Befund. */
+    loadingTitle: 'Wird geladen',
   },
   list: {
     emptyTitle: 'Noch nichts übergeben',

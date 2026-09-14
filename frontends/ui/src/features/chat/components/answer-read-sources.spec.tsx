@@ -162,7 +162,7 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
     expect(screen.queryByText(passage)).not.toBeInTheDocument()
   })
 
-  test('an entry without any identity is skipped, never rendered', async () => {
+  test('an entry without any identity shows no details trigger at all', async () => {
     const passage = 'Die Fluchtweglänge darf 40 m nicht überschreiten.'
     const orphan: CitationSource = {
       id: 'read-orphan',
@@ -170,11 +170,27 @@ describe.each(['default', 'inline'] as const)('the %s answer variant', (variant)
       timestamp: new Date('2026-09-01T10:00:00.000Z'),
     }
     render(<AgentResponse content={CITED} variant={variant} readSources={[orphan]} />)
-    await userEvent.setup().click(screen.getByTestId('answer-details-trigger'))
 
     // No fileName, title or citationKey: the old `?? source.content` fallback
-    // would have printed the passage as a chip. Now the section stays absent.
-    expect(screen.queryByTestId('read-sources')).not.toBeInTheDocument()
+    // would have printed the passage as a chip, and the old length-based
+    // `hasDetailsContent` still mounted a trigger that opened onto an empty
+    // section. Now the disclosure holds nothing, so no trigger renders.
+    expect(screen.queryByTestId('answer-details-trigger')).not.toBeInTheDocument()
+    expect(screen.queryByText(passage)).not.toBeInTheDocument()
+  })
+
+  test('an unrenderable entry beside a named one leaves only the named chip', async () => {
+    const passage = 'Die Fluchtweglänge darf 40 m nicht überschreiten.'
+    const orphan: CitationSource = {
+      id: 'read-orphan',
+      content: passage,
+      timestamp: new Date('2026-09-01T10:00:00.000Z'),
+    }
+    render(<AgentResponse content={CITED} variant={variant} readSources={[readSource(), orphan]} />)
+    await userEvent.setup().click(screen.getByTestId('answer-details-trigger'))
+
+    expect(screen.getByText('oib-rl_2.pdf')).toBeInTheDocument()
+    expect(screen.getAllByTestId('read-source-chip')).toHaveLength(1)
     expect(screen.queryByText(passage)).not.toBeInTheDocument()
   })
 

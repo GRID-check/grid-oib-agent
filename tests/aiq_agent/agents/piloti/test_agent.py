@@ -3806,7 +3806,14 @@ class TestTheDelegationBlock:
         """`create_task` refuses without a project AND without a signed envelope."""
         assert "<delegieren>" not in _render_researcher_prompt(delegating_enabled=False)
 
-    def test_it_names_the_tool_and_the_four_kinds(self):
+    def test_it_names_the_tool_and_the_delegatable_kinds(self):
+        """All four kinds are delegatable: the retirement was the chat TOOL, not the kind.
+
+        ``compliance_check`` was removed from the chat agent's tool list; it
+        stays a durable task kind and runs as a delegated Normprüfung
+        (`delegation.ts::TASK_ENGINES`, `docs/architecture/system-overview.md`),
+        so the delegation block must offer it like the other three.
+        """
         block = _delegieren_block()
         assert "`create_task`" in block
         for kind in ("compliance_check", "einreichcheck", "document", "revision"):

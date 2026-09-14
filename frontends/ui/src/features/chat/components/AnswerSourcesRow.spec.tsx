@@ -5,14 +5,14 @@ import { AnswerSourcesRow } from './AnswerSourcesRow'
 import type { SourcePreviewChipProps } from './SourcePreview'
 
 /**
- * `AnswerSourcesRow`'s `muted` variant — the hue budget's quiet end.
+ * `AnswerSourcesRow` always renders the lane tints — the provenance signal.
  *
  * The provenance chips render their tint as a CSS-var inline style, which
  * jsdom's CSS parser drops, so the signal is read off a wrapper around the
  * REAL chip instead of off the DOM. Rendering stays real (labels, badges,
  * anchors, links), which is what the text assertions below pin. What is
- * asserted here is this row's half of the contract: the repaint keeps every
- * document identical except its tint.
+ * asserted here is this row's half of the contract: the row hands every
+ * document through, tint and all — lane tint is provenance, never muted.
  */
 
 vi.mock('./SourcePreview', async (importOriginal) => {
@@ -53,7 +53,7 @@ const signalOf = (container: HTMLElement, title: string): string | null => {
   return match?.getAttribute('data-signal') ?? null
 }
 
-describe('AnswerSourcesRow muted variant', () => {
+describe('AnswerSourcesRow lane tints', () => {
   test('by default the chips keep their lane tints', () => {
     const { container } = render(
       <AnswerSourcesRow documents={[oibDoc, risDoc]} anchorPrefix="test-" />
@@ -63,13 +63,15 @@ describe('AnswerSourcesRow muted variant', () => {
     expect(signalOf(container, 'Wiener Bauordnung')).toBe('law')
   })
 
-  test('muted repaints every chip neutral and keeps what each chip says', () => {
+  test('every chip keeps its tint and what it says beside other chromatic accents', () => {
+    // Evidence blocks, takeaways and frist/achtung callouts spend the hue
+    // budget elsewhere — the provenance row never mutes its signal for them.
     const { container } = render(
-      <AnswerSourcesRow documents={[oibDoc, risDoc]} anchorPrefix="test-" muted />
+      <AnswerSourcesRow documents={[oibDoc, risDoc]} anchorPrefix="test-" />
     )
 
-    expect(signalOf(container, 'OIB-Richtlinie 2')).toBe('auto')
-    expect(signalOf(container, 'Wiener Bauordnung')).toBe('auto')
+    expect(signalOf(container, 'OIB-Richtlinie 2')).toBe('oib')
+    expect(signalOf(container, 'Wiener Bauordnung')).toBe('law')
     // … and the labels, the authority badge, the markers and the anchors stay.
     expect(container.textContent).toContain('OIB-Richtlinie 2')
     expect(container.textContent).toContain('Wiener Bauordnung')
@@ -83,7 +85,6 @@ describe('AnswerSourcesRow muted variant', () => {
       <AnswerSourcesRow
         documents={[{ ...oibDoc, id: 'doc-web', title: 'Beispiel', tint: 'auto' }]}
         anchorPrefix="test-"
-        muted
       />
     )
 
@@ -91,9 +92,8 @@ describe('AnswerSourcesRow muted variant', () => {
     expect(container.textContent).toContain('Beispiel')
   })
 
-  test('without the flag nothing about the documents changes', () => {
-    // The default must stay exactly today's behavior: the row hands the
-    // documents through, tint and all.
+  test('nothing about the documents changes', () => {
+    // The row hands the documents through, tint and all.
     const { container } = render(<AnswerSourcesRow documents={[oibDoc]} anchorPrefix="test-" />)
 
     expect(signalOf(container, 'OIB-Richtlinie 2')).toBe('oib')

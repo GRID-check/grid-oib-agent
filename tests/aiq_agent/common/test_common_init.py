@@ -144,6 +144,82 @@ class TestCreateChatResponse:
 
         assert response.usage is not None
 
+    def test_create_chat_response_carries_explicit_usage(self):
+        """Provider totals passed in land on the generation object (usageDetails)."""
+        from nat.data_models.api_server import Usage
+
+        response = _create_chat_response(
+            "Test", usage=Usage(prompt_tokens=1204, completion_tokens=331, total_tokens=1535)
+        )
+
+        assert response.usage.prompt_tokens == 1204
+        assert response.usage.completion_tokens == 331
+        assert response.usage.total_tokens == 1535
+
+    def test_create_chat_response_defaults_to_empty_usage(self):
+        """No usage in stays empty — absent, never a fabricated zero row."""
+        response = _create_chat_response("Test")
+
+        assert response.usage.prompt_tokens is None
+        assert response.usage.completion_tokens is None
+        assert response.usage.total_tokens is None
+
+
+class TestAttachTrackerUsage:
+    """Provider usage in → observation fields populated, end to end."""
+
+    def test_tracker_totals_land_on_the_wire_response(self):
+        from aiq_agent.common import attach_tracker_usage
+
+        class Tracker:
+            prompt_tokens = 1204
+            completion_tokens = 331
+            events_recorded = 2
+
+        response = attach_tracker_usage(_create_chat_response("Test"), Tracker())
+
+        assert response.usage.prompt_tokens == 1204
+        assert response.usage.completion_tokens == 331
+        assert response.usage.total_tokens == 1535
+
+    def test_provider_result_flows_through_tracker_to_response(self):
+        """The full passthrough: OpenRouter LLMResult → tracker → ChatResponse."""
+        from langchain_core.messages import AIMessage
+        from langchain_core.outputs import ChatGeneration
+        from langchain_core.outputs import LLMResult
+
+        from aiq_agent.common import attach_tracker_usage
+        from aiq_agent.common.cost_tracking import GridCostTracker
+
+        message = AIMessage(content="answer", id="gen-01")
+        result = LLMResult(
+            generations=[[ChatGeneration(message=message)]],
+            llm_output={
+                "model_name": "m",
+                "token_usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+            },
+        )
+        tracker = GridCostTracker(organization_id="org_1")
+        tracker.on_llm_end(result)
+
+        response = attach_tracker_usage(_create_chat_response("Test"), tracker)
+
+        assert response.usage.prompt_tokens == 100
+        assert response.usage.completion_tokens == 20
+        assert response.usage.total_tokens == 120
+
+    def test_empty_tracker_leaves_the_response_untouched(self):
+        from aiq_agent.common import attach_tracker_usage
+
+        class Tracker:
+            prompt_tokens = 0
+            completion_tokens = 0
+            events_recorded = 0
+
+        response = _create_chat_response("Test")
+        assert attach_tracker_usage(response, Tracker()).usage.prompt_tokens is None
+        assert attach_tracker_usage(response, None).usage.prompt_tokens is None
+
     def test_create_chat_response_special_characters(self):
         """Test chat response with special characters."""
         special_content = "Hello\n\tWorld! 🌍 <script>alert('xss')</script>"

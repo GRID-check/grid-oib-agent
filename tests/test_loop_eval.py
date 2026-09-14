@@ -259,6 +259,44 @@ class TestComparing:
         assert "questions: 0 → 1 (+1)" in report
 
 
+class TestCapRetryIsPositional:
+    """A cap is only a retry when the turn KEPT FETCHING after it."""
+
+    def test_a_fetch_after_the_cap_is_a_retry(self):
+        payloads = [
+            ("status:retrieval:0", {}),
+            ("retrieve.knowledge", {"input": {"query": "a"}}),
+            ("status:budget:fanout", {}),
+            ("status:retrieval:1", {}),
+            ("retrieve.knowledge", {"input": {"query": "b"}}),
+        ]
+        assert loop_eval.flag_cap_retry(payloads) == "yes"
+
+    def test_a_cap_on_the_last_fetch_is_not_a_retry(self):
+        payloads = [
+            ("status:retrieval:0", {}),
+            ("retrieve.knowledge", {"input": {"query": "a"}}),
+            ("status:budget:fanout", {}),
+        ]
+        assert loop_eval.flag_cap_retry(payloads) == "no"
+
+    def test_a_diversity_cap_on_a_retrieved_pool_counts_too(self):
+        payloads = [
+            ("retrieve.knowledge", {"input": {"dropped_by_cap": 3}}),
+            ("retrieve.knowledge", {"input": {"query": "b"}}),
+        ]
+        assert loop_eval.flag_cap_retry(payloads) == "yes"
+
+    def test_no_cap_at_all_is_never_a_retry(self):
+        payloads = [
+            ("status:retrieval:0", {}),
+            ("retrieve.knowledge", {"input": {"query": "a"}}),
+            ("status:retrieval:1", {}),
+            ("retrieve.knowledge", {"input": {"query": "b"}}),
+        ]
+        assert loop_eval.flag_cap_retry(payloads) == "no"
+
+
 class TestTheCli:
     def test_it_refuses_to_run_without_a_backend(self, tmp_path: Path, monkeypatch):
         """Not a silent no-op: a run with no backend that exits 0 leaves an

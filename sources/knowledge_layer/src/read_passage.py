@@ -23,8 +23,9 @@ Three properties are load-bearing:
 **It never guesses a document.** The name is resolved against the documents
 registered for the collections this turn may read — exact file name, stored
 display title, or the derived OIB title — and an unresolved name is refused
-with the two ways to recover. A locator that fuzzy-matches is a search with
-worse recall and a confident label.
+with the two ways to recover plus up to three verbatim guesses from this
+turn's inventory when anything is close. A locator that fuzzy-matches is a
+search with worse recall and a confident label.
 
 **It is deterministic.** No reranker, no requery judge, no LLM. The metadata
 filter admits only the chunks of the named document that carry the named Punkt
@@ -52,6 +53,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -98,8 +100,9 @@ _READ_PASSAGE_DESCRIPTION = (
     "on screen it is `surface_documents`. Do not call it twice for the same Punkt.\n"
     "RETURNS — the passages under that Punkt or page, in document order, with Source, "
     "Citation (copy verbatim), Dokumentart, Punkt and page. An unknown document name is "
-    "REFUSED and names no substitute: resolve the name with `knowledge_search` first rather "
-    "than inventing one."
+    "REFUSED with up to three verbatim guesses from this turn's readable inventory when "
+    "anything is close (labelled as guesses — pass one back exactly, or resolve the name "
+    "with `knowledge_search` first) rather than inventing one."
 )
 
 
@@ -261,16 +264,91 @@ def _locus_label(document: str, punkt: str | None, page: int | None) -> str:
     return ", ".join(parts)
 
 
-def _unknown_document_message(document: str, known: int) -> str:
-    """Refuse a name nothing in scope carries, and say how to recover it."""
-    return (
-        f"No document in scope is named {document!r}. This tool never guesses a name: it opens "
-        "the document you name or nothing.\n"
-        f"{known} document(s) are readable this turn. Take the name from a hit's `Source:` or "
-        "`Citation:` line, or from the knowledge-base inventory, and call again — or call "
-        "`knowledge_search` with the topic when you do not yet know which document holds it. "
-        "Do not invent a citation."
+#: How many verbatim guesses an unknown-document refusal may name.
+_MAX_DID_YOU_MEAN = 3
+
+#: Minimum similarity (difflib ratio over case-folded names) for a guess to be
+#: named. Below this the closest inventory title is noise rather than help,
+#: and the refusal stands on the two recovery ways alone. 0.6 is the stdlib
+#: ``get_close_matches`` default: 0.4 let cross-document titles with a shared
+#: suffix ("Plan.pdf" vs "Brandschutzkonzept.pdf" at 0.40) spend a guess the
+#: caller cannot use.
+_DID_YOU_MEAN_CUTOFF = 0.6
+
+
+def _suggestion_names(wanted: str, documents: list[Any], *, limit: int = _MAX_DID_YOU_MEAN) -> list[str]:
+    """Up to ``limit`` legal inventory names closest to ``wanted``, most similar first.
+
+    One suggestion per document — the closest of its legal names
+    (:func:`_document_names`), so a mistyped display title still finds its file
+    without one document spending two of the three guesses. Each suggestion is
+    returned in its ORIGINAL spelling, which passes :func:`_matches` verbatim:
+    a guess the caller cannot pass back exactly is a second way to be refused.
+    Scope-restricted by construction: only the documents the caller passes in
+    (this turn's readable inventory) are ranked, so a same-named file on an
+    unreadable shelf is never suggested.
+    """
+    import difflib
+
+    folded = (wanted or "").strip().casefold()
+    if not folded:
+        return []
+    scored: list[tuple[float, str]] = []
+    for document in documents or ():
+        best_name = ""
+        best_ratio = 0.0
+        for name in _document_names(document):
+            candidate = name.strip()
+            if not candidate:
+                continue
+            ratio = difflib.SequenceMatcher(None, folded, candidate.casefold()).ratio()
+            if ratio > best_ratio:
+                best_name, best_ratio = candidate, ratio
+        if best_name and best_ratio >= _DID_YOU_MEAN_CUTOFF:
+            scored.append((best_ratio, best_name))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [name for _ratio, name in scored[:limit]]
+
+
+def _unknown_document_message(document: str, known: int, suggestions: Sequence[str] | None = None) -> str:
+    """Refuse a name nothing in scope carries, and say how to recover it.
+
+    Never a dead end: with no readable documents the refusal points at the
+    inventory (which is empty) and the topic search; with readable documents
+    it names how to take a name from a hit or the inventory. When more
+    candidates clear the bar than fit, the refusal shows the first three and
+    names how many more exist, so the model refines the name instead of
+    retyping the same near-miss.
+    """
+    names = [name for name in (suggestions or []) if str(name).strip()]
+    shown = names[:_MAX_DID_YOU_MEAN]
+    remaining = len(names) - len(shown)
+    if known <= 0:
+        base = (
+            f"No document in scope is named {document!r}. No documents are readable this turn — "
+            "the inventory is empty. Check the knowledge-base inventory (`surface_documents`) for "
+            "what is filed, or call `knowledge_search` with the topic when you do not yet know "
+            "which document holds it. Do not invent a citation."
+        )
+    else:
+        base = (
+            f"No document in scope is named {document!r}. This tool never guesses a name: it opens "
+            "the document you name or nothing.\n"
+            f"{known} document(s) are readable this turn. Take the name from a hit's `Source:` or "
+            "`Citation:` line, or from the knowledge-base inventory, and call again — or call "
+            "`knowledge_search` with the topic when you do not yet know which document holds it. "
+            "Do not invent a citation."
+        )
+    if not shown:
+        return base
+    guesses = "\n".join(f"- {name}" for name in shown)
+    message = (
+        base + "\nDid you mean (guesses — pass one back verbatim as `document=` if it is the file "
+        "you want, do not modify it):\n" + guesses
     )
+    if remaining > 0:
+        message += f"\n(+{remaining} more candidate(s) not shown — refine the name to narrow it down.)"
+    return message
 
 
 def _no_passage_message(document: str, punkt: str | None, page: int | None) -> str:
@@ -377,8 +455,12 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
         )
         targets = await _resolve_targets(entries, document)
         if not targets:
-            known = sum(len(docs) for docs in await asyncio.gather(*(_documents_in(e.collection) for e in entries)))
-            return _unknown_document_message(document, known)
+            listings = await asyncio.gather(*(_documents_in(e.collection) for e in entries))
+            known = sum(len(docs) for docs in listings)
+            scoped = [doc for docs in listings for doc in docs]
+            # Full candidate list: the message shows the first three and names
+            # how many more clear the bar, so truncating never hides the count.
+            return _unknown_document_message(document, known, _suggestion_names(document, scoped, limit=1000))
 
         query = _fetch_query(document, punkt, page)
         fetched = await asyncio.gather(

@@ -22,6 +22,7 @@ from langchain_core.outputs import LLMResult
 from aiq_agent.common.cost_tracking import BudgetExceededError
 from aiq_agent.common.cost_tracking import BudgetSnapshot
 from aiq_agent.common.cost_tracking import GridCostTracker
+from aiq_agent.common.cost_tracking import UsageEvent
 from aiq_agent.common.cost_tracking import extract_usage_event
 from aiq_agent.common.cost_tracking import grid_cost_tracker_var
 from aiq_agent.common.cost_tracking import track_llm_costs
@@ -51,6 +52,23 @@ def _openrouter_result(usage: dict | None = OPENROUTER_USAGE, model: str = "deep
 
 def _budget_header(payload: dict) -> str:
     return base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+
+
+def _usage_event(*, cost_source: str, cost_usd: float = 0.0) -> UsageEvent:
+    """One bespoke (non-callback) event, the way the reranker records one."""
+    return UsageEvent(
+        model=None,
+        requested_model=None,
+        generation_id=None,
+        prompt_tokens=10,
+        completion_tokens=5,
+        total_tokens=15,
+        cached_tokens=0,
+        reasoning_tokens=0,
+        cost_usd=cost_usd,
+        cost_source=cost_source,
+        is_byok=None,
+    )
 
 
 class TestExtractUsageEvent:
@@ -150,6 +168,18 @@ class TestGridCostTracker:
         tracker.on_llm_end(_openrouter_result())
         assert tracker.turn_cost_usd == pytest.approx(0.00428)
         assert tracker.events_recorded == 2
+
+    def test_cost_source_reports_the_events_provenance(self):
+        # The rollup must be able to say whether its dollar number was
+        # reported or estimated; a positive cost alone does not tell it.
+        tracker = self._tracker()
+        assert tracker.cost_source is None
+
+        tracker.on_llm_end(_openrouter_result())
+        assert tracker.cost_source == "usage_field"
+
+        tracker.record(_usage_event(cost_source="estimate"))
+        assert tracker.cost_source == "mixed"
 
     def test_blocks_next_call_when_budget_exhausted(self):
         tracker = self._tracker(BudgetSnapshot(remaining_user_usd=0.003))

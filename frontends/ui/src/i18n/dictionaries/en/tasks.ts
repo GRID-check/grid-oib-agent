@@ -10,7 +10,54 @@
 export const tasks = {
   panel: {
     description:
-      'Work handed to Piloti — from a chat, from a review, or from a job on its schedule.',
+      'Work handed to Piloti — from a chat, from a review, or from a job on its schedule. Recurring schedules sit on top; every single run lands below.',
+  },
+  groups: {
+    /** Recurring schedules (templates): jobs with a cron, shown with their cadence. */
+    templates: 'Schedules',
+    templatesEmpty: 'No recurring schedules. A schedule has Piloti work on a timer.',
+    templatesError: 'The schedules could not be loaded.',
+    /** Single runs (instances): every task row, each of which happened once. */
+    instances: 'Runs',
+  },
+  /** The cadence inline on every row: templates name theirs, instances ran once. */
+  cadence: {
+    once: 'One-off',
+  },
+  create: {
+    /** One-shot delegation happens in chat — this only links there. */
+    delegate: 'Delegate',
+    delegateHint: 'Delegation happens in chat: ask Piloti to take something on.',
+    /** The schedule flow (the job builder), gated on project:skills:manage. */
+    schedule: 'New schedule',
+    back: 'Back to tasks',
+  },
+  detail: {
+    close: 'Close details',
+    /** Where the result IS — the filed document first, the chat second. */
+    result: 'Result',
+    openDocument: 'Open document',
+    /** A `chat` run landed in a conversation: reopen it there and keep typing. */
+    continueChat: 'Continue in chat',
+    /** The frozen ask: the requester's own sentence, as the run received it. */
+    request: 'Request',
+    schedule: 'Schedule',
+    prompt: 'Prompt',
+    runs: 'Runs',
+    /** A deep link whose row is gone — deleted, or never visible to this reader. */
+    gone: 'This no longer exists. It may have been deleted.',
+    /**
+     * A deep link that never matched a row in this project — neither a run
+     * nor a schedule. The link may target another project, or the item was
+     * deleted before this list loaded. Said as "not here" rather than "gone":
+     * the drawer never saw it, so it cannot claim it left.
+     */
+    goneUnresolved:
+      'This could not be found here. The link may point to another project, or the item was deleted.',
+    /** The title over the gone body — never the close label over gone content. */
+    goneTitle: 'Not found',
+    /** The title while a deep link is still being checked — no finding yet. */
+    loadingTitle: 'Loading',
   },
   list: {
     emptyTitle: 'Nothing delegated yet',

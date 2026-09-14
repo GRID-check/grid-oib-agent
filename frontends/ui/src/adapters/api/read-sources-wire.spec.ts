@@ -107,6 +107,50 @@ describe('the read-but-uncited identities cross into the answer', () => {
     })
     expect(frame.read_sources).toEqual([expect.objectContaining({ file_name: 'oib-rl_2.pdf' })])
   })
+
+  test('prose and scoring keys are stripped from read_sources while identities survive', () => {
+    // The disclosure names documents, never passages: `content`, `snippet`,
+    // `punkt` and `score` on a read-but-uncited entry are evidence text riding
+    // where only a locator belongs. The narrow read schema strips them (and
+    // any unknown key) at the boundary instead of trusting the producer.
+    const frame = NATSystemResponseMessageSchema.parse({
+      type: 'system_response_message',
+      id: 'm1',
+      status: 'complete',
+      content: { text: 'die Antwort' },
+      read_sources: [
+        {
+          ...WIRE_READ,
+          content: '[KB] oib-rl_2.pdf, p.12 — Die Fluchtweglänge darf 40 m nicht überschreiten.',
+          snippet: 'Die Fluchtweglänge darf 40 m nicht überschreiten.',
+          punkt: '3.5.2',
+          score: 0.87,
+          number: 2,
+          source_type: 'knowledge_layer',
+          tool: 'knowledge_search',
+          origin: 'kb',
+          binding_note: 'In Wien verbindlich.',
+          binding_status: 'bindend',
+          some_future_key: 'x',
+        },
+      ],
+    })
+    expect(frame.read_sources).toHaveLength(1)
+    expect(frame.read_sources?.[0]).toEqual(WIRE_READ)
+  })
+
+  test('cited sources keep their prose and scoring keys', () => {
+    // The stripping above is read-only: the `sources` shape stays passthrough
+    // because the citation surfaces need the passage, the Punkt and the score.
+    const frame = NATSystemResponseMessageSchema.parse({
+      type: 'system_response_message',
+      id: 'm1',
+      status: 'complete',
+      content: { text: 'die Antwort' },
+      sources: [{ ...WIRE_READ, content: '[KB] passage', punkt: '3.5.2', score: 0.87 }],
+    })
+    expect(frame.sources?.[0]).toMatchObject({ content: '[KB] passage', punkt: '3.5.2', score: 0.87 })
+  })
 })
 
 describe('the backend and this client name the same field', () => {

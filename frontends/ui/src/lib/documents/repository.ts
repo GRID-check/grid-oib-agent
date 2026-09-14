@@ -11,7 +11,7 @@
  */
 
 import 'server-only'
-import { and, count, desc, eq, inArray, ne } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
 import { documentNameVariants } from './name-match'
@@ -112,6 +112,12 @@ export interface DocumentListRow {
  */
 export interface ListProjectDocumentsOptions {
   limit?: number
+  /**
+   * Rows to skip before the page — the draft-filing veto's paginated scan.
+   * Default 0 (first page, as before); bounded below like `limit` so a
+   * negative offset cannot widen the listing.
+   */
+  offset?: number
   authoredBy?: DocumentAuthor
   /**
    * Show the documents somebody archived as well (ADR-0054).
@@ -134,9 +140,10 @@ export interface ListProjectDocumentsOptions {
 export async function listProjectDocuments(
   projectId: string,
   organizationId: string,
-  { limit = DOCUMENT_LIST_LIMIT, authoredBy, includeArchived = false }: ListProjectDocumentsOptions = {},
+  { limit = DOCUMENT_LIST_LIMIT, offset = 0, authoredBy, includeArchived = false }: ListProjectDocumentsOptions = {},
 ): Promise<DocumentListRow[]> {
   const boundedLimit = Math.min(Math.max(1, Math.trunc(limit)), DOCUMENT_LIST_LIMIT)
+  const boundedOffset = Math.max(0, Math.trunc(offset))
   const db = getDb()
   return withTenant({ organizationId }, () =>
     db
@@ -177,8 +184,12 @@ export async function listProjectDocuments(
           ...(includeArchived ? [] : [eq(documents.lifecycle, 'active')]),
         ),
       )
-      .orderBy(desc(documents.createdAt))
-      .limit(boundedLimit),
+      // Newest first, with the id as tiebreak: createdAt ties are real (a
+      // batch import lands on one timestamp), and under offset pagination an
+      // unstable order drops rows from one page and repeats them on the next.
+      .orderBy(desc(documents.createdAt), asc(documents.id))
+      .limit(boundedLimit)
+      .offset(boundedOffset),
   )
 }
 

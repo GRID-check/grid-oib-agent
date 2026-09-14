@@ -205,6 +205,42 @@ describe('the review verbs', () => {
     )
   })
 
+  it('submit carries the order and Frist through to the round', async () => {
+    await client.submit('doc_1', 'ver_1', ['user_a'], {
+      orderMessage: 'Bitte die Fluchtweglänge prüfen.',
+      dueAt: '2026-09-20',
+    })
+    expect(transitionDocumentVersion).toHaveBeenCalledWith(
+      expect.anything(),
+      'doc_1',
+      'ver_1',
+      'submit',
+      expect.objectContaining({
+        reviewerUserIds: ['user_a'],
+        orderMessage: 'Bitte die Fluchtweglänge prüfen.',
+        dueAt: '2026-09-20',
+      }),
+    )
+  })
+
+  it.each([
+    ['empty order', { reviewerUserIds: [], orderMessage: '   ' }],
+    ['overlong order', { reviewerUserIds: [], orderMessage: 'x'.repeat(501) }],
+    ['rolled-over date', { reviewerUserIds: [], dueAt: '2026-02-30' }],
+    ['malformed date', { reviewerUserIds: [], dueAt: 'next Friday' }],
+  ])('submit refuses %s at the schema, before the service', async (_label, body) => {
+    const response = await submit(
+      new Request('https://grid.test/api/documents/doc_1/versions/ver_1/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      { params: Promise.resolve({ id: 'doc_1', versionId: 'ver_1' }) },
+    )
+    expect(response.status).toBe(400)
+    expect(transitionDocumentVersion).not.toHaveBeenCalled()
+  })
+
   it('approve takes an optional comment', async () => {
     await client.approve('doc_1', 'ver_1')
     expect(transitionDocumentVersion).toHaveBeenCalledWith(

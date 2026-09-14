@@ -151,7 +151,9 @@ tool-name sanitising, selective retry) and never *answer quality*.
 The compliance checker (`agents/compliance_checker/`) is the nearest thing to
 the agent doing a job: a deterministic three-stage pipeline with a bounded
 call budget that produces a matrix, a ranked gap list and a German report. It
-is reachable only as a tool the chat agent may call, and its README still says
+was reachable only as a tool the chat agent may call; that direct binding is
+retired (implementation, tests and README stay in place) and a full check now
+runs as a task of kind `compliance_check`. Its README still says
 "live shakedown pending".
 
 ---

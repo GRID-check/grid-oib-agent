@@ -96,6 +96,13 @@ export function toJsonSchema(schema: ZodTypeAny): JsonSchemaNode {
     case z.ZodFirstPartyTypeKind.ZodOptional:
     case z.ZodFirstPartyTypeKind.ZodDefault:
       return toJsonSchema((definition.innerType as ZodTypeAny) ?? z.unknown())
+    case z.ZodFirstPartyTypeKind.ZodEffects:
+      // A `.refine()` is a BFF-side validation, not a wire shape: the JSON
+      // Schema describes what crosses the boundary (a string), while the
+      // calendar check (`2026-02-30` is not a date) lives in zod and is
+      // enforced by the route's 400. Unwrapping keeps the export honest about
+      // the shape without re-implementing the check in a second language.
+      return toJsonSchema((definition.schema as ZodTypeAny) ?? z.unknown())
     case z.ZodFirstPartyTypeKind.ZodNullable:
       // `anyOf` rather than a type array, because the inner node may carry
       // constraints (`maxLength`, `enum`) that a `["string", "null"]` shorthand

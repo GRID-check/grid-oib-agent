@@ -36,7 +36,7 @@ export const nav: typeof en.nav = {
   sectionSubtitles: {
     files: 'Dokumente, auf die sich Piloti in diesem Projekt stützt.',
     automation:
-      'Skills, die die Organisation wiederverwendet, und Prompts, die dieses Projekt zeitgesteuert ausführt.',
+      'Skills, die die Organisation wiederverwendet, Zeitpläne dieses Projekts und jede Aufgabe, die Piloti übernommen hat.',
     knowledge: 'Was die Wissensbasis derzeit enthält.',
     settings: 'Projektprofil, Mitglieder, Gedächtnis und Gefahrenzone.',
     intake: 'Geführtes Briefing für dieses Projekt.',

@@ -9,7 +9,7 @@
  */
 
 import 'server-only'
-import { and, asc, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, lt, ne, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   documentVersions,
@@ -20,8 +20,18 @@ import {
 import type { DocumentVersionState } from './lifecycle-types'
 import { DOCUMENT_VERSION_STATES, OPEN_DOCUMENT_VERSION_STATES } from './lifecycle-types'
 
-/** A document's version list is a page, like every other list in this tier. */
-export const DOCUMENT_VERSION_LIST_LIMIT = 200
+/**
+ * A document's version list is a page, like every other list in this tier.
+ *
+ * 500, matching `DOCUMENT_LIST_LIMIT`: version rows are light display rows,
+ * and the page no longer feeds any logic — the diff base is a direct
+ * `findPreviousVersion` query, never a scan of this page — so the cap is a
+ * render bound only. It is still a cap, not a promise: past it the list keeps
+ * the oldest rows (`ORDER BY version_number ASC` below), and a true
+ * newest-first page (offset/desc) is the follow-up when a history that long
+ * stops being theoretical.
+ */
+export const DOCUMENT_VERSION_LIST_LIMIT = 500
 
 export async function insertDocumentVersion(values: NewDocumentVersion): Promise<DocumentVersion> {
   const db = getDb()
@@ -121,6 +131,36 @@ export async function findDocumentVersion(
         eq(documentVersions.organizationId, organizationId),
       ),
     )
+    .limit(1)
+  return row ?? null
+}
+
+/**
+ * The version a diff compares against: the highest version number below the
+ * given one, or `null` for a first version.
+ *
+ * A DIRECT `version_number < $n ORDER BY version_number DESC LIMIT 1` — never
+ * the asc-limited-200 page scanned in memory. Past 200 versions the page no
+ * longer contains the predecessor at all, and the scan then names the wrong
+ * row (the highest inside the window) as the diff base.
+ */
+export async function findPreviousVersion(
+  documentId: string,
+  organizationId: string,
+  versionNumber: number,
+): Promise<DocumentVersion | null> {
+  const db = getDb()
+  const [row] = await db
+    .select()
+    .from(documentVersions)
+    .where(
+      and(
+        eq(documentVersions.documentId, documentId),
+        eq(documentVersions.organizationId, organizationId),
+        lt(documentVersions.versionNumber, versionNumber),
+      ),
+    )
+    .orderBy(desc(documentVersions.versionNumber))
     .limit(1)
   return row ?? null
 }

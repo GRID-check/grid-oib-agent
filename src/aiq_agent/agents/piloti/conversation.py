@@ -87,7 +87,7 @@ LEGACY_ESCALATION_REASON = "Shallow agent emitted insufficiency marker"
 #: id, a prior self-assessment, last turn's routing — can leak onto this one.
 #: ``deep_research_declined`` is STICKY for the conversation on purpose: the
 #: user said no to a research plan once and should not have to say it again.
-CONVERSATION_SCOPED_FIELDS: frozenset[str] = frozenset({"messages", "deep_research_declined"})
+CONVERSATION_SCOPED_FIELDS: frozenset[str] = frozenset({"messages", "deep_research_declined", "already_read_digest"})
 TURN_SCOPED_FIELDS: frozenset[str] = frozenset(ConversationState.model_fields) - CONVERSATION_SCOPED_FIELDS
 
 #: ``(Piloti state attribute, conversation state field)``: what a finished
@@ -104,6 +104,7 @@ ANSWER_LIFTS: tuple[tuple[str, str], ...] = (
     ("answer_confidence_capped_reason", "answer_confidence_capped_reason"),
     ("verified_sources", "verified_sources"),
     ("read_sources", "read_sources"),
+    ("already_read_digest", "already_read_digest"),
     ("citations_removed", "citations_removed"),
     ("skills_activated", "skills_activated"),
     ("skills_hidden", "skills_hidden"),
@@ -143,6 +144,11 @@ def _escalation_update(message: BaseMessage, result: ResearchAgentState) -> dict
         "escalate_to_deep": True,
         "escalation_ask_reason": result.answer_escalation_reason or LEGACY_ESCALATION_REASON,
         "verified_sources": result.verified_sources,
+        # The turn still read: the deep report replaces the answer, not the
+        # digest the next turn re-opens from. Absent (never nulled) when the
+        # turn digested nothing, so a mocked result without the field cannot
+        # wipe the checkpointed lines either.
+        **({"already_read_digest": list(result.already_read_digest)} if result.already_read_digest else {}),
     }
 
 
@@ -326,6 +332,7 @@ class ConversationGraph:
             user_info=state.user_info,
             available_documents=state.available_documents,
             in_flight_documents=state.in_flight_documents,
+            already_read_digest=list(state.already_read_digest) if state.already_read_digest else None,
             project_context=state.project_context,
             platform_lessons=state.platform_lessons,
             focus_file_name=state.focus_file_name,
@@ -366,7 +373,14 @@ class ConversationGraph:
         message = _answer_message(result.messages[len(trimmed) :])
         if message is None:
             return {"messages": []}
-        return _finalize_answer(message, result)
+        update = _finalize_answer(message, result)
+        if isinstance(result, ResearchAgentState) and not update.get("already_read_digest"):
+            # A result that carries no digest (a mocked research_fn, an older
+            # caller) must not wipe the checkpointed lines: the digest only
+            # ever grows within a conversation, it is never cleared by a turn.
+            if state.already_read_digest:
+                update["already_read_digest"] = list(state.already_read_digest)
+        return update
 
     async def _submit_deep_job(self, state: ConversationState) -> dict[str, Any]:
         assert self.deep_research_job_submitter is not None
@@ -468,18 +482,48 @@ class ConversationGraph:
         graph.add_edge("deep_research", END)
         return graph.compile(checkpointer=self.checkpointer)
 
+    async def _merged_digest(self, graph_config: RunnableConfig, state: ConversationState) -> list[str] | None:
+        """The digest this turn runs with: checkpoint lines, then the caller's.
+
+        Append-only, exactly as the agent merges a turn's reads at its end: the
+        digest never shrinks within a conversation, so a caller that supplies
+        lines (a resumed run, a replayed turn) may add but never replace. The
+        checkpoint is read here rather than written over, because the field is
+        conversation-scoped: a run that supplies nothing must keep what the
+        checkpoint holds, and a fresh thread with a caller digest keeps the
+        caller's. ``None`` when neither has anything, so an absent digest stays
+        absent rather than becoming an empty list the nodes read as a value.
+        """
+        caller = list(state.already_read_digest or [])
+        checkpoint: list[str] = []
+        try:
+            snapshot = await self._graph.aget_state(graph_config)
+            values = getattr(snapshot, "values", None) or {}
+            checkpoint = [line for line in (values.get("already_read_digest") or []) if isinstance(line, str)]
+        except Exception:  # noqa: BLE001 - no checkpointer (or an empty thread) reads as no lines
+            checkpoint = []
+        if not checkpoint and not caller:
+            return None
+        return list(dict.fromkeys([*checkpoint, *caller]))
+
     async def run(self, state: ConversationState, thread_id: str | None = None) -> ConversationState:
         """Execute one turn on ``thread_id``'s conversation and return the final state.
 
         The graph input is every turn-scoped field of the fresh ``state`` plus
         its new messages: a field listed is overwritten with this turn's value
         (its default, for the outputs), a field omitted keeps its checkpointed
-        value — which is how ``deep_research_declined`` stays sticky.
+        value — which is how ``deep_research_declined`` stays sticky. The
+        digest is the exception that proves it: conversation-scoped, so the
+        caller's lines MERGE with the checkpoint's (append-only) instead of
+        overwriting them, and the merged value is what the graph runs with.
         """
         graph_config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
         logger.info("Conversation: Starting turn")
         input_state = {name: getattr(state, name) for name in TURN_SCOPED_FIELDS}
         input_state["messages"] = state.messages
+        merged_digest = await self._merged_digest(graph_config, state)
+        if merged_digest is not None:
+            input_state["already_read_digest"] = merged_digest
         if state.messages:
             logger.info("Query: %s...", str(state.messages[-1].content)[:100])
         result = await self._graph.ainvoke(input_state, config=graph_config)

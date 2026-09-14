@@ -83,16 +83,17 @@ interface TaskEngine {
 
 const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
   /**
-   * The compliance checker (`agents/compliance_checker/`), reached through the
-   * `compliance_check` tool the chat agent already binds. No skill: the engine
-   * is bounded and deterministic and needs no playbook on top of it.
+   * A norm check run by the general agent (the purpose-built
+   * `agents/compliance_checker/` tool is retired and no longer bound).
+   * No skill: the run works from the regulation corpus and project files
+   * with the retrieval tools it already binds.
    */
   compliance_check: {
     skill: null,
     instruction: (goal) =>
       [
-        'Führe für dieses Projekt eine Normprüfung durch: rufe `compliance_check` auf und',
-        'arbeite das Ergebnis zu einer Antwort aus, die je Punkt sagt, was erfüllt ist,',
+        'Führe für dieses Projekt eine Normprüfung durch: arbeite mit `knowledge_search` und `read_passage`',
+        'und arbeite das Ergebnis zu einer Antwort aus, die je Punkt sagt, was erfüllt ist,',
         'was offen ist und woran das hängt. Nenne für jeden Befund die Fundstelle.',
         '',
         'Der Auftrag, wörtlich:',

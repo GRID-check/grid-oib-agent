@@ -24,6 +24,7 @@ from aiq_agent.common.norm_registry import render_block_for_prompt
 from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.common.source_kinds import SHELF_QUALIFIERS
 from aiq_agent.common.source_kinds import parse_shelf
+from aiq_agent.knowledge.already_read import render_already_read_block
 
 from .models import ResearchAgentState
 
@@ -108,6 +109,10 @@ def render_system_prompt(
         user_info=state.user_info,
         current_datetime=datetime.now().strftime("%Y-%m-%d"),
         available_documents=documents,
+        # The conversation's "already read" digest, rendered right after the
+        # inventory: what THIS conversation opened, for the locator-first rule.
+        # None renders no section (the template guards it).
+        already_read_block=render_already_read_block(state.already_read_digest),
         # Not a document list: the files that are NOT yet in one. The renderer
         # hands it to the inventory block.
         in_flight_documents=state.in_flight_documents,

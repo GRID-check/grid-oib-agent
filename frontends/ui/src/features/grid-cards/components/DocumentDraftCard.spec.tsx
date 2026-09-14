@@ -36,10 +36,17 @@ import { DocumentDraftCard } from './DocumentDraftCard'
 
 const setCardDecision = vi.fn()
 
+// A recorded decision the store replays after a reload. Set per test — the
+// card reads it through `useCardDecision` exactly as the restored thread does.
+let stubbedCardInteractions: Record<string, { decision: string; decidedAt: string }> | undefined
+
 const storeState = () => ({
   projectId: 'proj-1',
   setCardDecision,
-  currentConversation: { id: 'conv-1', messages: [{ id: 'msg-1', cardInteractions: undefined }] },
+  currentConversation: {
+    id: 'conv-1',
+    messages: [{ id: 'msg-1', cardInteractions: stubbedCardInteractions }],
+  },
   conversations: [],
 })
 
@@ -75,16 +82,16 @@ describe('DocumentDraftCard — the draft, before it is filed', () => {
   })
   afterEach(() => vi.unstubAllGlobals())
 
-  it('reports the draft: title, path, stand and — past the first write — the version', () => {
+  it('reports the draft: title, path and stand — never a version number', () => {
     render(<DocumentDraftCard {...DRAFT} />)
 
     expect(screen.getByText(DRAFT.title)).toBeInTheDocument()
     expect(screen.getByText(DRAFT.path)).toBeInTheDocument()
     // The stand, in words: an unfiled draft is a draft by definition.
     expect(screen.getByTestId('document-draft-state')).toHaveTextContent('Draft')
-    // Past the first write the counter stays — a single write is the only
-    // count that never renders.
-    expect(screen.getByText('v3')).toBeInTheDocument()
+    // No counter at any count: one write is no history, and ten writes are
+    // still no headline — the number lives in the preview beside the words.
+    expect(screen.queryByText('v3')).not.toBeInTheDocument()
     // The size lives in the preview beside the words it measures, never on
     // the card — so neither the human size nor the raw bytes stand here.
     expect(screen.queryByText('5 kB')).not.toBeInTheDocument()
@@ -419,6 +426,112 @@ describe('DocumentDraftCard — the draft, before it is filed', () => {
   })
 })
 
+describe('DocumentDraftCard — filed by the reader, after a reload', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stubbedCardInteractions = {
+      'document_draft-0': { decision: 'filed', decidedAt: '2026-09-11T10:00:00.000Z' },
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          status: 201,
+          json: async () => ({ documentId: 'doc-1', versionId: 'ver-1', state: 'draft', alreadyFiled: true }),
+        }),
+      ),
+    )
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    stubbedCardInteractions = undefined
+  })
+
+  it('keeps the open link without another press, through the idempotent door', async () => {
+    // The recorded `filed` replays against a card that still says unfiled —
+    // the card is the frame the turn emitted and is never rewritten. The link
+    // comes back from the reference probe (`alreadyFiled`), never from memory:
+    // a `CardInteraction` carries no document id.
+    render(<DocumentDraftCard {...DRAFT} />)
+
+    // No press happened, yet the file door was entered once for this draft.
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/conversations/conv-1/draft/file',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    const [, init] = vi.mocked(fetch).mock.calls[0]
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      path: DRAFT.path,
+      title: DRAFT.title,
+      force: false,
+    })
+    // The stand never renders Draft for a filed draft, and the open link lands.
+    expect(screen.getByTestId('document-draft-state')).toHaveTextContent('Filed in the project as a draft')
+    expect(await screen.findByRole('link', { name: 'Open in the project' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('doc-1'),
+    )
+    // Nothing was decided here — the decision predates the reload.
+    expect(setCardDecision).not.toHaveBeenCalled()
+    // …and the file action stays hidden: there is nothing left to file.
+    expect(screen.queryByRole('button', { name: 'File into the project' })).not.toBeInTheDocument()
+  })
+
+  it('names the Files pane when the reference filed and moved on before the reload', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 409,
+          json: async () => ({
+            error: 'This draft has already been filed and is no longer a draft',
+            code: 'CONFLICT',
+            details: { reason: 'already-submitted' },
+          }),
+        }),
+      ),
+    )
+    render(<DocumentDraftCard {...DRAFT} />)
+
+    await waitFor(() => expect(screen.getByTestId('document-draft-error')).toBeInTheDocument())
+    expect(screen.getByText('This draft has already been filed. Continue in the Files pane.')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Open in the project' })).not.toBeInTheDocument()
+    expect(setCardDecision).not.toHaveBeenCalled()
+  })
+
+  it('re-offers the file action when the restore itself fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 502,
+          json: async () => ({ error: 'Upstream service error', code: 'UPSTREAM_ERROR' }),
+        }),
+      ),
+    )
+    render(<DocumentDraftCard {...DRAFT} />)
+
+    // An actionable message, and the way back: the press is idempotent, so the
+    // retry restores the same link the reload could not reach.
+    await waitFor(() => expect(screen.getByTestId('document-draft-error')).toBeInTheDocument())
+    expect(screen.getByText('Filing failed. Please try again.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'File into the project' })).toBeInTheDocument()
+  })
+
+  it('files nothing on mount while the card is still undecided', async () => {
+    stubbedCardInteractions = undefined
+    render(<DocumentDraftCard {...DRAFT} />)
+
+    // The card settled with its actions offered and no request made: the
+    // restore runs only for a recorded `filed`, never speculatively.
+    expect(await screen.findByRole('button', { name: 'File into the project' })).toBeInTheDocument()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
 describe('DocumentDraftCard — filed, and still the reader’s to send', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -460,8 +573,8 @@ describe('DocumentDraftCard — filed, and still the reader’s to send', () => 
   it('says the document is in the project, as a draft', () => {
     render(<DocumentDraftCard {...FILED} />)
     expect(screen.getByTestId('document-draft-state')).toHaveTextContent('Filed in the project as a draft')
-    // Written three times, so the counter stands beside the stand.
-    expect(screen.getByText('v3')).toBeInTheDocument()
+    // Filed or not, the card carries no counter — not even past the first write.
+    expect(screen.queryByText('v3')).not.toBeInTheDocument()
   })
 
   it('a filed card offers no draft preview — there is nothing unfiled left to read', () => {

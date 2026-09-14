@@ -280,6 +280,34 @@ const wireSourceSchema = z
   .passthrough()
 
 /**
+ * Identity + placement of a read-but-uncited document, in the wire spelling.
+ *
+ * Deliberately NOT `.passthrough()` and deliberately narrow: a retrieved
+ * document the answer never cited carries no prose by construction (the
+ * backend drops every prose key), so `content`, `snippet`, `punkt` and `score`
+ * on this field are either a verbose producer or evidence text riding where
+ * only a locator belongs. The shared `wireSourceSchema` below is passthrough
+ * and keeps them for CITED sources; routing `read_sources` through it leaked
+ * them into the stored envelope and from there into surfaces that must name
+ * documents, never passages. The eleven fields kept are the document's
+ * identity and where it stands — everything the "Gelesen, nicht zitiert"
+ * disclosure renders, and nothing it must not.
+ */
+const wireReadSourceSchema = z.object({
+  document_id: z.string().nullable().optional(),
+  citation_key: z.string().nullable().optional(),
+  file_name: z.string().nullable().optional(),
+  page: z.number().nullable().optional(),
+  collection: z.string().nullable().optional(),
+  shelf: z.string().nullable().optional(),
+  kind: z.string().nullable().optional(),
+  lane: z.string().nullable().optional(),
+  lane_label: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
+  url: z.string().nullable().optional(),
+})
+
+/**
  * A list of structured wire sources, tolerant per entry.
  *
  * Fail-open: PER-ENTRY tolerance — a single malformed source degrades to
@@ -288,17 +316,23 @@ const wireSourceSchema = z
  * The per-entry `.catch(undefined)` holes are compacted out so consumers
  * only see the well-formed entries.
  */
-const wireSourcesField = z
-  .array(
-    // Per-entry tolerance: `.optional()` makes `undefined` a valid element
-    // output so `.catch(undefined)` can degrade a single malformed source to
-    // a hole (rather than needing a full object fallback), which the
-    // transform below compacts out.
-    wireSourceSchema.optional().catch(undefined)
-  )
-  .optional()
-  .catch(undefined)
-  .transform((arr) => (arr ? arr.filter((entry) => entry != null) : arr))
+const tolerantWireSourceList = <Entry extends z.ZodTypeAny>(entrySchema: Entry) =>
+  z
+    .array(
+      // Per-entry tolerance: `.optional()` makes `undefined` a valid element
+      // output so `.catch(undefined)` can degrade a single malformed source to
+      // a hole (rather than needing a full object fallback), which the
+      // transform below compacts out.
+      entrySchema.optional().catch(undefined)
+    )
+    .optional()
+    .catch(undefined)
+    .transform((arr) => (arr ? arr.filter((entry) => entry != null) : arr))
+
+const wireSourcesField = tolerantWireSourceList(wireSourceSchema)
+
+/** Same tolerance as `sources`, but only identity + placement survive. */
+const wireReadSourcesField = tolerantWireSourceList(wireReadSourceSchema)
 
 /** System Response Message - final or streaming response */
 export const NATSystemResponseMessageSchema = z.object({
@@ -331,9 +365,10 @@ export const NATSystemResponseMessageSchema = z.object({
   // Fail-open per entry — see `wireSourcesField`.
   sources: wireSourcesField,
   // Retrieved-but-uncited document identities (no prose) for the
-  // "Gelesen, nicht zitiert" disclosure. Same shape and same tolerance as
-  // `sources` — the producer only ever drops prose keys, never adds any.
-  read_sources: wireSourcesField,
+  // "Gelesen, nicht zitiert" disclosure. Identity + placement only — never
+  // the passthrough `sources` shape, so prose and scoring keys cannot ride
+  // along (see `wireReadSourceSchema`).
+  read_sources: wireReadSourcesField,
 
   // ── Transparency extras (WP-A → WP-B wire contract) ──────────────────────
   // All optional + per-field `.catch(undefined)`: one malformed extra degrades

@@ -366,6 +366,60 @@ class TestDeferredFlush:
 
         await flush_after_answer(None, None)
 
+    async def test_flush_after_answer_records_the_turn_usage_rollup(self):
+        """Per-turn dollars finalize with the ledgers: the tracker in, a rollup out."""
+        from unittest.mock import patch
+
+        from aiq_agent.common.cost_tracking import GridCostTracker
+        from aiq_agent.common.cost_tracking import UsageEvent
+        from aiq_agent.common.profiler import flush_after_answer
+
+        tracker = GridCostTracker(organization_id="org_1")
+        tracker.record(
+            UsageEvent(
+                model="m",
+                requested_model="m",
+                generation_id="gen-1",
+                prompt_tokens=500,
+                completion_tokens=100,
+                total_tokens=600,
+                cached_tokens=0,
+                reasoning_tokens=0,
+                cost_usd=0.001,
+                cost_source="usage_field",
+                is_byok=False,
+            )
+        )
+        with (
+            patch("aiq_agent.common.cost_tracking._post_usage_events"),
+            patch(
+                "aiq_agent.observability.usage_rollup.record_usage_turn",
+                return_value={"rollup": {}},
+            ) as record,
+        ):
+            await flush_after_answer(tracker)
+
+        assert record.call_count == 1
+        assert record.call_args.kwargs["tracker"] is tracker
+        assert record.call_args.kwargs["agent"] == "chat"
+
+    async def test_flush_after_answer_survives_a_failing_rollup(self):
+        """Telemetry must never take the turn down — not even the usage rollup."""
+        from unittest.mock import patch
+
+        from aiq_agent.common.cost_tracking import GridCostTracker
+        from aiq_agent.common.profiler import flush_after_answer
+
+        tracker = GridCostTracker(organization_id="org_1")
+        with (
+            patch("aiq_agent.common.cost_tracking._post_usage_events"),
+            patch(
+                "aiq_agent.observability.usage_rollup.record_usage_turn",
+                side_effect=RuntimeError("trace store is gone"),
+            ),
+        ):
+            await flush_after_answer(tracker)
+
 
 class TestAnnotateCurrentSpan:
     """A TTL-cached reader says whether it hit, on the span that was open."""

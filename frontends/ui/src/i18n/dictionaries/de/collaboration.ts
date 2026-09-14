@@ -265,6 +265,36 @@ export const collaboration: typeof en.collaboration = {
     },
     unknownActor: 'Jemand',
     untitledConversation: 'Chat ohne Titel',
+    // Triage einer Fassung, die auf eine Entscheidung wartet, direkt in der
+    // Zeile: die drei Entscheidungen ohne Umweg über die Dateien. Die Freigabe
+    // trägt dieselbe Mindestzeremonie wie an der Datei (ausdrückliche
+    // Bestätigung, nie ein Klick); die beiden Verweigerungen tragen ihre
+    // Begründung, wie die Übergangstabelle sie verlangt.
+    review: {
+      approve: 'Freigeben',
+      requestChanges: 'Änderung erbeten',
+      reject: 'Ablehnen',
+      changesLabel: 'Was geändert werden soll',
+      reasonLabel: 'Grund der Ablehnung',
+      approveConfirm: 'Ich gebe diesen Stand frei',
+      // Die Unterschrift wie an der Datei: welcher Stand freigegeben wird (das
+      // Dokument, die Fassungsnummer und wann die Runde eröffnet wurde — die
+      // Nummer ist Pflicht, ohne sie wird nicht freigegeben) und wer wann
+      // handelt. Der Name der handelnden Person ist hier unbekannt, daher
+      // immer die Form ohne Namen; wer gebeten hat, nennt bereits der Titel.
+      approveStand: '{subject} · Fassung {number} · Stand vom {date}',
+      approveActing: 'Handelnd: {date}',
+      standFailed:
+        'Der aktuelle Stand konnte nicht gelesen werden — die Freigabe ist blockiert, bis er vorliegt.',
+      retry: 'Erneut versuchen',
+      send: 'Senden',
+      cancel: 'Abbrechen',
+      open: 'Datei öffnen',
+      decided: 'Entscheidung gesendet — wird aktualisiert.',
+      failed: 'Das hat nicht geklappt. Es hat sich nichts geändert.',
+      stale: 'Der Stand hat sich geändert — die aktuelle Fassung liegt in der Datei.',
+      reload: 'Aktuelle Fassung öffnen',
+    },
   },
 
   thread: {

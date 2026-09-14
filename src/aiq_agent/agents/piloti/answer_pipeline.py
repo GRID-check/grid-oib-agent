@@ -25,6 +25,7 @@ from langchain_core.tools import BaseTool
 from aiq_agent.common import citation_events
 from aiq_agent.common import content_to_text
 from aiq_agent.common import get_source_id_for_tool
+from aiq_agent.common.answer_envelope import TAKEAWAYS_MIN_PROSE_CHARS
 from aiq_agent.common.answer_envelope import AnswerMeta
 from aiq_agent.common.answer_envelope import extract_answer_envelope
 from aiq_agent.common.answer_envelope import gate_answer_meta
@@ -35,6 +36,8 @@ from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import UnverifiedQuote
 from aiq_agent.common.citation_verification import agent_authored_document_names
 from aiq_agent.common.citation_verification import annotate_unverified_quotes
+from aiq_agent.common.citation_verification import drop_ungrounded_trailer_values
+from aiq_agent.common.citation_verification import get_turn_captures
 from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
@@ -425,7 +428,13 @@ def _renumbered(cited: tuple[CitedSource, ...], renumber_map: dict[int, int] | N
     )
 
 
-def _gated_meta(extracted: _Extracted, content: str, registry: SourceRegistry) -> dict[str, Any] | None:
+def _gated_meta(
+    extracted: _Extracted,
+    content: str,
+    registry: SourceRegistry,
+    *,
+    turn_sources: Sequence[SourceEntry] | None = None,
+) -> dict[str, Any] | None:
     """The structured trailer, gated once the text is final.
 
     Skipped on an escalating turn: this answer is about to be
@@ -438,14 +447,26 @@ def _gated_meta(extracted: _Extracted, content: str, registry: SourceRegistry) -
     is the one place an answer names a Fundstelle for a value the reader
     copies, so it is the one place an approved office document must not be able
     to stand in for the OIB.
+
+    Past the envelope gates, every trailer VALUE (a Zahl, Klasse or Frist in a
+    verdict, a takeaway or a detail) must name a Fundstelle this turn retrieved
+    (``drop_ungrounded_trailer_values``) — a headline number with no source
+    behind it is the fabrication the citation check cannot see, because the
+    trailer carries no ``[N]`` markers. ``turn_sources`` is this turn's capture
+    log; ``None`` (the default) reads the ambient one, so tests pin the gate by
+    passing entries explicitly.
     """
     if extracted.meta is None or extracted.escalation_requested:
         return None
-    return gate_answer_meta(
+    gated = gate_answer_meta(
         extracted.meta,
         prose_chars=len(prose_without_references(content)),
         agent_authored_documents=agent_authored_document_names(registry),
     )
+    if gated is None:
+        return None
+    captures = list(turn_sources) if turn_sources is not None else get_turn_captures()
+    return drop_ungrounded_trailer_values(gated, captures)
 
 
 def _normative_claim_uncited(content: str, grounding: _Grounding) -> bool:
@@ -461,14 +482,163 @@ def _normative_claim_uncited(content: str, grounding: _Grounding) -> bool:
     return not model_cited and answer_mentions_normative_claim(prose_without_references(content))
 
 
+#: Short-overview card floor. Below this a non-ruling answer without a
+#: copyable verdict has not earned cards: the prose IS the answer, and the
+#: describe_card + emit_card generations (each a full-context LLM round,
+#: ~2 s in the production trace) buy the reader nothing to copy. Mirrors the
+#: takeaway floor's judgement (600) with headroom: cards are heavier than
+#: takeaways, so they are earned later. Mechanical only — the prompt doctrine
+#: that teaches WHEN to emit is untouched.
+_CARD_SUPPRESS_MIN_PROSE_CHARS = 800
+
+#: The marker emit_card hands back (``[[card:N]]``); stripped when cards are
+#: suppressed so the reader never meets a marker with nothing behind it.
+_CARD_MARKER_RE = re.compile(r"\[\[card:\d+\]\]")
+
+#: The one model-emitted card suppression must never eat. ``legal_basis`` is
+#: not a system card — the model emits it through ``emit_card`` like any other
+#: content card, so ``SYSTEM_CARD_TYPES`` cannot cover it — but it is the
+#: answer's PROOF, not its trailer: the Fundstelle margin the reader checks the
+#: verdict against. Clearing the registry under it would keep the headline
+#: number and delete what makes it checkable, so any ``legal_basis`` card in
+#: the registry snapshot vetoes the whole suppression, exactly like a system
+#: card does.
+_LEGAL_BASIS_CARD_TYPE = "legal_basis"
+
+
+def _should_suppress_meta_cards(content: str, gated_meta: dict[str, Any] | None) -> bool:
+    """Whether a short overview's trailer cards should be dropped.
+
+    Pure, so tests pin it without a registry: ``False`` when there is nothing
+    to drop, when the prose reaches the floor, or when the answer carries a
+    copyable value (a verdict, or ``kind=ruling`` which exists to carry one).
+    A short walkthrough/direct answer with takeaways/callout/summary but no
+    verdict is the shape that pays full-context card generations for prose
+    the reader finishes in one screen.
+    """
+    if not gated_meta:
+        return False
+    try:
+        prose_chars = len(prose_without_references(content))
+    except Exception:
+        return False
+    if prose_chars >= _CARD_SUPPRESS_MIN_PROSE_CHARS:
+        return False
+    if gated_meta.get("verdict") is not None:
+        return False
+    return gated_meta.get("kind") != "ruling"
+
+
+def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[str, dict[str, Any] | None, bool]:
+    """Drop unearned cards on a short overview; ``(content, meta, suppressed)``.
+
+    Clears the turn's emit_card registry (fail-open when unbound) and strips
+    ``[[card:N]]`` markers so no dangling marker reaches the reader. Logs the
+    drop: a turn that came back with no cards must read as "suppressed", never
+    as "the model never tried". Mechanical — no prompt wording, no doctrine
+    change.
+
+    The drop is SPLIT: cards go, but the gated trailer goes only when it was
+    never earned. At or above the takeaway floor the takeaways stay (with the
+    rest of the gated meta); below it the meta shrinks to the callout alone —
+    a warning or Frist the reader must see whatever the prose length — and to
+    nothing when there is no callout either.
+
+    Two vetoes, both read off the registry snapshot before anything is
+    cleared. System cards are the product, not the trailer: ``document_draft``
+    (and every other ``SYSTEM_CARD_TYPES`` member) is pushed by the tool that
+    did the work, and a short drafting answer (kind=direct, <800 chars, no
+    verdict) matches the suppression floor exactly. Clearing the registry
+    there would eat the announcement of the work just done, so any system
+    card in the registry vetoes the whole suppression — cards, markers and
+    meta all stay. ``legal_basis`` vetoes the same way (see
+    ``_LEGAL_BASIS_CARD_TYPE``): it is the proof the verdict rests on.
+    """
+    if not _should_suppress_meta_cards(content, gated_meta):
+        return content, gated_meta, False
+    try:
+        from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
+        from aiq_agent.cards.registry import get_card_registry as _get_registry_for_guard
+
+        _veto_types = SYSTEM_CARD_TYPES | {_LEGAL_BASIS_CARD_TYPE}
+        _guard_registry = _get_registry_for_guard()
+        if _guard_registry is not None and any(card.get("type") in _veto_types for card in _guard_registry.snapshot()):
+            logger.info("Piloti: answer cards suppressed: veto card present, keeping cards and meta")
+            return content, gated_meta, False
+    except Exception:
+        logger.debug("Suppression veto guard skipped", exc_info=True)
+    try:
+        prose_chars = len(prose_without_references(content))
+    except Exception:
+        prose_chars = -1
+    logger.info(
+        "Piloti: answer cards suppressed: prose %d chars under the %d floor with no verdict",
+        prose_chars,
+        _CARD_SUPPRESS_MIN_PROSE_CHARS,
+    )
+    try:
+        from aiq_agent.cards.registry import get_card_registry
+
+        registry = get_card_registry()
+        if registry is not None and len(registry) > 0:
+            logger.info("Piloti: answer cards suppressed: dropping %d emit_card card(s)", len(registry))
+            registry.clear()
+    except Exception:
+        logger.debug("Card registry suppression skipped", exc_info=True)
+    try:
+        stripped = _CARD_MARKER_RE.sub("", content)
+        # A dropped own-line marker leaves a blank paragraph that reads as a
+        # rendering fault; collapse three-plus newlines to two.
+        stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()
+        # Never fall back to the marker text: an answer whose prose was only
+        # markers has nothing left to say, and a `[[card:N]]` with no card
+        # behind it reaches the reader as that literal string.
+        content = stripped
+    except Exception:
+        pass
+    if prose_chars >= TAKEAWAYS_MIN_PROSE_CHARS:
+        # The takeaway window: the cards were unearned, but the takeaways were
+        # earned by length — keep the whole gated trailer.
+        return content, gated_meta, True
+    # Below the takeaway floor the trailer shrinks to the callout alone. The
+    # ``[[callout]]`` marker resolves downstream against exactly this field
+    # (``resolve_callout_marker``), so returning ``None`` here would drop the
+    # marker with it and silence a warning the gates deliberately kept.
+    kept = {key: value for key, value in (gated_meta or {}).items() if key in ("v", "callout")}
+    return content, (kept if "callout" in kept else None), True
+
+
+def _trailer_captures(
+    turn_sources: Sequence[SourceEntry] | None,
+    repair_sources: Sequence[SourceEntry],
+) -> list[SourceEntry]:
+    """The capture log the trailer-value gate reads: this turn's reads, plus repairs.
+
+    The caller passes the turn log explicitly because the capture ContextVar is
+    already reset when finalization runs; ``None`` (direct callers, tests)
+    falls back to the ambient log. An adopted repair fetch is this turn's read
+    too, so its sources count — otherwise the gate drops the very values the
+    repair established.
+    """
+    return [*(turn_sources if turn_sources is not None else get_turn_captures()), *repair_sources]
+
+
 async def finalize_answer(
     messages: Sequence[Any],
     *,
     registry: SourceRegistry,
     tools: Sequence[BaseTool],
     repair: RepairFn | None,
+    turn_sources: Sequence[SourceEntry] | None = None,
 ) -> FinalAnswer:
     """Run every post-answer stage and return the answer as the reader gets it.
+
+    ``turn_sources`` is this turn's capture, which the caller must pass when it
+    finalises AFTER ``end_turn_capture``: the ContextVar is back to its prior
+    value by then, so the trailer-grounding veto would read an empty list and
+    abstain on every turn. The adopted repair sources are appended to it, so a
+    verdict or takeaway the repair established stays grounded. ``None`` falls
+    back to the ambient log for direct callers.
 
     Raises :class:`EmptySourceRegistryError` when a data-source lookup ran and
     nothing came back: that turn has no answer to show.
@@ -490,7 +660,13 @@ async def finalize_answer(
 
     sanitized = sanitize_report(grounding.content)
     content = sanitized.sanitized_report
-    meta = _gated_meta(extracted, content, registry)
+    meta = _gated_meta(
+        extracted,
+        content,
+        registry,
+        turn_sources=_trailer_captures(turn_sources, grounding.repair_sources),
+    )
+    content, meta, _cards_suppressed = _suppress_cards(content, meta)
     content = resolve_callout_marker(content, has_callout=bool(meta and "callout" in meta))
     final_messages = list(messages)
     final_messages[index] = messages[index].model_copy(update={"content": content})
