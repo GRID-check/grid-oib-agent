@@ -164,7 +164,13 @@ describe('DocumentLifecyclePanel — a refusal carries words', () => {
     await userEvent.click(send)
 
     await waitFor(() =>
-      expect(requestChanges).toHaveBeenCalledWith('doc_1', 'ver_1', 'Die Fluchtweglänge fehlt.'),
+      expect(requestChanges).toHaveBeenCalledWith(
+        'doc_1',
+        'ver_1',
+        'Die Fluchtweglänge fehlt.',
+        undefined,
+        'sha256:abc',
+      ),
     )
   })
 
@@ -206,6 +212,7 @@ describe('DocumentLifecyclePanel — a refusal carries words', () => {
         'ver_1',
         'Bitte Tabelle 3 neu rechnen.',
         true,
+        'sha256:abc',
       ),
     )
   })
@@ -236,7 +243,7 @@ describe('DocumentLifecyclePanel — a refusal carries words', () => {
     await userEvent.click(screen.getByRole('checkbox', { name: 'I release this version' }))
     await userEvent.click(send)
 
-    await waitFor(() => expect(approve).toHaveBeenCalledWith('doc_1', 'ver_1', undefined))
+    await waitFor(() => expect(approve).toHaveBeenCalledWith('doc_1', 'ver_1', undefined, 'sha256:abc'))
     expect(screen.queryByTestId('document-review-comment')).not.toBeInTheDocument()
   })
 })

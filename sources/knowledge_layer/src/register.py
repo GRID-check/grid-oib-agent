@@ -1969,7 +1969,14 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                         requery_skipped_reason = "already_fired"
                         logger.info("Retrieval loop judge skipped (already_fired) for %r", query[:60])
                         return None
-                    skip, reason = should_skip_judge(query, chunks, file_name=file_name)
+                    skip, reason = should_skip_judge(
+                        query,
+                        chunks,
+                        file_name=file_name,
+                        doc_class=doc_class,
+                        title_contains=title_contains,
+                        folder=folder,
+                    )
                     if skip:
                         requery_skipped_reason = reason
                         logger.info("Retrieval loop judge skipped (%s) for %r", reason, query[:60])

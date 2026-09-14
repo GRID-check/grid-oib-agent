@@ -611,8 +611,14 @@ async def finalize_answer(
     registry: SourceRegistry,
     tools: Sequence[BaseTool],
     repair: RepairFn | None,
+    turn_sources: Sequence[SourceEntry] | None = None,
 ) -> FinalAnswer:
     """Run every post-answer stage and return the answer as the reader gets it.
+
+    ``turn_sources`` is this turn's capture, which the caller must pass when it
+    finalises AFTER ``end_turn_capture``: the ContextVar is back to its prior
+    value by then, so the trailer-grounding veto would read an empty list and
+    abstain on every turn.
 
     Raises :class:`EmptySourceRegistryError` when a data-source lookup ran and
     nothing came back: that turn has no answer to show.
@@ -634,7 +640,7 @@ async def finalize_answer(
 
     sanitized = sanitize_report(grounding.content)
     content = sanitized.sanitized_report
-    meta = _gated_meta(extracted, content, registry)
+    meta = _gated_meta(extracted, content, registry, turn_sources=turn_sources)
     content, meta, _cards_suppressed = _suppress_cards(content, meta)
     content = resolve_callout_marker(content, has_callout=bool(meta and "callout" in meta))
     final_messages = list(messages)

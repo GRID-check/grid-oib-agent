@@ -220,6 +220,7 @@ export function DocumentLifecyclePanel({
             reviewerUserIds,
             orderMessage,
             dueAt,
+            version.contentHash ?? undefined,
           )
         }
         // Re-read rather than patch: publish supersedes another version and
@@ -318,6 +319,9 @@ async function runVersionOp(
   reviewerUserIds?: readonly string[],
   orderMessage?: string,
   dueAt?: string,
+  // The bytes this pane was showing when the reviewer decided. A decision on a
+  // version somebody has since replaced 409s instead of landing on the new one.
+  ifMatch?: string,
 ): Promise<void> {
   const calls: Record<typeof action, () => Promise<DocumentVersionView>> = {
     // `undefined` when nobody was singled out, which is the picker's default:
@@ -325,15 +329,15 @@ async function runVersionOp(
     // hook and then every editor in the project. The order and Frist ride the
     // same call into the round's inbox payload.
     submit: () => client.submit(documentId, versionId, reviewerUserIds, { orderMessage, dueAt }),
-    approve: () => client.approve(documentId, versionId, comment),
+    approve: () => client.approve(documentId, versionId, comment, ifMatch),
     // The flag is PASSED only when it is true, the same decision the client
     // makes one tier down about the wire: „Änderungen anfordern" is the call it
     // always was, and the third control is the only caller that adds anything.
     request_changes: () =>
       delegateRevision
-        ? client.requestChanges(documentId, versionId, comment ?? '', true)
-        : client.requestChanges(documentId, versionId, comment ?? ''),
-    reject: () => client.reject(documentId, versionId, comment ?? ''),
+        ? client.requestChanges(documentId, versionId, comment ?? '', true, ifMatch)
+        : client.requestChanges(documentId, versionId, comment ?? '', undefined, ifMatch),
+    reject: () => client.reject(documentId, versionId, comment ?? '', ifMatch),
     publish: () => client.publish(documentId, versionId),
   }
   await calls[action]()

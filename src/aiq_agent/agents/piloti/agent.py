@@ -1048,6 +1048,7 @@ class PilotiAgent:
             registry=registry,
             tools=binding.tools,
             repair=self._repairer(binding, graph_result),
+            turn_sources=turn_sources,
         )
         self._emit_final_report(final)
         # The "already read" digest, appended at turn end: this turn's captures
