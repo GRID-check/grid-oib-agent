@@ -303,6 +303,79 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     expect(mapped!.researchTruncated).toBeUndefined()
   })
 
+  it('restores the retrieval ledger from provenance, so a reload reads the same account', () => {
+    const ledger = [
+      {
+        index: 0,
+        key: 'status.retrieval.withQuery',
+        tools: ['knowledge_search'],
+        corpora: ['knowledge'],
+        purpose: 'first_search',
+        query: 'Fluchtweglänge GK4',
+        docs: [{ name: 'OIB-RL_2.pdf', detail: 'p.12' }],
+        new_docs: ['OIB-RL_2.pdf'],
+        hits: 1,
+        documents: 1,
+      },
+    ]
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance: { ...provenance, retrievalLedger: ledger } } }),
+    )
+
+    expect(mapped!.retrievalLedger).toEqual([
+      {
+        index: 0,
+        key: 'status.retrieval.withQuery',
+        tools: ['knowledge_search'],
+        corpora: ['knowledge'],
+        purpose: 'first_search',
+        query: 'Fluchtweglänge GK4',
+        docs: [{ name: 'OIB-RL_2.pdf', detail: 'p.12' }],
+        newDocs: ['OIB-RL_2.pdf'],
+        hits: 1,
+        documents: 1,
+      },
+    ])
+  })
+
+  it('restores the ledger the BFF persisted for a dropped socket, and drops garbage', () => {
+    const persisted = {
+      index: 1,
+      key: 'status.retrieval.punkt',
+      tools: ['read_passage'],
+      corpora: ['knowledge'],
+      purpose: 'open',
+      docs: [{ name: 'OIB-RL_2.pdf' }],
+      new_docs: [],
+      hits: 1,
+      documents: 1,
+    }
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { retrieval_ledger: [persisted] } }),
+    )
+    expect(mapped!.retrievalLedger).toEqual([
+      {
+        index: 1,
+        key: 'status.retrieval.punkt',
+        tools: ['read_passage'],
+        corpora: ['knowledge'],
+        purpose: 'open',
+        docs: [{ name: 'OIB-RL_2.pdf' }],
+        newDocs: [],
+        hits: 1,
+        documents: 1,
+      },
+    ])
+
+    const bad = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: { retrieval_ledger: 'oib', provenance: { retrievalLedger: [{ key: 'no-index' }] } },
+      }),
+    )
+    expect(bad!.retrievalLedger).toBeUndefined()
+  })
+
   it('ignores a provenance blob written by some other build', () => {
     // Narrowed, not cast: the server bounds this on write, but a row written
     // earlier is whatever it was, and a bad value must not reach a renderer.

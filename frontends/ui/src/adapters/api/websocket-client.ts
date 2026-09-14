@@ -11,6 +11,8 @@ import { trackAuthEvent } from '@/shared/utils/rum'
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
+import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
+import { sanitizeRetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { getWebSocketUrl } from './config'
 import {
   // NAT protocol types
@@ -82,6 +84,12 @@ export interface ResponseTransparency {
    * downstream — store, persistence, renderer — sees one bounded shape.
    */
   answerMeta?: AnswerMeta
+  /**
+   * The backend's own account of this turn's retrieval rounds, sanitized HERE
+   * (`sanitizeRetrievalLedger`) so everything downstream sees one bounded
+   * shape. The Herleitung reads it instead of reconstructing rounds.
+   */
+  retrievalLedger?: RetrievalLedger
 }
 
 /**
@@ -708,6 +716,7 @@ export class NATWebSocketClient {
             jobAdmissionRejected: message.job_admission_rejected,
             retryAfterSeconds: message.retry_after_seconds,
             answerMeta: sanitizeAnswerMeta(message.answer_meta) ?? undefined,
+            retrievalLedger: sanitizeRetrievalLedger(message.retrieval_ledger) ?? undefined,
           }
           this.options.callbacks.onResponse?.(
             content,

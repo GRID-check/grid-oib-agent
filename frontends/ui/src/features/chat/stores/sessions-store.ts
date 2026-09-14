@@ -1597,6 +1597,11 @@ export const createSessionsSlice: StateCreator<ChatStore, [["zustand/devtools", 
         provenance.deepResearchJobId = assistantMessage.deepResearchJobId
       }
       if (assistantMessage.showViewReport) provenance.showViewReport = true
+      // The backend's account of the turn's rounds, already bounded at the
+      // wire boundary; the sanitizer re-bounds it on write.
+      if (assistantMessage.retrievalLedger && assistantMessage.retrievalLedger.length > 0) {
+        provenance.retrievalLedger = assistantMessage.retrievalLedger
+      }
 
       if (Object.keys(provenance).length > 0) targets.push([assistantMessage.id, provenance])
     }

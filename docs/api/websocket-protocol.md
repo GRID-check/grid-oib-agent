@@ -392,6 +392,26 @@ Delivers final or streaming response text.
   job_admission_rejected?: true,
   retry_after_seconds?: number,
   skills_activated?: string[]
+  retrieval_ledger?: RetrievalLedgerEntry[],
+}
+
+```typescript
+/** One announced retrieval round, as the backend recorded it. */
+interface RetrievalLedgerEntry {
+  index: number
+  key: string
+  tools: string[]
+  corpora: string[]
+  /** Why the loop went back: `first_search` | `open` | `new_corpus` | `search`. */
+  purpose: string
+  query?: string
+  /** The round's own words, verbatim — narration, never a verdict. */
+  reason?: string
+  docs: { name: string; title?: string; detail?: string; shelf?: string }[]
+  /** Names no earlier round showed. Empty means the round added no files. */
+  new_docs: string[]
+  hits: number
+  documents: number
 }
 ```
 
@@ -415,6 +435,7 @@ The client extracts content in priority order: `output` → `text` → raw strin
 | `job_admission_rejected` | `true` | Marks the answer text as a queue-rejection notice (NOT a research answer). The client renders a warning banner (error code `research.queue_full`) and leaves the composer unlocked. |
 | `retry_after_seconds` | `number` | Only alongside `job_admission_rejected` — retry hint (seconds). |
 | `skills_activated` | `string[]` | Agent Skills whose full instructions were LOADED this turn (forced first, then those the model pulled in with `use_skill`, deduped). Absent/empty on a turn that activated none. Rendered as a quiet "Skills used" disclosure under the answer; the reconnect path persists it into assistant-message metadata. Availability is the constant, activation is the event — see `docs/architecture/agent-skills.md`. |
+| `retrieval_ledger` | `RetrievalLedgerEntry[]` | The backend's own account of this turn's retrieval rounds: per announced round what it was asked (query, tools, purpose), what it returned (docs with title/detail/shelf), and what was new (`new_docs`). Absent when no round was announced. Read by the Herleitung instead of reconstructed from step names; persisted into message metadata/provenance so reloads read the same account. |
 
 #### system_intermediate_message
 

@@ -694,6 +694,12 @@ const buildAgentResponseMessage = (
     ...(opts.transparency?.researchTruncated ? { researchTruncated: true as const } : {}),
     // The answer's structured anatomy — already sanitized at the wire boundary.
     ...(opts.transparency?.answerMeta ? { answerMeta: opts.transparency.answerMeta } : {}),
+    // The backend's account of this turn's retrieval rounds — already
+    // sanitized at the wire boundary. Spread like every other extra so a turn
+    // without one stays byte-identical to a pre-ledger message.
+    ...(opts.transparency?.retrievalLedger && opts.transparency.retrievalLedger.length > 0
+      ? { retrievalLedger: opts.transparency.retrievalLedger }
+      : {}),
     // The CAUSE and the degradations ride alongside the flag, and are copied
     // independently of it: a run can be degraded without being truncated, and
     // gating them on the flag drops exactly the case the reader most needs.
