@@ -34,7 +34,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
-import type { TaskStatus } from '@/lib/tasks/task-vocabulary'
+import type { TaskRunStatus } from '@/lib/tasks/task-vocabulary'
 import { updateJob, type Job } from '@/adapters/api/jobs-client'
 import { scheduleSummary } from '@/features/jobs/components/job-list'
 import type { TaskWireRow } from '../lib/task-view'
@@ -46,13 +46,20 @@ import type { TaskWireRow } from '../lib/task-view'
  * `interrupted` is a warning and not an error on purpose: the run was stopped,
  * which is a thing a person did or a budget did, and painting it red would put
  * it beside the failures a person has to look into.
+ *
+ * `skipped` is muted for the same reason at a lower volume: the fire never
+ * reached the agent (an org cap, a switched-off feature), so there is nothing
+ * broken to look into. `error` IS destructive — the submission broke — which is
+ * why a fire that never reached the agent now appears here at all.
  */
-const STATUS_TONE: Record<TaskStatus, 'muted' | 'info' | 'success' | 'destructive' | 'warning'> = {
+const STATUS_TONE: Record<TaskRunStatus, 'muted' | 'info' | 'success' | 'destructive' | 'warning'> = {
   queued: 'muted',
   running: 'info',
   succeeded: 'success',
   failed: 'destructive',
   interrupted: 'warning',
+  skipped: 'muted',
+  error: 'destructive',
 }
 
 const REVIEW_ICON: Record<'accepted' | 'rejected', LucideIcon> = {

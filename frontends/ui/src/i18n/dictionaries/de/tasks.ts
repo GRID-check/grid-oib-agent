@@ -75,6 +75,11 @@ export const tasks: typeof en.tasks = {
     // Angehalten — von einem Menschen oder von einem Budget. Kein Fehler, dem
     // jemand nachgehen müsste.
     interrupted: 'Angehalten',
+    // Ein Start, der den Agenten nie erreicht hat (Obergrenze, Feature aus).
+    skipped: 'Übersprungen',
+    // Ein Start, dessen Übermittlung gebrochen ist — der sichtbare Fehler, den
+    // die Zusammenführung nach Aufgaben bringt.
+    error: 'Übermittlung fehlgeschlagen',
   },
   review: {
     accepted: 'Angenommen',

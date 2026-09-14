@@ -80,8 +80,12 @@ export const tasks = {
     running: 'Running',
     succeeded: 'Done',
     failed: 'Failed',
-    /** Stopped — by a person or by a budget. Not an error to look into. */
+    /** Stopped - by a person or by a budget. Not an error to look into. */
     interrupted: 'Stopped',
+    /** A fire that never reached the agent (a cap, a switched-off feature). */
+    skipped: 'Skipped',
+    /** A fire whose submission broke - the visible failure the collapse added. */
+    error: 'Submission failed',
   },
   review: {
     accepted: 'Accepted',

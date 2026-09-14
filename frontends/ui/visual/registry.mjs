@@ -777,15 +777,8 @@ export const SCREENSHOT_TARGETS = [
     id: 'skills-panel',
     path: '/dev/skills-panel',
     description:
-      "Agent Skills tab (ADR-0045) — FEATURED first (what Piloti curates for every organization, each with an activation switch), then the org's own skills, and NOTHING schedule-shaped: everything about when something runs moved to the Jobs tab. The pipeline's builtin skills are deliberately absent, because they are absent from the endpoint: they are machinery, nobody installs or edits one, and the clone button that used to sit on them is gone. The fixture covers a taken-up offer and an untaken one, plus an org skill in play and one switched off — the switch is the only state this page has an opinion about, so both positions have to be on screen.",
+      "Agent Skills tab (ADR-0045) — FEATURED first (what Piloti curates for every organization, each with an activation switch), then the org's own skills, and NOTHING schedule-shaped: everything about when something runs lives in the Aufgaben tab, where schedules are the group on top of the list. The pipeline's builtin skills are deliberately absent, because they are absent from the endpoint: they are machinery, nobody installs or edits one, and the clone button that used to sit on them is gone. The fixture covers a taken-up offer and an untaken one, plus an org skill in play and one switched off — the switch is the only state this page has an opinion about, so both positions have to be on screen.",
     waitFor: '[data-testid="skills-panel-preview"]',
-  },
-  {
-    id: 'jobs-panel',
-    path: '/dev/jobs-panel',
-    description:
-      'Jobs tab, list mode — the Files shape: a compact bordered bar (title, one-line subtitle, the single New-job action) over a card GRID that fills the pane, not a narrow centred column. A card leads with the PROMPT, not the skill, because the prompt is what the job is and the skill is the optional extra; the fixture carries two jobs with no skill and two with one, so "Ohne Skill" is visibly a stated fact rather than a blank. Both output kinds (Chat / Bericht) are on screen, plus a disabled job (dimmed, badge, run-now unavailable) and one with no cron, which reads "Nur manuell". Captured at 1200px, which is the 2-up band; 3-up starts at 2xl, chosen so the run/edit/delete row still fits on one line.',
-    waitFor: '[data-testid="jobs-panel-preview"] [role="switch"]',
   },
   {
     id: 'job-builder',

@@ -1038,14 +1038,6 @@
         "job-run-history.dark.png"
       ]
     },
-    "jobs-panel": {
-      "route": "src/app/dev/jobs-panel/page.tsx",
-      "routeHash": "7c0d8e7e036dd7abdc21487963cac1d77a6ea66d7a54f74edea0f82ef41ae44f",
-      "shots": [
-        "jobs-panel.light.png",
-        "jobs-panel.dark.png"
-      ]
-    },
     "mention-picker": {
       "route": "src/app/dev/mention-picker/page.tsx",
       "routeHash": "ca166dfacacf3a77954e44286e41809c04824e768c2805befbce7d00b98daaab",

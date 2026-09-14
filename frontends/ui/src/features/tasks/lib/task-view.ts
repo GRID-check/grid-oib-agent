@@ -10,7 +10,7 @@
  * two ends from drifting.
  */
 
-import type { TaskKind, TaskReview, TaskStatus } from '@/lib/tasks/task-vocabulary'
+import type { TaskKind, TaskReview, TaskRunStatus, TaskStatus } from '@/lib/tasks/task-vocabulary'
 
 export interface TaskWireRow {
   id: string
@@ -19,7 +19,7 @@ export interface TaskWireRow {
   title: string
   /** What the requester asked for, in their words. Null for a job-fired run. */
   goal: string | null
-  status: TaskStatus
+  status: TaskRunStatus
   /** How a person judged the result. Null until somebody did. */
   review: TaskReview | null
   /** The reviewer's words on a rejection. */
@@ -48,10 +48,10 @@ export interface TaskWireRow {
  * boundary only. Anything else passes through unchanged — an unknown status
  * is rendered as before, not reworded into a claim about the work.
  */
-const SUBMISSION_STATUS_TO_PLANNER: Record<string, TaskStatus> = {
+const SUBMISSION_STATUS_TO_PLANNER: Record<string, TaskRunStatus> = {
   submitted: 'queued',
   pending: 'queued',
 }
 
-export const normalizeTaskStatus = (status: string): TaskStatus =>
-  SUBMISSION_STATUS_TO_PLANNER[status.trim().toLowerCase()] ?? (status as TaskStatus)
+export const normalizeTaskStatus = (status: string): TaskRunStatus =>
+  SUBMISSION_STATUS_TO_PLANNER[status.trim().toLowerCase()] ?? (status as TaskRunStatus)
