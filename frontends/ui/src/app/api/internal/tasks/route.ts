@@ -57,19 +57,27 @@ export const POST = internalApiRoute(
     // exactly as the document-versions route does it: `fromPayload` below names
     // where the claim comes from, and the claim is a signed one.
     return withTenant({ organizationId: context.organizationId }, async () => {
-      const task = await delegateTask(session, {
+      const result = await delegateTask(session, {
         projectId: body.projectId,
         kind: body.kind,
         goal: body.goal,
         dueAt,
+        cadence: body.cadence
+          ? { cron: body.cadence, timezone: body.cadenceTimezone }
+          : null,
       })
+      const { definition, run } = result
       return {
-        taskId: task.id,
+        // The definition id: for a one-off it is also the run's parent, for a
+        // cadence it is the standing row the reader's list shows.
+        taskId: definition.id,
         kind: body.kind,
-        title: task.title,
-        status: task.status,
-        conversationId: task.conversationId,
-        dueAt: task.deadlineAt ? task.deadlineAt.toISOString() : null,
+        title: definition.title,
+        status: run ? run.status : 'scheduled',
+        conversationId: run?.conversationId ?? null,
+        dueAt: definition.dueAt ? definition.dueAt.toISOString() : null,
+        scheduled: run === null,
+        nextRunAt: definition.nextRunAt ? definition.nextRunAt.toISOString() : null,
       }
     })
   },

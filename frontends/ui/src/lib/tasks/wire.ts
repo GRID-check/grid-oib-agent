@@ -54,6 +54,20 @@ export const internalTaskRequestSchema = z.discriminatedUnion('op', [
        * deadline the scheduler will never enforce.
        */
       due: z.string().trim().min(4).max(40).optional(),
+      /**
+       * A recurring trigger, as a 5-field cron (`0 8 * * 1` = Mondays 08:00) —
+       * the same shape the schedule builder writes and the scheduler claims.
+       *
+       * Cadence is what makes this the second trigger of ADR-0051's "a chat
+       * handoff becomes another": without it the delegation is a `once`
+       * definition and fires immediately; with it the definition is a
+       * `schedule` and only the scheduler fires it. The requester must hold
+       * `project:skills:manage` (the permissioned act is the recurrence, not
+       * the asking).
+       */
+      cadence: z.string().trim().min(1).max(120).optional(),
+      /** IANA zone the cadence is read in; UTC when absent. */
+      cadenceTimezone: z.string().trim().min(1).max(80).optional(),
     })
     .strict(),
 ])
@@ -70,6 +84,10 @@ export const internalTaskResponseSchema = z.object({
   conversationId: z.string().nullable(),
   /** ISO instant, or null when the caller named no deadline. */
   dueAt: z.string().nullable(),
+  /** True when a cadence was given: a standing definition, no run yet. */
+  scheduled: z.boolean(),
+  /** The first fire the scheduler will claim, for a scheduled definition. */
+  nextRunAt: z.string().nullable(),
 })
 
 export type InternalTaskResponse = z.infer<typeof internalTaskResponseSchema>

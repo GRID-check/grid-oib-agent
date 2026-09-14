@@ -1,16 +1,21 @@
 /**
  * @vitest-environment node
  */
+/**
+ * The run lifecycle service over `task_runs` (migration 0086): one recorder
+ * closes a run, files its result as the pinned requester, and tells them.
+ */
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 vi.mock('./repository', () => ({
-  insertTask: vi.fn(),
-  findTaskByBackendJobId: vi.fn(),
-  findTaskInProject: vi.fn(),
-  listTasksInProject: vi.fn(),
-  updateTask: vi.fn(),
-  listRejectedReviewsForJob: vi.fn(),
+  insertRun: vi.fn(),
+  findRunByBackendJobId: vi.fn(),
+  findRunInProject: vi.fn(),
+  listRunsInProject: vi.fn(),
+  updateRun: vi.fn(),
+  listRejectedReviewsForDefinition: vi.fn(),
 }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
 vi.mock('@/lib/auth/pinned-session', () => ({ resolvePinnedRequesterSession: vi.fn() }))
@@ -30,60 +35,46 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import type { Job, JobRun, Task } from '@/lib/db/schema'
+import type { TaskRun } from '@/lib/db/schema'
 import { fileAgentDocumentDraft } from '@/lib/documents/agent-document'
 import { replaceVersionContent, transitionDocumentVersion } from '@/lib/documents/lifecycle'
 import { findDocumentInOrg } from '@/lib/documents/repository'
 import { fileResearchReport } from '@/lib/documents/research-report'
 import { openDraftForRevision } from '@/lib/documents/revision'
 import { emitInboxItems } from '@/lib/inbox/service'
+import type { SkillSnapshot } from '@/lib/skills/types'
 import * as repository from './repository'
 import {
-  completeTaskForRun,
-  createTaskForRun,
+  completeRunForOutcome,
   PREVIOUS_DECISIONS_HEADER,
   previousDecisionsBlock,
-  recordTaskOutcome,
+  recordRunOutcome,
   reviewTask,
 } from './service'
 
-const job = {
+const emptySkill = {} as SkillSnapshot
+
+const definition = {
   id: 'job-1',
   organizationId: 'org_1',
-  projectId: 'proj-1',
-  name: 'Wochenbericht Brandschutz',
-  prompt: 'Prüfe …',
-  output: 'deep-research',
-  createdBy: 'user_owner',
-  createdByEmail: 'owner@grid.test',
-  dataSources: ['knowledge_layer'],
-  skillSnapshot: null,
-} as unknown as Job
+}
 
 const run = {
   id: 'run-1',
-  scheduleId: 'job-1',
-  projectId: 'proj-1',
-  organizationId: 'org_1',
-  jobId: 'backend-job-1',
-  trigger: 'schedule',
-  status: 'submitted',
-  conversationId: null,
-  skillSnapshot: {},
-  createdAt: new Date('2026-09-02T03:00:00Z'),
-} as unknown as JobRun
-
-const task = {
-  id: 'task-1',
+  definitionId: 'job-1',
   organizationId: 'org_1',
   projectId: 'proj-1',
   kind: 'deep-research',
   title: 'Wochenbericht Brandschutz',
+  plan: { prompt: 'Prüfe …', skill: emptySkill, dataSources: ['knowledge_layer'] },
   requesterUserId: 'user_owner',
   requesterEmail: 'owner@grid.test',
+  trigger: 'schedule',
   status: 'running',
   backendJobId: 'backend-job-1',
-} as unknown as Task
+  conversationId: null,
+  skillSnapshot: emptySkill,
+} as unknown as TaskRun
 
 const pinned = {
   userId: 'user_owner',
@@ -101,12 +92,12 @@ beforeEach(() => {
   vi.clearAllMocks()
   // The row as the database would hand it back: every update lands on the
   // previous state, so the second update sees the first's status.
-  let current: Task = task
-  vi.mocked(repository.updateTask).mockImplementation(async (_id, _org, patch) => {
-    current = { ...current, ...patch } as Task
+  let current: TaskRun = run
+  vi.mocked(repository.updateRun).mockImplementation(async (_id, _org, patch) => {
+    current = { ...current, ...patch } as TaskRun
     return current
   })
-  vi.mocked(repository.insertTask).mockImplementation(async (values) => ({ ...task, ...values, id: 'task-1' }) as Task)
+  vi.mocked(repository.insertRun).mockImplementation(async (values) => ({ ...run, ...values }) as TaskRun)
   vi.mocked(resolvePinnedRequesterSession).mockResolvedValue(pinned)
   vi.mocked(fileResearchReport).mockResolvedValue({
     documentId: 'doc-9',
@@ -117,48 +108,9 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
 
-describe('createTaskForRun', () => {
-  it('pins the requester and freezes the plan beside the run', async () => {
-    const created = await createTaskForRun(job, run, 'Prüfe …\n\n---\nSkill …')
-
-    expect(created?.id).toBe('task-1')
-    expect(repository.insertTask).toHaveBeenCalledWith(
-      expect.objectContaining({
-        organizationId: 'org_1',
-        projectId: 'proj-1',
-        kind: 'deep-research',
-        title: 'Wochenbericht Brandschutz',
-        requesterUserId: 'user_owner',
-        requesterEmail: 'owner@grid.test',
-        status: 'running',
-        jobId: 'job-1',
-        jobRunId: 'run-1',
-        backendJobId: 'backend-job-1',
-        plan: { prompt: 'Prüfe …\n\n---\nSkill …', skill: {}, dataSources: ['knowledge_layer'] },
-      })
-    )
-    expect(recordAuditEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'task.created', actor: { userId: 'user_owner', email: 'owner@grid.test' } })
-    )
-  })
-
-  it('records nothing for a run that was not submitted', async () => {
-    const skipped = { ...run, status: 'skipped', jobId: null } as unknown as JobRun
-
-    expect(await createTaskForRun(job, skipped, 'x')).toBeNull()
-    expect(repository.insertTask).not.toHaveBeenCalled()
-  })
-
-  it('never lets a failed insert become a run nobody hears about', async () => {
-    vi.mocked(repository.insertTask).mockRejectedValueOnce(new Error('db gone'))
-
-    await expect(createTaskForRun(job, run, 'x')).resolves.toBeNull()
-  })
-})
-
-describe('completeTaskForRun', () => {
+describe('completeRunForOutcome', () => {
   it('files a finished deep-research report as the requester and records where', async () => {
-    const result = await completeTaskForRun(task, { status: 'success', report: '# Bericht', cards: [{ type: 'legal_basis' }] })
+    const result = await completeRunForOutcome(run, { status: 'success', report: '# Bericht', cards: [{ type: 'legal_basis' }] })
 
     expect(resolvePinnedRequesterSession).toHaveBeenCalledWith({
       userId: 'user_owner',
@@ -173,23 +125,23 @@ describe('completeTaskForRun', () => {
       cards: [{ type: 'legal_basis' }],
     })
     expect(result.filed).toEqual({ documentId: 'doc-9', filename: 'wochenbericht-brandschutz-2026-09-02.pdf' })
-    expect(repository.updateTask).toHaveBeenLastCalledWith('task-1', 'org_1', {
+    expect(repository.updateRun).toHaveBeenLastCalledWith('run-1', 'org_1', {
       filingStatus: 'filed',
       filingDetail: null,
       filedDocumentId: 'doc-9',
     })
-    expect(result.task.status).toBe('succeeded')
+    expect(result.run.status).toBe('succeeded')
   })
 
   it('refuses, and records why, when the requester is no longer a member', async () => {
     vi.mocked(resolvePinnedRequesterSession).mockResolvedValueOnce(null)
 
-    const result = await completeTaskForRun(task, { status: 'success', report: '# Bericht' })
+    const result = await completeRunForOutcome(run, { status: 'success', report: '# Bericht' })
 
     expect(fileResearchReport).not.toHaveBeenCalled()
     expect(result.filed).toBeNull()
-    expect(repository.updateTask).toHaveBeenLastCalledWith(
-      'task-1',
+    expect(repository.updateRun).toHaveBeenLastCalledWith(
+      'run-1',
       'org_1',
       expect.objectContaining({ filingStatus: 'refused', filedDocumentId: null })
     )
@@ -201,44 +153,44 @@ describe('completeTaskForRun', () => {
   ])('treats %s as a refusal, never as a failure', async (_label, error) => {
     vi.mocked(fileResearchReport).mockRejectedValueOnce(error)
 
-    const result = await completeTaskForRun(task, { status: 'success', report: '# Bericht' })
+    const result = await completeRunForOutcome(run, { status: 'success', report: '# Bericht' })
 
     expect(result.filed).toBeNull()
-    expect(repository.updateTask).toHaveBeenLastCalledWith(
-      'task-1',
+    expect(repository.updateRun).toHaveBeenLastCalledWith(
+      'run-1',
       'org_1',
       expect.objectContaining({ filingStatus: 'refused' })
     )
   })
 
-  it('records a broken filing as failed with the operator detail, and still closes the task', async () => {
+  it('records a broken filing as failed with the operator detail, and still closes the run', async () => {
     vi.mocked(fileResearchReport).mockRejectedValueOnce(new Error('report exceeds the PDF ceiling'))
 
-    const result = await completeTaskForRun(task, { status: 'success', report: '# Bericht' })
+    const result = await completeRunForOutcome(run, { status: 'success', report: '# Bericht' })
 
-    expect(result.task.status).toBe('succeeded')
-    expect(repository.updateTask).toHaveBeenLastCalledWith(
-      'task-1',
+    expect(result.run.status).toBe('succeeded')
+    expect(repository.updateRun).toHaveBeenLastCalledWith(
+      'run-1',
       'org_1',
       expect.objectContaining({ filingStatus: 'failed', filingDetail: 'Error: report exceeds the PDF ceiling' })
     )
   })
 
   it('closes a failed run without filing anything', async () => {
-    const result = await completeTaskForRun(task, { status: 'failure', error: 'Budget exhausted' })
+    const result = await completeRunForOutcome(run, { status: 'failure', error: 'Budget exhausted' })
 
-    expect(result.task.status).toBe('failed')
-    expect(result.task.error).toBe('Budget exhausted')
+    expect(result.run.status).toBe('failed')
+    expect(result.run.error).toBe('Budget exhausted')
     expect(fileResearchReport).not.toHaveBeenCalled()
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'task.completed', metadata: expect.objectContaining({ status: 'failed' }) })
     )
   })
 
-  it('files nothing for a chat task, whose result is its conversation', async () => {
-    const chat = { ...task, kind: 'chat' } as Task
+  it('files nothing for a chat run, whose result is its conversation', async () => {
+    const chat = { ...run, kind: 'chat' } as TaskRun
 
-    const result = await completeTaskForRun(chat, { status: 'success', report: 'answer' })
+    const result = await completeRunForOutcome(chat, { status: 'success', report: 'answer' })
 
     expect(fileResearchReport).not.toHaveBeenCalled()
     expect(result.filed).toBeNull()
@@ -249,9 +201,9 @@ describe('reviewTask', () => {
   const reviewer = { ...pinned, userId: 'user_reviewer', email: 'reviewer@grid.test' } as AuthorizedSession
 
   it('records the decision, the reason and who decided', async () => {
-    vi.mocked(repository.findTaskInProject).mockResolvedValueOnce({ ...task, status: 'succeeded' } as Task)
+    vi.mocked(repository.findRunInProject).mockResolvedValueOnce({ ...run, status: 'succeeded' } as TaskRun)
 
-    const reviewed = await reviewTask(reviewer, 'proj-1', 'task-1', {
+    const reviewed = await reviewTask(reviewer, 'proj-1', 'run-1', {
       decision: 'rejected',
       reason: 'Atrium ist OIB 2.3, siehe Entscheidung vom 12.08.',
     })
@@ -265,78 +217,73 @@ describe('reviewTask', () => {
     )
   })
 
-  it('refuses to review a task that is still running', async () => {
-    vi.mocked(repository.findTaskInProject).mockResolvedValueOnce(task)
+  it('refuses to review a run that is still running', async () => {
+    vi.mocked(repository.findRunInProject).mockResolvedValueOnce(run)
 
-    await expect(reviewTask(reviewer, 'proj-1', 'task-1', { decision: 'accepted' })).rejects.toMatchObject({ status: 409 })
+    await expect(reviewTask(reviewer, 'proj-1', 'run-1', { decision: 'accepted' })).rejects.toMatchObject({ status: 409 })
   })
 
-  it('is a 404 for a task outside the project', async () => {
-    vi.mocked(repository.findTaskInProject).mockResolvedValueOnce(null)
+  it('is a 404 for a run outside the project', async () => {
+    vi.mocked(repository.findRunInProject).mockResolvedValueOnce(null)
 
-    await expect(reviewTask(reviewer, 'proj-1', 'task-x', { decision: 'accepted' })).rejects.toBeInstanceOf(NotFoundError)
+    await expect(reviewTask(reviewer, 'proj-1', 'run-x', { decision: 'accepted' })).rejects.toBeInstanceOf(NotFoundError)
   })
 })
 
 describe('previousDecisionsBlock', () => {
   it('quotes earlier rejections verbatim, newest first, under a versioned header', async () => {
-    vi.mocked(repository.listRejectedReviewsForJob).mockResolvedValueOnce([
+    vi.mocked(repository.listRejectedReviewsForDefinition).mockResolvedValueOnce([
       { id: 't2', reviewReason: 'Atrium ist OIB 2.3.', reviewedAt: new Date('2026-09-01T10:00:00Z'), reviewedBy: 'u' },
       { id: 't1', reviewReason: 'Bundesland fehlt.', reviewedAt: null, reviewedBy: 'u' },
     ])
 
-    const block = await previousDecisionsBlock(job)
+    const block = await previousDecisionsBlock(definition)
 
+    expect(repository.listRejectedReviewsForDefinition).toHaveBeenCalledWith('job-1', 'org_1')
     expect(block.startsWith(`### ${PREVIOUS_DECISIONS_HEADER}`)).toBe(true)
     expect(block).toContain('- [abgelehnt, 2026-09-01] Atrium ist OIB 2.3.')
     expect(block).toContain('- [abgelehnt] Bundesland fehlt.')
   })
 
   it('is empty when nothing was rejected', async () => {
-    vi.mocked(repository.listRejectedReviewsForJob).mockResolvedValueOnce([])
+    vi.mocked(repository.listRejectedReviewsForDefinition).mockResolvedValueOnce([])
 
-    expect(await previousDecisionsBlock(job)).toBe('')
+    expect(await previousDecisionsBlock(definition)).toBe('')
   })
 
   it('never stops a run from firing', async () => {
-    vi.mocked(repository.listRejectedReviewsForJob).mockRejectedValueOnce(new Error('db gone'))
+    vi.mocked(repository.listRejectedReviewsForDefinition).mockRejectedValueOnce(new Error('db gone'))
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
-    expect(await previousDecisionsBlock(job)).toBe('')
+    expect(await previousDecisionsBlock(definition)).toBe('')
   })
 })
 
 // ---------------------------------------------------------------------------
-// The delegated kinds (ADR-0051, slice 6)
+// The delegated kinds (ADR-0051)
 // ---------------------------------------------------------------------------
 
-/**
- * A task delegated from chat: no job, no run, its own backend job id.
- *
- * It also re-seeds the `updateTask` double, because `completeTaskForRun` files
- * from the row the database HANDS BACK rather than from the one it was given —
- * the shared double in `beforeEach` starts from the deep-research fixture, and a
- * test that did not re-seed it would be asserting about that task's kind.
- */
-const delegated = (overrides: Partial<Task> = {}): Task => {
+/** A run delegated from chat: no schedule, its own definition, its own backend id. */
+const delegated = (overrides: Partial<TaskRun> = {}): TaskRun => {
   const row = {
-    ...task,
+    ...run,
     kind: 'document',
+    trigger: 'delegated',
     title: 'Dokument: Aktenvermerk Fluchtweg',
     conversationId: 's_conv_2',
-    plan: { prompt: 'Schreibe …', skill: {}, dataSources: null, goal: 'Schreib den Aktenvermerk' },
+    plan: { prompt: 'Schreibe …', skill: emptySkill, dataSources: null, goal: 'Schreib den Aktenvermerk' },
     ...overrides,
-  } as Task
+  } as TaskRun
   let current = row
-  vi.mocked(repository.updateTask).mockImplementation(async (_id, _org, patch) => {
-    current = { ...current, ...patch } as Task
+  vi.mocked(repository.updateRun).mockImplementation(async (_id, _org, patch) => {
+    current = { ...current, ...patch } as TaskRun
     return current
   })
   return row
 }
 
-describe('completeTaskForRun, by kind', () => {
-  it('files a `document` task as a new draft and submits it to the requester', async () => {
+describe('completeRunForOutcome, by kind', () => {
+  it('files a `document` run as a new draft and submits it to the requester', async () => {
     vi.mocked(fileAgentDocumentDraft).mockResolvedValue({
       documentId: 'doc-7',
       version: { id: 'ver-1' } as never,
@@ -344,13 +291,13 @@ describe('completeTaskForRun, by kind', () => {
     })
     vi.mocked(findDocumentInOrg).mockResolvedValue({ filename: 'aktenvermerk-2026-09-10.md' } as never)
 
-    const { filed } = await completeTaskForRun(delegated(), { status: 'success', report: '# Aktenvermerk' })
+    const { filed } = await completeRunForOutcome(delegated(), { status: 'success', report: '# Aktenvermerk' })
 
-    // The task's own id as the reference, so a retried outcome updates the
+    // The run's own id as the reference, so a retried outcome updates the
     // document the first one made rather than filing a second.
     expect(vi.mocked(fileAgentDocumentDraft).mock.calls[0][0]).toMatchObject({
       projectId: 'proj-1',
-      ref: 'task-task-1',
+      ref: 'task-run-1',
       content: '# Aktenvermerk',
       actingHuman: false,
     })
@@ -363,7 +310,7 @@ describe('completeTaskForRun, by kind', () => {
     expect(filed).toEqual({ documentId: 'doc-7', filename: 'aktenvermerk-2026-09-10.md' })
   })
 
-  it('does not submit a `document` task twice when the reference was already filed', async () => {
+  it('does not submit a `document` run twice when the reference was already filed', async () => {
     vi.mocked(fileAgentDocumentDraft).mockResolvedValue({
       documentId: 'doc-7',
       version: { id: 'ver-1' } as never,
@@ -371,11 +318,11 @@ describe('completeTaskForRun, by kind', () => {
     })
     vi.mocked(findDocumentInOrg).mockResolvedValue({ filename: 'aktenvermerk-2026-09-10.md' } as never)
 
-    await completeTaskForRun(delegated(), { status: 'success', report: '# Aktenvermerk' })
+    await completeRunForOutcome(delegated(), { status: 'success', report: '# Aktenvermerk' })
     expect(transitionDocumentVersion).not.toHaveBeenCalled()
   })
 
-  it('writes a `revision` task over the open draft of the SAME document and submits it back', async () => {
+  it('writes a `revision` run over the open draft of the SAME document and submits it back', async () => {
     vi.mocked(openDraftForRevision).mockResolvedValue({
       version: { id: 'ver-2', contentHash: 'sha256:abc' } as never,
       filename: 'befund.md',
@@ -387,14 +334,14 @@ describe('completeTaskForRun, by kind', () => {
       kind: 'revision',
       plan: {
         prompt: 'Überarbeite …',
-        skill: {},
+        skill: emptySkill,
         dataSources: null,
         goal: 'Die Fluchtweglänge stimmt nicht',
         subject: { documentId: 'doc-3', versionId: 'ver-1', comment: 'Die Fluchtweglänge stimmt nicht' },
       },
-    } as Partial<Task>)
+    })
 
-    const { filed } = await completeTaskForRun(revision, { status: 'success', report: '# Befund, überarbeitet' })
+    const { filed } = await completeRunForOutcome(revision, { status: 'success', report: '# Befund, überarbeitet' })
 
     // The If-Match is the hash the LIFECYCLE reported, never one computed here:
     // a self-computed hash agrees with itself and overwrites a reviewer.
@@ -419,9 +366,9 @@ describe('completeTaskForRun, by kind', () => {
     expect(fileAgentDocumentDraft).not.toHaveBeenCalled()
   })
 
-  it('records a revision task with no subject as a failed filing rather than throwing', async () => {
-    const broken = delegated({ kind: 'revision' })
-    const { task: closed } = await completeTaskForRun(broken, { status: 'success', report: '# x' })
+  it('records a revision run with no subject as a failed filing rather than throwing', async () => {
+    const broken = delegated({ kind: 'revision', plan: { prompt: 'x', skill: emptySkill, dataSources: null } })
+    const { run: closed } = await completeRunForOutcome(broken, { status: 'success', report: '# x' })
     expect(closed.filingStatus).toBe('failed')
   })
 
@@ -430,7 +377,7 @@ describe('completeTaskForRun, by kind', () => {
     // a second document would put a copy of the thread in Berichte.
     for (const kind of ['compliance_check', 'einreichcheck'] as const) {
       vi.clearAllMocks()
-      const { filed } = await completeTaskForRun(delegated({ kind }), { status: 'success', report: '# Ergebnis' })
+      const { filed } = await completeRunForOutcome(delegated({ kind }), { status: 'success', report: '# Ergebnis' })
       expect(filed).toBeNull()
       expect(fileAgentDocumentDraft).not.toHaveBeenCalled()
       expect(fileResearchReport).not.toHaveBeenCalled()
@@ -438,8 +385,8 @@ describe('completeTaskForRun, by kind', () => {
   })
 })
 
-describe('recordTaskOutcome', () => {
-  it('closes the task and tells the requester, with the task and the thread on the row', async () => {
+describe('recordRunOutcome', () => {
+  it('closes the run and tells the requester, with the run and the thread on the row', async () => {
     vi.mocked(emitInboxItems).mockResolvedValue(1)
     vi.mocked(fileAgentDocumentDraft).mockResolvedValue({
       documentId: 'doc-7',
@@ -448,7 +395,7 @@ describe('recordTaskOutcome', () => {
     })
     vi.mocked(findDocumentInOrg).mockResolvedValue({ filename: 'aktenvermerk.md' } as never)
 
-    const { notified, filed } = await recordTaskOutcome(delegated(), { status: 'success', report: '# x' })
+    const { notified, filed } = await recordRunOutcome(delegated(), { status: 'success', report: '# x' })
 
     expect(notified).toBe(true)
     expect(filed).toEqual({ documentId: 'doc-7', filename: 'aktenvermerk.md' })
@@ -459,21 +406,22 @@ describe('recordTaskOutcome', () => {
       resourceType: 'project',
       resourceId: 'proj-1',
       // The work was Piloti's, and a row whose actor is its recipient is
-      // dropped — which a task somebody delegated to themselves always would be.
+      // dropped — which a run somebody delegated to themselves always would be.
       actorUserId: null,
     })
     expect(emission[0].payload).toMatchObject({
-      taskId: 'task-1',
+      // The run is the task now: taskId and runId name the same row.
+      taskId: 'run-1',
+      runId: 'run-1',
       conversationId: 's_conv_2',
       filedDocumentId: 'doc-7',
-      jobId: null,
-      runId: null,
+      jobId: 'job-1',
     })
   })
 
   it('tells the requester about a failure too, and files nothing', async () => {
     vi.mocked(emitInboxItems).mockResolvedValue(1)
-    await recordTaskOutcome(delegated(), { status: 'failure', error: 'Budget exhausted' })
+    await recordRunOutcome(delegated(), { status: 'failure', error: 'Budget exhausted' })
 
     const [[emission]] = vi.mocked(emitInboxItems).mock.calls
     expect(emission[0].type).toBe('job.failed')

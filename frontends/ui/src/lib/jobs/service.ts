@@ -1,20 +1,19 @@
 /**
- * Jobs domain service — a project-scoped prompt on a timer.
+ * Definitions service — the standing intent and the fire path (the arrival of
+ * jobs + delegated tasks at one entity, migration 0086).
  *
- * Responsibilities (ADR-0017): authorization (feature gate, project access),
- * business rules (cron validation, snapshot semantics, the single fire path)
- * and run recording. The service NEVER returns raw error statuses; it throws
- * typed errors from `@/lib/api/errors`.
+ * A definition says what was asked, by whom, and what makes it run. A
+ * `schedule` fires on its cron; a `once` definition is a delegation; a `manual`
+ * one only runs when a person presses "Run now". This module owns the
+ * definition CRUD and the single submission path (`fireJob`); the run
+ * lifecycle, filing and review live next door in `@/lib/tasks/service` over
+ * the same `task_runs` table.
  *
- * A job is a PROMPT. A skill may be attached on top — exactly as typing
- * `/name` before a message would attach it — and when one is, its body is
- * appended by `buildFirePrompt`. A skill knows nothing about time, and nothing
- * here reads scheduling or output intent out of skill metadata: `output` is the
- * user's choice on the job row.
- *
- * Fire-path tenancy: `fireJob` derives tenancy from the job row itself and
- * never throws for a skip — the manual "Run now" route and the internal
- * (scheduler) fire route share it.
+ * The HTTP contract is deliberately unchanged: the project-scoped `/jobs`
+ * routes still answer the shapes the UI's jobs client parses (`name`, `prompt`,
+ * `output`, …), and this module projects a definition onto that shape. That
+ * projection is the seam at which the old wire model meets the new storage
+ * model; it disappears when the UI moves to definitions in the same release.
  */
 
 import 'server-only'
@@ -38,9 +37,7 @@ import {
 } from '@/lib/request-context'
 import { isMemoryReflectionEnabled, isOrgFeatureEnabled, SKILLS_FLAG } from '@/lib/workos/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import type { InboxItemType, Job, JobOutput, JobRun, JobRunStatus, JobRunTrigger } from '@/lib/db/schema'
-import { inboxGroupKey } from '@/lib/inbox/registry'
-import { emitInboxItems } from '@/lib/inbox/service'
+import type { JobOutput, TaskDefinition, TaskRun, TaskRunTrigger } from '@/lib/db/schema'
 import { resolveSelectableSkills, resolveSkillSnapshot } from '@/lib/skills/service'
 import { snapshotOf, type SkillSnapshot } from '@/lib/skills/types'
 import { nextOccurrence, validateCron, minIntervalMinutesFromEnv } from './schedule'
@@ -50,8 +47,8 @@ import {
   JobSubmitSkippedError,
   type JobSubmitPayload,
 } from './backend-client'
-import * as repository from './repository'
-import { completeTaskForRun, createTaskForRun, loadTaskForOutcome, previousDecisionsBlock } from '@/lib/tasks/service'
+import * as repository from '@/lib/tasks/repository'
+import { previousDecisionsBlock } from '@/lib/tasks/service'
 import {
   AGENT_FOR_OUTPUT,
   emptySkillSnapshot,
@@ -65,9 +62,10 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Every session-facing call gates on the feature (routes do the same). Jobs
- * still ride the `skills` flag: they ship as one feature and are turned on
- * together, so a second flag would only add a way for them to disagree.
+ * Every session-facing call gates on the feature (routes do the same).
+ * Definitions still ride the `skills` flag: they ship as one feature and are
+ * turned on together, so a second flag would only add a way for them to
+ * disagree.
  */
 function assertJobsFeatureOn(session: AuthorizedSession): void {
   if (requireSkillsEnabled(session)) {
@@ -76,21 +74,103 @@ function assertJobsFeatureOn(session: AuthorizedSession): void {
 }
 
 // ---------------------------------------------------------------------------
-// Attached skill + schedule resolution
+// Wire projections
 // ---------------------------------------------------------------------------
 
 /**
- * The attached skill, as the PAIR the database insists on.
- *
- * `skill_name IS NULL` iff `skill_snapshot IS NULL` (`jobs_skill_pair_check`),
- * so this resolves both together or neither — there is no code path that can
- * write a name with no body.
+ * A definition as the `/jobs` wire has always described one. The UI's
+ * `jobs-client.ts` parses exactly these fields, and `name`/`prompt`/`output`
+ * are that model's words for `title`/`plan.prompt`/`kind`.
  */
+export interface JobView {
+  id: string
+  projectId: string
+  name: string
+  prompt: string
+  skillName: string | null
+  skillSnapshot: SkillSnapshot | null
+  output: JobOutput
+  dataSources: string[] | null
+  enabled: boolean
+  scheduleCron: string | null
+  scheduleTimezone: string
+  nextRunAt: Date | null
+  lastRunAt: Date | null
+  createdBy: string
+  createdByEmail: string | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+/** The `job_runs` words for a `task_runs` row (the run-history wire shape). */
+export interface JobRunView {
+  id: string
+  /** The parent's id. `schedule_id` on the wire, `definition_id` in storage. */
+  scheduleId: string
+  /** The BACKEND async-job id. Null when skipped/error. */
+  jobId: string | null
+  trigger: TaskRunTrigger
+  status: 'submitted' | 'skipped' | 'error'
+  detail: string | null
+  conversationId: string | null
+  skillSnapshot: SkillSnapshot
+  triggeredBy: string | null
+  createdAt: Date
+}
+
+function toJobView(definition: TaskDefinition): JobView {
+  const skill = definition.plan.skill
+  const hasSkill = Boolean(skill && skill.name)
+  return {
+    id: definition.id,
+    projectId: definition.projectId,
+    name: definition.title,
+    prompt: definition.plan.prompt,
+    skillName: hasSkill ? skill.name : null,
+    skillSnapshot: hasSkill ? skill : null,
+    output: definition.kind === 'deep-research' ? 'deep-research' : 'chat',
+    dataSources: definition.plan.dataSources,
+    enabled: definition.enabled,
+    scheduleCron: definition.scheduleCron,
+    scheduleTimezone: definition.scheduleTimezone,
+    nextRunAt: definition.nextRunAt,
+    lastRunAt: definition.lastRunAt,
+    createdBy: definition.requesterUserId,
+    createdByEmail: definition.requesterEmail,
+    createdAt: definition.createdAt,
+    updatedAt: definition.updatedAt,
+  }
+}
+
+function toJobRunView(run: TaskRun): JobRunView {
+  return {
+    id: run.id,
+    scheduleId: run.definitionId ?? '',
+    jobId: run.backendJobId,
+    trigger: run.trigger,
+    // The old submission vocabulary: a worker outcome never reached this list,
+    // so every non-skip/non-error attempt reads `submitted`.
+    status: run.status === 'skipped' || run.status === 'error' ? run.status : 'submitted',
+    detail: run.error,
+    conversationId: run.conversationId,
+    skillSnapshot: run.skillSnapshot,
+    triggeredBy: run.triggeredBy,
+    createdAt: run.createdAt,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Attached skill + schedule resolution
+// ---------------------------------------------------------------------------
+
+/** The attached skill, pinned as the snapshot pair the run will carry. */
 async function resolveAttachedSkill(
   skillName: string | null | undefined,
   organizationId: string,
-): Promise<{ skillName: string | null; skillSnapshot: SkillSnapshot | null }> {
-  if (skillName == null || skillName === '') return { skillName: null, skillSnapshot: null }
+): Promise<{ skillName: string | null; skillSnapshot: SkillSnapshot }> {
+  if (skillName == null || skillName === '') {
+    return { skillName: null, skillSnapshot: emptySkillSnapshot() }
+  }
   const snapshot = await resolveSkillSnapshot(skillName, organizationId)
   return { skillName: snapshot.name, skillSnapshot: snapshotOf(snapshot) }
 }
@@ -107,10 +187,9 @@ function computeNextRunAt(
 }
 
 /**
- * Validate the cron (shape, timezone, minimum interval) and compute the row's
- * next occurrence. There is no longer any veto from the attached skill:
- * `grid-schedulable` is gone, because whether something may run on a timer is a
- * property of the job, not of a skill that knows nothing about time.
+ * Validate the cron (shape, timezone, minimum interval) and compute the
+ * definition's next occurrence. There is no veto from the attached skill:
+ * whether something may run on a timer is a property of the work.
  */
 function resolveScheduleInputs(
   scheduleCron: string | null,
@@ -123,63 +202,94 @@ function resolveScheduleInputs(
   return { nextRunAt: computeNextRunAt(scheduleCron, scheduleTimezone, enabled) }
 }
 
+/** The trigger a definition has once its schedule columns are known. */
+function triggerFor(scheduleCron: string | null): 'manual' | 'schedule' {
+  return scheduleCron ? 'schedule' : 'manual'
+}
+
+/**
+ * Permissions attach to the TRIGGER (the decision in the follow-up plan):
+ * creating or editing work is `project:edit`; giving it a recurring trigger —
+ * unattended, repeated spend against somebody's budget — additionally needs
+ * `project:skills:manage`. Two calls, not one array, because the two checks
+ * have different subjects and this reads as what it is.
+ */
+async function requireDefinitionAccess(
+  session: AuthorizedSession,
+  projectId: string,
+  recurring: boolean,
+): Promise<void> {
+  await requireProjectAccess(session, projectId, 'project:edit')
+  if (recurring) {
+    await requireProjectAccess(session, projectId, 'project:skills:manage')
+  }
+}
+
 // ---------------------------------------------------------------------------
 // CRUD
 // ---------------------------------------------------------------------------
 
+/**
+ * A project's definitions as templates: `manual` and `schedule` only. A `once`
+ * definition is a delegation and belongs to the run list, not to the recurring
+ * picker.
+ */
 export async function listJobs(
   session: AuthorizedSession,
   projectId: string,
-): Promise<{ jobs: Job[] }> {
+): Promise<{ jobs: JobView[] }> {
   assertJobsFeatureOn(session)
   await requireProjectAccess(session, projectId, 'project:view')
-  const rows = await repository.listJobsInProject(projectId, session.organizationId)
-  return { jobs: rows }
+  const rows = await repository.listDefinitionsInProject(projectId, session.organizationId)
+  return { jobs: rows.filter((row) => row.trigger !== 'once').map(toJobView) }
 }
 
 export async function getJob(
   session: AuthorizedSession,
   projectId: string,
   jobId: string,
-): Promise<Job> {
+): Promise<JobView> {
   assertJobsFeatureOn(session)
   await requireProjectAccess(session, projectId, 'project:view')
-  const job = await repository.findJob(jobId, session.organizationId)
-  if (!job || job.projectId !== projectId) throw new NotFoundError('Job not found.')
-  return job
+  const definition = await repository.findDefinition(jobId, session.organizationId)
+  if (!definition || definition.projectId !== projectId) throw new NotFoundError('Job not found.')
+  return toJobView(definition)
 }
 
 export async function createJob(
   session: AuthorizedSession,
   projectId: string,
   input: CreateJobInput,
-): Promise<Job> {
+): Promise<JobView> {
   assertJobsFeatureOn(session)
-  await requireProjectAccess(session, projectId, 'project:skills:manage')
-
   const scheduleCron = input.scheduleCron ?? null
+  await requireDefinitionAccess(session, projectId, scheduleCron !== null)
+
   const scheduleTimezone = input.scheduleTimezone ?? 'UTC'
   const enabled = input.enabled ?? true
   const attached = await resolveAttachedSkill(input.skillName, session.organizationId)
   const { nextRunAt } = resolveScheduleInputs(scheduleCron, scheduleTimezone, enabled)
 
-  return repository.insertJob({
+  const definition = await repository.insertDefinition({
     projectId,
     organizationId: session.organizationId,
-    name: input.name,
-    prompt: input.prompt,
-    skillName: attached.skillName,
-    skillSnapshot: attached.skillSnapshot,
-    output: input.output,
-    // knowledge_layer is always included; the stored list is "additional sources".
-    dataSources: withAlwaysOnKnowledge(input.dataSources ?? null),
+    kind: input.output,
+    title: input.name,
+    plan: {
+      prompt: input.prompt,
+      skill: attached.skillSnapshot,
+      // knowledge_layer is always included; the stored list is "additional sources".
+      dataSources: withAlwaysOnKnowledge(input.dataSources ?? null),
+    },
+    requesterUserId: session.userId,
+    requesterEmail: session.email,
+    trigger: triggerFor(scheduleCron),
     enabled,
     scheduleCron,
     scheduleTimezone,
     nextRunAt,
-    createdBy: session.userId,
-    createdByEmail: session.email,
   })
+  return toJobView(definition)
 }
 
 export async function updateJob(
@@ -187,40 +297,51 @@ export async function updateJob(
   projectId: string,
   jobId: string,
   patch: PatchJobInput,
-): Promise<Job> {
+): Promise<JobView> {
   assertJobsFeatureOn(session)
-  await requireProjectAccess(session, projectId, 'project:skills:manage')
-
-  const existing = await repository.findJob(jobId, session.organizationId)
+  const existing = await repository.findDefinition(jobId, session.organizationId)
   if (!existing || existing.projectId !== projectId) throw new NotFoundError('Job not found.')
 
   const scheduleCron = patch.scheduleCron !== undefined ? patch.scheduleCron : existing.scheduleCron
+  // Turning a definition INTO a recurring one is the permissioned act; editing
+  // an existing schedule's prompt is not. A patch that pins a cron (or keeps
+  // one) therefore asks for the stricter permission exactly when the RESULT is
+  // recurring.
+  await requireDefinitionAccess(session, projectId, scheduleCron !== null)
+
   const scheduleTimezone = patch.scheduleTimezone ?? existing.scheduleTimezone
   const enabled = patch.enabled ?? existing.enabled
-  // `undefined` = leave the attachment alone; `null` = detach. Either way the
-  // name and the snapshot move together.
-  const attached =
-    patch.skillName === undefined
-      ? { skillName: existing.skillName, skillSnapshot: existing.skillSnapshot }
-      : await resolveAttachedSkill(patch.skillName, session.organizationId)
   const { nextRunAt } = resolveScheduleInputs(scheduleCron, scheduleTimezone, enabled)
 
-  const job = await repository.updateJob(jobId, session.organizationId, {
-    name: patch.name,
-    prompt: patch.prompt,
-    skillName: attached.skillName,
-    skillSnapshot: attached.skillSnapshot,
-    output: patch.output,
-    dataSources:
-      patch.dataSources !== undefined ? withAlwaysOnKnowledge(patch.dataSources) : undefined,
+  let plan = existing.plan
+  if (patch.name !== undefined || patch.prompt !== undefined || patch.skillName !== undefined || patch.dataSources !== undefined) {
+    const attached =
+      patch.skillName === undefined
+        ? { skillSnapshot: plan.skill }
+        : await resolveAttachedSkill(patch.skillName, session.organizationId)
+    plan = {
+      ...plan,
+      prompt: patch.prompt ?? plan.prompt,
+      skill: attached.skillSnapshot,
+      dataSources:
+        patch.dataSources !== undefined
+          ? withAlwaysOnKnowledge(patch.dataSources)
+          : plan.dataSources,
+    }
+  }
+
+  const definition = await repository.updateDefinition(jobId, session.organizationId, {
+    title: patch.name,
+    plan,
+    trigger: triggerFor(scheduleCron),
     enabled,
     scheduleCron,
     scheduleTimezone,
     nextRunAt,
     updatedAt: new Date(),
   })
-  if (!job) throw new NotFoundError('Job not found.')
-  return job
+  if (!definition) throw new NotFoundError('Job not found.')
+  return toJobView(definition)
 }
 
 export async function deleteJob(
@@ -229,11 +350,11 @@ export async function deleteJob(
   jobId: string,
 ): Promise<{ deleted: true }> {
   assertJobsFeatureOn(session)
-  await requireProjectAccess(session, projectId, 'project:skills:manage')
-
-  const existing = await repository.findJob(jobId, session.organizationId)
+  const existing = await repository.findDefinition(jobId, session.organizationId)
   if (!existing || existing.projectId !== projectId) throw new NotFoundError('Job not found.')
-  await repository.deleteJob(jobId, session.organizationId)
+  await requireDefinitionAccess(session, projectId, existing.scheduleCron !== null)
+
+  await repository.deleteDefinition(jobId, session.organizationId)
   return { deleted: true }
 }
 
@@ -243,14 +364,14 @@ export async function listJobRuns(
   jobId: string,
   limit: number,
   offset: number,
-): Promise<{ runs: JobRun[] }> {
+): Promise<{ runs: JobRunView[] }> {
   assertJobsFeatureOn(session)
   await requireProjectAccess(session, projectId, 'project:view')
 
-  const job = await repository.findJob(jobId, session.organizationId)
-  if (!job || job.projectId !== projectId) throw new NotFoundError('Job not found.')
-  const runs = await repository.listJobRuns(jobId, session.organizationId, { limit, offset })
-  return { runs }
+  const definition = await repository.findDefinition(jobId, session.organizationId)
+  if (!definition || definition.projectId !== projectId) throw new NotFoundError('Job not found.')
+  const runs = await repository.listRunsForDefinition(jobId, session.organizationId, { limit, offset })
+  return { runs: runs.map(toJobRunView) }
 }
 
 // ---------------------------------------------------------------------------
@@ -267,22 +388,6 @@ export type AttachableSkill = {
   origin: 'org' | 'platform-clone' | 'platform'
 }
 
-/**
- * The skills attachable to a job with this output kind.
- *
- * `chat` runs on `researcher`, `deep-research` on `deep_researcher`
- * (`AGENT_FOR_OUTPUT`, the mirror of the backend's `_OUTPUT_AGENT_TYPES`), and
- * availability is resolved from `grid-agents` — the ONE gate. The picker must
- * not offer a skill the chosen output cannot run, which is exactly why the
- * availability rules were consolidated onto that single key.
- *
- * `resolveSelectableSkills`, not `resolveSkillsForAgent`: the platform's
- * standard skills resolve for this organization on every run, but they are not
- * the org's to attach. Offering one here would build a job around an instruction
- * whose body this tenant cannot read in the preview pane, cannot edit, and
- * cannot keep — `resolveSkillSnapshot` refuses the name, so the save would 404
- * on something the picker had just shown as available.
- */
 export async function listAttachableSkills(
   session: AuthorizedSession,
   output: JobOutput,
@@ -298,22 +403,22 @@ export async function listAttachableSkills(
 // Fire path (manual + scheduler share it)
 // ---------------------------------------------------------------------------
 
-/** Manual "Run now": fires an enabled job with the caller's identity. */
+/** Manual "Run now": fires an enabled definition with the caller's identity. */
 export async function runJobNow(
   session: AuthorizedSession,
   projectId: string,
   jobId: string,
-): Promise<JobRun> {
+): Promise<TaskRun> {
   assertJobsFeatureOn(session)
   await requireProjectAccess(session, projectId, 'project:skills:manage')
 
-  const job = await repository.findJob(jobId, session.organizationId)
-  if (!job || job.projectId !== projectId) throw new NotFoundError('Job not found.')
-  if (!job.enabled) throw new ConflictError('This job is disabled.')
-  return fireJob(job, 'manual', session.userId)
+  const definition = await repository.findDefinition(jobId, session.organizationId)
+  if (!definition || definition.projectId !== projectId) throw new NotFoundError('Job not found.')
+  if (!definition.enabled) throw new ConflictError('This job is disabled.')
+  return fireJob(definition, 'manual', session.userId)
 }
 
-/** What `buildFirePrompt` needs: the job's prompt and its attached skill, if any. */
+/** What `buildFirePrompt` needs: the definition's prompt and attached skill. */
 export interface FirePromptInput {
   prompt: string
   skill: SkillSnapshot | null
@@ -322,10 +427,9 @@ export interface FirePromptInput {
 /**
  * The deterministic prompt a run is submitted with.
  *
- * The job's prompt ALWAYS, exactly as a person would have typed it into a new
- * chat, plus the attached skill's full body when there is one — the `/name`
- * relationship, written out. With no skill attached the output is the prompt
- * and nothing else: no `Skill:`/`Beschreibung:` block, no dangling fences.
+ * The prompt ALWAYS, exactly as a person would have typed it into a new chat,
+ * plus the attached skill's full body when there is one. With no skill
+ * attached the output is the prompt and nothing else.
  *
  * WYSIWYG contract: `src/features/skills/lib/fire-prompt-preview.ts` is a
  * byte-identical transcription of this function and a spec pins that they
@@ -350,13 +454,9 @@ export function buildFirePrompt({ prompt, skill }: FirePromptInput): string {
 }
 
 /**
- * One background run, as everything below the job row needs it.
- *
- * Extracted from {@link fireJob} so a DELEGATED task (ADR-0051: "a chat handoff
- * becomes another trigger") reaches the same submission with the same context,
- * the same signed envelope and the same conversation semantics. It is the
- * submission, not a second queue: `submitJob` and the backend's own worker are
- * unchanged, and the only thing that varies is who assembled the spec.
+ * One background run, as everything below the definition row needs it.
+ * Delegated work reaches the same submission through `submitAgentRun` too —
+ * it is the submission, not a second queue.
  */
 export interface AgentRunSpec {
   organizationId: string
@@ -372,11 +472,10 @@ export interface AgentRunSpec {
   dataSources: string[] | null
   /**
    * The title of the conversation an `output: 'chat'` run writes into. Null
-   * means "no conversation": a deep-research run produces a report, not a
-   * thread.
+   * means "no conversation": a deep-research run produces a report.
    */
   conversationTitle: string | null
-  /** Stamped on the conversation when the run belongs to a job. */
+  /** Stamped on the conversation when the run belongs to a definition. */
   jobId?: string | null
 }
 
@@ -387,12 +486,11 @@ export interface SubmittedAgentRun {
 }
 
 /**
- * Build one run's context, create its conversation and submit it to the backend.
- *
- * Throws what `submitJob` throws (`JobSubmitError`, `JobSubmitSkippedError`) and
- * whatever a context lookup throws; every caller decides how to record that,
- * because the two callers record it in two different places — a `job_runs` row
- * for a job, the task row itself for a delegated task.
+ * Build one run's context, create its conversation and submit it to the
+ * backend. Throws what `submitJob` throws (`JobSubmitError`,
+ * `JobSubmitSkippedError`) and whatever a context lookup throws; every caller
+ * records that on a run row, because a fire that never reached the agent is
+ * still an attempt a person can see.
  */
 export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgentRun> {
   const { organizationId, projectId, userId } = spec
@@ -410,19 +508,11 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
     buildProjectCollectionScope(projectId, organizationId),
     loadProjectPromptView(projectId, organizationId).catch(() => null),
     loadProjectBundesland(projectId, organizationId).catch(() => null),
-    // What the project already knows, ranked against this run's own prompt the
-    // way a chat turn's digest is ranked against its question. Best effort —
-    // memory must never stop a run from firing.
     buildProjectMemoryDigest(projectId, organizationId, { query: spec.prompt }).catch(() => null),
-    // The org's flag, evaluated here exactly as the WS handshake evaluates it;
-    // the worker holds the config and resolves the model itself.
     isMemoryReflectionEnabled(organizationId).catch(() => false),
   ])
   const budgetHeader = budgetSnapshot ? encodeGridBudgetHeader(budgetSnapshot) : null
 
-  // An `output: 'chat'` run lands in a REAL conversation the team can open and
-  // continue, and this is where it is created — before submission, because the
-  // backend needs its id to write into.
   const conversationId =
     spec.output === 'chat' && spec.conversationTitle
       ? await createRunConversation({
@@ -452,9 +542,6 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
     model_overrides: modelOverrides,
   }
 
-  // Signed context envelope (same wire format as fireWorkflow): built from the
-  // exact values above via the shared GridRequestContext builder so this path's
-  // wire format can never drift from the interactive one.
   const contextHeaders = buildGridRequestContextWireHeaders(
     {
       organizationId,
@@ -476,57 +563,98 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
 }
 
 /**
- * The single submission path (manual + scheduled). Context building sits
- * inside the try: a transient DB/WorkOS failure surfaces as an `error` run
- * row, never as an unrecorded throw — the job advances past this occurrence
- * regardless.
+ * The single submission path (manual + scheduled).
+ *
+ * Context building sits inside the try: a transient DB/WorkOS failure surfaces
+ * as an `error` run row, never as an unrecorded throw — the definition advances
+ * past this occurrence regardless. A skip or an error is a `task_runs` row with
+ * a terminal status, which is how a failed fire becomes visible in Aufgaben.
  */
 export async function fireJob(
-  job: Job,
-  trigger: JobRunTrigger,
+  definition: TaskDefinition,
+  trigger: TaskRunTrigger,
   actor: string,
-): Promise<JobRun> {
-  const { organizationId, projectId, createdBy } = job
+): Promise<TaskRun> {
+  const { organizationId, projectId } = definition
 
   try {
-    // What earlier runs of this job were told "no" about, in the reviewer's
-    // words, so the rejection reaches the run instead of a log line.
-    const decisions = await previousDecisionsBlock(job)
-    const firePrompt = [buildFirePrompt({ prompt: job.prompt, skill: job.skillSnapshot }), decisions]
+    // What earlier runs of this definition were told "no" about, in the
+    // reviewer's words, so the rejection reaches the run instead of a log line.
+    const decisions = await previousDecisionsBlock(definition)
+    const skill = definition.plan.skill.name ? definition.plan.skill : null
+    const firePrompt = [
+      buildFirePrompt({ prompt: definition.plan.prompt, skill }),
+      decisions,
+    ]
       .filter(Boolean)
       .join('\n\n')
     const { backendJobId, conversationId } = await submitAgentRun({
       organizationId,
       projectId,
-      userId: createdBy,
-      ownerEmail: job.createdByEmail,
+      userId: definition.requesterUserId,
+      ownerEmail: definition.requesterEmail,
       prompt: firePrompt,
-      skillSnapshot: job.skillSnapshot,
-      output: job.output,
-      // Defense for legacy rows persisted before knowledge_layer was always-on.
-      dataSources: job.dataSources ?? null,
-      conversationTitle: job.name,
-      jobId: job.id,
+      skillSnapshot: skill,
+      output: definition.kind === 'deep-research' ? 'deep-research' : 'chat',
+      dataSources: definition.plan.dataSources ?? null,
+      conversationTitle: definition.title,
+      jobId: definition.id,
     })
-    const run = await recordJobRun(job, trigger, actor, 'submitted', backendJobId, null, conversationId)
-    // The durable unit of this attempt (ADR-0051): the requester pinned, the
-    // plan frozen, the backend id recorded for the worker's outcome to close.
-    await createTaskForRun(job, run, firePrompt)
-    return run
+    return recordRun(definition, trigger, actor, 'running', backendJobId, null, conversationId, firePrompt)
   } catch (err) {
     if (err instanceof JobSubmitSkippedError) {
       const detail =
         err.retryAfterSeconds != null
           ? `${err.message} (retry after ${err.retryAfterSeconds}s)`
           : err.message
-      return recordJobRun(job, trigger, actor, 'skipped', null, detail, null)
+      return recordRun(definition, trigger, actor, 'skipped', null, detail, null)
     }
     if (err instanceof JobSubmitError) {
-      return recordJobRun(job, trigger, actor, 'error', null, err.message, null)
+      return recordRun(definition, trigger, actor, 'error', null, err.message, null)
     }
     const detail = err instanceof Error ? err.message : 'Unexpected error while preparing the run'
-    return recordJobRun(job, trigger, actor, 'error', null, detail, null)
+    return recordRun(definition, trigger, actor, 'error', null, detail, null)
   }
+}
+
+/**
+ * Record the attempt — created BEFORE the outcome can arrive, with the backend
+ * id the worker will report through. `firePrompt` is frozen into the run's plan
+ * when submission succeeded; a skipped/error fire records the definition's plan
+ * unchanged, because nothing was sent.
+ */
+async function recordRun(
+  definition: TaskDefinition,
+  trigger: TaskRunTrigger,
+  actor: string,
+  status: 'running' | 'skipped' | 'error',
+  backendJobId: string | null,
+  error: string | null,
+  conversationId: string | null,
+  firePrompt?: string,
+): Promise<TaskRun> {
+  const run = await repository.insertRun({
+    organizationId: definition.organizationId,
+    projectId: definition.projectId,
+    definitionId: definition.id,
+    kind: definition.kind,
+    title: definition.title,
+    plan: firePrompt ? { ...definition.plan, prompt: firePrompt } : definition.plan,
+    requesterUserId: definition.requesterUserId,
+    requesterEmail: definition.requesterEmail,
+    trigger,
+    triggeredBy: actor,
+    status,
+    error,
+    skillSnapshot: definition.plan.skill.name
+      ? definition.plan.skill
+      : emptySkillSnapshot(),
+    backendJobId,
+    conversationId,
+    startedAt: status === 'running' ? new Date() : null,
+  })
+  await repository.touchDefinitionLastRun(definition.id, run.createdAt)
+  return run
 }
 
 /**
@@ -534,64 +662,38 @@ export async function fireJob(
  * opens, reads and keeps typing into, not a rendering of a report.
  *
  * Returns the new conversation's id, or null when the insert failed. Whether a
- * run HAS a conversation is the caller's decision (`submitAgentRun` asks only
- * for `output: 'chat'`), because a delegated task decides it from its kind
- * rather than from a job row.
+ * run HAS a conversation is the caller's decision, because a delegated task
+ * decides it from its kind rather than from a definition row.
  *
- * Three decisions are made here, and each was forced:
- *
- * **`createdBy` is the JOB'S OWNER, or the task's pinned requester — a real
- * user id, never 'scheduler' and never a synthetic one.** Four separate mechanisms read `conversations.created_by`
- * as a person, and a synthetic id breaks all four: the sharing roster lists the
- * creator as a participant (`lib/sharing/service.ts`), the last-owner invariant
- * refuses to leave a resource ownerless and needs a real user to hold that role,
- * `attributeLegacyAuthor` names them as the author of pre-collaboration
- * messages, and `recordAuditEvent` requires an actor with a `userId: string`.
- * A conversation owned by nobody is one nobody can act as, that notifies nobody
- * (participants = {createdBy} ∪ {grantees}), and that cannot be audited. The
- * owner is also the identity the run itself already carries — `user_id` on the
- * payload and in the signed context envelope — so this adds no new attribution,
- * it just stops the conversation from disagreeing with the run.
+ * **`createdBy` is the definition's requester — a real user id, never
+ * 'scheduler' and never a synthetic one.** Four separate mechanisms read
+ * `conversations.created_by` as a person, and a synthetic id breaks all four:
+ * the sharing roster lists the creator as a participant, the last-owner
+ * invariant refuses to leave a resource ownerless, `attributeLegacyAuthor`
+ * names them as the author of pre-collaboration messages, and
+ * `recordAuditEvent` requires an actor with a `userId: string`.
  *
  * **`visibility: 'project'` at creation, not 'private'.** ADR-0032 made
- * `private` the default so that sharing is a DELIBERATE act; this IS that act,
- * made at schedule time. Someone holding `project:skills:manage` set up a
- * recurring job on a project, whose runs are already readable by anyone with
- * `project:view` — a thread that only its nominal owner can open would hide the
- * output of a team artefact behind one person's account, and every colleague
- * following the run-history link would get a 404. The interactive path still
- * passes no visibility at all and still gets `private` from the column default.
+ * `private` the default so that sharing is a DELIBERATE act; this IS that act.
+ * Two people following the run-history link would otherwise get a 404.
  *
- * **`jobId` stamps the provenance** (migration 0044): it is what lets the UI
- * render the job's name and glyph instead of the owner's face, and what keeps
- * these threads out of the owner's personal chat history — a weekly job is 52
- * of them a year.
+ * **`jobId` stamps the provenance** — it is what lets the UI render the
+ * definition's name and glyph instead of the owner's face, and what keeps
+ * these threads out of the owner's personal chat history.
  *
- * A failure here is logged and swallowed: a scheduled run must still run. The
- * run then submits with no `conversation_id` and its `job_runs` row records
- * none, which is exactly the shape of every run that predates this feature.
- * The reverse trade — refusing to fire because a row could not be written — is
- * the one outcome nobody would want at 03:00.
- *
- * Note what is deliberately NOT done: when submission subsequently fails, the
- * conversation created here is left in place rather than cleaned up. A submit
- * error is not proof the backend did not receive the run (a timeout is the
- * common case), and deleting the conversation a run is about to write into
- * would destroy the output to tidy up a row.
+ * A failure here is logged and swallowed: a scheduled run must still run.
  */
 async function createRunConversation(run: {
   organizationId: string
   projectId: string
   createdBy: string
   title: string
-  /** Null for a delegated task, which has no job row to stamp provenance from. */
+  /** Null for a delegated task, which still stamps the once definition's id. */
   jobId: string | null
 }): Promise<string | null> {
   // The app's conversation id shape: `s_` + a uuid with hyphens as underscores.
-  // It is not cosmetic — the id doubles as this session's Qdrant collection
-  // name (`lib/collection-scope.ts`, `lib/proxy/collection-authz.ts` both key
-  // off the `s_` prefix), so a job conversation must be minted exactly the way
-  // `features/chat/stores/sessions-store.ts` mints an interactive one.
+  // It doubles as this session's Qdrant collection name, so a definition
+  // conversation must be minted exactly the way an interactive one is.
   const id = `s_${randomUUID().replace(/-/g, '_')}`
 
   try {
@@ -605,146 +707,41 @@ async function createRunConversation(run: {
       jobId: run.jobId,
     })
     if (inserted) return inserted.id
-    // `onConflictDoNothing` returned nothing, i.e. the id already exists —
-    // impossible for a uuid we just minted, so treat it as a failed create
-    // rather than adopting a row we cannot vouch for.
-    console.warn('[jobs] conversation id collision while firing run', run.jobId ?? run.title)
+    console.warn('[definitions] conversation id collision while firing run', run.jobId ?? run.title)
     return null
   } catch (err) {
-    console.warn('[jobs] failed to create the conversation for run', run.jobId ?? run.title, err)
+    console.warn('[definitions] failed to create the conversation for run', run.jobId ?? run.title, err)
     return null
   }
 }
 
-async function recordJobRun(
-  job: Job,
-  trigger: JobRunTrigger,
-  actor: string,
-  status: JobRunStatus,
-  backendJobId: string | null,
-  detail: string | null,
-  conversationId: string | null,
-): Promise<JobRun> {
-  const run = await repository.insertJobRun({
-    scheduleId: job.id,
-    projectId: job.projectId,
-    organizationId: job.organizationId,
-    jobId: backendJobId,
-    trigger,
-    status,
-    detail,
-    conversationId,
-    // `{}` for a skill-less job — job_runs.skill_snapshot is NOT NULL so run
-    // history keeps one shape to read.
-    skillSnapshot: job.skillSnapshot ? snapshotOf(job.skillSnapshot) : emptySkillSnapshot(),
-    triggeredBy: actor,
-  })
-  await repository.touchJobLastRun(job.id, run.createdAt)
-  return run
-}
-
-/** Internal (scheduler) fire: load a job by id WITHOUT an org filter. */
-export async function loadJobForFire(jobId: string): Promise<Job | null> {
-  return repository.findJobById(jobId)
-}
-
-/** How a background run ended, as the worker reports it. */
-export type JobOutcomeStatus = 'success' | 'failure' | 'interrupted'
-
-export interface JobOutcome {
-  status: JobOutcomeStatus
-  /** The sanitized, user-safe error the worker persisted, when it failed. */
-  error?: string | null
-  /** The finished report and its cards, for filing as the requester (ADR-0051). */
-  report?: string | null
-  cards?: unknown[] | null
+/** Internal (scheduler) fire: load a definition by id WITHOUT an org filter. */
+export async function loadJobForFire(jobId: string): Promise<TaskDefinition | null> {
+  return repository.findDefinitionById(jobId)
 }
 
 /**
- * The run the worker is reporting on, located by the backend job id — the one
- * id a worker holds. Runs under platform access because no tenant is known
- * until the row is found; everything after is that run's tenant's work.
- */
-export async function loadJobRunForOutcome(backendJobId: string): Promise<JobRun | null> {
-  return repository.findJobRunByBackendJobId(backendJobId)
-}
-
-/**
- * Tell the person who created the job that its run has ended.
- *
- * Until this existed a scheduled run produced a report, filed nothing anyone
- * was told about, and expired with the job store 24 hours later. The inbox
- * frame (ADR-0035) was built with exactly this type in mind and no emitter ever
- * spent the registry entry. One row per run (anchored on the backend job id),
- * to the job's creator, and never to the scheduler: `actorUserId` is null
- * because the work was Piloti's, and because `emitInboxItems` drops a row
- * whose actor is its recipient — which a manual "Run now" would otherwise be.
- *
- * Idempotent: the unique `(recipient, group_key)` upsert folds a retried report
- * into the existing row, so a worker that notifies twice cannot notify twice.
- */
-export async function recordJobOutcome(
-  run: JobRun,
-  outcome: JobOutcome,
-): Promise<{ notified: boolean; filed: { documentId: string; filename: string } | null }> {
-  const job = await repository.findJobById(run.scheduleId)
-  if (!job || job.organizationId !== run.organizationId) return { notified: false, filed: null }
-  if (!run.jobId) return { notified: false, filed: null }
-
-  // Close the task first, and file the report as the requester while doing
-  // so, so the inbox item below can say where the result landed.
-  const task = await loadTaskForOutcome(run.jobId)
-  const completed = task ? await completeTaskForRun(task, outcome) : null
-
-  const type: InboxItemType = outcome.status === 'success' ? 'job.completed' : 'job.failed'
-  const emitted = await emitInboxItems([
-    {
-      organizationId: run.organizationId,
-      recipientUserId: job.createdBy,
-      type,
-      resourceType: 'project',
-      resourceId: run.projectId,
-      anchorId: run.jobId,
-      actorUserId: null,
-      groupKey: inboxGroupKey(type, 'project', run.projectId, run.jobId),
-      payload: {
-        subject: job.name,
-        status: outcome.status,
-        error: outcome.error ?? null,
-        jobId: job.id,
-        runId: run.id,
-        conversationId: run.conversationId,
-        taskId: completed?.task.id ?? null,
-        filedDocumentId: completed?.filed?.documentId ?? null,
-        filedFilename: completed?.filed?.filename ?? null,
-      },
-    },
-  ])
-  return { notified: emitted > 0, filed: completed?.filed ?? null }
-}
-
-/**
- * The scheduler's gate: disabled job → `disabled`; with WorkOS flag
+ * The scheduler's gate: disabled definition → `disabled`; with WorkOS flag
  * enforcement the per-org `skills` flag is checked and a failure records a
- * `skipped` run (fail-closed); otherwise the run fires with scheduler
- * identity. `fireJob` itself never throws for a skip.
+ * `skipped` run (fail-closed); otherwise the run fires. `fireJob` itself never
+ * throws for a skip.
  */
 export async function fireScheduledJob(
-  job: Job,
+  definition: TaskDefinition,
 ): Promise<{ fired: boolean; jobId?: string; reason?: 'disabled' | 'feature-disabled' | 'skipped' | 'error' }> {
-  if (!job.enabled) {
+  if (!definition.enabled) {
     return { fired: false, reason: 'disabled' }
   }
   if (enforcementOn()) {
     let flagOn = false
     try {
-      flagOn = await isOrgFeatureEnabled(job.organizationId, SKILLS_FLAG)
+      flagOn = await isOrgFeatureEnabled(definition.organizationId, SKILLS_FLAG)
     } catch {
       flagOn = false
     }
     if (!flagOn) {
-      await recordJobRun(
-        job,
+      await recordRun(
+        definition,
         'schedule',
         'scheduler',
         'skipped',
@@ -755,8 +752,8 @@ export async function fireScheduledJob(
       return { fired: false, reason: 'feature-disabled' }
     }
   }
-  const run = await fireJob(job, 'schedule', 'scheduler')
-  if (run.status === 'submitted') return { fired: true, jobId: run.jobId ?? undefined }
+  const run = await fireJob(definition, 'schedule', 'scheduler')
+  if (run.status === 'running') return { fired: true, jobId: run.backendJobId ?? undefined }
   return { fired: false, reason: run.status === 'skipped' ? 'skipped' : 'error' }
 }
 
@@ -788,9 +785,9 @@ async function resolveBudgetSnapshot(
 
 /**
  * The ordered collection scope for the project — exactly what
- * buildCollectionScopeFromRequest produces for a project (base collection +
- * the project's real `proj_<uuid>` collection). Resolved from the project row
- * (session-less path); falls back to the id-derived name if the row is gone.
+ * buildCollectionScopeFromRequest produces for a project. Resolved from the
+ * project row (session-less path); falls back to the id-derived name if the
+ * row is gone.
  */
 async function buildProjectCollectionScope(
   projectId: string,

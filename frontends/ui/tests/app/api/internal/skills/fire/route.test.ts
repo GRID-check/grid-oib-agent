@@ -14,18 +14,18 @@ vi.mock('@/lib/jobs/service', () => ({
 
 import { POST } from '@/app/api/internal/skills/fire/route'
 import { loadJobForFire, fireScheduledJob } from '@/lib/jobs/service'
-import type { Job } from '@/lib/db/schema'
+import type { TaskDefinition } from '@/lib/db/schema'
 
 const mockLoad = vi.mocked(loadJobForFire)
 const mockFire = vi.mocked(fireScheduledJob)
 
 /**
- * The handler reads only `id`, `organizationId` and `enabled` off the job and
- * passes it through to the service; `as unknown as` confines the widening to
- * these two named boundaries rather than using `any`.
+ * The handler reads only `id`, `organizationId` and `enabled` off the
+ * definition and passes it through to the service; `as unknown as` confines the
+ * widening to these two named boundaries rather than using `any`.
  */
-const asJob = (row: Pick<Job, 'id' | 'organizationId' | 'enabled'>): Job =>
-  row as unknown as Job
+const asJob = (row: Pick<TaskDefinition, 'id' | 'organizationId' | 'enabled'>): TaskDefinition =>
+  row as unknown as TaskDefinition
 
 const REAL_TOKEN = 'a-real-secret-token'
 const JOB_ID = '7f9c1d2e-3b4a-4c5d-8e6f-1a2b3c4d5e6f'

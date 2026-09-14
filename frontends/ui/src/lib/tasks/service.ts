@@ -1,18 +1,16 @@
 /**
- * Tasks service — the durable unit of delegated work (ADR-0051).
+ * Run lifecycle service — one attempt from submission to review, over
+ * `task_runs` (the collapsed model, migration 0086).
  *
- * Owns the lifecycle of a task row from the moment a job fires to the moment
- * a person reviews the result:
- *
- *   fireJob ─▶ createTaskForRun ─▶ (worker) ─▶ completeTaskForRun ─▶ reviewTask
- *                                                    │
- *                                                    └─▶ fileAsRequester
+ *   fireJob ─▶ task_runs (running) ─▶ (worker) ─▶ recordRunOutcome ─▶ reviewTask
+ *                                                        │
+ *                                                        └─▶ fileAsRequester
  *
  * Two things here are the reason the row exists. `fileAsRequester` files a
  * finished run's report into the project AS THE PERSON WHO ASKED — resolved
  * from the pinned requester, never a service token — so a scheduled report no
  * longer expires unfiled. `previousDecisionsBlock` carries a reviewer's
- * rejection into the next run of the same job, which is the difference
+ * rejection into the next run of the same definition, which is the difference
  * between a cron line and delegation.
  */
 
@@ -22,7 +20,7 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import type { InboxItemType, Job, JobRun, Task, TaskFilingStatus, TaskKind, TaskStatus } from '@/lib/db/schema'
+import type { InboxItemType, TaskKind, TaskRun, TaskRunStatus } from '@/lib/db/schema'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems } from '@/lib/inbox/service'
 import { fileAgentDocumentDraft } from '@/lib/documents/agent-document'
@@ -40,6 +38,7 @@ import * as repository from './repository'
 import type { ReviewTaskInput } from './types'
 
 export type TaskOutcomeStatus = 'success' | 'failure' | 'interrupted'
+export type { TaskOutcomeStatus as JobOutcomeStatus }
 
 export interface TaskOutcome {
   status: TaskOutcomeStatus
@@ -49,110 +48,68 @@ export interface TaskOutcome {
   cards?: unknown[] | null
 }
 
-const OUTCOME_TO_STATUS: Record<TaskOutcomeStatus, TaskStatus> = {
+const OUTCOME_TO_STATUS: Record<TaskOutcomeStatus, TaskRunStatus> = {
   success: 'succeeded',
   failure: 'failed',
   interrupted: 'interrupted',
 }
 
-/**
- * Record the attempt a job just made, as a task. Best effort by contract: the
- * run has already been submitted, and a task row that could not be written
- * must not turn into a run nobody hears about — the run history still has it.
- */
-export async function createTaskForRun(job: Job, run: JobRun, firePrompt: string): Promise<Task | null> {
-  if (run.status !== 'submitted' || !run.jobId) return null
-  try {
-    const task = await repository.insertTask({
-      organizationId: job.organizationId,
-      projectId: job.projectId,
-      kind: job.output,
-      title: job.name,
-      plan: {
-        prompt: firePrompt,
-        skill: run.skillSnapshot,
-        dataSources: job.dataSources ?? null,
-      },
-      requesterUserId: job.createdBy,
-      requesterEmail: job.createdByEmail ?? null,
-      status: 'running',
-      startedAt: run.createdAt,
-      jobId: job.id,
-      jobRunId: run.id,
-      backendJobId: run.jobId,
-      conversationId: run.conversationId,
-    })
-    await recordAuditEvent({
-      organizationId: job.organizationId,
-      actor: { userId: job.createdBy, email: job.createdByEmail },
-      action: 'task.created',
-      targetType: 'task',
-      targetId: task.id,
-      metadata: { projectId: job.projectId, kind: job.output, jobId: job.id, trigger: run.trigger },
-    })
-    return task
-  } catch (error) {
-    console.error('[tasks] failed to record the task for run', run.id, error)
-    return null
-  }
-}
-
-/** The task the worker is reporting on. Platform-scope lookup; see the repository. */
-export async function loadTaskForOutcome(backendJobId: string): Promise<Task | null> {
-  return repository.findTaskByBackendJobId(backendJobId)
+/** The run the worker is reporting on. Platform-scope lookup; see the repository. */
+export async function loadRunForOutcome(backendJobId: string): Promise<TaskRun | null> {
+  return repository.findRunByBackendJobId(backendJobId)
 }
 
 /**
- * Close the task with the worker's outcome and, for a finished deep-research
- * task, file its report as the requester. Never throws: the outcome route's
- * job is to tell the requester, and that must not wait on a filing.
+ * Close the run with the worker's outcome and, for a finished deep-research
+ * run, file its report as the requester. Never throws: the outcome route's job
+ * is to tell the requester, and that must not wait on a filing.
  */
-export async function completeTaskForRun(
-  task: Task,
+export async function completeRunForOutcome(
+  run: TaskRun,
   outcome: TaskOutcome,
-): Promise<{ task: Task; filed: { documentId: string; filename: string } | null }> {
+): Promise<{ run: TaskRun; filed: { documentId: string; filename: string } | null }> {
   const status = OUTCOME_TO_STATUS[outcome.status]
   const closed =
-    (await repository.updateTask(task.id, task.organizationId, {
+    (await repository.updateRun(run.id, run.organizationId, {
       status,
       error: outcome.error ?? null,
       finishedAt: new Date(),
-    })) ?? task
+    })) ?? run
 
   await recordAuditEvent({
-    organizationId: task.organizationId,
-    actor: { userId: task.requesterUserId, email: task.requesterEmail },
+    organizationId: run.organizationId,
+    actor: { userId: run.requesterUserId, email: run.requesterEmail },
     action: 'task.completed',
     targetType: 'task',
-    targetId: task.id,
-    metadata: { projectId: task.projectId, kind: task.kind, status },
+    targetId: run.id,
+    metadata: { projectId: run.projectId, kind: run.kind, status },
   })
 
-  if (status !== 'succeeded' || !outcome.report || !FILES_ITS_RESULT[task.kind]) {
-    return { task: closed, filed: null }
+  if (status !== 'succeeded' || !outcome.report || !FILES_ITS_RESULT[run.kind]) {
+    return { run: closed, filed: null }
   }
   const filing = await fileAsRequester(closed, outcome.report, outcome.cards ?? undefined)
   const withFiling =
-    (await repository.updateTask(task.id, task.organizationId, {
+    (await repository.updateRun(run.id, run.organizationId, {
       filingStatus: filing.status,
       filingDetail: filing.detail,
       filedDocumentId: filing.filed?.documentId ?? null,
     })) ?? closed
-  return { task: withFiling, filed: filing.filed }
+  return { run: withFiling, filed: filing.filed }
 }
 
 /**
  * Which kinds leave a DOCUMENT behind, and which leave an answer.
  *
- * A `Record<TaskKind, boolean>` and not an `if`, for the reason the producer map
- * in `documents/generated.ts` is one: it is exhaustive by construction, so the
- * next kind is a compile error here rather than a silent decision that its
+ * A `Record<TaskKind, boolean>` and not an `if`, for the reason the producer
+ * map in `documents/generated.ts` is one: it is exhaustive by construction, so
+ * the next kind is a compile error here rather than a silent decision that its
  * result is not worth filing.
  *
  * `compliance_check` and `einreichcheck` answer INTO the conversation the run
  * wrote — that is what an `output: 'chat'` run is — and filing their prose as a
  * second document would put a copy of the thread in Berichte. `chat` is the
- * same thing arriving from a job.
+ * same thing arriving from a definition.
  */
 const FILES_ITS_RESULT: Record<TaskKind, boolean> = {
   'deep-research': true,
@@ -164,39 +121,41 @@ const FILES_ITS_RESULT: Record<TaskKind, boolean> = {
 }
 
 interface FilingResult {
-  status: TaskFilingStatus
+  status: 'filed' | 'refused' | 'failed'
   detail: string | null
   filed: { documentId: string; filename: string } | null
 }
 
 /**
- * File the report into the task's project as the pinned requester.
+ * File the report into the run's project as the pinned requester.
  *
  * Three outcomes, and the distinction is the point:
  *   - `filed`   — the same `fileResearchReport` the interactive report GET
  *                 calls, keyed on the same backend job id, so a person opening
  *                 the report later finds it already filed (migration 0064).
- *   - `refused` — the requester cannot file here today: left the
- *                 organization, lacks the permission, or the feature is off.
- *                 A permission the person does not hold is not one the
- *                 scheduler may borrow.
+ *   - `refused` — the requester cannot file here today: left the organization,
+ *                 lacks the permission, or the feature is off.
  *   - `failed`  — filing broke (a report over the PDF ceiling, a store error).
  * The detail is for the operator; the client sees the status.
  */
-async function fileAsRequester(task: Task, report: string, cards?: unknown[]): Promise<FilingResult> {
-  if (!task.backendJobId) return { status: 'failed', detail: 'task has no backend job id', filed: null }
+async function fileAsRequester(
+  run: TaskRun,
+  report: string,
+  cards?: unknown[],
+): Promise<FilingResult> {
+  if (!run.backendJobId) return { status: 'failed', detail: 'run has no backend job id', filed: null }
 
   const session = await resolvePinnedRequesterSession({
-    userId: task.requesterUserId,
-    email: task.requesterEmail,
-    organizationId: task.organizationId,
+    userId: run.requesterUserId,
+    email: run.requesterEmail,
+    organizationId: run.organizationId,
   })
   if (!session) {
     return { status: 'refused', detail: 'requester is no longer a member of the organization', filed: null }
   }
 
   try {
-    const filed = await fileResultFor(task, session, report, cards)
+    const filed = await fileResultFor(run, session, report, cards)
     return { status: 'filed', detail: null, filed }
   } catch (error) {
     // The authorization ladder answers a missing permission as 404 and a
@@ -204,73 +163,50 @@ async function fileAsRequester(task: Task, report: string, cards?: unknown[]): P
     if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
       return { status: 'refused', detail: `${error.name}: ${error.message}`.slice(0, 500), filed: null }
     }
-    console.error('[tasks] filing the report failed for task', task.id, error)
+    console.error('[runs] filing the report failed for run', run.id, error)
     const name = error instanceof Error ? `${error.name}: ${error.message}` : 'unknown error'
     return { status: 'failed', detail: name.slice(0, 500), filed: null }
   }
 }
 
 /**
- * The document one finished task leaves behind, by kind.
+ * The document one finished run leaves behind, by kind.
  *
  * Three producers, one seam: whichever runs, the write happens in the pinned
  * requester's own session through the SAME lifecycle service a person's own
  * filing goes through (ADR-0055). Nothing here writes a row itself.
- *
- *   - `deep-research` — the PDF report, through `fileResearchReport`, keyed on
- *     the backend job id so the interactive report GET and this path collapse
- *     onto one document (migration 0064).
- *   - `document` — the run's Markdown, filed as version 1 of a new item and
- *     submitted. The reference is the TASK's id, so a retried outcome lands on
- *     the document the first one made.
- *   - `revision` — the run's Markdown, written over the open draft of the
- *     document the reviewer sent back, and submitted again. `openDraftForRevision`
- *     is what turns "sent back" into "there is a draft to write into", and it is
- *     the one place that decides between reusing the open version and forking a
- *     new one from the published bytes.
- *
- * A refusal or a failure is the caller's to classify: everything thrown here
- * reaches {@link fileAsRequester}'s catch unchanged.
  */
 async function fileResultFor(
-  task: Task,
+  run: TaskRun,
   session: AuthorizedSession,
   report: string,
   cards?: unknown[],
 ): Promise<{ documentId: string; filename: string }> {
-  if (task.kind === 'deep-research') {
+  if (run.kind === 'deep-research') {
     const filed = await fileResearchReport({
       session,
-      projectId: task.projectId,
-      // Non-null by the guard in `fileAsRequester`, which refuses a task with no
-      // backend job id before it gets here.
-      runId: task.backendJobId as string,
+      projectId: run.projectId,
+      // Non-null by the guard in `fileAsRequester`.
+      runId: run.backendJobId as string,
       report,
       cards,
     })
     return { documentId: filed.documentId, filename: filed.filename }
   }
 
-  if (task.kind === 'revision') {
-    const subject = task.plan.subject
-    if (!subject) throw new UnprocessableError('A revision task carries no version to revise')
+  if (run.kind === 'revision') {
+    const subject = run.plan.subject
+    if (!subject) throw new UnprocessableError('A revision run carries no version to revise')
     const draft = await openDraftForRevision(session, subject.documentId)
     const replaced = await replaceVersionContent(
       session,
       subject.documentId,
       draft.version.id,
       report,
-      // The hash the lifecycle just reported for THIS version. Computing one
-      // here would agree with itself and overwrite whatever a person had put
-      // in the draft in the meantime. `undefined` and not `''` when the row
-      // carries no digest: „nothing to match" is a state `assertGuards` knows,
-      // and an empty string was a value it could only ever refuse.
       draft.version.contentHash ?? undefined,
       // A run is not a person, on both halves of the filing. `update` and
       // `submit` are `either` rows so nothing is refused today — and that is
-      // exactly why the flag has to be right: the door is the `actor` field,
-      // and a caller that lies about who it is bypasses it the moment a row
-      // changes.
+      // exactly why the flag has to be right.
       { actingHuman: false },
     )
     await transitionDocumentVersion(session, subject.documentId, replaced.id, 'submit', {
@@ -284,71 +220,64 @@ async function fileResultFor(
   // `document`: a new item, version 1, submitted to the requester.
   const filed = await fileAgentDocumentDraft({
     session,
-    projectId: task.projectId,
-    // The task's own id, so a retried outcome updates rather than duplicates.
-    ref: `task-${task.id}`,
-    title: task.plan.goal?.trim() || task.title,
+    projectId: run.projectId,
+    // The run's own id, so a retried outcome updates rather than duplicates.
+    ref: `task-${run.id}`,
+    title: run.plan.goal?.trim() || run.title,
     content: report,
     actingHuman: false,
   })
   if (!filed.alreadyFiled) {
     await transitionDocumentVersion(session, filed.documentId, filed.version.id, 'submit', {
-      reviewerUserIds: [task.requesterUserId],
-      // The run's own submission, like the filing one line up.
+      reviewerUserIds: [run.requesterUserId],
       actingHuman: false,
     })
   }
   const document = await findDocumentInOrg(filed.documentId, session.organizationId)
-  return { documentId: filed.documentId, filename: document?.filename ?? `task-${task.id}` }
+  return { documentId: filed.documentId, filename: document?.filename ?? `task-${run.id}` }
 }
 
 /**
- * Close a DELEGATED task and tell its requester — the arm with no `job_runs` row.
+ * The ONE outcome recorder: close the run, file as the requester, tell them it
+ * ended. Replaces the two recorders (`recordJobOutcome` for a run found via
+ * `job_runs`, `recordTaskOutcome` for a delegated task) whose only difference
+ * was which lookup found the row — the row is one table now.
  *
- * A task created from a job is closed by `recordJobOutcome`, which finds the run
- * first and calls {@link completeTaskForRun} on the way to the inbox item. A task
- * created from a chat handoff or from a reviewer's „Piloti überarbeiten lassen"
- * has no run row to find (see `lib/tasks/delegation.ts` for why), so the outcome
- * route falls through to here.
+ * The inbox type is the existing `job.completed` / `job.failed` pair: the
+ * payload already carries the ids, and a second type would be a second
+ * presentation for a row that says the same thing. `actorUserId: null` because
+ * the work was Piloti's, and because `emitInboxItems` drops a row whose actor
+ * is its recipient.
  *
- * The inbox type is the same `job.completed` / `job.failed` pair, and that is a
- * decision rather than an omission: the row already carries `taskId` in its
- * payload and already links to the conversation the run wrote into, so a
- * `task.completed` type would be a second registry entry, two more translations
- * per dictionary and a second presentation for a row that says the same thing —
- * „Piloti ist fertig, hier ist das Ergebnis". If the two ever need to READ
- * differently, that is the moment to split them, and the payload already
- * distinguishes them.
- *
- * `actorUserId: null` for the reason `recordJobOutcome` gives: the work was
- * Piloti's, and `emitInboxItems` drops a row whose actor is its recipient —
- * which a task somebody delegated to themselves always would be.
+ * Idempotent: the unique `(recipient, group_key)` upsert folds a retried report
+ * into the existing row.
  */
-export async function recordTaskOutcome(
-  task: Task,
+export async function recordRunOutcome(
+  run: TaskRun,
   outcome: TaskOutcome,
 ): Promise<{ notified: boolean; filed: { documentId: string; filename: string } | null }> {
-  const completed = await completeTaskForRun(task, outcome)
+  const completed = await completeRunForOutcome(run, outcome)
+
   const type: InboxItemType = outcome.status === 'success' ? 'job.completed' : 'job.failed'
-  const anchor = task.backendJobId ?? task.id
+  const anchor = run.backendJobId ?? run.id
   const emitted = await emitInboxItems([
     {
-      organizationId: task.organizationId,
-      recipientUserId: task.requesterUserId,
+      organizationId: run.organizationId,
+      recipientUserId: run.requesterUserId,
       type,
       resourceType: 'project',
-      resourceId: task.projectId,
+      resourceId: run.projectId,
       anchorId: anchor,
       actorUserId: null,
-      groupKey: inboxGroupKey(type, 'project', task.projectId, anchor),
+      groupKey: inboxGroupKey(type, 'project', run.projectId, anchor),
       payload: {
-        subject: task.title,
+        subject: run.title,
         status: outcome.status,
         error: outcome.error ?? null,
-        jobId: null,
-        runId: null,
-        conversationId: task.conversationId,
-        taskId: completed.task.id,
+        jobId: run.definitionId,
+        runId: run.id,
+        conversationId: run.conversationId,
+        taskId: run.id,
         filedDocumentId: completed.filed?.documentId ?? null,
         filedFilename: completed.filed?.filename ?? null,
       },
@@ -357,10 +286,10 @@ export async function recordTaskOutcome(
   return { notified: emitted > 0, filed: completed.filed }
 }
 
-/** A project's tasks, newest first. `project:view`, like the run history. */
-export async function listTasks(session: AuthorizedSession, projectId: string): Promise<Task[]> {
+/** A project's runs, newest first. `project:view`, like the definition list. */
+export async function listTasks(session: AuthorizedSession, projectId: string): Promise<TaskRun[]> {
   await requireProjectAccess(session, projectId, 'project:view')
-  return repository.listTasksInProject(projectId, session.organizationId)
+  return repository.listRunsInProject(projectId, session.organizationId)
 }
 
 /**
@@ -369,29 +298,26 @@ export async function listTasks(session: AuthorizedSession, projectId: string): 
  * The name resolution is here and not in the browser because the roster
  * endpoint is `project:members:manage`: a `project:view` member reading their
  * own project's task list would have got a 403 for a byline. `resolvePeople` is
- * the one place this tier turns a user id into a name, so the Aufgaben list and
- * the share roster cannot disagree about what somebody is called.
+ * the one place this tier turns a user id into a name.
  */
 export async function listTaskViews(
   session: AuthorizedSession,
   projectId: string,
 ): Promise<TaskWireRow[]> {
-  const tasks = await listTasks(session, projectId)
-  if (tasks.length === 0) return []
+  const runs = await listTasks(session, projectId)
+  if (runs.length === 0) return []
   const people = await resolvePeople(
     session.organizationId,
-    [...new Set(tasks.map((task) => task.requesterUserId))],
+    [...new Set(runs.map((run) => run.requesterUserId))],
   )
-  return tasks.map((task) =>
-    toTaskWireRow(task, people.get(task.requesterUserId)?.name ?? null),
-  )
+  return runs.map((run) => toTaskWireRow(run, people.get(run.requesterUserId)?.name ?? null))
 }
 
 /**
- * Record a person's judgement of a finished task. `project:edit`: the review
- * is a statement about the project's own record, made by somebody who may
- * change that record. A rejection with a reason reaches the next run of the
- * same job (`previousDecisionsBlock`).
+ * Record a person's judgement of a finished run. `project:edit`: the review is
+ * a statement about the project's own record, made by somebody who may change
+ * that record. A rejection with a reason reaches the next run of the same
+ * definition (`previousDecisionsBlock`).
  */
 export async function reviewTask(
   session: AuthorizedSession,
@@ -399,16 +325,16 @@ export async function reviewTask(
   taskId: string,
   input: ReviewTaskInput,
   request?: Request,
-): Promise<Task> {
+): Promise<TaskRun> {
   await requireProjectAccess(session, projectId, 'project:edit')
-  const task = await repository.findTaskInProject(taskId, projectId, session.organizationId)
-  if (!task) throw new NotFoundError('Task not found')
-  if (task.status === 'queued' || task.status === 'running') {
+  const run = await repository.findRunInProject(taskId, projectId, session.organizationId)
+  if (!run) throw new NotFoundError('Task not found')
+  if (run.status === 'queued' || run.status === 'running') {
     throw new ConflictError('A task can only be reviewed once it has finished')
   }
 
   const reason = input.reason?.trim() || null
-  const reviewed = await repository.updateTask(task.id, session.organizationId, {
+  const reviewed = await repository.updateRun(run.id, session.organizationId, {
     review: input.decision,
     reviewReason: reason,
     reviewedBy: session.userId,
@@ -421,8 +347,8 @@ export async function reviewTask(
     actor: { userId: session.userId, email: session.email },
     action: 'task.reviewed',
     targetType: 'task',
-    targetId: task.id,
-    metadata: { projectId, kind: task.kind, decision: input.decision, withReason: reason !== null },
+    targetId: run.id,
+    metadata: { projectId, kind: run.kind, decision: input.decision, withReason: reason !== null },
     request,
   })
   return reviewed
@@ -432,21 +358,27 @@ export async function reviewTask(
 export const PREVIOUS_DECISIONS_HEADER = 'PREVIOUS_DECISIONS v1'
 
 /**
- * What earlier runs of this job were told "no" about, for the next one.
+ * What earlier runs of this definition were told "no" about, for the next one.
  *
  * Appended to the fire prompt, not to memory: a rejection of a report is a
- * decision about THIS job's output, and the person who made it expects the
- * next run to have read it. The reasons are the reviewer's own words, quoted
- * verbatim; the instruction around them is meta and says what a decision is,
- * not what the reviewer meant. Empty when nothing was rejected. Best effort:
- * a lookup failure yields no block, never a run that does not fire.
+ * decision about THIS definition's output, and the person who made it expects
+ * the next run to have read it. The reasons are the reviewer's own words,
+ * quoted verbatim. Best effort: a lookup failure yields no block, never a run
+ * that does not fire.
  */
-export async function previousDecisionsBlock(job: Pick<Job, 'id' | 'organizationId'>): Promise<string> {
+export async function previousDecisionsBlock(
+  definition: Pick<TaskRun, 'definitionId' | 'organizationId'> | { id: string; organizationId: string },
+): Promise<string> {
+  const definitionId = 'id' in definition ? definition.id : definition.definitionId
+  if (!definitionId) return ''
   let rejections: Array<{ reviewReason: string | null; reviewedAt: Date | null }>
   try {
-    rejections = await repository.listRejectedReviewsForJob(job.id, job.organizationId)
+    rejections = await repository.listRejectedReviewsForDefinition(
+      definitionId,
+      definition.organizationId,
+    )
   } catch (error) {
-    console.warn('[tasks] could not load earlier decisions for job', job.id, error)
+    console.warn('[runs] could not load earlier decisions for definition', definitionId, error)
     return ''
   }
   const lines = rejections

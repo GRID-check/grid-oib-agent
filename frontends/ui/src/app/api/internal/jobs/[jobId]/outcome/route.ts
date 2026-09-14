@@ -1,27 +1,28 @@
 /**
  * INTERNAL service endpoint — the worker reports how a background run ended.
  *
- * The scheduler fires a job through `/api/internal/skills/fire`; the run then
- * lives entirely in the Python job store, and until this route existed the BFF
- * never learned that it finished. The worker calls here from its terminal
+ * The scheduler fires a definition through `/api/internal/skills/fire`; the run
+ * then lives entirely in the Python job store, and until this route existed the
+ * BFF never learned that it finished. The worker calls here from its terminal
  * arms (success, failure, interrupted) with the one id it holds — the backend
- * job id — and the BFF turns that into an inbox item for the person who
- * created the job (`recordJobOutcome`).
+ * job id — and the BFF turns that into an inbox item for the requester.
  *
- * Same posture as `skills/fire`: the lookup by backend id genuinely has no
- * tenant yet, so it runs under platform access, narrowly; everything after is
- * one organization's work and is done as that organization, so row-level
- * security still applies to it. A backend id the BFF has no run for (an
- * interactive deep-research job) is a 404, which the worker treats as "nothing
- * to notify", not as an error.
+ * ONE lookup, one recorder. Before migration 0086 this route tried `job_runs`
+ * first and fell back to `tasks`, because a job-spawned run and a delegated
+ * task were different tables; both are `task_runs` now, so the backend id has a
+ * single home (`uniq_task_runs_backend_job_id`). The lookup by backend id
+ * genuinely has no tenant yet, so it runs under platform access, narrowly;
+ * everything after is one organization's work and is done as that
+ * organization, so row-level security still applies to it. A backend id the BFF
+ * has no run for (an interactive deep-research job) is a 404, which the worker
+ * treats as "nothing to notify", not as an error.
  */
 
 import { z } from 'zod'
 import { NotFoundError } from '@/lib/api/errors'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
-import { loadJobRunForOutcome, recordJobOutcome } from '@/lib/jobs/service'
-import { loadTaskForOutcome, recordTaskOutcome } from '@/lib/tasks/service'
+import { loadRunForOutcome, recordRunOutcome } from '@/lib/tasks/service'
 
 type Params = { jobId: string }
 
@@ -36,10 +37,7 @@ const outcomeSchema = z.object({
   // caller-controlled text on its way into a jsonb payload.
   error: z.string().max(2000).nullish(),
   // The finished report and its cards, so a scheduled run's report can be
-  // filed here as the requester instead of expiring with the job store. The
-  // cap is generous — the PDF renderer applies its own, and refuses past it
-  // with a recorded filing failure rather than a 400 here that would also
-  // lose the outcome notification.
+  // filed here as the requester instead of expiring with the job store.
   report: z.string().max(REPORT_MAX_CHARS).nullish(),
   cards: z.array(z.unknown()).max(200).nullish(),
 })
@@ -52,30 +50,12 @@ export const POST = internalApiRoute<Params>(
 
     const run = await withPlatformAccess(
       'job outcome: the worker identifies a run by backend job id, before any organization is known',
-      () => loadJobRunForOutcome(params.jobId)
+      () => loadRunForOutcome(params.jobId)
     )
+    if (!run || run.organizationId !== organizationId) throw new NotFoundError('Unknown job run')
+
     const outcome = { status, error: error ?? null, report: report ?? null, cards: cards ?? null }
-    if (run) {
-      if (run.organizationId !== organizationId) throw new NotFoundError('Unknown job run')
-      return withTenant({ organizationId: run.organizationId }, () => recordJobOutcome(run, outcome))
-    }
-
-    // No run row: a DELEGATED task (a chat handoff, a reviewer's „Piloti
-    // überarbeiten lassen"). Those carry the backend job id on the task itself —
-    // `uniq_tasks_backend_job_id` is what makes this a lookup and not a scan —
-    // because `job_runs.schedule_id` is NOT NULL and its RLS predicate requires
-    // a `jobs` row, so giving every delegation a hidden job would have put a
-    // scheduled-job entry in the project's list for a sentence somebody typed
-    // once. Same platform-scope-then-tenant shape as the run lookup above.
-    const task = await withPlatformAccess(
-      'task outcome: the worker identifies a delegated task by backend job id, before any organization is known',
-      () => loadTaskForOutcome(params.jobId)
-    )
-    // A backend id with neither a run nor a task is an interactive
-    // deep-research job, which the worker treats as "nothing to notify".
-    if (!task || task.organizationId !== organizationId) throw new NotFoundError('Unknown job run')
-
-    return withTenant({ organizationId: task.organizationId }, () => recordTaskOutcome(task, outcome))
+    return withTenant({ organizationId: run.organizationId }, () => recordRunOutcome(run, outcome))
   },
-  { tenancy: { fromPayload: 'the job run named by params.jobId, cross-checked against body.organizationId' } }
+  { tenancy: { fromPayload: 'the run named by params.jobId, cross-checked against body.organizationId' } }
 )

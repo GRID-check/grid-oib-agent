@@ -58,6 +58,14 @@ const task = {
   deadlineAt: new Date('2026-09-18T23:59:59.999Z'),
 }
 
+/** The definition/run pair `delegateTask` returns; a cadence has no run yet. */
+const definition = {
+  id: 'task-1',
+  title: 'Einreichcheck: Bauansuchen Haus A',
+  dueAt: new Date('2026-09-18T23:59:59.999Z'),
+  nextRunAt: new Date('2026-09-21T08:00:00.000Z'),
+}
+
 function envelopeHeaders(
   overrides: {
     issuedAt?: number
@@ -98,7 +106,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   process.env.GRID_INTERNAL_API_TOKEN = SECRET
   vi.mocked(resolvePinnedRequesterSession).mockResolvedValue(session)
-  vi.mocked(delegateTask).mockResolvedValue(task as never)
+  vi.mocked(delegateTask).mockResolvedValue({ definition, run: task } as never)
 })
 
 describe('identity', () => {
@@ -187,7 +195,33 @@ describe('the answer', () => {
       status: 'running',
       conversationId: 's_conv_2',
       dueAt: '2026-09-18T23:59:59.999Z',
+      scheduled: false,
+      nextRunAt: '2026-09-21T08:00:00.000Z',
     })
+  })
+
+  it('answers a cadence with the schedule and its first fire, and no run', async () => {
+    vi.mocked(delegateTask).mockResolvedValue({ definition, run: null } as never)
+
+    const response = await call({ ...CREATE, cadence: '0 8 * * 1' })
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toMatchObject({
+      taskId: 'task-1',
+      status: 'scheduled',
+      conversationId: null,
+      scheduled: true,
+      nextRunAt: '2026-09-21T08:00:00.000Z',
+    })
+    // The cadence and its zone travel to the service; the default zone is the
+    // BFF's (`delegateTask`), not a second one invented here.
+    expect(vi.mocked(delegateTask).mock.calls[0][1]).toMatchObject({
+      cadence: { cron: '0 8 * * 1', timezone: undefined },
+    })
+  })
+
+  it('refuses a cadence with an empty string rather than sending it', async () => {
+    expect((await call({ ...CREATE, cadence: '   ' })).status).toBe(400)
   })
 })
 

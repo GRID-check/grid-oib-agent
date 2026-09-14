@@ -28,16 +28,18 @@ const PRUNE_BATCH = 1000
 const { PLATFORM_ROLE, enterPlatformScope } = require('../workers/platform-scope')
 
 /**
- * Claim due jobs and advance them — the whole thing in ONE
+ * Claim due definitions and advance them — the whole thing in ONE
  * transaction so the claim + the next_run_at advance commit atomically. Only
  * after this commits does the caller fire the runs. That ordering is what makes
  * scheduling at-most-once per occurrence across any number of replicas
  * (FOR UPDATE SKIP LOCKED) and across crashes (a crash after commit but before
- * firing misses one occurrence rather than double-firing an expensive job).
+ * firing misses one occurrence rather than double-firing an expensive run).
  *
- * The due-scan is backed by the partial index `idx_jobs_due`
- * (next_run_at WHERE schedule_cron IS NOT NULL AND enabled), whose predicate
- * this WHERE clause must keep matching for the scan to stay an index scan.
+ * The due-scan is backed by the partial index `idx_task_definitions_due`
+ * (next_run_at WHERE trigger = 'schedule' AND enabled), whose predicate this
+ * WHERE clause must keep matching for the scan to stay an index scan. The
+ * claim lives on `task_definitions` since migration 0086 collapsed jobs and
+ * delegated tasks into one entity — the trigger is a property of the work.
  *
  * For each claimed row `computeNext(schedule_cron, schedule_timezone)` returns
  * the next occurrence strictly in the future. A row whose cron is unparseable
@@ -54,8 +56,8 @@ async function claimDue(sql, batch, computeNext) {
     await enterPlatformScope(tx)
     const rows = await tx`
       SELECT id, schedule_cron, schedule_timezone
-      FROM jobs
-      WHERE enabled AND schedule_cron IS NOT NULL AND next_run_at <= now()
+      FROM task_definitions
+      WHERE trigger = 'schedule' AND enabled AND schedule_cron IS NOT NULL AND next_run_at <= now()
       ORDER BY next_run_at
       LIMIT ${batch}
       FOR UPDATE SKIP LOCKED
@@ -70,18 +72,18 @@ async function claimDue(sql, batch, computeNext) {
         // invariant break (cron is validated in the BFF at save time). Disable
         // the row loudly instead of letting it wedge every subsequent due-scan.
         console.error(
-          `${LOG} job ${row.id} has an unparseable cron ${JSON.stringify(row.schedule_cron)} ` +
+          `${LOG} definition ${row.id} has an unparseable cron ${JSON.stringify(row.schedule_cron)} ` +
             `(tz ${JSON.stringify(row.schedule_timezone)}) — disabling it. This should be impossible; ` +
             `cron is validated at save time.`,
           error,
         )
         await tx`
-          UPDATE jobs SET enabled = false, next_run_at = NULL WHERE id = ${row.id}
+          UPDATE task_definitions SET enabled = false, next_run_at = NULL WHERE id = ${row.id}
         `
         continue
       }
       await tx`
-        UPDATE jobs SET next_run_at = ${next} WHERE id = ${row.id}
+        UPDATE task_definitions SET next_run_at = ${next} WHERE id = ${row.id}
       `
       claimed.push(row)
     }
@@ -90,7 +92,7 @@ async function claimDue(sql, batch, computeNext) {
 }
 
 /**
- * Retention: delete job_runs older than the window, in index-friendly
+ * Retention: delete task_runs older than the window, in index-friendly
  * batches (id-subselect with LIMIT so each statement locks a bounded set and
  * the created_at index does the work). Returns the total rows deleted.
  */
@@ -103,9 +105,9 @@ async function pruneOldRuns(sql, retentionDays) {
     const deleted = await sql.begin(async (tx) => {
       await enterPlatformScope(tx)
       return tx`
-        DELETE FROM job_runs
+        DELETE FROM task_runs
         WHERE id IN (
-          SELECT id FROM job_runs
+          SELECT id FROM task_runs
           WHERE created_at < now() - make_interval(days => ${retentionDays})
           ORDER BY created_at
           LIMIT ${PRUNE_BATCH}
