@@ -68,6 +68,10 @@ const BOUNDARY_MIGRATIONS = [
   // door (ADR-0054). Tenant data; the predicate widens `tasks`' shape by a NULL
   // arm, because the Archiv and session shelves have no project.
   '0082_document_versions.sql',
+  // Collapses jobs/job_runs/tasks into task_definitions + task_runs
+  // (follow-up to PR #659). Both tables are project-scoped tenant data; the
+  // old three keep their 0043/0075 entries until 0087 drops them.
+  '0086_task_definitions.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>
