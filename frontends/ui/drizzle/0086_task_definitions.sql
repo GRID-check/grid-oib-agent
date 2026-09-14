@@ -335,7 +335,20 @@ SELECT
   COALESCE(t."error", jr."detail"),
   jr."skill_snapshot",
   jr."job_id",
-  COALESCE(t."conversation_id", jr."conversation_id"),
+  -- The new composite FK is STRICTER than the old `tasks` table, which had no
+  -- conversation constraint at all: a task can point at a thread that was
+  -- deleted (or whose row never reached this tenant). Carrying that value in
+  -- would abort the whole migration, so provenance the FK cannot validate is
+  -- dropped here — the conversation link is lost, the run is not.
+  CASE
+    WHEN COALESCE(t."conversation_id", jr."conversation_id") IS NULL THEN NULL
+    WHEN EXISTS (
+      SELECT 1 FROM "conversations" c
+      WHERE c."id" = COALESCE(t."conversation_id", jr."conversation_id")
+        AND c."organization_id" = jr."organization_id"
+    ) THEN COALESCE(t."conversation_id", jr."conversation_id")
+    ELSE NULL
+  END,
   t."filed_document_id",
   t."filing_status",
   t."filing_detail",
@@ -385,7 +398,16 @@ SELECT
   t."error",
   COALESCE(t."plan" -> 'skill', '{}'::jsonb),
   t."backend_job_id",
-  t."conversation_id",
+  -- Same guard as step 6: `tasks.conversation_id` was unconstrained until now.
+  CASE
+    WHEN t."conversation_id" IS NULL THEN NULL
+    WHEN EXISTS (
+      SELECT 1 FROM "conversations" c
+      WHERE c."id" = t."conversation_id"
+        AND c."organization_id" = t."organization_id"
+    ) THEN t."conversation_id"
+    ELSE NULL
+  END,
   t."filed_document_id",
   t."filing_status",
   t."filing_detail",
