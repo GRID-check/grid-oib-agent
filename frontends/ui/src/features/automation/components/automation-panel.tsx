@@ -1,23 +1,22 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { ListChecks, Repeat, Sparkles } from 'lucide-react'
+import { ListChecks, Sparkles } from 'lucide-react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { JobsPanel } from '@/features/jobs/components/jobs-panel'
 import { SkillsPanel } from '@/features/skills/components/skills-panel'
 import { TasksPanel } from '@/features/tasks/components/tasks-panel'
 import { useTranslations } from '@/i18n'
 import { parseAutomationTab, type AutomationTab } from '../lib/automation-tab'
 
 /**
- * Automation — Aufgaben, Jobs and Skills as tabs inside ONE project section.
+ * Automation — Aufgaben and Skills as tabs inside ONE project section.
  *
- * The three answer three different questions: a TASK is a single piece of work
- * somebody handed over and walked away from (ADR-0051), a JOB is the recurring
- * schedule behind it, and a SKILL is a reusable instruction the ORGANIZATION
- * owns. Aufgaben leads because it is the question a person asks first; Jobs is
- * the schedule management behind the list, Skills the org toolbox.
+ * The two answer two different questions: a TASK is work somebody handed over —
+ * a one-off handover or the recurring schedule that fires it, which migration
+ * 0086 collapsed into one row — and a SKILL is a reusable instruction the
+ * ORGANIZATION owns. Aufgaben leads because it is the question a person asks
+ * first; schedules are the group at the top of that same list, not a tab.
  *
  * Only the ACTIVE tab is mounted. That is load-bearing, not an optimization:
  * panels portal their primary action (delegating, a new schedule, a new skill)
@@ -26,8 +25,8 @@ import { parseAutomationTab, type AutomationTab } from '../lib/automation-tab'
  *
  * The tab rides `?tab=` via `history.replaceState`, so a deep link lands on
  * the right tab and switching costs no server round-trip. Aufgaben is the
- * default; `?tab=jobs` keeps its id so bookmarks, inbox rows and old links
- * still land on the schedules view.
+ * default; `?tab=jobs` parses to Aufgaben, so the retired tab's bookmarks and
+ * inbox deep links keep answering.
  */
 
 interface AutomationPanelProps {
@@ -35,14 +34,12 @@ interface AutomationPanelProps {
   projectCollection: string
   /** May create/edit/delete org skills (`org:skills:manage`). */
   canManageOrgSkills: boolean
-  /** May create/edit/run/delete this project's jobs (`project:skills:manage`). */
+  /** May create/edit/run/delete this project's schedules (`project:skills:manage`). */
   canManageJobs: boolean
   /**
    * Whether this member may use the agent in this project (`project:chat`).
-   * Resolved server-side beside the jobs gate and forwarded into Aufgaben:
+   * Resolved server-side beside the schedule gate and forwarded into Aufgaben:
    * without it Delegieren would link a reader into a locked composer.
-   * Fail-open until the section threads the server decision through; the
-   * server still enforces on send.
    */
   canChatInProject?: boolean
   initialTab: AutomationTab
@@ -75,14 +72,14 @@ export function AutomationPanel({
   initialTab,
 }: AutomationPanelProps): JSX.Element {
   const t = useTranslations('nav')
-  // A drawer deep link wins over the tab: `?tab=jobs&task=` opens the task,
+  // A drawer deep link wins over the tab: `?tab=skills&task=` opens the task,
   // because the drawer lives on Aufgaben. (Same window-guarded initializer
   // shape TasksPanel uses for `?task=` itself.)
   const [tab, setTab] = useState<AutomationTab>(() =>
     hasDrawerSelection() ? 'tasks' : initialTab
   )
   // Corrects `?tab=` once so the address bar matches the tab above: without
-  // it closing the drawer would leave `?tab=jobs` over the Aufgaben list, and
+  // it closing the drawer would leave `?tab=skills` over the Aufgaben list, and
   // a copied link would reopen the wrong tab.
   const correctedTabRef = useRef(false)
   // The tab the URL asked for, and whether the reader has picked one since.
@@ -136,15 +133,14 @@ export function AutomationPanel({
 
   return (
     <Tabs value={tab} onValueChange={selectTab} className="h-full min-h-0 gap-0">
-      <div className="border-border shrink-0 border-b px-4 py-3 md:px-6">
+      {/* One slim bar. The frame above already carries the section title and
+          its subtitle, so a second full-width description strip here read as a
+          doubled header; the tabs are the only thing this row owes. */}
+      <div className="border-border shrink-0 border-b px-4 py-2 md:px-6">
         <TabsList>
           <TabsTrigger value="tasks">
             <ListChecks aria-hidden />
             {t('sections.tasks')}
-          </TabsTrigger>
-          <TabsTrigger value="jobs">
-            <Repeat aria-hidden />
-            {t('sections.jobs')}
           </TabsTrigger>
           <TabsTrigger value="skills">
             <Sparkles aria-hidden />
@@ -159,13 +155,6 @@ export function AutomationPanel({
           canManageJobs={canManageJobs}
           canChatInProject={canChatInProject}
           onDeepLinkSettled={handleDeepLinkSettled}
-        />
-      </TabsContent>
-      <TabsContent value="jobs" className="min-h-0 overflow-hidden">
-        <JobsPanel
-          projectId={projectId}
-          projectCollection={projectCollection}
-          canManage={canManageJobs}
         />
       </TabsContent>
       <TabsContent value="skills" className="min-h-0 overflow-y-auto">

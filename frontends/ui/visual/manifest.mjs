@@ -46,6 +46,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { SCREENSHOT_TARGETS } from './registry.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 export const UI_ROOT = join(HERE, '..')
@@ -122,6 +123,29 @@ export async function recordCaptured(targets) {
     'utf-8'
   )
   return ordered
+}
+
+/**
+ * The targets the harness still owes evidence for: a PNG missing from
+ * `screenshots/`, or a manifest entry whose recorded route hash no longer
+ * matches the `/dev` route on disk. A target with no manifest entry at all is
+ * pending too — it has never been captured.
+ *
+ * ONE definition of "stale", read by both the registry spec (which fails on it)
+ * and the screenshot-preview workflow (which captures and commits it on a
+ * same-repo PR), so the gate and the auto-heal can never disagree about what
+ * needs a new image.
+ */
+export async function pendingCaptures(targets = SCREENSHOT_TARGETS) {
+  const manifest = await readManifest()
+  const pending = []
+  for (const target of targets) {
+    const entry = manifest.targets[target.id]
+    const missing = shotNamesFor(target).some((name) => !existsSync(join(SHOTS_DIR, name)))
+    const routeChanged = !entry || (await hashFile(routeFileFor(target.path))) !== entry.routeHash
+    if (missing || routeChanged) pending.push(target.id)
+  }
+  return pending
 }
 
 const MANIFEST_NOTE =

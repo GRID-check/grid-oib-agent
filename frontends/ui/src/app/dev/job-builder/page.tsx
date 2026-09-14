@@ -1,15 +1,15 @@
 'use client'
 
 /**
- * Dev preview for the job builder, EDITING a populated job.
+ * Dev preview for the definition builder, EDITING a populated schedule.
  *
- * It renders the REAL JobsPanel and presses "Bearbeiten" on the fixture job,
- * rather than mounting JobBuilder on its own: the builder has no page chrome of
- * its own any more — the panel's header bar carries its title and the way back
- * — so a bare JobBuilder would be a screenshot of a surface no user ever sees.
+ * It renders the REAL Aufgaben panel and drives the path a user takes: open the
+ * fixture's template row, then press "Bearbeiten" in the drawer. The builder is
+ * re-homed inside that tab and has no page chrome of its own, so a bare
+ * JobBuilder would be a screenshot of a surface no user ever sees.
  *
- * Fetch shims cover everything the surface reads: the project's jobs, the
- * skills the chosen output kind may attach (`/api/skills/attachable?output=…`)
+ * Fetch shims cover everything the surface reads: the project's tasks and jobs,
+ * the skills the chosen output kind may attach (`/api/skills/attachable?output=…`)
  * and the data sources (`/api/v1/data_sources`).
  *
  * The fixture is deliberately the fullest state of the form — a multi-line
@@ -22,7 +22,7 @@
 
 import { useEffect } from 'react'
 import { I18nProvider } from '@/i18n'
-import { JobsPanel } from '@/features/jobs/components/jobs-panel'
+import { TasksPanel } from '@/features/tasks/components/tasks-panel'
 
 const SKILL = {
   name: 'schallschutz-bericht',
@@ -85,6 +85,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
           vlm_available: false,
         })
       }
+      if (url.includes('/tasks')) return Response.json({ tasks: [] })
       if (url.includes('/jobs') && !url.includes('/runs') && !url.includes('/async/')) {
         return Response.json({ jobs: [JOB] })
       }
@@ -98,7 +99,7 @@ export default function JobBuilderDevPage(): JSX.Element {
     <I18nProvider initialLocale="de" fixedLocale>
       {/* `min-h-dvh`, not `h-dvh`: the real pane scrolls internally, and a
           screenshot of an internal scroller can only ever show its first
-          screen. Letting the page grow keeps the real shell — bar over body —
+          screen. Letting the page grow keeps the real shell — panel over body —
           while putting the whole form in one shot. */}
       <main
         data-testid="job-builder-preview"
@@ -111,21 +112,28 @@ export default function JobBuilderDevPage(): JSX.Element {
 }
 
 /**
- * Opens the fixture job in the builder as soon as its card has rendered.
- *
- * The card arrives after the jobs fetch resolves, so this retries per frame
- * until the edit button exists and stops the moment it has pressed it — the
- * builder replaces the list, and a second press would have nothing to hit.
+ * Drives the two real clicks, one per frame until each lands: the template row
+ * opens the drawer, the drawer's edit button opens the builder. Both elements
+ * arrive after a fetch resolves, and the panel replaces itself at each step, so
+ * the loop looks for the NEXT control each frame instead of holding a node.
  */
 function EditingPanel(): JSX.Element {
   useEffect(() => {
     let stopped = false
+    let openedDrawer = false
     const tick = (): void => {
       if (stopped) return
-      const edit = document.querySelector<HTMLButtonElement>('[data-testid="job-edit"]')
+      const edit = document.querySelector<HTMLButtonElement>('[data-testid="task-detail-edit"]')
       if (edit) {
         edit.click()
         return
+      }
+      if (!openedDrawer) {
+        const row = document.querySelector<HTMLButtonElement>('[data-testid="template-title"]')
+        if (row) {
+          row.click()
+          openedDrawer = true
+        }
       }
       requestAnimationFrame(tick)
     }
@@ -135,5 +143,5 @@ function EditingPanel(): JSX.Element {
     }
   }, [])
 
-  return <JobsPanel projectId="p1" projectCollection="proj_1" canManage />
+  return <TasksPanel projectId="p1" projectCollection="proj_1" canManageJobs canChatInProject />
 }

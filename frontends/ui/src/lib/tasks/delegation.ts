@@ -17,17 +17,14 @@ import 'server-only'
  * same `completeTaskForRun`. What differs is only what assembled the spec — a
  * job row before, a person's sentence now.
  *
- * ## Why a delegated task has no `job_runs` row
+ * ## Why a delegation is a `once` definition
  *
- * `job_runs.schedule_id` is NOT NULL and its RLS predicate requires the row to
- * name a `jobs` row (migration 0043). Giving every "@Piloti prüf das" a hidden
- * job row would put a scheduled-job entry in the project's Aufträge list for a
- * sentence somebody typed once, and making the column nullable would move the
- * tenant boundary of a table this change has no business touching. So the task
- * row IS the record: it already carries the backend job id (its unique index is
- * what the worker reports against), the frozen plan, the requester and the
- * lifecycle. The outcome route looks a run up first and falls back to the task,
- * which is the one branch this arrangement costs.
+ * A chat handover was never a different species of work from a scheduled
+ * check; it is the same standing intent with a degenerate trigger. Migration
+ * 0086 gave it the home that says so: `task_definitions` with
+ * `trigger = 'once'` and no `due_at`, and one `task_runs` row for the attempt
+ * being dispatched right now. Chat will be able to say „jeden Montag" by
+ * writing a cron on that same row, not by inventing a job.
  *
  * ## The kinds, and what runs each
  *
@@ -43,10 +40,17 @@ import { ForbiddenError, NotFoundError, UnprocessableError } from '@/lib/api/err
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import type { DelegatableTaskKind, Task, TaskPlan } from '@/lib/db/schema'
+import type {
+  DelegatableTaskKind,
+  NewTaskDefinition,
+  TaskDefinition,
+  TaskPlan,
+  TaskRun,
+} from '@/lib/db/schema'
 import { DELEGATABLE_TASK_KINDS } from '@/lib/db/schema'
 import { submitAgentRun } from '@/lib/jobs/service'
 import { JobSubmitError, JobSubmitSkippedError } from '@/lib/jobs/backend-client'
+import { minIntervalMinutesFromEnv, nextOccurrence, validateCron } from '@/lib/jobs/schedule'
 import { resolveSkillSnapshot } from '@/lib/skills/service'
 import type { SkillSnapshot } from '@/lib/skills/types'
 import { emptySkillSnapshot } from '@/lib/jobs/types'
@@ -170,6 +174,14 @@ export function isDelegatableTaskKind(value: string): value is DelegatableTaskKi
   return (DELEGATABLE_TASK_KINDS as readonly string[]).includes(value)
 }
 
+/** Cadence of a recurring delegation: what the scheduler will claim. */
+export interface DelegateTaskCadence {
+  /** 5-field cron, the schedule builder's own shape. */
+  cron: string
+  /** IANA zone; UTC when the caller named none. */
+  timezone?: string
+}
+
 export interface DelegateTaskInput {
   projectId: string
   kind: DelegatableTaskKind
@@ -177,6 +189,13 @@ export interface DelegateTaskInput {
   goal: string
   /** When it is wanted. Recorded on the row; the scheduler enforces it later. */
   dueAt?: Date | null
+  /**
+   * Recurrence, when the requester asked for it („jeden Montag"). A definition
+   * with a cadence is a `schedule`: no run is dispatched now, the scheduler
+   * fires it. Gated on `project:skills:manage` — the permissioned act is the
+   * recurrence, not the asking.
+   */
+  cadence?: DelegateTaskCadence | null
   /** The version a `revision` task is about, and the reviewer's words. */
   subject?: TaskPlan['subject']
   /**
@@ -199,24 +218,33 @@ export interface DelegateTaskInput {
 }
 
 /**
- * Create a task and put its run on the queue, as the caller.
+ * What delegating produced: the standing definition, and the run that carries
+ * it out — null when a cadence made it a schedule the scheduler will fire.
+ */
+export interface DelegateTaskResult {
+  definition: TaskDefinition
+  run: TaskRun | null
+}
+
+/**
+ * Create a definition and, unless a cadence was asked for, its first run — then
+ * put that run on the queue, as the caller.
  *
- * `project:edit`, the same permission a review is recorded under: delegating
- * work is a statement about the project's own record, made by somebody who may
- * change that record. It is deliberately NOT `project:skills:manage` — that
- * permission gates the recurring machinery a person sets up once, and asking for
- * it here would mean an architect who may edit a project could not ask Piloti to
- * check it.
+ * `project:edit` for the asking, the same permission a review is recorded
+ * under: delegating work is a statement about the project's own record. A
+ * CADENCE adds `project:skills:manage`, because recurrence is the stricter,
+ * repeated-spend act (the same split the definition editor applies).
  *
- * The row is written BEFORE the submission and patched after, so a submission
- * that fails leaves a `failed` task carrying the reason rather than nothing at
- * all — the opposite order would lose exactly the case a person most wants
- * explained.
+ * The definition and the run are written BEFORE the submission and patched
+ * after, so a submission that fails leaves a `failed` run carrying the reason
+ * rather than nothing at all — the opposite order would lose exactly the case a
+ * person most wants explained. A scheduled definition has no first run yet: the
+ * scheduler owns every fire, so there is nothing to submit here.
  */
 export async function delegateTask(
   session: AuthorizedSession,
   input: DelegateTaskInput,
-): Promise<Task> {
+): Promise<DelegateTaskResult> {
   await requireProjectAccess(session, input.projectId, ['project:edit', 'project:documents:write'])
 
   const goal = input.goal.trim()
@@ -227,6 +255,33 @@ export async function delegateTask(
   if (input.kind === 'revision' && !input.subject) {
     throw new UnprocessableError('A revision task needs the version it is revising')
   }
+  if (input.cadence && input.dueAt) {
+    throw new UnprocessableError('A task is either one-off (due) or recurring (cadence), never both')
+  }
+
+  // Permissions attach to the TRIGGER, the same rule the definition editor
+  // uses: asking for work is `project:edit`; asking for it every Monday,
+  // unattended and on repeat, is `project:skills:manage`. The denial is
+  // reworded so the refusal names the permission in the sentence the model
+  // relays — a bare "Forbidden." teaches the reader nothing actionable.
+  //
+  // `requireProjectAccess` answers a missing permission with NotFoundError, not
+  // ForbiddenError, because a 404 does not leak the project's existence. The
+  // caller already passed the same check for `project:edit`/
+  // `project:documents:write` on this project, so a NotFoundError from THIS
+  // call is specifically the skills:manage denial.
+  if (input.cadence) {
+    try {
+      await requireProjectAccess(session, input.projectId, 'project:skills:manage')
+    } catch (error) {
+      if (error instanceof ForbiddenError || error instanceof NotFoundError) {
+        throw new ForbiddenError(
+          'Für wiederkehrende Aufträge fehlt die Berechtigung project:skills:manage.',
+        )
+      }
+      throw error
+    }
+  }
 
   const engine = TASK_ENGINES[input.kind]
   const skill = engine.skill ? await resolveDelegatedSkill(engine.skill, session.organizationId) : null
@@ -234,12 +289,24 @@ export async function delegateTask(
     .filter(Boolean)
     .join('\n\n')
   const requester = input.requester ?? { userId: session.userId, email: session.email }
+  const title = engine.title(goal).slice(0, 200)
 
-  const task = await repository.insertTask({
+  // Validate before computing the first occurrence: `nextOccurrence` parses
+  // with the raw cron and timezone, so an invalid one throws the library's
+  // internal error instead of the BadRequestError the caller can act on.
+  const cadenceTimezone = input.cadence?.timezone ?? 'UTC'
+  if (input.cadence) {
+    validateCron(input.cadence.cron, cadenceTimezone, minIntervalMinutesFromEnv())
+  }
+  const nextRunAt = input.cadence
+    ? nextOccurrence(input.cadence.cron, cadenceTimezone, new Date())
+    : null
+
+  const definitionValues: NewTaskDefinition = {
     organizationId: session.organizationId,
     projectId: input.projectId,
     kind: input.kind,
-    title: engine.title(goal).slice(0, 200),
+    title,
     plan: {
       prompt,
       skill: skill ?? emptySkillSnapshot(),
@@ -249,8 +316,44 @@ export async function delegateTask(
     },
     requesterUserId: requester.userId,
     requesterEmail: requester.email,
+    trigger: input.cadence ? 'schedule' : 'once',
+    enabled: true,
+    scheduleCron: input.cadence?.cron ?? null,
+    scheduleTimezone: cadenceTimezone,
+    nextRunAt,
+    dueAt: input.cadence ? null : (input.dueAt ?? null),
+  }
+
+  // A cadence is a STANDING definition: nothing runs until the scheduler
+  // claims it, and the requester's chat answer has to say exactly that.
+  if (input.cadence) {
+    const definition = await repository.insertDefinition(definitionValues)
+    await recordAuditEvent({
+      organizationId: session.organizationId,
+      actor: { userId: session.userId, email: session.email },
+      action: 'task.created',
+      targetType: 'task',
+      targetId: definition.id,
+      metadata: { projectId: input.projectId, kind: input.kind, trigger: 'schedule' },
+    })
+    return { definition, run: null }
+  }
+
+  // A one-off's run IS its attempt, so definition and run are one unit. Two
+  // separate inserts could commit the definition and then fail the run, leaving
+  // an enabled one-off nothing will ever fire; the retry would duplicate it.
+  const { definition, run } = await repository.insertDefinitionWithRun(definitionValues, {
+    organizationId: session.organizationId,
+    projectId: input.projectId,
+    kind: input.kind,
+    title,
+    plan: definitionValues.plan,
+    requesterUserId: requester.userId,
+    requesterEmail: requester.email,
+    trigger: 'delegated',
+    triggeredBy: session.userId,
     status: 'queued',
-    deadlineAt: input.dueAt ?? null,
+    skillSnapshot: skill ?? emptySkillSnapshot(),
   })
 
   await recordAuditEvent({
@@ -258,45 +361,45 @@ export async function delegateTask(
     actor: { userId: session.userId, email: session.email },
     action: 'task.created',
     targetType: 'task',
-    targetId: task.id,
+    targetId: run.id,
     metadata: { projectId: input.projectId, kind: input.kind, trigger: 'delegated' },
   })
 
-  return dispatchTask(task)
+  return { definition, run: await dispatchRun(definition, run) }
 }
 
 /**
- * Submit a queued task's run and record what came back.
+ * Submit a queued run and record what came back.
  *
- * Never throws: a task whose run could not be submitted is a `failed` row with
- * the reason on it, which is what the requester's inbox and the task list can
- * both read. Throwing would leave the caller — the chat tool, or a lifecycle
- * effect running inside a reviewer's request — to invent a second way of saying
- * the same thing.
+ * Never throws: a run that could not be submitted is a `failed` row with the
+ * reason on it, which is what the requester's inbox and the task list can both
+ * read. Throwing would leave the caller — the chat tool, or a lifecycle effect
+ * running inside a reviewer's request — to invent a second way of saying the
+ * same thing.
  */
-async function dispatchTask(task: Task): Promise<Task> {
+async function dispatchRun(definition: TaskDefinition, run: TaskRun): Promise<TaskRun> {
   try {
     const { backendJobId, conversationId } = await submitAgentRun({
-      organizationId: task.organizationId,
-      projectId: task.projectId,
-      userId: task.requesterUserId,
-      ownerEmail: task.requesterEmail,
-      prompt: task.plan.prompt,
-      skillSnapshot: task.plan.skill.name ? task.plan.skill : null,
+      organizationId: run.organizationId,
+      projectId: run.projectId,
+      userId: run.requesterUserId,
+      ownerEmail: run.requesterEmail,
+      prompt: run.plan.prompt,
+      skillSnapshot: run.skillSnapshot.name ? run.skillSnapshot : null,
       // Every delegated kind runs as a chat output: the work lands in a real
       // thread, which is where a draft card and a follow-up question can live.
       output: 'chat',
-      dataSources: task.plan.dataSources,
-      conversationTitle: task.title,
+      dataSources: run.plan.dataSources,
+      conversationTitle: definition.title,
       jobId: null,
     })
     return (
-      (await repository.updateTask(task.id, task.organizationId, {
+      (await repository.updateRun(run.id, run.organizationId, {
         status: 'running',
         backendJobId,
         conversationId,
         startedAt: new Date(),
-      })) ?? task
+      })) ?? run
     )
   } catch (error) {
     const detail =
@@ -305,13 +408,13 @@ async function dispatchTask(task: Task): Promise<Task> {
         : error instanceof Error
           ? error.message
           : 'Unexpected error while preparing the run'
-    console.error('[tasks] could not submit the run for task', task.id, error)
+    console.error('[runs] could not submit the run for definition', definition.id, error)
     return (
-      (await repository.updateTask(task.id, task.organizationId, {
+      (await repository.updateRun(run.id, run.organizationId, {
         status: 'failed',
         error: detail.slice(0, 2000),
         finishedAt: new Date(),
-      })) ?? task
+      })) ?? run
     )
   }
 }

@@ -8,14 +8,10 @@
  * asked for, and the technical detail lives with the job run.
  */
 export const tasks = {
-  panel: {
-    description:
-      'Work handed to Piloti — from a chat, from a review, or from a job on its schedule. Recurring schedules sit on top; every single run lands below.',
-  },
   groups: {
-    /** Recurring schedules (templates): jobs with a cron, shown with their cadence. */
+    /** Standing definitions: scheduled rows and manual-only ones alike. */
     templates: 'Schedules',
-    templatesEmpty: 'No recurring schedules. A schedule has Piloti work on a timer.',
+    templatesEmpty: 'No schedules yet. Create one and Piloti works on a timer.',
     templatesError: 'The schedules could not be loaded.',
     /** Single runs (instances): every task row, each of which happened once. */
     instances: 'Runs',
@@ -34,6 +30,8 @@ export const tasks = {
   },
   detail: {
     close: 'Close details',
+    /** Opens the builder on this definition; the retired Jobs panel had it. */
+    edit: 'Edit',
     /** Where the result IS — the filed document first, the chat second. */
     result: 'Result',
     openDocument: 'Open document',
@@ -80,8 +78,12 @@ export const tasks = {
     running: 'Running',
     succeeded: 'Done',
     failed: 'Failed',
-    /** Stopped — by a person or by a budget. Not an error to look into. */
+    /** Stopped - by a person or by a budget. Not an error to look into. */
     interrupted: 'Stopped',
+    /** A fire that never reached the agent (a cap, a switched-off feature). */
+    skipped: 'Skipped',
+    /** A fire whose submission broke - the visible failure the collapse added. */
+    error: 'Submission failed',
   },
   review: {
     accepted: 'Accepted',

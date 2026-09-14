@@ -50,10 +50,10 @@ function queries(executed) {
 }
 
 describe('claimDue', () => {
-  // The table names are asserted verbatim: 0043 renamed skill_schedules -> jobs
-  // and skill_runs -> job_runs, and a scheduler still querying the old names
-  // would not fail loudly — it would simply claim nothing and go quiet, which
-  // is the worst way for a timer to break.
+  // The table names are asserted verbatim: 0043 renamed skill_schedules -> jobs,
+  // then 0086 collapsed jobs into task_definitions, and a scheduler still
+  // querying the old names would not fail loudly — it would simply claim
+  // nothing and go quiet, which is the worst way for a timer to break.
   it('claims due rows and advances each next_run_at to the computed future time', async () => {
     const rows = [
       { id: 's1', schedule_cron: '0 9 * * *', schedule_timezone: 'UTC' },
@@ -68,8 +68,8 @@ describe('claimDue', () => {
     expect(claimed).toEqual(rows)
 
     const select = queries(executed)[0]
-    expect(select.text).toMatch(/^SELECT id, schedule_cron, schedule_timezone FROM jobs/)
-    expect(select.text).toContain('WHERE enabled AND schedule_cron IS NOT NULL AND next_run_at <= now()')
+    expect(select.text).toMatch(/^SELECT id, schedule_cron, schedule_timezone FROM task_definitions/)
+    expect(select.text).toContain("WHERE trigger = 'schedule' AND enabled AND schedule_cron IS NOT NULL AND next_run_at <= now()")
     expect(select.text).toContain('ORDER BY next_run_at')
     expect(select.text).toContain('LIMIT $')
     expect(select.text).toContain('FOR UPDATE SKIP LOCKED')
@@ -80,7 +80,7 @@ describe('claimDue', () => {
     expect(computeNext).toHaveBeenNthCalledWith(2, '*/15 * * * *', 'Europe/Vienna')
 
     // one advancing UPDATE per row, binding the computed Date then the id
-    const updates = executed.filter((q) => q.text.startsWith('UPDATE jobs SET next_run_at'))
+    const updates = executed.filter((q) => q.text.startsWith('UPDATE task_definitions SET next_run_at'))
     expect(updates).toHaveLength(2)
     expect(updates[0].values).toEqual([nextDate, 's1'])
     expect(updates[1].values).toEqual([nextDate, 's2'])
@@ -110,7 +110,7 @@ describe('claimDue', () => {
     expect(disable.values).toEqual(['bad'])
 
     // the good row is advanced normally
-    const advance = executed.find((q) => q.text.startsWith('UPDATE jobs SET next_run_at'))
+    const advance = executed.find((q) => q.text.startsWith('UPDATE task_definitions SET next_run_at'))
     expect(advance.values).toEqual([nextDate, 'good'])
   })
 
@@ -141,7 +141,7 @@ describe('pruneOldRuns', () => {
     expect(queries(executed)).toHaveLength(2) // looped once more after the full batch
 
     const del = queries(executed)[0]
-    expect(del.text).toMatch(/^DELETE FROM job_runs/)
+    expect(del.text).toMatch(/^DELETE FROM task_runs/)
     expect(del.text).toContain('make_interval(days => $)')
     expect(del.text).toContain('LIMIT $')
     expect(del.text).toContain('RETURNING id')

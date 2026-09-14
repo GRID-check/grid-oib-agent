@@ -160,7 +160,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/automation',
     description:
-      'The merged Automation section — Jobs and Skills as a segmented tab control inside ONE project section (they were two rail entries with identical framing and one shared flag). Only the active tab is mounted; the shot shows the Jobs tab leading with the Skills tab beside it.',
+      'The merged Automation section — Aufgaben and Skills behind one slim tab bar under the section frame (its title and subtitle ARE the header; the panel adds no second description strip). Only the active tab is mounted; the shot shows Aufgaben leading with Skills beside it, and the schedules group carrying its own create action so a reader does not have to hunt the section header for it. An empty list is the subject, not a bug: the preview serves empty sets so the chrome is what the image is evidence of.',
     waitFor: '[data-slot="tabs-trigger"]',
   },
   {
@@ -777,21 +777,14 @@ export const SCREENSHOT_TARGETS = [
     id: 'skills-panel',
     path: '/dev/skills-panel',
     description:
-      "Agent Skills tab (ADR-0045) — FEATURED first (what Piloti curates for every organization, each with an activation switch), then the org's own skills, and NOTHING schedule-shaped: everything about when something runs moved to the Jobs tab. The pipeline's builtin skills are deliberately absent, because they are absent from the endpoint: they are machinery, nobody installs or edits one, and the clone button that used to sit on them is gone. The fixture covers a taken-up offer and an untaken one, plus an org skill in play and one switched off — the switch is the only state this page has an opinion about, so both positions have to be on screen.",
+      "Agent Skills tab (ADR-0045) — FEATURED first (what Piloti curates for every organization, each with an activation switch), then the org's own skills, and NOTHING schedule-shaped: everything about when something runs lives in the Aufgaben tab, where schedules are the group on top of the list. The pipeline's builtin skills are deliberately absent, because they are absent from the endpoint: they are machinery, nobody installs or edits one, and the clone button that used to sit on them is gone. The fixture covers a taken-up offer and an untaken one, plus an org skill in play and one switched off — the switch is the only state this page has an opinion about, so both positions have to be on screen.",
     waitFor: '[data-testid="skills-panel-preview"]',
-  },
-  {
-    id: 'jobs-panel',
-    path: '/dev/jobs-panel',
-    description:
-      'Jobs tab, list mode — the Files shape: a compact bordered bar (title, one-line subtitle, the single New-job action) over a card GRID that fills the pane, not a narrow centred column. A card leads with the PROMPT, not the skill, because the prompt is what the job is and the skill is the optional extra; the fixture carries two jobs with no skill and two with one, so "Ohne Skill" is visibly a stated fact rather than a blank. Both output kinds (Chat / Bericht) are on screen, plus a disabled job (dimmed, badge, run-now unavailable) and one with no cron, which reads "Nur manuell". Captured at 1200px, which is the 2-up band; 3-up starts at 2xl, chosen so the run/edit/delete row still fits on one line.',
-    waitFor: '[data-testid="jobs-panel-preview"] [role="switch"]',
   },
   {
     id: 'job-builder',
     path: '/dev/job-builder',
     description:
-      'The job builder editing a fully populated job, reached the way a user reaches it — the preview presses Bearbeiten on a real card, so the shot carries the panel shell the builder now shares with the list (same bar, same body, only the title and the action change). Its point is the right-hand pane: "Was der Agent erhält" shows the COMPOSED fire prompt — the job prompt, then the attached skill block, closing fence included — which is byte-identical to what the server submits when the job fires. The left column runs in the order the decisions happen (name → prompt → output → skill → sources → schedule) with deep-research selected, so the picker below it is the one that output can actually run.',
+      'The definition builder editing a fully populated schedule, reached the way a user reaches it — the preview opens the fixture’s template row in the Aufgaben list and presses Bearbeiten in the drawer, so the shot carries the panel shell the builder shares with the list (same bar, same body, only the title and the action change). Its point is the right-hand pane: "Was der Agent erhält" shows the COMPOSED fire prompt — the job prompt, then the attached skill block, closing fence included — which is byte-identical to what the server submits when the definition fires. The left column runs in the order the decisions happen (name → prompt → output → skill → sources → schedule) with deep-research selected, so the picker below it is the one that output can actually run.',
     waitFor: '[data-testid="job-prompt-preview"]',
   },
   {

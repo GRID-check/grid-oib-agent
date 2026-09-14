@@ -318,6 +318,24 @@ describe('TaskDetail templates', () => {
     )
     expect(screen.queryByRole('switch')).toBeNull()
     expect(screen.queryByTestId('task-detail-run-now')).toBeNull()
+    expect(screen.queryByTestId('task-detail-edit')).toBeNull()
     expect(screen.getByTestId('job-run-history-stub')).toBeInTheDocument()
+  })
+
+  test('a manageable definition opens the builder from the drawer', () => {
+    // The retired Jobs panel carried this edit button; without it a schedule
+    // could be created and never changed.
+    const onEditJob = vi.fn()
+    render(
+      <TaskDetail
+        {...baseProps}
+        onEditJob={onEditJob}
+        selection={{ kind: 'job', id: 'job-1' }}
+        task={null}
+        job={job()}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('task-detail-edit'))
+    expect(onEditJob).toHaveBeenCalledWith(expect.objectContaining({ id: 'job-1' }))
   })
 })

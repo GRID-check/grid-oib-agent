@@ -32,7 +32,9 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `inbox.ts` | `inbox_items` |
 | `mention-requests.ts` | `mention_requests` |
 | `conversation-reads.ts` | `conversation_reads` |
-| `jobs.ts` | `skills`, `jobs`, `job_runs` |
+| `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
+| `tasks.ts` | `tasks` — LEGACY since 0086, same |
+| `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
 
 ---
 
@@ -92,12 +94,12 @@ export const conversations = pgTable('conversations', {
 | `created_by` | `text` | NOT NULL | WorkOS user ID |
 | `title` | `text` | | Auto-generated or user-set title |
 | `project_id` | `uuid` | FK → `projects.id` ON DELETE SET NULL | Scopes knowledge collection |
-| `job_id` | `uuid` | FK → `jobs.id` ON DELETE SET NULL (migration `0044`) | **Provenance, not ownership**: the job whose `output='chat'` run was materialised into this thread, or NULL when a person started it (every row before 0044, and the great majority after). `created_by` on a job conversation is still the JOB'S OWNER — a real user id, because the sharing roster, the last-owner invariant, `attributeLegacyAuthor` and audit all read that column as a person — so this column is the only thing that says "nobody typed this". Two behaviours are meant to hang off it: rendering the thread with the job's name and a job glyph instead of the owner's face, and filtering it out of the owner's personal sessions list (a weekly job is 52 threads a year) while it stays openable by URL and from the job's run history. The column and the fire path that writes it exist; those two consumers are follow-up. `SET NULL`, because deleting a job must never delete its output. |
+| `job_id` | `uuid` | FK → `task_definitions.id` ON DELETE SET NULL (repointed by migration `0086`; was `jobs.id`, and the definition ids for job-backed rows are the same uuids) | **Provenance, not ownership**: the definition whose `output='chat'` run was materialised into this thread, or NULL when a person started it (every row before 0044, and the great majority after). `created_by` on a job conversation is still the JOB'S OWNER — a real user id, because the sharing roster, the last-owner invariant, `attributeLegacyAuthor` and audit all read that column as a person — so this column is the only thing that says "nobody typed this". Two behaviours hang off it: rendering the thread with the job's name and a job glyph instead of the owner's face, and filtering it out of the owner's personal sessions list (a weekly job is 52 threads a year) while it stays openable by URL and from the job's run history. `SET NULL`, because deleting a definition must never delete its output. |
 | `visibility` | `text` | NOT NULL, default `'private'` | `private` \| `project` \| `organization` (ADR-0032). Read on the hot path with the row, so access resolution costs no join. **Migration 0027 backfilled pre-existing rows with a `project_id` to `'project'`** — conversations used to be resolved org-scoped only, so any org member with an id could read any thread; `'project'` keeps access for everyone inside the project and withdraws the accidental org-wide read. Rows with a NULL `project_id` stayed `'private'` (no project membership could describe their audience). |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | Updated on message activity |
 
-**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`); `conversations_job_id_idx` on `(job_id)` **partial**, `WHERE job_id IS NOT NULL` (migration `0044`) — it exists for the foreign key, since an unindexed referencing column makes every `DELETE FROM jobs` seq-scan this table; partial because job-produced conversations are a small minority and Drizzle's builder cannot express a partial index, so it lives only in the migration.
+**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`); `conversations_job_id_idx` on `(job_id)` **partial**, `WHERE job_id IS NOT NULL` (migration `0044`) — it exists for the foreign key, since an unindexed referencing column makes every `DELETE FROM task_definitions` seq-scan this table; partial because job-produced conversations are a small minority and Drizzle's builder cannot express a partial index, so it lives only in the migration.
 
 ---
 
@@ -376,7 +378,11 @@ boundary, so it is deliberately not in that list.
 
 ---
 
-## tasks (migration 0075, ADR-0051)
+## tasks (migration 0075, ADR-0051) — LEGACY since 0086
+
+**Superseded by `task_definitions` + `task_runs` (migration 0086, next section).
+Kept in this document while migration 0087 has not yet dropped the table; the
+0086 backfill reads every row described here.**
 
 The durable unit of delegated work: one row per attempt, with the requester
 pinned, the plan frozen, and review as an axis of its own.
@@ -416,6 +422,65 @@ the task.
 **RLS:** the organization AND the project's organization, so a row cannot be
 planted under another tenant's project. Listed in `rls-coverage.spec.ts`
 `BOUNDARY_MIGRATIONS`.
+
+---
+
+## task_definitions / task_runs (migration 0086, ADR-0051)
+
+The collapsed model: the trigger is a property of the WORK, not a different kind
+of work. `task_definitions` holds the standing intent (what was asked, by whom,
+and what makes it run); `task_runs` holds one attempt — including the attempts
+that never reached the agent. A chat handover is a definition with a degenerate
+trigger (`once`, no due date), which is what lets chat say „jeden Montag".
+
+- `task_definitions`: `id`, `organization_id`, `project_id`, `kind`, `title`,
+  `plan` (jsonb: prompt, pinned skill snapshot, data sources, the requester's
+  goal/subject), `requester_user_id` + `requester_email`, `trigger`
+  (`manual | once | schedule`), `enabled`, `schedule_cron` +
+  `schedule_timezone` + `next_run_at` (live only on `schedule`), `due_at` (live
+  only on `once`), `budget_usd`, `last_run_at`, `created_at`, `updated_at`.
+- `task_runs`: `id`, `organization_id`, `project_id`, `definition_id`
+  (nullable, `ON DELETE SET NULL` via the composite FK below — history outlives
+  the arrangement), the frozen `kind` /
+  `title` / `plan` / `requester_*`, `trigger` (`manual | schedule | delegated`)
+  + `triggered_by`, `status` (`queued | running | succeeded | failed |
+  interrupted | skipped | error` — the merge of the worker lifecycle with the
+  submission's), `error`, `skill_snapshot`, `backend_job_id` (the one id the
+  worker holds), `conversation_id`, filing (`filed_document_id`, `filing_status`,
+  `filing_detail`) and review (`review`, `review_reason`, `reviewed_by`,
+  `reviewed_at`) columns, `created_at`, `started_at`, `finished_at`,
+  `updated_at`.
+- **CHECKs** keep the two trigger axes from disagreeing
+  (`task_definitions_cron_only_when_scheduled`, `task_definitions_due_only_when_once`,
+  `task_definitions_trigger_known`) and the run lifecycle honest
+  (`task_runs_status_known`, `task_runs_trigger_known`, plus the review/filing
+  constraints copied from 0075). `kind` has NO check, deliberately, as in 0075.
+- **Indexes:** `idx_task_definitions_project_created`,
+  `idx_task_definitions_organization_id`, and the PARTIAL `idx_task_definitions_due`
+  on `(next_run_at) WHERE trigger = 'schedule' AND enabled` — the scheduler's
+  due-scan, the successor of `idx_jobs_due`. On runs:
+  `idx_task_runs_definition_created`, `idx_task_runs_project_created`,
+  `idx_task_runs_organization_id`, and the partial unique
+  `uniq_task_runs_backend_job_id`.
+- **Two composite FKs** follow the 0032 pattern:
+  `task_runs_conversation_id_organization_id_fkey` keeps a run from naming
+  another tenant's thread, and
+  `task_runs_definition_id_organization_id_project_id_fkey`
+  (`(definition_id, organization_id, project_id)` ->
+  `task_definitions (id, organization_id, project_id)`, `ON DELETE SET NULL
+  ("definition_id")`) additionally keeps it from naming another project's or
+  tenant's definition. The latter references
+  `task_definitions_id_organization_id_project_id_key` — a UNIQUE on that column
+  set, redundant with the primary key and required by the FK, the
+  `conversations_id_organization_id_key` arrangement.
+- **RLS:** both secured like `jobs`/`tasks`: the organization AND the project's
+  organization.
+- **Ids are reused by the backfill:** a job's definition id is the job's id, and
+  a job-spawned run keeps the `job_runs` id, so conversations, filed documents
+  and inbox anchors keep their uuids. `conversations.job_id` was repointed to
+  `task_definitions` in the same migration.
+- **0087 (held):** migration `0087` drops `jobs`, `job_runs` and `tasks` in a
+  separate release, after several real scheduled fires have run on the new model.
 
 ---
 
@@ -651,7 +716,12 @@ LLM budgets and the usage ledger (ADR-0015).
   insert; budget enforcement reads these rows instead of aggregating the
   ledger per WebSocket upgrade. Backfilled from the ledger by the migration.
 
-## skills / jobs / job_runs (migrations 0041, 0043, 0044)
+## skills / jobs / job_runs (migrations 0041, 0043, 0044) — jobs and job_runs LEGACY since 0086
+
+**`jobs` and `job_runs` are superseded by `task_definitions` + `task_runs`
+(migration 0086, next section); `skills` is unchanged.** Kept in this document
+while migration 0087 has not yet dropped them; the 0086 backfill reads every row
+described here.
 
 Jobs and Agent Skills (ADR-0046, `docs/architecture/agent-skills.md`) — the
 successor to the removed Workflows tables. Schema:

@@ -87,13 +87,26 @@ def _internal_base_url() -> str:
     return url.rstrip("/")
 
 
-def _error_code(exc: urllib.error.HTTPError) -> str | None:
-    """Best-effort ``code`` field from the BFF's ``{"error", "code"}`` envelope."""
+def _error_envelope(exc: urllib.error.HTTPError) -> dict[str, Any]:
+    """Best-effort ``{"error", "code"}`` from the BFF's error envelope."""
     try:
         payload = json.loads(exc.read().decode("utf-8"))
     except Exception:  # noqa: BLE001 - body may be empty, unreadable or not JSON
-        return None
-    return payload.get("code") if isinstance(payload, dict) else None
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _refusal_message(exc: urllib.error.HTTPError, envelope: dict[str, Any]) -> str:
+    """What the model may be told about a refusal.
+
+    The BFF words user-facing refusals as a sentence meant to reach the reader
+    („Für wiederkehrende Aufträge fehlt die Berechtigung …"), so the envelope's
+    ``error`` is relayed verbatim when it is there. A bare status code teaches
+    nobody anything actionable.
+    """
+    detail = envelope.get("error")
+    base = f"the task API refused the call ({exc.code})"
+    return f"{base}: {detail}" if isinstance(detail, str) and detail.strip() else base
 
 
 def post_task(payload: dict[str, Any], envelope: SignedEnvelope) -> dict[str, Any]:
@@ -124,9 +137,10 @@ def post_task(payload: dict[str, Any], envelope: SignedEnvelope) -> dict[str, An
         with _opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             body = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        code = _error_code(exc)
+        envelope = _error_envelope(exc)
+        code = envelope.get("code") if isinstance(envelope.get("code"), str) else None
         logger.warning("Delegation refused by the BFF (status=%s code=%s)", exc.code, code)
-        raise DelegationError(f"the task API refused the call ({exc.code})", status=exc.code, code=code) from exc
+        raise DelegationError(_refusal_message(exc, envelope), status=exc.code, code=code) from exc
     except Exception as exc:  # noqa: BLE001 - transport; the tool words it for the model
         logger.warning("Delegation could not reach the BFF", exc_info=True)
         raise DelegationError("the task API could not be reached") from exc

@@ -1,5 +1,5 @@
 import { index, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
-import { jobs } from './jobs'
+import { taskDefinitions } from './task-model'
 import { projects } from './projects'
 import { type ResourceVisibility, type ShareableResourceType } from './resource-shares'
 
@@ -81,7 +81,7 @@ export const conversations = pgTable(
      * chat. Drizzle's index builder cannot express a partial index, so it lives
      * only in migration 0044 — the same arrangement as `idx_jobs_due`.
      */
-    jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'set null' }),
+    jobId: uuid('job_id').references(() => taskDefinitions.id, { onDelete: 'set null' }),
     /**
      * The resource this conversation is ABOUT (file-native ask, ADR-0047).
      * Polymorphic so a later type (a compliance lane) does not need a column.

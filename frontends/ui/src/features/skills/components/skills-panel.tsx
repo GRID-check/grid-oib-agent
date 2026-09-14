@@ -4,8 +4,9 @@
  * Skills tab root: the org's skills and their editor, and nothing else.
  *
  * A skill knows nothing about time. Everything schedule-shaped — what runs,
- * when, and what a run produces — lives on the Jobs tab
- * (`features/jobs`), where a skill is the optional extra a job attaches.
+ * when, and what a run produces — lives in the Aufgaben tab
+ * (`features/tasks`), where a skill is the optional extra a definition
+ * attaches.
  *
  * Authoring is gated on org:skills:manage; without it the page is read-only.
  *

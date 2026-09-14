@@ -176,7 +176,8 @@ export type ListRunsQuery = z.infer<typeof listRunsQuerySchema>
  * Still `scheduleId`, and deliberately: the scheduler container and the BFF
  * deploy separately, so renaming the wire field would break every scheduled run
  * in the window between the two deploys — the same hazard the `execution` ->
- * `output` rename is carrying a compatibility shim for. It names a `jobs.id`.
+ * `output` rename is carrying a compatibility shim for. It names a
+ * `task_definitions.id` since migration 0086.
  */
 export const internalFireSchema = z.object({
   scheduleId: z.string().uuid(),

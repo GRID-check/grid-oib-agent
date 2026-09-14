@@ -166,7 +166,7 @@
     },
     "automation-panel": {
       "route": "src/app/dev/automation/page.tsx",
-      "routeHash": "51a09e2fde70d1f4573261c1d30d7e67c2071f141bcb015a19f05139e3bbcff7",
+      "routeHash": "d73df2d0bd959fd74d8ee9dd0696fee3da15da33a0bb94b1b9f0efb1ee0da8c5",
       "shots": [
         "automation-panel.light.png",
         "automation-panel.dark.png",
@@ -1024,7 +1024,7 @@
     },
     "job-builder": {
       "route": "src/app/dev/job-builder/page.tsx",
-      "routeHash": "a7f83c8927d0f60806088291d7c78aadbc98c69ac950d95b0ddf7f86d569f8df",
+      "routeHash": "f8d4ce82a277e34331e33f947bbdfe647eafc7ae22910a6565b63cb7f8290275",
       "shots": [
         "job-builder.light.png",
         "job-builder.dark.png"
@@ -1036,14 +1036,6 @@
       "shots": [
         "job-run-history.light.png",
         "job-run-history.dark.png"
-      ]
-    },
-    "jobs-panel": {
-      "route": "src/app/dev/jobs-panel/page.tsx",
-      "routeHash": "7c0d8e7e036dd7abdc21487963cac1d77a6ea66d7a54f74edea0f82ef41ae44f",
-      "shots": [
-        "jobs-panel.light.png",
-        "jobs-panel.dark.png"
       ]
     },
     "mention-picker": {

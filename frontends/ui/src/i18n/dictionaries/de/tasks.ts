@@ -10,13 +10,9 @@ import type { en } from '../en'
  * Sache fragt, um die man gebeten hat.
  */
 export const tasks: typeof en.tasks = {
-  panel: {
-    description:
-      'An Piloti übergebene Arbeit — aus einem Chat, aus einer Freigabe oder aus einem Job nach Zeitplan. Wiederkehrende Zeitpläne stehen oben, jeder einzelne Lauf darunter.',
-  },
   groups: {
     templates: 'Zeitpläne',
-    templatesEmpty: 'Keine wiederkehrenden Zeitpläne. Ein Zeitplan lässt Piloti nach Timer arbeiten.',
+    templatesEmpty: 'Noch keine Zeitpläne. Legen Sie einen an — Piloti arbeitet dann nach Timer.',
     templatesError: 'Die Zeitpläne konnten nicht geladen werden.',
     instances: 'Läufe',
   },
@@ -31,6 +27,8 @@ export const tasks: typeof en.tasks = {
   },
   detail: {
     close: 'Details schließen',
+    // Öffnet den Bearbeiter für diesen Zeitplan; der frühere Jobs-Tab hatte ihn.
+    edit: 'Bearbeiten',
     result: 'Ergebnis',
     openDocument: 'Dokument öffnen',
     continueChat: 'Im Chat fortsetzen',
@@ -75,6 +73,11 @@ export const tasks: typeof en.tasks = {
     // Angehalten — von einem Menschen oder von einem Budget. Kein Fehler, dem
     // jemand nachgehen müsste.
     interrupted: 'Angehalten',
+    // Ein Start, der den Agenten nie erreicht hat (Obergrenze, Feature aus).
+    skipped: 'Übersprungen',
+    // Ein Start, dessen Übermittlung gebrochen ist — der sichtbare Fehler, den
+    // die Zusammenführung nach Aufgaben bringt.
+    error: 'Übermittlung fehlgeschlagen',
   },
   review: {
     accepted: 'Angenommen',

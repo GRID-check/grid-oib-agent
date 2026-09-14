@@ -1,15 +1,17 @@
 'use client'
 
 /**
- * Dev preview for the merged Automation section — Jobs and Skills as tabs
+ * Dev preview for the merged Automation section — Aufgaben and Skills as tabs
  * inside one project section (visual/registry.mjs → `automation-panel`). Not
  * linked anywhere and 404s outside development.
  *
- * The two panels have their own richer previews (`/dev/jobs-panel`,
- * `/dev/skills-panel`); what THIS page is evidence of is the join — the
- * segmented control, which tab leads, and that only the active tab mounts. The
- * fetch shim answers both panels' list calls with empty sets so the chrome is
- * the subject, not the fixtures.
+ * The two panels have their own richer previews (`/dev/tasks-panel`,
+ * `/dev/skills-panel`); what THIS page is evidence of is the join — the single
+ * slim tab bar under the section frame (the frame owns title and subtitle, so
+ * the panel adds no second description strip), that only the active tab mounts,
+ * and that the schedules group carries its own create action. The fetch shim
+ * answers both panels' list calls with empty sets so the chrome is the subject,
+ * not the fixtures.
  */
 
 import { notFound } from 'next/navigation'
@@ -24,6 +26,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url === '/api/skills') return Response.json({ skills: [] })
+      if (url.includes('/tasks')) return Response.json({ tasks: [] })
       if (url.includes('/jobs') && !url.includes('/runs') && !url.includes('/async/')) {
         return Response.json({ jobs: [] })
       }
@@ -47,7 +50,7 @@ export default function AutomationDevPage(): JSX.Element {
           projectCollection="proj_1"
           canManageOrgSkills
           canManageJobs
-          initialTab="jobs"
+          initialTab="tasks"
         />
       </main>
     </I18nProvider>

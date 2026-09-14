@@ -1,0 +1,21 @@
+---
+features:
+  - >
+    Sie können Piloti im Chat jetzt auch wiederkehrende Arbeit übergeben:
+    „prüf das jeden Montag" legt einen Zeitplan an, der immer wieder läuft,
+    statt nur einen einzelnen Auftrag. Für einen Zeitplan braucht es die
+    Berechtigung, Zeitpläne im Projekt zu verwalten.
+  - >
+    Unter Aufgaben erscheint jetzt jeder Startversuch, auch die, die den
+    Agenten nie erreicht haben. Ein übersprungener oder fehlgeschlagener Lauf
+    steht als eigener Eintrag mit Begründung in der Liste, statt unsichtbar zu
+    bleiben.
+improvements:
+  - >
+    Aufgaben und Zeitpläne sind eine Liste: die Zeitpläne stehen oben, alle
+    einzelnen Läufe darunter. Der frühere Jobs-Tab fällt damit weg; bestehende
+    Links und Lesezeichen darauf landen weiterhin an der richtigen Stelle.
+  - >
+    Neue Zeitpläne lassen sich direkt unter Aufgaben anlegen und bearbeiten.
+    Ob ein Eintrag einmalig oder wiederkehrend ist, sagt jetzt der Eintrag
+    selbst – ein einmaliger Auftrag ist ein Lauf, ein Zeitplan bleibt stehen.

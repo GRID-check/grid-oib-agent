@@ -130,6 +130,21 @@ describe('TaskList instances', () => {
     expect(screen.getByTestId('task-error')).toHaveClass('text-error')
   })
 
+  test('shows the submission error on an errored run too', () => {
+    // `error` is a fire that never reached the agent; it is just as red as a
+    // `failed` run and owes the reader the same reason. A `failed`-only guard
+    // hid it exactly where it is the only explanation there is.
+    render(
+      <TaskList
+        projectId="p1"
+        tasks={[task({ status: 'error', error: 'Die Übermittlung ist fehlgeschlagen.' })]}
+        jobs={[]}
+      />,
+    )
+    expect(screen.getByTestId('task-error')).toHaveTextContent('Die Übermittlung ist fehlgeschlagen.')
+    expect(screen.getByTestId('task-error')).toHaveClass('text-error')
+  })
+
   test('names who asked, so a shared project’s list is legible', () => {
     render(<TaskList {...baseProps} />)
     expect(screen.getByText(/Anna Berger/)).toBeInTheDocument()
@@ -210,12 +225,34 @@ describe('TaskList templates', () => {
     expect(row).not.toHaveClass('border-l-info')
   })
 
-  test('a manual-only job is no template — it stays on the Jobs tab', () => {
+  test('a manual-only definition is a template too, labelled "Manual only"', () => {
+    // The old Jobs tab was its only home; with the tab retired, filtering it
+    // out here would make the definition invisible and uneditable.
     render(
       <TaskList projectId="p1" tasks={[]} jobs={[job({ id: 'j-man', scheduleCron: null })]} />,
     )
-    expect(screen.queryByTestId('template-row')).toBeNull()
-    expect(screen.getByText(/No recurring schedules/)).toBeInTheDocument()
+    expect(screen.getByTestId('template-row')).toBeInTheDocument()
+    expect(screen.getByTestId('template-cadence')).toHaveTextContent('Manual only')
+  })
+
+  test('the schedules group offers the create action where a reader looks', () => {
+    const onCreateSchedule = vi.fn()
+    render(
+      <TaskList
+        projectId="p1"
+        tasks={[]}
+        jobs={[]}
+        canManageJobs
+        onCreateSchedule={onCreateSchedule}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('task-templates-new'))
+    expect(onCreateSchedule).toHaveBeenCalledTimes(1)
+  })
+
+  test('no create affordance without project:skills:manage', () => {
+    render(<TaskList projectId="p1" tasks={[]} jobs={[]} onCreateSchedule={vi.fn()} />)
+    expect(screen.queryByTestId('task-templates-new')).toBeNull()
   })
 
   test('pausing a schedule toggles it optimistically', async () => {

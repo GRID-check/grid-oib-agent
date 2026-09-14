@@ -16,9 +16,9 @@
 
 import 'server-only'
 import type { TaskWireRow } from '@/features/tasks/lib/task-view'
-import type { Task } from '@/lib/db/schema'
+import type { TaskRun } from '@/lib/db/schema'
 
-export function toTaskWireRow(task: Task, requesterName: string | null): TaskWireRow {
+export function toTaskWireRow(task: TaskRun, requesterName: string | null): TaskWireRow {
   return {
     id: task.id,
     kind: task.kind,

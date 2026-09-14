@@ -632,6 +632,18 @@ it (`piloti/conversation.py`).
 
 ## Data model (grid_app, Drizzle)
 
+**Since migration 0086 the trigger and the attempt live in two tables of their
+own: `task_definitions` (kind, plan, requester, `trigger` = manual | once |
+schedule, and the schedule/due columns live per arm) and `task_runs` (one
+attempt, including skipped/errored fires that never reached the agent; runner
+fields from `job_runs`, lifecycle/filing/review from `tasks`).**
+`frontends/ui/src/lib/db/schema/task-model.ts` declares them; `jobs`,
+`job_runs` and `tasks` are LEGACY, read only by the 0086 backfill until
+migration 0087 drops them. `conversations.job_id` was repointed to
+`task_definitions.id` in 0086 (job ids were reused for their definitions).
+The sections below still describe the shipped `skills` table and the pre-0086
+shape of the others.
+
 Five tables. `skills`/`jobs`/`job_runs` live in
 `frontends/ui/src/lib/db/schema/jobs.ts`, created by
 `frontends/ui/drizzle/0041_agent_skills.sql` as `skills`/`skill_schedules`/
@@ -648,6 +660,8 @@ on the md5 of the body each chain last wrote, so an owner-edited row survives. E
 tenant table joins the tenant boundary with a `grid_secure_table()` line (ADR-0041) —
 re-emitted by 0043 under the new names, because a rename carries the policy
 along but leaves its stored predicate written against the old table name.
+`0086_task_definitions.sql` adds the collapsed pair and re-secures them the same
+way.
 
 `skills` — the org toolbox
 - `id` uuid PK, `organization_id` text NOT NULL (denormalized WorkOS org id,
@@ -1104,28 +1118,30 @@ Tick (default 30 s), with a reentrancy guard so a slow tick never overlaps the
 next interval:
 
 1. Claim, in one transaction:
-   `SELECT id, schedule_cron, schedule_timezone FROM jobs WHERE enabled AND
-   schedule_cron IS NOT NULL AND next_run_at <= now() ORDER BY next_run_at
-   LIMIT $batch FOR UPDATE SKIP LOCKED`, compute each row's next occurrence
-   **strictly in the future** (`cron-parser`, per-row timezone; misfires
-   coalesce — no backfill) and `UPDATE jobs SET next_run_at = $next`. Commit.
+   `SELECT id, schedule_cron, schedule_timezone FROM task_definitions WHERE
+   trigger = 'schedule' AND enabled AND schedule_cron IS NOT NULL AND
+   next_run_at <= now() ORDER BY next_run_at LIMIT $batch FOR UPDATE SKIP
+   LOCKED`, compute each row's next occurrence **strictly in the future**
+   (`cron-parser`, per-row timezone; misfires coalesce — no backfill) and
+   `UPDATE task_definitions SET next_run_at = $next`. Commit.
    The WHERE clause must keep matching the predicate of the partial index
-   `idx_jobs_due` for the due-scan to stay an index scan. A row whose cron is
-   unparseable — impossible in principle, since cron is validated at save time
-   — is disabled with a loud error and skipped, so one bad row can never wedge
-   every subsequent due-scan.
+   `idx_task_definitions_due` for the due-scan to stay an index scan. A row
+   whose cron is unparseable — impossible in principle, since cron is validated
+   at save time — is disabled with a loud error and skipped, so one bad row can
+   never wedge every subsequent due-scan.
 2. THEN fire each claimed row: `POST
    {FRONTEND_INTERNAL_URL}/api/internal/skills/fire` with the shared internal
-   token (`x-grid-internal-token`), concurrently (jobs cluster on popular slots
+   token (`x-grid-internal-token`), concurrently (rows cluster on popular slots
    like daily-at-9, and sequential 30 s-timeout fires would let one slow BFF
    hop stall the tick). A 200 is not always a fire — the BFF answers
    `{fired:false, reason}` for disabled or gated rows, and those are logged as
    skips so operators see them. Fire failures are logged loudly and swallowed;
    the BFF records run rows, and if the BFF itself was unreachable the
    occurrence is missed once and the next occurrence heals it (ADR-0023 risks).
-3. Retention: `DELETE FROM job_runs WHERE created_at < now() - interval
+3. Retention: `DELETE FROM task_runs WHERE created_at < now() - interval
    '$GRID_SKILL_RUNS_RETENTION_DAYS days'` (batched by id-subselect so each
-   statement locks a bounded set).
+   statement locks a bounded set). The definition survives its pruned runs, so
+   a schedule keeps firing after its oldest attempts age out.
 
 Claiming advances the job **before** firing, which is what makes a run
 at-most-once per occurrence across replicas and crashes.
