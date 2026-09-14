@@ -1024,7 +1024,7 @@
     },
     "job-builder": {
       "route": "src/app/dev/job-builder/page.tsx",
-      "routeHash": "a7f83c8927d0f60806088291d7c78aadbc98c69ac950d95b0ddf7f86d569f8df",
+      "routeHash": "f8d4ce82a277e34331e33f947bbdfe647eafc7ae22910a6565b63cb7f8290275",
       "shots": [
         "job-builder.light.png",
         "job-builder.dark.png"
