@@ -50,12 +50,16 @@ from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
+from aiq_agent.common.turn_status import begin_lane_capture
 from aiq_agent.common.turn_status import emit_family_coverage
 from aiq_agent.common.turn_status import emit_fanout_capped
 from aiq_agent.common.turn_status import emit_research_truncated
 from aiq_agent.common.turn_status import emit_retrieval
+from aiq_agent.common.turn_status import end_lane_capture
+from aiq_agent.common.turn_status import get_lane_captures
 from aiq_agent.common.turn_status import is_retrieval_round
 from aiq_agent.common.turn_status import is_search_call
+from aiq_agent.common.turn_status import record_round_announcement
 from aiq_agent.common.turn_status import retrieval_round_scope
 from aiq_agent.knowledge.already_read import merge_digest
 from aiq_agent.tools.bim.measurement_sources import begin_measurement_capture
@@ -333,8 +337,8 @@ def _announced_round(calls: Sequence[Any], state: ResearchAgentState) -> int | N
     return state.retrieval_round if is_retrieval_round([c for c in calls if isinstance(c, dict)]) else None
 
 
-def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -> tuple[int, int, int]:
-    """What this round COSTS: ``(research, interaction, retrieval_round)``.
+def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -> tuple[int, int, int, dict[str, Any] | None]:
+    """What this round COSTS and ANNOUNCED: ``(research, interaction, retrieval_round, record)``.
 
     ``max_tool_iterations`` is the RESEARCH budget, but every call used to be
     charged to it, ``emit_card`` and ``describe_card`` included. Those are
@@ -389,13 +393,25 @@ def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -
     # tools declare (what the prompt asks for), and — passed here — the prose
     # the model wrote beside its calls, which is the fallback for a model that
     # narrates instead of filling the slot.
+    conclusion = _assistant_checkpoint(response)
     searched = emit_retrieval(
         calls,
         round_index=state.retrieval_round,
-        conclusion=_assistant_checkpoint(response),
+        conclusion=conclusion,
     )
     retrieval_round = state.retrieval_round + (1 if searched else 0)
-    return research, interaction, retrieval_round
+    # The stored half of the same announcement: same calls (post cap-drop),
+    # same conclusion, same slot — the ledger join reads this, never a
+    # re-derivation, so it cannot describe a different round than the frame.
+    record = record_round_announcement(
+        round_index=state.retrieval_round,
+        calls=calls,
+        conclusion=conclusion,
+        previous_corpora=[
+            corpus for announced in state.retrieval_rounds for corpus in announced.get("corpora", [])
+        ],
+    )
+    return research, interaction, retrieval_round, record
 
 
 def _executing_retrieval_round(state: ResearchAgentState) -> int | None:
@@ -869,14 +885,17 @@ class PilotiAgent:
             response = await ainvoke_with_envelope_json_mode(llm_with_tools, messages)
         else:
             response = await llm_with_tools.ainvoke(messages)
-        research, interaction, retrieval_round = _charge_tool_calls(response, state, binding.ceiling)
-        return {
+        research, interaction, retrieval_round, round_record = _charge_tool_calls(response, state, binding.ceiling)
+        update: dict[str, Any] = {
             "messages": [response],
             "tool_iterations": research,
             "interaction_iterations": interaction,
             "retrieval_round": retrieval_round,
             "cached_system_prompt": system_prompt,
         }
+        if round_record is not None:
+            update["retrieval_rounds"] = [*state.retrieval_rounds, round_record]
+        return update
 
     async def _forced_synthesis(
         self,
@@ -1028,11 +1047,14 @@ class PilotiAgent:
         registry, registry_token = _bind_registry()
         turn_capture = begin_turn_capture()
         measurement_capture = begin_measurement_capture()
+        lane_capture = begin_lane_capture()
         try:
             graph_result = await self._graph.ainvoke(state, config=self._graph_config(binding))
             turn_sources = get_turn_captures()
             turn_measurements = get_measurement_captures()
+            lane_hits = get_lane_captures()
         finally:
+            end_lane_capture(lane_capture)
             end_measurement_capture(measurement_capture)
             end_turn_capture(turn_capture)
             if registry_token is not None:
@@ -1061,6 +1083,7 @@ class PilotiAgent:
             final,
             turn_sources=combined_sources,
             turn_measurements=turn_measurements,
+            lane_hits=lane_hits,
         )
         result.already_read_digest = merged_digest
         return result
