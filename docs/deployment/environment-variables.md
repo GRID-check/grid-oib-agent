@@ -255,7 +255,7 @@ The one-off tag-backfill script runs **outside** the NAT runtime, so it builds a
 
 ## Agent Skills (ADR-0046)
 
-The org skill toolbox, and project-level **jobs** — a prompt on a timer that may attach a skill — fired manually or on a cron schedule by the `skill-scheduler` worker container (the ADR-0023 workflow scheduler's successor; the Workflows feature and its `GRID_WORKFLOW*` variables were removed). The container and these variables keep their skill-era names although the tables they read are now `jobs`/`job_runs`: renaming them would be a deployment change with no user-visible gain. See `docs/architecture/agent-skills.md`.
+The org skill toolbox, and project-level **definitions** — a prompt on a timer that may attach a skill — fired manually or on a cron schedule by the `skill-scheduler` worker container (the ADR-0023 workflow scheduler's successor; the Workflows feature and its `GRID_WORKFLOW*` variables were removed). The container and these variables keep their skill-era names although the tables they read are now `task_definitions`/`task_runs` (migration 0086; previously `jobs`/`job_runs`): renaming them would be a deployment change with no user-visible gain. See `docs/architecture/agent-skills.md`.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
@@ -268,7 +268,7 @@ The org skill toolbox, and project-level **jobs** — a prompt on a timer that m
 | `GRID_SKILL_SCHEDULER_POLL_MS` | No | `30000` | Scheduler tick interval. Each tick claims due `jobs` rows (`FOR UPDATE SKIP LOCKED`), advances `next_run_at`, then fires them through the BFF internal endpoint. skill-scheduler service. |
 | `GRID_SKILL_SCHEDULER_BATCH` | No | `20` | Max due jobs claimed per tick. skill-scheduler service. |
 | `GRID_SKILL_MIN_INTERVAL_MINUTES` | No | `15` | Minimum cadence a job's cron expression may have; enforced at save time in the BFF. Frontend service. |
-| `GRID_SKILL_RUNS_RETENTION_DAYS` | No | `90` | Run-history retention; the scheduler prunes older `job_runs` rows. skill-scheduler service. |
+| `GRID_SKILL_RUNS_RETENTION_DAYS` | No | `90` | Run-history retention; the scheduler prunes older `task_runs` rows. skill-scheduler service. |
 | `GRID_SKILLS_CACHE_TTL_SECONDS` | No | `60` | Seconds an organization's resolved skill set (builtin + org, shadowing applied) is cached in the shared Dragonfly/Redis cache (`aiq_agent.skills.resolver`, ADR-0020) before re-resolving via the BFF internal endpoint — cutting per-turn resolution across replicas and restarts. Cache-only/fail-open: a miss or fetch error falls back to the builtin set. `0`/invalid falls back to `60`. Backend (aiq-agent) service. See `docs/architecture/agent-skills.md`. |
 
 The scheduler also reuses `GRID_APP_DATABASE_URL`, `FRONTEND_INTERNAL_URL`, and `GRID_INTERNAL_API_TOKEN`. Scheduled runs go through the same async-job admission control as interactive research (`GRID_MAX_ACTIVE_JOBS[_PER_ORG]`); cap-rejected occurrences are recorded as `skipped` runs and not retried until their next scheduled slot.

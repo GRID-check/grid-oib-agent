@@ -269,40 +269,42 @@ The agent emits intermediate steps (thinking, tool calls, `remember` writes) to
 the UI trace view, plus token/cost accounting (`tokenomics`) and structured
 logging. Memory capture is silent but observable in these traces.
 
-### 5.12 Delegated work — Aufgaben, Jobs, Runs (the unified model)
-Delegated work has three nouns and they are not interchangeable (ADR-0051):
+### 5.12 Delegated work — Aufgaben: Definitions and Runs (the unified model)
+Delegated work has two nouns since migration 0086, and they are not
+interchangeable (ADR-0051):
 
-- A **task** is the work object: one row per attempt with the pinned
-  requester (whose permissions it runs under and whose budget it spends), a
-  lifecycle (`queued → running → succeeded | failed | interrupted`, plus a
-  separate `accepted | rejected` review), a result that lands somewhere
-  durable, and a review decision the next attempt reads.
-- A **job** is the recurring trigger: a project-scoped prompt on a timer
-  (cron, or manual-only when no cron is set) with an optional skill snapshot
-  and an output kind. It says WHEN Piloti should work.
-- A **job run** (`job_runs`) is the receipt: append-only submission history.
-  `schedule_id` still names the parent `jobs` row — the name was kept because
-  `job_id` on the same row already means the backend async id — with the
-  trigger (`manual | schedule`) and the outcome (`submitted | skipped |
-  error`).
+- A **definition** (`task_definitions`) is the standing intent: what was asked,
+  by whom, and what makes it run. `trigger` is `manual` (only a person presses
+  Run now), `once` (a one-off — a chat handover, or a single run at a due date)
+  or `schedule` (a cron; `next_run_at` is live). The plan — prompt, pinned skill
+  snapshot, data sources, the requester's goal — is frozen on it.
+- A **run** (`task_runs`) is one attempt, including the attempts that never
+  reached the agent: the status vocabulary is the worker's
+  (`queued → running → succeeded | failed | interrupted`) PLUS the submission's
+  (`skipped | error`), filing and review live here because they belong to a
+  result, and `backend_job_id` is the one id the worker holds. A job-spawned
+  attempt and a chat delegation are the same row.
 
-`fireJob` creates the task beside the `job_runs` row; a chat delegation
-(`create_task`: `compliance_check | einreichcheck | document | revision`) or a
-reviewer's "change request" with nobody in the conversation creates a task
-with no `job_runs` row by design. The worker's outcome closes the task and,
-for a finished run, files its report as the requester.
+`fireJob` inserts the run and submits it; a chat delegation (`create_task`:
+`compliance_check | einreichcheck | document | revision`) does the same with
+`trigger: delegated`, and with an optional cadence it writes a `schedule`
+definition instead and dispatches nothing — the scheduler fires it. Reviewer
+rejections of earlier runs of the same definition are quoted into the next
+fire. The worker's outcome closes the run and, for a finished one, files its
+report as the requester.
 
 The **Aufgaben list is primary**: the Automation section shows Aufgaben
-(`TasksPanel` root, `TaskList` rendering recurring schedules on top and
-single runs below), Jobs (schedule management, `JobsPanel`), and Skills (the
-org toolbox) as tabs, with Aufgaben the default. Review happens in the inbox,
-where the person was told about the result.
+(`TasksPanel` root, `TaskList` rendering recurring schedules on top and single
+runs below) and Skills (the org toolbox) as tabs, with Aufgaben the default.
+The Jobs tab retired into Aufgaben; `?tab=jobs` still lands there. Review
+happens in the inbox, where the person was told about the result.
 
-Two naming collisions to keep straight. The BFF `jobs`/`job_runs` tables
-live in `grid_app` (schedules + receipts); the backend async/Dask jobs live
-in `aiq_jobs` (deep-research runs, §5.5) — a `job_runs.job_id` /
-`tasks.backendJobId` value names one of the latter. And `compliance_check`
-is a **task kind**, not a chat tool: the `compliance_check` direct tool
+Two naming collisions to keep straight. The `task_definitions`/`task_runs`
+tables live in `grid_app` (the collapsed successor of `jobs`/`job_runs`/
+`tasks`); the backend async/Dask jobs live in `aiq_jobs` (deep-research runs,
+§5.5) — a `task_runs.backend_job_id` value names one of the latter. And
+`compliance_check` is a **task kind**, not a chat tool: the `compliance_check`
+direct tool
 binding (workflow config, chat tool list, plugin entry point) is retired —
 the implementation, tests and README under
 `src/aiq_agent/agents/compliance_checker/` stay in place — and a full
