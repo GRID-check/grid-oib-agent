@@ -6,7 +6,7 @@ requires = ["setuptools>=83.0.0", "setuptools-scm>=10.2.1"]
 name = "aiq-research-cli"
 version = "2.0.1"
 description = "AI-Q Blueprint CLI - Interactive command-line interface for the AI-Q blueprint"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.14,<3.15"
 license = {text = "Apache-2.0"}
 dependencies = [
     "aiq-agent",

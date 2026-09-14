@@ -297,14 +297,14 @@ The backend `deploy/Dockerfile` defines two build targets:
 
 ### dev (default)
 
-- Based on `nvcr.io/nvidia/distroless/python:3.13-v4.0.5`
+- Based on `debian:bookworm-slim` with a uv-managed Python 3.14 (`python-build-standalone`)
 - Includes CLI (`aiq-research`) and debug UI (`aiq_debug`)
 - Includes Node.js 22 for frontend development inside the dev container
 - `APP_ENV` defaults to `development` (when unset, compose default is `production`)
 
 ### release
 
-- Based on `nvcr.io/nvidia/distroless/python:3.13-v4.0.5`
+- Based on `debian:bookworm-slim` with a uv-managed Python 3.14 (`python-build-standalone`)
 - Web only — no CLI, no debug UI, no Node.js
 - `APP_ENV` is hardcoded to `production`
 - Validates required environment variables at startup

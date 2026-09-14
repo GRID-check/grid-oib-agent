@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "aiq-debug"
 version = "0.1.0"
 description = "Debug console for AI-Q async jobs"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.14,<3.15"
 license = {text = "Apache-2.0"}
 dependencies = [
     "fastapi>=0.100.0",
