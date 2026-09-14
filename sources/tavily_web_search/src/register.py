@@ -157,6 +157,19 @@ async def tavily_web_search(tool_config: TavilyWebSearchToolConfig, builder: Bui
                 if not isinstance(results, list):
                     raise ValueError(f"Tavily API returned unexpected results format: {type(results)}")
 
+                try:
+                    from aiq_agent.common.turn_status import record_lane_hit as capture_lane_hit
+                except ImportError:  # standalone dist without the Grid agent package
+                    capture_lane_hit = None
+                if capture_lane_hit is not None:
+                    # The per-round ledger reads this, never the prose.
+                    for doc in results:
+                        if not isinstance(doc, dict):
+                            continue
+                        url = doc.get("url") or ""
+                        if url:
+                            capture_lane_hit(url, title=doc.get("title") or None)
+
                 answer_text = ""
                 if search_docs.get("answer"):
                     answer_text = f"<Answer>\n{search_docs['answer']}\n</Answer>\n\n---\n\n"

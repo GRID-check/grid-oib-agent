@@ -66,6 +66,14 @@ except ImportError:  # adapter used standalone, without the Grid agent package
     match_entries = None  # type: ignore[assignment]
     _CATALOG_AVAILABLE = False
 
+try:
+    from aiq_agent.common.turn_status import record_lane_hit as _record_lane_hit
+
+    _LANE_CAPTURE_AVAILABLE = True
+except ImportError:  # adapter used standalone, without the Grid agent package
+    _record_lane_hit = None  # type: ignore[assignment]
+    _LANE_CAPTURE_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 # Austrian federal states accepted by the Landesrecht (LrKons) filter.
@@ -300,6 +308,19 @@ def _make_planner(llm):
     return _plan
 
 
+def _capture_lane_hits(hits: list[tuple[str | None, str | None, str | None]]) -> None:
+    """Best-effort per-round ledger capture: ``(name, title, detail)`` per shown hit.
+
+    No-op when the adapter runs standalone (guarded import above) and never
+    raising: ``record_lane_hit`` itself cannot fail, so a capture must never
+    break a tool result. The ledger reads this, never the prose.
+    """
+    if not _LANE_CAPTURE_AVAILABLE or _record_lane_hit is None:
+        return
+    for name, title, detail in hits:
+        _record_lane_hit(name or "", title=title, detail=detail)
+
+
 def _format_hit(index: int, hit: RisHit) -> str:
     lines = [f"--- Result {index} ---"]
     if hit.title:
@@ -456,6 +477,16 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
                 matches = focus_entries(matches, detected_land)
                 if matches:
                     shown = matches[:max_results]
+                    _capture_lane_hits(
+                        [
+                            (
+                                entry.citation_url or entry.source_url or entry.title,
+                                entry.title or None,
+                                entry.document_number or None,
+                            )
+                            for entry in shown
+                        ]
+                    )
                     lines = [
                         f"Curated RIS catalog match(es) for '{query}' - verified pointers, no live search performed:",
                         "",
@@ -535,6 +566,16 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
             )
 
         shown = result.hits[:max_results]
+        _capture_lane_hits(
+            [
+                (
+                    hit.citation_url or hit.fetch_url or hit.title,
+                    hit.title or None,
+                    hit.document_number or None,
+                )
+                for hit in shown
+            ]
+        )
         total_pages = max(1, -(-result.total // result.page_size)) if result.total else 1
         lines = [
             f"Found {result.total or len(shown)} RIS document(s) "
@@ -652,6 +693,16 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
         from aiq_agent.common.retrieval_settings import get_retrieval_setting
 
         matches = matches[: get_retrieval_setting("ris_catalog.max_matches", tool_config.max_matches)]
+        _capture_lane_hits(
+            [
+                (
+                    entry.citation_url or entry.source_url or entry.title,
+                    entry.title or None,
+                    entry.document_number or None,
+                )
+                for entry in matches
+            ]
+        )
         if not matches:
             return (
                 f"No curated RIS catalog entry matches '{topic}'. The catalog covers only the core "
@@ -922,6 +973,7 @@ async def ris_fetch_document(tool_config: RisFetchDocumentToolConfig, builder: B
         parts = ["\n".join(header), "", text]
         if footer:
             parts.extend(["", "\n".join(footer)])
+        _capture_lane_hits([(document.url, document.title or None, None)])
         return "\n".join(parts)
 
     try:

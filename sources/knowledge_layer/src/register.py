@@ -1279,12 +1279,25 @@ def _trace_lanes_json(
                     entry["provenance"] = provenance_metadata(provenance)
                 try:
                     from aiq_agent.common.turn_status import current_retrieval_round
+                    from aiq_agent.common.turn_status import record_lane_hit
 
                     rnd = current_retrieval_round()
+                    capture = record_lane_hit
                 except Exception:  # noqa: BLE001 — a missing round stamp must not drop the hit
                     rnd = None
+                    capture = None
                 if rnd is not None:
                     entry["round"] = rnd
+                if capture is not None:
+                    # The per-round ledger reads this, never the prose: the
+                    # capture keeps every round's hits apart, while the
+                    # turn_sources log dedups documents across rounds.
+                    capture(
+                        name,
+                        title=entry.get("title"),
+                        detail=entry.get("detail"),
+                        shelf=entry.get("shelf"),
+                    )
                 bucket["sources"].append(entry)
         return json.dumps({"lanes": list(lanes.values())}, ensure_ascii=False)
     except Exception:
