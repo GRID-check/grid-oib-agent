@@ -750,3 +750,137 @@ class TestTheRepairRecordCarriesItsCounts:
         payload = _live(steps)[0]
         assert payload["key"] == turn_status.KEY_REPAIR
         assert payload["values"] == {}
+
+
+def _search_calls():
+    return [{"name": "knowledge_search", "args": {"query": "Fluchtweglänge GK4"}}]
+
+
+def _open_calls():
+    return [{"name": "read_passage", "args": {"document": "oib-rl_2.pdf", "punkt": "3.5.2"}}]
+
+
+class TestRoundAnnouncementMirrorsTheLiveFrame:
+    """The stored half of ``emit_retrieval``: same parsing, no second derivation.
+
+    The live frame and this record are two renderings of one batch of calls.
+    If either ever parses differently, the Herleitung spine (built from the
+    ledger) and the live line (built from the frame) describe different
+    rounds — so the interesting assertions here are the PARITY ones.
+    """
+
+    def test_a_search_round_records_query_tools_and_first_search(self) -> None:
+        record = turn_status.record_round_announcement(
+            round_index=0, calls=_search_calls(), conclusion=None, previous_corpora=[]
+        )
+        assert record == {
+            "index": 0,
+            "key": turn_status.KEY_RETRIEVAL_WITH_QUERY,
+            "tools": ["knowledge_search"],
+            "corpora": ["knowledge"],
+            "purpose": turn_status.ROUND_PURPOSE_FIRST_SEARCH,
+            "query": "Fluchtweglänge GK4",
+        }
+
+    def test_a_locator_round_after_search_is_an_open(self) -> None:
+        record = turn_status.record_round_announcement(
+            round_index=1, calls=_open_calls(), conclusion=None, previous_corpora=["knowledge"]
+        )
+        assert record is not None
+        assert record["purpose"] == turn_status.ROUND_PURPOSE_OPEN
+        assert record["key"] == turn_status.KEY_RETRIEVAL_PUNKT
+
+    def test_a_search_on_untouched_corpora_is_new_corpus(self) -> None:
+        calls = [{"name": "ris_search_tool", "args": {"query": "Bauordnung"}}]
+        record = turn_status.record_round_announcement(
+            round_index=1, calls=calls, conclusion=None, previous_corpora=["knowledge"]
+        )
+        assert record is not None
+        assert record["purpose"] == turn_status.ROUND_PURPOSE_NEW_CORPUS
+
+    def test_a_further_search_on_known_corpora_is_search(self) -> None:
+        record = turn_status.record_round_announcement(
+            round_index=2, calls=_search_calls(), conclusion=None, previous_corpora=["knowledge"]
+        )
+        assert record is not None
+        assert record["purpose"] == turn_status.ROUND_PURPOSE_SEARCH
+
+    def test_action_batches_and_empties_record_nothing(self) -> None:
+        assert (
+            turn_status.record_round_announcement(
+                round_index=0,
+                calls=[{"name": "remember", "args": {}}],
+                conclusion=None,
+                previous_corpora=[],
+            )
+            is None
+        )
+        assert (
+            turn_status.record_round_announcement(
+                round_index=0, calls=[], conclusion=None, previous_corpora=[]
+            )
+            is None
+        )
+
+    def test_the_reason_is_the_ranked_checkpoint_clipped_like_the_frame(self, steps) -> None:
+        calls = [
+            {
+                "name": "knowledge_search",
+                "args": {"query": "q", "conclusion": "Die Grundregel steht."},
+            }
+        ]
+        record = turn_status.record_round_announcement(
+            round_index=0, calls=calls, conclusion="Prose beside the calls.", previous_corpora=[]
+        )
+        assert record is not None
+        assert record["reason"] == "Die Grundregel steht."
+        turn_status.emit_retrieval(calls, round_index=0, conclusion="Prose beside the calls.")
+        assert _live(steps)[0]["reason"] == record["reason"]
+
+    def test_record_covers_exactly_the_batches_the_counter_skips(self) -> None:
+        """Parity with the round counter: record None ⟺ emit False."""
+        batches = [
+            _search_calls(),
+            _open_calls(),
+            [{"name": "remember", "args": {}}],
+            [{"name": "acme_custom_tool", "args": {}}],
+            [],
+        ]
+        for index, calls in enumerate(batches):
+            record = turn_status.record_round_announcement(
+                round_index=index, calls=calls, conclusion=None, previous_corpora=[]
+            )
+            assert (record is None) == (not turn_status.emit_retrieval(calls, round_index=99))
+
+
+class TestLaneCaptureKeepsRoundsApart:
+    """Per-round hits for the ledger, read off the same stamp the block gets."""
+
+    def test_hits_land_with_the_current_round(self) -> None:
+        token = turn_status.begin_lane_capture()
+        try:
+            with turn_status.retrieval_round_scope(0):
+                turn_status.record_lane_hit("oib-rl_2.pdf", title="OIB-RL 2", detail="p.12")
+            with turn_status.retrieval_round_scope(1):
+                turn_status.record_lane_hit("oib-rl_2.pdf", title="OIB-RL 2", detail="p.31")
+            hits = turn_status.get_lane_captures()
+        finally:
+            turn_status.end_lane_capture(token)
+        assert [(hit["round"], hit["name"], hit.get("detail")) for hit in hits] == [
+            (0, "oib-rl_2.pdf", "p.12"),
+            (1, "oib-rl_2.pdf", "p.31"),
+        ]
+
+    def test_capture_is_scoped_and_best_effort(self) -> None:
+        turn_status.record_lane_hit("x.pdf")
+        assert turn_status.get_lane_captures() == []
+        token = turn_status.begin_lane_capture()
+        try:
+            turn_status.record_lane_hit("  ")
+            turn_status.record_lane_hit("x.pdf")
+            assert [hit["name"] for hit in turn_status.get_lane_captures()] == ["x.pdf"]
+        finally:
+            turn_status.end_lane_capture(token)
+        assert turn_status.get_lane_captures() == []
+        turn_status.record_lane_hit("y.pdf")
+        assert turn_status.get_lane_captures() == []
