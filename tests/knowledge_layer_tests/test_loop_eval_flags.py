@@ -87,11 +87,11 @@ class TestCapRetryAndRepair:
                 ("status:retrieval:1", {"tools": ["knowledge_search"]}),
             )
         )
-        assert loop_eval.flag_cap_retry(payloads, 2) == "yes"
+        assert loop_eval.flag_cap_retry(payloads) == "yes"
 
     def test_cap_without_a_second_round_is_not_a_retry(self):
         payloads = loop_eval._status_payloads(_steps(("status:budget:fanout", {})))
-        assert loop_eval.flag_cap_retry(payloads, 1) == "no"
+        assert loop_eval.flag_cap_retry(payloads) == "no"
 
     def test_repair_step_flags_a_repair_fetch(self):
         payloads = loop_eval._status_payloads(_steps(("status:repair", {})))
