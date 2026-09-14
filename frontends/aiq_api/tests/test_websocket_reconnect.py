@@ -366,6 +366,7 @@ class TestTransparencyExtrasLift:
         chunk.escalation_reason = "Die erste Antwort war unzureichend."
         chunk.answer_confidence_capped_reason = "ungrounded"
         chunk.citations_removed = {"count": 1, "reasons": ["dead link"]}
+        chunk.retrieval_ledger = [{"index": 0, "purpose": "first_search", "docs": [], "new_docs": []}]
         with patch("aiq_api.websocket_reconnect._registry") as reg:
             reg.send = AsyncMock(return_value=True)  # client present, no persist
             await handler.create_websocket_message(
@@ -377,6 +378,7 @@ class TestTransparencyExtrasLift:
         assert built.escalation_reason == "Die erste Antwort war unzureichend."
         assert built.answer_confidence_capped_reason == "ungrounded"
         assert built.citations_removed == {"count": 1, "reasons": ["dead link"]}
+        assert built.retrieval_ledger == [{"index": 0, "purpose": "first_search", "docs": [], "new_docs": []}]
 
     @pytest.mark.asyncio
     async def test_absent_extras_are_not_attached(self) -> None:
@@ -397,6 +399,7 @@ class TestTransparencyExtrasLift:
             "citations_removed",
             "job_admission_rejected",
             "retry_after_seconds",
+            "retrieval_ledger",
         ):
             assert not hasattr(built, field)
 

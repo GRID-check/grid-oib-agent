@@ -141,6 +141,10 @@ class ConversationState(BaseModel):
     # also need registering in the checkpointer serde allowlist
     # (aiq_agent/common/__init__.py).
     already_read_digest: list[str] | None = None
+    # The backend's own account of this turn's retrieval rounds (one entry per
+    # announced round: query, tools, returned docs, new docs). Carried for the
+    # Herleitung — no renderer reads it yet (phase b). None when no round was
+    # announced.
     # --- Transparency extras (WP-A) -------------------------------------------
     # All optional/additive: absent means "unknown/not applicable". Lifted onto
     # the terminal ChatResponseChunk (``turn.streaming.STREAM_EXTRA_FIELDS``) and onto

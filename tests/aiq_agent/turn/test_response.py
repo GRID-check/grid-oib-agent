@@ -104,6 +104,16 @@ class TestResponseLifts:
         apply_state_extras(response, _state(read_sources=read))
         assert response.read_sources == read
 
+    def test_the_retrieval_ledger_rides_when_present_and_stays_absent_otherwise(self):
+        ledger = [{"index": 0, "docs": [], "new_docs": []}]
+        response = _response()
+        apply_state_extras(response, _state(retrieval_ledger=ledger))
+        assert response.retrieval_ledger == ledger
+
+        response = _response()
+        apply_state_extras(response, _state())
+        assert getattr(response, "retrieval_ledger", None) is None
+
 
 class TestBuildResponse:
     def test_the_last_message_is_the_answer_and_cards_attach(self):
