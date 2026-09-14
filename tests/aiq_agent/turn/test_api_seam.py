@@ -34,7 +34,10 @@ EXEMPT = (
 
 def _imports_of(path: pathlib.Path) -> set[str]:
     names: set[str] = set()
-    for node in ast.walk(ast.parse(path.read_text())):
+    # UTF-8 explicitly: the default encoding is the platform's (cp1252 on
+    # Windows), and a source file with a box-drawing character or an umlaut
+    # then fails to read at all.
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.ImportFrom) and node.module:
             names.add(node.module)
         elif isinstance(node, ast.Import):
