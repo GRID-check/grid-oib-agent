@@ -42,12 +42,12 @@ export function filingReference(conversationId: string, path: string): string {
   const normalized = normalizeDraftPath(path)
   const raw = `${conversationId}-${filingSlug(normalized)}`
   if (raw.length <= MAX_FILING_REF_CHARS) return raw
-  // PAIRED CHANGE (deferred agent-side mirror): the agent tier mints the same
-  // reference (`tools/documents/register.py::filing_reference`), which today
-  // truncates plainly with `[:MAX_REF_CHARS]` — the hash suffix here is
-  // unconfirmed there. Change this truncation or the hash, and change that
-  // side in the same commit: long keys would otherwise diverge and a browser
-  // filing would land beside the agent's document as a duplicate.
+  // PAIRED CHANGE: the agent tier mints the same reference
+  // (`src/aiq_agent/tools/documents/register.py::filing_reference`), which
+  // truncates the same way, over the same normalized path, with the same hash
+  // suffix. Change this truncation or the hash and change that side in the same
+  // commit: long keys would otherwise diverge and a browser filing would land
+  // beside the agent's document as a duplicate.
   const suffix = `-${filingHash(conversationId, normalized)}`
   return `${raw.slice(0, MAX_FILING_REF_CHARS - suffix.length)}${suffix}`
 }

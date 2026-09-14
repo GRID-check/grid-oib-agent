@@ -178,6 +178,15 @@ describe('TaskList instances', () => {
     expect(screen.getByTestId('task-list-loading')).toBeInTheDocument()
     expect(screen.queryByText('Nothing delegated yet')).toBeNull()
   })
+
+  test('a loading task load does not hide healthy schedules', () => {
+    // The two fetches answer independently: the skeleton belongs to the
+    // instances section, never to the whole list.
+    render(<TaskList projectId="p1" tasks={[]} jobs={[job()]} loading />)
+
+    expect(screen.getByTestId('template-row')).toBeInTheDocument()
+    expect(screen.getByTestId('task-list-loading')).toBeInTheDocument()
+  })
 })
 
 describe('TaskList templates', () => {

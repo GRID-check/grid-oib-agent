@@ -443,6 +443,33 @@ describe('InboxItemRow — inline review decisions (triage without Files)', () =
     expect(client.approve).not.toHaveBeenCalled()
   })
 
+  test('a failed STAND read says so, blocks the signature, and retries', async () => {
+    // The read failure used to be a silent dead end: the stand stayed '…' and
+    // the send stayed shut with nothing saying why. The row must name it and
+    // offer the retry, and must never fall back to approving without ifMatch.
+    const client = reviewClient({
+      getVersion: vi
+        .fn()
+        .mockRejectedValueOnce(new Error('offline'))
+        .mockResolvedValue(reviewVersion),
+    })
+    render(<InboxItemRow item={reviewRequest()} reviewClient={client} />)
+
+    fireEvent.click(screen.getByTestId('inbox-review-approve'))
+    expect(await screen.findByTestId('inbox-review-stand-failed')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I release this version' }))
+    expect(screen.getByTestId('inbox-review-approve-send')).toBeDisabled()
+    expect(client.approve).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('inbox-review-stand-retry'))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('inbox-review-approve-stand')).toHaveTextContent('version 2'),
+    )
+    expect(screen.queryByTestId('inbox-review-stand-failed')).toBeNull()
+    expect(screen.getByTestId('inbox-review-approve-send')).toBeEnabled()
+  })
+
   test('approval names the stand, the actor, the acting moment and the date — like the file pane', async () => {
     // The STAND read settles first under real timers (`findBy`/`waitFor` poll
     // on timers, so freezing them first would hang the wait below); only then

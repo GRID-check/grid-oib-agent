@@ -49,6 +49,8 @@ export const tasks: typeof en.tasks = {
     goneUnresolved:
       'Das wurde hier nicht gefunden. Der Link zeigt möglicherweise auf ein anderes Projekt, oder der Eintrag wurde gelöscht.',
     goneTitle: 'Nicht gefunden',
+    /** Die Überschrift, solange ein Deep Link noch geprüft wird — kein Befund. */
+    loadingTitle: 'Wird geladen',
   },
   list: {
     emptyTitle: 'Noch nichts übergeben',

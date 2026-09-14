@@ -437,6 +437,8 @@ export const collaboration = {
       // date-only form; who asked is already in the title.
       approveStand: '{subject} · version {number} · as of {date}',
       approveActing: 'Acting: {date}',
+      standFailed: 'The current version could not be read — approval is blocked until it is.',
+      retry: 'Try again',
       send: 'Send',
       cancel: 'Cancel',
       open: 'Open file',

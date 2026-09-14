@@ -284,6 +284,9 @@ export const collaboration: typeof en.collaboration = {
       // immer die Form ohne Namen; wer gebeten hat, nennt bereits der Titel.
       approveStand: '{subject} · Fassung {number} · Stand vom {date}',
       approveActing: 'Handelnd: {date}',
+      standFailed:
+        'Der aktuelle Stand konnte nicht gelesen werden — die Freigabe ist blockiert, bis er vorliegt.',
+      retry: 'Erneut versuchen',
       send: 'Senden',
       cancel: 'Abbrechen',
       open: 'Datei öffnen',

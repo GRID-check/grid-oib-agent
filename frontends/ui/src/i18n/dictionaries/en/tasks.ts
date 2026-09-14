@@ -56,6 +56,8 @@ export const tasks = {
       'This could not be found here. The link may point to another project, or the item was deleted.',
     /** The title over the gone body — never the close label over gone content. */
     goneTitle: 'Not found',
+    /** The title while a deep link is still being checked — no finding yet. */
+    loadingTitle: 'Loading',
   },
   list: {
     emptyTitle: 'Nothing delegated yet',

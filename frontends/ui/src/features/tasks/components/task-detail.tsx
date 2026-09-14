@@ -98,7 +98,10 @@ export function TaskDetail({
         {gone ? (
           <div className="py-8">
             <SheetHeader>
-              <SheetTitle>{t('detail.goneTitle')}</SheetTitle>
+              {/* While the deep link is still being checked, the heading says so:
+                  „Nicht gefunden" over a pending read is a finding before there
+                  is anything to find, and the body underneath already waits. */}
+              <SheetTitle>{resolving ? t('detail.loadingTitle') : t('detail.goneTitle')}</SheetTitle>
             </SheetHeader>
             {resolving ? (
               <p className="text-muted-foreground mt-2 flex items-center gap-2 text-sm">

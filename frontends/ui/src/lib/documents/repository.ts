@@ -11,7 +11,7 @@
  */
 
 import 'server-only'
-import { and, count, desc, eq, inArray, ne } from 'drizzle-orm'
+import { and, asc, count, desc, eq, inArray, ne } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withTenant } from '@/lib/db/tenant-context'
 import { documentNameVariants } from './name-match'
@@ -184,7 +184,10 @@ export async function listProjectDocuments(
           ...(includeArchived ? [] : [eq(documents.lifecycle, 'active')]),
         ),
       )
-      .orderBy(desc(documents.createdAt))
+      // Newest first, with the id as tiebreak: createdAt ties are real (a
+      // batch import lands on one timestamp), and under offset pagination an
+      // unstable order drops rows from one page and repeats them on the next.
+      .orderBy(desc(documents.createdAt), asc(documents.id))
       .limit(boundedLimit)
       .offset(boundedOffset),
   )

@@ -106,19 +106,6 @@ export function TaskList({
   const { locale } = useLocale()
   const templates = recurringJobs(jobs)
 
-  if (loading) {
-    return (
-      <div className="flex flex-col gap-2 p-4 md:p-6" data-testid="task-list-loading">
-        {[0, 1, 2].map((row) => (
-          <div key={row} className="rounded-lg border p-3">
-            <Skeleton className="h-4 w-2/5" />
-            <Skeleton className="mt-2 h-3.5 w-full" />
-          </div>
-        ))}
-      </div>
-    )
-  }
-
   return (
     <div className="flex flex-col gap-6 p-4 md:p-6" data-testid="task-list">
       <section aria-label={t('groups.templates')} data-testid="task-templates">
@@ -166,7 +153,18 @@ export function TaskList({
 
       <section aria-label={t('groups.instances')}>
         <SectionLabel as="h2">{t('groups.instances')}</SectionLabel>
-        {failed ? (
+        {loading ? (
+          // Inline, like the error below: the schedules above load independently
+          // and a task skeleton must not take healthy templates down with it.
+          <div className="mt-2 flex flex-col gap-2" data-testid="task-list-loading">
+            {[0, 1, 2].map((row) => (
+              <div key={row} className="rounded-lg border p-3">
+                <Skeleton className="h-4 w-2/5" />
+                <Skeleton className="mt-2 h-3.5 w-full" />
+              </div>
+            ))}
+          </div>
+        ) : failed ? (
           // Inline, never whole-list: the schedules above are healthy — their
           // load already answered — and hiding them behind a task failure
           // would report on work this error says nothing about.

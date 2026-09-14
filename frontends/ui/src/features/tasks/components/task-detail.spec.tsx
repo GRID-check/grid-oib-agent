@@ -144,6 +144,9 @@ describe('TaskDetail instances', () => {
       />,
     )
     expect(screen.getByText('Loading…')).toBeInTheDocument()
+    // The heading waits too: „Not found" over a pending read is a finding the
+    // drawer has not earned yet.
+    expect(screen.queryByText('Not found')).toBeNull()
     expect(screen.queryByText(/This no longer exists/)).toBeNull()
     expect(screen.queryByText(/could not be found here/)).toBeNull()
   })

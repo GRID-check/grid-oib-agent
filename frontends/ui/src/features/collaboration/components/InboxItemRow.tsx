@@ -548,6 +548,22 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
                       date: formatAbsoluteTime(new Date().toISOString(), locale),
                     })}
                   </p>
+                  {/* The STAND read failed: say so and offer the retry, because
+                      approval stays blocked without the Fassung number. A silent
+                      '…' would read as a bug rather than as a blocked signature. */}
+                  {reviewVersionError && (
+                    <p className="text-error text-xs" data-testid="inbox-review-stand-failed">
+                      {t('inbox.review.standFailed')}{' '}
+                      <button
+                        type="button"
+                        className="text-primary font-medium hover:underline"
+                        data-testid="inbox-review-stand-retry"
+                        onClick={() => setReviewVersionError(false)}
+                      >
+                        {t('inbox.review.retry')}
+                      </button>
+                    </p>
+                  )}
                   <div className="flex items-start gap-2">
                     <Checkbox
                       id={`inbox-review-approve-${item.id}`}
