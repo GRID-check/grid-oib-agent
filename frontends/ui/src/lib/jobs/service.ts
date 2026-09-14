@@ -735,7 +735,7 @@ export async function fireScheduledJob(
   if (enforcementOn()) {
     let flagOn = false
     try {
-      flagOn = await isOrgFeatureEnabled(definition.organizationId, SKILLS_FLAG)
+      flagOn = await isOrgFeatureEnabled(SKILLS_FLAG, definition.organizationId)
     } catch {
       flagOn = false
     }

@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 vi.mock('./repository', () => ({
   insertDefinition: vi.fn(),
-  insertRun: vi.fn(),
+  insertDefinitionWithRun: vi.fn(),
   updateRun: vi.fn(),
 }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
@@ -14,7 +14,7 @@ vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 vi.mock('@/lib/jobs/service', () => ({ submitAgentRun: vi.fn() }))
 vi.mock('@/lib/skills/service', () => ({ resolveSkillSnapshot: vi.fn() }))
 
-import { ForbiddenError, NotFoundError, UnprocessableError } from '@/lib/api/errors'
+import { NotFoundError, UnprocessableError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -50,9 +50,16 @@ beforeEach(() => {
     insertedDefinition = { ...values, id: 'definition-1', dueAt: values.dueAt ?? null } as TaskDefinition
     return insertedDefinition
   })
-  vi.mocked(repository.insertRun).mockImplementation(async (values) => {
-    insertedRun = { ...values, id: 'run-1', status: 'queued', conversationId: null } as TaskRun
-    return insertedRun
+  vi.mocked(repository.insertDefinitionWithRun).mockImplementation(async (values, runValues) => {
+    insertedDefinition = { ...values, id: 'definition-1', dueAt: values.dueAt ?? null } as TaskDefinition
+    insertedRun = {
+      ...runValues,
+      definitionId: insertedDefinition.id,
+      id: 'run-1',
+      status: 'queued',
+      conversationId: null,
+    } as TaskRun
+    return { definition: insertedDefinition, run: insertedRun }
   })
   vi.mocked(repository.updateRun).mockImplementation(async (_id, _org, patch) => ({ ...insertedRun, ...patch }) as TaskRun)
   vi.mocked(submitAgentRun).mockResolvedValue({ backendJobId: 'backend-1', conversationId: 's_conv_2' })
@@ -81,7 +88,7 @@ describe('delegateTask', () => {
       triggeredBy: 'user_asker',
       kind: 'compliance_check',
     })
-    expect(run.status).toBe('running')
+    expect(run?.status).toBe('running')
   })
 
   it('runs every kind as a chat output, so the work lands in a real thread', async () => {
@@ -233,14 +240,18 @@ describe('a cadence turns the delegation into a schedule', () => {
     expect(insertedDefinition.nextRunAt).toBeInstanceOf(Date)
     // No run now: the scheduler owns every fire of a schedule.
     expect(result.run).toBeNull()
-    expect(repository.insertRun).not.toHaveBeenCalled()
+    expect(repository.insertDefinitionWithRun).not.toHaveBeenCalled()
     expect(submitAgentRun).not.toHaveBeenCalled()
   })
 
   it('refuses a cadence from a requester without project:skills:manage, creating nothing', async () => {
+    // Production answers the missing permission with NotFoundError, not
+    // ForbiddenError: `requireProjectAccess` hides a project the caller cannot
+    // name a permission on. The first call passed already, so the second one's
+    // 404 is this denial.
     vi.mocked(requireProjectAccess)
       .mockResolvedValueOnce({ role: 'project-admin' } as never)
-      .mockRejectedValueOnce(new ForbiddenError('Missing permission project:skills:manage'))
+      .mockRejectedValueOnce(new NotFoundError('Project not found'))
 
     await expect(
       delegateTask(session, {
@@ -284,9 +295,10 @@ describe('what a delegated run is told to produce', () => {
         insertedDefinition = { ...values, id: 'definition-1' } as TaskDefinition
         return insertedDefinition
       })
-      vi.mocked(repository.insertRun).mockImplementation(async (values) => {
-        insertedRun = { ...values, id: 'run-1' } as TaskRun
-        return insertedRun
+      vi.mocked(repository.insertDefinitionWithRun).mockImplementation(async (values, runValues) => {
+        insertedDefinition = { ...values, id: 'definition-1' } as TaskDefinition
+        insertedRun = { ...runValues, definitionId: insertedDefinition.id, id: 'run-1' } as TaskRun
+        return { definition: insertedDefinition, run: insertedRun }
       })
       vi.mocked(repository.updateRun).mockImplementation(async (_id, _org, patch) => ({ ...insertedRun, ...patch }) as TaskRun)
       vi.mocked(submitAgentRun).mockResolvedValue({ backendJobId: 'b', conversationId: null })

@@ -130,6 +130,21 @@ describe('TaskList instances', () => {
     expect(screen.getByTestId('task-error')).toHaveClass('text-error')
   })
 
+  test('shows the submission error on an errored run too', () => {
+    // `error` is a fire that never reached the agent; it is just as red as a
+    // `failed` run and owes the reader the same reason. A `failed`-only guard
+    // hid it exactly where it is the only explanation there is.
+    render(
+      <TaskList
+        projectId="p1"
+        tasks={[task({ status: 'error', error: 'Die Übermittlung ist fehlgeschlagen.' })]}
+        jobs={[]}
+      />,
+    )
+    expect(screen.getByTestId('task-error')).toHaveTextContent('Die Übermittlung ist fehlgeschlagen.')
+    expect(screen.getByTestId('task-error')).toHaveClass('text-error')
+  })
+
   test('names who asked, so a shared project’s list is legible', () => {
     render(<TaskList {...baseProps} />)
     expect(screen.getByText(/Anna Berger/)).toBeInTheDocument()

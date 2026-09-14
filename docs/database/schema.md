@@ -99,7 +99,7 @@ export const conversations = pgTable('conversations', {
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | Updated on message activity |
 
-**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`); `conversations_job_id_idx` on `(job_id)` **partial**, `WHERE job_id IS NOT NULL` (migration `0044`) — it exists for the foreign key, since an unindexed referencing column makes every `DELETE FROM jobs` seq-scan this table; partial because job-produced conversations are a small minority and Drizzle's builder cannot express a partial index, so it lives only in the migration.
+**Indexes:** `conversations_org_updated_idx` on `(organization_id, updated_at)` — tenant list ordered by activity; `conversations_project_idx` on `(project_id)` — FK lookups/cascades (migration `0014`); `conversations_job_id_idx` on `(job_id)` **partial**, `WHERE job_id IS NOT NULL` (migration `0044`) — it exists for the foreign key, since an unindexed referencing column makes every `DELETE FROM task_definitions` seq-scan this table; partial because job-produced conversations are a small minority and Drizzle's builder cannot express a partial index, so it lives only in the migration.
 
 ---
 
@@ -440,7 +440,8 @@ trigger (`once`, no due date), which is what lets chat say „jeden Montag".
   `schedule_timezone` + `next_run_at` (live only on `schedule`), `due_at` (live
   only on `once`), `budget_usd`, `last_run_at`, `created_at`, `updated_at`.
 - `task_runs`: `id`, `organization_id`, `project_id`, `definition_id`
-  (`ON DELETE SET NULL` — history outlives the arrangement), the frozen `kind` /
+  (nullable, `ON DELETE SET NULL` via the composite FK below — history outlives
+  the arrangement), the frozen `kind` /
   `title` / `plan` / `requester_*`, `trigger` (`manual | schedule | delegated`)
   + `triggered_by`, `status` (`queued | running | succeeded | failed |
   interrupted | skipped | error` — the merge of the worker lifecycle with the
@@ -461,9 +462,17 @@ trigger (`once`, no due date), which is what lets chat say „jeden Montag".
   `idx_task_runs_definition_created`, `idx_task_runs_project_created`,
   `idx_task_runs_organization_id`, and the partial unique
   `uniq_task_runs_backend_job_id`.
-- **The composite conversation FK** (`task_runs_conversation_id_organization_id_fkey`)
-  is the 0032 pattern: a run cannot name another tenant's thread even if a bug
-  sets the column.
+- **Two composite FKs** follow the 0032 pattern:
+  `task_runs_conversation_id_organization_id_fkey` keeps a run from naming
+  another tenant's thread, and
+  `task_runs_definition_id_organization_id_project_id_fkey`
+  (`(definition_id, organization_id, project_id)` ->
+  `task_definitions (id, organization_id, project_id)`, `ON DELETE SET NULL
+  ("definition_id")`) additionally keeps it from naming another project's or
+  tenant's definition. The latter references
+  `task_definitions_id_organization_id_project_id_key` — a UNIQUE on that column
+  set, redundant with the primary key and required by the FK, the
+  `conversations_id_organization_id_key` arrangement.
 - **RLS:** both secured like `jobs`/`tasks`: the organization AND the project's
   organization.
 - **Ids are reused by the backfill:** a job's definition id is the job's id, and

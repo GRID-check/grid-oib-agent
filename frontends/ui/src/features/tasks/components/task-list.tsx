@@ -425,7 +425,10 @@ function InstanceRow({
         </p>
       )}
 
-      {task.status === 'failed' && task.error && (
+      {/* The sanitized reason on a failure. `error` is a submission that never
+          reached the agent, `failed` one that did and came back broken; both
+          are red rows and both owe the reader the why. */}
+      {(task.status === 'failed' || task.status === 'error') && task.error && (
         <p className="card-caption mt-1.5 text-error" data-testid="task-error">
           {task.error}
         </p>

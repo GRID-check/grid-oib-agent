@@ -54,6 +54,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
@@ -130,6 +131,17 @@ export const taskDefinitions = pgTable(
       table.createdAt
     ),
     orgIdx: index('idx_task_definitions_organization_id').on(table.organizationId),
+    /**
+     * Redundant on its own — `id` is already the primary key — and required all
+     * the same: `task_runs`' composite FK references exactly this column set,
+     * and a composite foreign key can only reference a uniquely-constrained
+     * one. The `conversations_id_organization_id_key` pattern (0032).
+     */
+    idOrganizationProjectKey: unique('task_definitions_id_organization_id_project_id_key').on(
+      table.id,
+      table.organizationId,
+      table.projectId
+    ),
     // NOTE: the partial due-scan index `idx_task_definitions_due` on
     // (next_run_at) WHERE trigger = 'schedule' AND enabled is a PARTIAL index
     // the drizzle builder cannot express; it lives in migration 0086, the way
@@ -166,10 +178,15 @@ export const taskRuns = pgTable(
      * The arrangement this attempt belongs to, when it still exists. Nullable
      * and SET NULL for the reason `tasks.job_id` was: history outlives the
      * thing that scheduled it.
+     *
+     * NOTE: the FK is COMPOSITE — `(definition_id, organization_id,
+     * project_id)` -> `task_definitions (id, organization_id, project_id)`
+     * with `ON DELETE SET NULL ("definition_id")` — so a run cannot name
+     * another tenant's or another project's definition. Drizzle cannot express
+     * a composite FK with a column-subset SET NULL, so it lives only in
+     * migration 0086, the same arrangement as `conversations_job_id_idx`.
      */
-    definitionId: uuid('definition_id').references(() => taskDefinitions.id, {
-      onDelete: 'set null',
-    }),
+    definitionId: uuid('definition_id'),
     /** Copied at creation so a run explains itself after the definition is gone. */
     kind: text('kind').$type<TaskKind>().notNull(),
     title: text('title').notNull(),

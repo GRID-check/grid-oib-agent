@@ -123,6 +123,17 @@ class TestRefusals:
         assert "Beschreibung" in answer
         assert calls == []
 
+    async def test_an_overlong_cadence_is_refused_and_nothing_is_posted(self, monkeypatch, calls) -> None:
+        """Truncating a comma list can leave a DIFFERENT valid cron, so refuse."""
+        responder(monkeypatch, ACCEPTED, calls)
+        cadence = ",".join(["0 8 * * 1"] * 20)
+        assert len(cadence) > task_tools.MAX_CADENCE_CHARS
+
+        answer = await task_tools.run_create_task("einreichcheck", "Prüf das", cadence=cadence)
+
+        assert "zu lang" in answer
+        assert calls == []
+
     async def test_a_refusal_from_the_route_says_nothing_was_created(self, monkeypatch) -> None:
         raiser(monkeypatch, DelegationError("the task API refused the call (403)", status=403))
         answer = await task_tools.run_create_task("einreichcheck", "Prüf das")
@@ -164,6 +175,7 @@ class TestWhatTheReaderSees:
         answer = await task_tools.run_create_task("einreichcheck", "Prüf das jeden Montag", cadence="0 8 * * 1")
         assert "Zeitplan angelegt" in answer
         assert "nicht jetzt" in answer
+        assert "Der erste Lauf ist für 2026-09-21T08:00:00.000Z geplant." in answer
         # The queued sentence would claim a run that does not exist yet.
         assert "NICHT erledigt" not in answer
 

@@ -78,6 +78,12 @@ CREATE TABLE IF NOT EXISTS "task_definitions" (
   "last_run_at" timestamp with time zone,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  -- Redundant on its own — `id` is the primary key — and required all the
+  -- same: `task_runs`' composite FK references exactly this column set, and a
+  -- composite foreign key can only reference a uniquely-constrained one.
+  -- Mirrors `conversations_id_organization_id_key` from 0032.
+  CONSTRAINT task_definitions_id_organization_id_project_id_key
+    UNIQUE ("id", "organization_id", "project_id"),
   -- The trigger vocabulary, and the two columns that are live per arm. A cron
   -- on a manual/once row or a due date on a schedule would each be a fact no
   -- code path reads; the CHECKs keep the two axes from disagreeing.
@@ -117,7 +123,7 @@ CREATE TABLE IF NOT EXISTS "task_runs" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
   "organization_id" text NOT NULL,
   "project_id" uuid NOT NULL REFERENCES "projects"("id") ON DELETE CASCADE,
-  "definition_id" uuid REFERENCES "task_definitions"("id") ON DELETE SET NULL,
+  "definition_id" uuid,
   "kind" text NOT NULL,
   "title" text NOT NULL,
   "plan" jsonb NOT NULL,
@@ -163,6 +169,17 @@ ALTER TABLE "task_runs"
   FOREIGN KEY ("conversation_id", "organization_id")
   REFERENCES "conversations" ("id", "organization_id")
   ON DELETE SET NULL ("conversation_id");
+--> statement-breakpoint
+-- The same shape for the definition link: a run cannot name another tenant's
+-- OR another project's definition, and its denormalised tenant/project columns
+-- cannot disagree with the definition they point at. SET NULL is scoped to
+-- `definition_id` alone (Postgres 15+ syntax); an unscoped SET NULL would try
+-- to null the NOT NULL tenant columns and fail.
+ALTER TABLE "task_runs"
+  ADD CONSTRAINT "task_runs_definition_id_organization_id_project_id_fkey"
+  FOREIGN KEY ("definition_id", "organization_id", "project_id")
+  REFERENCES "task_definitions" ("id", "organization_id", "project_id")
+  ON DELETE SET NULL ("definition_id");
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_task_runs_definition_created"
   ON "task_runs" ("definition_id", "created_at" DESC);

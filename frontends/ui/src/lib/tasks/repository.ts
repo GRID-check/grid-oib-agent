@@ -134,6 +134,28 @@ export async function insertDefinition(values: NewTaskDefinition): Promise<TaskD
   return row
 }
 
+/**
+ * Write a one-off definition and its first run as ONE unit. A definition
+ * committed without its attempt is an enabled row nothing will ever fire, and
+ * the caller's retry would insert a second one; the transaction makes the pair
+ * all-or-nothing. The run's `definitionId` comes from the inserted row, never
+ * from the caller.
+ */
+export async function insertDefinitionWithRun(
+  definition: NewTaskDefinition,
+  run: Omit<NewTaskRun, 'definitionId'>,
+): Promise<{ definition: TaskDefinition; run: TaskRun }> {
+  const db = getDb()
+  return db.transaction(async (tx) => {
+    const [insertedDefinition] = await tx.insert(taskDefinitions).values(definition).returning()
+    const [insertedRun] = await tx
+      .insert(taskRuns)
+      .values({ ...run, definitionId: insertedDefinition.id })
+      .returning()
+    return { definition: insertedDefinition, run: insertedRun }
+  })
+}
+
 export async function listDefinitionsInProject(
   projectId: string,
   organizationId: string,

@@ -149,11 +149,13 @@ other hundred and sixty were re-shot.
 computes the pending set with `frontends/ui/visual/pending.mjs` — the same
 "missing PNG or route hash changed" definition the spec fails on — captures
 those targets on a same-repo PR, and commits the PNGs plus the regenerated
-manifest back to the branch as `github-actions[bot]` (a fork PR gets the
-artifact and a comment instead; nothing is pushed there). The `fe:test`
-registry gate then passes on the next run. That is deliberately NOT a way to
-skip the harness: the artifact and the diff both carry the real images, and the
-commit lands them where the gate can see them.
+manifest back to the branch as `github-actions[bot]`. A fork PR is skipped by
+the *whole* workflow — `detect` refuses to run when the head repository differs
+from this one, and `capture`, `commit` and `comment` all depend on it — so the
+artifact-and-comment path is same-repo only too. The `fe:test` registry gate
+then passes on the next run. That is deliberately NOT a way to skip the
+harness: the artifact and the diff both carry the real images, and the commit
+lands them where the gate can see them.
 
 Scope, stated plainly: the route file is one input and the components it renders
 are others. Hashing the whole import graph would gate every target on every

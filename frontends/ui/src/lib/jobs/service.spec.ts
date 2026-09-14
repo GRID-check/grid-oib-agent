@@ -466,6 +466,8 @@ describe('fireScheduledJob', () => {
     const result = await fireScheduledJob(definitionRow())
 
     expect(result).toEqual({ fired: false, reason: 'feature-disabled' })
+    // Flag and org in this order: the `slug` is the flag, the id the tenant.
+    expect(isOrgFeatureEnabled).toHaveBeenCalledWith('skills', 'org_1')
     expect(vi.mocked(repository.insertRun).mock.calls[0][0]).toMatchObject({ status: 'skipped' })
   })
 

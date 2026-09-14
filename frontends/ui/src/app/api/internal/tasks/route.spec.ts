@@ -58,11 +58,20 @@ const task = {
   deadlineAt: new Date('2026-09-18T23:59:59.999Z'),
 }
 
-/** The definition/run pair `delegateTask` returns; a cadence has no run yet. */
-const definition = {
+/**
+ * A one-off definition, the default answer `delegateTask` gives: the run beside
+ * it is the attempt, and there is no next fire to serialize.
+ */
+const oneOffDefinition = {
   id: 'task-1',
   title: 'Einreichcheck: Bauansuchen Haus A',
   dueAt: new Date('2026-09-18T23:59:59.999Z'),
+  nextRunAt: null,
+}
+
+/** A scheduled definition: no run yet, but a first fire the reader can see. */
+const scheduledDefinition = {
+  ...oneOffDefinition,
   nextRunAt: new Date('2026-09-21T08:00:00.000Z'),
 }
 
@@ -106,7 +115,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   process.env.GRID_INTERNAL_API_TOKEN = SECRET
   vi.mocked(resolvePinnedRequesterSession).mockResolvedValue(session)
-  vi.mocked(delegateTask).mockResolvedValue({ definition, run: task } as never)
+  vi.mocked(delegateTask).mockResolvedValue({ definition: oneOffDefinition, run: task } as never)
 })
 
 describe('identity', () => {
@@ -196,12 +205,12 @@ describe('the answer', () => {
       conversationId: 's_conv_2',
       dueAt: '2026-09-18T23:59:59.999Z',
       scheduled: false,
-      nextRunAt: '2026-09-21T08:00:00.000Z',
+      nextRunAt: null,
     })
   })
 
   it('answers a cadence with the schedule and its first fire, and no run', async () => {
-    vi.mocked(delegateTask).mockResolvedValue({ definition, run: null } as never)
+    vi.mocked(delegateTask).mockResolvedValue({ definition: scheduledDefinition, run: null } as never)
 
     const response = await call({ ...CREATE, cadence: '0 8 * * 1' })
 

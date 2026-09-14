@@ -68,8 +68,8 @@ logger = logging.getLogger(__name__)
 MAX_GOAL_CHARS = 500
 
 #: The BFF's cron ceiling (`internalTaskRequestSchema.cadence`). A 5-field cron
-#: is at most a few dozen characters; this only stops absurd input reaching the
-#: schema.
+#: is at most a few dozen characters; a longer one is REFUSED, never truncated,
+#: because slicing a comma list can leave a different, still-valid schedule.
 MAX_CADENCE_CHARS = 120
 
 #: The kinds, mirrored from `DELEGATABLE_TASK_KINDS`
@@ -135,7 +135,9 @@ def _cadence_or_refuse(cadence: str) -> str:
     text = " ".join((cadence or "").split())
     if not text:
         raise _Refused("Fehler: Für einen wiederkehrenden Auftrag fehlt der Zeitplan. Es wurde nichts angelegt.")
-    return text[:MAX_CADENCE_CHARS]
+    if len(text) > MAX_CADENCE_CHARS:
+        raise _Refused("Fehler: Der Zeitplan ist zu lang. Es wurde nichts angelegt.")
+    return text
 
 
 async def _post(payload: dict[str, Any], envelope: SignedEnvelope) -> dict[str, Any]:
@@ -213,7 +215,9 @@ async def _create(kind: str, goal: str, due: str, cadence: str) -> str:
     emit_task_card(body, goal=chosen_goal, kind=chosen_kind)
     title = str(body.get("title") or chosen_goal)
     if body.get("scheduled"):
-        return f"Zeitplan angelegt: „{title}“. {_SCHEDULED}"
+        next_run = str(body.get("nextRunAt") or "").strip()
+        first_run = f" Der erste Lauf ist für {next_run} geplant." if next_run else ""
+        return f"Zeitplan angelegt: „{title}“.{first_run} {_SCHEDULED}"
     return f"Auftrag angelegt: „{title}“. {_QUEUED}"
 
 

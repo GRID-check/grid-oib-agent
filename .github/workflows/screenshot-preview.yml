@@ -13,8 +13,8 @@
 #
 # Capture, commit and comment are DELIBERATELY separate jobs: capture executes
 # PR-controlled code (registry import, `bun install`, the app itself) with a read-only
-# token and no persisted credential; the commit job checks out the branch but runs
-# no PR code — it copies only the artifact's PNGs and manifest — and the
+# token and no persisted credential; the commit job checks out the captured SHA
+# but runs no PR code — it copies only the artifact's PNGs and manifest — and the
 # commenting job checks out nothing. The write scopes live only in those two.
 
 name: Screenshot preview
@@ -36,9 +36,9 @@ concurrency:
   cancel-in-progress: true
 
 # Least privilege per job: the jobs that execute PR-controlled code (registry
-# import, `bun install`, the harness) run read-only, and no job keeps a checkout
-# credential in the workspace — the write token is injected only into the publish
-# step, after all PR-controlled steps have finished.
+# import, `bun install`, the harness) run read-only and persist no credential;
+# only the commit job keeps one, because the push is its entire job and no
+# PR-controlled code runs in it (see its checkout step).
 permissions:
   contents: read
 
@@ -193,7 +193,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          # The immutable SHA, never `head.ref`: the branch can move between the
+          # capture and this push, and a commit on the moved tip would carry
+          # screenshots of a tree that is no longer what the branch is.
+          ref: ${{ github.event.pull_request.head.sha }}
+          # persist-credentials stays at its default (on) HERE, unlike the
+          # capture job: the push below is this job's whole purpose and it runs
+          # no PR-controlled code, so the zizmor/artipacked warning about a
+          # persisted credential is the expected, accepted one — the write IS
+          # the job.
+          # The explicit refspec below is what keeps the mutable branch safe:
+          # the checkout is the captured SHA, so a branch that advanced makes
+          # the push a non-fast-forward and Git refuses it.
 
       - uses: actions/download-artifact@v8
         with:
@@ -211,6 +222,11 @@ jobs:
 
       - name: Commit and push
         id: commit
+        env:
+          # Through the environment, never interpolated into the script: a git
+          # refname may contain `;`, `$()` and backticks, so `${{ ... }}` in a
+          # `run:` body is script injection even for a same-repo branch.
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
@@ -222,7 +238,7 @@ jobs:
             exit 0
           fi
           git commit -m "chore(ui): regenerate screenshots for changed previews"
-          git push
+          git push origin "HEAD:$HEAD_REF"
           echo "committed=true" >> "$GITHUB_OUTPUT"
 
   # Privileged half: no checkout of PR code, no dependency install, no app code —

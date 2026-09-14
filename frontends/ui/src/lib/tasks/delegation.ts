@@ -40,7 +40,13 @@ import { ForbiddenError, NotFoundError, UnprocessableError } from '@/lib/api/err
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
-import type { DelegatableTaskKind, TaskDefinition, TaskPlan, TaskRun } from '@/lib/db/schema'
+import type {
+  DelegatableTaskKind,
+  NewTaskDefinition,
+  TaskDefinition,
+  TaskPlan,
+  TaskRun,
+} from '@/lib/db/schema'
 import { DELEGATABLE_TASK_KINDS } from '@/lib/db/schema'
 import { submitAgentRun } from '@/lib/jobs/service'
 import { JobSubmitError, JobSubmitSkippedError } from '@/lib/jobs/backend-client'
@@ -258,11 +264,17 @@ export async function delegateTask(
   // unattended and on repeat, is `project:skills:manage`. The denial is
   // reworded so the refusal names the permission in the sentence the model
   // relays — a bare "Forbidden." teaches the reader nothing actionable.
+  //
+  // `requireProjectAccess` answers a missing permission with NotFoundError, not
+  // ForbiddenError, because a 404 does not leak the project's existence. The
+  // caller already passed the same check for `project:edit`/
+  // `project:documents:write` on this project, so a NotFoundError from THIS
+  // call is specifically the skills:manage denial.
   if (input.cadence) {
     try {
       await requireProjectAccess(session, input.projectId, 'project:skills:manage')
     } catch (error) {
-      if (error instanceof ForbiddenError) {
+      if (error instanceof ForbiddenError || error instanceof NotFoundError) {
         throw new ForbiddenError(
           'Für wiederkehrende Aufträge fehlt die Berechtigung project:skills:manage.',
         )
@@ -279,15 +291,18 @@ export async function delegateTask(
   const requester = input.requester ?? { userId: session.userId, email: session.email }
   const title = engine.title(goal).slice(0, 200)
 
+  // Validate before computing the first occurrence: `nextOccurrence` parses
+  // with the raw cron and timezone, so an invalid one throws the library's
+  // internal error instead of the BadRequestError the caller can act on.
   const cadenceTimezone = input.cadence?.timezone ?? 'UTC'
-  const nextRunAt = input.cadence
-    ? nextOccurrence(input.cadence.cron, cadenceTimezone, new Date())
-    : null
   if (input.cadence) {
     validateCron(input.cadence.cron, cadenceTimezone, minIntervalMinutesFromEnv())
   }
+  const nextRunAt = input.cadence
+    ? nextOccurrence(input.cadence.cron, cadenceTimezone, new Date())
+    : null
 
-  const definition = await repository.insertDefinition({
+  const definitionValues: NewTaskDefinition = {
     organizationId: session.organizationId,
     projectId: input.projectId,
     kind: input.kind,
@@ -307,11 +322,12 @@ export async function delegateTask(
     scheduleTimezone: cadenceTimezone,
     nextRunAt,
     dueAt: input.cadence ? null : (input.dueAt ?? null),
-  })
+  }
 
   // A cadence is a STANDING definition: nothing runs until the scheduler
   // claims it, and the requester's chat answer has to say exactly that.
   if (input.cadence) {
+    const definition = await repository.insertDefinition(definitionValues)
     await recordAuditEvent({
       organizationId: session.organizationId,
       actor: { userId: session.userId, email: session.email },
@@ -323,13 +339,15 @@ export async function delegateTask(
     return { definition, run: null }
   }
 
-  const run = await repository.insertRun({
+  // A one-off's run IS its attempt, so definition and run are one unit. Two
+  // separate inserts could commit the definition and then fail the run, leaving
+  // an enabled one-off nothing will ever fire; the retry would duplicate it.
+  const { definition, run } = await repository.insertDefinitionWithRun(definitionValues, {
     organizationId: session.organizationId,
     projectId: input.projectId,
-    definitionId: definition.id,
-    kind: definition.kind,
-    title: definition.title,
-    plan: definition.plan,
+    kind: input.kind,
+    title,
+    plan: definitionValues.plan,
     requesterUserId: requester.userId,
     requesterEmail: requester.email,
     trigger: 'delegated',
