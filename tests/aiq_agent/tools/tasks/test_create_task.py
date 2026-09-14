@@ -64,6 +64,16 @@ class TestTheWire:
         await task_tools.run_create_task("document", "x" * (task_tools.MAX_GOAL_CHARS + 50))
         assert len(calls[1][0]["goal"]) == task_tools.MAX_GOAL_CHARS
 
+    async def test_a_cadence_is_forwarded_and_an_empty_one_is_omitted(self, monkeypatch, calls) -> None:
+        responder(monkeypatch, ACCEPTED, calls)
+        await task_tools.run_create_task("einreichcheck", "Prüf das", cadence="0 8 * * 1")
+        assert calls[0][0]["cadence"] == "0 8 * * 1"
+
+        await task_tools.run_create_task("einreichcheck", "Prüf das", cadence="   ")
+        # Absent, not empty: the BFF's schema is strict, and an empty string
+        # would be a 400 for a field nobody asked about.
+        assert "cadence" not in calls[1][0]
+
 
 class TestRefusals:
     """Every refusal happens BEFORE the call, and says nothing was created."""
@@ -143,6 +153,35 @@ class TestWhatTheReaderSees:
         answer = await task_tools.run_create_task("einreichcheck", "Prüf das")
         assert "angelegt" in answer
         assert "NICHT erledigt" in answer
+
+    async def test_a_scheduled_answer_says_the_plan_stands_and_nothing_ran_yet(self, monkeypatch, calls) -> None:
+        """The scheduled arm: the scheduler owns every fire, so no work is running."""
+        responder(
+            monkeypatch,
+            {**ACCEPTED, "scheduled": True, "nextRunAt": "2026-09-21T08:00:00.000Z"},
+            calls,
+        )
+        answer = await task_tools.run_create_task("einreichcheck", "Prüf das jeden Montag", cadence="0 8 * * 1")
+        assert "Zeitplan angelegt" in answer
+        assert "nicht jetzt" in answer
+        # The queued sentence would claim a run that does not exist yet.
+        assert "NICHT erledigt" not in answer
+
+    async def test_a_cadence_refusal_from_the_route_is_relayed_verbatim(self, monkeypatch) -> None:
+        """No `project:skills:manage`: the route's sentence reaches the model,
+        which is told the plan was not created."""
+        raiser(
+            monkeypatch,
+            DelegationError(
+                "the task API refused the call (403): Für wiederkehrende Aufträge fehlt die "
+                "Berechtigung project:skills:manage.",
+                status=403,
+                code="FORBIDDEN",
+            ),
+        )
+        answer = await task_tools.run_create_task("document", "Prüf das", cadence="0 8 * * 1")
+        assert "project:skills:manage" in answer
+        assert "nicht angenommen" in answer
 
     async def test_a_missing_card_registry_does_not_cost_the_delegation(self, monkeypatch, calls) -> None:
         """A CLI run has no card channel; the ROW is the product, the card is the announcement."""

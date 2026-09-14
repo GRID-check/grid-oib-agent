@@ -9,15 +9,26 @@ when the answer ships and nothing outlives it. ADR-0051 built the row that does
 outlive it, and named a chat handoff as one of the triggers that should create
 one. This is that trigger.
 
+## Two triggers, one row
+
+„prüf das jeden Montag" is the same entity as „prüf das bis Freitag", with a
+recurring trigger instead of a one-off one (migration 0086 collapsed jobs and
+delegated tasks into `task_definitions` + `task_runs` for exactly this). The
+optional ``cadence`` argument is where a chat turn says „jeden Montag": the BFF
+creates a ``schedule`` definition and the scheduler fires it, instead of
+dispatching one run now. A cadence is gated on ``project:skills:manage`` — the
+recurrence is the repeated-spend act — and the refusal comes back as text the
+model can relay.
+
 ## What it does and does not decide
 
 It decides WHICH KIND of work and WHAT was asked. It decides nothing about
 identity, permission or budget: the BFF reads the acting person out of the
 signed envelope this tool echoes, resolves that person's pinned session, checks
-`project:edit` against the named project and pins them as the task's requester
-(ADR-0054 §4, ADR-0055). A run with no envelope — a CLI call, an eval, the job
-worker — has no acting person, and the tool refuses rather than falling back to
-the unsigned individual headers.
+`project:edit` (plus `project:skills:manage` for a cadence) against the named
+project and pins them as the task's requester (ADR-0054 §4, ADR-0055). A run
+with no envelope — a CLI call, an eval, the job worker — has no acting person,
+and the tool refuses rather than falling back to the unsigned individual headers.
 
 The task then costs the requester's budget and runs under their permissions,
 which is why creating one is a real act and why the prompt tells the model to
@@ -55,6 +66,11 @@ logger = logging.getLogger(__name__)
 #: goal comes back where the model can shorten it, rather than as a 400 after the
 #: reader has been told the task is being created.
 MAX_GOAL_CHARS = 500
+
+#: The BFF's cron ceiling (`internalTaskRequestSchema.cadence`). A 5-field cron
+#: is at most a few dozen characters; this only stops absurd input reaching the
+#: schema.
+MAX_CADENCE_CHARS = 120
 
 #: The kinds, mirrored from `DELEGATABLE_TASK_KINDS`
 #: (`frontends/ui/src/lib/db/schema/tasks.ts`). Same parse-independently rule the
@@ -114,6 +130,14 @@ def _goal_or_refuse(goal: str) -> str:
     return text[:MAX_GOAL_CHARS]
 
 
+def _cadence_or_refuse(cadence: str) -> str:
+    """The recurrence, as the 5-field cron the scheduler claims."""
+    text = " ".join((cadence or "").split())
+    if not text:
+        raise _Refused("Fehler: Für einen wiederkehrenden Auftrag fehlt der Zeitplan. Es wurde nichts angelegt.")
+    return text[:MAX_CADENCE_CHARS]
+
+
 async def _post(payload: dict[str, Any], envelope: SignedEnvelope) -> dict[str, Any]:
     """The blocking call, off the event loop, with the refusal already worded."""
     try:
@@ -133,6 +157,15 @@ _QUEUED = (
     "darum kümmert und sich meldet — behaupte nicht, das Ergebnis liege schon vor."
 )
 
+#: The scheduled arm. Nothing runs now: the definition exists and the scheduler
+#: owns every fire, so the answer must not claim a first result is coming before
+#: the cadence fires — and must name WHEN it will first run when the route said.
+_SCHEDULED = (
+    "Der Auftrag ist als wiederkehrender Zeitplan angelegt; der erste Lauf startet zum angegebenen "
+    "Zeitpunkt, nicht jetzt. Sage in einem Satz, dass der Zeitplan steht und wann er das erste Mal "
+    "läuft — behaupte nicht, es sei schon etwas erledigt."
+)
+
 _CREATE_TASK_DESCRIPTION = (
     "Legt einen Auftrag an, den Piloti nach diesem Gespräch selbständig erledigt, und meldet sich, "
     "wenn er fertig ist. Aufrufen, wenn die Nutzerin um Arbeit bittet, die länger dauert als diese "
@@ -144,6 +177,9 @@ _CREATE_TASK_DESCRIPTION = (
     "Entwurf. "
     "`goal` ist der Auftrag in den Worten der Nutzerin. `due` ist optional das gewünschte Datum als "
     "`JJJJ-MM-TT` — rechne „bis Freitag“ selbst in ein Datum um, gib keinen Text an. "
+    "`cadence` ist optional ein 5-Feld-Cron für wiederkehrende Aufträge („jeden Montag“ → "
+    "`0 8 * * 1`, UTC): Damit wird ein Zeitplan angelegt statt eines einzelnen Laufs; er braucht die "
+    "Berechtigung `project:skills:manage`, und ohne sie wird er abgelehnt. "
     "Der Auftrag läuft mit den Rechten der Nutzerin und kostet ihr Budget. Nach dem Aufruf ist die "
     "Arbeit ANGELEGT, nicht erledigt."
 )
@@ -153,7 +189,7 @@ class CreateTaskConfig(FunctionBaseConfig, name="create_task"):
     """Configuration for the ``create_task`` tool."""
 
 
-async def _create(kind: str, goal: str, due: str) -> str:
+async def _create(kind: str, goal: str, due: str, cadence: str) -> str:
     """The whole of ``create_task``, with every refusal raised where it is found."""
     project_id = _project_or_refuse()
     envelope = _envelope()
@@ -170,14 +206,18 @@ async def _create(kind: str, goal: str, due: str) -> str:
     # string is not a date — it would be a 400 for a field nobody asked for.
     if (due or "").strip():
         payload["due"] = due.strip()
+    if (cadence or "").strip():
+        payload["cadence"] = _cadence_or_refuse(cadence)
 
     body = await _post(payload, envelope)
     emit_task_card(body, goal=chosen_goal, kind=chosen_kind)
     title = str(body.get("title") or chosen_goal)
+    if body.get("scheduled"):
+        return f"Zeitplan angelegt: „{title}“. {_SCHEDULED}"
     return f"Auftrag angelegt: „{title}“. {_QUEUED}"
 
 
-async def run_create_task(kind: str, goal: str, due: str = "") -> str:
+async def run_create_task(kind: str, goal: str, due: str = "", cadence: str = "") -> str:
     """Delegate one piece of work to a task row.
 
     Module-level, and the tool below is a one-line wrapper around it, so the
@@ -185,7 +225,7 @@ async def run_create_task(kind: str, goal: str, due: str = "") -> str:
     the refusals are most of what this tool is.
     """
     try:
-        return await _create(kind, goal, due)
+        return await _create(kind, goal, due, cadence)
     except _Refused as refused:
         return refused.message
 
