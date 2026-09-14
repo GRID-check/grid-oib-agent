@@ -30,6 +30,7 @@ from collections.abc import Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
 from dataclasses import field
+from threading import Lock
 from typing import Any
 
 from knowledge_layer.rerank import _build_user_prompt
@@ -259,6 +260,30 @@ _STRONG_TOP3_MEAN_FLOOR = 0.80
 #: skip on scores alone (fail-open to the judge).
 _STRONG_MIN_CHUNKS = 3
 
+#: The embedding models the score floors were calibrated against. Cosine
+#: values are not comparable across embedders: 0.88 is a decisive match on
+#: one model and an arbitrary number on another, which is the same reason the
+#: relevance floor is off by default (``register.py``). The score gate
+#: therefore fires only on a model that was actually calibrated; every other
+#: model — and an unknown one — falls through to the model-independent
+#: signals (a pinned file, a known-entity lookup) and to the judge itself.
+_CALIBRATED_EMBEDDING_MODELS = ("multilingual-e5-small",)
+
+
+def _is_calibrated_embedding(model_name: str | None) -> bool:
+    """True when the deployed embedder is one the floors were calibrated on.
+
+    Suffix match so a provider-qualified or path-qualified id
+    (``intfloat/multilingual-e5-small``) still matches. Unknown reads False:
+    an uncalibrated deployment keeps the judge, which is the direction the
+    failure has to lean.
+    """
+    if not isinstance(model_name, str) or not model_name.strip():
+        return False
+    name = model_name.strip().lower().replace("\\", "/")
+    return any(name.endswith(known) for known in _CALIBRATED_EMBEDDING_MODELS)
+
+
 #: A query naming a norm family, a Fundstelle or a file is a lookup, not an
 #: exploration: the first pool is addressed, and paraphrasing it across every
 #: collection drags in what the caller did not ask for. Casefolded search;
@@ -298,7 +323,7 @@ _NARROW_ANCHOR_PATTERNS = (
     r"\brl\s*\d",  # RL 2
     r"\bpkt\.?\s*\d",  # Pkt. 5.1
     r"\bpunkt\s*\d",  # Punkt 3.5.2
-    r"§",  # § 12 — the symbol itself is specific
+    r"§\s*\d",  # § 12 — the symbol needs its paragraph number
     r"\bseite\s*\d",  # Seite 12
     r"\bpage\s*\d",  # page 12
     r"\btabelle\w*\s+(?:nr\.?\s+)?\S*\d",  # Tabelle 1b, Tabellen 3, Tabelle Nr. 3
@@ -308,10 +333,11 @@ _NARROW_ANCHOR_PATTERNS = (
 
 _NARROW_ANCHOR_RE = re.compile("|".join(_NARROW_ANCHOR_PATTERNS), re.IGNORECASE)
 
-#: Hard cap: one requery firing per turn. The flag lives on a ContextVar so
-#: sequential searches in one turn share it and tests can reset it; the
-#: caller resets it per turn id with the round stamp as fallback
-#: (see :func:`reset_requery_slot_for_turn` and register.py).
+#: Hard cap: one requery firing per turn. The flag lives on a ContextVar for
+#: the sequential case; the authoritative per-turn ledger is
+#: :data:`_REQUERY_SPENT_TURNS`, which concurrent rounds share (see
+#: :func:`claim_requery_slot`). The caller resets it per turn id with the round
+#: stamp as fallback (see :func:`reset_requery_slot_for_turn` and register.py).
 _REQUERY_FIRED: ContextVar[bool] = ContextVar("knowledge_requery_fired", default=False)
 
 #: The turn that spent the slot, when a turn id was visible at reset time.
@@ -406,6 +432,7 @@ def should_skip_judge(
     doc_class: str | None = None,
     title_contains: str | None = None,
     folder: str | None = None,
+    embedding_model: str | None = None,
 ) -> tuple[bool, str]:
     """Whether the judge should not run, and the machine-readable reason.
 
@@ -414,11 +441,15 @@ def should_skip_judge(
     A pinned ``file_name`` is the existing precision-lookup rule, stated here
     so instrumentation and tests read one gate instead of two. Never raises.
 
-    Two load-bearing guards:
+    Three load-bearing guards:
 
     * Empty pool forces the judge: even with every skip signal present, an
       empty pool widens once (bounded by the per-turn cap) rather than
       answering from nothing.
+    * ``strong_scores`` needs the CALIBRATED embedder
+      (:data:`_CALIBRATED_EMBEDDING_MODELS`): the floors are a number on one
+      model's cosine distribution, and an uncalibrated deployment gets the
+      judge instead of a threshold that means nothing there.
     * ``known_entity`` needs anchoring: the entity mention
       (:func:`is_known_entity_lookup`) PLUS a narrow scope — a specific
       locator in the query (:func:`_has_narrow_anchor`) or a caller filter
@@ -431,7 +462,7 @@ def should_skip_judge(
             return False, ""
         if file_name and str(file_name).strip():
             return True, "file_pinned"
-        if scores_decisively_strong(pool):
+        if _is_calibrated_embedding(embedding_model) and scores_decisively_strong(pool):
             return True, "strong_scores"
         if is_known_entity_lookup(query):
             narrowed_by_caller = any(
@@ -445,8 +476,34 @@ def should_skip_judge(
         return False, ""
 
 
+#: Process-wide ledger of turns that spent their firing. The ContextVar above
+#: only holds within ONE task: concurrent retrieval rounds (``asyncio.gather``)
+#: each run in a copied context, so both can see the slot unspent and both
+#: widen — two second rounds for one turn, which is exactly what the cap
+#: exists to prevent. Keyed by turn id, bounded so a long-lived process cannot
+#: grow it without limit, and lock-guarded because a tool call may run off the
+#: event loop.
+_REQUERY_SPENT_TURNS: dict[str, None] = {}
+_REQUERY_SPENT_LIMIT = 64
+_REQUERY_SPENT_LOCK = Lock()
+
+
+def _visible_turn_id() -> str | None:
+    """The turn id this context was stamped with, if any (never raises)."""
+    try:
+        turn = _REQUERY_TURN_ID.get()
+    except Exception:
+        return None
+    return turn if isinstance(turn, str) and turn else None
+
+
 def requery_already_fired() -> bool:
     """Whether this turn already spent its one requery firing."""
+    turn = _visible_turn_id()
+    if turn is not None:
+        with _REQUERY_SPENT_LOCK:
+            if turn in _REQUERY_SPENT_TURNS:
+                return True
     try:
         return bool(_REQUERY_FIRED.get())
     except Exception:
@@ -456,10 +513,28 @@ def requery_already_fired() -> bool:
 def claim_requery_slot() -> bool:
     """Claim the turn's one firing; False means it was already spent.
 
-    The first caller wins; every later firing in the same context loses, so
-    three sequential searches cost at most one second round no matter what
-    three judges would have said.
+    The first caller wins — across sequential searches AND across the parallel
+    rounds of one turn, which is why the claim is recorded per TURN (the
+    shared ledger) and not only per context: three sequential searches cost at
+    most one second round no matter what three judges would have said, and two
+    concurrent ones cost one, not two.
     """
+    turn = _visible_turn_id()
+    if turn is not None:
+        with _REQUERY_SPENT_LOCK:
+            if turn in _REQUERY_SPENT_TURNS:
+                return False
+            _REQUERY_SPENT_TURNS[turn] = None
+            while len(_REQUERY_SPENT_TURNS) > _REQUERY_SPENT_LIMIT:
+                _REQUERY_SPENT_TURNS.pop(next(iter(_REQUERY_SPENT_TURNS)))
+        # Mirror the claim into the context flag too: a later caller in this
+        # context whose turn id is no longer visible (the stamp fallback) must
+        # still read the cap as spent.
+        try:
+            _REQUERY_FIRED.set(True)
+        except Exception:
+            pass
+        return True
     try:
         if _REQUERY_FIRED.get():
             return False
@@ -510,11 +585,22 @@ def reset_requery_slot_for_turn(span_round: int | None = None, *, turn_id: str |
             return
         if span_round is not None:
             if span_round == 0:
+                # A new turn opened, but the id stamped for the PREVIOUS one is
+                # still visible in this context — and its ledger entry is spent,
+                # which would shadow this turn's fresh slot.
+                try:
+                    _REQUERY_TURN_ID.set(None)
+                except Exception:
+                    pass
                 try:
                     _REQUERY_FIRED.set(False)
                 except Exception:
                     pass
             return
+        try:
+            _REQUERY_TURN_ID.set(None)
+        except Exception:
+            pass
         try:
             _REQUERY_FIRED.set(False)
         except Exception:

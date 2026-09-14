@@ -8,9 +8,11 @@ suppression. Offline: no ChromaDB, no embeddings, no network.
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import knowledge_layer.requery as requery_mod
 import pytest
 from knowledge_layer.requery import _has_narrow_anchor
 from knowledge_layer.requery import claim_requery_slot
@@ -27,8 +29,12 @@ from aiq_agent.common.retrieval_settings import reset_retrieval_settings_cache
 @pytest.fixture(autouse=True)
 def _reset_slot():
     reset_requery_slot()
+    # The per-turn ledger is process-wide and keyed by turn id; a test that
+    # re-uses "turn-1" after another spent it must start from a clean ledger.
+    requery_mod._REQUERY_SPENT_TURNS.clear()
     yield
     reset_requery_slot()
+    requery_mod._REQUERY_SPENT_TURNS.clear()
 
 
 def _scored(score: float):
@@ -86,9 +92,27 @@ class TestShouldSkipJudge:
         skip, reason = should_skip_judge("anything", [_scored(0.5)], file_name="oib-rl_2.pdf")
         assert (skip, reason) == (True, "file_pinned")
 
-    def test_strong_scores_skip(self):
+    def test_strong_scores_skip_on_the_calibrated_embedder(self):
         chunks = [_scored(0.92), _scored(0.88), _scored(0.85)]
-        assert should_skip_judge("Wie lang darf der Fluchtweg sein?", chunks) == (True, "strong_scores")
+        assert should_skip_judge(
+            "Wie lang darf der Fluchtweg sein?",
+            chunks,
+            embedding_model="intfloat/multilingual-e5-small",
+        ) == (True, "strong_scores")
+
+    def test_strong_scores_do_not_skip_on_an_uncalibrated_embedder(self):
+        # The floors are a number on one model's cosine distribution; another
+        # model's 0.88 is not the same fact, so the judge stays in.
+        chunks = [_scored(0.92), _scored(0.88), _scored(0.85)]
+        assert should_skip_judge(
+            "Wie lang darf der Fluchtweg sein?",
+            chunks,
+            embedding_model="nvidia/llama-nemotron-embed-vl-1b-v2",
+        ) == (False, "")
+
+    def test_strong_scores_do_not_skip_when_the_model_is_unknown(self):
+        chunks = [_scored(0.92), _scored(0.88), _scored(0.85)]
+        assert should_skip_judge("Wie lang darf der Fluchtweg sein?", chunks) == (False, "")
 
     def test_known_entity_skips(self):
         chunks = [_scored(0.5), _scored(0.4), _scored(0.3)]
@@ -148,6 +172,20 @@ class TestRequeryCap:
 
 
 class TestSlotResetPerTurn:
+    async def test_concurrent_rounds_of_one_turn_share_the_cap(self):
+        # Two retrieval rounds of ONE turn run as parallel tasks, each with a
+        # copy of the context: the ContextVar alone let both claim and both
+        # widen. The shared ledger is the budget that holds.
+        reset_requery_slot_for_turn(turn_id="turn-parallel")
+
+        async def _search():
+            return claim_requery_slot()
+
+        claims = await asyncio.gather(_search(), _search())
+
+        assert claims.count(True) == 1
+        assert requery_already_fired() is True
+
     def test_same_turn_id_keeps_the_cap(self):
         reset_requery_slot_for_turn(turn_id="turn-1")
         assert claim_requery_slot() is True
@@ -231,6 +269,9 @@ class _FakeResult:
 
 class _FakeRetriever:
     backend_name = "fake"
+    #: The score gate is only allowed on a calibrated embedder; the harness
+    #: simulates a deployment that runs the one the floors were calibrated on.
+    embed_model_name = "multilingual-e5-small"
 
     def __init__(self, answers: dict[str, list]):
         self.answers = answers

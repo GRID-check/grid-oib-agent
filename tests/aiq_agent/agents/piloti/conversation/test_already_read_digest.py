@@ -124,6 +124,51 @@ class TestDigestTravelsTheGraph:
 
         assert result.already_read_digest == DIGEST
 
+    @pytest.mark.asyncio
+    async def test_a_caller_supplied_digest_reaches_a_fresh_thread(self):
+        # No checkpoint, no checkpointer: the lines the caller brought must
+        # survive into the turn instead of being dropped with the turn-scoped
+        # fields.
+        seen: list = []
+
+        async def research(state_input):
+            seen.append(state_input.already_read_digest)
+            return _answer(state_input.messages, "Antwort.", already_read_digest=state_input.already_read_digest)
+
+        agent = ConversationGraph(research_fn=research, deep_research_fn=_unused, clarifier_fn=None)
+        state = ConversationState(messages=[HumanMessage(content="Was gilt?")], already_read_digest=list(DIGEST))
+
+        result = await agent.run(state, thread_id="caller-digest")
+
+        assert seen == [DIGEST]
+        assert result.already_read_digest == DIGEST
+
+    @pytest.mark.asyncio
+    async def test_caller_and_checkpoint_digests_merge_append_only(self):
+        caller_line = ["projekt_plan.pdf | projekt | Seiten 3 | Punkte 1 | Turn 2"]
+        seen: list = []
+
+        async def research(state_input):
+            seen.append(list(state_input.already_read_digest or []))
+            return _answer(state_input.messages, "Antwort.", already_read_digest=state_input.already_read_digest)
+
+        agent = ConversationGraph(
+            research_fn=research, deep_research_fn=_unused, clarifier_fn=None, checkpointer=MemorySaver()
+        )
+        thread = "digest-merge"
+
+        await agent.run(
+            ConversationState(messages=[HumanMessage(content="Was gilt?")], already_read_digest=list(DIGEST)),
+            thread_id=thread,
+        )
+        await agent.run(
+            ConversationState(messages=[HumanMessage(content="Und noch?")], already_read_digest=caller_line),
+            thread_id=thread,
+        )
+
+        # The checkpoint's lines come first and neither set is lost.
+        assert seen[-1] == [*DIGEST, *caller_line]
+
 
 def _digest_answering(digest):
     async def research(state_input):

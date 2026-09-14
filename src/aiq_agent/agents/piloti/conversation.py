@@ -482,18 +482,48 @@ class ConversationGraph:
         graph.add_edge("deep_research", END)
         return graph.compile(checkpointer=self.checkpointer)
 
+    async def _merged_digest(self, graph_config: RunnableConfig, state: ConversationState) -> list[str] | None:
+        """The digest this turn runs with: checkpoint lines, then the caller's.
+
+        Append-only, exactly as the agent merges a turn's reads at its end: the
+        digest never shrinks within a conversation, so a caller that supplies
+        lines (a resumed run, a replayed turn) may add but never replace. The
+        checkpoint is read here rather than written over, because the field is
+        conversation-scoped: a run that supplies nothing must keep what the
+        checkpoint holds, and a fresh thread with a caller digest keeps the
+        caller's. ``None`` when neither has anything, so an absent digest stays
+        absent rather than becoming an empty list the nodes read as a value.
+        """
+        caller = list(state.already_read_digest or [])
+        checkpoint: list[str] = []
+        try:
+            snapshot = await self._graph.aget_state(graph_config)
+            values = getattr(snapshot, "values", None) or {}
+            checkpoint = [line for line in (values.get("already_read_digest") or []) if isinstance(line, str)]
+        except Exception:  # noqa: BLE001 - no checkpointer (or an empty thread) reads as no lines
+            checkpoint = []
+        if not checkpoint and not caller:
+            return None
+        return list(dict.fromkeys([*checkpoint, *caller]))
+
     async def run(self, state: ConversationState, thread_id: str | None = None) -> ConversationState:
         """Execute one turn on ``thread_id``'s conversation and return the final state.
 
         The graph input is every turn-scoped field of the fresh ``state`` plus
         its new messages: a field listed is overwritten with this turn's value
         (its default, for the outputs), a field omitted keeps its checkpointed
-        value — which is how ``deep_research_declined`` stays sticky.
+        value — which is how ``deep_research_declined`` stays sticky. The
+        digest is the exception that proves it: conversation-scoped, so the
+        caller's lines MERGE with the checkpoint's (append-only) instead of
+        overwriting them, and the merged value is what the graph runs with.
         """
         graph_config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
         logger.info("Conversation: Starting turn")
         input_state = {name: getattr(state, name) for name in TURN_SCOPED_FIELDS}
         input_state["messages"] = state.messages
+        merged_digest = await self._merged_digest(graph_config, state)
+        if merged_digest is not None:
+            input_state["already_read_digest"] = merged_digest
         if state.messages:
             logger.info("Query: %s...", str(state.messages[-1].content)[:100])
         result = await self._graph.ainvoke(input_state, config=graph_config)

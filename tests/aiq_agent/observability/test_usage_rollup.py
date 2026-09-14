@@ -23,7 +23,7 @@ from aiq_agent.observability.usage_rollup import record_usage_turn
 class _Tracker:
     """Duck-typed stand-in for GridCostTracker (prompt/completion/cost totals)."""
 
-    def __init__(self, *, calls=0, prompt=0, completion=0, cost=0.0, job_id=None):
+    def __init__(self, *, calls=0, prompt=0, completion=0, cost=0.0, job_id=None, cost_source=None):
         self.events_recorded = calls
         self.prompt_tokens = prompt
         self.completion_tokens = completion
@@ -31,6 +31,7 @@ class _Tracker:
         self.job_id = job_id
         self.organization_id = "org_1"
         self.conversation_id = "conv_1"
+        self.cost_source = cost_source
 
 
 class TestBuildUsageRollup:
@@ -79,6 +80,17 @@ class TestFromTracker:
         assert rollup is not None
         assert (rollup.llm_calls, rollup.prompt_tokens, rollup.completion_tokens) == (2, 500, 100)
         assert rollup.cost_usd == pytest.approx(0.001)
+
+    def test_an_aggregated_provenance_beats_the_positive_cost_inference(self):
+        # A tracker that aggregates its events says where the dollars came
+        # from; a positive cost must not overwrite that with "usage_field".
+        estimated = from_tracker(_Tracker(calls=2, prompt=500, completion=100, cost=0.001, cost_source="estimate"))
+        mixed = from_tracker(_Tracker(calls=3, prompt=500, completion=100, cost=0.002, cost_source="mixed"))
+
+        assert estimated is not None
+        assert estimated.cost_source == "estimate"
+        assert mixed is not None
+        assert mixed.cost_source == "mixed"
 
     def test_empty_tracker_is_a_zero_row_not_an_error(self):
         for rollup in (from_tracker(_Tracker()), from_tracker(None)):

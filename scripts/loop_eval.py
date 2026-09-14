@@ -306,24 +306,39 @@ def flag_locator_eligible(question: Question, payloads: Sequence[tuple[str, dict
     return "no"
 
 
-def flag_cap_retry(payloads: Sequence[tuple[str, dict]], rounds: int) -> str:
-    """``"yes"`` when a capped fetch was followed by another fetch."""
-    capped = any(name in _CAP_STEP_NAMES for name, _ in payloads)
-    if not capped:
-        # A retrieve span that records a diversity-cap drop is the same fact
-        # on the span channel.
-        for name, body in payloads:
-            if name.startswith("retrieve."):
-                raw = body.get("input") or {}
-                if isinstance(raw, str):
-                    try:
-                        raw = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
-                if isinstance(raw, dict) and (raw.get("dropped_by_cap") or 0):
-                    capped = True
-                    break
-    return "yes" if capped and rounds > 1 else "no"
+def _as_payload_dict(value: object) -> dict:
+    """One retrieve payload as a dict, parsing the JSON string form."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+    return value if isinstance(value, dict) else {}
+
+
+def flag_cap_retry(payloads: Sequence[tuple[str, dict]]) -> str:
+    """``"yes"`` when a capped fetch was followed by another fetch.
+
+    The POSITION of the cap is the fact: a cap on the turn's last fetch is the
+    guard working as designed, not a retry. The old ``rounds > 1`` asked
+    whether the turn had several rounds, which is also true when the cap came
+    last — so a turn that stopped exactly where the guard stopped it read as
+    the redundant work this column exists to catch.
+    """
+    capped_at: int | None = None
+    for index, (name, body) in enumerate(payloads):
+        if name in _CAP_STEP_NAMES or (name.startswith("retrieve.") and _dropped_by_cap(body)):
+            capped_at = index
+            continue
+        if capped_at is not None and (name.startswith("retrieve.") or _ROUND_STEP_RE.match(name)):
+            return "yes"
+    return "no"
+
+
+def _dropped_by_cap(body: dict) -> bool:
+    """Whether a retrieve span records the diversity cap dropping chunks."""
+    raw = _as_payload_dict(body.get("input"))
+    return bool(raw.get("dropped_by_cap") or 0)
 
 
 def flag_repair_fetch(payloads: Sequence[tuple[str, dict]]) -> str:
@@ -337,18 +352,8 @@ def _citation_keys_by_round(payloads: Sequence[tuple[str, dict]]) -> dict[int | 
     for name, body in payloads:
         if not name.startswith("retrieve."):
             continue
-        raw_out = body.get("output") or {}
-        raw_in = body.get("input") or {}
-        for raw in (raw_out, raw_in):
-            if isinstance(raw, str):
-                try:
-                    raw = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-            if not isinstance(raw, dict):
-                continue
-        out = raw_out if isinstance(raw_out, dict) else {}
-        inp = raw_in if isinstance(raw_in, dict) else {}
+        out = _as_payload_dict(body.get("output"))
+        inp = _as_payload_dict(body.get("input"))
         keys = out.get("citation_keys") or out.get("picked") or []
         if isinstance(keys, list) and keys and isinstance(keys[0], dict):
             keys = [str(item.get("citation_key") or item.get("file") or "") for item in keys]
@@ -449,7 +454,7 @@ def observe(question: Question, steps: Sequence[dict], answer: str, envelope: di
         family_coverage=family_cell,
         repeat_query=flag_repeat_query(payloads),
         locator_eligible=flag_locator_eligible(question, payloads, tools),
-        cap_retry=flag_cap_retry(payloads, len(rounds)),
+        cap_retry=flag_cap_retry(payloads),
         repair_fetch=flag_repair_fetch(payloads),
         cross_turn=flag_cross_turn(payloads),
         family_overlap=flag_family_overlap(question.family, family_cell),

@@ -340,3 +340,49 @@ class TestTrailerValueWiring:
 
         assert meta is not None
         assert [item["text"] for item in meta["takeaways"]] == [t["text"] for t in _TAKEAWAYS]
+
+
+class TestMarkerOnlyContent:
+    """Suppression never hands the reader a marker with no card behind it."""
+
+    def test_an_answer_that_was_only_a_marker_becomes_empty(self, card_registry):
+        meta = _gated({"kind": "direct", "callout": _CALLOUT}, prose_chars=300)
+        card_registry.add({"type": "typed_table", "title": "Tabelle"})
+
+        kept_content, _, suppressed = _suppress_cards("[[card:1]]", meta)
+
+        assert suppressed is True
+        assert "[[card:" not in kept_content
+        assert kept_content == ""
+
+
+class TestTrailerCapturesCombineToolReadsAndRepairs:
+    def test_explicit_turn_sources_lead_and_repair_sources_append(self):
+        from aiq_agent.agents.piloti.answer_pipeline import _trailer_captures
+
+        turn = _oib_source()
+        repair = SourceEntry(citation_key="plan.pdf, p.3", title="Plan", source_type="knowledge_layer")
+
+        assert _trailer_captures([turn], [repair]) == [turn, repair]
+
+    def test_both_kinds_of_source_ground_a_verdict(self):
+        extracted = _Extracted(
+            content="x" * 700,
+            meta=AnswerMeta.model_validate(
+                {
+                    "verdict": {
+                        "value": "100 cm",
+                        "subject": "Erforderliche Gelanderhohe",
+                        "reference": {"document": "Plan"},
+                    }
+                }
+            ),
+            escalation_requested=False,
+            confidence=None,
+            confidence_reason=None,
+        )
+        repair = SourceEntry(citation_key="plan.pdf, p.3", title="Plan", source_type="knowledge_layer")
+
+        meta = _gated_meta(extracted, "x" * 700, SourceRegistry(), turn_sources=[repair])
+
+        assert meta is not None and meta["verdict"]["value"] == "100 cm"

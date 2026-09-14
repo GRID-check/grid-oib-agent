@@ -280,6 +280,11 @@ class GridCostTracker(BaseCallbackHandler):
         self._pending: list[UsageEvent] = []
         self._events_recorded = 0
         self._turn_cost_usd = 0.0
+        #: Provenance tally per ``UsageEvent.cost_source``. The per-event split
+        #: stays in ``llm_usage_events``; this exists so the turn's rollup can
+        #: say whether its dollar number was reported, estimated, or a mix,
+        #: rather than re-inferring provenance from a positive cost.
+        self._cost_sources: dict[str, int] = {}
         # Token totals alongside the cost total. The ledger keeps the per-call
         # detail; these exist so an in-process caller that wraps a bounded piece
         # of work — a post-answer stage — can put what it spent on its own
@@ -364,6 +369,8 @@ class GridCostTracker(BaseCallbackHandler):
             self._turn_cost_usd += event.cost_usd
             self._prompt_tokens += event.prompt_tokens
             self._completion_tokens += event.completion_tokens
+            source = event.cost_source
+            self._cost_sources[source] = self._cost_sources.get(source, 0) + 1
             should_flush = len(self._pending) >= _FLUSH_BATCH_SIZE
         if should_flush:
             self.flush(wait=False)
@@ -394,6 +401,23 @@ class GridCostTracker(BaseCallbackHandler):
     def completion_tokens(self) -> int:
         """Completion tokens (reasoning included) across every call tracked."""
         return self._completion_tokens
+
+    @property
+    def cost_source(self) -> str | None:
+        """The turn's aggregated provenance: ``usage_field``, ``estimate``, ``mixed``, or ``None``.
+
+        ``mixed`` when the events disagree — a turn that mixes a provider
+        cost with an estimate must not claim either alone. ``None`` when
+        nothing was recorded, which the caller reads as "infer it yourself"
+        rather than as a fabricated provenance.
+        """
+        with self._lock:
+            sources = {source for source, count in self._cost_sources.items() if count}
+        if not sources:
+            return None
+        if len(sources) == 1:
+            return next(iter(sources))
+        return "mixed"
 
     def flush(self, *, wait: bool) -> Future[None] | None:
         """Send pending events to the internal ledger endpoint.

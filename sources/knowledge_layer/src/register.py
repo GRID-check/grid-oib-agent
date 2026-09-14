@@ -1976,6 +1976,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                         doc_class=doc_class,
                         title_contains=title_contains,
                         folder=folder,
+                        embedding_model=getattr(retriever, "embed_model_name", None),
                     )
                     if skip:
                         requery_skipped_reason = reason

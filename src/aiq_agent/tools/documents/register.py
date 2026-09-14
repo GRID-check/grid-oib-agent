@@ -30,6 +30,7 @@ permission. See ``filing.py`` for why.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 from typing import Any
@@ -119,14 +120,36 @@ def _slug(path: str) -> str:
     return slug or "entwurf"
 
 
+def _filing_hash(conversation_id: str, path: str) -> str:
+    """The browser tier's collision suffix, mirrored byte for byte.
+
+    ``frontends/ui/src/lib/conversations/draft-filing.ts::filingReference``
+    mints the same key over the same normalized path; the two tiers must agree
+    or a long key files this draft beside the browser's copy as a duplicate
+    document.
+    """
+    return hashlib.sha256(f"{conversation_id}\0{path}".encode()).hexdigest()[:8]
+
+
 def filing_reference(conversation_id: str, path: str) -> str:
     """The BFF's idempotency key: ``{conversation}-{slug}``, bounded.
 
     Two turns of one conversation writing „Aktenvermerk" must land on ONE
     document with two versions, which is what makes this key the conversation's
     and not the turn's.
+
+    Past :data:`MAX_REF_CHARS` the tail is replaced by a hash of
+    ``conversation_id\\0normalized_path`` rather than truncated: two long keys
+    sharing a prefix would otherwise collapse onto one reference and file two
+    documents as one. The browser truncates the same way, over the same
+    normalized path — changing either side alone re-opens the duplicate.
     """
-    return f"{conversation_id}-{_slug(path)}"[:MAX_REF_CHARS]
+    normalized = path.strip().lstrip("/")
+    raw = f"{conversation_id}-{_slug(normalized)}"
+    if len(raw) <= MAX_REF_CHARS:
+        return raw
+    suffix = f"-{_filing_hash(conversation_id, normalized)}"
+    return f"{raw[: MAX_REF_CHARS - len(suffix)]}{suffix}"
 
 
 class _Refused(Exception):

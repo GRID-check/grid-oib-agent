@@ -3807,12 +3807,17 @@ class TestTheDelegationBlock:
         assert "<delegieren>" not in _render_researcher_prompt(delegating_enabled=False)
 
     def test_it_names_the_tool_and_the_delegatable_kinds(self):
-        """`compliance_check` lost its tool, so chat no longer delegates it."""
+        """All four kinds are delegatable: the retirement was the chat TOOL, not the kind.
+
+        ``compliance_check`` was removed from the chat agent's tool list; it
+        stays a durable task kind and runs as a delegated Normprüfung
+        (`delegation.ts::TASK_ENGINES`, `docs/architecture/system-overview.md`),
+        so the delegation block must offer it like the other three.
+        """
         block = _delegieren_block()
         assert "`create_task`" in block
-        for kind in ("einreichcheck", "document", "revision"):
+        for kind in ("compliance_check", "einreichcheck", "document", "revision"):
             assert f"`{kind}`" in block
-        assert "`compliance_check`" not in block
 
     def test_it_names_the_requests_a_person_actually_makes(self):
         """So the model recognises the handoff instead of judging every long task one."""

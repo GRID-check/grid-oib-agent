@@ -117,6 +117,11 @@ def from_tracker(tracker: Any) -> UsageRollup | None:
     the whole turn's accumulator either way, so a turn's cost is the whole
     turn's cost. The tracker aggregates no cached/reasoning split and no
     model list — that detail stays per-call in ``llm_usage_events``.
+
+    ``cost_source`` is read off the tracker when it aggregates one
+    (``usage_field``/``estimate``/``mixed``), so the rollup reports the
+    provenance the EVENTS carry instead of inferring ``usage_field`` from a
+    positive cost; a tracker that states none falls back to that inference.
     """
     try:
         return build_usage_rollup(
@@ -124,6 +129,7 @@ def from_tracker(tracker: Any) -> UsageRollup | None:
             prompt_tokens=int(getattr(tracker, "prompt_tokens", 0) or 0),
             completion_tokens=int(getattr(tracker, "completion_tokens", 0) or 0),
             cost_usd=float(getattr(tracker, "turn_cost_usd", 0.0) or 0.0),
+            cost_source=getattr(tracker, "cost_source", None),
         )
     except Exception:
         logger.debug("Could not build a usage rollup from the tracker", exc_info=True)

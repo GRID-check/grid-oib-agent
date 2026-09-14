@@ -590,7 +590,10 @@ def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[st
         # A dropped own-line marker leaves a blank paragraph that reads as a
         # rendering fault; collapse three-plus newlines to two.
         stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()
-        content = stripped if stripped else content
+        # Never fall back to the marker text: an answer whose prose was only
+        # markers has nothing left to say, and a `[[card:N]]` with no card
+        # behind it reaches the reader as that literal string.
+        content = stripped
     except Exception:
         pass
     if prose_chars >= TAKEAWAYS_MIN_PROSE_CHARS:
@@ -603,6 +606,21 @@ def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[st
     # marker with it and silence a warning the gates deliberately kept.
     kept = {key: value for key, value in (gated_meta or {}).items() if key in ("v", "callout")}
     return content, (kept if "callout" in kept else None), True
+
+
+def _trailer_captures(
+    turn_sources: Sequence[SourceEntry] | None,
+    repair_sources: Sequence[SourceEntry],
+) -> list[SourceEntry]:
+    """The capture log the trailer-value gate reads: this turn's reads, plus repairs.
+
+    The caller passes the turn log explicitly because the capture ContextVar is
+    already reset when finalization runs; ``None`` (direct callers, tests)
+    falls back to the ambient log. An adopted repair fetch is this turn's read
+    too, so its sources count — otherwise the gate drops the very values the
+    repair established.
+    """
+    return [*(turn_sources if turn_sources is not None else get_turn_captures()), *repair_sources]
 
 
 async def finalize_answer(
@@ -618,7 +636,9 @@ async def finalize_answer(
     ``turn_sources`` is this turn's capture, which the caller must pass when it
     finalises AFTER ``end_turn_capture``: the ContextVar is back to its prior
     value by then, so the trailer-grounding veto would read an empty list and
-    abstain on every turn.
+    abstain on every turn. The adopted repair sources are appended to it, so a
+    verdict or takeaway the repair established stays grounded. ``None`` falls
+    back to the ambient log for direct callers.
 
     Raises :class:`EmptySourceRegistryError` when a data-source lookup ran and
     nothing came back: that turn has no answer to show.
@@ -640,7 +660,12 @@ async def finalize_answer(
 
     sanitized = sanitize_report(grounding.content)
     content = sanitized.sanitized_report
-    meta = _gated_meta(extracted, content, registry, turn_sources=turn_sources)
+    meta = _gated_meta(
+        extracted,
+        content,
+        registry,
+        turn_sources=_trailer_captures(turn_sources, grounding.repair_sources),
+    )
     content, meta, _cards_suppressed = _suppress_cards(content, meta)
     content = resolve_callout_marker(content, has_callout=bool(meta and "callout" in meta))
     final_messages = list(messages)

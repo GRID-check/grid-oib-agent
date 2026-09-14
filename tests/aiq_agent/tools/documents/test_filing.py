@@ -12,6 +12,7 @@ The doubles live in ``conftest.py``; so does every helper below the fixtures.
 
 from __future__ import annotations
 
+import re
 from urllib.parse import parse_qs
 from urllib.parse import urlsplit
 
@@ -444,3 +445,36 @@ class TestTheReadRouteIsScopedToTheConversation:
         assert query["organizationId"] == ["org_1"]
         assert query["conversationId"] == ["conv-1"]
         assert "/document-versions/ver%209/content" in seen[0]
+
+
+class TestTheFilingReferenceMirrorsTheBrowser:
+    """The idempotency key is paired with ``draft-filing.ts``, byte for byte.
+
+    A long key that truncated differently on the two tiers would file the
+    browser's copy beside the agent's as a duplicate document, which is exactly
+    what the reference exists to prevent.
+    """
+
+    def test_the_readable_form_is_unchanged(self) -> None:
+        assert (
+            filing_tools.filing_reference("conv-1", "/entwuerfe/Aktenvermerk Fluchtweg.md")
+            == "conv-1-aktenvermerk-fluchtweg"
+        )
+
+    def test_a_long_key_is_bounded_and_carries_the_hash_suffix(self) -> None:
+        ref = filing_tools.filing_reference("c" * 300, "/entwuerfe/a.md")
+
+        assert len(ref) == filing_tools.MAX_REF_CHARS
+        assert re.search(r"-[0-9a-f]{8}$", ref)
+
+    def test_two_long_keys_sharing_a_prefix_do_not_collide(self) -> None:
+        long_id = "c" * 300
+
+        assert filing_tools.filing_reference(long_id, "/entwuerfe/a.md") != (
+            filing_tools.filing_reference(long_id, "/entwuerfe/b.md")
+        )
+
+    def test_path_fringe_is_the_same_key(self) -> None:
+        assert filing_tools.filing_reference("conv-1", " /entwuerfe/Aktenvermerk.md") == (
+            filing_tools.filing_reference("conv-1", "/entwuerfe/Aktenvermerk.md")
+        )
