@@ -32,6 +32,24 @@
   },
   "releases": [
     {
+      "id": "2026-09-13",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-13",
+      "summary": null,
+      "sections": [
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "The source chips under an answer keep their lane colours. Grey chips read as broken references, so where each source stands stays visible at a glance, no matter what the answer above them looks like.",
+              "de": "The source chips under an answer keep their lane colours. Grey chips read as broken references, so where each source stands stays visible at a glance, no matter what the answer above them looks like."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-09-12",
       "kind": "date",
       "version": null,
@@ -41,6 +59,18 @@
         {
           "key": "features",
           "notes": [
+            {
+              "en": "Automations now live in one Aufgaben list: one-shot delegations and scheduled templates share the same rows, with the rhythm and the next run shown inline, and every run opens in a detail view with its result.",
+              "de": "Automations now live in one Aufgaben list: one-shot delegations and scheduled templates share the same rows, with the rhythm and the next run shown inline, and every run opens in a detail view with its result."
+            },
+            {
+              "en": "Sending a document for review now asks for a reviewer and a one-sentence order before it can go out, and approving takes an explicit confirmation that names the version and the date.",
+              "de": "Sending a document for review now asks for a reviewer and a one-sentence order before it can go out, and approving takes an explicit confirmation that names the version and the date."
+            },
+            {
+              "en": "Review requests can now be decided directly in the inbox — approve, ask for changes, or reject — with the order, the deadline, and a link to the file right on the row.",
+              "de": "Review requests can now be decided directly in the inbox — approve, ask for changes, or reject — with the order, the deadline, and a link to the file right on the row."
+            },
             {
               "en": "Answers now say what else they read. The answer details disclose the documents Piloti retrieved but did not cite, as quiet document chips — so you can see the breadth of the research behind an answer, without those documents grounding any claim in it.",
               "de": "Answers now say what else they read. The answer details disclose the documents Piloti retrieved but did not cite, as quiet document chips — so you can see the breadth of the research behind an answer, without those documents grounding any claim in it."
@@ -53,6 +83,27 @@
             {
               "en": "The Aufgaben list now stays current while it is visible and refreshes when you return to it, instead of showing the state from when the tab was opened. Early submission states also read as queued work rather than as raw technical labels.",
               "de": "The Aufgaben list now stays current while it is visible and refreshes when you return to it, instead of showing the state from when the tab was opened. Early submission states also read as queued work rather than as raw technical labels."
+            },
+            {
+              "en": "Task states stay live while the panel is open and speak planner words, so finished work no longer looks like it is still running.",
+              "de": "Task states stay live while the panel is open and speak planner words, so finished work no longer looks like it is still running."
+            },
+            {
+              "en": "Document cards and lists lead with the title and the review state instead of version counters, and a version history only appears once a second version exists.",
+              "de": "Document cards and lists lead with the title and the review state instead of version counters, and a version history only appears once a second version exists."
+            },
+            {
+              "en": "Approving and publishing are two visibly separate acts, so a released review can never look like a filed submission.",
+              "de": "Approving and publishing are two visibly separate acts, so a released review can never look like a filed submission."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Raw submission words no longer leak onto task rows, and scheduled results link back to the task instead of getting lost in chat history.",
+              "de": "Raw submission words no longer leak onto task rows, and scheduled results link back to the task instead of getting lost in chat history."
             }
           ]
         }

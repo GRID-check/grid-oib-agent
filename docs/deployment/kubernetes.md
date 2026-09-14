@@ -1797,9 +1797,14 @@ kubectl -n grid logs deploy/langfuse-worker --tail=20  # Cannot reserve ... ?
 The deployment TTL-bounds every system log table at 14 days
 (`system-log-ttl.xml` in `src/data/clickhouse.ts`), so the server's logs
 self-clean and only trace data can still fill the disk. A disk that filled
-before that change still needs one manual clear — `TRUNCATE TABLE
-system.trace_log` (and `system.text_log`) buys the space back, and the TTL
-keeps it free afterwards.
+before that change still needs one manual clear, and it is a DROP plus a
+restart, not a TRUNCATE: on startup with the new TTLs the server renames
+the old tables aside (`trace_log_0`, `text_log_0`, ...) and rebuilds fresh
+ones, so the bytes sit in detached tables no TTL will ever drain — and a
+bare DROP left `df` unchanged here, because the orphaned objects in
+`store/` are only released when the server restarts. So: `DROP TABLE
+system.<name>_0` for each renamed table, then delete the pod. Afterwards
+the TTLs keep it free.
 
 Two sharp edges found while landing this, kept here so the next one does not
 re-learn them:
