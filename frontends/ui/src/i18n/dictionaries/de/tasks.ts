@@ -27,6 +27,8 @@ export const tasks: typeof en.tasks = {
   },
   detail: {
     close: 'Details schließen',
+    // Öffnet den Bearbeiter für diesen Zeitplan; der frühere Jobs-Tab hatte ihn.
+    edit: 'Bearbeiten',
     result: 'Ergebnis',
     openDocument: 'Dokument öffnen',
     continueChat: 'Im Chat fortsetzen',

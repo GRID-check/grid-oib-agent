@@ -126,6 +126,11 @@ export function TasksPanel({
   const [jobsLoading, setJobsLoading] = useState(true)
   const [jobsFailed, setJobsFailed] = useState(false)
   const [mode, setMode] = useState<Mode>('list')
+  /**
+   * The definition the builder is editing, or null when it is creating one.
+   * Set from the drawer's "Bearbeiten"; the same builder serves both acts.
+   */
+  const [editingJob, setEditingJob] = useState<Job | null>(null)
   const [selection, setSelection] = useState<TaskSelection | null>(() => readSelectionFromUrl())
   // Whether this is still the first load, which owns the skeleton and the
   // error state. A later poll must never flash either over a list the reader
@@ -330,10 +335,25 @@ export function TasksPanel({
     syncSelectionToUrl(null)
   }, [])
 
-  const openScheduleCreate = useCallback(() => setMode('schedule'), [])
-  const backToList = useCallback(() => setMode('list'), [])
+  const openScheduleCreate = useCallback(() => {
+    setEditingJob(null)
+    setMode('schedule')
+  }, [])
+  const openScheduleEdit = useCallback((job: Job) => {
+    // The builder replaces the list, so the drawer that opened it closes and
+    // its `?schedule=` deep link goes with it; the URL then names the draft.
+    setSelection(null)
+    syncSelectionToUrl(null)
+    setEditingJob(job)
+    setMode('schedule')
+  }, [])
+  const backToList = useCallback(() => {
+    setEditingJob(null)
+    setMode('list')
+  }, [])
   const handleScheduleSaved = useCallback(() => {
     void loadJobs(true)
+    setEditingJob(null)
     setMode('list')
   }, [loadJobs])
 
@@ -461,7 +481,7 @@ export function TasksPanel({
           <div className="p-4 md:p-6">
             <JobBuilder
               projectId={projectId}
-              job={null}
+              job={editingJob}
               onSaved={handleScheduleSaved}
               onCancel={backToList}
             />
@@ -479,6 +499,7 @@ export function TasksPanel({
         goneReason={goneReasonFor(selectionResolved, everResolvedRef.current)}
         resolving={selectionResolving}
         onJobChanged={handleJobChanged}
+        onEditJob={openScheduleEdit}
         onClose={closeDetail}
       />
     </div>

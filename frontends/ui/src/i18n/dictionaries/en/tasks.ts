@@ -30,6 +30,8 @@ export const tasks = {
   },
   detail: {
     close: 'Close details',
+    /** Opens the builder on this definition; the retired Jobs panel had it. */
+    edit: 'Edit',
     /** Where the result IS — the filed document first, the chat second. */
     result: 'Result',
     openDocument: 'Open document',

@@ -784,7 +784,7 @@ export const SCREENSHOT_TARGETS = [
     id: 'job-builder',
     path: '/dev/job-builder',
     description:
-      'The job builder editing a fully populated job, reached the way a user reaches it — the preview presses Bearbeiten on a real card, so the shot carries the panel shell the builder now shares with the list (same bar, same body, only the title and the action change). Its point is the right-hand pane: "Was der Agent erhält" shows the COMPOSED fire prompt — the job prompt, then the attached skill block, closing fence included — which is byte-identical to what the server submits when the job fires. The left column runs in the order the decisions happen (name → prompt → output → skill → sources → schedule) with deep-research selected, so the picker below it is the one that output can actually run.',
+      'The definition builder editing a fully populated schedule, reached the way a user reaches it — the preview opens the fixture’s template row in the Aufgaben list and presses Bearbeiten in the drawer, so the shot carries the panel shell the builder shares with the list (same bar, same body, only the title and the action change). Its point is the right-hand pane: "Was der Agent erhält" shows the COMPOSED fire prompt — the job prompt, then the attached skill block, closing fence included — which is byte-identical to what the server submits when the definition fires. The left column runs in the order the decisions happen (name → prompt → output → skill → sources → schedule) with deep-research selected, so the picker below it is the one that output can actually run.',
     waitFor: '[data-testid="job-prompt-preview"]',
   },
   {

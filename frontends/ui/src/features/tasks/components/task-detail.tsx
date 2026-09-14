@@ -18,7 +18,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { FileText, MessageSquare, Play, Sparkles } from 'lucide-react'
+import { FileText, MessageSquare, Pencil, Play, Sparkles } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
@@ -66,6 +66,12 @@ interface TaskDetailProps {
    */
   resolving?: boolean
   onJobChanged?: (job: Job) => void
+  /**
+   * Opens the builder on this definition. The row used to have an edit button
+   * of its own in the retired Jobs panel; without it, a schedule could be
+   * created and never changed.
+   */
+  onEditJob?: (job: Job) => void
   onClose: () => void
 }
 
@@ -81,6 +87,7 @@ export function TaskDetail({
   goneReason = 'deleted',
   resolving = false,
   onJobChanged,
+  onEditJob,
   onClose,
 }: TaskDetailProps): JSX.Element {
   const t = useTranslations('tasks')
@@ -123,6 +130,7 @@ export function TaskDetail({
             job={job}
             canManageJobs={canManageJobs}
             onJobChanged={onJobChanged}
+            onEditJob={onEditJob}
           />
         ) : null}
       </SheetContent>
@@ -232,12 +240,14 @@ function TemplateDetail({
   job,
   canManageJobs,
   onJobChanged,
+  onEditJob,
 }: {
   projectId: string
   projectCollection: string | null
   job: Job
   canManageJobs: boolean
   onJobChanged: ((job: Job) => void) | undefined
+  onEditJob: ((job: Job) => void) | undefined
 }): JSX.Element {
   const t = useTranslations('tasks')
   const tj = useTranslations('jobs')
@@ -317,7 +327,20 @@ function TemplateDetail({
           >
             {nextRun ? `${nextRun} · ${lastRun}` : lastRun}
           </span>
-          {canManageJobs && <ScheduleEnableSwitch job={job} onChanged={onJobChanged} tj={tj} />}
+          <div className="flex shrink-0 items-center gap-2">
+            {canManageJobs && onEditJob && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onEditJob(job)}
+                data-testid="task-detail-edit"
+              >
+                <Pencil className="size-3.5" aria-hidden />
+                {t('detail.edit')}
+              </Button>
+            )}
+            {canManageJobs && <ScheduleEnableSwitch job={job} onChanged={onJobChanged} tj={tj} />}
+          </div>
         </div>
         <p className="text-muted-foreground mt-2 flex min-w-0 items-center gap-1.5 text-xs">
           <Sparkles className="size-3.5 shrink-0" aria-hidden />
