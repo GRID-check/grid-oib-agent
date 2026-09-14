@@ -163,9 +163,7 @@ def retrieval_round_scope(round_index: int | None) -> Iterator[None]:
 #: Why a SECOND capture beside the turn_sources log: that log dedups
 #: documents across rounds (right for citation-health denominators, wrong for
 #: a per-round ledger). This one keeps every round's hits apart, in order.
-_lane_captured_hits: ContextVar[list[dict[str, Any]] | None] = ContextVar(
-    "grid_lane_captured_hits", default=None
-)
+_lane_captured_hits: ContextVar[list[dict[str, Any]] | None] = ContextVar("grid_lane_captured_hits", default=None)
 
 
 def begin_lane_capture() -> Any:
@@ -866,9 +864,7 @@ def record_round_announcement(
     tools = described["tools"]
     if round_index == 0:
         purpose = ROUND_PURPOSE_FIRST_SEARCH
-    elif tools and all(
-        _search_corpus(base) is None or base in _LOCATOR_TOOL_BASENAMES for base in tools
-    ):
+    elif tools and all(_search_corpus(base) is None or base in _LOCATOR_TOOL_BASENAMES for base in tools):
         purpose = ROUND_PURPOSE_OPEN
     elif any(corpus not in set(previous_corpora) for corpus in described["corpora"]):
         purpose = ROUND_PURPOSE_NEW_CORPUS
@@ -893,10 +889,9 @@ def record_round_announcement(
 def emit_retrieval(
     tool_calls: list[dict[str, Any]] | None,
     *,
-        round_index: int,
+    round_index: int,
     conclusion: str | None = None,
 ) -> bool:
-
     """ONE line for a whole round of tool calls: where it looks, and for what.
 
     "Sucht im OIB-Wissen: „Fluchtweglänge GK4“" is a different sentence from

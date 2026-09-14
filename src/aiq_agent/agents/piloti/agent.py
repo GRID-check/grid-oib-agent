@@ -337,7 +337,9 @@ def _announced_round(calls: Sequence[Any], state: ResearchAgentState) -> int | N
     return state.retrieval_round if is_retrieval_round([c for c in calls if isinstance(c, dict)]) else None
 
 
-def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -> tuple[int, int, int, dict[str, Any] | None]:
+def _charge_tool_calls(
+    response: Any, state: ResearchAgentState, ceiling: int
+) -> tuple[int, int, int, dict[str, Any] | None]:
     """What this round COSTS and ANNOUNCED: ``(research, interaction, retrieval_round, record)``.
 
     ``max_tool_iterations`` is the RESEARCH budget, but every call used to be
@@ -351,7 +353,7 @@ def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -
     """
     calls = getattr(response, "tool_calls", None) or []
     if not calls:
-        return state.tool_iterations, state.interaction_iterations, state.retrieval_round
+        return state.tool_iterations, state.interaction_iterations, state.retrieval_round, None
     # A first round that fanned out past the cap is charged for what will
     # actually RUN. Charging the whole batch would leave the cap protecting
     # nothing: the budget would be spent on calls whose only answer is the
@@ -407,9 +409,7 @@ def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -
         round_index=state.retrieval_round,
         calls=calls,
         conclusion=conclusion,
-        previous_corpora=[
-            corpus for announced in state.retrieval_rounds for corpus in announced.get("corpora", [])
-        ],
+        previous_corpora=[corpus for announced in state.retrieval_rounds for corpus in announced.get("corpora", [])],
     )
     return research, interaction, retrieval_round, record
 

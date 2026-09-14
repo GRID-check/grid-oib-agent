@@ -8,6 +8,8 @@ lane hits — through the three shapes that matter: same docs re-opened (fold),
 new docs (new layer), and nothing announced (absent, not null).
 """
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 from langchain_core.messages import HumanMessage
@@ -19,10 +21,10 @@ from aiq_agent.agents.piloti.ledger import build_retrieval_ledger
 from aiq_agent.agents.piloti.models.state import ResearchAgentState
 
 
-def _announcement(index, tools, corpora, purpose, query=None, reason=None):
+def _announcement(index, tools, corpora, purpose, query=None, reason=None, key="status.retrieval.withQuery"):
     record = {
         "index": index,
-        "key": "status.retrieval.withQuery",
+        "key": key,
         "tools": tools,
         "corpora": corpora,
         "purpose": purpose,
@@ -151,6 +153,12 @@ def test_charge_records_nothing_for_action_batches():
     assert record is None
 
 
+def test_charge_without_tool_calls_keeps_the_tuple_shape():
+    """A tool-free synthesis reply still unpacks in the agent node."""
+    state = _state()
+    assert _charge_tool_calls(_response([], "Die Antwort."), state, 9) == (0, 0, 0, None)
+
+
 def test_assemble_attaches_the_ledger_and_omits_it_without_rounds():
     announcements = [_announcement(0, ["knowledge_search"], ["knowledge"], "first_search")]
     hits = [_hit(0, "oib-rl_2.pdf", "p.12")]
@@ -163,3 +171,41 @@ def test_assemble_attaches_the_ledger_and_omits_it_without_rounds():
         {"answer_measurement_grounded": False}, final, turn_sources=[], turn_measurements=[]
     )
     assert without_rounds.retrieval_ledger is None
+
+
+def test_builder_output_matches_the_wire_fixture():
+    """The wire contract, pinned on both sides (see message-retrieval-ledger.ts).
+
+    The frontend sanitizes this exact file; the builder must produce it byte
+    for byte from the announcements and hits below, so a renamed key cannot
+    ship green on either side.
+    """
+    fixture = json.loads(
+        Path(__file__)
+        .parents[4]
+        .joinpath("tests/fixtures/herleitung/retrieval_ledger_wire.json")
+        .read_text(encoding="utf-8")
+    )
+    announcements = [
+        _announcement(0, ["knowledge_search"], ["knowledge"], "first_search", query="Fluchtweglänge GK4"),
+        _announcement(
+            1,
+            ["read_passage"],
+            ["knowledge"],
+            "open",
+            reason="Die Grundregel steht.",
+            key="status.retrieval.punkt",
+        ),
+    ]
+    hits = [
+        {"round": 0, "name": "OIB-RL_2.pdf", "title": "OIB-Richtlinie 2, Ausgabe Mai 2023"},
+        {"round": 0, "name": "Brandschutzkonzept.pdf"},
+        {
+            "round": 1,
+            "name": "OIB-RL_2.pdf",
+            "title": "OIB-Richtlinie 2, Ausgabe Mai 2023",
+            "detail": "p.12",
+        },
+        {"round": 1, "name": "Brandschutzkonzept.pdf", "detail": "p.3"},
+    ]
+    assert build_retrieval_ledger(announcements, hits) == fixture

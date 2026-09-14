@@ -816,10 +816,7 @@ class TestRoundAnnouncementMirrorsTheLiveFrame:
             is None
         )
         assert (
-            turn_status.record_round_announcement(
-                round_index=0, calls=[], conclusion=None, previous_corpora=[]
-            )
-            is None
+            turn_status.record_round_announcement(round_index=0, calls=[], conclusion=None, previous_corpora=[]) is None
         )
 
     def test_the_reason_is_the_ranked_checkpoint_clipped_like_the_frame(self, steps) -> None:
