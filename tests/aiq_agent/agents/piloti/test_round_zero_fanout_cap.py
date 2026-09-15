@@ -34,6 +34,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
 from aiq_agent.agents.piloti.agent import _FANOUT_DROPPED_MESSAGE
+from aiq_agent.agents.piloti.agent import _REPEAT_FETCH_MESSAGE
 from aiq_agent.agents.piloti.agent import _ROUND_ZERO_SEARCH_LIMIT
 from aiq_agent.agents.piloti.agent import PilotiAgent
 from aiq_agent.agents.piloti.models import ResearchAgentState
@@ -71,6 +72,13 @@ def knowledge_search(query: str) -> str:
     """Search the OIB knowledge corpus."""
     RAN.append(f"knowledge_search:{query}")
     return f"Treffer zu: {query}"
+
+
+@tool
+def read_passage(document: str, punkt: str | None = None) -> str:
+    """Open a named passage of a known document."""
+    RAN.append(f"read_passage:{document}|{punkt or ''}")
+    return f"Passage aus {document}"
 
 
 @tool
@@ -138,7 +146,7 @@ def scripted_agent():
         provider.get = MagicMock(return_value=llm)
         return PilotiAgent(
             llm_provider=provider,
-            tools=[knowledge_search, ris_search_tool, web_search_tool, emit_card, remember],
+            tools=[knowledge_search, read_passage, ris_search_tool, web_search_tool, emit_card, remember],
             max_tool_iterations=7,
         )
 
@@ -280,6 +288,116 @@ class TestRoundZero:
         assert _batches(RAN, 1, 2) == [{"emit_card:legal_basis"}, {"knowledge_search:a", "ris_search_tool:b"}]
 
 
+class TestAnOpenByNameIsNotASearch:
+    """`read_passage` names its document, so the cap's rationale misses it.
+
+    The cap exists because a third SEARCH before anything has been read is the
+    same guess said a third time. An open is an address, not a guess — and the
+    prompt asks for an overview of a Richtlinien-Familie as one open per member
+    in ONE parallel round, which for OIB 2 is four. A cap that counted them
+    would withhold half the family on round zero and answer with a sentence
+    about searches the model never made.
+    """
+
+    async def test_a_family_overview_opens_every_member_on_round_zero(self, scripted_agent):
+        agent = scripted_agent(
+            _batch(
+                _call("read_passage", "a", document="OIB-Richtlinie 2"),
+                _call("read_passage", "b", document="OIB-Richtlinie 2.1"),
+                _call("read_passage", "c", document="OIB-Richtlinie 2.2"),
+                _call("read_passage", "d", document="OIB-Richtlinie 2.3"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert _batches(RAN, 4) == [
+            {
+                "read_passage:OIB-Richtlinie 2|",
+                "read_passage:OIB-Richtlinie 2.1|",
+                "read_passage:OIB-Richtlinie 2.2|",
+                "read_passage:OIB-Richtlinie 2.3|",
+            }
+        ]
+        assert all(m.content != _FANOUT_DROPPED_MESSAGE for m in _tool_messages(result))
+        # Charged for all four: they ran, and an open is research like any other.
+        assert result.tool_iterations == 4
+
+    async def test_opens_do_not_push_the_two_searches_over_the_limit(self, scripted_agent):
+        """The cap counts searches, so two searches plus three opens is five
+        calls and none of them is overflow."""
+        agent = scripted_agent(
+            _batch(
+                _call("knowledge_search", "a", query="Fluchtweg GK4"),
+                _call("ris_search_tool", "b", query="Wiener Bauordnung Fluchtweg"),
+                _call("read_passage", "c", document="OIB-Richtlinie 2"),
+                _call("read_passage", "d", document="OIB-Richtlinie 2.1"),
+                _call("read_passage", "e", document="OIB-Richtlinie 2.2"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert _batches(RAN, 5) == [
+            {
+                "knowledge_search:Fluchtweg GK4",
+                "ris_search_tool:Wiener Bauordnung Fluchtweg",
+                "read_passage:OIB-Richtlinie 2|",
+                "read_passage:OIB-Richtlinie 2.1|",
+                "read_passage:OIB-Richtlinie 2.2|",
+            }
+        ]
+        assert all(m.content != _FANOUT_DROPPED_MESSAGE for m in _tool_messages(result))
+        assert result.tool_iterations == 5
+
+    async def test_the_third_search_is_still_withheld_and_the_opens_still_run(self, scripted_agent):
+        """The cap is narrowed, not lifted: exactly the third SEARCH goes."""
+        agent = scripted_agent(
+            _batch(
+                _call("knowledge_search", "a", query="a"),
+                _call("read_passage", "b", document="OIB-Richtlinie 2", punkt="3.5.2"),
+                _call("ris_search_tool", "c", query="c"),
+                _call("read_passage", "d", document="OIB-Richtlinie 2.1"),
+                _call("web_search_tool", "e", query="e"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert _batches(RAN, 4) == [
+            {
+                "knowledge_search:a",
+                "ris_search_tool:c",
+                "read_passage:OIB-Richtlinie 2|3.5.2",
+                "read_passage:OIB-Richtlinie 2.1|",
+            }
+        ]
+        notices = [m for m in _tool_messages(result) if m.content == _FANOUT_DROPPED_MESSAGE]
+        assert [m.tool_call_id for m in notices] == ["e"]
+        assert result.tool_iterations == 4
+
+    async def test_a_repeated_open_is_still_withheld_by_the_duplicate_guard(self, scripted_agent):
+        """Exempt from the CAP is not exempt from everything: an open is still
+        a fetch, so the same passage twice in one batch runs once."""
+        agent = scripted_agent(
+            _batch(
+                _call("read_passage", "a", document="OIB-Richtlinie 2", punkt="3.5.2"),
+                _call("read_passage", "b", document="OIB-Richtlinie 2.1"),
+                _call("read_passage", "c", document="OIB-Richtlinie 2", punkt="3.5.2"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert _batches(RAN, 2) == [{"read_passage:OIB-Richtlinie 2|3.5.2", "read_passage:OIB-Richtlinie 2.1|"}]
+        (withheld,) = [m for m in _tool_messages(result) if m.content == _REPEAT_FETCH_MESSAGE]
+        assert withheld.tool_call_id == "c"
+
+
 class TestTheBudgetSurvives:
     async def test_the_capped_calls_are_not_charged(self, scripted_agent):
         """Charging the whole batch would leave the cap protecting nothing:
@@ -318,6 +436,23 @@ class TestTheBudgetSurvives:
         assert record["step"] == "status:budget:fanout"
         assert (record["round"], record["kept"], record["dropped"]) == (0, 2, 1)
         assert record["channel"] == turn_status.CHANNEL_TECHNICAL
+
+    async def test_an_all_opens_first_round_reports_no_cap_event(self, scripted_agent, steps):
+        """No call was withheld, so there is nothing to report. A `budget:fanout`
+        slot here would tell the reader the turn was trimmed when it was not."""
+        agent = scripted_agent(
+            _batch(
+                _call("read_passage", "a", document="OIB-Richtlinie 2"),
+                _call("read_passage", "b", document="OIB-Richtlinie 2.1"),
+                _call("read_passage", "c", document="OIB-Richtlinie 2.2"),
+                _call("read_passage", "d", document="OIB-Richtlinie 2.3"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        await _run(agent)
+
+        assert [step for step in steps if step.get("slot") == "budget:fanout"] == []
 
     @pytest.fixture
     def steps(self):

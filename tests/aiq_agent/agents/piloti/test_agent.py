@@ -2666,6 +2666,10 @@ class TestADirectReplyMayStillEmitACard:
         # it: a model that is capped without being told reads the notice as a
         # failure and retries the search it just lost.
         assert "first round runs at most two searches" in rules
+        # …and the cap counts SEARCHES. An open by document name is an address,
+        # not a guess, so it is exempt at runtime — and a model told only the
+        # number would ration the family overview the bullet above asks for.
+        assert "opens by document name are not searches and are not counted" in rules
         # A family question is not answered by opening most of the family, and an
         # overview names no Punkt to open by. The inventory names the members, the
         # locator's outline mode opens each one, and the escape hatch the rule

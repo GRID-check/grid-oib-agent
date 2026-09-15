@@ -60,6 +60,7 @@ from aiq_agent.common.turn_status import emit_synthesis
 from aiq_agent.common.turn_status import end_lane_capture
 from aiq_agent.common.turn_status import fetch_signature
 from aiq_agent.common.turn_status import get_lane_captures
+from aiq_agent.common.turn_status import is_locator_call
 from aiq_agent.common.turn_status import is_retrieval_round
 from aiq_agent.common.turn_status import is_search_call
 from aiq_agent.common.turn_status import record_round_announcement
@@ -194,7 +195,10 @@ _MAX_CACHED_BINDINGS = 32
 #:
 #: It is a cap on SEARCHES only. Interaction calls, ``use_skill`` and
 #: ``ask_user`` are never counted and never dropped (:func:`is_search_call`),
-#: and it applies to round zero alone: once the model has read something, a
+#: and neither is an open by document name (:func:`is_locator_call`): a
+#: ``read_passage`` is addressed rather than guessed, so the rationale above
+#: never applies to it and a family overview opens every member in one round.
+#: It applies to round zero alone: once the model has read something, a
 #: fan-out is informed and the budget ceiling is the right bound for it.
 _ROUND_ZERO_SEARCH_LIMIT = 2
 
@@ -332,10 +336,13 @@ def _round_zero_overflow(calls: Sequence[Any], executing_round: int | None) -> l
     because the agent node decides what to CHARGE and the tools node decides
     what to RUN. Two derivations would eventually charge for a call nothing
     executed, or execute one nothing paid for.
+
+    Locator calls are retrievals everywhere else and are invisible here: they
+    neither count toward the limit nor can be the call it takes away.
     """
     if executing_round != 0:
         return []
-    searches = [call for call in calls if is_search_call(call)]
+    searches = [call for call in calls if is_search_call(call) and not is_locator_call(call)]
     return searches[_ROUND_ZERO_SEARCH_LIMIT:]
 
 

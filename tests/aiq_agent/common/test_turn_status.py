@@ -874,6 +874,35 @@ class TestLaneCaptureKeepsRoundsApart:
         assert turn_status.get_lane_captures() == []
 
 
+class TestTheLocatorPredicate:
+    """``is_locator_call`` is the round-zero cap's one exemption.
+
+    An open names its document, so it is an address rather than a guess, and
+    the cap's whole rationale — a third search before anything has been read
+    says the same guess a third time — has nothing to say about it. Everything
+    else that counts evidence still sees it as the retrieval it is.
+    """
+
+    def test_an_open_is_a_locator_and_still_a_search(self) -> None:
+        call = {"name": "read_passage", "args": {"document": "OIB-Richtlinie 2", "punkt": "3.5.2"}}
+        assert turn_status.is_locator_call(call) is True
+        assert turn_status.is_search_call(call) is True, "still a retrieval for the round stamp and the ledger"
+
+    def test_a_group_qualified_name_is_read_the_same_way(self) -> None:
+        """NAT qualifies a tool name; the cap must not stop exempting it."""
+        assert turn_status.is_locator_call({"name": "oib__read_passage", "args": {"document": "x"}}) is True
+
+    def test_a_search_is_not_a_locator(self) -> None:
+        for name in ("knowledge_search", "ris_search_tool", "web_search_tool", "emit_card", ""):
+            assert turn_status.is_locator_call({"name": name, "args": {}}) is False, name
+
+    def test_something_that_is_not_a_call_is_not_a_locator(self) -> None:
+        """Conservative in the same direction as every other predicate here:
+        an unreadable call is never the one a guard exempts or takes away."""
+        assert turn_status.is_locator_call(None) is False
+        assert turn_status.is_locator_call("read_passage") is False
+
+
 class TestFetchSignature:
     """What a call FETCHES, as one comparable id.
 

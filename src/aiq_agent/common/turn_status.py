@@ -563,6 +563,24 @@ def is_search_call(call: Any) -> bool:
     return bool(base) and base != "use_skill" and _search_corpus(base) is not None
 
 
+def is_locator_call(call: Any) -> bool:
+    """Does this ONE tool call OPEN a named passage instead of searching for one?
+
+    A subset of :func:`is_search_call`: a locator reads the same corpus and is
+    the same layer of the spine, so it stays a retrieval everywhere that counts
+    evidence — the round stamp, the ledger, the duplicate-fetch guard.
+
+    The round-zero fan-out cap is the one reader that needs them apart. Its
+    rationale is that a third SEARCH before anything has been read is the same
+    guess in different words; an open by exact document name is not a guess at
+    all, it is an address, so withholding one buys the turn nothing and costs
+    it a member of the Richtlinien-Familie it was asked to describe.
+    """
+    if not isinstance(call, dict):
+        return False
+    return tool_basename(str(call.get("name") or "")) in _LOCATOR_TOOL_BASENAMES
+
+
 def is_retrieval_round(tool_calls: list[dict[str, Any]] | None) -> bool:
     """Would :func:`emit_retrieval` count this batch of calls as a FETCH?
 
