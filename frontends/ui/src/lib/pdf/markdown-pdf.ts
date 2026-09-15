@@ -389,8 +389,23 @@ export async function renderMarkdownPdf(
     // filing for a commissioned report). What they cannot supply is the
     // input's shape, and without it the next minified React #31 is as opaque
     // as #611/#580 were — same message, no content, no census.
-    console.error('[pdf] markdown render failed', fingerprintMarkdownPdfInput(markdown, options.cards, cost))
-    throw error
+    //
+    // Log the UNDERLYING cause alongside the fingerprint (#657/#654/#648/#636:
+    // fingerprint-only logs group distinct documents as one error and hide the
+    // renderer bug). The rethrown error carries both, so err2issue groups by
+    // cause next time.
+    const cause = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+    console.error('[pdf] markdown render failed', {
+      ...fingerprintMarkdownPdfInput(markdown, options.cards, cost),
+      cause: cause.slice(0, 500),
+    })
+    throw error instanceof Error
+      ? Object.assign(error, {
+          cause: { fingerprint: fingerprintMarkdownPdfInput(markdown, options.cards, cost) },
+        })
+      : new Error(`[pdf] markdown render failed: ${cause}`, {
+          cause: { fingerprint: fingerprintMarkdownPdfInput(markdown, options.cards, cost) },
+        })
   })
   const chunks: Buffer[] = []
   for await (const chunk of stream) chunks.push(Buffer.from(chunk as Uint8Array))

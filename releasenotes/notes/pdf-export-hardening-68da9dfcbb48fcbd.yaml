@@ -1,0 +1,5 @@
+---
+fixes:
+  - >
+    Downloading an answer as PDF no longer fails on certain reports.
+    Exports that previously ended in an error now produce the document.

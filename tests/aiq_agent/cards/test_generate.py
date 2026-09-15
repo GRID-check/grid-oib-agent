@@ -44,6 +44,21 @@ class TestParseCardsText:
     def test_empty_cards_array(self):
         assert _parse_cards_text('{"cards": []}') == []
 
+    def test_list_content_blocks_are_joined(self):
+        """Regression #653: some providers return content as a list of blocks;
+        joining their text must not crash on list.strip."""
+        blocks = [
+            {"type": "text", "text": '{"cards": '},
+            {"type": "text", "text": '[{"type": "summary", "title": "T"}]}'},
+        ]
+        assert _parse_cards_text(blocks) == [{"type": "summary", "title": "T"}]
+
+    def test_plain_string_blocks_are_joined(self):
+        assert _parse_cards_text(["hello ", "world"]) is None
+
+    def test_none_content_returns_none(self):
+        assert _parse_cards_text(None) is None
+
 
 class _BindSpyChatModel(FakeMessagesListChatModel):
     """Fake chat model that records the kwargs passed to bind()."""
