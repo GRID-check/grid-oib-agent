@@ -455,6 +455,10 @@ export const NATSystemResponseMessageSchema = z.object({
   // so the wire schema stays a permissive record and the one bound lives in
   // one place instead of two that drift.
   answer_meta: z.record(z.unknown()).optional().catch(undefined),
+  // The backend's own account of this turn's retrieval rounds. Permissive
+  // here, bounded by `sanitizeRetrievalLedger` before anything stores or
+  // renders it — same split as `answer_meta`.
+  retrieval_ledger: z.array(z.unknown()).optional().catch(undefined),
 })
 
 /** Intermediate step content */

@@ -578,6 +578,9 @@ _TRANSPARENCY_EXTRA_FIELDS = (
     # The answer's structured anatomy (verdict / takeaways / callout) — a
     # native answer field, gated backend-side, rendered as answer typography.
     "answer_meta",
+    # The backend's own account of this turn's retrieval rounds, for the
+    # Herleitung to read instead of reconstructing.
+    "retrieval_ledger",
 )
 
 # Agent Skills extra (the chat agent records which skills it force-activated
@@ -773,6 +776,7 @@ async def persist_assistant_message(
     sources: Any = None,
     read_sources: Any = None,
     skills_activated: Any = None,
+    retrieval_ledger: Any = None,
 ) -> bool:
     """Persist a finished assistant turn to the BFF when the client is gone.
 
@@ -817,6 +821,8 @@ async def persist_assistant_message(
         metadata["read_sources"] = read_sources
     if skills_activated:
         metadata["skills_activated"] = skills_activated
+    if retrieval_ledger:
+        metadata["retrieval_ledger"] = retrieval_ledger
 
     # The write itself belongs to the shared producer: base URL, service token,
     # organization precondition, wire shape and the never-raise contract all
@@ -1385,6 +1391,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
             sources = dump.get("sources")
             read_sources = dump.get("read_sources")
             skills_activated = dump.get("skills_activated")
+            retrieval_ledger = dump.get("retrieval_ledger")
 
             if not (text and text.strip()) and not cards:
                 return
@@ -1402,6 +1409,7 @@ class ReconnectableWebSocketMessageHandler(WebSocketMessageHandler):
                 sources=sources,
                 read_sources=read_sources,
                 skills_activated=skills_activated,
+                retrieval_ledger=retrieval_ledger,
             )
         except Exception:  # noqa: BLE001 — never let persistence crash the handler
             logger.warning("Unexpected error while persisting terminal message", exc_info=True)

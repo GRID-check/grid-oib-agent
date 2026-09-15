@@ -225,8 +225,13 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
               live activity phrase. The accessible name is the content itself. */}
           <button
             type="button"
-            className="group relative flex min-h-12 w-full cursor-pointer items-center justify-between rounded-2xl px-4 pb-4 pt-3 text-left outline-none transition-colors duration-snap ease-out motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="group relative flex min-h-12 w-full cursor-pointer items-center justify-between rounded-2xl px-4 py-3 text-left outline-none transition-colors duration-snap ease-out motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
+            {/* Symmetric vertical padding (NOT pb-4/pt-3): with min-h-12 the
+                flex centering then lands the row on the true middle. The old
+                extra bottom padding reserved room for the sweep bar below, but
+                that bar is absolutely positioned and needs no room — the
+                reservation only pushed every state 2px high. */}
             {/* aria-live sits HERE, on a stable element: it used to sit on the
                 keyed motion.span inside AnimatePresence, which is unmounted and
                 remounted per step — a live region created WITH its content, which
@@ -236,7 +241,14 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
             <span className="flex min-w-0 items-center gap-2" aria-live="polite">
               {isThinking ? (
                 <>
-                  <Spinner size="sm" label={t('thinking.inProgress')} />
+                  {/* Fixed icon slot, shared by every state below: the thinking
+                      spinner is 16px, the status icons 20px. Without the slot
+                      the text starts 4px further right whenever the turn lands,
+                      and the row visibly jumps at the exact moment the reader
+                      looks at it. */}
+                  <span className="flex size-5 shrink-0 items-center justify-center">
+                    <Spinner size="sm" label={t('thinking.inProgress')} />
+                  </span>
                   {/* The live activity phrase cross-fades as each new step
                       arrives, and shimmers while it holds — a quiet cue that
                       work is actively moving during a long wait. */}
@@ -255,7 +267,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                 </>
               ) : isWaiting ? (
                 <>
-                  <span className="text-brand">
+                  <span className="flex size-5 shrink-0 items-center justify-center text-brand">
                     <Clock className="size-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">
@@ -264,14 +276,16 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                 </>
               ) : isInterrupted && isRecoveryPending ? (
                 <>
-                  <Spinner size="sm" className="text-muted-foreground" aria-hidden="true" />
+                  <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+                    <Spinner size="sm" aria-hidden="true" />
+                  </span>
                   <span className="text-foreground text-sm font-semibold">
                     {t('thinking.recovering')}
                   </span>
                 </>
               ) : isInterrupted ? (
                 <>
-                  <span className="text-warning">
+                  <span className="flex size-5 shrink-0 items-center justify-center text-warning">
                     <AlertTriangle className="size-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">
@@ -280,7 +294,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                 </>
               ) : (
                 <>
-                  <span className="text-success">
+                  <span className="flex size-5 shrink-0 items-center justify-center text-success">
                     <CheckCircle2 className="size-5" />
                   </span>
                   <span className="text-foreground text-sm font-semibold">

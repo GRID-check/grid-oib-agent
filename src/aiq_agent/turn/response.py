@@ -49,6 +49,7 @@ RESPONSE_LIFTS: tuple[tuple[str, str, str | None], ...] = (
     ("skills_activated", "skills_activated", None),
     ("skills_hidden", "skills_hidden", "skills_activated"),
     ("answer_meta", "answer_meta", None),
+    ("retrieval_ledger", "retrieval_ledger", None),
 )
 
 

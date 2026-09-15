@@ -266,6 +266,7 @@ describe('normalizeAgentAnswerMetadata', () => {
         truncation_reason: 'wall_clock',
         degraded_reasons: ['no_report_file'],
         citations_removed: { count: 1, reasons: ['unverifiable'] },
+        retrieval_ledger: [{ index: 0, key: 'k', docs: [], new_docs: [] }],
       }) ?? {}
 
     for (const key of [
@@ -278,6 +279,7 @@ describe('normalizeAgentAnswerMetadata', () => {
       'truncation_reason',
       'degraded_reasons',
       'citations_removed',
+      'retrieval_ledger',
     ]) {
       expect(result).not.toHaveProperty(key)
     }
@@ -383,6 +385,46 @@ describe('normalizeAgentAnswerMetadata', () => {
       degradedReasons: ['no_valid_citations'],
     })
     expect(result?.messageType).toBe('agent_response')
+  })
+
+  it('translates the backend-written retrieval ledger into provenance, one dialect', () => {
+    // The row the socket-persistence path writes when the client had gone.
+    // Left untranslated, the snake_case key would sit in the column forever
+    // and a later tightening of the strip list would delete the ledger for
+    // exactly the turns it exists for.
+    const result = normalizeAgentAnswerMetadata({
+      messageType: 'agent_response',
+      retrieval_ledger: [
+        {
+          index: 0,
+          key: 'status.retrieval.withQuery',
+          tools: ['knowledge_search'],
+          corpora: ['knowledge'],
+          query: 'Fluchtweglänge GK4',
+          docs: [{ name: 'OIB-RL_2.pdf', detail: 'p.12' }],
+          new_docs: ['OIB-RL_2.pdf'],
+          hits: 1,
+          documents: 1,
+        },
+      ],
+    }) ?? {}
+
+    expect(result).not.toHaveProperty('retrieval_ledger')
+    expect(result.provenance).toEqual({
+      retrievalLedger: [
+        {
+          index: 0,
+          key: 'status.retrieval.withQuery',
+          tools: ['knowledge_search'],
+          corpora: ['knowledge'],
+          query: 'Fluchtweglänge GK4',
+          docs: [{ name: 'OIB-RL_2.pdf', detail: 'p.12' }],
+          newDocs: ['OIB-RL_2.pdf'],
+          hits: 1,
+          documents: 1,
+        },
+      ],
+    })
   })
 
   it('never overwrites what the browser wrote — it saw the whole turn', () => {

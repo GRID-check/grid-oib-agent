@@ -109,6 +109,7 @@ ANSWER_LIFTS: tuple[tuple[str, str], ...] = (
     ("skills_activated", "skills_activated"),
     ("skills_hidden", "skills_hidden"),
     ("answer_meta", "answer_meta"),
+    ("retrieval_ledger", "retrieval_ledger"),
 )
 
 

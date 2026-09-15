@@ -70,6 +70,14 @@ class ResearchAgentState(BaseModel):
     #: ``tool_iterations`` so ``emit_card`` / ``remember`` cannot steal the
     #: next ``status:retrieval:N`` slot.
     retrieval_round: int = 0
+    #: What each announced round WAS (slot, query, tools, purpose), in slot
+    #: order. Recorded beside ``emit_retrieval`` from the same calls, so the
+    #: stored account and the live line cannot disagree. Read at finalize to
+    #: join each round with the hits it returned (the retrieval ledger);
+    #: per-turn like the counter (the chat node builds a fresh state each turn).
+    #: Plain dicts (see ``turn_status.record_round_announcement`` for the shape),
+    #: never checkpointed — ``ResearchAgentState`` is one turn, not history.
+    retrieval_rounds: list[dict[str, Any]] = []
     # Interaction-tool calls spent this turn (`emit_card`, `describe_card`,
     # `remember`). Counted APART from ``tool_iterations`` because those calls are
     # the answer's output channel rather than research: charging them to the
@@ -176,6 +184,13 @@ class ResearchAgentState(BaseModel):
     # (previous plus this turn's captures). Plain strings only, like the
     # conversation field it mirrors — never a new pydantic type.
     already_read_digest: list[str] | None = None
+    # The backend's own account of this turn's retrieval rounds (see
+    # ``ledger.build_retrieval_ledger`` for the shape): one entry per
+    # announced round with query, tools, returned docs and which of them were
+    # new. Carried for the Herleitung — no renderer reads it yet (phase b).
+    # None when no round was announced — a direct reply has no retrieval to
+    # account for, and the wire field stays absent rather than null.
+    retrieval_ledger: list[dict[str, Any]] | None = None
     # Skill names FORCED for this turn by the incoming request (parsed from the
     # WS content JSON's `skills` array by Piloti). Resolved
     # against the run's skill set into the forced-activation list. None = no

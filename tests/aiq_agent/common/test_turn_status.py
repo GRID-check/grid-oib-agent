@@ -532,6 +532,16 @@ class TestEscalation:
         assert payload["reason"] == "Shallow agent emitted insufficiency marker"
 
 
+class TestSynthesis:
+    def test_the_line_marks_the_answer_being_written(self, steps) -> None:
+        turn_status.emit_synthesis()
+        payload = _live(steps)[0]
+        assert payload["key"] == "status.synthesis"
+        # Value-less on purpose: what is being written is the reader's answer,
+        # and quoting it back as a status would be the model narrating itself.
+        assert payload["values"] == {}
+
+
 class TestTheSubjectDocument:
     """Read as bytes because retrieval cannot see it — telemetry, not a line."""
 
@@ -669,6 +679,7 @@ def _every_live_payload(steps) -> list[dict]:
     turn_status.emit_citation_check(source_count=3)
     turn_status.emit_answer_repair(citations_removed=1, quotes_failed=1)
     turn_status.emit_escalation("Shallow agent emitted insufficiency marker")
+    turn_status.emit_synthesis()
     return _live(steps)
 
 
@@ -750,3 +761,114 @@ class TestTheRepairRecordCarriesItsCounts:
         payload = _live(steps)[0]
         assert payload["key"] == turn_status.KEY_REPAIR
         assert payload["values"] == {}
+
+
+def _search_calls():
+    """A knowledge search batch."""
+    return [{"name": "knowledge_search", "args": {"query": "Fluchtweglänge GK4"}}]
+
+
+def _open_calls():
+    """A read_passage batch opening one named Punkt."""
+    return [{"name": "read_passage", "args": {"document": "oib-rl_2.pdf", "punkt": "3.5.2"}}]
+
+
+class TestRoundAnnouncementMirrorsTheLiveFrame:
+    """The stored half of ``emit_retrieval``: same parsing, no second derivation.
+
+    The live frame and this record are two renderings of one batch of calls.
+    If either ever parses differently, the Herleitung spine (built from the
+    ledger) and the live line (built from the frame) describe different
+    rounds — so the interesting assertions here are the PARITY ones.
+    """
+
+    def test_a_search_round_records_its_facts_and_no_guessed_purpose(self) -> None:
+        """Query, tools, corpora and key are recorded; nothing is guessed."""
+        record = turn_status.record_round_announcement(round_index=0, calls=_search_calls(), conclusion=None)
+        assert record == {
+            "index": 0,
+            "key": turn_status.KEY_RETRIEVAL_WITH_QUERY,
+            "tools": ["knowledge_search"],
+            "corpora": ["knowledge"],
+            "query": "Fluchtweglänge GK4",
+        }
+
+    def test_a_locator_round_records_its_key(self) -> None:
+        """A locator round keeps its punkt key, not the search template."""
+        record = turn_status.record_round_announcement(round_index=1, calls=_open_calls(), conclusion=None)
+        assert record is not None
+        assert record["key"] == turn_status.KEY_RETRIEVAL_PUNKT
+        assert record["tools"] == ["read_passage"]
+
+    def test_action_batches_and_empties_record_nothing(self) -> None:
+        """Action batches and empty batches record nothing, like the counter skips them."""
+        assert (
+            turn_status.record_round_announcement(
+                round_index=0,
+                calls=[{"name": "remember", "args": {}}],
+                conclusion=None,
+            )
+            is None
+        )
+        assert turn_status.record_round_announcement(round_index=0, calls=[], conclusion=None) is None
+
+    def test_the_reason_is_the_ranked_checkpoint_clipped_like_the_frame(self, steps) -> None:
+        calls = [
+            {
+                "name": "knowledge_search",
+                "args": {"query": "q", "conclusion": "Die Grundregel steht."},
+            }
+        ]
+        record = turn_status.record_round_announcement(round_index=0, calls=calls, conclusion="Prose beside the calls.")
+        assert record is not None
+        assert record["reason"] == "Die Grundregel steht."
+        turn_status.emit_retrieval(calls, round_index=0, conclusion="Prose beside the calls.")
+        assert _live(steps)[0]["reason"] == record["reason"]
+
+    def test_record_covers_exactly_the_batches_the_counter_skips(self) -> None:
+        """Parity with the round counter: record None ⟺ emit False."""
+        batches = [
+            _search_calls(),
+            _open_calls(),
+            [{"name": "remember", "args": {}}],
+            [{"name": "acme_custom_tool", "args": {}}],
+            [],
+        ]
+        for index, calls in enumerate(batches):
+            record = turn_status.record_round_announcement(round_index=index, calls=calls, conclusion=None)
+            assert (record is None) == (not turn_status.emit_retrieval(calls, round_index=99))
+
+
+class TestLaneCaptureKeepsRoundsApart:
+    """Per-round hits for the ledger, read off the same stamp the block gets."""
+
+    def test_hits_land_with_the_current_round(self) -> None:
+        """Hits land stamped with the round active when recorded."""
+        token = turn_status.begin_lane_capture()
+        try:
+            with turn_status.retrieval_round_scope(0):
+                turn_status.record_lane_hit("oib-rl_2.pdf", title="OIB-RL 2", detail="p.12")
+            with turn_status.retrieval_round_scope(1):
+                turn_status.record_lane_hit("oib-rl_2.pdf", title="OIB-RL 2", detail="p.31")
+            hits = turn_status.get_lane_captures()
+        finally:
+            turn_status.end_lane_capture(token)
+        assert [(hit["round"], hit["name"], hit.get("detail")) for hit in hits] == [
+            (0, "oib-rl_2.pdf", "p.12"),
+            (1, "oib-rl_2.pdf", "p.31"),
+        ]
+
+    def test_capture_is_scoped_and_best_effort(self) -> None:
+        """Capture is silent outside its window and bounded inside it."""
+        turn_status.record_lane_hit("x.pdf")
+        assert turn_status.get_lane_captures() == []
+        token = turn_status.begin_lane_capture()
+        try:
+            turn_status.record_lane_hit("  ")
+            turn_status.record_lane_hit("x.pdf")
+            assert [hit["name"] for hit in turn_status.get_lane_captures()] == ["x.pdf"]
+        finally:
+            turn_status.end_lane_capture(token)
+        assert turn_status.get_lane_captures() == []
+        turn_status.record_lane_hit("y.pdf")
+        assert turn_status.get_lane_captures() == []

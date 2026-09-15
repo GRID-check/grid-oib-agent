@@ -110,8 +110,10 @@ import json
 import logging
 import uuid
 from collections.abc import Iterator
+from collections.abc import Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
+from contextvars import Token
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -152,6 +154,62 @@ def retrieval_round_scope(round_index: int | None) -> Iterator[None]:
         yield
     finally:
         _retrieval_round.reset(token)
+
+
+#: Lane hits this turn's tools returned, as the emitters stated them: one
+#: entry per hit with the round stamp, name, title, detail and shelf the
+#: Trace-Lanes block carries. The round is read HERE, off the same ContextVar
+#: the stamp reads, so a captured hit and its stamped twin can never disagree.
+#:
+#: Why a SECOND capture beside the turn_sources log: that log dedups
+#: documents across rounds (right for citation-health denominators, wrong for
+#: a per-round ledger). This one keeps every round's hits apart, in order.
+_lane_captured_hits: ContextVar[list[dict[str, Any]] | None] = ContextVar("grid_lane_captured_hits", default=None)
+
+
+def begin_lane_capture() -> Token:
+    """Start recording this turn's lane hits. Pair with :func:`end_lane_capture`."""
+    return _lane_captured_hits.set([])
+
+
+def end_lane_capture(token: Token) -> None:
+    """Stop recording this turn's lane hits."""
+    _lane_captured_hits.reset(token)
+
+
+def record_lane_hit(
+    name: str,
+    *,
+    title: str | None = None,
+    detail: str | None = None,
+    shelf: str | None = None,
+) -> None:
+    """Note one lane hit a tool result carries. No-op when not recording.
+
+    Best-effort by contract (module rule above): emitters call this beside
+    the Trace-Lanes entry they build, and a capture must never break a tool
+    result. Only JSON primitives are stored, so the capture is wire-ready.
+    """
+    try:
+        log = _lane_captured_hits.get()
+        clean = (name or "").strip()
+        if log is None or not clean:
+            return
+        entry: dict[str, Any] = {"round": current_retrieval_round(), "name": clean}
+        if title and title.strip():
+            entry["title"] = title.strip()
+        if detail and detail.strip():
+            entry["detail"] = detail.strip()
+        if shelf and shelf.strip():
+            entry["shelf"] = shelf.strip()
+        log.append(entry)
+    except Exception:  # noqa: BLE001 — capture must never take a turn down
+        logger.debug("Lane hit not captured", exc_info=True)
+
+
+def get_lane_captures() -> list[dict[str, Any]]:
+    """Every lane hit recorded this turn, in capture order. Caller owns the list."""
+    return list(_lane_captured_hits.get() or [])
 
 
 #: Step-name prefix for the status one-liners in this module. The suffix is the
@@ -255,6 +313,11 @@ KEY_CITATIONS = "status.citations"
 #: with its markers. Value-less; the counts travel as detail.
 KEY_REPAIR = "status.repair"
 KEY_ESCALATION = "status.escalation"
+#: The model stopped calling tools and is writing the answer. Without this the
+#: live line keeps showing the last retrieval event through the whole synthesis
+#: call — the same stale-label fault the legacy path fixed by never letting a
+#: finished step drive the phrase. Value-less: the sentence is the dictionary's.
+KEY_SYNTHESIS = "status.synthesis"
 
 #: EVERY key this module can emit, exhaustively. Two tests hang off it: the
 #: Python one asserts nothing is emitted that is not in here, and the UI one
@@ -285,6 +348,7 @@ ALL_STATUS_KEYS: tuple[str, ...] = (
     "status.citations",
     "status.repair",
     "status.escalation",
+    "status.synthesis",
 )
 
 
@@ -712,6 +776,109 @@ def emit_subject_document(
     push_custom_step(f"{STATUS_STEP_PREFIX}{SUBJECT_DOCUMENT_SLOT}", payload)
 
 
+#: (A `purpose` field once sat here and was removed before release: it was
+#: inferred, not observed, and mislabelled a first locator round. The facts a
+#: renderer needs — corpora, query, key, new_docs — are recorded without a
+#: guessed enum.)
+def _describe_calls(calls: list[dict[str, Any]]) -> dict[str, Any]:
+    """What one batch of tool calls SAYS: corpora, tools, query, key, values.
+
+    Shared by :func:`emit_retrieval` (the live line) and
+    :func:`record_round_announcement` (the stored ledger): the status frame
+    and the announcement are two renderings of one parsing, and two parsings
+    would eventually disagree about what a round was.
+    """
+    corpora: list[str] = []
+    tools: list[str] = []
+    query: str | None = None
+    locator: tuple[str, dict[str, str]] | None = None
+    action_key: str | None = None
+    for call in calls:
+        base = tool_basename(str(call.get("name") or ""))
+        if not base or base == "use_skill":
+            # The skills substrate narrates its own activation with the skill's
+            # human title; repeating it here as a tool name would say the same
+            # thing twice, worse.
+            continue
+        tools.append(base)
+        corpus = _search_corpus(base)
+        if corpus is not None:
+            if corpus not in corpora:
+                corpora.append(corpus)
+            if base in _LOCATOR_TOOL_BASENAMES:
+                locator = locator or _locator_line(call.get("args"))
+            else:
+                query = query or _query_text(call.get("args"))
+        elif action_key is None:
+            action_key = _ACTION_KEYS.get(base)
+
+    key: str | None
+    values: dict[str, Any]
+    if corpora:
+        values = {"corpus": ",".join(corpora)}
+        if query:
+            values["query"] = clip(query, MAX_QUERY_CHARS)
+            key = KEY_RETRIEVAL_WITH_QUERY
+        elif locator is not None:
+            # A round that BOTH searched and located shows the search query: it
+            # is the reader's own words and the one thing they can still say no
+            # to. The locator line is for the round that only opens a passage,
+            # which is the round this tool exists to make possible.
+            key, values = locator
+        else:
+            key = KEY_RETRIEVAL_PLAIN
+    elif action_key is not None:
+        key = action_key
+        values = {}
+    else:
+        # Nothing left to say but an internal tool name. Say nothing.
+        key = None
+        values = {}
+    return {"corpora": corpora, "tools": tools, "query": query, "key": key, "values": values}
+
+
+def record_round_announcement(
+    *,
+    round_index: int,
+    calls: Sequence[dict[str, Any]],
+    conclusion: str | None,
+) -> dict[str, Any] | None:
+    """The stored half of :func:`emit_retrieval`: what round N was, for the ledger.
+
+    Same parsing (:func:`_describe_calls`), same conclusion ranking
+    (:func:`_resolve_conclusion`), same budgets (``clip``): the live frame and
+    this record cannot disagree because neither parses twice. Returns None for
+    batches that are not a retrieval round — exactly the batches the round
+    counter skips, so the stored list and the ``status:retrieval:N`` slots
+    always cover the same rounds. Query and reason are clipped exactly like
+    the frame; the full text stays in the messages.
+
+    No "why" is recorded. The facts that answer it are already here — the
+    corpora it touched, the query, the key (search vs locator), and the docs
+    the join finds it returned — and an inferred reason would be a guess
+    sitting in a wire contract.
+    """
+    batch = [call for call in (calls or []) if isinstance(call, dict)]
+    if not batch:
+        return None
+    described = _describe_calls(batch)
+    if not described["corpora"]:
+        return None
+    reason_text, _conclusion_source = _resolve_conclusion(batch, conclusion)
+    announcement: dict[str, Any] = {
+        "index": round_index,
+        "key": described["key"],
+        "tools": described["tools"],
+        "corpora": described["corpora"],
+    }
+    if described["query"]:
+        announcement["query"] = clip(described["query"], MAX_QUERY_CHARS)
+    reason = clip(reason_text, MAX_REASON_CHARS) or None
+    if reason is not None:
+        announcement["reason"] = reason
+    return announcement
+
+
 def emit_retrieval(
     tool_calls: list[dict[str, Any]] | None,
     *,
@@ -753,47 +920,12 @@ def emit_retrieval(
     if not calls:
         return False
 
-    corpora: list[str] = []
-    tools: list[str] = []
-    query: str | None = None
-    locator: tuple[str, dict[str, str]] | None = None
-    action_key: str | None = None
-    for call in calls:
-        base = tool_basename(str(call.get("name") or ""))
-        if not base or base == "use_skill":
-            # The skills substrate narrates its own activation with the skill's
-            # human title; repeating it here as a tool name would say the same
-            # thing twice, worse.
-            continue
-        tools.append(base)
-        corpus = _search_corpus(base)
-        if corpus is not None:
-            if corpus not in corpora:
-                corpora.append(corpus)
-            if base in _LOCATOR_TOOL_BASENAMES:
-                locator = locator or _locator_line(call.get("args"))
-            else:
-                query = query or _query_text(call.get("args"))
-        elif action_key is None:
-            action_key = _ACTION_KEYS.get(base)
-
-    if corpora:
-        values: dict[str, Any] = {"corpus": ",".join(corpora)}
-        if query:
-            values["query"] = clip(query, MAX_QUERY_CHARS)
-            key = KEY_RETRIEVAL_WITH_QUERY
-        elif locator is not None:
-            # A round that BOTH searched and located shows the search query: it
-            # is the reader's own words and the one thing they can still say no
-            # to. The locator line is for the round that only opens a passage,
-            # which is the round this tool exists to make possible.
-            key, values = locator
-        else:
-            key = KEY_RETRIEVAL_PLAIN
-    elif action_key is not None:
-        key = action_key
-        values = {}
-    else:
+    described = _describe_calls(calls)
+    corpora = described["corpora"]
+    tools = described["tools"]
+    key = described["key"]
+    values = described["values"]
+    if key is None:
         # Nothing left to say but an internal tool name. Say nothing.
         return False
 
@@ -945,6 +1077,19 @@ def emit_escalation(reason: str | None = None) -> None:
     """
     reason_text = " ".join(str(reason).split()) if reason else ""
     emit_status("escalation", KEY_ESCALATION, reason=clip(reason_text, MAX_REASON_CHARS) or None)
+
+
+def emit_synthesis() -> None:
+    """The tool calls are over and the answer is being written.
+
+    Fires exactly once per turn that researched: the agent node's response
+    carries tool calls on every round but the last, so a call-less response
+    after at least one tool round IS the synthesis — no heuristic, no timer.
+    Value-less like the repair line: what is being written is the reader's
+    answer, and quoting it back as a status would be the model narrating
+    itself.
+    """
+    emit_status("synthesis", KEY_SYNTHESIS)
 
 
 #: Slot for the budget-exhaustion record. Its own slot, so it never overwrites

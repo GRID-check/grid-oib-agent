@@ -66,6 +66,14 @@ except ImportError:  # adapter used standalone, without the Grid agent package
     match_entries = None  # type: ignore[assignment]
     _CATALOG_AVAILABLE = False
 
+try:
+    from aiq_agent.common.turn_status import record_lane_hit as _record_lane_hit
+
+    _LANE_CAPTURE_AVAILABLE = True
+except ImportError:  # adapter used standalone, without the Grid agent package
+    _record_lane_hit = None  # type: ignore[assignment]
+    _LANE_CAPTURE_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 # Austrian federal states accepted by the Landesrecht (LrKons) filter.
@@ -300,6 +308,34 @@ def _make_planner(llm):
     return _plan
 
 
+def _cache_hits(raw: object) -> list[tuple[str | None, str | None, str | None]]:
+    """The hit triples stored beside a cached search text, defensively read.
+
+    The cache is shared and may hold a payload from another build: anything
+    that is not a (name, title, detail) triple is skipped, never guessed.
+    """
+    if not isinstance(raw, list):
+        return []
+    hits: list[tuple[str | None, str | None, str | None]] = []
+    for entry in raw:
+        if isinstance(entry, (list, tuple)) and len(entry) == 3:
+            hits.append((entry[0], entry[1], entry[2]))
+    return hits
+
+
+def _capture_lane_hits(hits: list[tuple[str | None, str | None, str | None]]) -> None:
+    """Best-effort per-round ledger capture: ``(name, title, detail)`` per shown hit.
+
+    No-op when the adapter runs standalone (guarded import above) and never
+    raising: ``record_lane_hit`` itself cannot fail, so a capture must never
+    break a tool result. The ledger reads this, never the prose.
+    """
+    if not _LANE_CAPTURE_AVAILABLE or _record_lane_hit is None:
+        return
+    for name, title, detail in hits:
+        _record_lane_hit(name or "", title=title, detail=detail)
+
+
 def _format_hit(index: int, hit: RisHit) -> str:
     lines = [f"--- Result {index} ---"]
     if hit.title:
@@ -456,6 +492,16 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
                 matches = focus_entries(matches, detected_land)
                 if matches:
                     shown = matches[:max_results]
+                    _capture_lane_hits(
+                        [
+                            (
+                                entry.citation_url or entry.source_url or entry.title,
+                                entry.title or None,
+                                entry.document_number or None,
+                            )
+                            for entry in shown
+                        ]
+                    )
                     lines = [
                         f"Curated RIS catalog match(es) for '{query}' - verified pointers, no live search performed:",
                         "",
@@ -471,9 +517,20 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
         # Live-search read-through cache: skips both the planner LLM and the RIS
         # API for a repeat of the exact same search. The catalog shortcut above
         # is local and already free, so it is deliberately not cached here.
+        #
+        # The cache entry carries the HITS beside the text, so a repeat search
+        # still feeds the per-round ledger: the model receives the same
+        # documents either way, and a round whose evidence silently vanished
+        # from the account would make the ledger lie exactly on repeats.
         search_key = search_cache_key("|".join([application, query, title, bundesland, date_from, date_to, str(page)]))
         cached_search = await cache_get_json(search_key)
+        if isinstance(cached_search, dict) and isinstance(cached_search.get("text"), str) and cached_search["text"]:
+            _capture_lane_hits(_cache_hits(cached_search.get("hits")))
+            return cached_search["text"]
         if isinstance(cached_search, str) and cached_search:
+            # A legacy entry written before the hits rode along: the text is
+            # still good, the hits are not reconstructible — capture nothing
+            # rather than inventing a round's evidence.
             return cached_search
 
         effective = {
@@ -535,6 +592,15 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
             )
 
         shown = result.hits[:max_results]
+        hit_triples = [
+            (
+                hit.citation_url or hit.fetch_url or hit.title,
+                hit.title or None,
+                hit.document_number or None,
+            )
+            for hit in shown
+        ]
+        _capture_lane_hits(hit_triples)
         total_pages = max(1, -(-result.total // result.page_size)) if result.total else 1
         lines = [
             f"Found {result.total or len(shown)} RIS document(s) "
@@ -550,8 +616,10 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
         )
         output = "\n".join(lines)
         # Only successful, non-empty results are cached (errors / "no documents
-        # found" returned earlier and are never stored).
-        await cache_set_json(search_key, output, ris_cache_ttl_seconds())
+        # found" returned earlier and are never stored). The hits ride along so
+        # a cache repeat can still feed the per-round ledger (see the read
+        # above); a legacy string entry stays readable either way.
+        await cache_set_json(search_key, {"text": output, "hits": hit_triples}, ris_cache_ttl_seconds())
         return output
 
     try:
@@ -652,6 +720,16 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
         from aiq_agent.common.retrieval_settings import get_retrieval_setting
 
         matches = matches[: get_retrieval_setting("ris_catalog.max_matches", tool_config.max_matches)]
+        _capture_lane_hits(
+            [
+                (
+                    entry.citation_url or entry.source_url or entry.title,
+                    entry.title or None,
+                    entry.document_number or None,
+                )
+                for entry in matches
+            ]
+        )
         if not matches:
             return (
                 f"No curated RIS catalog entry matches '{topic}'. The catalog covers only the core "
@@ -922,6 +1000,7 @@ async def ris_fetch_document(tool_config: RisFetchDocumentToolConfig, builder: B
         parts = ["\n".join(header), "", text]
         if footer:
             parts.extend(["", "\n".join(footer)])
+        _capture_lane_hits([(document.url, document.title or None, None)])
         return "\n".join(parts)
 
     try:

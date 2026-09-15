@@ -50,12 +50,17 @@ from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
+from aiq_agent.common.turn_status import begin_lane_capture
 from aiq_agent.common.turn_status import emit_family_coverage
 from aiq_agent.common.turn_status import emit_fanout_capped
 from aiq_agent.common.turn_status import emit_research_truncated
 from aiq_agent.common.turn_status import emit_retrieval
+from aiq_agent.common.turn_status import emit_synthesis
+from aiq_agent.common.turn_status import end_lane_capture
+from aiq_agent.common.turn_status import get_lane_captures
 from aiq_agent.common.turn_status import is_retrieval_round
 from aiq_agent.common.turn_status import is_search_call
+from aiq_agent.common.turn_status import record_round_announcement
 from aiq_agent.common.turn_status import retrieval_round_scope
 from aiq_agent.knowledge.already_read import merge_digest
 from aiq_agent.tools.bim.measurement_sources import begin_measurement_capture
@@ -333,8 +338,52 @@ def _announced_round(calls: Sequence[Any], state: ResearchAgentState) -> int | N
     return state.retrieval_round if is_retrieval_round([c for c in calls if isinstance(c, dict)]) else None
 
 
-def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -> tuple[int, int, int]:
-    """What this round COSTS: ``(research, interaction, retrieval_round)``.
+def _drop_round_zero_overflow(calls: list[Any], state: ResearchAgentState) -> list[Any]:
+    """The calls that will actually RUN after the round-zero fan-out cap.
+
+    A first round that fanned out past the cap is charged for what runs, not
+    for the whole batch: charging everything would leave the cap protecting
+    nothing, since the budget would be spent on calls whose only answer is the
+    sentence telling the model why they were not made.
+    """
+    dropped = _round_zero_overflow(calls, _announced_round(calls, state))
+    if not dropped:
+        return calls
+    emit_fanout_capped(round_index=state.retrieval_round, kept=len(calls) - len(dropped), dropped=len(dropped))
+    logger.info(
+        "Round-zero fan-out capped: %d search(es) run, %d answered with the cap notice (limit=%d)",
+        _ROUND_ZERO_SEARCH_LIMIT,
+        len(dropped),
+        _ROUND_ZERO_SEARCH_LIMIT,
+    )
+    # By identity: two parallel calls to one tool can be equal dicts, and `in`
+    # would then drop both of them.
+    overflow = {id(call) for call in dropped}
+    return [call for call in calls if id(call) not in overflow]
+
+
+def _starts_synthesis(response: Any, state: ResearchAgentState) -> bool:
+    """Did this response end the tool loop with the answer being written?
+
+    Exactly-once per turn by construction: the loop routes to ``__end__`` on
+    the first response without tool calls, so no later round can re-trigger
+    it. Gated on tool work done — a direct reply never searched, and claiming
+    a synthesis phase there would narrate a distinction the turn does not
+    have. Blank content with no calls is degenerate, not synthesis.
+    """
+    calls = getattr(response, "tool_calls", None) or []
+    if calls:
+        return False
+    text = " ".join(content_to_text(getattr(response, "content", "") or "").split())
+    if not text:
+        return False
+    return (state.tool_iterations + state.interaction_iterations) > 0
+
+
+def _charge_tool_calls(
+    response: Any, state: ResearchAgentState, ceiling: int
+) -> tuple[int, int, int, dict[str, Any] | None]:
+    """What this round COSTS and ANNOUNCED: ``(research, interaction, retrieval_round, record)``.
 
     ``max_tool_iterations`` is the RESEARCH budget, but every call used to be
     charged to it, ``emit_card`` and ``describe_card`` included. Those are
@@ -347,24 +396,8 @@ def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -
     """
     calls = getattr(response, "tool_calls", None) or []
     if not calls:
-        return state.tool_iterations, state.interaction_iterations, state.retrieval_round
-    # A first round that fanned out past the cap is charged for what will
-    # actually RUN. Charging the whole batch would leave the cap protecting
-    # nothing: the budget would be spent on calls whose only answer is the
-    # sentence telling the model why they were not made.
-    dropped = _round_zero_overflow(calls, _announced_round(calls, state))
-    if dropped:
-        emit_fanout_capped(round_index=state.retrieval_round, kept=len(calls) - len(dropped), dropped=len(dropped))
-        logger.info(
-            "Round-zero fan-out capped: %d search(es) run, %d answered with the cap notice (limit=%d)",
-            _ROUND_ZERO_SEARCH_LIMIT,
-            len(dropped),
-            _ROUND_ZERO_SEARCH_LIMIT,
-        )
-        # By identity: two parallel calls to one tool can be equal dicts, and
-        # `in` would then drop both of them.
-        overflow = {id(call) for call in dropped}
-        calls = [call for call in calls if id(call) not in overflow]
+        return state.tool_iterations, state.interaction_iterations, state.retrieval_round, None
+    calls = _drop_round_zero_overflow(calls, state)
     interaction_calls = _count_interaction_calls(calls)
     research_calls = len(calls) - interaction_calls
     exempt = min(interaction_calls, max(0, _INTERACTION_TOOL_ALLOWANCE - state.interaction_iterations))
@@ -389,13 +422,22 @@ def _charge_tool_calls(response: Any, state: ResearchAgentState, ceiling: int) -
     # tools declare (what the prompt asks for), and — passed here — the prose
     # the model wrote beside its calls, which is the fallback for a model that
     # narrates instead of filling the slot.
+    conclusion = _assistant_checkpoint(response)
     searched = emit_retrieval(
         calls,
         round_index=state.retrieval_round,
-        conclusion=_assistant_checkpoint(response),
+        conclusion=conclusion,
     )
     retrieval_round = state.retrieval_round + (1 if searched else 0)
-    return research, interaction, retrieval_round
+    # The stored half of the same announcement: same calls (post cap-drop),
+    # same conclusion, same slot — the ledger join reads this, never a
+    # re-derivation, so it cannot describe a different round than the frame.
+    record = record_round_announcement(
+        round_index=state.retrieval_round,
+        calls=calls,
+        conclusion=conclusion,
+    )
+    return research, interaction, retrieval_round, record
 
 
 def _executing_retrieval_round(state: ResearchAgentState) -> int | None:
@@ -869,14 +911,22 @@ class PilotiAgent:
             response = await ainvoke_with_envelope_json_mode(llm_with_tools, messages)
         else:
             response = await llm_with_tools.ainvoke(messages)
-        research, interaction, retrieval_round = _charge_tool_calls(response, state, binding.ceiling)
-        return {
+        # The tool calls are over and the answer is being written. Without
+        # this the live line keeps showing the last retrieval event through
+        # the whole synthesis call.
+        if _starts_synthesis(response, state):
+            emit_synthesis()
+        research, interaction, retrieval_round, round_record = _charge_tool_calls(response, state, binding.ceiling)
+        update: dict[str, Any] = {
             "messages": [response],
             "tool_iterations": research,
             "interaction_iterations": interaction,
             "retrieval_round": retrieval_round,
             "cached_system_prompt": system_prompt,
         }
+        if round_record is not None:
+            update["retrieval_rounds"] = [*state.retrieval_rounds, round_record]
+        return update
 
     async def _forced_synthesis(
         self,
@@ -918,6 +968,8 @@ class PilotiAgent:
         # Anchored at the end to combat "Loss in the Middle".
         messages = [SystemMessage(content=system_prompt), *state.messages, HumanMessage(content=_SYNTHESIS_ANCHOR)]
         response = await ainvoke_with_envelope_json_mode(binding.llm, messages)
+        if _starts_synthesis(response, state):
+            emit_synthesis()
         return {
             "messages": [response],
             "tool_iterations": state.tool_iterations,
@@ -1028,11 +1080,14 @@ class PilotiAgent:
         registry, registry_token = _bind_registry()
         turn_capture = begin_turn_capture()
         measurement_capture = begin_measurement_capture()
+        lane_capture = begin_lane_capture()
         try:
             graph_result = await self._graph.ainvoke(state, config=self._graph_config(binding))
             turn_sources = get_turn_captures()
             turn_measurements = get_measurement_captures()
+            lane_hits = get_lane_captures()
         finally:
+            end_lane_capture(lane_capture)
             end_measurement_capture(measurement_capture)
             end_turn_capture(turn_capture)
             if registry_token is not None:
@@ -1061,6 +1116,7 @@ class PilotiAgent:
             final,
             turn_sources=combined_sources,
             turn_measurements=turn_measurements,
+            lane_hits=lane_hits,
         )
         result.already_read_digest = merged_digest
         return result

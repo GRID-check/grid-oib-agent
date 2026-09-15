@@ -294,3 +294,43 @@ describe('the turn event on a stored step', () => {
     expect(third).not.toHaveProperty('turnEvent')
   })
 })
+
+describe('the retrieval ledger survives storage', () => {
+  const wireLedger = [
+    {
+      index: 0,
+      key: 'status.retrieval.withQuery',
+      tools: ['knowledge_search'],
+      corpora: ['knowledge'],
+      query: 'Fluchtweglänge GK4',
+      docs: [{ name: 'OIB-RL_2.pdf', detail: 'p.12' }],
+      new_docs: ['OIB-RL_2.pdf'],
+      hits: 1,
+      documents: 1,
+    },
+  ]
+
+  it('keeps a bounded ledger on the way in', () => {
+    // Dropped here, a reloaded conversation shows the Herleitung rebuilt from
+    // step names while the live turn read the backend's account — two restores
+    // of one thread disagreeing about what the turn did.
+    expect(sanitizeProvenance({ retrievalLedger: wireLedger })?.retrievalLedger).toEqual([
+      {
+        index: 0,
+        key: 'status.retrieval.withQuery',
+        tools: ['knowledge_search'],
+        corpora: ['knowledge'],
+        query: 'Fluchtweglänge GK4',
+        docs: [{ name: 'OIB-RL_2.pdf', detail: 'p.12' }],
+        newDocs: ['OIB-RL_2.pdf'],
+        hits: 1,
+        documents: 1,
+      },
+    ])
+  })
+
+  it('drops garbage instead of storing it', () => {
+    expect(sanitizeProvenance({ retrievalLedger: 'oib' })).toBeNull()
+    expect(sanitizeProvenance({ retrievalLedger: [{ key: 'no-index' }] })).toBeNull()
+  })
+})

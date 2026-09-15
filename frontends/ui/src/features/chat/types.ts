@@ -9,6 +9,7 @@ import type { CardDecision, CardInteractions } from '@/features/grid-cards/card-
 import type { DraftMention } from '@/features/collaboration/lib/mention-text'
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
+import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { StageFrame } from './stores/messages-store'
 import type { SourceSignal } from '@/features/layout/lib/source-presets'
@@ -207,6 +208,12 @@ export interface AnswerTransparency {
    * rendered in a fixed layout by AgentResponse. Never cards.
    */
   answerMeta?: AnswerMeta
+  /**
+   * The backend's own account of this turn's retrieval rounds — native answer
+   * fields, recorded backend-side and sanitized at the wire boundary. Carried
+   * for the Herleitung (no renderer yet — phase b).
+   */
+  retrievalLedger?: RetrievalLedger
 }
 
 /** File card data for file messages */
@@ -507,6 +514,12 @@ export interface ChatMessage {
    * fixed layout: verdict above the prose, callout and takeaways after it.
    */
   answerMeta?: AnswerMeta
+  /**
+   * The backend's own account of this turn's retrieval rounds, same sanitize
+   * contract as `answerMeta`. Carried for the Herleitung (no renderer yet —
+   * phase b); persisted with the message so reloads read it too.
+   */
+  retrievalLedger?: RetrievalLedger
   /**
    * The WS turn id (`parent_id`) this answer belongs to
    * (`docs/architecture/post-answer-stages.md` §1.6, §4.1).

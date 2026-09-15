@@ -1,0 +1,42 @@
+[
+  {
+    "index": 0,
+    "key": "status.retrieval.withQuery",
+    "tools": ["knowledge_search"],
+    "corpora": ["knowledge"],
+    "query": "Fluchtweglänge GK4",
+    "docs": [
+      {
+        "name": "OIB-RL_2.pdf",
+        "title": "OIB-Richtlinie 2, Ausgabe Mai 2023"
+      },
+      {
+        "name": "Brandschutzkonzept.pdf"
+      }
+    ],
+    "new_docs": ["OIB-RL_2.pdf", "Brandschutzkonzept.pdf"],
+    "hits": 2,
+    "documents": 2
+  },
+  {
+    "index": 1,
+    "key": "status.retrieval.punkt",
+    "tools": ["read_passage"],
+    "corpora": ["knowledge"],
+    "reason": "Die Grundregel steht.",
+    "docs": [
+      {
+        "name": "OIB-RL_2.pdf",
+        "title": "OIB-Richtlinie 2, Ausgabe Mai 2023",
+        "detail": "p.12"
+      },
+      {
+        "name": "Brandschutzkonzept.pdf",
+        "detail": "p.3"
+      }
+    ],
+    "new_docs": [],
+    "hits": 2,
+    "documents": 2
+  }
+]

@@ -35,6 +35,7 @@
 import type { Message } from '@/lib/db/schema'
 import { CAPPED_REASONS } from '@/lib/conversations/message-provenance'
 import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
+import { sanitizeRetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { sanitizeStages } from '@/lib/conversations/message-stages'
 
 import type { AnswerConfidenceCappedReason } from '@/lib/conversations/message-provenance'
@@ -141,6 +142,13 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
     ...(() => {
       const answerMeta = sanitizeAnswerMeta(metadata.answerMeta)
       return answerMeta ? { answerMeta } : {}
+    })(),
+    // Re-sanitized on read like `answerMeta`: the backend's account of the
+    // turn's retrieval rounds, written by the BFF persist path. A row from any
+    // other build is still whatever it was.
+    ...(() => {
+      const ledger = sanitizeRetrievalLedger(metadata.retrieval_ledger)
+      return ledger ? { retrievalLedger: ledger } : {}
     })(),
     // Restored WITH their answers: a card whose patch was already applied must
     // not come back offering the button again (see card-decision.ts). Narrowed
@@ -290,6 +298,10 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
     out.deepResearchJobId = provenance.deepResearchJobId
   }
   if (provenance.showViewReport === true) out.showViewReport = true
+  // The backend's account of the turn's rounds, restored beside the thinking
+  // steps it replaces reading from: re-sanitized on read, narrowed not cast.
+  const ledger = sanitizeRetrievalLedger(provenance.retrievalLedger)
+  if (ledger) out.retrievalLedger = ledger
 
   return out
 }

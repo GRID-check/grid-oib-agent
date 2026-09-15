@@ -127,6 +127,29 @@ def test_trace_lanes_sources_carry_the_retrieval_round():
         _retrieval_round.set(None)
 
 
+def test_emitted_hits_are_captured_for_the_per_round_ledger():
+    """Emitted hits land in the capture with the active round's stamp."""
+    """The ledger reads the capture, never the prose: same emission, both ships."""
+    from aiq_agent.common.turn_status import begin_lane_capture
+    from aiq_agent.common.turn_status import end_lane_capture
+    from aiq_agent.common.turn_status import get_lane_captures
+    from aiq_agent.common.turn_status import retrieval_round_scope
+
+    token = begin_lane_capture()
+    try:
+        with retrieval_round_scope(0):
+            _trace_lanes_json([_chunk(file_name="OIB-RL_2.pdf", page=12, collection="oib_knowledge")])
+        with retrieval_round_scope(1):
+            _trace_lanes_json([_chunk(file_name="OIB-RL_2.pdf", page=31, collection="oib_knowledge")])
+        hits = get_lane_captures()
+    finally:
+        end_lane_capture(token)
+    assert [(hit["round"], hit["name"], hit.get("detail")) for hit in hits] == [
+        (0, "OIB-RL_2.pdf", "p.12"),
+        (1, "OIB-RL_2.pdf", "p.31"),
+    ]
+
+
 def test_format_results_appends_trace_lanes_block():
     result = SimpleNamespace(
         success=True,
