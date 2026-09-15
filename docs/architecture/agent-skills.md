@@ -1194,11 +1194,15 @@ organization-wide ("what procedures do we have"), jobs are project-scoped
 - `app/app/projects/[id]/skills` — the org toolbox **alone**
   (`features/skills/components/skills-panel.tsx` → `skill-toolbox.tsx`,
   `skill-editor-dialog.tsx`). Read-only without `org:skills:manage`.
-- `app/app/projects/[id]/jobs` — the project's jobs
-  (`features/jobs/components/jobs-panel.tsx`, `job-list.tsx`,
-  `job-builder.tsx`, `job-run-history.tsx`). List mode shows the jobs; the
-  builder replaces it while creating or editing one, with the fire-prompt
-  preview beside the form. Managed with `project:skills:manage`.
+- `app/app/projects/[id]/automation?tab=schedule` — the project's schedules
+  (`features/jobs/components/schedule-panel.tsx`, `schedule-timetable.tsx`,
+  `schedule-card.tsx`, `schedule-detail.tsx`, `schedule-wizard.tsx`,
+  `job-run-history.tsx`). The tab stacks the WEEK GRID over the schedule cards:
+  the grid answers how the week is arranged (what collides, what is empty), the
+  cards what each schedule is. The wizard replaces the list while creating or
+  editing one — four steps, one required decision each, with the next real fire
+  times on the timing step. `app/app/projects/[id]/jobs` still redirects here.
+  Managed with `project:skills:manage`.
 
 Both pages use the same server shell (session → flag `notFound()` →
 `requireProjectAccess` → project lookup → capabilities). Org skill authoring

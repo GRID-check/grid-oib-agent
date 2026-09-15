@@ -1,23 +1,19 @@
 /**
- * The Aufgaben list (ADR-0051, and the review that found it missing).
+ * The Tasks list — cards, filters and recency groups.
  *
- * What is asserted is what one ROW has to answer, because that is the whole
+ * What is asserted is what one CARD has to answer, because that is the whole
  * reason the surface exists: a person delegated work in a chat and had nowhere
- * to ask what became of it. Kind, what was asked for, where it got to, how it
- * was judged, and WHERE THE RESULT IS — plus, for a schedule, WHEN it fires
- * next and whether it is paused. Templates and instances are two shapes, so
- * they are asserted as two shapes.
+ * to ask what became of it. What it is, where it got to, how it was judged, and
+ * WHERE THE RESULT IS. Plus the two things the rewrite added and the old row
+ * could not do — that the whole card is the target, and that a finished task
+ * nobody has judged is visibly an open loop.
  */
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, within } from '@/test-utils'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, test, vi } from 'vitest'
-import type { Job } from '@/adapters/api/jobs-client'
 import { TaskList } from './task-list'
-import type { TaskWireRow } from '../lib/task-view'
-
-vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
-}))
+import type { TaskFilter, TaskWireRow } from '../lib/task-view'
 
 const task = (overrides: Partial<TaskWireRow> = {}): TaskWireRow => ({
   id: 'task-1',
@@ -29,283 +25,182 @@ const task = (overrides: Partial<TaskWireRow> = {}): TaskWireRow => ({
   reviewReason: null,
   filedDocumentId: null,
   conversationId: null,
+  backendJobId: null,
+  trigger: 'delegated',
   requesterUserId: 'user_anna',
   requesterName: 'Anna Berger',
-  createdAt: '2026-09-01T10:00:00.000Z',
-  finishedAt: '2026-09-01T10:04:00.000Z',
+  createdAt: new Date().toISOString(),
+  finishedAt: null,
   error: null,
   ...overrides,
 })
 
-const job = (overrides: Partial<Job> = {}): Job => ({
-  id: 'job-1',
-  projectId: 'p1',
-  name: 'Wöchentlicher OIB-Check',
-  prompt: 'Prüfe die Brandschutzpunkte.',
-  skillName: null,
-  skillSnapshot: null,
-  output: 'deep-research',
-  dataSources: null,
-  enabled: true,
-  scheduleCron: '0 6 * * 1',
-  scheduleTimezone: 'Europe/Vienna',
-  nextRunAt: '2026-09-14T06:00:00.000Z',
-  lastRunAt: null,
-  createdBy: 'user_anna',
-  createdByEmail: null,
-  createdAt: '2026-09-01T00:00:00.000Z',
-  updatedAt: '2026-09-01T00:00:00.000Z',
-  ...overrides,
-})
+function list(props: Partial<React.ComponentProps<typeof TaskList>> = {}) {
+  const onFilterChange = vi.fn()
+  const onSelectTask = vi.fn()
+  const utils = render(
+    <TaskList
+      projectId="p1"
+      tasks={[task()]}
+      filter={'all' as TaskFilter}
+      onFilterChange={onFilterChange}
+      onSelectTask={onSelectTask}
+      {...props}
+    />,
+  )
+  return { ...utils, onFilterChange, onSelectTask }
+}
 
-const baseProps = {
-  projectId: 'p1',
-  tasks: [task()],
-  jobs: [],
-} as const
-
-describe('TaskList instances', () => {
-  test('says what was delegated, what kind of work it is, and where it got to', () => {
-    render(<TaskList {...baseProps} />)
-
+describe('a task card', () => {
+  test('says what was asked for, what kind of work it is, and where it got to', () => {
+    list({ tasks: [task({ status: 'running' })] })
     expect(screen.getByText('Aktenvermerk Fluchtwege')).toBeInTheDocument()
+    expect(screen.getByText('Fasse die Fluchtweglängen für die Einreichung zusammen')).toBeInTheDocument()
     expect(screen.getByTestId('task-kind')).toHaveTextContent('Document')
-    expect(screen.getByTestId('task-status')).toHaveTextContent('Done')
-    expect(
-      screen.getByText('Fasse die Fluchtweglängen für die Einreichung zusammen'),
-    ).toBeInTheDocument()
+    expect(screen.getByTestId('task-status')).toHaveTextContent('Running')
   })
 
-  test('instances carry no cadence chip — cadence lives on templates alone', () => {
-    render(<TaskList {...baseProps} />)
-    expect(screen.queryByTestId('task-cadence')).toBeNull()
+  test('the WHOLE card opens the detail, not a hover-underlined title', async () => {
+    const user = userEvent.setup()
+    const { onSelectTask } = list()
+    await user.click(screen.getByTestId('task-card'))
+    expect(onSelectTask).toHaveBeenCalledWith(expect.objectContaining({ id: 'task-1' }))
   })
 
-  test('links to the document the result was filed as, in the project files', () => {
-    // The one thing a list of finished work has to answer. The row links there
-    // rather than summarising the report, which is what the document is for.
-    render(<TaskList projectId="p1" tasks={[task({ filedDocumentId: 'doc-9' })]} jobs={[]} />)
-    expect(screen.getByTestId('task-document-link')).toHaveAttribute(
+  test('and it opens from the keyboard, because a div that acts as a button must', async () => {
+    const user = userEvent.setup()
+    const { onSelectTask } = list()
+    // The filter row comes first in the tab order, so the card is focused
+    // directly — what is under test is that a focused card answers Enter, not
+    // where it sits in the sequence.
+    screen.getByTestId('task-card').focus()
+    await user.keyboard('{Enter}')
+    expect(onSelectTask).toHaveBeenCalled()
+  })
+
+  test('links straight to the result — the reason somebody opened the list', () => {
+    list({ tasks: [task({ filedDocumentId: 'doc-9' })] })
+    expect(screen.getByTestId('task-card-result')).toHaveAttribute(
       'href',
       '/app/projects/p1/files?doc=doc-9',
     )
   })
 
-  test('a chat run carries the rehydration link, never a history link', () => {
-    // "Im Chat fortsetzen" reopens the thread so it can be continued — the
-    // outcome is not linked into a chat history from here.
-    render(<TaskList projectId="p1" tasks={[task({ kind: 'chat', conversationId: 'conv-3' })]} jobs={[]} />)
-    const link = screen.getByTestId('task-conversation-link')
-    expect(link).toHaveAttribute('href', '/app/projects/p1/chat?session=conv-3')
-    expect(link).toHaveTextContent('Continue in chat')
+  test('following the result does NOT also open the drawer behind it', async () => {
+    const user = userEvent.setup()
+    const { onSelectTask } = list({ tasks: [task({ filedDocumentId: 'doc-9' })] })
+    await user.click(screen.getByTestId('task-card-result'))
+    expect(onSelectTask).not.toHaveBeenCalled()
   })
 
-  test('carries the reviewer’s own words when the work was sent back', () => {
-    // Verbatim: the next run reads exactly this string, and a paraphrase would
-    // be an objection somebody else made.
-    render(
-      <TaskList
-        projectId="p1"
-        tasks={[
-          task({ review: 'rejected', reviewReason: 'Die Fluchtweglänge stimmt nicht' }),
-        ]}
-        jobs={[]}
-      />,
-    )
-    expect(screen.getByTestId('task-review')).toHaveTextContent('Sent back')
-    expect(screen.getByTestId('task-review-reason')).toHaveTextContent(
-      'Die Fluchtweglänge stimmt nicht',
-    )
+  test('a finished task nobody judged is marked — that is the open loop', () => {
+    list({ tasks: [task({ status: 'succeeded', review: null })] })
+    expect(screen.getByTestId('task-card-unreviewed')).toBeInTheDocument()
   })
 
-  test('shows the worker’s sanitized error on a failure', () => {
-    render(
-      <TaskList
-        projectId="p1"
-        tasks={[task({ status: 'failed', error: 'Das Budget war aufgebraucht.' })]}
-        jobs={[]}
-      />,
-    )
-    expect(screen.getByTestId('task-error')).toHaveTextContent('Das Budget war aufgebraucht.')
-    expect(screen.getByTestId('task-error')).toHaveClass('text-error')
+  test('…and the mark goes once somebody has judged it', () => {
+    list({ tasks: [task({ status: 'succeeded', review: 'accepted' })] })
+    expect(screen.queryByTestId('task-card-unreviewed')).not.toBeInTheDocument()
+    expect(screen.getByTestId('task-review')).toHaveTextContent('Accepted')
   })
 
-  test('shows the submission error on an errored run too', () => {
-    // `error` is a fire that never reached the agent; it is just as red as a
-    // `failed` run and owes the reader the same reason. A `failed`-only guard
-    // hid it exactly where it is the only explanation there is.
-    render(
-      <TaskList
-        projectId="p1"
-        tasks={[task({ status: 'error', error: 'Die Übermittlung ist fehlgeschlagen.' })]}
-        jobs={[]}
-      />,
-    )
-    expect(screen.getByTestId('task-error')).toHaveTextContent('Die Übermittlung ist fehlgeschlagen.')
-    expect(screen.getByTestId('task-error')).toHaveClass('text-error')
+  test('a rejection carries the reviewer’s own words, never a paraphrase', () => {
+    list({
+      tasks: [
+        task({
+          review: 'rejected',
+          reviewReason: 'Die Barrierefreiheit fehlt — bitte mit OIB 4 gegenprüfen.',
+        }),
+      ],
+    })
+    expect(screen.getByTestId('task-review-reason')).toHaveTextContent('bitte mit OIB 4')
   })
 
-  test('names who asked, so a shared project’s list is legible', () => {
-    render(<TaskList {...baseProps} />)
-    expect(screen.getByText(/Anna Berger/)).toBeInTheDocument()
-  })
-
-  test('selecting a row opens its detail rather than navigating away', () => {
-    const onSelectTask = vi.fn()
-    render(<TaskList {...baseProps} onSelectTask={onSelectTask} />)
-    fireEvent.click(screen.getByTestId('task-title'))
-    expect(onSelectTask).toHaveBeenCalledWith(expect.objectContaining({ id: 'task-1' }))
-  })
-
-  test('shows an invitation rather than an empty box', () => {
-    render(<TaskList projectId="p1" tasks={[]} jobs={[]} />)
-    expect(screen.getByText('Nothing delegated yet')).toBeInTheDocument()
-    expect(screen.queryByTestId('task-row')).toBeNull()
-  })
-
-  test('says the listing failed rather than claiming there is no work', () => {
-    // „Noch nichts übergeben" over a failed request is the one lie this surface
-    // could tell that a person would act on.
-    render(<TaskList projectId="p1" tasks={[]} jobs={[]} failed />)
-    expect(screen.getByText('The task list could not be loaded')).toBeInTheDocument()
-    expect(screen.queryByText('Nothing delegated yet')).toBeNull()
-  })
-
-  test('a failed task load errors inline without hiding healthy schedules', () => {
-    // The two fetches fail independently, so the two groups report
-    // independently: a task-fail must never take healthy schedules with it.
-    render(<TaskList projectId="p1" tasks={[]} jobs={[job()]} failed />)
-
-    expect(screen.getByTestId('template-row')).toBeInTheDocument()
-    expect(screen.getByText('The task list could not be loaded')).toBeInTheDocument()
-    expect(screen.queryByTestId('task-row')).toBeNull()
-  })
-
-  test('templates answer only to the schedules load, never to the task load', () => {
-    render(<TaskList projectId="p1" tasks={[task()]} jobs={[]} jobsFailed />)
-
-    expect(screen.getByText('The schedules could not be loaded.')).toBeInTheDocument()
-    expect(screen.getByTestId('task-row')).toBeInTheDocument()
-  })
-
-  test('shows a skeleton while it is loading, not the empty state', () => {
-    render(<TaskList projectId="p1" tasks={[]} jobs={[]} loading />)
-    expect(screen.getByTestId('task-list-loading')).toBeInTheDocument()
-    expect(screen.queryByText('Nothing delegated yet')).toBeNull()
-  })
-
-  test('a loading task load does not hide healthy schedules', () => {
-    // The two fetches answer independently: the skeleton belongs to the
-    // instances section, never to the whole list.
-    render(<TaskList projectId="p1" tasks={[]} jobs={[job()]} loading />)
-
-    expect(screen.getByTestId('template-row')).toBeInTheDocument()
-    expect(screen.getByTestId('task-list-loading')).toBeInTheDocument()
+  test('a failure says why, both when the run broke and when the submission did', () => {
+    for (const status of ['failed', 'error'] as const) {
+      const { unmount } = list({ tasks: [task({ status, error: 'Budget aufgebraucht.' })] })
+      expect(screen.getByTestId('task-error')).toHaveTextContent('Budget aufgebraucht.')
+      unmount()
+    }
   })
 })
 
-describe('TaskList templates', () => {
-  test('a template row names its cadence and its next fire, not a status', () => {
-    render(<TaskList projectId="p1" tasks={[]} jobs={[job()]} />)
+describe('the filter row', () => {
+  const mixed = [
+    task({ id: 'a', status: 'running' }),
+    task({ id: 'b', status: 'succeeded', review: null }),
+    task({ id: 'c', status: 'succeeded', review: 'accepted' }),
+    task({ id: 'd', status: 'failed', error: 'kaputt' }),
+  ]
 
-    expect(screen.getByTestId('template-row')).toBeInTheDocument()
-    expect(screen.getByTestId('template-cadence')).toHaveTextContent(
-      'Weekly on Monday at 06:00 · Europe/Vienna',
-    )
-    expect(screen.getByTestId('template-next')).toHaveTextContent(/Next/)
-    // A schedule is not work: it carries no planner status and no review.
-    expect(screen.queryByTestId('task-status')).toBeNull()
-    expect(screen.queryByTestId('task-review')).toBeNull()
+  test('carries the counts, so a filter is never a click to learn nothing', () => {
+    list({ tasks: mixed })
+    expect(within(screen.getByTestId('task-filter-all')).getByText('4')).toBeInTheDocument()
+    expect(within(screen.getByTestId('task-filter-active')).getByText('1')).toBeInTheDocument()
+    expect(within(screen.getByTestId('task-filter-unreviewed')).getByText('1')).toBeInTheDocument()
+    expect(within(screen.getByTestId('task-filter-failed')).getByText('1')).toBeInTheDocument()
   })
 
-  test('template rows carry no decorative side border — the section groups them', () => {
-    render(<TaskList projectId="p1" tasks={[]} jobs={[job()]} />)
-    const row = screen.getByTestId('template-row')
-    expect(row).not.toHaveClass('border-l-4')
-    expect(row).not.toHaveClass('border-l-info')
+  test('narrows the list to what it names', () => {
+    list({ tasks: mixed, filter: 'failed' })
+    expect(screen.getAllByTestId('task-card')).toHaveLength(1)
+    expect(screen.getByText('Aktenvermerk Fluchtwege')).toBeInTheDocument()
+    expect(screen.getByTestId('task-error')).toBeInTheDocument()
   })
 
-  test('a manual-only definition is a template too, labelled "Manual only"', () => {
-    // The old Jobs tab was its only home; with the tab retired, filtering it
-    // out here would make the definition invisible and uneditable.
-    render(
-      <TaskList projectId="p1" tasks={[]} jobs={[job({ id: 'j-man', scheduleCron: null })]} />,
-    )
-    expect(screen.getByTestId('template-row')).toBeInTheDocument()
-    expect(screen.getByTestId('template-cadence')).toHaveTextContent('Manual only')
+  test('reports the pick rather than owning it — the panel holds the filter', async () => {
+    const user = userEvent.setup()
+    const { onFilterChange } = list({ tasks: mixed })
+    await user.click(screen.getByTestId('task-filter-unreviewed'))
+    expect(onFilterChange).toHaveBeenCalledWith('unreviewed')
   })
 
-  test('the schedules group offers the create action where a reader looks', () => {
-    const onCreateSchedule = vi.fn()
-    render(
-      <TaskList
-        projectId="p1"
-        tasks={[]}
-        jobs={[]}
-        canManageJobs
-        onCreateSchedule={onCreateSchedule}
-      />,
-    )
-    fireEvent.click(screen.getByTestId('task-templates-new'))
-    expect(onCreateSchedule).toHaveBeenCalledTimes(1)
+  test('an empty NARROWED list says so, and offers the way back', async () => {
+    const user = userEvent.setup()
+    const { onFilterChange } = list({ tasks: [task({ status: 'succeeded', review: 'accepted' })], filter: 'failed' })
+    expect(screen.getByText('Nothing has failed')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Show all tasks' }))
+    expect(onFilterChange).toHaveBeenCalledWith('all')
+  })
+})
+
+describe('the shape of a long list', () => {
+  test('groups by recency, newest group first', () => {
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    const older = new Date()
+    older.setDate(older.getDate() - 20)
+
+    list({
+      tasks: [
+        task({ id: 'a', createdAt: new Date().toISOString() }),
+        task({ id: 'b', createdAt: yesterday.toISOString() }),
+        task({ id: 'c', createdAt: older.toISOString() }),
+      ],
+    })
+    const headings = screen.getAllByRole('heading', { level: 2 }).map((node) => node.textContent)
+    expect(headings).toEqual(['Today', 'Yesterday', 'Earlier'])
+  })
+})
+
+describe('the three states that are not a list', () => {
+  test('nothing yet reads as an invitation', () => {
+    list({ tasks: [] })
+    expect(screen.getByText('Nothing delegated yet')).toBeInTheDocument()
   })
 
-  test('no create affordance without project:skills:manage', () => {
-    render(<TaskList projectId="p1" tasks={[]} jobs={[]} onCreateSchedule={vi.fn()} />)
-    expect(screen.queryByTestId('task-templates-new')).toBeNull()
+  test('a failed load says the rest of the project is fine, and offers a retry', async () => {
+    const user = userEvent.setup()
+    const onRetry = vi.fn()
+    list({ tasks: [], failed: true, onRetry })
+    expect(screen.getByText('The task list could not be loaded')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(onRetry).toHaveBeenCalled()
   })
 
-  test('pausing a schedule toggles it optimistically', async () => {
-    const updated = job({ enabled: false })
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => updated })
-    vi.stubGlobal('fetch', fetchMock)
-    try {
-      const onJobChanged = vi.fn()
-      render(
-        <TaskList
-          projectId="p1"
-          tasks={[]}
-          jobs={[job()]}
-          canManageJobs
-          onJobChanged={onJobChanged}
-        />,
-      )
-
-      fireEvent.click(await screen.findByRole('switch'))
-
-      await waitFor(() =>
-        expect(fetchMock).toHaveBeenCalledWith(
-          '/api/projects/p1/jobs/job-1',
-          expect.objectContaining({ method: 'PATCH' }),
-        ),
-      )
-      expect(onJobChanged).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }))
-    } finally {
-      vi.unstubAllGlobals()
-    }
-  })
-
-  test('read-only without project:skills:manage — no switch to pause with', () => {
-    render(<TaskList projectId="p1" tasks={[]} jobs={[job()]} canManageJobs={false} />)
-    expect(screen.getByTestId('template-row')).toBeInTheDocument()
-    expect(screen.queryByRole('switch')).toBeNull()
-  })
-
-  test('selecting a template opens its detail', () => {
-    const onSelectJob = vi.fn()
-    render(<TaskList projectId="p1" tasks={[]} jobs={[job()]} onSelectJob={onSelectJob} />)
-    fireEvent.click(screen.getByTestId('template-title'))
-    expect(onSelectJob).toHaveBeenCalledWith(expect.objectContaining({ id: 'job-1' }))
-  })
-
-  test('no submission words reach either shape', () => {
-    // Statuses are planner words on rows; `submitted`/`pending` are folded at
-    // the panel boundary (see tasks-panel.spec), so neither shape may render
-    // them — and templates render no status at all.
-    render(<TaskList projectId="p1" tasks={[task({ status: 'queued' })]} jobs={[job()]} />)
-    expect(screen.queryByText('Submitted')).toBeNull()
-    expect(screen.queryByText('Pending')).toBeNull()
-    expect(screen.queryByText('submitted')).toBeNull()
-    expect(screen.queryByText('pending')).toBeNull()
+  test('loading is a skeleton, never an empty state that claims there is nothing', () => {
+    list({ tasks: [], loading: true })
+    expect(screen.getByTestId('task-list-loading')).toBeInTheDocument()
+    expect(screen.queryByText('Nothing delegated yet')).not.toBeInTheDocument()
   })
 })

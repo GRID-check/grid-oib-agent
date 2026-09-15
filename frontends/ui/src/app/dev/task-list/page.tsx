@@ -7,9 +7,11 @@
  *  1. **A mixed list.** What a project that uses Piloti looks like after a
  *     fortnight: something running, something waiting for a person, something
  *     that was sent back with words, something that failed. What the shot is
- *     for is the ROW — that the kind chip, the title, the status and the review
- *     stay on one line as the title grows, and that the two links at the foot
- *     read as places to go rather than as decoration.
+ *     for is the CARD — the status swatch on the title line (the same rounded
+ *     square the timetable's legend uses), the unreviewed dot, the recency
+ *     headings that group the column, the filter row with its counts, and the
+ *     one result link on the tray that is the only thing inside the card that
+ *     is not the card's own click target.
  *  2. **Nothing yet.** The state most projects are in on day one, and the one
  *     that has to read as an invitation rather than as a list that failed to
  *     load — the distinction the error panel underneath it depends on.
@@ -18,10 +20,11 @@
  * under review is the German copy. 404s outside development.
  */
 
+import { useState } from 'react'
 import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { TaskList } from '@/features/tasks/components/task-list'
-import type { TaskWireRow } from '@/features/tasks/lib/task-view'
+import type { TaskFilter, TaskWireRow } from '@/features/tasks/lib/task-view'
 
 const row = (overrides: Partial<TaskWireRow>): TaskWireRow => ({
   id: 'task-0',
@@ -33,10 +36,12 @@ const row = (overrides: Partial<TaskWireRow>): TaskWireRow => ({
   reviewReason: null,
   filedDocumentId: null,
   conversationId: null,
+  backendJobId: null,
+  trigger: 'delegated',
   requesterUserId: 'user_anna',
   requesterName: 'Anna Berger',
-  createdAt: '2026-09-08T09:12:00.000Z',
-  finishedAt: '2026-09-08T09:18:00.000Z',
+  createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+  finishedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
   error: null,
   ...overrides,
 })
@@ -49,6 +54,15 @@ const TASKS: TaskWireRow[] = [
     goal: 'Die Fluchtweglänge im Atrium stimmt nicht; OIB 2.3 gilt hier, nicht 2.',
     status: 'running',
     requesterName: 'Maria Huber',
+  }),
+  row({
+    id: 'task-1b',
+    kind: 'deep-research',
+    title: 'Wöchentlicher OIB-Brandschutz-Scan',
+    goal: null,
+    trigger: 'schedule',
+    backendJobId: 'bj-77',
+    requesterName: null,
   }),
   row({
     id: 'task-2',
@@ -67,16 +81,46 @@ const TASKS: TaskWireRow[] = [
     reviewReason:
       'Der Nachweis für die Barrierefreiheit ist übersehen worden — bitte mit OIB 4 gegenprüfen.',
     conversationId: 'conv-3',
+    createdAt: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
   }),
   row({
     id: 'task-4',
     kind: 'compliance_check',
     title: 'Normprüfung Bestandsplan',
     status: 'failed',
-    error: 'Das Budget für diesen Lauf war aufgebraucht, bevor die Prüfung fertig war.',
+    error: 'Das Budget war aufgebraucht, bevor die Prüfung fertig war.',
     requesterName: null,
+    createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
   }),
 ]
+
+/**
+ * The filter row is stateful, and a preview that pinned it to `all` would be
+ * evidence of a control nobody can press. One holder per panel, so each panel
+ * filters independently.
+ */
+function FilterableList({
+  tasks,
+  loading,
+  failed,
+}: {
+  tasks: TaskWireRow[]
+  loading?: boolean
+  failed?: boolean
+}) {
+  const [filter, setFilter] = useState<TaskFilter>('all')
+  return (
+    <TaskList
+      projectId="preview"
+      tasks={tasks}
+      loading={loading}
+      failed={failed}
+      filter={filter}
+      onFilterChange={setFilter}
+      onSelectTask={() => {}}
+    />
+  )
+}
 
 function Panel({ title, note, children }: { title: string; note: string; children: React.ReactNode }) {
   return (
@@ -99,23 +143,23 @@ export default function TaskListPreview() {
       >
         <Panel
           title="Was gerade läuft, und was schon beurteilt ist"
-          note="Vier Zeilen, vier verschiedene Antworten auf „was ist daraus geworden“. Zu beurteilen: ob die Zeile bei einem langen Titel zusammenbleibt, ob „Zurückgeschickt“ und die Begründung darunter zusammengehören, und ob die beiden Links am Fuß als Orte lesen."
+          note="Fünf Karten, fünf verschiedene Antworten auf „was ist daraus geworden“. Zu beurteilen: ob das Farbquadrat vor dem Titel beim Überfliegen einer Spalte trägt, ohne lauter zu sein als der Titel selbst; ob der Punkt rechts als „noch ungeprüft“ liest; ob „Zurückgeschickt“ und die Begründung darunter zusammengehören; und ob der eine Link in der Fußzeile als Ort liest — er ist das Einzige in der Karte, das nicht die Karte selbst anklickt."
         >
-          <TaskList projectId="preview" tasks={TASKS} jobs={[]} />
+          <FilterableList tasks={TASKS} />
         </Panel>
 
         <Panel
           title="Noch nichts übergeben"
           note="Der Zustand am ersten Tag. Er muss als Einladung lesen, nicht als Liste, die nicht geladen hat — genau diesen Unterschied trägt der Fehlerzustand darunter."
         >
-          <TaskList projectId="preview" tasks={[]} jobs={[]} />
+          <FilterableList tasks={[]} />
         </Panel>
 
         <Panel
           title="Die Liste konnte nicht geladen werden"
           note="Der Unterschied zum Zustand darüber ist die eine Lüge, auf die jemand hin handeln würde."
         >
-          <TaskList projectId="preview" tasks={[]} jobs={[]} failed />
+          <FilterableList tasks={[]} failed />
         </Panel>
       </div>
     </I18nProvider>

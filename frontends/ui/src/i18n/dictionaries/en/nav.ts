@@ -21,12 +21,14 @@ export const nav = {
     files: 'Files',
     knowledge: 'Knowledge',
     research: 'Research',
-    /** The merged Skills + Jobs section; the two live on as tabs inside it. */
+    /** Automation — Tasks, Zeitplan and Skills as tabs inside one section. */
     automation: 'Automation',
     skills: 'Skills',
     jobs: 'Jobs',
-    /** The third Automation tab: work delegated to Piloti (ADR-0051). */
+    /** The tab that leads: work delegated to Piloti, one card per task (ADR-0051). */
     tasks: 'Tasks',
+    /** The week Piloti is committed to — the timetable and the schedules on it. */
+    schedule: 'Schedule',
     archiv: 'Archiv',
     settings: 'Settings',
     // The intake wizard, labelled "Setup" in the product (⌘K palette only).
@@ -34,13 +36,12 @@ export const nav = {
   },
   sectionGroups: {
     work: 'Work',
-    automate: 'Automate',
     org: 'Organization',
   },
   sectionSubtitles: {
     files: 'Documents that ground Piloti’s answers in this project.',
     automation:
-      'Skills the organization reuses, schedules this project runs, and the tasks Piloti was handed.',
+      'What Piloti did while you were away, what it will do next, and the skills it does it with.',
     knowledge: 'What the knowledge base currently contains.',
     settings: 'Project profile, members, memory, and danger zone.',
     intake: 'Guided briefing for this project.',
