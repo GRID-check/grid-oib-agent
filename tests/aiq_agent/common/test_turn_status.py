@@ -769,41 +769,21 @@ class TestRoundAnnouncementMirrorsTheLiveFrame:
     rounds — so the interesting assertions here are the PARITY ones.
     """
 
-    def test_a_search_round_records_query_tools_and_first_search(self) -> None:
-        record = turn_status.record_round_announcement(
-            round_index=0, calls=_search_calls(), conclusion=None, previous_corpora=[]
-        )
+    def test_a_search_round_records_its_facts_and_no_guessed_purpose(self) -> None:
+        record = turn_status.record_round_announcement(round_index=0, calls=_search_calls(), conclusion=None)
         assert record == {
             "index": 0,
             "key": turn_status.KEY_RETRIEVAL_WITH_QUERY,
             "tools": ["knowledge_search"],
             "corpora": ["knowledge"],
-            "purpose": turn_status.ROUND_PURPOSE_FIRST_SEARCH,
             "query": "Fluchtweglänge GK4",
         }
 
-    def test_a_locator_round_after_search_is_an_open(self) -> None:
-        record = turn_status.record_round_announcement(
-            round_index=1, calls=_open_calls(), conclusion=None, previous_corpora=["knowledge"]
-        )
+    def test_a_locator_round_records_its_key(self) -> None:
+        record = turn_status.record_round_announcement(round_index=1, calls=_open_calls(), conclusion=None)
         assert record is not None
-        assert record["purpose"] == turn_status.ROUND_PURPOSE_OPEN
         assert record["key"] == turn_status.KEY_RETRIEVAL_PUNKT
-
-    def test_a_search_on_untouched_corpora_is_new_corpus(self) -> None:
-        calls = [{"name": "ris_search_tool", "args": {"query": "Bauordnung"}}]
-        record = turn_status.record_round_announcement(
-            round_index=1, calls=calls, conclusion=None, previous_corpora=["knowledge"]
-        )
-        assert record is not None
-        assert record["purpose"] == turn_status.ROUND_PURPOSE_NEW_CORPUS
-
-    def test_a_further_search_on_known_corpora_is_search(self) -> None:
-        record = turn_status.record_round_announcement(
-            round_index=2, calls=_search_calls(), conclusion=None, previous_corpora=["knowledge"]
-        )
-        assert record is not None
-        assert record["purpose"] == turn_status.ROUND_PURPOSE_SEARCH
+        assert record["tools"] == ["read_passage"]
 
     def test_action_batches_and_empties_record_nothing(self) -> None:
         assert (
@@ -811,13 +791,10 @@ class TestRoundAnnouncementMirrorsTheLiveFrame:
                 round_index=0,
                 calls=[{"name": "remember", "args": {}}],
                 conclusion=None,
-                previous_corpora=[],
             )
             is None
         )
-        assert (
-            turn_status.record_round_announcement(round_index=0, calls=[], conclusion=None, previous_corpora=[]) is None
-        )
+        assert turn_status.record_round_announcement(round_index=0, calls=[], conclusion=None) is None
 
     def test_the_reason_is_the_ranked_checkpoint_clipped_like_the_frame(self, steps) -> None:
         calls = [
@@ -826,9 +803,7 @@ class TestRoundAnnouncementMirrorsTheLiveFrame:
                 "args": {"query": "q", "conclusion": "Die Grundregel steht."},
             }
         ]
-        record = turn_status.record_round_announcement(
-            round_index=0, calls=calls, conclusion="Prose beside the calls.", previous_corpora=[]
-        )
+        record = turn_status.record_round_announcement(round_index=0, calls=calls, conclusion="Prose beside the calls.")
         assert record is not None
         assert record["reason"] == "Die Grundregel steht."
         turn_status.emit_retrieval(calls, round_index=0, conclusion="Prose beside the calls.")
@@ -844,9 +819,7 @@ class TestRoundAnnouncementMirrorsTheLiveFrame:
             [],
         ]
         for index, calls in enumerate(batches):
-            record = turn_status.record_round_announcement(
-                round_index=index, calls=calls, conclusion=None, previous_corpora=[]
-            )
+            record = turn_status.record_round_announcement(round_index=index, calls=calls, conclusion=None)
             assert (record is None) == (not turn_status.emit_retrieval(calls, round_index=99))
 
 

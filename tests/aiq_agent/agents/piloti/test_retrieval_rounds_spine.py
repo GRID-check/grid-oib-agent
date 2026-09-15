@@ -48,6 +48,10 @@ SEEN: list[tuple[str, int | None]] = []
 def knowledge_search(query: str) -> str:
     """Search the OIB knowledge corpus."""
     SEEN.append(("knowledge_search", current_retrieval_round()))
+    # What the real emitter does inside the tool's formatter. Recorded here so
+    # the compiled-graph test below can prove the capture begun in run()
+    # reaches a tool task and its hits join the announced round.
+    turn_status.record_lane_hit(f"{query}.pdf", title=f"Treffer zu {query}")
     return f"Treffer zu: {query}"
 
 
@@ -55,6 +59,7 @@ def knowledge_search(query: str) -> str:
 def read_passage(document: str, punkt: str = "") -> str:
     """Open a named passage of a named document."""
     SEEN.append(("read_passage", current_retrieval_round()))
+    turn_status.record_lane_hit(f"{document}.pdf", detail=f"p.{punkt}" if punkt else None)
     return f"{document}, Pkt. {punkt}"
 
 
@@ -178,6 +183,50 @@ class TestTheRoundStampReachesTheTool:
         await agent.run(ResearchAgentState(messages=[HumanMessage(content="Wie hoch?")]))
 
         assert current_retrieval_round() is None
+
+
+class TestTheLaneCaptureReachesTheLedger:
+    """Capture begun in ``run()`` must be visible to the TOOL task.
+
+    The round-stamp hazard above applies to the capture list too: it is a
+    ContextVar created in ``run()`` and mutated from inside tool tasks, and a
+    unit test that calls an emitter in the same context that began the capture
+    passes on broken propagation. The only test that can fail on that defect
+    goes through the compiled graph with a real ToolNode — which is this one.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_tools_hits_join_their_round_in_the_ledger(self, scripted_agent):
+        agent = scripted_agent(
+            _search("k1", "OIB 2", "Ich brauche zuerst die Grundregel."),
+            AIMessage(
+                content="Die Grundregel steht; den Punkt noch nicht gelesen.",
+                tool_calls=[{"name": "read_passage", "args": {"document": "OIB 2", "punkt": "3.5.2"}, "id": "p1"}],
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Was weißt du über die OIB 2?")]))
+
+        ledger = result.retrieval_ledger
+        assert ledger is not None, (
+            "the tools' hits never reached the ledger — the capture did not cross the node boundary"
+        )
+        assert [entry["index"] for entry in ledger] == [0, 1]
+        # Round 0 found the document; round 1 opened the same file at a Punkt.
+        assert ledger[0]["docs"][0]["name"] == "OIB 2.pdf"
+        assert ledger[1]["docs"] == [{"name": "OIB 2.pdf", "detail": "p.3.5.2"}]
+        # Same name, so the open round added no NEW document — the reference
+        # shape the fair frontend will fold rather than draw twice.
+        assert ledger[1]["new_docs"] == []
+
+    @pytest.mark.asyncio
+    async def test_the_capture_does_not_outlive_the_turn(self, scripted_agent):
+        agent = scripted_agent(_search("k1", "Geländerhöhe"), AIMessage(content="Die Antwort [1]."))
+
+        await agent.run(ResearchAgentState(messages=[HumanMessage(content="Wie hoch?")]))
+
+        assert turn_status.get_lane_captures() == []
 
 
 class TestCheckpointRate:

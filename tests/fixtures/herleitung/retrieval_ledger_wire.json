@@ -4,7 +4,6 @@
     "key": "status.retrieval.withQuery",
     "tools": ["knowledge_search"],
     "corpora": ["knowledge"],
-    "purpose": "first_search",
     "query": "Fluchtweglänge GK4",
     "docs": [
       {
@@ -24,7 +23,6 @@
     "key": "status.retrieval.punkt",
     "tools": ["read_passage"],
     "corpora": ["knowledge"],
-    "purpose": "open",
     "reason": "Die Grundregel steht.",
     "docs": [
       {

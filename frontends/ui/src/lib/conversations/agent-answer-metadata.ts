@@ -86,6 +86,12 @@ const BACKEND_ANSWER_KEYS = [
   // envelope's gated wire payload, stored under the camelCase key the client
   // writer uses so history reads one dialect.
   'answer_meta',
+  // The backend's account of the turn's retrieval rounds, written by the
+  // socket-persistence path (`websocket_reconnect.persist_assistant_message`)
+  // when the client had gone. Without this entry the snake_case key would stay
+  // in the row forever and a later tightening of this list would delete the
+  // ledger for exactly the turns it was added for.
+  'retrieval_ledger',
 ] as const
 
 /**
@@ -388,6 +394,11 @@ export function provenanceFromBackendMetadata(
   if (isRecord(metadata.citations_removed)) {
     candidate.citationsRemoved = metadata.citations_removed
   }
+
+  // The backend's account of the turn's retrieval rounds. Bounded by
+  // `sanitizeProvenance` like everything else here, which re-derives the
+  // tallies rather than trusting them.
+  candidate.retrievalLedger = metadata.retrieval_ledger
 
   // The enums are re-checked there, not here: `sanitizeProvenance` is the single
   // gate on this column and a second copy of the value lists would drift.

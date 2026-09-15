@@ -1013,3 +1013,38 @@ class TestLaneCapture:
                 "title": "Garagengesetz",
             }
         ]
+
+    async def test_a_cached_search_still_captures_its_hits(self, fake_client):
+        """A repeat search must not record a round that returned nothing.
+
+        The read-through cache short-circuits before the live path, so without
+        the hits riding along the second identical search would announce a
+        round with `docs: []` while the model received the full hit list — the
+        ledger lying on exactly the repeats it should be counting.
+        """
+        from aiq_agent.common import turn_status
+
+        fake_client.search_result = RisSearchResult(hits=[_sample_hit()], total=1, page=1, page_size=20)
+        config = RisSearchToolConfig()
+        async with ris_search(config, MagicMock()) as info:
+            first = await _call(info, query="Garage Stellplatz")
+
+        token = turn_status.begin_lane_capture()
+        try:
+            with turn_status.retrieval_round_scope(3):
+                async with ris_search(config, MagicMock()) as info:
+                    second = await _call(info, query="Garage Stellplatz")
+            hits = turn_status.get_lane_captures()
+        finally:
+            turn_status.end_lane_capture(token)
+
+        assert second == first
+        assert len(fake_client.search_calls) == 1, "the second call must be served from cache"
+        assert hits == [
+            {
+                "round": 3,
+                "name": "https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR40217157/NOR40217157.html",
+                "title": "Garagengesetz",
+                "detail": "NOR40217157",
+            }
+        ]

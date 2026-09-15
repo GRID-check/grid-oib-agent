@@ -45,8 +45,8 @@ STREAM_EXTRA_FIELDS = (
     # reader opens the reasoning view.
     "skills_activated",
     "skills_hidden",
-    # The backend's own account of this turn's retrieval rounds, for the
-    # Herleitung to read instead of reconstructing.
+    # The backend's own account of this turn's retrieval rounds, carried for
+    # the Herleitung (no renderer yet — phase b).
     "retrieval_ledger",
 )
 

@@ -1,9 +1,9 @@
 """The backend's own account of a turn's retrieval rounds.
 
-The Herleitung spine must read what happened instead of reconstructing it
-from step names: per round what it was asked (query, tools, purpose), what it
-returned (docs with title/detail/shelf), and what was NEW. These tests pin
-that join — announcements recorded beside ``emit_retrieval`` plus captured
+The Herleitung will read what happened (phase b — no renderer yet) instead of
+reconstructing it from step names: per round what it was asked (query, tools),
+what it returned (docs with title/detail/shelf), and what was NEW. These tests
+pin that join — announcements recorded beside ``emit_retrieval`` plus captured
 lane hits — through the three shapes that matter: same docs re-opened (fold),
 new docs (new layer), and nothing announced (absent, not null).
 """
@@ -21,13 +21,12 @@ from aiq_agent.agents.piloti.ledger import build_retrieval_ledger
 from aiq_agent.agents.piloti.models.state import ResearchAgentState
 
 
-def _announcement(index, tools, corpora, purpose, query=None, reason=None, key="status.retrieval.withQuery"):
+def _announcement(index, tools, corpora, query=None, reason=None, key="status.retrieval.withQuery"):
     record = {
         "index": index,
         "key": key,
         "tools": tools,
         "corpora": corpora,
-        "purpose": purpose,
     }
     if query is not None:
         record["query"] = query
@@ -46,8 +45,8 @@ def _hit(round_index, name, detail=None):
 def test_same_docs_reopened_carry_no_new_docs():
     """The reference shape: search finds 4 docs, reads open the same 4."""
     announcements = [
-        _announcement(0, ["knowledge_search"], ["knowledge"], "first_search", query="OIB 2"),
-        _announcement(1, ["read_passage"], ["knowledge"], "open"),
+        _announcement(0, ["knowledge_search"], ["knowledge"], query="OIB 2"),
+        _announcement(1, ["read_passage"], ["knowledge"]),
     ]
     hits = [
         _hit(0, "oib-rl_2.pdf"),
@@ -66,8 +65,8 @@ def test_same_docs_reopened_carry_no_new_docs():
 
 def test_new_docs_are_listed_per_round_case_insensitively():
     announcements = [
-        _announcement(0, ["knowledge_search"], ["knowledge"], "first_search"),
-        _announcement(1, ["knowledge_search"], ["knowledge"], "search"),
+        _announcement(0, ["knowledge_search"], ["knowledge"]),
+        _announcement(1, ["knowledge_search"], ["knowledge"]),
     ]
     hits = [_hit(0, "OIB-RL_2.pdf"), _hit(1, "oib-rl_2.pdf"), _hit(1, "Brandschutzkonzept.pdf")]
     ledger = build_retrieval_ledger(announcements, hits)
@@ -82,7 +81,7 @@ def test_no_announcements_means_no_ledger_not_an_empty_one():
 
 def test_an_announced_round_with_no_hits_stays_a_layer_without_docs():
     """A search that returned nothing is still something the turn did."""
-    announcements = [_announcement(0, ["knowledge_search"], ["knowledge"], "first_search")]
+    announcements = [_announcement(0, ["knowledge_search"], ["knowledge"])]
     ledger = build_retrieval_ledger(announcements, [])
     assert ledger is not None
     assert ledger[0]["docs"] == []
@@ -92,8 +91,8 @@ def test_an_announced_round_with_no_hits_stays_a_layer_without_docs():
 
 def test_unstamped_hits_follow_capture_order_like_stream_order():
     announcements = [
-        _announcement(0, ["knowledge_search"], ["knowledge"], "first_search"),
-        _announcement(1, ["read_passage"], ["knowledge"], "open"),
+        _announcement(0, ["knowledge_search"], ["knowledge"]),
+        _announcement(1, ["read_passage"], ["knowledge"]),
     ]
     hits = [_hit(0, "a.pdf"), {"round": None, "name": "b.pdf"}, _hit(1, "c.pdf")]
     ledger = build_retrieval_ledger(announcements, hits)
@@ -104,7 +103,7 @@ def test_unstamped_hits_follow_capture_order_like_stream_order():
 
 
 def test_duplicate_name_and_detail_pairs_count_once():
-    announcements = [_announcement(0, ["knowledge_search"], ["knowledge"], "first_search")]
+    announcements = [_announcement(0, ["knowledge_search"], ["knowledge"])]
     hits = [_hit(0, "a.pdf", "p.12"), _hit(0, "a.pdf", "p.12"), _hit(0, "a.pdf", "p.31")]
     ledger = build_retrieval_ledger(announcements, hits)
     assert ledger is not None
@@ -120,14 +119,16 @@ def _state(**overrides):
     return ResearchAgentState(messages=[HumanMessage(content="Was weißt du über die OIB 2?")], **overrides)
 
 
-def test_charge_threads_two_rounds_with_purposes_first_search_then_open():
+def test_charge_threads_two_rounds_with_their_facts():
     search = [{"name": "knowledge_search", "args": {"query": "OIB 2"}}]
     opens = [{"name": "read_passage", "args": {"document": "oib-rl_2.pdf", "punkt": "3.5.2"}}]
     state = _state()
     research, _interaction, retrieval_round, first = _charge_tool_calls(_response(search), state, 9)
     assert (research, retrieval_round) == (1, 1)
     assert first is not None
-    assert first["purpose"] == "first_search"
+    assert first["key"] == "status.retrieval.withQuery"
+    assert first["query"] == "OIB 2"
+    assert "purpose" not in first
     state = state.model_copy(
         update={
             "tool_iterations": research,
@@ -140,7 +141,7 @@ def test_charge_threads_two_rounds_with_purposes_first_search_then_open():
     )
     assert retrieval_round == 2
     assert second is not None
-    assert second["purpose"] == "open"
+    assert second["key"] == "status.retrieval.punkt"
     assert second["reason"] == "Die Richtlinie gilt grundsätzlich."
 
 
@@ -160,7 +161,7 @@ def test_charge_without_tool_calls_keeps_the_tuple_shape():
 
 
 def test_assemble_attaches_the_ledger_and_omits_it_without_rounds():
-    announcements = [_announcement(0, ["knowledge_search"], ["knowledge"], "first_search")]
+    announcements = [_announcement(0, ["knowledge_search"], ["knowledge"])]
     hits = [_hit(0, "oib-rl_2.pdf", "p.12")]
     graph_result = {"retrieval_rounds": announcements, "answer_measurement_grounded": False}
     final = FinalAnswer(messages=[], answered=False)
@@ -187,12 +188,11 @@ def test_builder_output_matches_the_wire_fixture():
         .read_text(encoding="utf-8")
     )
     announcements = [
-        _announcement(0, ["knowledge_search"], ["knowledge"], "first_search", query="Fluchtweglänge GK4"),
+        _announcement(0, ["knowledge_search"], ["knowledge"], query="Fluchtweglänge GK4"),
         _announcement(
             1,
             ["read_passage"],
             ["knowledge"],
-            "open",
             reason="Die Grundregel steht.",
             key="status.retrieval.punkt",
         ),

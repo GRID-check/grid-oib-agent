@@ -3,14 +3,13 @@
  *
  * The backend states what each retrieval round was asked, returned, and added
  * (`retrieval_ledger` on the terminal frame); the Herleitung will read it
- * instead of reconstructing rounds from step names. Every link had a test for
- * skills and the crossing did not — this file is the ledger's crossing, in
- * the same shape: frame → transparency bundle → schema, plus the
- * backend/frontend name parity that fails when either side renames the field.
+ * (phase b — no renderer yet) instead of reconstructing rounds from step
+ * names. Every link had a test for skills and the crossing did not — this file
+ * is the ledger's crossing, in the same shape: frame → transparency bundle →
+ * schema. The Python↔TS wire contract itself is pinned by the shared fixture,
+ * asserted on both sides.
  */
 
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { NATMessageType, NATWebSocketClient } from './websocket-client'
 import { NATSystemResponseMessageSchema } from './schemas'
@@ -71,7 +70,6 @@ const WIRE_LEDGER = [
     key: 'status.retrieval.withQuery',
     tools: ['knowledge_search'],
     corpora: ['knowledge'],
-    purpose: 'first_search',
     query: 'Fluchtweglänge GK4',
     docs: [{ name: 'OIB-RL_2.pdf' }],
     new_docs: ['OIB-RL_2.pdf'],
@@ -100,7 +98,6 @@ describe('the retrieval ledger reaches the answer, not just the schema', () => {
         key: 'status.retrieval.withQuery',
         tools: ['knowledge_search'],
         corpora: ['knowledge'],
-        purpose: 'first_search',
         query: 'Fluchtweglänge GK4',
         docs: [{ name: 'OIB-RL_2.pdf' }],
         newDocs: ['OIB-RL_2.pdf'],
@@ -133,26 +130,6 @@ describe('the retrieval ledger reaches the answer, not just the schema', () => {
 })
 
 describe('the backend and this client name the same field', () => {
-  const repoRoot = join(process.cwd(), '..', '..')
-
-  /** The string literals inside `_TRANSPARENCY_EXTRA_FIELDS = ( … )`. */
-  const backendFields = (): string[] => {
-    const source = readFileSync(
-      join(repoRoot, 'frontends/aiq_api/src/aiq_api/websocket_reconnect.py'),
-      'utf8'
-    )
-    const block = source.split('_TRANSPARENCY_EXTRA_FIELDS = (')[1]
-    expect(block, '_TRANSPARENCY_EXTRA_FIELDS not found').toBeDefined()
-    // To the closing paren on its own line — comments inside the tuple hold
-    // parens of their own, so the first `)` is not the end.
-    const body = block.split('\n)')[0]
-    return [...body.matchAll(/"([^"]+)"/g)].map((match) => match[1])
-  }
-
-  test('the backend lifts retrieval_ledger onto the terminal frame', () => {
-    expect(backendFields()).toContain('retrieval_ledger')
-  })
-
   test('the schema round-trips the lifted value instead of dropping it', () => {
     const parsed = NATSystemResponseMessageSchema.parse({
       type: 'system_response_message',

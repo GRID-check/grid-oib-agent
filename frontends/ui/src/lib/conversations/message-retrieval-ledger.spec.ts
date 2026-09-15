@@ -15,44 +15,43 @@ const FIXTURE_PATH = resolve(__dirname, '../../../../../tests/fixtures/herleitun
 
 const fixture = JSON.parse(readFileSync(FIXTURE_PATH, 'utf-8')) as unknown
 
+const ROUND_0 = {
+  index: 0,
+  key: 'status.retrieval.withQuery',
+  tools: ['knowledge_search'],
+  corpora: ['knowledge'],
+  query: 'Fluchtweglänge GK4',
+  docs: [
+    { name: 'OIB-RL_2.pdf', title: 'OIB-Richtlinie 2, Ausgabe Mai 2023' },
+    { name: 'Brandschutzkonzept.pdf' },
+  ],
+  newDocs: ['OIB-RL_2.pdf', 'Brandschutzkonzept.pdf'],
+  hits: 2,
+  documents: 2,
+}
+
+const ROUND_1 = {
+  index: 1,
+  key: 'status.retrieval.punkt',
+  tools: ['read_passage'],
+  corpora: ['knowledge'],
+  reason: 'Die Grundregel steht.',
+  docs: [
+    {
+      name: 'OIB-RL_2.pdf',
+      title: 'OIB-Richtlinie 2, Ausgabe Mai 2023',
+      detail: 'p.12',
+    },
+    { name: 'Brandschutzkonzept.pdf', detail: 'p.3' },
+  ],
+  newDocs: [],
+  hits: 2,
+  documents: 2,
+}
+
 describe('sanitizeRetrievalLedger', () => {
   test('the backend-built wire payload survives shape-shifted', () => {
-    expect(sanitizeRetrievalLedger(fixture)).toEqual([
-      {
-        index: 0,
-        key: 'status.retrieval.withQuery',
-        tools: ['knowledge_search'],
-        corpora: ['knowledge'],
-        purpose: 'first_search',
-        query: 'Fluchtweglänge GK4',
-        docs: [
-          { name: 'OIB-RL_2.pdf', title: 'OIB-Richtlinie 2, Ausgabe Mai 2023' },
-          { name: 'Brandschutzkonzept.pdf' },
-        ],
-        newDocs: ['OIB-RL_2.pdf', 'Brandschutzkonzept.pdf'],
-        hits: 2,
-        documents: 2,
-      },
-      {
-        index: 1,
-        key: 'status.retrieval.punkt',
-        tools: ['read_passage'],
-        corpora: ['knowledge'],
-        purpose: 'open',
-        reason: 'Die Grundregel steht.',
-        docs: [
-          {
-            name: 'OIB-RL_2.pdf',
-            title: 'OIB-Richtlinie 2, Ausgabe Mai 2023',
-            detail: 'p.12',
-          },
-          { name: 'Brandschutzkonzept.pdf', detail: 'p.3' },
-        ],
-        newDocs: [],
-        hits: 2,
-        documents: 2,
-      },
-    ])
+    expect(sanitizeRetrievalLedger(fixture)).toEqual([ROUND_0, ROUND_1])
   })
 
   test('nothing usable yields null, never an empty array', () => {
@@ -81,9 +80,27 @@ describe('sanitizeRetrievalLedger', () => {
     expect(ledger?.[0]?.query).toHaveLength(32)
   })
 
-  test('an unknown purpose stays a string for the renderer to read generically', () => {
-    const ledger = sanitizeRetrievalLedger([{ index: 0, key: 'k', purpose: 'requery' }])
-    expect(ledger?.[0]?.purpose).toBe('requery')
+  test('tallies are derived from the docs, not trusted from the payload', () => {
+    // The untrusted boundary: a tampered payload rendering "999 Treffer" over
+    // one file is exactly what this sanitizer exists to stop.
+    const ledger = sanitizeRetrievalLedger([
+      {
+        index: 0,
+        key: 'k',
+        docs: [{ name: 'a.pdf' }, { name: 'a.pdf', detail: 'p.2' }, { name: 'b.pdf' }],
+        hits: 999,
+        documents: 999,
+      },
+    ])
+    expect(ledger?.[0]?.hits).toBe(3)
+    expect(ledger?.[0]?.documents).toBe(2)
+  })
+
+  test('newDocs is filtered to names that are actually in docs', () => {
+    const ledger = sanitizeRetrievalLedger([
+      { index: 0, key: 'k', docs: [{ name: 'a.pdf' }], new_docs: ['a.pdf', 'ghost.pdf'] },
+    ])
+    expect(ledger?.[0]?.newDocs).toEqual(['a.pdf'])
   })
 
   test('rounds are capped, docs per round are capped', () => {

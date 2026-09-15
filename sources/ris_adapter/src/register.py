@@ -308,6 +308,21 @@ def _make_planner(llm):
     return _plan
 
 
+def _cache_hits(raw: object) -> list[tuple[str | None, str | None, str | None]]:
+    """The hit triples stored beside a cached search text, defensively read.
+
+    The cache is shared and may hold a payload from another build: anything
+    that is not a (name, title, detail) triple is skipped, never guessed.
+    """
+    if not isinstance(raw, list):
+        return []
+    hits: list[tuple[str | None, str | None, str | None]] = []
+    for entry in raw:
+        if isinstance(entry, (list, tuple)) and len(entry) == 3:
+            hits.append((entry[0], entry[1], entry[2]))
+    return hits
+
+
 def _capture_lane_hits(hits: list[tuple[str | None, str | None, str | None]]) -> None:
     """Best-effort per-round ledger capture: ``(name, title, detail)`` per shown hit.
 
@@ -502,9 +517,20 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
         # Live-search read-through cache: skips both the planner LLM and the RIS
         # API for a repeat of the exact same search. The catalog shortcut above
         # is local and already free, so it is deliberately not cached here.
+        #
+        # The cache entry carries the HITS beside the text, so a repeat search
+        # still feeds the per-round ledger: the model receives the same
+        # documents either way, and a round whose evidence silently vanished
+        # from the account would make the ledger lie exactly on repeats.
         search_key = search_cache_key("|".join([application, query, title, bundesland, date_from, date_to, str(page)]))
         cached_search = await cache_get_json(search_key)
+        if isinstance(cached_search, dict) and isinstance(cached_search.get("text"), str) and cached_search["text"]:
+            _capture_lane_hits(_cache_hits(cached_search.get("hits")))
+            return cached_search["text"]
         if isinstance(cached_search, str) and cached_search:
+            # A legacy entry written before the hits rode along: the text is
+            # still good, the hits are not reconstructible — capture nothing
+            # rather than inventing a round's evidence.
             return cached_search
 
         effective = {
@@ -566,16 +592,15 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
             )
 
         shown = result.hits[:max_results]
-        _capture_lane_hits(
-            [
-                (
-                    hit.citation_url or hit.fetch_url or hit.title,
-                    hit.title or None,
-                    hit.document_number or None,
-                )
-                for hit in shown
-            ]
-        )
+        hit_triples = [
+            (
+                hit.citation_url or hit.fetch_url or hit.title,
+                hit.title or None,
+                hit.document_number or None,
+            )
+            for hit in shown
+        ]
+        _capture_lane_hits(hit_triples)
         total_pages = max(1, -(-result.total // result.page_size)) if result.total else 1
         lines = [
             f"Found {result.total or len(shown)} RIS document(s) "
@@ -591,8 +616,10 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
         )
         output = "\n".join(lines)
         # Only successful, non-empty results are cached (errors / "no documents
-        # found" returned earlier and are never stored).
-        await cache_set_json(search_key, output, ris_cache_ttl_seconds())
+        # found" returned earlier and are never stored). The hits ride along so
+        # a cache repeat can still feed the per-round ledger (see the read
+        # above); a legacy string entry stays readable either way.
+        await cache_set_json(search_key, {"text": output, "hits": hit_triples}, ris_cache_ttl_seconds())
         return output
 
     try:

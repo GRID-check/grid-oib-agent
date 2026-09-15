@@ -153,41 +153,27 @@ def record_turn_ledger(
 
 
 def _lane_doc_key(name: str) -> str:
-    """Presentation compare for "same document": case- and space-blind.
+    """Presentation compare for "same document": case- and space-insensitive.
 
     This is NOT identity (the registry owns that): it answers only whether a
     later round's hit is already on the reader's screen, so the spine does not
-    draw the same file twice. Two spellings of one file merge here; two files
-    never do.
+    draw the same file twice. The limit is deliberate and worth knowing: it
+    compares NAMES, so the same law reached once as an RIS URL and once as a
+    knowledge-base filename is two names and stays two docs.
     """
     return (name or "").strip().casefold()
 
 
-def build_retrieval_ledger(
-    announcements: Sequence[dict[str, Any]] | None,
-    lane_hits: Sequence[dict[str, Any]] | None,
-) -> list[dict[str, Any]] | None:
-    """Join announced rounds with captured lane hits: the backend's own account.
+def _hits_by_round(lane_hits: Sequence[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
+    """Captured hits bucketed by their round stamp, in capture order.
 
-    Per round: what it was asked (query, tools, purpose), what it returned
-    (docs with title/detail/shelf), and what was NEW (``new_docs``: names no
-    earlier round showed). ``hits``/``documents`` are tallies over the same
-    docs, so a renderer never counts a second time. Returns None when no
-    round was announced — a direct reply has no retrieval to account for,
-    and the wire field stays absent rather than null.
-
-    Unstamped hits (emitted outside a round scope: tests, direct calls) are
-    attributed to the most recent round in capture order — the same fallback
-    the frontend's stream order applies, so both readings agree. Hits with no
-    round to belong to are left out; they stay visible through the existing
-    steps walk and the cards.
+    Unstamped hits (emitted outside a round scope: tests, direct calls) follow
+    the most recent stamp — the same fallback the frontend's stream order
+    applies, so both readings agree. Hits with no round to follow are left out.
     """
-    rounds = [a for a in (announcements or []) if isinstance(a, dict)]
-    if not rounds:
-        return None
-    hits_by_round: dict[int, list[dict[str, Any]]] = {}
+    buckets: dict[int, list[dict[str, Any]]] = {}
     current: int | None = None
-    for hit in lane_hits or []:
+    for hit in lane_hits:
         if not isinstance(hit, dict):
             continue
         round_index = hit.get("round")
@@ -197,51 +183,88 @@ def build_retrieval_ledger(
             continue
         else:
             round_index = current
-        hits_by_round.setdefault(round_index, []).append(hit)
-    seen: set[str] = set()
-    ledger: list[dict[str, Any]] = []
-    for announced in rounds:
-        index = announced.get("index")
-        docs: list[dict[str, Any]] = []
-        doc_signatures: set[tuple[str, str]] = set()
-        for hit in hits_by_round.get(index, []):
-            name = str(hit.get("name") or "").strip()
-            if not name:
-                continue
-            detail = str(hit.get("detail") or "").strip()
-            signature = (_lane_doc_key(name), detail.casefold())
-            if signature in doc_signatures:
-                continue
-            doc_signatures.add(signature)
-            doc: dict[str, Any] = {"name": name}
-            for field in ("title", "detail", "shelf"):
-                value = hit.get(field)
-                if isinstance(value, str) and value.strip():
-                    doc[field] = value.strip()
-            docs.append(doc)
-        new_docs: list[str] = []
-        for doc in docs:
-            key = _lane_doc_key(doc["name"])
-            if key not in seen:
-                seen.add(key)
-                new_docs.append(doc["name"])
-        entry: dict[str, Any] = {
-            "index": index,
-            "key": announced.get("key"),
-            "tools": list(announced.get("tools") or []),
-            "corpora": list(announced.get("corpora") or []),
-            "purpose": announced.get("purpose"),
-            "docs": docs,
-            "new_docs": new_docs,
-            "hits": len(docs),
-            "documents": len({_lane_doc_key(doc["name"]) for doc in docs}),
-        }
-        if announced.get("query"):
-            entry["query"] = announced["query"]
-        if announced.get("reason"):
-            entry["reason"] = announced["reason"]
-        ledger.append(entry)
-    return ledger
+        buckets.setdefault(round_index, []).append(hit)
+    return buckets
+
+
+def _docs_for_round(hits: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The distinct docs one round's hits amount to, in capture order.
+
+    Dedup key is (name, detail): the same file at two pages is two entries a
+    reader can tell apart; the identical pair twice is one.
+    """
+    docs: list[dict[str, Any]] = []
+    signatures: set[tuple[str, str]] = set()
+    for hit in hits:
+        name = str(hit.get("name") or "").strip()
+        if not name:
+            continue
+        detail = str(hit.get("detail") or "").strip()
+        signature = (_lane_doc_key(name), detail.casefold())
+        if signature in signatures:
+            continue
+        signatures.add(signature)
+        doc: dict[str, Any] = {"name": name}
+        for field in ("title", "detail", "shelf"):
+            value = hit.get(field)
+            if isinstance(value, str) and value.strip():
+                doc[field] = value.strip()
+        docs.append(doc)
+    return docs
+
+
+def _round_entry(
+    announced: dict[str, Any],
+    docs: list[dict[str, Any]],
+    seen_before: set[str],
+) -> dict[str, Any]:
+    """One ledger entry: what the round was, what it returned, what was new."""
+    new_docs = [doc["name"] for doc in docs if _lane_doc_key(doc["name"]) not in seen_before]
+    seen_before.update(_lane_doc_key(doc["name"]) for doc in docs)
+    entry: dict[str, Any] = {
+        "index": announced.get("index"),
+        "key": announced.get("key"),
+        "tools": list(announced.get("tools") or []),
+        "corpora": list(announced.get("corpora") or []),
+        "docs": docs,
+        "new_docs": new_docs,
+        "hits": len(docs),
+        "documents": len({_lane_doc_key(doc["name"]) for doc in docs}),
+    }
+    if announced.get("query"):
+        entry["query"] = announced["query"]
+    if announced.get("reason"):
+        entry["reason"] = announced["reason"]
+    return entry
+
+
+def build_retrieval_ledger(
+    announcements: Sequence[dict[str, Any]] | None,
+    lane_hits: Sequence[dict[str, Any]] | None,
+) -> list[dict[str, Any]] | None:
+    """Join announced rounds with captured lane hits: the backend's own account.
+
+    Per round: what it was asked (query, tools), what it returned (docs with
+    title/detail/shelf), and what was NEW (``new_docs``: names no earlier round
+    showed). ``hits``/``documents`` are tallies over the same docs, so a
+    renderer never counts a second time. Returns None when no round was
+    announced — a direct reply has no retrieval to account for, and the wire
+    field stays absent rather than null.
+
+    Known exclusion: the answer-repair pass retrieves outside the graph's tool
+    node, after this capture has closed, and announces no round — its findings
+    are absent by design until a repair round exists. Hits with no round to
+    belong to are left out; they stay visible through the steps walk and cards.
+    """
+    rounds = [a for a in (announcements or []) if isinstance(a, dict)]
+    if not rounds:
+        return None
+    hits_by_round = _hits_by_round(lane_hits or [])
+    seen_before: set[str] = set()
+    return [
+        _round_entry(announced, _docs_for_round(hits_by_round.get(announced.get("index"), [])), seen_before)
+        for announced in rounds
+    ]
 
 
 def assemble_result(

@@ -113,6 +113,7 @@ from collections.abc import Iterator
 from collections.abc import Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
+from contextvars import Token
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -166,12 +167,12 @@ def retrieval_round_scope(round_index: int | None) -> Iterator[None]:
 _lane_captured_hits: ContextVar[list[dict[str, Any]] | None] = ContextVar("grid_lane_captured_hits", default=None)
 
 
-def begin_lane_capture() -> Any:
+def begin_lane_capture() -> Token:
     """Start recording this turn's lane hits. Pair with :func:`end_lane_capture`."""
     return _lane_captured_hits.set([])
 
 
-def end_lane_capture(token: Any) -> None:
+def end_lane_capture(token: Token) -> None:
     """Stop recording this turn's lane hits."""
     _lane_captured_hits.reset(token)
 
@@ -769,18 +770,10 @@ def emit_subject_document(
     push_custom_step(f"{STATUS_STEP_PREFIX}{SUBJECT_DOCUMENT_SLOT}", payload)
 
 
-#: Why the loop went back for another retrieval round. Stable tokens: the
-#: ledger carries them to the reader, so renaming one breaks stored turns the
-#: same way renaming a status key would.
-ROUND_PURPOSE_FIRST_SEARCH = "first_search"
-#: The round only opens named passages (locators), searching nothing new.
-ROUND_PURPOSE_OPEN = "open"
-#: The round searches corpora no earlier round touched.
-ROUND_PURPOSE_NEW_CORPUS = "new_corpus"
-#: A further search round on known corpora.
-ROUND_PURPOSE_SEARCH = "search"
-
-
+#: (A `purpose` field once sat here and was removed before release: it was
+#: inferred, not observed, and mislabelled a first locator round. The facts a
+#: renderer needs — corpora, query, key, new_docs — are recorded without a
+#: guessed enum.)
 def _describe_calls(calls: list[dict[str, Any]]) -> dict[str, Any]:
     """What one batch of tool calls SAYS: corpora, tools, query, key, values.
 
@@ -843,7 +836,6 @@ def record_round_announcement(
     round_index: int,
     calls: Sequence[dict[str, Any]],
     conclusion: str | None,
-    previous_corpora: Sequence[str],
 ) -> dict[str, Any] | None:
     """The stored half of :func:`emit_retrieval`: what round N was, for the ledger.
 
@@ -854,6 +846,11 @@ def record_round_announcement(
     counter skips, so the stored list and the ``status:retrieval:N`` slots
     always cover the same rounds. Query and reason are clipped exactly like
     the frame; the full text stays in the messages.
+
+    No "why" is recorded. The facts that answer it are already here — the
+    corpora it touched, the query, the key (search vs locator), and the docs
+    the join finds it returned — and an inferred reason would be a guess
+    sitting in a wire contract.
     """
     batch = [call for call in (calls or []) if isinstance(call, dict)]
     if not batch:
@@ -861,22 +858,12 @@ def record_round_announcement(
     described = _describe_calls(batch)
     if not described["corpora"]:
         return None
-    tools = described["tools"]
-    if round_index == 0:
-        purpose = ROUND_PURPOSE_FIRST_SEARCH
-    elif tools and all(_search_corpus(base) is None or base in _LOCATOR_TOOL_BASENAMES for base in tools):
-        purpose = ROUND_PURPOSE_OPEN
-    elif any(corpus not in set(previous_corpora) for corpus in described["corpora"]):
-        purpose = ROUND_PURPOSE_NEW_CORPUS
-    else:
-        purpose = ROUND_PURPOSE_SEARCH
     reason_text, _conclusion_source = _resolve_conclusion(batch, conclusion)
     announcement: dict[str, Any] = {
         "index": round_index,
         "key": described["key"],
-        "tools": tools,
+        "tools": described["tools"],
         "corpora": described["corpora"],
-        "purpose": purpose,
     }
     if described["query"]:
         announcement["query"] = clip(described["query"], MAX_QUERY_CHARS)

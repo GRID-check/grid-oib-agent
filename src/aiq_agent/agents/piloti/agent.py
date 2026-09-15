@@ -337,6 +337,30 @@ def _announced_round(calls: Sequence[Any], state: ResearchAgentState) -> int | N
     return state.retrieval_round if is_retrieval_round([c for c in calls if isinstance(c, dict)]) else None
 
 
+def _drop_round_zero_overflow(calls: list[Any], state: ResearchAgentState) -> list[Any]:
+    """The calls that will actually RUN after the round-zero fan-out cap.
+
+    A first round that fanned out past the cap is charged for what runs, not
+    for the whole batch: charging everything would leave the cap protecting
+    nothing, since the budget would be spent on calls whose only answer is the
+    sentence telling the model why they were not made.
+    """
+    dropped = _round_zero_overflow(calls, _announced_round(calls, state))
+    if not dropped:
+        return calls
+    emit_fanout_capped(round_index=state.retrieval_round, kept=len(calls) - len(dropped), dropped=len(dropped))
+    logger.info(
+        "Round-zero fan-out capped: %d search(es) run, %d answered with the cap notice (limit=%d)",
+        _ROUND_ZERO_SEARCH_LIMIT,
+        len(dropped),
+        _ROUND_ZERO_SEARCH_LIMIT,
+    )
+    # By identity: two parallel calls to one tool can be equal dicts, and `in`
+    # would then drop both of them.
+    overflow = {id(call) for call in dropped}
+    return [call for call in calls if id(call) not in overflow]
+
+
 def _charge_tool_calls(
     response: Any, state: ResearchAgentState, ceiling: int
 ) -> tuple[int, int, int, dict[str, Any] | None]:
@@ -354,23 +378,7 @@ def _charge_tool_calls(
     calls = getattr(response, "tool_calls", None) or []
     if not calls:
         return state.tool_iterations, state.interaction_iterations, state.retrieval_round, None
-    # A first round that fanned out past the cap is charged for what will
-    # actually RUN. Charging the whole batch would leave the cap protecting
-    # nothing: the budget would be spent on calls whose only answer is the
-    # sentence telling the model why they were not made.
-    dropped = _round_zero_overflow(calls, _announced_round(calls, state))
-    if dropped:
-        emit_fanout_capped(round_index=state.retrieval_round, kept=len(calls) - len(dropped), dropped=len(dropped))
-        logger.info(
-            "Round-zero fan-out capped: %d search(es) run, %d answered with the cap notice (limit=%d)",
-            _ROUND_ZERO_SEARCH_LIMIT,
-            len(dropped),
-            _ROUND_ZERO_SEARCH_LIMIT,
-        )
-        # By identity: two parallel calls to one tool can be equal dicts, and
-        # `in` would then drop both of them.
-        overflow = {id(call) for call in dropped}
-        calls = [call for call in calls if id(call) not in overflow]
+    calls = _drop_round_zero_overflow(calls, state)
     interaction_calls = _count_interaction_calls(calls)
     research_calls = len(calls) - interaction_calls
     exempt = min(interaction_calls, max(0, _INTERACTION_TOOL_ALLOWANCE - state.interaction_iterations))
@@ -409,7 +417,6 @@ def _charge_tool_calls(
         round_index=state.retrieval_round,
         calls=calls,
         conclusion=conclusion,
-        previous_corpora=[corpus for announced in state.retrieval_rounds for corpus in announced.get("corpora", [])],
     )
     return research, interaction, retrieval_round, record
 

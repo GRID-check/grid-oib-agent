@@ -210,8 +210,8 @@ export interface AnswerTransparency {
   answerMeta?: AnswerMeta
   /**
    * The backend's own account of this turn's retrieval rounds — native answer
-   * fields, recorded backend-side and sanitized at the wire boundary. Read by
-   * the Herleitung instead of reconstructed from step names.
+   * fields, recorded backend-side and sanitized at the wire boundary. Carried
+   * for the Herleitung (no renderer yet — phase b).
    */
   retrievalLedger?: RetrievalLedger
 }
@@ -516,8 +516,8 @@ export interface ChatMessage {
   answerMeta?: AnswerMeta
   /**
    * The backend's own account of this turn's retrieval rounds, same sanitize
-   * contract as `answerMeta`. Read by the Herleitung instead of reconstructed
-   * from step names; persisted with the message so reloads read it too.
+   * contract as `answerMeta`. Carried for the Herleitung (no renderer yet —
+   * phase b); persisted with the message so reloads read it too.
    */
   retrievalLedger?: RetrievalLedger
   /**

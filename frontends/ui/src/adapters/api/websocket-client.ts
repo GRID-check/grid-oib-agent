@@ -87,7 +87,7 @@ export interface ResponseTransparency {
   /**
    * The backend's own account of this turn's retrieval rounds, sanitized HERE
    * (`sanitizeRetrievalLedger`) so everything downstream sees one bounded
-   * shape. The Herleitung reads it instead of reconstructing rounds.
+   * shape. Carried for the Herleitung (no renderer yet — phase b).
    */
   retrievalLedger?: RetrievalLedger
 }
