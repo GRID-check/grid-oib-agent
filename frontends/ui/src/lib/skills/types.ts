@@ -304,6 +304,13 @@ const metadataSchema = z
     }
   })
 
+/**
+ * A shelf reference on a skill write. A UUID when shelved, null when the
+ * shelf is taken away. Omitted means "don't touch" — which is why PATCH takes
+ * the nullable form and CREATE the plain optional one.
+ */
+export const categoryIdSchema = z.string().trim().uuid('A skill category id must be a UUID.')
+
 export const createSkillSchema = z.object({
   name: skillNameSchema,
   description: descriptionSchema,
@@ -311,8 +318,8 @@ export const createSkillSchema = z.object({
   metadata: metadataSchema.optional(),
   enabled: z.boolean().optional(),
   clonedFrom: z.string().trim().min(1).max(MAX_SKILL_NAME_LENGTH).optional(),
+  categoryId: categoryIdSchema.optional(),
 })
-
 export type CreateSkillInput = z.infer<typeof createSkillSchema>
 
 export const patchSkillSchema = z.object({
@@ -321,9 +328,69 @@ export const patchSkillSchema = z.object({
   body: bodySchema.optional(),
   metadata: metadataSchema.optional(),
   enabled: z.boolean().optional(),
+  categoryId: categoryIdSchema.nullable().optional(),
 })
 
 export type PatchSkillInput = z.infer<typeof patchSkillSchema>
+
+// ---------------------------------------------------------------------------
+// Skill categories (shelves)
+// ---------------------------------------------------------------------------
+
+export const MAX_CATEGORY_NAME_LENGTH = 60
+export const MAX_CATEGORY_DESCRIPTION_LENGTH = 500
+
+/**
+ * Shelf names are labels, not slash-names: spaces and mixed case are the
+ * point ("OIB", "Eigene Prüfungen"). The prompt-safety tag rule still applies
+ * — names render in the UI, and a stray tag there is still a stray tag.
+ */
+export const categoryNameSchema = z
+  .string()
+  .trim()
+  .min(1, 'A category name is required.')
+  .max(MAX_CATEGORY_NAME_LENGTH, `Category names are at most ${MAX_CATEGORY_NAME_LENGTH} characters.`)
+  .refine((name) => !XML_TAG_PATTERN.test(name), 'Category names must not contain XML tags.')
+
+const categoryDescriptionSchema = z
+  .string()
+  .trim()
+  .max(
+    MAX_CATEGORY_DESCRIPTION_LENGTH,
+    `Category descriptions are at most ${MAX_CATEGORY_DESCRIPTION_LENGTH} characters.`
+  )
+
+export const createCategorySchema = z.object({
+  name: categoryNameSchema,
+  description: categoryDescriptionSchema.optional(),
+  sortOrder: z.number().int().optional(),
+})
+
+export type CreateCategoryInput = z.infer<typeof createCategorySchema>
+
+export const patchCategorySchema = z.object({
+  name: categoryNameSchema.optional(),
+  description: categoryDescriptionSchema.nullable().optional(),
+  sortOrder: z.number().int().optional(),
+})
+
+export type PatchCategoryInput = z.infer<typeof patchCategorySchema>
+
+/** A shelf as the toolbox reads it — platform shelves first, then the org's own. */
+export type SkillCategoryListItem = {
+  id: string
+  name: string
+  description: string | null
+  /**
+   * Stable key for platform shelves seeded from builtin collections. Builtin
+   * file offers resolve to a shelf by this, never by the renamable name.
+   * Always null for org shelves.
+   */
+  slug: string | null
+  sortOrder: number
+  /** 'platform' = curated for the whole fleet; 'org' = this organization's own. */
+  scope: 'platform' | 'org'
+}
 
 /**
  * Body of `PATCH /api/skills/curated/[name]` — an org switching a curated
@@ -368,11 +435,14 @@ export const createPlatformSkillSchema = z.object({
   metadata: metadataSchema.optional(),
   published: z.boolean().optional(),
   delivery: platformSkillDeliverySchema.optional(),
+  categoryId: categoryIdSchema.optional(),
 })
 
 export type CreatePlatformSkillInput = z.infer<typeof createPlatformSkillSchema>
 
-export const patchPlatformSkillSchema = createPlatformSkillSchema.partial()
+export const patchPlatformSkillSchema = createPlatformSkillSchema
+  .partial()
+  .extend({ categoryId: categoryIdSchema.nullable().optional() })
 
 export type PatchPlatformSkillInput = z.infer<typeof patchPlatformSkillSchema>
 

@@ -18,8 +18,15 @@ import 'server-only'
 import { ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { PlatformSkillDelivery, PlatformSkillRow } from '@/lib/db/schema'
 import * as repository from './platform-repository'
+import * as categoryRepository from './skill-category-repository'
 import { findPlatformSkill } from './platform-skills'
-import type { CreatePlatformSkillInput, PatchPlatformSkillInput } from './types'
+import type {
+  CreateCategoryInput,
+  CreatePlatformSkillInput,
+  PatchCategoryInput,
+  PatchPlatformSkillInput,
+  SkillCategoryListItem,
+} from './types'
 
 /** A curated skill as the platform dashboard sees it — drafts included. */
 export type PlatformSkillListItem = {
@@ -31,6 +38,8 @@ export type PlatformSkillListItem = {
   published: boolean
   /** `offer` — organizations choose it. `standard` — the whole fleet runs it. */
   delivery: PlatformSkillDelivery
+  /** The platform shelf this skill stands on, or null when unsorted. */
+  categoryId: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -44,9 +53,33 @@ function toListItem(row: PlatformSkillRow): PlatformSkillListItem {
     metadata: { ...row.metadata },
     published: row.published,
     delivery: row.delivery,
+    categoryId: row.categoryId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
+}
+
+function toCategoryListItem(row: {
+  id: string
+  name: string
+  description: string | null
+  slug: string | null
+  sortOrder: number
+}): SkillCategoryListItem {
+  return { id: row.id, name: row.name, description: row.description, slug: row.slug, sortOrder: row.sortOrder, scope: 'platform' }
+}
+
+/**
+ * The platform shelf a catalogue write names, resolved or refused.
+ *
+ * Tenant shelves are never addressable here — shelving the fleet's copy on an
+ * org's shelf is a 404, the same shape as a shelf that never existed.
+ */
+async function assertPlatformCategory(categoryId: string | null | undefined): Promise<string | null> {
+  if (categoryId === undefined || categoryId === null) return null
+  const shelf = await categoryRepository.findPlatformCategory(categoryId)
+  if (!shelf) throw new NotFoundError('Skill category not found.')
+  return shelf.id
 }
 
 /**
@@ -97,6 +130,7 @@ export async function createPlatformSkill(
     // draft unless they say otherwise: the closed default is the one where a
     // half-considered save cannot impose an instruction on the whole fleet.
     delivery: input.delivery ?? 'offer',
+    categoryId: await assertPlatformCategory(input.categoryId),
     createdBy: author.userId,
     createdByEmail: author.email,
   })
@@ -138,7 +172,14 @@ export async function updatePlatformSkill(
     await assertNameIsFree(patch.name, skillId)
   }
 
-  const row = await repository.updatePlatformSkillRow(skillId, { ...patch, updatedAt: new Date() })
+  // A named shelf is resolved or refused; an explicit null unshelves; an
+  // omitted key leaves the skill where it stands.
+  const { categoryId, ...rest } = patch
+  const row = await repository.updatePlatformSkillRow(skillId, {
+    ...rest,
+    ...(categoryId !== undefined ? { categoryId: await assertPlatformCategory(categoryId) } : {}),
+    updatedAt: new Date(),
+  })
   if (!row) throw new NotFoundError('Curated skill not found.')
   return { skill: toListItem(row) }
 }
@@ -154,5 +195,75 @@ export async function updatePlatformSkill(
 export async function deletePlatformSkill(skillId: string): Promise<{ deleted: true }> {
   const deleted = await repository.deletePlatformSkillRow(skillId)
   if (!deleted) throw new NotFoundError('Curated skill not found.')
+  return { deleted: true }
+}
+
+// ---------------------------------------------------------------------------
+// Shelves (skill categories) — the fleet catalogue's arrangement
+// ---------------------------------------------------------------------------
+
+/**
+ * The platform's shelves. Platform owner only (route-gated); these functions
+ * take no session and make no authorization claim of their own, like every
+ * other function in this module.
+ */
+export async function listPlatformCategories(): Promise<{ categories: SkillCategoryListItem[] }> {
+  const rows = await categoryRepository.listPlatformCategories()
+  return { categories: rows.map(toCategoryListItem) }
+}
+
+/** Add a platform shelf. Names are unique among platform shelves. */
+export async function createPlatformCategory(
+  input: CreateCategoryInput,
+  author: { userId: string; email: string | null },
+): Promise<{ category: SkillCategoryListItem }> {
+  const existing = await categoryRepository.findPlatformCategoryByName(input.name)
+  if (existing) {
+    throw new ConflictError(`A category named "${input.name}" already exists.`)
+  }
+  const row = await categoryRepository.insertCategory({
+    organizationId: null,
+    name: input.name,
+    description: input.description ?? null,
+    sortOrder: input.sortOrder ?? 0,
+    createdBy: author.userId,
+    createdByEmail: author.email,
+  })
+  return { category: toCategoryListItem(row) }
+}
+
+/** Rename, re-describe or re-order a platform shelf. */
+export async function updatePlatformCategory(
+  categoryId: string,
+  patch: PatchCategoryInput,
+): Promise<{ category: SkillCategoryListItem }> {
+  const existing = await categoryRepository.findPlatformCategory(categoryId)
+  if (!existing) throw new NotFoundError('Skill category not found.')
+
+  if (patch.name !== undefined && patch.name !== existing.name) {
+    const other = await categoryRepository.findPlatformCategoryByName(patch.name)
+    if (other) {
+      throw new ConflictError(`A category named "${patch.name}" already exists.`)
+    }
+  }
+  const row = await categoryRepository.updateCategory(categoryId, {
+    ...(patch.name !== undefined ? { name: patch.name } : {}),
+    ...(patch.description !== undefined ? { description: patch.description } : {}),
+    ...(patch.sortOrder !== undefined ? { sortOrder: patch.sortOrder } : {}),
+    updatedAt: new Date(),
+  })
+  if (!row) throw new NotFoundError('Skill category not found.')
+  return { category: toCategoryListItem(row) }
+}
+
+/**
+ * Remove a platform shelf. Skills standing on it fall back to unsorted (the
+ * FK is ON DELETE SET NULL) — including the builtin file offers that resolved
+ * to it by name, which read as unsorted until shelved again.
+ */
+export async function deletePlatformCategory(categoryId: string): Promise<{ deleted: true }> {
+  const existing = await categoryRepository.findPlatformCategory(categoryId)
+  if (!existing) throw new NotFoundError('Skill category not found.')
+  await categoryRepository.deleteCategory(categoryId)
   return { deleted: true }
 }

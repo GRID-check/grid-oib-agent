@@ -33,9 +33,23 @@ vi.mock('./platform-repository', () => ({
   findStandardPlatformSkillRowByName: vi.fn(),
 }))
 
+vi.mock('./skill-category-repository', () => ({
+  listCategoriesForOrg: vi.fn(),
+  findCategoryInScope: vi.fn(),
+  findPlatformCategory: vi.fn(),
+  findOrgCategoryByName: vi.fn(),
+  findPlatformCategoryByName: vi.fn(),
+  findOrgCategory: vi.fn(),
+  insertCategory: vi.fn(),
+  updateCategory: vi.fn(),
+  deleteCategory: vi.fn(),
+  orgCategoryValues: vi.fn((organizationId, values) => ({ ...values, organizationId })),
+}))
+
 import { canManageSkills } from '@/lib/authz/organizations'
 import { requireSkillsEnabled } from '@/lib/authz/feature-flags'
 import * as repository from './repository'
+import * as categoryRepository from './skill-category-repository'
 import * as platformRepository from './platform-repository'
 import { findPlatformSkill, listPlatformSkills } from './platform-skills'
 import { ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
@@ -45,6 +59,10 @@ import {
   createSkill,
   updateSkill,
   deleteSkill,
+  listSkillCategories,
+  createSkillCategory,
+  updateSkillCategory,
+  deleteSkillCategory,
   resolveSkillSnapshot,
   resolveSkillsForAgent,
   resolveSelectableSkills,
@@ -121,6 +139,7 @@ function platformRow(overrides: Partial<PlatformSkillRow> = {}): PlatformSkillRo
     metadata: {},
     published: true,
     delivery: 'offer',
+    categoryId: null,
     createdBy: 'owner',
     createdByEmail: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -167,6 +186,7 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
     metadata: {},
     origin: 'org',
     clonedFrom: null,
+    categoryId: null,
     enabled: true,
     createdBy: 'user_1',
     createdByEmail: null,
@@ -174,6 +194,30 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
     updatedAt: new Date('2025-01-01T00:00:00Z'),
   }
   return { ...base, ...overrides }
+}
+
+/** A shelf row — platform-owned when organizationId is null. */
+function makeCategory(
+  overrides: Partial<{
+    id: string
+    organizationId: string | null
+    name: string
+    description: string | null
+    sortOrder: number
+  }> = {}
+) {
+  return {
+    id: 'cat-1',
+    organizationId: null,
+    name: 'Recherche',
+    description: null,
+    sortOrder: 0,
+    createdBy: 'owner',
+    createdByEmail: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+    ...overrides,
+  }
 }
 
 beforeEach(() => {
@@ -191,6 +235,11 @@ beforeEach(() => {
   publishPlatformRows([])
   vi.mocked(repository.findSkill).mockResolvedValue(null)
   vi.mocked(repository.findSkillByName).mockResolvedValue(null)
+  // No shelves unless a test stands some up.
+  vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue([])
+  vi.mocked(categoryRepository.findCategoryInScope).mockResolvedValue(null)
+  vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(null)
+  vi.mocked(categoryRepository.findOrgCategory).mockResolvedValue(null)
 })
 
 afterEach(() => {
@@ -876,5 +925,136 @@ describe('listInvocableSkills', () => {
     const { skills } = await listInvocableSkills(session)
     const entry = skills.find((s) => s.name === 'a-skill')
     expect(entry).toEqual({ name: 'a-skill', description: 'Does the thing.', origin: 'org' })
+  })
+})
+
+describe('skill categories', () => {
+  it('lists platform shelves before org shelves, with their scope', async () => {
+    // Repository order is the contract (platform first); the service maps it.
+    vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue([
+      makeCategory({ id: 'cat-1', name: 'Recherche', slug: 'research', sortOrder: 0 }),
+      makeCategory({ id: 'cat-2', organizationId: 'org_1', name: 'Eigene', slug: null, sortOrder: 0 }),
+    ])
+    const { categories } = await listSkills(session)
+    expect(categories.map((c) => c.name)).toEqual(['Recherche', 'Eigene'])
+    expect(categories[0]).toMatchObject({ scope: 'platform', slug: 'research' })
+    expect(categories[1]).toMatchObject({ scope: 'org' })
+  })
+
+  it('shelves a builtin file offer by its collection slug', async () => {
+    vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue([
+      makeCategory({ id: 'cat-1', name: 'Recherche', slug: 'research' }),
+    ])
+    const { skills } = await listSkills(session)
+    // CURATED_SKILL is a `research` file offer: no row, still shelved.
+    expect(skills.find((s) => s.name === 'oib-fire-check')?.categoryId).toBe('cat-1')
+  })
+
+  it('keeps a dashboard row on its stored shelf', async () => {
+    publishPlatformRows([platformRow({ categoryId: 'cat-9' })])
+    const { skills } = await listSkills(session)
+    expect(skills.find((s) => s.name === 'energy-check')?.categoryId).toBe('cat-9')
+  })
+
+  it('leaves file offers unsorted when no shelf carries their slug', async () => {
+    const { skills } = await listSkills(session)
+    expect(skills.find((s) => s.name === 'oib-fire-check')?.categoryId).toBeNull()
+  })
+
+  it('refuses a shelf outside the org on create', async () => {
+    vi.mocked(categoryRepository.findCategoryInScope).mockResolvedValue(null)
+    vi.mocked(repository.insertSkill).mockImplementation(async () => makeSkill())
+    await expect(
+      createSkill(session, { name: 'a', description: 'b', body: 'c', categoryId: 'cat-x' })
+    ).rejects.toBeInstanceOf(NotFoundError)
+    expect(repository.insertSkill).not.toHaveBeenCalled()
+  })
+
+  it('shelves on an org or platform shelf on create', async () => {
+    vi.mocked(categoryRepository.findCategoryInScope).mockResolvedValue(
+      makeCategory({ id: 'cat-1' })
+    )
+    vi.mocked(repository.insertSkill).mockImplementation(async (values) => makeSkill(values))
+    const { skill } = await createSkill(session, {
+      name: 'a',
+      description: 'b',
+      body: 'c',
+      categoryId: 'cat-1',
+    })
+    expect(skill.categoryId).toBe('cat-1')
+  })
+
+  it('unshelves on an explicit null, leaves the shelf on an omitted key', async () => {
+    vi.mocked(repository.findSkill).mockResolvedValue(makeSkill({ categoryId: 'cat-1' }))
+    vi.mocked(categoryRepository.findCategoryInScope).mockResolvedValue(
+      makeCategory({ id: 'cat-2' })
+    )
+    vi.mocked(repository.updateSkill).mockImplementation(
+      async (_id, _org, patch) => makeSkill({ categoryId: patch.categoryId ?? 'cat-1' })
+    )
+    await updateSkill(session, 'skill-1', { description: 'neu' })
+    expect(vi.mocked(repository.updateSkill).mock.calls[0][2]).not.toHaveProperty('categoryId')
+    expect(categoryRepository.findCategoryInScope).not.toHaveBeenCalled()
+    await updateSkill(session, 'skill-1', { categoryId: 'cat-2' })
+    expect(vi.mocked(repository.updateSkill).mock.calls[1][2]).toHaveProperty('categoryId', 'cat-2')
+    await updateSkill(session, 'skill-1', { categoryId: null })
+    expect(vi.mocked(repository.updateSkill).mock.calls[2][2]).toHaveProperty('categoryId', null)
+  })
+})
+
+describe('skill category CRUD', () => {
+  it('lists shelves with their scope', async () => {
+    vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue([
+      makeCategory({ id: 'cat-1', name: 'Recherche', slug: 'research', sortOrder: 0 }),
+      makeCategory({ id: 'cat-2', organizationId: 'org_1', name: 'Eigene', slug: null, sortOrder: 0 }),
+    ])
+    const { categories } = await listSkillCategories(session)
+    expect(categories).toEqual([
+      { id: 'cat-1', name: 'Recherche', description: null, slug: 'research', sortOrder: 0, scope: 'platform' },
+      { id: 'cat-2', name: 'Eigene', description: null, slug: null, sortOrder: 0, scope: 'org' },
+    ])
+  })
+
+  it('refuses a duplicate shelf name in the org', async () => {
+    vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(
+      makeCategory({ organizationId: 'org_1', name: 'Eigene' })
+    )
+    vi.mocked(categoryRepository.insertCategory).mockImplementation(async (values) => ({
+      ...makeCategory({ organizationId: 'org_1' }),
+      ...values,
+    }))
+    await expect(createSkillCategory(session, { name: 'Eigene' })).rejects.toBeInstanceOf(
+      ConflictError
+    )
+    expect(categoryRepository.insertCategory).not.toHaveBeenCalled()
+  })
+
+  it('creates, renames and removes an org shelf', async () => {
+    vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(null)
+    vi.mocked(categoryRepository.insertCategory).mockImplementation(async (values) => ({
+      ...makeCategory({ organizationId: 'org_1' }),
+      ...values,
+    }))
+    const { category } = await createSkillCategory(session, { name: 'Eigene' })
+    expect(category).toMatchObject({ name: 'Eigene', scope: 'org' })
+
+    vi.mocked(categoryRepository.findOrgCategory).mockResolvedValue(
+      makeCategory({ id: 'cat-9', organizationId: 'org_1', name: 'Eigene' })
+    )
+    vi.mocked(categoryRepository.updateCategory).mockImplementation(
+      async (_id, patch) => ({ ...makeCategory({ id: 'cat-9', organizationId: 'org_1' }), ...patch, description: patch.description ?? null })
+    )
+    const renamed = await updateSkillCategory(session, 'cat-9', { name: 'Prüfungen' })
+    expect(renamed.category.name).toBe('Prüfungen')
+
+    vi.mocked(categoryRepository.deleteCategory).mockResolvedValue(true)
+    await expect(deleteSkillCategory(session, 'cat-9')).resolves.toEqual({ deleted: true })
+  })
+
+  it('never addresses a platform shelf from the org path', async () => {
+    vi.mocked(categoryRepository.findOrgCategory).mockResolvedValue(null)
+    vi.mocked(categoryRepository.deleteCategory).mockResolvedValue(true)
+    await expect(deleteSkillCategory(session, 'cat-1')).rejects.toBeInstanceOf(NotFoundError)
+    expect(categoryRepository.deleteCategory).not.toHaveBeenCalled()
   })
 })
