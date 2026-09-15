@@ -168,7 +168,7 @@ describe('the review controls wrap, and the comment box takes the whole width', 
     userId: 'u-1',
   }
 
-  it('five decisions wrap into rows rather than a squeezed line', () => {
+  it('the decisions wrap into rows rather than a squeezed line', () => {
     const { container } = render(
       <DocumentReviewControls
         version={version}
@@ -179,8 +179,10 @@ describe('the review controls wrap, and the comment box takes the whole width', 
     )
     const row = container.querySelector('[data-testid="document-review-controls"] > div')
     expect(row?.className).toContain('flex-wrap')
-    // All five, or the wrap is being asserted on a set that never needed it.
-    expect(screen.getAllByRole('button')).toHaveLength(5)
+    // All four, or the wrap is being asserted on a set that never needed it.
+    // Four and not five since „Archivieren" left this row: it is item-level and
+    // a one-way door, so it has its own set-apart block with its consequences.
+    expect(screen.getAllByRole('button')).toHaveLength(4)
   })
 
   it('the comment box is a full-width block under the controls, not beside them', async () => {

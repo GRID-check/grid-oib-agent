@@ -50,6 +50,7 @@ import {
 } from '@/adapters/api/skills-client'
 import { agentScopeLabelKey } from '../lib/agent-scope'
 import { CuratedSkills } from './curated-skills'
+import { capturePosthog } from '@/lib/analytics/posthog'
 
 interface SkillToolboxProps {
   /** Whether this member may author/edit/delete skills (org:skills:manage). */
@@ -92,6 +93,7 @@ export function SkillToolbox({ canManage, onEdit, reloadKey = 0 }: SkillToolboxP
     setDeletingId(confirmId)
     try {
       await deleteSkill(confirmId)
+      capturePosthog('skill_deleted', { scope: 'organization' })
       setConfirmId(null)
       setSkills((prev) => prev?.filter((skill) => skill.id !== confirmId) ?? prev)
     } catch {
@@ -115,6 +117,7 @@ export function SkillToolbox({ canManage, onEdit, reloadKey = 0 }: SkillToolboxP
     setSkills((prev) => prev?.map((row) => (row.id === id ? { ...row, enabled } : row)) ?? prev)
     try {
       await updateSkill(id, { enabled })
+      capturePosthog('skill_enabled_changed', { scope: 'organization', enabled })
     } catch {
       setSkills(
         (prev) => prev?.map((row) => (row.id === id ? { ...row, enabled: !enabled } : row)) ?? prev,

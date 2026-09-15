@@ -1,0 +1,26 @@
+---
+improvements:
+  - >
+    „Freigabe und Fassungen" steht jetzt am Ende der Dateiinfo und ist
+    zugeklappt. Zugeklappt sagt der Abschnitt nur, wo das Dokument steht: den
+    Stand, eine Strecke von Entwurf über In Prüfung und Freigegeben bis
+    Veröffentlicht, und einen Satz dazu, worauf es wartet.
+  - >
+    Wartet eine Fassung auf Sie, klappt der Abschnitt von selbst auf. Sie müssen
+    also nichts aufklappen, um zu merken, dass Sie an der Reihe sind.
+  - >
+    Die Strecke zeigt auch, wenn es nicht weitergeht: Bei „Änderungen erbeten"
+    und „Abgelehnt" ist der nächste Abschnitt gestrichelt statt offen.
+fixes:
+  - >
+    „Archivieren" heißt jetzt „Stilllegen". Der alte Name war das Gegenteil
+    dessen, was passiert: Ins Archiv legt man ein Dokument, damit es zu
+    Bürowissen wird — stillgelegt wird es herausgenommen.
+  - >
+    Stilllegen fragt jetzt nach und sagt vorher, was es tut: dass die Datei aus
+    der Dateiliste verschwindet, dass Piloti sie nicht mehr zitiert, dass nichts
+    gelöscht wird — und dass es sich hier nicht rückgängig machen lässt.
+  - >
+    Bei einer veröffentlichten Datei zeigte der Abschnitt eine einzelne
+    Schaltfläche und sonst nichts: Der Satz, der den Stand erklärt, fehlte genau
+    dann. Er steht jetzt immer da.

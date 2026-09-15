@@ -75,6 +75,7 @@ import { MarkdownEditor, type MarkdownEditorLabels } from './MarkdownEditor'
 import { SkillRawDocumentSection } from './SkillRawDocumentSection'
 import { SkillDocumentPreview } from './SkillDocumentPreview'
 import { SkillReviewPanel } from './SkillReviewPanel'
+import { capturePosthog } from '@/lib/analytics/posthog'
 
 /** Rule names must satisfy server-side: lowercase a-z/0-9, single hyphens. */
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
@@ -349,6 +350,14 @@ export function SkillEditorDialog({
           await createSkill(payload)
           toast.success(t('editor.createSuccess'))
         }
+        capturePosthog(isEdit ? 'skill_updated' : 'skill_created', {
+          scope: persistence ? 'platform' : 'organization',
+          enabled,
+          auto_invoke: autoInvoke,
+          hidden,
+          preferred_card_count: preferredCards.length,
+          agent_count: agents.selected.length,
+        })
         onSaved()
       } catch {
         setFormError(t('editor.saveError'))
@@ -412,6 +421,7 @@ export function SkillEditorDialog({
     try {
       if (persistence?.remove) await persistence.remove()
       else await deleteSkill(skill.id!)
+      capturePosthog('skill_deleted', { scope: persistence ? 'platform' : 'organization' })
       setConfirmOpen(false)
       onSaved()
     } catch {

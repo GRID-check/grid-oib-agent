@@ -32,6 +32,7 @@ import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { updateJob, type Job } from '@/adapters/api/jobs-client'
+import { capturePosthog } from '@/lib/analytics/posthog'
 import { scheduleSummary } from '../lib/schedule'
 
 type Translate = ReturnType<typeof useTranslations>
@@ -179,6 +180,8 @@ export function ScheduleEnableSwitch({
     onChanged?.({ ...job, enabled })
     try {
       const updated = await updateJob(job.projectId, job.id, { enabled })
+      // Carried over from the retired job card, unchanged.
+      capturePosthog('job_enabled_changed', { enabled })
       onChanged?.(updated)
     } catch {
       onChanged?.({ ...job, enabled: !enabled })

@@ -92,6 +92,7 @@ import {
   type JobOutput,
 } from '@/adapters/api/jobs-client'
 import type { SkillSnapshot } from '@/adapters/api/skills-client'
+import { capturePosthog } from '@/lib/analytics/posthog'
 import { buildFirePromptPreview } from '../lib/fire-prompt-preview'
 import { nextOccurrences } from '../lib/occurrences'
 import {
@@ -332,11 +333,24 @@ export function ScheduleWizard({
       }
 
       try {
+        // The product events the retired builder emitted, carried over
+        // unchanged — same names, same properties. A surface that replaces
+        // another inherits its measurements, or the series breaks at the
+        // rewrite and nobody can tell whether the new flow does better.
+        const analytics = {
+          output,
+          has_skill: skill !== null,
+          additional_source_count: selectedSources.size,
+          schedule_enabled: scheduleEnabled,
+          enabled,
+        }
         if (job) {
           await updateJob(projectId, job.id, payload)
+          capturePosthog('job_updated', analytics)
           toast.success(t('builder.updateSuccess'))
         } else {
           await createJob(projectId, payload)
+          capturePosthog('job_created', analytics)
           toast.success(t('builder.createSuccess'))
         }
         onSaved()

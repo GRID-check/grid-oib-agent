@@ -36,6 +36,7 @@ import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { setCuratedSkillEnabled, type SkillListItem } from '@/adapters/api/skills-client'
 import { agentScopeLabelKey } from '../lib/agent-scope'
+import { capturePosthog } from '@/lib/analytics/posthog'
 
 interface CuratedSkillsProps {
   skills: SkillListItem[]
@@ -67,6 +68,7 @@ export function CuratedSkills({
     onToggled(skill.name, enabled)
     try {
       await setCuratedSkillEnabled(skill.name, enabled)
+      capturePosthog('skill_enabled_changed', { scope: 'curated', enabled })
     } catch {
       onToggled(skill.name, !enabled)
       toast.error(t('editor.saveError'))

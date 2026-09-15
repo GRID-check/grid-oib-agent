@@ -2,7 +2,7 @@
 
 /**
  * Einreichen · Freigeben · Änderungen anfordern · Piloti überarbeiten lassen ·
- * Ablehnen · Veröffentlichen · Archivieren — the controls a person gets on the
+ * Ablehnen · Veröffentlichen — the review decisions a person gets on the
  * version in front of them.
  *
  * Presentational on purpose: which controls exist is
@@ -20,12 +20,23 @@
  * checkbox; Veröffentlichen is its own act in its own section, never a sibling
  * button beside approval.
  *
- * A control that is not offered is a muted WAITING LINE, not nothing: the
- * reader sees what the version is waiting for and — where that is a known
- * fact — who submitted it. Who was ASKED is resolved server-side (the reviewer
- * chain in `lib/documents/reviewers.ts`), so no name is invented for them.
- * Every rule that hides a control is still a fact about the reader or the
- * state that the reader cannot change by clicking.
+ * ## It no longer speaks when it has nothing to offer
+ *
+ * The stand — what the version is waiting for — moved OUT of here and onto
+ * `DocumentLifecycleStand`, which the panel renders whether or not this strip
+ * does. The reason is that the line used to appear only when there were NO
+ * controls, so the case that actually confused people was the one it skipped: a
+ * published upload, where the only available gesture was „Archivieren" and the
+ * row therefore showed one unexplained verb and no sentence at all. With the
+ * stand said unconditionally one tier up, this component renders exactly the
+ * decisions and nothing else, and renders nothing when there are none.
+ *
+ * „Stilllegen" (the act the wire still calls `archive`) is likewise not here.
+ * It is item-level, not a review decision,
+ * it is offered on every active document to anybody who may write, and it is a
+ * one-way door: it belongs in its own set-apart block with its consequences
+ * spelled out (`document-archive-action.tsx`), never as a fifth button in a row
+ * of review verbs.
  */
 
 import { useEffect, useState } from 'react'
@@ -61,6 +72,9 @@ const ACTION_LABEL: Record<DocumentLifecycleGesture, string> = {
   [DELEGATE_REVISION]: 'lifecycle.actions.delegateRevision',
   reject: 'lifecycle.actions.reject',
   publish: 'lifecycle.actions.publish',
+  // Drawn by `document-archive-action.tsx`, not by this strip. The key stays
+  // because the map is exhaustive over the gesture union — that exhaustiveness
+  // is what makes a new gesture fail to compile until it has been worded.
   archive: 'lifecycle.actions.archive',
 }
 
@@ -112,8 +126,6 @@ export interface DocumentReviewControlsProps {
   reviewers?: readonly ReviewerOption[]
   /** Display name of the acting person (the viewer), when the surface knows it. */
   actingName?: string | null
-  /** Names the surface already knows, by user id — for the waiting line. */
-  names?: Readonly<Record<string, string>>
   className?: string
 }
 
@@ -125,9 +137,8 @@ export function DocumentReviewControls({
   onAct,
   reviewers = [],
   actingName = null,
-  names,
   className,
-}: DocumentReviewControlsProps): JSX.Element {
+}: DocumentReviewControlsProps): JSX.Element | null {
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [typing, setTyping] = useState<DocumentLifecycleGesture | null>(null)
@@ -158,46 +169,17 @@ export function DocumentReviewControls({
     setApprovedChecked(false)
   }, [version?.id])
 
-  const gestures = availableLifecycleGestures(version, lifecycle, viewer)
+  // The item-level gesture is filtered out here rather than at the caller: it is not a
+  // review decision, and „this strip draws review decisions" is the property
+  // that should hold wherever it is mounted. Its own block renders it.
+  const gestures = availableLifecycleGestures(version, lifecycle, viewer).filter(
+    (gesture) => gesture !== 'archive',
+  )
 
-  const nameOf = (userId: string | null): string => {
-    if (!userId) return t('lifecycle.versions.someone')
-    if (userId === viewer.userId) return t('lifecycle.versions.you')
-    return names?.[userId] ?? t('lifecycle.versions.someone')
-  }
-
-  if (gestures.length === 0) {
-    return (
-      <div className={cn('space-y-2', className)} data-testid="document-review-controls">
-        <p className="text-muted-foreground text-xs" data-testid="document-review-waiting">
-          {waitingText()}
-        </p>
-      </div>
-    )
-  }
-
-  function waitingText(): string {
-    if (lifecycle === 'archived') return t('lifecycle.waiting.archived')
-    if (!version) return t('lifecycle.waiting.none')
-    switch (version.state) {
-      case 'draft':
-        return t('lifecycle.waiting.draft')
-      case 'in_review':
-        return version.submittedBy
-          ? t('lifecycle.waiting.inReviewBy', { name: nameOf(version.submittedBy) })
-          : t('lifecycle.waiting.inReview')
-      case 'changes_requested':
-        return t('lifecycle.waiting.changesRequested')
-      case 'approved':
-        return t('lifecycle.waiting.approved')
-      case 'published':
-        return t('lifecycle.waiting.published')
-      case 'rejected':
-        return t('lifecycle.waiting.rejected')
-      case 'superseded':
-        return t('lifecycle.waiting.superseded')
-    }
-  }
+  // Nothing to decide: the stand above already said what the version is waiting
+  // for, and an empty bordered strip under it would read as a control that
+  // failed to load.
+  if (gestures.length === 0) return null
 
   const start = (gesture: DocumentLifecycleGesture) => {
     if (gesture === 'approve') {

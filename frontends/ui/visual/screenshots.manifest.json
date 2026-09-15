@@ -538,12 +538,22 @@
     },
     "document-lifecycle": {
       "route": "src/app/dev/document-lifecycle/page.tsx",
-      "routeHash": "cbb42e0a1eb074f13e0c1722a61a886f0f82014a42e91348727b7073cde4c545",
+      "routeHash": "28d35c6aef144d29b288b9425061786383bc5e8701f7e82e7888625c13cf6235",
       "shots": [
         "document-lifecycle.light.png",
         "document-lifecycle.dark.png",
         "document-lifecycle.mobile.light.png",
         "document-lifecycle.mobile.dark.png"
+      ]
+    },
+    "document-lifecycle-archive": {
+      "route": "src/app/dev/document-lifecycle/page.tsx",
+      "routeHash": "28d35c6aef144d29b288b9425061786383bc5e8701f7e82e7888625c13cf6235",
+      "shots": [
+        "document-lifecycle-archive.light.png",
+        "document-lifecycle-archive.dark.png",
+        "document-lifecycle-archive.mobile.light.png",
+        "document-lifecycle-archive.mobile.dark.png"
       ]
     },
     "document-rename": {
@@ -754,7 +764,7 @@
     },
     "file-preview": {
       "route": "src/app/dev/file-preview/page.tsx",
-      "routeHash": "e8fda5bac97b29a1ba18c57db6ad93ad5d395a6c290f52422810e30aac30519d",
+      "routeHash": "c4c38153e8c2ca92490c9292ed5329172efd5e17fcfeec50331f9eaf95ad9a6b",
       "shots": [
         "file-preview.light.png",
         "file-preview.dark.png",
@@ -764,7 +774,7 @@
     },
     "file-preview-authored": {
       "route": "src/app/dev/file-preview/page.tsx",
-      "routeHash": "e8fda5bac97b29a1ba18c57db6ad93ad5d395a6c290f52422810e30aac30519d",
+      "routeHash": "c4c38153e8c2ca92490c9292ed5329172efd5e17fcfeec50331f9eaf95ad9a6b",
       "shots": [
         "file-preview-authored.light.png",
         "file-preview-authored.dark.png",
@@ -774,7 +784,7 @@
     },
     "file-preview-csv": {
       "route": "src/app/dev/file-preview/page.tsx",
-      "routeHash": "e8fda5bac97b29a1ba18c57db6ad93ad5d395a6c290f52422810e30aac30519d",
+      "routeHash": "c4c38153e8c2ca92490c9292ed5329172efd5e17fcfeec50331f9eaf95ad9a6b",
       "shots": [
         "file-preview-csv.light.png",
         "file-preview-csv.dark.png",
@@ -784,7 +794,7 @@
     },
     "file-preview-markdown": {
       "route": "src/app/dev/file-preview/page.tsx",
-      "routeHash": "e8fda5bac97b29a1ba18c57db6ad93ad5d395a6c290f52422810e30aac30519d",
+      "routeHash": "c4c38153e8c2ca92490c9292ed5329172efd5e17fcfeec50331f9eaf95ad9a6b",
       "shots": [
         "file-preview-markdown.light.png",
         "file-preview-markdown.dark.png",
@@ -814,7 +824,7 @@
     },
     "file-preview-review": {
       "route": "src/app/dev/file-preview/page.tsx",
-      "routeHash": "e8fda5bac97b29a1ba18c57db6ad93ad5d395a6c290f52422810e30aac30519d",
+      "routeHash": "c4c38153e8c2ca92490c9292ed5329172efd5e17fcfeec50331f9eaf95ad9a6b",
       "shots": [
         "file-preview-review.light.png",
         "file-preview-review.dark.png",
@@ -824,7 +834,7 @@
     },
     "file-preview-text": {
       "route": "src/app/dev/file-preview/page.tsx",
-      "routeHash": "e8fda5bac97b29a1ba18c57db6ad93ad5d395a6c290f52422810e30aac30519d",
+      "routeHash": "c4c38153e8c2ca92490c9292ed5329172efd5e17fcfeec50331f9eaf95ad9a6b",
       "shots": [
         "file-preview-text.light.png",
         "file-preview-text.dark.png",

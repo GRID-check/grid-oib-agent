@@ -39,6 +39,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { deleteJob, runJob, JobApiError, type Job } from '@/adapters/api/jobs-client'
+import { capturePosthog } from '@/lib/analytics/posthog'
 import { JobRunHistory } from './job-run-history'
 import { ScheduleEnableSwitch } from './schedule-card'
 import { nextOccurrences } from '../lib/occurrences'
@@ -158,6 +159,8 @@ function ScheduleDetailBody({
     try {
       const result = await runJob(projectId, job.id)
       if (result.status === 'submitted') {
+        // Carried over from the retired job card, unchanged.
+        capturePosthog('job_run_submitted', { output: job.output })
         // Retry with the same plan: the schedule, prompt and skill are
         // untouched, only a new run is fired — it appears in the history below.
         toast.success(tj('run.submitted'), { description: tj('run.submittedDetail') })
@@ -187,6 +190,7 @@ function ScheduleDetailBody({
     setDeleting(true)
     try {
       await deleteJob(projectId, job.id)
+      capturePosthog('job_deleted', { output: job.output })
       setConfirmOpen(false)
       onDeleted?.(job.id)
     } catch {
