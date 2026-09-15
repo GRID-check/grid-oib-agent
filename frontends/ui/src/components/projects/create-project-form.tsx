@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { SectionLabel } from '@/components/ui/section-label'
 import { createProject } from '@/app/app/(shell)/projects/actions'
 import { useTranslations } from '@/i18n'
+import { capturePosthog } from '@/lib/analytics/posthog'
 
 /**
  * First-run accelerators grounded in the Austrian OIB/RIS domain. Selecting one
@@ -46,6 +47,8 @@ export function CreateProjectForm(): JSX.Element {
         // The server action re-validates and can surface vendor/database exception
         // text. Never show that to an architect — log it, show a calm message.
         setServerError(t('form.createError'))
+      } else {
+        capturePosthog('project_created')
       }
     },
   })

@@ -72,6 +72,7 @@ import {
   type SchedulePreset,
 } from '../lib/schedule'
 import { buildFirePromptPreview } from '../lib/fire-prompt-preview'
+import { capturePosthog } from '@/lib/analytics/posthog'
 
 // The always-included knowledge source is rendered as a pinned, non-interactive
 // row (never a checkbox); it is server-guaranteed on every run.
@@ -258,9 +259,23 @@ export function JobBuilder({ projectId, job, onSaved, onCancel }: JobBuilderProp
       try {
         if (job) {
           await updateJob(projectId, job.id, payload)
+          capturePosthog('job_updated', {
+            output,
+            has_skill: skill !== null,
+            additional_source_count: selectedSources.size,
+            schedule_enabled: scheduleEnabled,
+            enabled,
+          })
           toast.success(t('builder.updateSuccess'))
         } else {
           await createJob(projectId, payload)
+          capturePosthog('job_created', {
+            output,
+            has_skill: skill !== null,
+            additional_source_count: selectedSources.size,
+            schedule_enabled: scheduleEnabled,
+            enabled,
+          })
           toast.success(t('builder.createSuccess'))
         }
         onSaved()
