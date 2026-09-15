@@ -295,8 +295,40 @@ class TestEmitCardPlacementMarker:
         assert rejected.startswith("Error")
         assert "[[card:2]]" in await self._emit_real(reg, {"type": "ifc_model_picker", "title": "Zwei"})
 
-    def test_doctrine_tells_the_agent_where_to_put_the_marker(self):
+    @pytest.mark.asyncio
+    async def test_an_envelope_shape_is_refused_with_the_channel_that_takes_it(self):
+        """The redirect the doctrine used to carry up front, on the call that needs it.
+
+        A model that correctly recognised "this answer has a verdict" must not be
+        merely refused — it has the content, and it needs to be told where it
+        goes. The up-front paragraph is the answering prompt's now; this is the
+        tool's own statement, and it fires exactly when it is relevant.
+        """
+        reg = get_or_create_card_registry("conv-envelope-1")
+        reg.clear()
+        refusal = await self._emit_real(reg, {"type": "callout", "kind": "achtung", "text": "Frist läuft."})
+        assert "answer_json" in refusal
+        assert "is not emitted as a card" in refusal
+        assert reg.snapshot() == []
+
+    def test_the_marker_contract_is_paid_per_CALL_and_not_per_TURN(self):
+        """The doctrine no longer carries the placement paragraph; the return does.
+
+        It used to be stated twice: once up front in ``_CARD_DOCTRINE``, which
+        every turn pays whether or not it emits a card, and once in the success
+        message of every call, which only a turn that emitted one pays. The
+        answering prompt keeps the up-front sentence — placement is a fact about
+        the answer being written, and the post-hoc surface has no answer to place
+        a marker into — so the tool's own description does not restate it.
+
+        What the tool must still do is hand back a marker the agent knows what to
+        do with, which the three tests above assert on live returns.
+        """
         from aiq_agent.cards.register import _CARD_DOCTRINE
 
-        assert "[[card:" in _CARD_DOCTRINE
-        assert "line of its own" in _CARD_DOCTRINE
+        assert "[[card:" not in _CARD_DOCTRINE
+        assert "WHERE IT GOES" not in _CARD_DOCTRINE
+        # And the doctrine is still the whole of WHEN, WHICH and HOW WELL.
+        assert "WHEN TO EMIT ONE" in _CARD_DOCTRINE
+        assert "WHEN NOT TO" in _CARD_DOCTRINE
+        assert "Stations must CARRY something" in _CARD_DOCTRINE

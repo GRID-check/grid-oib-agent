@@ -571,6 +571,13 @@ functions:
   # this returns the exact nesting and a worked example for the type actually
   # being emitted. Rendering all 27 shapes up front costs ~5,200 tokens on every
   # turn whether or not a card is emitted, and ~190 more for each type we add.
+  #
+  # NOT bound to `shallow_research_agent` any more. On the chat path a failed
+  # `emit_card` now returns this same L2 entry for the type that failed, so the
+  # shape is learned on the retry that needed it instead of in a charged round
+  # trip the prompt had to talk the model into paying in advance. The deep
+  # research worker still binds it: its writer composes one long report and pays
+  # the lookup once, where a chat turn paid it per turn.
   describe_card:
     _type: describe_card
 
@@ -688,7 +695,6 @@ functions:
       - ris_catalog_lookup_tool
       - remember
       - emit_card
-      - describe_card
       - surface_documents
       - move_document
       - rename_document

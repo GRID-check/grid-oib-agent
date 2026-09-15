@@ -1185,7 +1185,7 @@ def test_the_answer_envelope_replaces_the_envelope_cards():
     from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
     from aiq_agent.cards.catalog import model_facing_card_types
     from aiq_agent.cards.catalog import render_card_catalog
-    from aiq_agent.cards.register import _CARD_DOCTRINE
+    from aiq_agent.cards.register import _ENVELOPE_REFUSAL
 
     section = _prompt_section("answer_envelope")
     # The rhetorical fields, each with its earning condition.
@@ -1210,5 +1210,10 @@ def test_the_answer_envelope_replaces_the_envelope_cards():
     catalog = render_card_catalog()
     for card_type in ("verdict_header", "key_takeaways", "callout"):
         assert f'"{card_type}"' not in catalog
-    # And the answering tool's doctrine points at the envelope.
-    assert "answer_json" in _CARD_DOCTRINE
+    # And the answering tool points at the envelope — on the refusal, which is
+    # the one call that needs it, rather than in the doctrine every turn pays.
+    # The up-front sentence is the prompt's; two copies is two things to keep in
+    # step, and the doctrine's copy also reached the post-hoc surface, which has
+    # no envelope at all.
+    assert "answer_json" in _ENVELOPE_REFUSAL
+    assert "is not emitted as a card" in _ENVELOPE_REFUSAL
