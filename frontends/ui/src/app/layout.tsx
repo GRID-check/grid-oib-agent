@@ -147,6 +147,14 @@ const getAppConfig = async (): Promise<AppConfig> => {
       vlmAvailable,
       ifcUploadEnabled,
     }),
+    // Read server-side per request: the Docker image builds with no env
+    // files, so a client-side `process.env.NEXT_PUBLIC_*` read would bake
+    // `undefined` into the bundle and silently disable analytics on every
+    // deployed environment. Empty values keep the client disabled (fail-open).
+    posthog: {
+      host: process.env.NEXT_PUBLIC_POSTHOG_HOST ?? '',
+      projectToken: process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN ?? '',
+    },
   }
 }
 
