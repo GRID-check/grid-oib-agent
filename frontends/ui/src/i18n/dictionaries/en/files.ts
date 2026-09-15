@@ -526,8 +526,8 @@ export const files = {
     badgeTitle: 'Version status: {state}',
     /** The filter chip, beside By Piloti. */
     filter: 'Awaiting approval',
-    /** The one filter that WIDENS: archived files are not in the listing at all. */
-    archivedFilter: 'Also show archived',
+    /** The one filter that WIDENS: retired files are not in the listing at all. */
+    archivedFilter: 'Also show retired',
     states: {
       draft: 'Draft',
       inReview: 'In review',
@@ -536,7 +536,15 @@ export const files = {
       published: 'Published',
       rejected: 'Rejected',
       superseded: 'Superseded',
-      archived: 'Archived',
+      /**
+       * NOT "archived". This product's Archiv is the office archive, where a
+       * document is placed so that it BECOMES cross-project office knowledge.
+       * This state is the opposite: the file leaves the working set and its
+       * knowledge-base entries are purged. One word for both would be the same
+       * verb for a thing and its inverse. The column value stays `archived` —
+       * that is wire and database, not the reader's language.
+       */
+      archived: 'Retired',
     },
     actions: {
       submit: 'Submit for approval',
@@ -546,7 +554,7 @@ export const files = {
       delegateRevision: 'Have Piloti revise it',
       reject: 'Reject',
       publish: 'Publish',
-      archive: 'Archive',
+      archive: 'Retire',
     },
     /** Who should release the version. Everyone who may is the default. */
     reviewer: {
@@ -590,6 +598,26 @@ export const files = {
       blurb: 'Target: submission set / authority — version {number} is issued.',
     },
     /**
+     * Archiving is the one act in this section that cannot be taken back from
+     * inside the product: the knowledge-base entries are purged and no route
+     * brings them back. So it stands apart and states its consequences before
+     * it runs — never a fifth button in a row of review decisions.
+     */
+    archiveSection: {
+      heading: 'Take out of the working set',
+      blurb:
+        'Retiring removes the file from the file list and from the knowledge base. Nothing is deleted.',
+      confirmTitle: 'Retire this file?',
+      confirmTitleNamed: 'Retire “{filename}”?',
+      consequences: {
+        listing:
+          'The file leaves the file list. The “Also show retired” filter brings it back into view.',
+        knowledge: 'Piloti stops citing it: its knowledge-base entries are removed.',
+        kept: 'The file and every version are kept — this is not a delete.',
+        permanent: 'This cannot be undone here.',
+      },
+    },
+    /**
      * A control that is not offered is a muted line, never nothing: the reader
      * sees what the version is waiting for and — where that is a known fact —
      * who submitted it. Who was ASKED is server-side (the reviewer chain), so
@@ -604,7 +632,7 @@ export const files = {
       published: 'Published — no further step.',
       rejected: 'Rejected — no further step.',
       superseded: 'Superseded by a newer version.',
-      archived: 'Archived.',
+      archived: 'Retired — no longer in the working set.',
       none: 'No version yet.',
     },
     comment: {

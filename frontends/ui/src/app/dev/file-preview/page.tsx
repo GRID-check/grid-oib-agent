@@ -318,22 +318,41 @@ const DEV_STRUCTURED = {
  * A version IN REVIEW, so the rail carries the whole decision set.
  *
  * `in_review` is the state the rail exists for — Freigeben / Änderungen
- * anfordern / Piloti überarbeiten lassen / Ablehnen / Archivieren, five
+ * anfordern / Piloti überarbeiten lassen / Ablehnen, four
  * controls that have to wrap legibly in a 280px desktop rail and again in a
  * 390px phone column. A `draft` would show one button and photograph nothing.
  */
-/** The document the review rail is mounted on: an ordinary indexed project file. */
-const REVIEW_FIXTURE: FileItem = { ...FIXTURE, id: 'dev-doc-review' }
+/**
+ * The document the review rail is mounted on: an ordinary indexed project file,
+ * plus the two listing columns that make the HEADER badge speak.
+ *
+ * `versionState`/`versionCount` are what `showsVersionStateBadge` reads, and
+ * the rule is deliberately quiet on a one-version human upload — so without
+ * them the chip beside the name is correctly absent and this target would
+ * photograph the rail's half of the story only.
+ */
+const REVIEW_FIXTURE: FileItem = {
+  ...FIXTURE,
+  id: 'dev-doc-review',
+  versionState: 'in_review',
+  versionCount: 2,
+}
 
 /**
- * On a phone, scroll the review section into view before the shot.
+ * Scroll the review section into view before the shot — at every viewport.
  *
- * The harness captures a page at rest. At 390px the rail STACKS under the
- * document, so at rest the review controls are a scroll away and a screenshot
- * of the top of the rail is evidence of the identity block, not of the thing
- * this target exists to show. On a desktop the rail is its own column and the
- * controls are already visible, so the scroll only runs narrow — one shot per
- * viewport, each showing what that viewport actually has to show.
+ * The harness captures a page at rest, and „Freigabe und Fassungen" is not at
+ * rest's top any more: it is LAST in the rail, under the summary and the facts,
+ * because a review apparatus is not what a reader opens a file for. At 390px
+ * the rail also stacks under the document. Either way the panel is a scroll
+ * away, and a shot of the top of the rail is evidence of the identity block
+ * rather than of the thing this target exists to show.
+ *
+ * It used to run only under 640px, on the reasoning that the desktop rail is
+ * its own column and the controls are therefore already visible. That was true
+ * while the section led the rail and stopped being true when it moved; the
+ * width check went with it rather than being adjusted, because the panel's
+ * position in the rail is the thing that decides this and the viewport is not.
  *
  * Idempotent through a module-scope flag and a poll that stops once the panel
  * is in view, because `reactStrictMode` mounts every effect twice — the
@@ -341,9 +360,8 @@ const REVIEW_FIXTURE: FileItem = { ...FIXTURE, id: 'dev-doc-review' }
  */
 let scrolledIntoView = false
 
-function ScrollRailIntoViewOnNarrow(): null {
+function ScrollRailIntoView(): null {
   useEffect(() => {
-    if (window.innerWidth >= 640) return
     const timer = setInterval(() => {
       if (scrolledIntoView) return clearInterval(timer)
       const panel = document.querySelector('[data-testid="document-lifecycle-panel"]')
@@ -523,7 +541,7 @@ export default function FilePreviewDevPage({
   if (variant === 'review') {
     return (
       <main className="bg-muted/40 flex min-h-dvh items-center justify-center">
-        <ScrollRailIntoViewOnNarrow />
+        <ScrollRailIntoView />
         <div className="bg-popover text-popover-foreground h-[85vh] w-[min(960px,calc(100%-2rem))] overflow-hidden rounded-2xl border shadow-lg">
           <FilePreviewPane
             file={REVIEW_FIXTURE}
