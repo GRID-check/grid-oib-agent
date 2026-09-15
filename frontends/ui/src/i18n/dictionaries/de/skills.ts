@@ -36,7 +36,63 @@ export const skills: typeof en.skills = {
       delete: 'Löschen',
       viewBody: 'Anweisung ansehen',
       enabledAria: 'Skill „{name}“ in dieser Organisation verwenden',
+      openAria: 'Skill „{name}“ öffnen',
     },
+    /** Filtert die ganze Seite nach Name oder Beschreibung. */
+    search: {
+      label: 'Skills durchsuchen',
+      placeholder: 'Skills durchsuchen…',
+      noMatches: 'Kein Skill passt zu „{query}“.',
+      showAll: 'Alles zeigen',
+    },
+    /** Kategorie-Überschriften in beiden Hälften der Seite. */
+    category: {
+      unsortedHeading: 'Unsortiert',
+    },
+    /** Die eigene Kategorie-Ordnung — anlegen, umbenennen, entfernen. */
+    categories: {
+      button: 'Kategorien',
+      title: 'Kategorien ordnen',
+      description:
+        'Kategorien gruppieren den Skills-Tab. Eine entfernte Kategorie entfernt nie die Skills darauf — sie fallen zurück auf unsortiert.',
+      newPlaceholder: 'Neuer Kategoriename…',
+      create: 'Kategorie anlegen',
+      nameLabel: 'Name',
+      descriptionLabel: 'Beschreibung (optional)',
+      save: 'Speichern',
+      cancel: 'Abbrechen',
+      rename: 'Umbenennen',
+      renameAria: 'Kategorie „{name}“ umbenennen',
+      delete: 'Kategorie entfernen',
+      deleteAria: 'Kategorie „{name}“ entfernen',
+      count: '{count, plural, one {# Skill} other {# Skills}}',
+      deleteTitle: 'Kategorie „{name}“ entfernen?',
+      deleteDescription:
+        '{count, plural, one {# Skill steht darauf und fällt zurück auf unsortiert.} other {# Skills stehen darauf und fallen zurück auf unsortiert.}}',
+      deleteConfirm: 'Kategorie entfernen',
+      empty: 'Noch keine Kategorien — legen Sie eine an, um zu ordnen.',
+      createError: 'Die Kategorie konnte nicht gespeichert werden.',
+      deleteError: 'Die Kategorie konnte nicht entfernt werden.',
+    },
+  },
+
+  /** Die Skill-Schublade — dieselbe Karte, aufgeklappt. */
+  drawer: {
+    close: 'Details schließen',
+    categoryLabel: 'Kategorie',
+    unsorted: 'Unsortiert',
+    statusLabel: 'Status',
+    statusOn: 'In Verwendung',
+    statusOff: 'Ausgeschaltet',
+    originLabel: 'Gepflegt von',
+    switchAria: 'Skill „{name}“ in dieser Organisation verwenden',
+    instructionHeading: 'Anweisung',
+    detailHeading: 'Über diesen Skill',
+    originOrg: 'In dieser Organisation geschrieben',
+    originPlatform: 'Von Piloti kuratiert',
+    originClone: 'Geklont von „{name}“',
+    goneTitle: 'Nicht gefunden',
+    gone: 'Dieser Skill steht nicht auf dieser Seite. Der Link ist möglicherweise veraltet, oder der Skill wurde gelöscht.',
   },
 
   curated: {
@@ -165,6 +221,12 @@ export const skills: typeof en.skills = {
       empty: 'Keine Präferenz – der Agent wählt die Karte, die zur Antwort passt.',
       noMatches: 'Keine Karte passt zu dieser Suche.',
       removeAria: 'Kartentyp „{type}“ aus der Präferenz entfernen',
+    },
+    category: {
+      heading: 'Kategorie',
+      hint: 'Wo die Werkstatt ihn einsortiert. Unsortiert ist eine echte Antwort.',
+      label: 'Kategorie',
+      unsorted: 'Unsortiert',
     },
     autoInvokeLabel: 'Agent darf selbst laden',
     autoInvokeHint:

@@ -32,7 +32,7 @@
  * deliberate moves to become fleet standard.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertCircle, Plus, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -53,23 +53,32 @@ import { Switch } from '@/components/ui/switch'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
+  createPlatformCategory,
+  deletePlatformCategory,
   deletePlatformSkill,
+  listPlatformCategories,
   listPlatformSkills,
+  updatePlatformCategory,
   updatePlatformSkill,
   type PlatformSkillDelivery,
   type PlatformSkillItem,
+  type SkillCategoryListItem,
 } from '@/adapters/api/skills-client'
 import { PlatformSkillEditorDialog } from './platform-skill-editor-dialog'
+import { SkillCategoryManager } from '@/features/skills/components/skill-category-manager'
 
 export function PlatformSkillCatalog(): JSX.Element {
   const t = useTranslations('platform')
+  const tSkills = useTranslations('skills')
   const [skills, setSkills] = useState<PlatformSkillItem[] | null>(null)
+  const [categories, setCategories] = useState<SkillCategoryListItem[]>([])
   const [error, setError] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<PlatformSkillItem | null>(null)
   /** Fresh mount per open — the editor seeds its fields in state initialisers. */
   const [editorKey, setEditorKey] = useState(0)
   const [pending, setPending] = useState<string[]>([])
+  const [categoriesOpen, setCategoriesOpen] = useState(false)
   /**
    * The row a deletion is pending on.
    *
@@ -83,8 +92,11 @@ export function PlatformSkillCatalog(): JSX.Element {
   const load = useCallback(() => {
     setSkills(null)
     setError(false)
-    listPlatformSkills()
-      .then(setSkills)
+    Promise.all([listPlatformSkills(), listPlatformCategories()])
+      .then(([rows, listed]) => {
+        setSkills(rows)
+        setCategories(listed)
+      })
       .catch(() => setError(true))
   }, [])
 
@@ -163,14 +175,33 @@ export function PlatformSkillCatalog(): JSX.Element {
     }
   }
 
+  const categoryName = useCallback(
+    (id: string | null): string | null =>
+      id ? (categories.find((category) => category.id === id)?.name ?? null) : null,
+    [categories],
+  )
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const skill of skills ?? []) {
+      if (skill.categoryId) counts[skill.categoryId] = (counts[skill.categoryId] ?? 0) + 1
+    }
+    return counts
+  }, [skills])
+
   return (
     <section className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-muted-foreground max-w-3xl text-sm">{t('skills.hint')}</p>
-        <Button size="sm" onClick={() => openEditor(null)}>
-          <Plus className="size-4" aria-hidden />
-          {t('skills.new')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => setCategoriesOpen(true)}>
+            {tSkills('toolbox.categories.button')}
+          </Button>
+          <Button size="sm" onClick={() => openEditor(null)}>
+            <Plus className="size-4" aria-hidden />
+            {t('skills.new')}
+          </Button>
+        </div>
       </div>
 
       {skills === null && !error && (
@@ -243,6 +274,12 @@ export function PlatformSkillCatalog(): JSX.Element {
                       {skill.published && skill.delivery === 'standard' && (
                         <Badge variant="secondary">{t('skills.standardBadge')}</Badge>
                       )}
+                      {/* The category, and only when there is one: most rows
+                          start unsorted, and a badge every row carries tells
+                          you nothing anyway. */}
+                      {categoryName(skill.categoryId) && (
+                        <Badge variant="outline">{categoryName(skill.categoryId)}</Badge>
+                      )}
                       <Switch
                         checked={skill.published}
                         disabled={pending.includes(skill.id)}
@@ -309,10 +346,22 @@ export function PlatformSkillCatalog(): JSX.Element {
         open={editorOpen}
         onOpenChange={setEditorOpen}
         skill={editing}
+        categories={categories}
         onSaved={() => {
           setEditorOpen(false)
           load()
         }}
+      />
+
+      <SkillCategoryManager
+        open={categoriesOpen}
+        onOpenChange={setCategoriesOpen}
+        categories={categories}
+        counts={categoryCounts}
+        onCreate={async (input) => createPlatformCategory(input)}
+        onRename={async (id, name) => updatePlatformCategory(id, { name })}
+        onDelete={async (id) => deletePlatformCategory(id)}
+        onChanged={load}
       />
     </section>
   )

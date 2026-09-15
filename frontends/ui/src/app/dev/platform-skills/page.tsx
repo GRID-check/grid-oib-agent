@@ -16,6 +16,17 @@
 import { I18nProvider } from '@/i18n'
 import { PlatformSkillCatalog } from '@/app/app/(shell)/platform/skills/platform-skill-catalog'
 
+const CATEGORIES = [
+  {
+    id: 'cat-oib',
+    name: 'OIB',
+    description: null,
+    slug: 'oib',
+    sortOrder: 10,
+    scope: 'platform',
+  },
+]
+
 const SKILLS = [
   {
     id: 'ps-1',
@@ -25,6 +36,7 @@ const SKILLS = [
     metadata: { 'grid-agents': 'deep_researcher' },
     published: true,
     delivery: 'offer' as const,
+    categoryId: 'cat-oib',
     createdAt: '2026-08-01T09:00:00Z',
     updatedAt: '2026-08-10T09:00:00Z',
   },
@@ -39,6 +51,7 @@ const SKILLS = [
     // The state the tier exists for: live for every organization, on nobody's
     // Skills tab, and nothing a tenant can switch off.
     delivery: 'standard' as const,
+    categoryId: null,
     createdAt: '2026-08-12T09:00:00Z',
     updatedAt: '2026-08-12T09:00:00Z',
   },
@@ -50,6 +63,7 @@ const SKILLS = [
     metadata: {},
     published: false,
     delivery: 'offer' as const,
+    categoryId: 'cat-oib',
     createdAt: '2026-08-11T09:00:00Z',
     updatedAt: '2026-08-11T09:00:00Z',
   },
@@ -65,6 +79,9 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url === '/api/platform/skills') {
         return Response.json({ skills: SKILLS })
+      }
+      if (url === '/api/platform/skill-categories') {
+        return Response.json({ categories: CATEGORIES })
       }
       // The publish switch and the delete action. Unanswered, both roll back
       // against the real backend and the preview shows an error toast instead

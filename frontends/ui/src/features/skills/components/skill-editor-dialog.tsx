@@ -47,6 +47,13 @@ import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Item, ItemContent, ItemDescription, ItemList, ItemTitle } from '@/components/ui/item'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SearchField } from '@/components/ui/search-field'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { useTranslations } from '@/i18n'
@@ -56,6 +63,7 @@ import {
   deleteSkill,
   updateSkill,
   type CreateSkillInput,
+  type SkillCategoryListItem,
   type SkillListItem,
 } from '@/adapters/api/skills-client'
 import {
@@ -149,8 +157,11 @@ function readAutoInvoke(metadata?: Record<string, string>): boolean {
  * Omitted, everything below defaults to the org toolbox.
  */
 export interface SkillPersistence {
-  /** Persist the document. `enabled` carries the master switch's position. */
-  save: (input: CreateSkillInput, enabled: boolean) => Promise<void>
+  /**
+   * Persist the document. `enabled` carries the master switch's position;
+   * `categoryId` the picker's (a UUID, or null for unsorted).
+   */
+  save: (input: CreateSkillInput & { categoryId?: string | null }, enabled: boolean) => Promise<void>
   /** Remove it while editing. Omitted = the dialog offers no delete. */
   remove?: () => Promise<void>
   /** Copy for the master switch. */
@@ -176,6 +187,11 @@ interface SkillEditorDialogProps {
   skill: SkillListItem | null
   /** Where the document goes. Defaults to this organization's toolbox. */
   persistence?: SkillPersistence
+  /**
+   * The categories on offer — this org's categories for the toolbox, the platform
+   * categories for the catalogue. Empty means unsorted is the only answer.
+   */
+  categories?: SkillCategoryListItem[]
   onSaved: () => void
 }
 
@@ -190,6 +206,7 @@ export function SkillEditorDialog({
   onOpenChange,
   skill,
   persistence,
+  categories = [],
   onSaved,
 }: SkillEditorDialogProps): JSX.Element {
   const t = useTranslations('skills')
@@ -269,6 +286,14 @@ export function SkillEditorDialog({
     return { ...metadata, ...extraMetadata }
   }, [agents, autoInvoke, extraMetadata, hidden, preferredCards])
   const [enabled, setEnabled] = useState(isEdit ? skill.enabled : true)
+  /**
+   * The category this skill stands on, or null for unsorted.
+   *
+   * Arrangement, not document: pasting a whole SKILL.md (`applyDocument`)
+   * leaves it alone — the document carries no category, and a paste that
+   * re-categorized would surprise on every import.
+   */
+  const [categoryId, setCategoryId] = useState<string | null>(source?.categoryId ?? null)
   const [formError, setFormError] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -327,13 +352,22 @@ export function SkillEditorDialog({
       setFormError(null)
       const metadata = buildMetadata()
 
-      const payload: CreateSkillInput = {
+      const document = {
         name: value.name.trim(),
         description: value.description.trim(),
         body: value.body.trim(),
         metadata,
         enabled,
       }
+      // Omitted on create when unsorted (the schema takes no null there);
+      // explicit null on edit removes the category. The category is
+      // arrangement, and an edit that never touched the picker must not
+      // move it.
+      const payload: CreateSkillInput & { categoryId?: string | null } = isEdit
+        ? { ...document, categoryId }
+        : categoryId !== null
+          ? { ...document, categoryId }
+          : document
 
       try {
         if (persistence) {
@@ -347,7 +381,12 @@ export function SkillEditorDialog({
           await updateSkill(skill.id!, payload)
           toast.success(t('editor.updateSuccess'))
         } else {
-          await createSkill(payload)
+          const { categoryId: unsorted, ...createPayload } = payload
+          await createSkill(
+            unsorted !== null && unsorted !== undefined
+              ? { ...createPayload, categoryId: unsorted }
+              : createPayload,
+          )
           toast.success(t('editor.createSuccess'))
         }
         capturePosthog(isEdit ? 'skill_updated' : 'skill_created', {
@@ -671,6 +710,36 @@ export function SkillEditorDialog({
                         </FieldDescription>
                       </div>
                       <Switch id="skill-enabled" checked={enabled} onCheckedChange={setEnabled} />
+                    </Field>
+                  </section>
+
+                  {/* The category it stands on. Arrangement, not document: where the
+                      toolbox groups it, nothing about what it says. Unsorted
+                      is a real answer — most skills start there until somebody
+                      curates them. */}
+                  <section className="border-border flex flex-col gap-2 rounded-xl border p-4">
+                    <div className="flex flex-col gap-0.5">
+                      <h3 className="text-sm font-medium">{t('editor.category.heading')}</h3>
+                      <p className="text-muted-foreground text-xs">{t('editor.category.hint')}</p>
+                    </div>
+                    <Field>
+                      <FieldLabel htmlFor="skill-category">{t('editor.category.label')}</FieldLabel>
+                      <Select
+                        value={categoryId ?? '__unsorted__'}
+                        onValueChange={(next) => setCategoryId(next === '__unsorted__' ? null : next)}
+                      >
+                        <SelectTrigger id="skill-category">
+                          <SelectValue placeholder={t('editor.category.unsorted')} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__unsorted__">{t('editor.category.unsorted')}</SelectItem>
+                          {categories.map((category) => (
+                            <SelectItem key={category.id} value={category.id}>
+                              {category.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </Field>
                   </section>
 

@@ -8,6 +8,7 @@ vi.mock('@/adapters/api/skills-client', async (importActual) => {
   return {
     ...actual,
     listSkills: vi.fn(),
+    listSkillCategories: vi.fn(),
     deleteSkill: vi.fn(),
     updateSkill: vi.fn(),
     setCuratedSkillEnabled: vi.fn(),
@@ -29,6 +30,7 @@ import { SkillsPanel } from './skills-panel'
 import { SkillToolbox } from './skill-toolbox'
 
 const listSkillsMock = vi.mocked(client.listSkills)
+const listSkillCategoriesMock = vi.mocked(client.listSkillCategories)
 const deleteSkillMock = vi.mocked(client.deleteSkill)
 const updateSkillMock = vi.mocked(client.updateSkill)
 const setCuratedSkillEnabledMock = vi.mocked(client.setCuratedSkillEnabled)
@@ -42,6 +44,7 @@ const orgSkill: client.SkillListItem = {
   origin: 'org',
   enabled: true,
   clonedFrom: null,
+  categoryId: null,
   createdAt: '2026-07-16T00:00:00Z',
   updatedAt: '2026-07-16T00:00:00Z',
 }
@@ -68,6 +71,7 @@ const curatedSkill: client.SkillListItem = {
   origin: 'platform',
   enabled: false,
   clonedFrom: null,
+  categoryId: null,
   createdAt: null,
   updatedAt: null,
 }
@@ -82,13 +86,20 @@ const deepOnlyCurated: client.SkillListItem = {
 
 const noop = () => {}
 
+/** listSkills answers the envelope; tests pass the rows, categories default to none. */
+const toolbox = (
+  skills: client.SkillListItem[],
+  categories: client.SkillCategoryListItem[] = [],
+) => listSkillsMock.mockResolvedValue({ skills, categories })
+
 describe('SkillToolbox', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    listSkillCategoriesMock.mockResolvedValue([])
   })
 
   test('featured leads, the org’s own follow, and both are on the page', async () => {
-    listSkillsMock.mockResolvedValue([curatedSkill, orgSkill, secondOrgSkill, deepOnlyCurated])
+    toolbox([curatedSkill, orgSkill, secondOrgSkill, deepOnlyCurated])
     render(<SkillToolbox canManage onEdit={noop} />)
 
     // Both halves are visible: what Piloti curates is the point of the page,
@@ -111,7 +122,7 @@ describe('SkillToolbox', () => {
   })
 
   test('a featured card badges its scope only where there is one', async () => {
-    listSkillsMock.mockResolvedValue([curatedSkill, deepOnlyCurated])
+    toolbox([curatedSkill, deepOnlyCurated])
     render(<SkillToolbox canManage onEdit={noop} />)
 
     expect(await screen.findByText('oib-fire-check')).toBeInTheDocument()
@@ -123,7 +134,7 @@ describe('SkillToolbox', () => {
   })
 
   test('switching an offer on stores the decision by name', async () => {
-    listSkillsMock.mockResolvedValue([curatedSkill])
+    toolbox([curatedSkill])
     setCuratedSkillEnabledMock.mockResolvedValue({ ...curatedSkill, enabled: true })
     render(<SkillToolbox canManage onEdit={noop} />)
 
@@ -141,7 +152,7 @@ describe('SkillToolbox', () => {
   })
 
   test('a failed switch goes back where it was', async () => {
-    listSkillsMock.mockResolvedValue([curatedSkill])
+    toolbox([curatedSkill])
     setCuratedSkillEnabledMock.mockRejectedValue(new Error('boom'))
     render(<SkillToolbox canManage onEdit={noop} />)
 
@@ -158,7 +169,7 @@ describe('SkillToolbox', () => {
   })
 
   test('an org skill carries the same switch, on its own `enabled`', async () => {
-    listSkillsMock.mockResolvedValue([orgSkill])
+    toolbox([orgSkill])
     updateSkillMock.mockResolvedValue({ ...orgSkill, enabled: false })
     render(<SkillToolbox canManage onEdit={noop} />)
 
@@ -175,7 +186,7 @@ describe('SkillToolbox', () => {
   })
 
   test('expands a collapsible verbatim instruction body', async () => {
-    listSkillsMock.mockResolvedValue([orgSkill])
+    toolbox([orgSkill])
     render(<SkillToolbox canManage onEdit={noop} />)
 
     fireEvent.click(await screen.findByRole('button', { name: /View instruction/ }))
@@ -185,7 +196,7 @@ describe('SkillToolbox', () => {
   })
 
   test('org rows offer edit and delete', async () => {
-    listSkillsMock.mockResolvedValue([orgSkill])
+    toolbox([orgSkill])
     const onEdit = vi.fn()
     render(<SkillToolbox canManage onEdit={onEdit} />)
 
@@ -194,7 +205,7 @@ describe('SkillToolbox', () => {
   })
 
   test('delete asks for confirmation, then removes the row', async () => {
-    listSkillsMock.mockResolvedValue([orgSkill])
+    toolbox([orgSkill])
     deleteSkillMock.mockResolvedValue()
     render(<SkillToolbox canManage onEdit={noop} />)
 
@@ -206,7 +217,7 @@ describe('SkillToolbox', () => {
   })
 
   test('an org with no skills of its own still sees what is on offer', async () => {
-    listSkillsMock.mockResolvedValue([curatedSkill])
+    toolbox([curatedSkill])
     render(<SkillToolbox canManage onEdit={noop} />)
 
     expect(await screen.findByText('No skills yet')).toBeInTheDocument()
@@ -214,7 +225,7 @@ describe('SkillToolbox', () => {
   })
 
   test('with nothing curated, the page carries no section headings at all', async () => {
-    listSkillsMock.mockResolvedValue([orgSkill])
+    toolbox([orgSkill])
     render(<SkillToolbox canManage onEdit={noop} />)
 
     expect(await screen.findByText('acoustic-report')).toBeInTheDocument()
@@ -225,7 +236,7 @@ describe('SkillToolbox', () => {
   })
 
   test('re-fetches when the panel bumps the reload key', async () => {
-    listSkillsMock.mockResolvedValue([orgSkill])
+    toolbox([orgSkill])
     const { rerender } = render(<SkillToolbox canManage onEdit={noop} reloadKey={0} />)
 
     await waitFor(() => expect(listSkillsMock).toHaveBeenCalledTimes(1))
@@ -234,7 +245,7 @@ describe('SkillToolbox', () => {
   })
 
   test('is read-only without org:skills:manage', async () => {
-    listSkillsMock.mockResolvedValue([curatedSkill, orgSkill])
+    toolbox([curatedSkill, orgSkill])
     render(<SkillToolbox canManage={false} onEdit={noop} />)
 
     expect(await screen.findByText('acoustic-report')).toBeInTheDocument()
@@ -253,15 +264,75 @@ describe('SkillToolbox', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(listSkillsMock).toHaveBeenCalledTimes(2))
   })
+
+  test('groups each half onto its categories, unsorted last', async () => {
+    const recherche: client.SkillCategoryListItem = {
+      id: 'cat-1',
+      name: 'Recherche',
+      description: null,
+      slug: 'research',
+      sortOrder: 0,
+      scope: 'platform',
+    }
+    toolbox(
+      [
+        { ...curatedSkill, categoryId: 'cat-1' },
+        { ...orgSkill, categoryId: 'cat-1' },
+        secondOrgSkill,
+      ],
+      [recherche],
+    )
+    render(<SkillToolbox canManage onEdit={noop} />)
+
+    expect(await screen.findByText('oib-fire-check')).toBeInTheDocument()
+    // Both halves show the shelf subheading; the unsorted org skill closes.
+    expect(screen.getAllByText('Recherche')).toHaveLength(2)
+    expect(screen.getByText('Unsorted')).toBeInTheDocument()
+  })
+
+  test('search filters by name and offers to show everything', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup()
+    toolbox([orgSkill, secondOrgSkill])
+    render(<SkillToolbox canManage onEdit={noop} />)
+
+    expect(await screen.findByText('acoustic-report')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Search skills'), 'escape')
+    expect(screen.queryByText('acoustic-report')).not.toBeInTheDocument()
+    expect(screen.getByText('escape-routes')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Search skills'), '-xyz-nothing')
+    expect(screen.getByText(/No skills match/)).toBeInTheDocument()
+  })
+
+  test('a card name opens the drawer with the category on it', async () => {
+    toolbox([{ ...orgSkill, categoryId: 'cat-1' }], [
+      { id: 'cat-1', name: 'Recherche', description: null, slug: null, sortOrder: 0, scope: 'org' },
+    ])
+    render(<SkillToolbox canManage onEdit={noop} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Open the skill “acoustic-report”/ }))
+    const drawer = await screen.findByTestId('skill-detail')
+    expect(drawer).toBeInTheDocument()
+    expect(drawer).toHaveTextContent('Recherche')
+  })
+
+  test('a `?skill=` deep link opens that skill', async () => {
+    window.history.replaceState(null, '', '/?skill=skill-1')
+    toolbox([orgSkill])
+    render(<SkillToolbox canManage onEdit={noop} />)
+
+    expect(await screen.findByTestId('skill-detail')).toBeInTheDocument()
+  })
 })
 
 describe('SkillsPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    listSkillCategoriesMock.mockResolvedValue([])
+    window.history.replaceState(null, '', '/')
   })
 
   test('is the skill list and the editor — nothing schedule-shaped', async () => {
-    listSkillsMock.mockResolvedValue([orgSkill])
+    toolbox([orgSkill])
     render(<SkillsPanel canManageOrgSkills />)
 
     // Title lives in the shared layout chrome — this panel must not ship a second h1.
@@ -274,7 +345,7 @@ describe('SkillsPanel', () => {
   })
 
   test('the editor is rebuilt per open, so it never shows the last skill', async () => {
-    listSkillsMock.mockResolvedValue([orgSkill, secondOrgSkill])
+    toolbox([orgSkill, secondOrgSkill])
     render(<SkillsPanel canManageOrgSkills />)
 
     const [first, second] = await screen.findAllByRole('button', { name: /^Edit$/ })
@@ -290,7 +361,7 @@ describe('SkillsPanel', () => {
   })
 
   test('a new skill opens an empty form even after editing one', async () => {
-    listSkillsMock.mockResolvedValue([orgSkill])
+    toolbox([orgSkill])
     render(<SkillsPanel canManageOrgSkills />)
 
     fireEvent.click(await screen.findByRole('button', { name: /^Edit$/ }))

@@ -25,15 +25,29 @@ vi.mock('./platform-skills', () => ({
   findPlatformSkill: vi.fn(),
 }))
 
+vi.mock('./skill-category-repository', () => ({
+  listPlatformSkillCategories: vi.fn(),
+  findPlatformSkillCategory: vi.fn(),
+  findPlatformSkillCategoryByName: vi.fn(),
+  insertCategory: vi.fn(),
+  updateCategory: vi.fn(),
+  deleteCategory: vi.fn(),
+}))
+
 import * as repository from './platform-repository'
+import * as categoryRepository from './skill-category-repository'
 import { findPlatformSkill } from './platform-skills'
 import { ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { PlatformSkillRow } from '@/lib/db/schema'
 import {
   createPlatformSkill,
+  createPlatformSkillCategory,
   deletePlatformSkill,
+  deletePlatformSkillCategory,
+  listPlatformSkillCategories,
   listPlatformSkills,
   updatePlatformSkill,
+  updatePlatformSkillCategory,
 } from './platform-service'
 
 const author = { userId: 'user_1', email: 'owner@example.com' }
@@ -47,7 +61,32 @@ function makeRow(overrides: Partial<PlatformSkillRow> = {}): PlatformSkillRow {
     metadata: {},
     published: false,
     delivery: 'offer',
+    categoryId: null,
     createdBy: 'user_1',
+    createdByEmail: null,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+    ...overrides,
+  }
+}
+
+function makeCategory(
+  overrides: Partial<{
+    id: string
+    name: string
+    description: string | null
+    slug: string | null
+    sortOrder: number
+  }> = {}
+) {
+  return {
+    id: 'cat-1',
+    organizationId: null,
+    name: 'Recherche',
+    description: null,
+    slug: 'research',
+    sortOrder: 0,
+    createdBy: 'owner',
     createdByEmail: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
@@ -238,5 +277,90 @@ describe('deletePlatformSkill', () => {
 
     vi.mocked(repository.deletePlatformSkillRow).mockResolvedValue(false)
     await expect(deletePlatformSkill('ps-1')).rejects.toBeInstanceOf(NotFoundError)
+  })
+})
+
+describe('platform skill categories', () => {
+  it('lists the platform categories with their scope', async () => {
+    vi.mocked(categoryRepository.listPlatformSkillCategories).mockResolvedValue([
+      makeCategory(),
+    ])
+    const { categories } = await listPlatformSkillCategories()
+    expect(categories).toEqual([
+      {
+        id: 'cat-1',
+        name: 'Recherche',
+        description: null,
+        slug: 'research',
+        sortOrder: 0,
+        scope: 'platform',
+      },
+    ])
+  })
+
+  it('creates on a free name and refuses a taken one', async () => {
+    vi.mocked(categoryRepository.findPlatformSkillCategoryByName).mockResolvedValue(null)
+    vi.mocked(categoryRepository.insertCategory).mockImplementation(async (values) => ({
+      ...makeCategory(),
+      ...values,
+    }))
+    const { category } = await createPlatformSkillCategory({ name: 'BIM' }, author)
+    expect(category).toMatchObject({ name: 'BIM', scope: 'platform' })
+
+    vi.mocked(categoryRepository.findPlatformSkillCategoryByName).mockResolvedValue(
+      makeCategory({ name: 'BIM' })
+    )
+    await expect(createPlatformSkillCategory({ name: 'BIM' }, author)).rejects.toBeInstanceOf(
+      ConflictError
+    )
+  })
+
+  it('renames and removes, 404ing unknown ids', async () => {
+    vi.mocked(categoryRepository.findPlatformSkillCategoryByName).mockResolvedValue(null)
+    vi.mocked(categoryRepository.findPlatformSkillCategory).mockResolvedValue(
+      makeCategory({ id: 'cat-9', name: 'Alt' })
+    )
+    vi.mocked(categoryRepository.updateCategory).mockImplementation(async (_id, patch) => ({
+      ...makeCategory({ id: 'cat-9', name: 'Alt' }),
+      ...patch,
+      description: patch.description ?? null,
+    }))
+    const renamed = await updatePlatformSkillCategory('cat-9', { name: 'Neu' })
+    expect(renamed.category.name).toBe('Neu')
+
+    vi.mocked(categoryRepository.findPlatformSkillCategory).mockResolvedValue(null)
+    await expect(updatePlatformSkillCategory('cat-x', { name: 'Neu' })).rejects.toBeInstanceOf(
+      NotFoundError
+    )
+    vi.mocked(categoryRepository.findPlatformSkillCategory).mockResolvedValue(
+      makeCategory({ id: 'cat-9', name: 'Neu' })
+    )
+    vi.mocked(categoryRepository.deleteCategory).mockResolvedValue(true)
+    await expect(deletePlatformSkillCategory('cat-9')).resolves.toEqual({ deleted: true })
+  })
+
+  it('assigns catalogue rows to platform categories only', async () => {
+    vi.mocked(categoryRepository.findPlatformSkillCategory).mockResolvedValue(
+      makeCategory({ id: 'cat-1' })
+    )
+    vi.mocked(repository.insertPlatformSkillRow).mockImplementation(async (values) => ({
+      ...makeRow(),
+      ...values,
+    }))
+    const { skill } = await createPlatformSkill(
+      {
+        name: 'oib-fire-check',
+        description: 'd',
+        body: 'b',
+        categoryId: 'cat-1',
+      },
+      author
+    )
+    expect(skill.categoryId).toBe('cat-1')
+
+    vi.mocked(categoryRepository.findPlatformSkillCategory).mockResolvedValue(null)
+    await expect(
+      createPlatformSkill({ name: 'x', description: 'd', body: 'b', categoryId: 'cat-x' }, author)
+    ).rejects.toBeInstanceOf(NotFoundError)
   })
 })

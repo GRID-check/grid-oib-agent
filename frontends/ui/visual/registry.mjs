@@ -777,7 +777,7 @@ export const SCREENSHOT_TARGETS = [
     id: 'skills-panel',
     path: '/dev/skills-panel',
     description:
-      "Agent Skills tab (ADR-0045) — FEATURED first (what Piloti curates for every organization, each with an activation switch), then the org's own skills, and NOTHING schedule-shaped: everything about when something runs lives in the Tasks tab, where standing tasks stand below the runs and the week grid is a view. The pipeline's builtin skills are deliberately absent, because they are absent from the endpoint: they are machinery, nobody installs or edits one, and the clone button that used to sit on them is gone. The fixture covers a taken-up offer and an untaken one, plus an org skill in play and one switched off — the switch is the only state this page has an opinion about, so both positions have to be on screen.",
+      "Agent Skills tab (ADR-0045) — FEATURED first (what Piloti curates for every organization, each with an activation switch), then the org's own skills, grouped onto skill categories with the unsorted closers last. The pipeline's builtin skills are deliberately absent, because they are absent from the endpoint: they are machinery, nobody installs or edits one, and the clone button that used to sit on them is gone. The fixture covers a taken-up offer and an untaken one (one of them categorized), plus an org skill in play and one switched off (one of them on the org's own category) — the switch is the only state this page has an opinion about, so both positions have to be on screen.",
     waitFor: '[data-testid="skills-panel-preview"]',
   },
   {
