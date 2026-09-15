@@ -981,7 +981,6 @@ export const chat = {
     // travels verbatim: it is their name for their own method.
     skill: {
       activated: 'Applying the “{skill}” skill',
-      forced: 'Applying the “{skill}” skill you asked for',
     },
     // Compact "what actually ran" chips in the Herleitung basis — one chip per
     // executed agent/tool, without the technical-steps opt-in.

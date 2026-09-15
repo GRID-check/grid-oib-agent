@@ -8,7 +8,6 @@ import {
   documentsForRound,
   retrievalRounds,
   roundFan,
-  unassignedDocuments,
   type RetrievalRound,
   type RoundStep,
 } from './retrieval-rounds'
@@ -227,18 +226,6 @@ describe('documentsForRound', () => {
     }
     expect(documentsForRound(round0, [oib, plan]).map((c) => c.id)).toEqual(['oib'])
     expect(documentsForRound(round1, [oib, plan]).map((c) => c.id)).toEqual(['plan'])
-    expect(unassignedDocuments([round0, round1], [oib, plan])).toEqual([])
-  })
-
-  test('a citation with no retrieval step is unassigned, not dropped', () => {
-    const extra = doc('extra', 'Notiz.pdf')
-    const round: ReturnType<typeof retrievalRounds>[number] = {
-      index: 0,
-      key: 'status.retrieval.plain',
-      tools: [],
-      sourceNames: ['oib-rl_2.pdf'],
-    }
-    expect(unassignedDocuments([round], [extra]).map((c) => c.id)).toEqual(['extra'])
   })
 })
 
@@ -383,17 +370,4 @@ describe('roundFan', () => {
     expect(fan[0]?.round).toBeUndefined()
   })
 
-  test('cards a ledger round claimed are not unassigned', () => {
-    // The filename match assigns only OIB-RL_2.pdf to these rounds. The ledger
-    // says both rounds returned the Brandschutzkonzept too, so nothing is left
-    // over — and a card no round mentions at all still is.
-    const notiz = doc('notiz', 'Notiz.pdf')
-    expect(unassignedDocuments(rounds, [oib, konzept, notiz]).map((c) => c.id)).toEqual([
-      'konzept',
-      'notiz',
-    ])
-    expect(unassignedDocuments(rounds, [oib, konzept, notiz], ledger).map((c) => c.id)).toEqual([
-      'notiz',
-    ])
-  })
 })

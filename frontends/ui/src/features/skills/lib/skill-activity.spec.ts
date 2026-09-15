@@ -198,9 +198,9 @@ describe('skillLabelForStep', () => {
  * which lands on the SAME step a moment later, does not erase the sentence.
  *
  * They also pin the half of the contract this module now owns outright: the
- * backend ships `skill.activated` / `skill.forced` plus the authored title, and
- * the SENTENCE is built here, from the reader's dictionary. Both locales are
- * asserted, because the bug this replaces was invisible in exactly one of them.
+ * backend ships `skill.activated` plus the authored title, and the SENTENCE is
+ * built here, from the reader's dictionary. Both locales are asserted, because
+ * the bug this replaces was invisible in exactly one of them.
  */
 describe('liveSkillActivity / skillLiveText', () => {
   const tDe = createTranslator(de, 'chat')
@@ -241,17 +241,19 @@ describe('liveSkillActivity / skillLiveText', () => {
     }
   })
 
-  test('who decided is a different KEY, not a swapped verb', () => {
-    // "wurde angefordert" vs "wird angewendet" is one word in German and a
-    // whole clause in English, so the backend names the case and this side
-    // writes each sentence.
+  test('a key this UI no longer declares is silent, not a bare id', () => {
+    // `skill.forced` was the sentence for a skill the turn HAD to apply —
+    // named by the composer, or published by the platform as fleet standard.
+    // Both mechanisms are gone (migration 0088), and an activation is again
+    // just the model reaching for a capability.
+    //
+    // A backend mid-rolling-deploy can still send the retired key. It must
+    // render nothing rather than leaking the raw dotted id into the live line,
+    // which is the same rule a titleless activation follows below.
     const forced = { ...activated, forced: true, key: 'skill.forced' }
-    expect(skillLiveText(JSON.stringify(forced), tDe)).toBe(
-      'Skill „Brandschutznachweis“ wurde angefordert'
-    )
-    expect(skillLiveText(JSON.stringify(forced), tEn)).toBe(
-      'Applying the “Brandschutznachweis” skill you asked for'
-    )
+    for (const t of [tDe, tEn]) {
+      expect(skillLiveText(JSON.stringify(forced), t)).toBeNull()
+    }
   })
 
   test('loaded arriving on the same step does not blank the line', () => {

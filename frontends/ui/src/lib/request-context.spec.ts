@@ -120,6 +120,75 @@ describe('buildGridRequestContextHeaders — omission rules', () => {
   })
 })
 
+/**
+ * `X-Grid-Org-Instructions` — the organization's standing instruction block.
+ *
+ * What replaced forcing a skill onto a turn. The composer no longer sends a
+ * `skills` array and the platform no longer has a `standard` delivery tier; a
+ * standing preference is a property of the ORGANIZATION, so it rides the
+ * context headers with the rest of them, encoded exactly as
+ * `X-Grid-Project-Context` is.
+ *
+ * Three things are asserted, and each answers a question the backend has to be
+ * able to answer from the wire alone: is it there, is it absent when there is
+ * nothing to say, and does an over-length block reach the wire (it must not,
+ * and the wire is not where that is decided).
+ */
+describe('X-Grid-Org-Instructions', () => {
+  const BLOCK = 'Zuerst das Ergebnis, dann die Begründung.\nWien annehmen, wenn nichts genannt ist.'
+
+  it('is base64url(utf-8 text), the encoding a multi-line header needs', () => {
+    const headers = buildGridRequestContextHeaders({ orgInstructions: BLOCK })
+    const encoded = headers[GRID_HEADER_NAMES.ORG_INSTRUCTIONS]
+    expect(encoded).toBe(encodeGridTextHeader(BLOCK))
+    // Node rejects `\n` in a header value (ERR_INVALID_CHAR) and the throw
+    // would kill the WS upgrade, not drop a field.
+    expect(encoded).not.toContain('\n')
+    expect(Buffer.from(encoded, 'base64url').toString('utf8')).toBe(BLOCK)
+  })
+
+  it('survives the umlauts an Austrian office writes', () => {
+    const text = 'Immer eine Mängelliste anhängen. Gültig für Grundstücksgrenzen.'
+    const headers = buildGridRequestContextHeaders({ orgInstructions: text })
+    expect(Buffer.from(headers[GRID_HEADER_NAMES.ORG_INSTRUCTIONS], 'base64url').toString('utf8')).toBe(text)
+  })
+
+  it('is OMITTED when the organization has written none — absent, never empty', () => {
+    // "No header" is the one signal that says "this organization has nothing
+    // standing". An empty-string header would read as an instruction that says
+    // nothing, which is a different thing to render into a prompt.
+    for (const input of [{}, { orgInstructions: null }, { orgInstructions: '' }]) {
+      const headers = buildGridRequestContextHeaders(input)
+      expect(headers[GRID_HEADER_NAMES.ORG_INSTRUCTIONS]).toBeUndefined()
+      expect(buildGridRequestContextEnvelopePayload(input)).not.toHaveProperty('orgInstructions')
+    }
+  })
+
+  it('does NOT cap the text here — the cap is enforced where the block is written', () => {
+    // 1500 characters, in the write boundary, the SQL CHECK and the backend.
+    // Re-capping on the wire would give the bound a fourth definition, and a
+    // bound with four definitions is a bound that can disagree with itself —
+    // silently, by truncating an instruction mid-sentence on the way out.
+    const tooLong = 'a'.repeat(2000)
+    const encoded = buildGridRequestContextHeaders({ orgInstructions: tooLong })[
+      GRID_HEADER_NAMES.ORG_INSTRUCTIONS
+    ]
+    expect(Buffer.from(encoded, 'base64url').toString('utf8')).toHaveLength(2000)
+  })
+
+  it('rides the signed envelope too, LAST in key order so older payloads stay byte-identical', () => {
+    // Every field added since `memoryReflectionEnabled` is appended last for
+    // this reason: the fixture's precomputed header/signature values keep
+    // exact-matching on both sides of the language boundary.
+    const payload = buildGridRequestContextEnvelopePayload({
+      organizationId: 'org_1',
+      issuedAt: 1,
+      orgInstructions: BLOCK,
+    })
+    expect(Object.keys(payload)).toEqual(['organizationId', 'issuedAt', 'orgInstructions'])
+  })
+})
+
 describe('bundesland (backlog T3-9 follow-up, 2026-07-16, user-mandated) — envelope-only', () => {
   it('buildGridRequestContextHeaders never emits a header for it (no individual X-Grid-Bundesland header)', () => {
     const headers = buildGridRequestContextHeaders({ bundesland: 'wien' })
@@ -405,6 +474,7 @@ describe('server.js mints the same envelope payload this module does', () => {
         bundesland: 'wien',
         conversationId: 's_conv_1',
         issuedAt: 1789430400000,
+        orgInstructions: 'Zuerst das Ergebnis.',
       }),
     )
 

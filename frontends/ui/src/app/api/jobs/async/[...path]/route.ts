@@ -39,6 +39,7 @@ import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { isAuthzError } from '@/lib/auth-utils'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
+import { resolveOrgInstructions } from '@/lib/org-instructions/service'
 import {
   buildGridRequestContextWireHeaders,
   type GridRequestContextInput,
@@ -98,6 +99,14 @@ async function resolveGridContextHeaders(
       }
     } catch (error) {
       console.warn('[Deep Research API] Failed to load model overrides:', error)
+    }
+    // The organization's standing instruction block (migration 0087) — the
+    // same text a chat turn carries, because a deep-research run is a turn the
+    // same office asked for. `resolveOrgInstructions` already fails soft to
+    // null, so a lookup failure costs the run its preferences and not the run.
+    const orgInstructions = await resolveOrgInstructions(session.organizationId)
+    if (orgInstructions) {
+      input.orgInstructions = orgInstructions
     }
   }
 

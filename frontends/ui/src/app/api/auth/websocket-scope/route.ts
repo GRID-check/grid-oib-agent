@@ -31,6 +31,7 @@ import { buildReviewDecisionsBlock } from '@/lib/documents/review-decisions'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
 import { isMemoryReflectionEnabled } from '@/lib/workos/feature-flags'
 import { isWebSearchEnabledForOrg } from '@/lib/organizations/service'
+import { resolveOrgInstructions } from '@/lib/org-instructions/service'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { getBudgetStatus } from '@/lib/budgets/service'
 import { isAuthzError } from '@/lib/auth-utils'
@@ -150,6 +151,16 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
     const modelOverrides = organizationId
       ? await bestEffort('load model overrides', () => getEffectiveModelOverrides(organizationId))
       : null
+    // The organization's standing instruction block (migration 0087) —
+    // `server.js` forwards it as x-grid-org-instructions and the backend folds
+    // it into the turn's prompt. Another org-level cached read (30s TTL,
+    // write-invalidated), so it belongs in this serial block rather than in the
+    // fan-out below. `resolveOrgInstructions` already fails soft to null, and
+    // `bestEffort` keeps that posture identical to its neighbours: an
+    // organization's preferences must never be what takes chat down.
+    const orgInstructions = organizationId
+      ? await bestEffort('resolve org instructions', () => resolveOrgInstructions(organizationId))
+      : null
 
     // Phase 2 — the remaining independent lookups, fanned out. Access is
     // already enforced: buildCollectionScopeFromRequest ran
@@ -227,6 +238,9 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       }
       if (modelOverrides) {
         response.modelOverrides = modelOverrides
+      }
+      if (orgInstructions) {
+        response.orgInstructions = orgInstructions
       }
       // A blocked budget already returned 403 at the gate above; here the
       // status only rides along so the backend tracker can stop a runaway

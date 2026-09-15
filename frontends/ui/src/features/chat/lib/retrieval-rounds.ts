@@ -233,25 +233,3 @@ export const roundFan = (
     name: card.fileName ?? card.title,
   }))
 }
-
-/**
- * Cards no round claimed. They stay in the citation model ("Belegt durch");
- * the spine does not pretend the last fetch returned them.
- *
- * Ledger-backed rounds claim through the same fan the graph draws, so a card a
- * ledger round showed is claimed even though no filename match assigned it.
- */
-export const unassignedDocuments = (
-  rounds: RetrievalRound[],
-  cards: CitedDocument[],
-  ledger?: RetrievalLedger | null
-): CitedDocument[] => {
-  const claimed = new Set(
-    rounds.flatMap((round) =>
-      roundFan(round, cards, ledger)
-        .map((slot) => slot.card?.id)
-        .filter((id): id is string => id !== undefined)
-    )
-  )
-  return cards.filter((card) => !claimed.has(card.id))
-}

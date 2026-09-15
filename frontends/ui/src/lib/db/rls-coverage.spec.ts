@@ -70,8 +70,12 @@ const BOUNDARY_MIGRATIONS = [
   '0082_document_versions.sql',
   // Collapses jobs/job_runs/tasks into task_definitions + task_runs
   // (follow-up to PR #659). Both tables are project-scoped tenant data; the
-  // old three keep their 0043/0075 entries until 0087 drops them.
+  // old three keep their 0043/0075 entries until a later migration drops them.
   '0086_task_definitions.sql',
+  // Adds organization_instructions — one standing instruction block per tenant,
+  // sent to the agent on every turn. Keyed directly by the organization, so it
+  // is secured exactly as `organizations` and `curated_skill_activations` are.
+  '0087_organization_instructions.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

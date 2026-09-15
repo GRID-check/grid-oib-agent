@@ -29,6 +29,7 @@ import { getBudgetStatus } from '@/lib/budgets/service'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland, loadProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { buildProjectMemoryDigest } from '@/lib/projects/memory-service'
+import { resolveOrgInstructions } from '@/lib/org-instructions/service'
 import { computeCollectionScope } from '@/lib/collection-scope'
 import {
   buildGridRequestContextWireHeaders,
@@ -502,6 +503,7 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
     bundesland,
     projectMemory,
     memoryReflectionEnabled,
+    orgInstructions,
   ] = await Promise.all([
     resolveBudgetSnapshot(organizationId, userId, projectId),
     getEffectiveModelOverrides(organizationId).catch(() => null),
@@ -510,6 +512,11 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
     loadProjectBundesland(projectId, organizationId).catch(() => null),
     buildProjectMemoryDigest(projectId, organizationId, { query: spec.prompt }).catch(() => null),
     isMemoryReflectionEnabled(organizationId).catch(() => false),
+    // The organization's standing instruction block. A scheduled or delegated
+    // run is a turn like any other, so it carries the same preferences a chat
+    // turn does — a task that answered in a voice the office had asked against
+    // would be the whole point of the block, missed.
+    resolveOrgInstructions(organizationId),
   ])
   const budgetHeader = budgetSnapshot ? encodeGridBudgetHeader(budgetSnapshot) : null
 
@@ -550,6 +557,7 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
       collectionScope,
       projectContext,
       projectMemory,
+      orgInstructions,
       modelOverrides,
       budget: budgetSnapshot,
       bundesland,

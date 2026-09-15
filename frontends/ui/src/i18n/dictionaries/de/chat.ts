@@ -967,7 +967,6 @@ export const chat: typeof en.chat = {
     // ihre eigene Arbeitsweise.
     skill: {
       activated: 'Skill „{skill}“ wird angewendet',
-      forced: 'Skill „{skill}“ wurde angefordert',
     },
     // Kompakte Chips „was tatsächlich gelaufen ist" in der Herleitung-Basis —
     // ein Chip pro ausgeführtem Agenten/Tool, ohne Technik-Opt-in.
