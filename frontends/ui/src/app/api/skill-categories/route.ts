@@ -1,7 +1,7 @@
 /**
- * Skill shelves API — the org's own arrangement. Thin adapters (ADR-0017);
+ * Skill categories API — the org's own arrangement. Thin adapters (ADR-0017);
  * logic in `@/lib/skills/service`. Every query is org-scoped, and platform
- * shelves are read-only here: they arrive inside the list, and nothing else.
+ * categories are read-only here: they arrive inside the list, and nothing else.
  */
 
 import { apiRoute, parseJsonBody } from '@/lib/api/handler'

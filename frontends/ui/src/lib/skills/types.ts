@@ -305,8 +305,8 @@ const metadataSchema = z
   })
 
 /**
- * A shelf reference on a skill write. A UUID when shelved, null when the
- * shelf is taken away. Omitted means "don't touch" — which is why PATCH takes
+ * A category reference on a skill write. A UUID when categorized, null when the
+ * category is taken away. Omitted means "don't touch" — which is why PATCH takes
  * the nullable form and CREATE the plain optional one.
  */
 export const categoryIdSchema = z.string().trim().uuid('A skill category id must be a UUID.')
@@ -334,14 +334,14 @@ export const patchSkillSchema = z.object({
 export type PatchSkillInput = z.infer<typeof patchSkillSchema>
 
 // ---------------------------------------------------------------------------
-// Skill categories (shelves)
+// Skill categories (categories)
 // ---------------------------------------------------------------------------
 
 export const MAX_CATEGORY_NAME_LENGTH = 60
 export const MAX_CATEGORY_DESCRIPTION_LENGTH = 500
 
 /**
- * Shelf names are labels, not slash-names: spaces and mixed case are the
+ * Category names are labels, not slash-names: spaces and mixed case are the
  * point ("OIB", "Eigene Prüfungen"). The prompt-safety tag rule still applies
  * — names render in the UI, and a stray tag there is still a stray tag.
  */
@@ -376,15 +376,15 @@ export const patchCategorySchema = z.object({
 
 export type PatchCategoryInput = z.infer<typeof patchCategorySchema>
 
-/** A shelf as the toolbox reads it — platform shelves first, then the org's own. */
+/** A category as the toolbox reads it — platform categories first, then the org's own. */
 export type SkillCategoryListItem = {
   id: string
   name: string
   description: string | null
   /**
-   * Stable key for platform shelves seeded from builtin collections. Builtin
-   * file offers resolve to a shelf by this, never by the renamable name.
-   * Always null for org shelves.
+   * Stable key for platform categories seeded from builtin collections. Builtin
+   * file offers resolve to a category by this, never by the renamable name.
+   * Always null for org categories.
    */
   slug: string | null
   sortOrder: number

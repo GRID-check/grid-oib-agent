@@ -36,9 +36,9 @@ vi.mock('./platform-repository', () => ({
 vi.mock('./skill-category-repository', () => ({
   listCategoriesForOrg: vi.fn(),
   findCategoryInScope: vi.fn(),
-  findPlatformCategory: vi.fn(),
+  findPlatformSkillCategory: vi.fn(),
   findOrgCategoryByName: vi.fn(),
-  findPlatformCategoryByName: vi.fn(),
+  findPlatformSkillCategoryByName: vi.fn(),
   findOrgCategory: vi.fn(),
   insertCategory: vi.fn(),
   updateCategory: vi.fn(),
@@ -196,7 +196,7 @@ function makeSkill(overrides: Partial<Skill> = {}): Skill {
   return { ...base, ...overrides }
 }
 
-/** A shelf row — platform-owned when organizationId is null. */
+/** A category row — platform-owned when organizationId is null. */
 function makeCategory(
   overrides: Partial<{
     id: string
@@ -235,7 +235,7 @@ beforeEach(() => {
   publishPlatformRows([])
   vi.mocked(repository.findSkill).mockResolvedValue(null)
   vi.mocked(repository.findSkillByName).mockResolvedValue(null)
-  // No shelves unless a test stands some up.
+  // No categories unless a test stands some up.
   vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue([])
   vi.mocked(categoryRepository.findCategoryInScope).mockResolvedValue(null)
   vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(null)
@@ -929,7 +929,7 @@ describe('listInvocableSkills', () => {
 })
 
 describe('skill categories', () => {
-  it('lists platform shelves before org shelves, with their scope', async () => {
+  it('lists platform categories before org categories, with their scope', async () => {
     // Repository order is the contract (platform first); the service maps it.
     vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue([
       makeCategory({ id: 'cat-1', name: 'Recherche', slug: 'research', sortOrder: 0 }),
@@ -941,27 +941,27 @@ describe('skill categories', () => {
     expect(categories[1]).toMatchObject({ scope: 'org' })
   })
 
-  it('shelves a builtin file offer by its collection slug', async () => {
+  it('categories a builtin file offer by its collection slug', async () => {
     vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue([
       makeCategory({ id: 'cat-1', name: 'Recherche', slug: 'research' }),
     ])
     const { skills } = await listSkills(session)
-    // CURATED_SKILL is a `research` file offer: no row, still shelved.
+    // CURATED_SKILL is a `research` file offer: no row, still categorized.
     expect(skills.find((s) => s.name === 'oib-fire-check')?.categoryId).toBe('cat-1')
   })
 
-  it('keeps a dashboard row on its stored shelf', async () => {
+  it('keeps a dashboard row on its stored category', async () => {
     publishPlatformRows([platformRow({ categoryId: 'cat-9' })])
     const { skills } = await listSkills(session)
     expect(skills.find((s) => s.name === 'energy-check')?.categoryId).toBe('cat-9')
   })
 
-  it('leaves file offers unsorted when no shelf carries their slug', async () => {
+  it('leaves file offers unsorted when no category carries their slug', async () => {
     const { skills } = await listSkills(session)
     expect(skills.find((s) => s.name === 'oib-fire-check')?.categoryId).toBeNull()
   })
 
-  it('refuses a shelf outside the org on create', async () => {
+  it('refuses a category outside the org on create', async () => {
     vi.mocked(categoryRepository.findCategoryInScope).mockResolvedValue(null)
     vi.mocked(repository.insertSkill).mockImplementation(async () => makeSkill())
     await expect(
@@ -970,7 +970,7 @@ describe('skill categories', () => {
     expect(repository.insertSkill).not.toHaveBeenCalled()
   })
 
-  it('shelves on an org or platform shelf on create', async () => {
+  it('assigns an org or platform category on create', async () => {
     vi.mocked(categoryRepository.findCategoryInScope).mockResolvedValue(
       makeCategory({ id: 'cat-1' })
     )
@@ -984,7 +984,7 @@ describe('skill categories', () => {
     expect(skill.categoryId).toBe('cat-1')
   })
 
-  it('unshelves on an explicit null, leaves the shelf on an omitted key', async () => {
+  it('removes the category on an explicit null, keeps it on an omitted key', async () => {
     vi.mocked(repository.findSkill).mockResolvedValue(makeSkill({ categoryId: 'cat-1' }))
     vi.mocked(categoryRepository.findCategoryInScope).mockResolvedValue(
       makeCategory({ id: 'cat-2' })
@@ -1003,7 +1003,7 @@ describe('skill categories', () => {
 })
 
 describe('skill category CRUD', () => {
-  it('lists shelves with their scope', async () => {
+  it('lists categories with their scope', async () => {
     vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue([
       makeCategory({ id: 'cat-1', name: 'Recherche', slug: 'research', sortOrder: 0 }),
       makeCategory({ id: 'cat-2', organizationId: 'org_1', name: 'Eigene', slug: null, sortOrder: 0 }),
@@ -1015,7 +1015,7 @@ describe('skill category CRUD', () => {
     ])
   })
 
-  it('refuses a duplicate shelf name in the org', async () => {
+  it('refuses a duplicate category name in the org', async () => {
     vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(
       makeCategory({ organizationId: 'org_1', name: 'Eigene' })
     )
@@ -1029,7 +1029,7 @@ describe('skill category CRUD', () => {
     expect(categoryRepository.insertCategory).not.toHaveBeenCalled()
   })
 
-  it('creates, renames and removes an org shelf', async () => {
+  it('creates, renames and removes an org category', async () => {
     vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(null)
     vi.mocked(categoryRepository.insertCategory).mockImplementation(async (values) => ({
       ...makeCategory({ organizationId: 'org_1' }),
@@ -1051,7 +1051,7 @@ describe('skill category CRUD', () => {
     await expect(deleteSkillCategory(session, 'cat-9')).resolves.toEqual({ deleted: true })
   })
 
-  it('never addresses a platform shelf from the org path', async () => {
+  it('never addresses a platform category from the org path', async () => {
     vi.mocked(categoryRepository.findOrgCategory).mockResolvedValue(null)
     vi.mocked(categoryRepository.deleteCategory).mockResolvedValue(true)
     await expect(deleteSkillCategory(session, 'cat-1')).rejects.toBeInstanceOf(NotFoundError)

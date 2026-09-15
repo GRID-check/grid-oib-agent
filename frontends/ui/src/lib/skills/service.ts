@@ -66,7 +66,7 @@ export type SkillListItem = {
   origin: SkillOrigin | 'platform'
   enabled: boolean
   clonedFrom: string | null
-  /** The shelf this skill stands on, or null when unsorted. */
+  /** The category this skill stands on, or null when unsorted. */
   categoryId: string | null
   createdAt: Date | null
   updatedAt: Date | null
@@ -74,9 +74,9 @@ export type SkillListItem = {
 
 /** A skill the platform publishes to organizations, whichever tier it came from. */
 type CuratedSkill = Pick<PlatformSkill, 'name' | 'description' | 'body' | 'metadata'> & {
-  /** A dashboard row's stored shelf; null for rows and as the file default. */
+  /** A dashboard row's stored category; null for rows and as the file default. */
   categoryId: string | null
-  /** Builtin collection for file offers — resolved to a shelf by name. */
+  /** Builtin collection for file offers — resolved to a category by name. */
   collection?: string
 }
 
@@ -271,10 +271,10 @@ function toCategoryListItem(row: SkillCategoryRow): SkillCategoryListItem {
 }
 
 /**
- * The shelf a builtin file offer stands on.
+ * The category a builtin file offer stands on.
  *
- * Files have no row to store a shelf on — their shelf is derived, by matching
- * the builtin collection against the platform shelves' slugs. The match runs
+ * Files have no row to store a category on — their category is derived, by matching
+ * the builtin collection against the platform categories' slugs. The match runs
  * on the slug and never the display name, so a name the owner renames can
  * never detach them.
  */
@@ -330,8 +330,8 @@ export async function listSkills(
   const platformCategories = categories.filter((category) => category.scope === 'platform')
   const byName = new Map<string, SkillListItem>()
   for (const offer of offers) {
-    // A dashboard row carries its stored shelf; a builtin file resolves its
-    // collection against the live platform shelves by name.
+    // A dashboard row carries its stored category; a builtin file resolves its
+    // collection against the live platform categories by slug.
     const categoryId =
       offer.categoryId ?? fileOfferCategoryId(offer.collection, platformCategories)
     byName.set(offer.name, platformToListItem(offer, isActivated(activations, offer.name), categoryId))
@@ -378,7 +378,7 @@ export async function setCuratedSkillEnabled(
     updatedBy: session.userId,
     updatedByEmail: session.email,
   })
-  // The switch answers with the offer as listed — same shelf the toolbox shows.
+  // The switch answers with the offer as listed — same category the toolbox shows.
   const platformCategories = (
     await categoryRepository.listCategoriesForOrg(session.organizationId)
   )
@@ -467,11 +467,11 @@ async function assertNameNotStandardised(name: string): Promise<void> {
 }
 
 /**
- * The shelf a skill write names, resolved or refused.
+ * The category a skill write names, resolved or refused.
  *
- * An org skill may stand on the org's own shelf or a platform one; anything
- * else — another org's shelf, or nothing at all — is a 404 either way, so a
- * caller cannot probe which shelves exist outside its scope. Undefined means
+ * An org skill may stand on the org's own category or a platform one; anything
+ * else — another org's category, or nothing at all — is a 404 either way, so a
+ * caller cannot probe which categories exist outside its scope. Undefined means
  * "don't touch" and passes through as null only where the column wants it.
  */
 async function assertCategoryInScope(
@@ -479,9 +479,9 @@ async function assertCategoryInScope(
   categoryId: string | null | undefined,
 ): Promise<string | null> {
   if (categoryId === undefined || categoryId === null) return null
-  const shelf = await categoryRepository.findCategoryInScope(categoryId, organizationId)
-  if (!shelf) throw new NotFoundError('Skill category not found.')
-  return shelf.id
+  const category = await categoryRepository.findCategoryInScope(categoryId, organizationId)
+  if (!category) throw new NotFoundError('Skill category not found.')
+  return category.id
 }
 
 export async function createSkill(
@@ -545,7 +545,7 @@ export async function updateSkill(
     await assertNameNotStandardised(patch.name)
   }
 
-  // A named shelf is resolved or refused; an explicit null unshelves; an
+  // A named category is resolved or refused; an explicit null removes it; an
   // omitted key leaves the skill where it stands. Spread directly it would do
   // the same, but only by accident of what drizzle ignores — said aloud here.
   const { categoryId, ...rest } = patch
@@ -574,13 +574,13 @@ export async function deleteSkill(
 }
 
 // ---------------------------------------------------------------------------
-// Shelves (skill categories) — the org's own arrangement
+// Skill categories — the org's own arrangement
 // ---------------------------------------------------------------------------
 
 /**
- * Every shelf this organization sees: the platform's, then its own.
+ * Every category this organization sees: the platform's, then its own.
  *
- * Any member may read — arranging is administration, looking at the shelves
+ * Any member may read — arranging is administration, looking at the categories
  * is using the product.
  */
 export async function listSkillCategories(
@@ -592,7 +592,7 @@ export async function listSkillCategories(
 }
 
 /**
- * Add a shelf to this organization. `org:skills:manage` required.
+ * Add a category to this organization. `org:skills:manage` required.
  *
  * Names are unique within the org (the partial index is the backstop; the
  * pre-check turns it into a 409 with a message rather than a 500).
@@ -621,9 +621,9 @@ export async function createSkillCategory(
 }
 
 /**
- * Rename, re-describe or re-order an org shelf. Platform shelves are never
- * addressable here — renaming the fleet's shelf from a tenant is a 404, the
- * same shape as a shelf that never existed.
+ * Rename, re-describe or re-order an org category. Platform categories are never
+ * addressable here — renaming the fleet's category from a tenant is a 404, the
+ * same shape as a category that never existed.
  */
 export async function updateSkillCategory(
   session: AuthorizedSession,
@@ -653,7 +653,7 @@ export async function updateSkillCategory(
 }
 
 /**
- * Remove an org shelf. Skills standing on it are NOT removed — the FK is
+ * Remove an org category. Skills standing on it are NOT removed — the FK is
  * ON DELETE SET NULL, so they fall back to unsorted.
  */
 export async function deleteSkillCategory(

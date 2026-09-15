@@ -1,10 +1,10 @@
 /**
- * One platform shelf (ADR-0016). Platform owners only.
+ * One platform skill category (ADR-0016). Platform owners only.
  *
  * PATCH  — rename, re-describe, re-order it. Renaming never detaches the
- *          builtin file offers: they resolve to a shelf by slug, not by the
- *          display name. Deleting a seeded shelf does unshelve them (they read
- *          as unsorted) — removing the shelf removes the mapping.
+ *          builtin file offers: they resolve to a category by slug, not by the
+ *          display name. Deleting a seeded category unassigns them (they read
+ *          as unsorted) — removing the category removes the mapping.
  * DELETE — remove it. Skills standing on it fall back to unsorted; the skills
  *          themselves are untouched.
  */

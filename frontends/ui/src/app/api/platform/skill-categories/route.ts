@@ -1,13 +1,13 @@
 /**
- * Platform → Skill shelves: the fleet catalogue's arrangement (ADR-0016).
+ * Platform → Skill categories: the fleet catalogue's arrangement (ADR-0016).
  *
  * Platform owners only, no per-org feature flag: this is the layer *under*
- * every tenant's shelf list. A shelf written here is read by every
+ * every tenant's category list. A category written here is read by every
  * organization at once; an org skill may stand on one, and builtin file
- * offers resolve their collection against these names.
+ * offers resolve their collection against these slugs.
  *
- * GET  — the platform shelves.
- * POST — add one. Names are unique among platform shelves.
+ * GET  — the platform categories.
+ * POST — add one. Names are unique among platform categories.
  */
 
 import { parseJsonBody } from '@/lib/api/handler'

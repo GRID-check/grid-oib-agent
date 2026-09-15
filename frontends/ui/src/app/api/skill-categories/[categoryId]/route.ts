@@ -1,6 +1,6 @@
 /**
- * Single org shelf API — rename, re-describe, re-order, remove. Thin adapters
- * (ADR-0017); logic in `@/lib/skills/service`. Platform shelves 404 here: the
+ * Single org category API — rename, re-describe, re-order, remove. Thin adapters
+ * (ADR-0017); logic in `@/lib/skills/service`. Platform categories 404 here: the
  * fleet's arrangement is curated in Platform → Skills, never from a tenant.
  */
 

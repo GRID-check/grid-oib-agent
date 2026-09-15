@@ -2,8 +2,8 @@
  * Skill category repository — the only module that queries `skill_categories`
  * (ADR-0017).
  *
- * ONE table, two owners: a NULL `organization_id` is a platform shelf, a set
- * one that org's own. Reads therefore always span both (platform shelves
+ * ONE table, two owners: a NULL `organization_id` is a platform category, a set
+ * one that org's own. Reads therefore always span both (platform categories
  * first), while writes are scoped by who is asking — an org path that touches
  * a platform row, or vice versa, is a 404 at the service, never a row here.
  *
@@ -21,13 +21,13 @@ import {
   type SkillCategoryRow,
 } from '@/lib/db/schema'
 
-/** Hard cap for a shelf list — platform shelves plus one org's own. */
+/** Hard cap for a category list — platform categories plus one org's own. */
 export const CATEGORIES_LIST_LIMIT = 100
 
 /**
- * Every shelf an organization sees: the platform's, then its own.
+ * Every category an organization sees: the platform's, then its own.
  *
- * Ordered the way the toolbox reads them — platform shelves first (NULLS
+ * Ordered the way the toolbox reads them — platform categories first (NULLS
  * FIRST), then by sort order, ties by name. Bounded, like every list.
  */
 export async function listCategoriesForOrg(
@@ -47,8 +47,8 @@ export async function listCategoriesForOrg(
     .limit(limit)
 }
 
-/** The platform's shelves only — the curation surface. */
-export async function listPlatformCategories(
+/** The platform's categories only — the curation surface. */
+export async function listPlatformSkillCategories(
   limit = CATEGORIES_LIST_LIMIT,
 ): Promise<SkillCategoryRow[]> {
   const db = getDb()
@@ -61,8 +61,8 @@ export async function listPlatformCategories(
 }
 
 /**
- * Load a shelf an organization may stand a skill on: its own, or a platform
- * one. Anything else is null — the service reads that as "no such shelf"
+ * Load a category an organization may stand a skill on: its own, or a platform
+ * one. Anything else is null — the service reads that as "no such category"
  * without learning which half missed.
  */
 export async function findCategoryInScope(
@@ -83,8 +83,8 @@ export async function findCategoryInScope(
   return row ?? null
 }
 
-/** Load a platform shelf by id — the platform write path's ownership check. */
-export async function findPlatformCategory(categoryId: string): Promise<SkillCategoryRow | null> {
+/** Load a platform category by id — the platform write path's ownership check. */
+export async function findPlatformSkillCategory(categoryId: string): Promise<SkillCategoryRow | null> {
   const db = getDb()
   const [row] = await db
     .select()
@@ -94,7 +94,7 @@ export async function findPlatformCategory(categoryId: string): Promise<SkillCat
   return row ?? null
 }
 
-/** An org's own shelf by name — the conflict check before create/rename. */
+/** An org's own category by name — the conflict check before create/rename. */
 export async function findOrgCategoryByName(
   name: string,
   organizationId: string,
@@ -110,8 +110,8 @@ export async function findOrgCategoryByName(
   return row ?? null
 }
 
-/** A platform shelf by name — the platform conflict check. */
-export async function findPlatformCategoryByName(name: string): Promise<SkillCategoryRow | null> {
+/** A platform category by name — the platform conflict check. */
+export async function findPlatformSkillCategoryByName(name: string): Promise<SkillCategoryRow | null> {
   const db = getDb()
   const [row] = await db
     .select()
@@ -121,7 +121,7 @@ export async function findPlatformCategoryByName(name: string): Promise<SkillCat
   return row ?? null
 }
 
-/** An org's OWN shelf by id — update/delete must never touch a platform row. */
+/** An org's OWN category by id — update/delete must never touch a platform row. */
 export async function findOrgCategory(
   categoryId: string,
   organizationId: string,
@@ -146,7 +146,7 @@ export async function insertCategory(values: NewSkillCategoryRow): Promise<Skill
   return row
 }
 
-/** The columns a curator may change on a shelf. */
+/** The columns a curator may change on a category. */
 export type CategoryUpdate = Partial<
   Pick<SkillCategoryRow, 'name' | 'description' | 'sortOrder' | 'updatedAt'>
 >
@@ -165,9 +165,9 @@ export async function updateCategory(
 }
 
 /**
- * Remove a shelf. Skills standing on it are NOT removed — both skill tables
+ * Remove a category. Skills standing on it are NOT removed — both skill tables
  * reference it ON DELETE SET NULL, so they fall back to unsorted, which is
- * exactly what "remove the shelf, keep the books" means.
+ * exactly what "remove the category, keep the books" means.
  */
 export async function deleteCategory(categoryId: string): Promise<boolean> {
   const db = getDb()
@@ -178,7 +178,7 @@ export async function deleteCategory(categoryId: string): Promise<boolean> {
   return deleted.length > 0
 }
 
-/** Org shelves must carry their org — the one thing the type cannot say. */
+/** Org categories must carry their org — the one thing the type cannot say. */
 export function orgCategoryValues(
   organizationId: string,
   values: Omit<NewSkillCategoryRow, 'organizationId'>,

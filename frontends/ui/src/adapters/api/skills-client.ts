@@ -40,18 +40,18 @@ export interface SkillListItem {
   origin: 'org' | 'platform-clone' | 'platform'
   enabled: boolean
   clonedFrom: string | null
-  /** The shelf this skill stands on, or null when unsorted. */
+  /** The category this skill stands on, or null when unsorted. */
   categoryId: string | null
   createdAt: string | null
   updatedAt: string | null
 }
 
-/** A shelf as the toolbox reads it — platform shelves first, then the org's own. */
+/** A category as the toolbox reads it — platform categories first, then the org's own. */
 export interface SkillCategoryListItem {
   id: string
   name: string
   description: string | null
-  /** Stable key for platform shelves seeded from builtin collections; null otherwise. */
+  /** Stable key for platform categories seeded from builtin collections; null otherwise. */
   slug: string | null
   sortOrder: number
   scope: 'platform' | 'org'
@@ -75,12 +75,14 @@ export interface CreateSkillInput {
   enabled?: boolean
   /** Platform skill name this was cloned from (marks origin platform-clone). */
   clonedFrom?: string
-  /** The shelf to stand on — an org or platform category id. */
+  /** The category to stand on — an org or platform category id. */
   categoryId?: string | null
 }
 
-/** Partial update payload for `PATCH /api/skills/[skillId]`. */
-export type UpdateSkillInput = Partial<CreateSkillInput>
+/** Partial update payload for `PATCH /api/skills/[skillId]` — explicit null uncategories. */
+export type UpdateSkillInput = Omit<Partial<CreateSkillInput>, 'categoryId'> & {
+  categoryId?: string | null
+}
 
 // ============================================================
 // Errors
@@ -141,7 +143,7 @@ const jsonHeaders: HeadersInit = { 'Content-Type': 'application/json' }
 // Org toolbox API
 // ============================================================
 
-/** The merged toolbox list: every builtin platform skill plus org rows, with their shelves. */
+/** The merged toolbox list: every builtin platform skill plus org rows, with their categories. */
 export const listSkills = async (): Promise<{
   skills: SkillListItem[]
   categories: SkillCategoryListItem[]
@@ -151,13 +153,13 @@ export const listSkills = async (): Promise<{
   const data = (await response.json()) as
     | { skills?: SkillListItem[]; categories?: SkillCategoryListItem[] }
     | SkillListItem[]
-  // Accept either a bare array or the envelope; shelves default to none so old
+  // Accept either a bare array or the envelope; categories default to none so old
   // fixtures and shims keep working.
   if (Array.isArray(data)) return { skills: data, categories: [] }
   return { skills: data.skills ?? [], categories: data.categories ?? [] }
 }
 
-/** This org's shelves, platform first (`GET /api/skill-categories`). */
+/** This org's categories, platform first (`GET /api/skill-categories`). */
 export const listSkillCategories = async (): Promise<SkillCategoryListItem[]> => {
   const response = await fetch('/api/skill-categories', { headers: jsonHeaders })
   if (!response.ok) await throwSkillApiError(response, 'Failed to list skill categories')
@@ -165,7 +167,7 @@ export const listSkillCategories = async (): Promise<SkillCategoryListItem[]> =>
   return data.categories ?? []
 }
 
-/** Add a shelf to this org (`POST /api/skill-categories`). */
+/** Add a category to this org (`POST /api/skill-categories`). */
 export const createSkillCategory = async (input: {
   name: string
   description?: string
@@ -182,7 +184,7 @@ export const createSkillCategory = async (input: {
   return data.category
 }
 
-/** Rename, re-describe or re-order a shelf (`PATCH /api/skill-categories/[id]`). */
+/** Rename, re-describe or re-order a category (`PATCH /api/skill-categories/[id]`). */
 export const updateSkillCategory = async (
   categoryId: string,
   patch: { name?: string; description?: string | null; sortOrder?: number },
@@ -198,7 +200,7 @@ export const updateSkillCategory = async (
   return data.category
 }
 
-/** Remove a shelf — skills on it fall back to unsorted (`DELETE …/[id]`). */
+/** Remove a category — skills on it fall back to unsorted (`DELETE …/[id]`). */
 export const deleteSkillCategory = async (categoryId: string): Promise<void> => {
   const response = await fetch(`/api/skill-categories/${encodeURIComponent(categoryId)}`, {
     method: 'DELETE',
@@ -352,6 +354,8 @@ export interface PlatformSkillItem {
   metadata: Record<string, string>
   published: boolean
   delivery: PlatformSkillDelivery
+  /** The platform category this skill stands on, or null when unsorted. */
+  categoryId: string | null
   createdAt: string
   updatedAt: string
 }
@@ -363,6 +367,59 @@ export interface PlatformSkillInput {
   metadata?: Record<string, string>
   published?: boolean
   delivery?: PlatformSkillDelivery
+  categoryId?: string | null
+}
+
+const platformCategoriesBase = '/api/platform/skill-categories'
+
+/** The platform's categories (`GET /api/platform/skill-categories`). */
+export const listPlatformSkillCategories = async (): Promise<SkillCategoryListItem[]> => {
+  const response = await fetch(platformCategoriesBase, { headers: jsonHeaders })
+  if (!response.ok) await throwSkillApiError(response, 'Failed to list platform skill categories')
+  const data = (await response.json()) as { categories?: SkillCategoryListItem[] }
+  return data.categories ?? []
+}
+
+/** Add a platform category (`POST /api/platform/skill-categories`). */
+export const createPlatformSkillCategory = async (input: {
+  name: string
+  description?: string
+  sortOrder?: number
+}): Promise<SkillCategoryListItem> => {
+  const response = await fetch(platformCategoriesBase, {
+    method: 'POST',
+    headers: jsonHeaders,
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) await throwSkillApiError(response, 'Failed to create platform skill category')
+  const data = (await response.json()) as { category?: SkillCategoryListItem }
+  if (!data.category) throw new SkillApiError('Failed to create platform skill category: empty response', response.status, null, null)
+  return data.category
+}
+
+/** Rename, re-describe or re-order a platform category (`PATCH …/[id]`). */
+export const updatePlatformSkillCategory = async (
+  categoryId: string,
+  patch: { name?: string; description?: string | null; sortOrder?: number },
+): Promise<SkillCategoryListItem> => {
+  const response = await fetch(`${platformCategoriesBase}/${encodeURIComponent(categoryId)}`, {
+    method: 'PATCH',
+    headers: jsonHeaders,
+    body: JSON.stringify(patch),
+  })
+  if (!response.ok) await throwSkillApiError(response, 'Failed to update platform skill category')
+  const data = (await response.json()) as { category?: SkillCategoryListItem }
+  if (!data.category) throw new SkillApiError('Failed to update platform skill category: empty response', response.status, null, null)
+  return data.category
+}
+
+/** Remove a platform category — skills on it fall back to unsorted (`DELETE …/[id]`). */
+export const deletePlatformSkillCategory = async (categoryId: string): Promise<void> => {
+  const response = await fetch(`${platformCategoriesBase}/${encodeURIComponent(categoryId)}`, {
+    method: 'DELETE',
+    headers: jsonHeaders,
+  })
+  if (!response.ok) await throwSkillApiError(response, 'Failed to delete platform skill category')
 }
 
 const platformSkillsBase = '/api/platform/skills'
