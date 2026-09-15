@@ -582,9 +582,8 @@ def focus_entries(entries: list[NormEntry], bundesland: str | None) -> list[Norm
 
 _BLOCK_HEADER = (
     "Kuratierter Normenkatalog (verifizierte RIS-Verweise).\n"
-    "Für diese Normen KEINE RIS-Suche verwenden: das Dokument direkt über das RIS-Fetch-Tool\n"
-    "(Dokumentnummer oder 'Gesamt'-URL) laden. Für Themensuche im Katalog das\n"
-    "RIS-Catalog-Lookup-Tool verwenden."
+    "Die RIS-Werkzeuge kennen diesen Katalog und lösen einen Verweis selbst auf; ein Eintrag hier\n"
+    "ist eine Adresse, die im Aufruf genannt werden kann, keine Fundstelle."
 )
 
 OIB_CORPUS_NOTE = (
