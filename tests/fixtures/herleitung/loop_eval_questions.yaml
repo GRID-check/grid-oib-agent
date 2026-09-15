@@ -1,4 +1,4 @@
-# Twenty questions a Wiener Planungsbüro actually asks, for the loop eval.
+# Twenty-three questions a Wiener Planungsbüro actually asks, for the loop eval.
 #
 # WHAT THIS SET IS FOR
 # --------------------
@@ -92,6 +92,14 @@ questions:
     punkt: null
     kind: ruling
 
+  - id: worum-geht-es-oib-2-2
+    question: >-
+      Wir haben zum ersten Mal eine Tiefgarage im Projekt. Worum geht es in der
+      OIB-Richtlinie 2.2 überhaupt?
+    family: OIB-RL 2.2
+    punkt: null
+    kind: walkthrough
+
   - id: betriebsbau-brandschutz
     question: >-
       Wir bauen eine Produktionshalle mit rund 1.800 m² Grundfläche. Welche
@@ -130,6 +138,14 @@ questions:
       Wohngebäude mit acht Wohnungen?
     family: OIB-RL 4
     punkt: "7.4"
+    kind: walkthrough
+
+  - id: was-regelt-oib-4
+    question: >-
+      Was regelt die OIB-Richtlinie 4 eigentlich alles? Ich hätte gern einen
+      Überblick, bevor wir den Wohnbau einreichen.
+    family: OIB-RL 4
+    punkt: null
     kind: walkthrough
 
   - id: belichtung-aufenthaltsraum
@@ -183,6 +199,14 @@ questions:
       Welche Unterlagen verlangt die Baubehörde in Wien für die Einreichung
       eines Wohnhauses?
     family: Bauordnung
+    punkt: null
+    kind: walkthrough
+
+  - id: was-steht-im-brandschutzkonzept
+    question: >-
+      Was steht in unserem Brandschutzkonzept drin? Ich müsste vor der
+      Besprechung wissen, was es überhaupt behandelt.
+    family: null
     punkt: null
     kind: walkthrough
 

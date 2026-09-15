@@ -78,6 +78,12 @@ class TestLocatorFirstRule:
         assert "unknown document" in rendered
 
     def test_the_batched_round_preference_stays(self):
+        """Several digest hits are one parallel round, not one round each.
+
+        The rule used to be stated twice: here, and again in a paragraph about
+        Sammelfragen that the round-zero cap and the locator's outline mode have
+        since made redundant. The digest bullet is the one that survived.
+        """
         rendered = _render(already_read_digest=list(DIGEST))
 
-        assert "gebündelter Zug" in rendered
+        assert "EINER parallelen `read_passage`-Runde" in rendered

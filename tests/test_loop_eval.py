@@ -62,11 +62,11 @@ def questions():
 
 
 class TestTheQuestionSet:
-    """The fixture the runner reads. Twenty questions, each answerable."""
+    """The fixture the runner reads. Twenty-three questions, each answerable."""
 
-    def test_it_is_twenty_questions_with_unique_ids(self, questions):
-        assert len(questions) == 20
-        assert len({q.id for q in questions}) == 20
+    def test_it_is_twenty_three_questions_with_unique_ids(self, questions):
+        assert len(questions) == 23
+        assert len({q.id for q in questions}) == 23
 
     def test_every_question_declares_an_expected_kind(self, questions):
         assert {q.kind for q in questions} <= {"ruling", "walkthrough", "direct"}

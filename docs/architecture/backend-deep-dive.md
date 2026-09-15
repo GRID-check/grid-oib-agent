@@ -980,11 +980,21 @@ lookup it could already address.
 `read_passage` (`sources/knowledge_layer/src/read_passage.py`) is that lookup:
 `document` (exact indexed name, stored display title, or the derived OIB title)
 plus `punkt` (the `punkt_id` the Punkt chunker verified against the corpus's own
-contents pages) or `page`. It is deterministic — one filtered fetch per
-collection the named document lives in, no reranker, no requery, no LLM
-anywhere — and it re-checks the Punkt/page in Python after the store's metadata
-filter, because "the store applies the filter" is a contract and a locator that
-returns the neighbouring requirement is worse than one that returns nothing.
+contents pages) or `page`. `document` with neither is the **outline**: the
+document's scope passage (Punkt 0, else the first top-level Punkt) followed by a
+`## Gliederung` of its depth-1 and depth-2 Punkte with their pages. That is the
+overview question ("worum geht es in der OIB 2?"), which names no Punkt and no
+page; refusing it sent the model to a search that returns cover pages and then to
+a Punkt number it had guessed. The Gliederung is an index, not evidence — only
+the passages carry a Citation, and a listed Punkt is read by calling again with
+`punkt=`. A document with no Punkte at all — most project uploads — returns its
+opening pages instead.
+
+It is deterministic — one filtered fetch per collection the named document
+lives in, no reranker, no requery, no LLM anywhere — and it re-checks the
+Punkt/page in Python after the store's metadata filter, because "the store
+applies the filter" is a contract and a locator that returns the neighbouring
+requirement is worse than one that returns nothing.
 
 Three things make it fit the rest of the tier rather than sit beside it. Its
 output is `_format_results`, so citations, the `Punkt:` line and the
@@ -1003,6 +1013,18 @@ and that budget is what bounds evidence-gathering; it is simply the cheapest
 thing the budget can buy. The live line names what is being read rather than a
 corpus: `status.retrieval.punkt` / `status.retrieval.page`
 ("Liest OIB-Richtlinie 2, Pkt. 3.5.2").
+
+A fetch it already made this turn is not made twice. `piloti/agent.py` derives a
+signature per call (`fetch_signature` in `common/turn_status.py`: the tool plus
+its locus or its query and narrowing) and carries the turn's `executed_fetches`
+on the state; a `knowledge_search` or `read_passage` call whose signature already
+ran is **withheld** the way the round-zero fan-out cap withholds overflow —
+derived once, read in both the agent node and the tools node, never charged, the
+call left on the AIMessage and answered with a `ToolMessage` saying the result is
+already above. A round that was only repeats therefore costs one interaction
+call, so a model that repeats forever still reaches forced synthesis inside the
+recursion limit, and the technical `status:repeat:N` record makes the rate
+countable in a trace.
 
 ### Agentic retrieval quality package (ADR-0039)
 
@@ -1186,7 +1208,15 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   `aenderungen_*` diff files and the superseded `zitierte_normen` revision are
   excluded from retrieval via the knowledge tool's `exclude_file_names`
   config (a `file_name NOT IN [...]` filter on the base collection only —
-  session/project collections are never filtered).
+  session/project collections are never filtered). The same base-collection
+  filter always carries `chunking != "page"`
+  (`_NON_EVIDENCE_CHUNKING` in the knowledge layer's `register.py`): the Punkt
+  chunker emits each Richtlinie's cover page and Impressum as per-page chunks,
+  they are the only chunks still carrying the running title, and a title-shaped
+  query therefore returned four cover pages at page 1 and nothing citable. `$ne`
+  keeps every record that lacks the key, so the keyless majority of the corpus
+  stays searchable. `read_passage` builds its own filters and can still open
+  page 1 on request.
 - **Storage & admin surface** — runtime source precedence: the admin-managed
   store, then the YAML seed, fail-open. `knowledge/norm_store.py` keeps one
   JSON row per country (same DB URL as the summary store), seeds itself from
