@@ -193,7 +193,7 @@ describe('step 4 — what will happen, then one button', () => {
   test('composes the payload from the four answers, once', async () => {
     const { user, onSaved } = wizard()
     await toReview(user)
-    await user.click(screen.getByRole('button', { name: /Create schedule/ }))
+    await user.click(screen.getByRole('button', { name: /Create task/ }))
     await waitFor(() => expect(createJob).toHaveBeenCalledTimes(1))
     expect(createJob).toHaveBeenCalledWith(
       'p1',

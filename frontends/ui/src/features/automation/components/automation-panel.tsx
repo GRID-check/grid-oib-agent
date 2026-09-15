@@ -1,33 +1,30 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { CalendarRange, ListChecks, Sparkles } from 'lucide-react'
+import { ListChecks, Sparkles } from 'lucide-react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SkillsPanel } from '@/features/skills/components/skills-panel'
-import { SchedulePanel } from '@/features/jobs/components/schedule-panel'
-import type { ScheduleDraft } from '@/features/jobs/lib/schedule-draft'
 import { TasksPanel } from '@/features/tasks/components/tasks-panel'
+import type { TasksView } from '@/features/tasks/lib/tasks-view'
 import { useTranslations } from '@/i18n'
 import { parseAutomationTab, tabForDeepLink, type AutomationTab } from '../lib/automation-tab'
 
 /**
- * Automation — Tasks, Zeitplan and Skills as tabs inside ONE project section.
+ * Automation — Tasks and Skills as tabs inside ONE project section.
  *
- * The three answer three different questions; `lib/automation-tab.ts` is where
+ * The two answer two different questions; `lib/automation-tab.ts` is where
  * that split is argued. Tasks leads because it is the one asked most often.
  *
  * Only the ACTIVE tab is mounted. That is load-bearing, not an optimization:
- * panels portal their primary action (delegating, a new schedule, a new skill)
- * into the shared section header via `ProjectSectionActions`, which is a single
- * slot — two mounted panels would fight over it. It is also what keeps the
- * timetable's `cron-parser` load off the readers who never open Zeitplan.
+ * panels portal their primary action into the shared section header via
+ * `ProjectSectionActions`, which is a single slot — two mounted panels would
+ * fight over it.
  *
  * The tab rides `?tab=` via `history.replaceState`, so a deep link lands on the
  * right tab and switching costs no server round-trip. A DRAWER deep link
- * (`?task=` for a run, `?schedule=` for a schedule) wins over `?tab=`, because
- * since the split each of those params has exactly one home tab — the panel
- * simply opens it, with no settle-and-restore dance to run afterwards.
+ * (`?task=` for a run, `?schedule=` for a standing task) wins over `?tab=`,
+ * because both params live on the Tasks tab — the panel simply opens it.
  */
 
 interface AutomationPanelProps {
@@ -35,7 +32,7 @@ interface AutomationPanelProps {
   projectCollection: string
   /** May create/edit/delete org skills (`org:skills:manage`). */
   canManageOrgSkills: boolean
-  /** May create/edit/run/delete this project's schedules (`project:skills:manage`). */
+  /** May create/edit/run/delete this project's tasks (`project:skills:manage`). */
   canManageJobs: boolean
   /**
    * Whether this member may use the agent in this project (`project:chat`).
@@ -44,6 +41,11 @@ interface AutomationPanelProps {
    */
   canChatInProject?: boolean
   initialTab: AutomationTab
+  /**
+   * The tasks view to open with — from `?view=`, or the timetable for a legacy
+   * `?tab=schedule` link, which meant the scheduled tasks.
+   */
+  initialView?: TasksView
 }
 
 /** The tab a `?task=` / `?schedule=` on the URL belongs to, if there is one. */
@@ -70,16 +72,10 @@ export function AutomationPanel({
   canManageJobs,
   canChatInProject = true,
   initialTab,
+  initialView = 'list',
 }: AutomationPanelProps): JSX.Element {
   const t = useTranslations('nav')
   const [tab, setTab] = useState<AutomationTab>(() => deepLinkTab() ?? initialTab)
-  /**
-   * A task the reader asked to turn into a schedule, held here while the tabs
-   * swap. It lives in the SECTION rather than on the URL because it is a draft,
-   * not a destination: a link that re-opens somebody else's half-written
-   * schedule is not a link anyone means to send.
-   */
-  const [draft, setDraft] = useState<ScheduleDraft | null>(null)
   // Corrects `?tab=` once so the address bar matches the tab above: without it,
   // closing a drawer opened from `?tab=skills&task=…` would leave `?tab=skills`
   // over the Tasks list, and a copied link would reopen the wrong tab.
@@ -123,10 +119,6 @@ export function AutomationPanel({
             <ListChecks aria-hidden />
             {t('sections.tasks')}
           </TabsTrigger>
-          <TabsTrigger value="schedule">
-            <CalendarRange aria-hidden />
-            {t('sections.schedule')}
-          </TabsTrigger>
           <TabsTrigger value="skills">
             <Sparkles aria-hidden />
             {t('sections.skills')}
@@ -136,21 +128,10 @@ export function AutomationPanel({
       <TabsContent value="tasks" className="min-h-0 overflow-hidden">
         <TasksPanel
           projectId={projectId}
-          canManageJobs={canManageJobs}
-          canChatInProject={canChatInProject}
-          onPromoteToSchedule={(next) => {
-            setDraft(next)
-            selectTab('schedule')
-          }}
-        />
-      </TabsContent>
-      <TabsContent value="schedule" className="min-h-0 overflow-hidden">
-        <SchedulePanel
-          projectId={projectId}
           projectCollection={projectCollection}
           canManageJobs={canManageJobs}
-          draft={draft}
-          onDraftConsumed={() => setDraft(null)}
+          canChatInProject={canChatInProject}
+          initialView={initialView}
         />
       </TabsContent>
       <TabsContent value="skills" className="min-h-0 overflow-y-auto">

@@ -17,6 +17,21 @@ export const tasks: typeof en.tasks = {
   create: {
     delegate: 'Delegieren',
     delegateHint: 'Übergeben wird im Chat: Bitten Sie Piloti, etwas zu übernehmen.',
+    /** Die eine Erstell-Geste: eine Aufgabe, deren Assistent das WANN als einen seiner Schritte fragt. */
+    task: 'Neue Aufgabe',
+  },
+  /** Liste und Zeitplan lesen dieselben Tasks — die Umschaltung ist eine Vorliebe, nie ein Ziel. */
+  view: {
+    label: 'Ansicht',
+    list: 'Liste',
+    timetable: 'Zeitplan',
+  },
+  /** Die stehenden Vereinbarungen hinter den Läufen — mit oder ohne Rhythmus. */
+  standing: {
+    heading: 'Stehende Aufgaben',
+    emptyTitle: 'Noch keine stehenden Aufgaben',
+    emptyDescription:
+      'Legen Sie eine Aufgabe an — mit Rhythmus läuft sie von allein, ohne wartet sie auf Sie.',
   },
   filters: {
     label: 'Tasks filtern',
@@ -53,8 +68,9 @@ export const tasks: typeof en.tasks = {
     prompt: 'Prompt',
     /** Die Läufe eines Zeitplans — jeder davon ein Task, also heißt es so. */
     runs: 'Tasks',
-    promote: 'Als Zeitplan speichern',
-    promoteHint: 'Öffnet den Zeitplan-Assistenten, dieser Auftrag ist schon eingetragen.',
+    /** Macht aus einem Einmaligen eine stehende Aufgabe, vorausgefüllt. */
+    promote: 'Als Aufgabe speichern',
+    promoteHint: 'Öffnet den Aufgaben-Assistenten, dieser Auftrag ist schon eingetragen.',
     gone: 'Das gibt es nicht mehr — möglicherweise wurde es gelöscht.',
     /**
      * Ein Deep Link, der in diesem Projekt auf keine Zeile passt. Der Link zeigt
