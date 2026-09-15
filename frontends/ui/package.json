@@ -22,7 +22,7 @@
     "test:watch": "TZ=UTC vitest",
     "test:ci": "TZ=UTC vitest run --coverage",
     "test:shard": "TZ=UTC vitest run --coverage --reporter=blob",
-    "test:merge": "TZ=UTC vitest run --merge-reports --coverage",
+    "test:merge": "TZ=UTC vitest run --merge-reports=.vitest-reports --coverage",
     "ci:local": "task -d ../.. fe:verify",
     "ci:quick": "task -d ../.. verify:fast",
     "prepare": "husky",
