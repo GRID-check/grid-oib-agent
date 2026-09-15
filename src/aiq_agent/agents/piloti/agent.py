@@ -63,6 +63,8 @@ from aiq_agent.common.cost_tracking import grid_cost_tracker_var
 from aiq_agent.common.data_sources import disabled_source_notice
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
+from aiq_agent.common.grounding_block import begin_grounding_capture
+from aiq_agent.common.grounding_block import end_grounding_capture
 from aiq_agent.common.turn_status import FETCH_FAILED_MARKER
 from aiq_agent.common.turn_status import begin_lane_capture
 from aiq_agent.common.turn_status import emit_family_coverage
@@ -1434,12 +1436,17 @@ class PilotiAgent:
         turn_capture = begin_turn_capture()
         measurement_capture = begin_measurement_capture()
         lane_capture = begin_lane_capture()
+        # What each evidence tool STATED, filed under the bytes it returned, so
+        # the citation registry copies fields instead of re-parsing the text an
+        # evidence tool wrote (ADR-0061).
+        grounding_capture = begin_grounding_capture()
         try:
             graph_result = await self._graph.ainvoke(state, config=self._graph_config(binding))
             turn_sources = get_turn_captures()
             turn_measurements = get_measurement_captures()
             lane_hits = get_lane_captures()
         finally:
+            end_grounding_capture(grounding_capture)
             end_lane_capture(lane_capture)
             end_measurement_capture(measurement_capture)
             end_turn_capture(turn_capture)

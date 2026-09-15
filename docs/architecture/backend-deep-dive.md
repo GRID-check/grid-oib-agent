@@ -968,6 +968,39 @@ deterministically from `storageKey`, and a missing/expired SeaweedFS object fall
 back gracefully to the SVG sketch. Re-ingesting a document overwrites the
 thumbnail at the same key.
 
+### The grounding block: a record, and the text that renders it (ADR-0061)
+
+Every evidence tool answers in one grammar: a preamble, a run of
+`--- Result N ---` blocks whose header states `Source:`, `Collection:`,
+`Shelf:`, `Dokumentart:`, `Punkt:`, `Citation:` and `Relevance Score:`, the
+passage body under that last line, and one `## Trace-Lanes` object at the end.
+
+The hit is now a record and the text is its rendering.
+`common/grounding_block.py` holds `GroundingHit`, `GroundingBlock` and the one
+renderer, `render_grounding_block`. Both producers build records and call it:
+`knowledge_layer.register._format_results` turns chunks into hits
+(`_grounding_hit`, which is also where the Trace-Lanes fan-out reads a hit's
+shelf, Dokumentart and title from, so the header and the fan-out cannot
+disagree), and `ris_adapter.lookup.render.format_passages` turns `Passage`
+objects into the same records. Neither writes grammar text any more.
+
+The renderer files each block under the SHA-256 of the exact bytes it returns,
+in a per-turn `ContextVar` that `PilotiAgent.run` opens beside
+`begin_lane_capture`. `citation_verification.extract_sources_from_tool_result`
+looks the block up by that hash and builds `SourceEntry`s by field copy, so a
+live turn parses nothing and a passage body cannot supply a header field the
+producer omitted. The text parsers in `citation_verification`
+(`_parse_knowledge_layer` and the eleven `_KL_*` regexes) stay for the callers
+that hold the bytes without the records: a registry hydrated from the shared
+cache, a turn replayed out of Postgres, and the job runner's callback in
+`frontends/aiq_api/src/aiq_api/jobs/callbacks.py`. The contract test asserts the
+two readers produce the same entries
+(`tests/aiq_agent/common/test_citation_pipeline_contract.py`).
+
+The boundary is worth stating once: the TOOL side is structured, and the ANSWER
+side stays text, because the model writes text and a citation key in prose is
+all there is to read.
+
 ### The locator: `read_passage`
 
 `knowledge_search` is a *search*, and for a long time it was the only way to
@@ -999,7 +1032,13 @@ requirement is worse than one that returns nothing.
 Three things make it fit the rest of the tier rather than sit beside it. Its
 output is `_format_results`, so citations, the `Punkt:` line and the
 `## Trace-Lanes` fan-out under the round stamp all work unchanged and nothing
-downstream learns a second shape. Its collection scope, base corpus and file
+downstream learns a second shape. That claim was false for one release:
+`citation_verification` registers its knowledge parser on the substring
+`knowledge`, which `read_passage` does not contain, so the locator's passages
+fell to the non-URL fallback and registered one source whose citation key was
+the string `read_passage`. A citation to a passage the turn OPENED rather than
+searched was then dropped as `citation_key_not_in_registry`. The tool name is
+registered explicitly now, beside `ris_lookup`. Its collection scope, base corpus and file
 exclusions are read off the `knowledge_search` instance named in its config
 (`knowledge_search: knowledge_search`) rather than restated, so the two cannot
 end up pointed at different corpora. And it is listed under the same
@@ -1243,8 +1282,15 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   the curated `binding_note` lines, a static OIB-corpus citation note, and the
   project applicability section (`applicability.render_project_block`). The
   Normenhierarchie doctrine itself is one constant (`NORM_DOCTRINE`) injected
-   into Piloti, deep-researcher, planner, and writer templates
-   as `{{ norm_doctrine }}`.
+   into the deep-researcher, planner and writer templates as
+   `{{ norm_doctrine }}`.
+  **Piloti renders neither.** `ris_lookup` resolves a catalog pointer out of
+  the question itself, so the list is a per-turn copy of something the tool
+  already holds, and the doctrine is constant per deployment, so it belongs in
+  the cacheable prefix. Piloti renders the applicability section alone
+  (`prompt.oib_applicability`, derived from this project's `confirmed:` facts)
+  and keeps the doctrine above the KV-cache boundary in `piloti_static.md`
+  (`<dokumentrollen>`). See the ADR-0060 amendment.
 - **Jurisdiction** — `resolve_country(project_context)` regexes the structured
    `country=<cc>` fact from the prompt text (`at`/`de`/`ch`/`other`, authored
    by the intake wizard's new A2_country question); absent → `"at"`. Every
@@ -1629,6 +1675,24 @@ wrong place and appears not to work.
 3. **Skills** — chosen by the model, per turn, from the L1 catalog the register
    layer collates (ADR-0046, §8d). Nothing here is authored in a prompt file at
    all: a skill is a document the agent decides to read.
+
+**What the dynamic half still carries, and why it is short.** Below the
+boundary `piloti.j2` renders per-turn FACTS and nothing standing: the date and
+user, the tool-name index (the model's only namespace listing under deferred
+loading, ADR-0048), the skills catalog, which file the composer has open, the
+knowledge-base inventory, what this conversation already read, the project's
+parcel documents, the OIB-Richtlinien this project's own facts make applicable,
+the platform lessons, the office block and the Project Context. Two sentences
+of rule survive, in `<entwuerfe>`: what „mach daraus ein File" refers to, which
+only the transcript knows, and that filing needs a project.
+
+Everything else that used to sit here is either a tool's own contract, which
+now lives in the tool description that owns it (ADR-0060 (d)), or standing
+platform doctrine, which moved ABOVE the boundary into `piloti_static.md`
+(`<dokumentrollen>`, `<project_record>`). The measured dynamic half on a
+realistic turn fell from 7,724 tokens to 2,962. The amendment section of
+[ADR-0060](../adr/0060-three-instruction-layers-and-tools-that-answer.md)
+records what moved where.
 
 **The direction is Langfuse → repository, and only that way.** A prompt change
 is made in the Langfuse UI: it creates a version, and moving the `production`
