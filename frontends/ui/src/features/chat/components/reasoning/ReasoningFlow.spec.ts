@@ -10,6 +10,8 @@ import {
   type SpineFolding,
 } from './ReasoningFlow'
 import type { CitedDocument } from '../../lib/citations'
+import type { FanCard } from '../../lib/retrieval-rounds'
+import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import type { ThinkingStep } from '../../types'
 import { de, en } from '@/i18n/dictionaries'
 import { createTranslator, getByPath } from '@/i18n/translate'
@@ -90,11 +92,20 @@ const isColumnId = (id: string) => /(^|-)col-\d+$/.test(id)
 const columnToColumnEdges = (g: ReturnType<typeof buildGraph>) =>
   g.edges.filter((e) => isColumnId(e.source) && isColumnId(e.target))
 
-/** Cards each column node carries, left→right. */
+/** The fan slots one column node carries. */
+const slotsOf = (node: { data: unknown }): FanCard[] =>
+  (node.data as { cards: FanCard[] }).cards
+
+/**
+ * What each column node carries, left→right: the card's id, or — for a ledger
+ * doc the card model has no card for — the ledger's own name.
+ */
 const columnCards = (g: ReturnType<typeof buildGraph>): string[][] =>
-  g.nodes
-    .filter((n) => n.type === 'sourceColumn')
-    .map((n) => (n.data as unknown as { cards: CitedDocument[] }).cards.map((c) => c.id))
+  g.nodes.filter((n) => n.type === 'sourceColumn').map((n) => slotsOf(n).map((s) => s.card?.id ?? s.name))
+
+/** Every fan slot under round `i`, in column order. */
+const fanSlots = (g: ReturnType<typeof buildGraph>, i: number): FanCard[] =>
+  g.nodes.filter((n) => n.id.startsWith(`r${i}-col-`)).flatMap(slotsOf)
 
 describe('planFan — sources pack into columns, never a forced single column', () => {
   test('a desktop chat column fans out one column per source for a typical turn', () => {
@@ -1070,5 +1081,162 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
       [card('a')]
     )
     expect(g.nodes.filter((n) => n.type === 'round')).toHaveLength(0)
+  })
+})
+
+/**
+ * The ledger draws the fan (PR #665 phase b).
+ *
+ * Before this, every round drew the TURN-LEVEL card of each file whose name it
+ * returned, so a second round that re-opened the same four files at different
+ * pages drew four identical cards a second time — the same aggregate count, the
+ * same cited page — and a genuine re-fetch was indistinguishable from a new
+ * page of a file already read. The backend's `retrieval_ledger` states what
+ * each round returned and at which locus; these assert the spine draws THAT
+ * when it has it, and today's filename match when it does not.
+ */
+describe('a ledger round draws its own fan', () => {
+  /** Two rounds: a fetch, then a pass that only re-opens what the fetch found. */
+  const steps: ThinkingStep[] = [
+    retrievalStep(0, 'Fluchtweglänge GK4'),
+    toolHit('a0', 'a', 0),
+    toolHit('b0', 'b', 0),
+    retrievalStep(1, 'Treppenraum', 'Die Grundregel steht.', ['read_passage']),
+    toolHit('a1', 'a', 1),
+    toolHit('b1', 'b', 1),
+  ]
+
+  const entry = (
+    index: number,
+    docs: RetrievalLedger[number]['docs'],
+    newDocs: string[],
+    tools: string[]
+  ): RetrievalLedger[number] => ({
+    index,
+    key: 'status.retrieval.withQuery',
+    tools,
+    corpora: ['knowledge'],
+    docs,
+    newDocs,
+    hits: docs.length,
+    documents: new Set(docs.map((d) => d.name.toLowerCase())).size,
+  })
+
+  const ledger: RetrievalLedger = [
+    entry(0, [{ name: 'a.pdf' }, { name: 'b.pdf' }], ['a.pdf', 'b.pdf'], ['knowledge_search']),
+    entry(
+      1,
+      [
+        { name: 'a.pdf', detail: 'S. 12' },
+        { name: 'b.pdf', detail: 'S. 3' },
+      ],
+      [],
+      ['read_passage']
+    ),
+  ]
+
+  const build = (retrievalLedger?: RetrievalLedger) =>
+    buildGraph(
+      { ...base, steps, answerConfidence: 'high', ...(retrievalLedger ? { retrievalLedger } : {}) },
+      t,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+
+  test('each slot is the same turn-level card, at the locus THAT round read', () => {
+    const g = build(ledger)
+    // Same cards, so the chip, the preview and the markers are untouched…
+    expect(fanSlots(g, 1).map((s) => s.card?.id)).toEqual(['a', 'b'])
+    // …but the locus is the round's own, not the turn aggregate.
+    expect(fanSlots(g, 1).map((s) => s.round?.detail)).toEqual(['S. 12', 'S. 3'])
+    expect(fanSlots(g, 0).map((s) => s.round?.detail)).toEqual([undefined, undefined])
+  })
+
+  test('a file an earlier round already showed is marked, and a first showing is not', () => {
+    const g = build(ledger)
+    expect(fanSlots(g, 0).map((s) => s.round?.repeat)).toEqual([false, false])
+    expect(fanSlots(g, 1).map((s) => s.round?.repeat)).toEqual([true, true])
+  })
+
+  test('a ledger doc the card model has no card for keeps its slot, bare', () => {
+    // The answer-repair pass reads files after the cards are built. Dropping
+    // the slot would make the round claim it returned one file when it read two.
+    const g = build([
+      ledger[0]!,
+      entry(1, [{ name: 'a.pdf', detail: 'S. 12' }, { name: 'Reparatur.pdf', detail: 'S. 1' }], [], [
+        'read_passage',
+      ]),
+    ])
+    const slots = fanSlots(g, 1)
+    expect(slots.map((s) => s.card?.id)).toEqual(['a', undefined])
+    expect(slots[1]!.name).toBe('Reparatur.pdf')
+    expect(slots[1]!.round?.detail).toBe('S. 1')
+  })
+
+  test('no ledger: the fan is the filename match, exactly as before', () => {
+    const g = build()
+    expect(columnCards(g)).toEqual([['a'], ['b'], ['a'], ['b']])
+    // No round speaks for a slot, so every card keeps its turn aggregate.
+    for (const i of [0, 1]) expect(fanSlots(g, i).map((s) => s.round)).toEqual([undefined, undefined])
+  })
+
+  test('a round the ledger does not have falls back on its own', () => {
+    // One bad round must not blank the turn: round 0 is accounted for, round 1
+    // is not, and the spine draws each the only way it can.
+    const g = build([ledger[0]!])
+    expect(fanSlots(g, 0).map((s) => s.round?.repeat)).toEqual([false, false])
+    expect(fanSlots(g, 1).map((s) => s.round)).toEqual([undefined, undefined])
+    expect(columnCards(g)).toEqual([['a'], ['b'], ['a'], ['b']])
+  })
+
+  test('a round that only opened passages is an Öffnen layer, not a search', () => {
+    const g = build(ledger)
+    const sub = (i: number) => (g.nodes.find((n) => n.id === `round-${i}`)!.data as { sub: string }).sub
+    expect(sub(0)).toBe('thinking.node.stepKindRead')
+    // Round 1 concluded something AND returned files, which would have read as
+    // a Befund — but it searched for nothing, and that is the distinction.
+    expect(sub(1)).toBe('thinking.node.stepKindOpen')
+  })
+
+  test.each(['de', 'en'])('%s spells the Öffnen layer', (locale) => {
+    const translator = createTranslator(locale === 'de' ? de : en, 'chat') as Translator
+    const g = buildGraph(
+      { ...base, steps, answerConfidence: 'high', retrievalLedger: ledger },
+      translator,
+      planFan(DESKTOP_W, 2),
+      [card('a'), card('b')]
+    )
+    const sub = (g.nodes.find((n) => n.id === 'round-1')!.data as { sub: string }).sub
+    expect(sub).toBe(locale === 'de' ? 'Öffnen' : 'Open')
+  })
+
+  test('a folded ledger round folds to the locus IT read, never the turn aggregate', () => {
+    const cited: CitedDocument = {
+      ...card('a'),
+      loci: [{ key: 'p:4', page: 4, isCited: true, number: 1 }],
+    }
+    const folding: SpineFolding = { folded: new Set([1]), onToggle: () => {} }
+    // The real copy, not the identity translator: what is asserted here is
+    // WHICH locus the sentence carries, and the key alone carries none.
+    const g = buildGraph(
+      {
+        ...base,
+        steps,
+        answerConfidence: 'high',
+        retrievalLedger: [
+          ledger[0]!,
+          entry(1, [{ name: 'a.pdf', detail: 'S. 12' }], [], ['read_passage']),
+        ],
+      },
+      createTranslator(de, 'chat') as Translator,
+      planFan(DESKTOP_W, 2),
+      [cited],
+      new Map(),
+      folding
+    )
+    const round1 = g.nodes.find((n) => n.id === 'round-1')!.data as { foldSummary: string }
+    // The answer cited page 4; this round read page 12. The fold says 12.
+    expect(round1.foldSummary).toContain('S. 12')
+    expect(round1.foldSummary).not.toContain('S. 4')
   })
 })

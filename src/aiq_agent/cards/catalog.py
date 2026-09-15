@@ -14,6 +14,7 @@ surface without triggering tool registration side effects.
 
 import functools
 import json
+import textwrap
 import types
 import typing
 from collections.abc import Iterable
@@ -161,11 +162,25 @@ MODEL_BACKED_CARD_TYPES = frozenset({"ifc_viewer", "ifc_element", "ifc_complianc
 # disclaimer is not an instruction. A second copy of the cure is a second thing to keep in sync,
 # and the copy that stops being maintained is the one that goes back to being a disclaimer.
 #
-# Only what is true on BOTH surfaces belongs here. The `[[card:N]]` placement contract is tool
-# mechanics and stays in `register.py`: post-hoc generation is handed a finished report, so it has
-# no answer to place a marker into. The CRAFT — which of the generic cards actually improves an
-# ordinary answer — lives in the `piloti-cards` platform skill for the answering agents, and in a
-# post-hoc-truthful short form in `prompt.py` for the batch generator, which has no skill runtime.
+# The CRAFT now rides WITH the triggers, one indented block per row, because the two halves are
+# one decision: "a Verfahren -> process_map" and "stations must carry what each step requires" are
+# the question and the answer to it, and split across two files they drift apart without either
+# copy looking wrong. They were split — the trigger here, the craft in the `<cards>` section of
+# `piloti/prompts/piloti.j2` — and the prompt's copy had grown its own sharpened triggers, its own
+# budget and its own restatement test beside the ones below. A rule that exists twice will disagree
+# with itself, so `emit_card`'s description is now the ONE statement of when a card is earned,
+# which one, and how it is filled well.
+#
+# What stays OUT of this module, and out of the tool, is what only the answering PROMPT can say:
+# the `[[card:N]]` placement marker contract and the redirect for the three envelope shapes
+# (verdict, key takeaways, callout, which are `answer_json` fields rather than cards). Both are
+# facts about the answer being written, and post-hoc generation is handed a finished report. The
+# `ENVELOPE_NOTE` constant that used to carry the second one stood here; the refusal in
+# `register.py` still names the right channel when a model reaches for one anyway.
+#
+# `include_craft=False` renders the rows alone, for the post-hoc surface: it has its own
+# post-hoc-truthful short craft in `prompt.py` — a TEST over a finished report rather than an
+# instruction about writing one — and the two must not both be paid on the same call.
 #
 # The HEAD of this table is calibrated, and both directions of miscalibration have now been seen in
 # the field. It once said "an answer that turns on a DIMENSION gets its card by default" — a default
@@ -194,55 +209,26 @@ MODEL_BACKED_CARD_TYPES = frozenset({"ifc_viewer", "ifc_element", "ifc_complianc
 # not following it: asked again in plainer words, the model named the right card and built it well
 # on the first attempt. The step being lost is between knowing and doing, so that is the step this
 # sentence names — not "you must", but "you have already decided".
-_CARD_TRIGGER_TABLE = """\
+_CARD_TRIGGER_HEAD = """\
 WHEN TO EMIT ONE. This table maps content to card. A row that matches your answer is a reason to
 reach for that card rather than mere permission — a measurement, an ordered Verfahren or a set of
 criteria written out as prose makes the reader rebuild in their head what the card would have
 shown them. Emit it where the match is clear and the card
 carries more than the sentence beside it. Naming the card IS the decision: once you can say which
-card this answer is, emitting it is the step that follows, not a second judgement.
-The trigger, then the card:
-  a riser, tread or stair width            -> stair_diagram
-  a clear width, ramp or turning circle    -> dimension_diagram
-  an escape route with segments            -> egress_diagram
-  a fall height, railing or opening        -> guardrail_check
-  a U-value, HWB or energy class           -> thermal_envelope / energy_performance
-  a fire compartment area                  -> fire_compartment
-  the Richtlinie or norm the answer rests on -> legal_basis
-  a chain of norms, one binding, the rest interpreting -> norm_chain
-  three or more pass/fail criteria         -> requirement_checklist
-  two or more options weighed against each other -> comparison_table
-  an answer turning on ONE factor whose cases exclude each other, at most one of them the reader's -> condition_tree
-  rows that are all true at once (parts of one building, not cases of one project) -> typed_table
-  a tabular answer no purpose-built card covers -> typed_table
-  a number the answer WORKED OUT rather than looked up -> calculation
-  a Verfahren, Ablauf or „wie läuft das ab" -> process_map
-  ANY ask for a Diagramm, Schaubild, Grafik, chart or mermaid gets a DRAWING card — the shaped one
-    when a row above fits (an Ablauf -> process_map, one deciding factor -> condition_tree), else -> diagram
-  a path that forks and REJOINS, several Stellen exchanging in order, a Nachweis others depend on -> diagram
-  „welche Unterlagen brauche ich" — the list is STATES, not names -> document_checklist
-  several Fristen in sequence — the order and what starts each clock is the answer -> deadline_timeline
-  „was passiert, wenn X sich ändert" — what a move COSTS, not which case applies -> change_impact"""
+card this answer is, emitting it is the step that follows, not a second judgement."""
 
-# The redirect for the shapes that stopped being cards (ENVELOPE_CARD_TYPES).
-# Appended by `register.py` to the `emit_card` surface, where a model that
-# recognises "this answer has a verdict" must be pointed at the trailer rather
-# than at a tool call the validator would refuse. The post-hoc surface gets
-# neither triggers nor note: it produces no envelope cards and has no trailer.
-ENVELOPE_NOTE = """\
-A verdict, the key takeaways and the single callout are not cards: they are optional fields of
-the ```answer_json answer envelope, and the platform validates, gates and renders them as part
-of the answer itself in a fixed layout."""
-
-# The picker's trigger, not its shape. The shape stays in the catalog on every surface — the card
-# carries a heading and nothing else, so there is no id to invent (which is why it is not, and must
-# not become, a member of MODEL_BACKED_CARD_TYPES). What does not transfer is the instruction: it
-# fires on a live intent in the turn being answered, and it tells the model to emit the card
+# The picker's CRAFT, indented under its trigger row like every other card's. The row and this note
+# travel together and are withheld together: the shape stays in the catalog on every surface — the
+# card carries a heading and nothing else, so there is no id to invent (which is why it is not, and
+# must not become, a member of MODEL_BACKED_CARD_TYPES). What does not transfer is the instruction.
+# It fires on a live intent in the turn being answered, and it tells the model to emit the card
 # INSTEAD of writing the file names in prose. On the post-hoc path the prose is already written and
 # cannot be unwritten, so that trade is not on offer.
-_MODEL_PICKER_TRIGGER = """
-  the user wants to SEE or OPEN the building and the project may hold several models
-                                           -> ifc_model_picker"""
+_MODEL_PICKER_NOTE = """\
+The ifc_model_picker is the answer to "zeig mir das Modell" / "welches Modell soll ich öffnen":
+emit it INSTEAD of writing the file names as a prose bullet list. It renders the project's models
+as tiles the user clicks to open the viewer directly — you supply only the heading, never the file
+names, so there is nothing to get wrong. You do not need to call ifc_query first to list them."""
 
 # `_FOLLOW_UPS_RULE` stood here. It is gone rather than moved: the post-answer
 # `follow_ups` stage carries what it said, and the two exceptions it named
@@ -253,11 +239,117 @@ _MODEL_PICKER_TRIGGER = """
 # in a prompt is a hope. Nothing on the card path needs it any more: the model
 # cannot emit the card at all (`SYSTEM_CARD_TYPES` above).
 
-_MODEL_PICKER_NOTE = """\
-The ifc_model_picker is the answer to "zeig mir das Modell" / "welches Modell soll ich öffnen":
-emit it INSTEAD of writing the file names as a prose bullet list. It renders the project's models
-as tiles the user clicks to open the viewer directly — you supply only the heading, never the file
-names, so there is nothing to get wrong. You do not need to call ifc_query first to list them."""
+#: ``(trigger, card, craft)``. The trigger says WHICH card; the craft, indented under it, says how
+#: that card is filled well — the two halves of one decision, so they are read together and cannot
+#: be maintained apart. `include_craft=False` renders the rows alone.
+#:
+#: A card type with no craft entry is one the renderer already constrains: the fifteen schematic
+#: cards draw to scale from `DimensionCheck` rows, so getting the fields in is the whole of getting
+#: the card right. Craft is spent on the GENERIC shapes, where the same content fits three cards
+#: and only one of them takes work off the reader.
+_CARD_TRIGGERS: tuple[tuple[str, str, str], ...] = (
+    ("a riser, tread or stair width", "stair_diagram", ""),
+    ("a clear width, ramp or turning circle", "dimension_diagram", ""),
+    ("an escape route with segments", "egress_diagram", ""),
+    ("a fall height, railing or opening", "guardrail_check", ""),
+    ("a U-value, HWB or energy class", "thermal_envelope / energy_performance", ""),
+    ("a fire compartment area", "fire_compartment", ""),
+    (
+        "the Richtlinie or norm the answer rests on",
+        "legal_basis",
+        "One instrument carrying the answer is this card, not a norm_chain. The decisive passage "
+        "goes in `original_text` as short verbatim — the sentence the answer turns on, never the "
+        "paragraph around it.",
+    ),
+    (
+        "a chain of norms, one binding, the rest interpreting",
+        "norm_chain",
+        "Only where the binding gradient is itself the content, i.e. your own answer says "
+        '„bindend ist davon nur …". One instrument is a chain with one link, so legal_basis or a '
+        "plain citation.",
+    ),
+    ("three or more pass/fail criteria", "requirement_checklist", ""),
+    (
+        "two or more options weighed against each other",
+        "comparison_table",
+        "comparison_table, condition_tree and typed_table all look like a table of cases and are "
+        "routinely confused. One question separates them: does exactly ONE row hold for this "
+        "project (condition_tree), do ALL rows hold at once (typed_table), or does the reader "
+        "CHOOSE one (comparison_table)?",
+    ),
+    (
+        "an answer turning on ONE factor whose cases exclude each other, at most one of them the reader's",
+        "condition_tree",
+        "Mark the active branch only where you know which case holds; not knowing means marking "
+        "none, and three marked branches look like a decision nobody made. A tree whose branches "
+        "can hold at once is a typed_table, and a tree with one branch is a sentence.",
+    ),
+    (
+        "rows that are all true at once (parts of one building, not cases of one project)",
+        "typed_table",
+        "Lage, Anforderung and Fundstelle in columns is the shape: the same sentences the reader "
+        "no longer has to align by hand.",
+    ),
+    (
+        "a tabular answer no purpose-built card covers",
+        "typed_table",
+        "Figures scattered through the prose land here — or in calculation, where the answer "
+        "worked the number out rather than collecting it.",
+    ),
+    (
+        "a number the answer WORKED OUT rather than looked up",
+        "calculation",
+        "Supply the operands (label, value, unit) and the rule's limit; the card computes, rounds "
+        "and judges, and there is no result field, on purpose. The rule's multiplier is a "
+        "`factor`, never a second operand, and an operand you do not have stays empty — the card "
+        'renders „nicht berechenbar". Never for a number merely cited: one operand is the '
+        "sentence beside it, typeset twice.",
+    ),
+    (
+        'a Verfahren, Ablauf or „wie läuft das ab"',
+        "process_map",
+        "Stations must CARRY something: what each step requires, what it produces, who acts, and a "
+        'Frist worded exactly as the Bauordnung words it („binnen sechs Wochen"), never as a '
+        "computed date. Mark `current_step` only where the conversation established it — a guess "
+        "tells the reader they hold a Bewilligung they may not have. Under three stations is not "
+        "an Ablauf, over eight nobody reads, and a fork on one condition is a condition_tree.",
+    ),
+    (
+        "ANY ask for a Diagramm, Schaubild, Grafik, chart or mermaid gets a DRAWING card — the shaped one\n"
+        "    when a row above fits (an Ablauf -> process_map, one deciding factor -> condition_tree), else",
+        "diagram",
+        "",
+    ),
+    ("a path that forks and REJOINS, several Stellen exchanging in order, a Nachweis others depend on", "diagram", ""),
+    (
+        '„welche Unterlagen brauche ich" — the list is STATES, not names',
+        "document_checklist",
+        "States, not names: always required versus conditional, and on WHAT condition — a "
+        "conditional row without its condition is the prose list with a label on it. Then who "
+        "issues it, and `status` only where the conversation supplied one; the card totals its "
+        "rows, so a guessed status falsifies the balance above it.",
+    ),
+    (
+        "several Fristen in sequence — the order and what starts each clock is the answer",
+        "deadline_timeline",
+        "Every period verbatim from the Bestimmung, never a computed date; a deadline whose "
+        "trigger event you do not know is left out rather than dated.",
+    ),
+    (
+        '„was passiert, wenn X sich ändert" — what a move COSTS, not which case applies',
+        "change_impact",
+        "One factor that moves, then each consequence with its OWN Fundstelle (leave out any "
+        'without one) and its direction. „unverändert" is half the answer: name the requirement '
+        "one would expect to move and hold that it does not.",
+    ),
+)
+
+#: Withheld from the post-hoc surface, row and craft together (`include_ifc_triggers=False`).
+_MODEL_PICKER_ROW = (
+    "the user wants to SEE or OPEN the building and the project may hold several models",
+    "ifc_model_picker",
+    _MODEL_PICKER_NOTE,
+)
 
 # The anti-fabrication rule: the reason a card can be worse than no card at all, and the ONE
 # instruction here that outranks a trigger. It is stated on its own, away from the volume rule,
@@ -1024,32 +1116,29 @@ def describe_card_catalog() -> dict[str, Any]:
 
 
 def shape_hint_for(card_type: str) -> str | None:
-    """Return the expected shape (plus referenced building blocks) for one card type."""
-    from aiq_agent.cards.models import GridCard
+    """The FULL L2 entry for one card type — what a failed ``emit_card`` hands back.
 
-    for card_cls in GridCard.__args__:
-        if _card_type_of(card_cls) != card_type:
-            continue
-        nested: list[type] = []
-        body = _card_shape(card_cls, nested)
-        seen: set[type] = set()
-        blocks: list[str] = []
-        i = 0
-        while i < len(nested):
-            model_cls = nested[i]
-            i += 1
-            if model_cls in seen:
-                continue
-            seen.add(model_cls)
-            blocks.append(f"{model_cls.__name__} = {_shape(model_cls, nested, with_desc=True)}")
-        hint = f"{card_type}: {body}"
-        if blocks:
-            hint += " where " + "; ".join(blocks)
-        example = CARD_EXAMPLES.get(card_type)
-        if example:
-            hint += f". Example: {json.dumps(example, ensure_ascii=False)}"
-        return hint
-    return None
+    This used to be a one-line abbreviation of :func:`render_card_details`: the
+    shape and its building blocks joined with "where", and the worked example
+    appended after a full stop. The abbreviation was the problem. A model that
+    had just got a field wrong was handed a denser rendering of the same
+    information and no field rules at all, so its second attempt was a guess
+    too, and the only way to actually learn a shape was a charged
+    ``describe_card`` round trip the tool description had to talk it into paying
+    in advance — on every turn, for every card, including the ones it would have
+    filled in correctly.
+
+    So the retry carries the whole thing instead: the same shapes, blocks,
+    field rules and worked example ``describe_card`` returns, for the one type
+    that failed. It is the cheapest moment to spend those tokens, because it is
+    the only moment we know they are needed and know which type needs them.
+
+    ``None`` for a type the model may not emit at all — an unknown name, a
+    system card, an envelope shape. Teaching one of those a shape would be
+    teaching a card the next validator refuses; the caller's refusal message
+    names the right channel instead.
+    """
+    return render_card_details([card_type]) or None
 
 
 def render_card_catalog(*, include_model_backed: bool = True) -> str:
@@ -1273,29 +1362,50 @@ def _plain_text_note() -> str:
     )
 
 
-def render_card_doctrine(*, include_ifc_triggers: bool = True) -> str:
-    """The trigger table and the negative default, shared by both card surfaces.
+def _render_trigger_table(*, include_ifc_triggers: bool, include_craft: bool) -> str:
+    """The head, then one row per trigger with its craft indented beneath it."""
+    rows = (*_CARD_TRIGGERS, _MODEL_PICKER_ROW) if include_ifc_triggers else _CARD_TRIGGERS
+    lead = (
+        "The trigger, the card, and under it what fills that card well:"
+        if include_craft
+        else "The trigger, then the card:"
+    )
+
+    lines = [_CARD_TRIGGER_HEAD, lead]
+    for trigger, card, craft in rows:
+        # ljust reproduces the aligned arrow column for the short triggers and
+        # gets out of the way for the long ones, which run past it anyway.
+        lines.append(f"  {trigger.ljust(40)} -> {card}")
+        if craft and include_craft:
+            lines.append(textwrap.fill(craft, width=99, initial_indent=" " * 6, subsequent_indent=" " * 6))
+
+    return "\n".join(lines)
+
+
+def render_card_doctrine(*, include_ifc_triggers: bool = True, include_craft: bool = True) -> str:
+    """The trigger table, the craft that fills each card, and the negative default.
 
     Framing-free in the same sense as :func:`render_card_catalog`: it says which
-    content takes which card and when to emit none, and leaves each surface to
-    add what only it can promise — where a marker puts a card, or what a batch
-    of them may be built out of.
+    content takes which card, how that card is filled well, and when to emit
+    none, and leaves each surface to add what only it can promise — where a
+    marker puts a card, or what a batch of them may be built out of.
 
     Args:
-        include_ifc_triggers: Whether to carry the ``ifc_model_picker`` trigger.
-            The ``emit_card`` tool leaves this on. Post-hoc generation turns it
-            off: that trigger is a live "show me the model" intent in the turn
-            being answered, and it directs the model to emit the card instead of
-            writing the file names as prose — a trade only a surface that is
-            still writing the answer can make. The picker's SHAPE is not
+        include_ifc_triggers: Whether to carry the ``ifc_model_picker`` row and
+            its note. The ``emit_card`` tool leaves this on. Post-hoc generation
+            turns it off: that trigger is a live "show me the model" intent in
+            the turn being answered, and it directs the model to emit the card
+            instead of writing the file names as prose — a trade only a surface
+            that is still writing the answer can make. The picker's SHAPE is not
             withheld anywhere, because it names no file and invents nothing.
+        include_craft: Whether each row carries the paragraph that says how that
+            card is filled well. The ``emit_card`` tool leaves this on — it is
+            the whole point of the tool owning its own contract. Post-hoc
+            generation turns it off and states its own short craft instead
+            (``prompt.py``): half of what is written here is an instruction
+            about an answer still being written, which that path cannot act on.
     """
-    table = _CARD_TRIGGER_TABLE
-    if include_ifc_triggers:
-        table += _MODEL_PICKER_TRIGGER
-    parts = [table]
-    if include_ifc_triggers:
-        parts.append(_MODEL_PICKER_NOTE)
+    parts = [_render_trigger_table(include_ifc_triggers=include_ifc_triggers, include_craft=include_craft)]
     parts.extend((_CARD_HONESTY, _CARD_RESTRAINT))
     return "\n\n".join(parts)
 

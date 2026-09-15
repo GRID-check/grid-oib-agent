@@ -257,12 +257,21 @@ describe('turnEventLiveText', () => {
 describe('every key the backend can emit has words in every locale', () => {
   const repoRoot = join(process.cwd(), '..', '..')
 
-  /** The string literals inside a `ALL_*_KEYS: tuple[str, ...] = ( … )` block. */
+  /**
+   * The string literals inside an `ALL_*_KEYS: tuple[str, ...] = ( … )` block.
+   *
+   * Cut at the first `)`, not at the first `\n)`. A tuple that shrinks to one
+   * entry is reformatted onto a single line (`= ("skill.activated",)`), and a
+   * parser that only knows the multi-line shape then reads past the tuple and
+   * swallows the rest of the module — which fails this suite with a diff full
+   * of Python source instead of the missing key it is meant to name. No key
+   * contains a parenthesis, so the first one always terminates the tuple.
+   */
   const registry = (file: string, constant: string): string[] => {
     const source = readFileSync(join(repoRoot, file), 'utf8')
     const block = source.split(`${constant}: tuple[str, ...] = (`)[1]
     expect(block, `${constant} not found in ${file}`).toBeDefined()
-    return [...block.split('\n)')[0].matchAll(/'([^']+)'|"([^"]+)"/g)].map((m) => m[1] ?? m[2])
+    return [...block.split(')')[0].matchAll(/'([^']+)'|"([^"]+)"/g)].map((m) => m[1] ?? m[2])
   }
 
   const backendKeys = [
@@ -323,6 +332,19 @@ describe('stepEventPayload — decoded exactly once', () => {
 describe('researchTruncation — where a cut-off turn stopped', () => {
   const budget = (extra: Record<string, unknown>) =>
     event('status:budget', { kind: 'status', channel: 'technical', slot: 'budget', ...extra })
+
+  test('the input-token ceiling is a truncation in its own slot', () => {
+    const found = researchTruncation([
+      event('status:budget:input', {
+        kind: 'status',
+        channel: 'technical',
+        slot: 'budget:input',
+        truncated: true,
+        tools: ['knowledge_search', 'read_passage'],
+      }),
+    ])
+    expect(found).toEqual({ lastTool: 'read_passage' })
+  })
 
   test('a turn with no budget step was never truncated', () => {
     expect(researchTruncation([status('retrieval:0', 'status.retrieval.plain', { corpus: 'knowledge' })])).toBeNull()

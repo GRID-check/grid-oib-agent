@@ -1,9 +1,12 @@
 """NAT register function for research agent.
 
 One :class:`PilotiAgent` is built at boot. Per request ``_run_turn``
-computes only what the turn varies (the data-source narrowing, the org's
+computes only what the turn varies (the switched-off data sources, the org's
 skills as a ``use_skill`` tool, the model override) as a :class:`TurnConfig`
 and hands it to ``agent.run``; nothing is compiled, read or re-indexed per turn.
+The tool SET no longer varies with the data-source toggles — a switched-off
+source keeps its tool and refuses the call (``common/data_sources.py``), so
+every turn of an org sends the same tool payload to the same cache shard.
 """
 
 import asyncio
@@ -21,8 +24,6 @@ from aiq_agent.common import AgentGroup
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import VerboseTraceCallback
 from aiq_agent.common import _create_chat_response
-from aiq_agent.common import all_mapped_tools_filtered_out
-from aiq_agent.common import filter_tools_by_sources
 from aiq_agent.common import format_user_facing_tool_error
 from aiq_agent.common import get_all_tool_refs
 from aiq_agent.common import get_langchain_llm
@@ -30,8 +31,10 @@ from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import get_org_llm_credential_from_context
 from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
+from aiq_agent.common import unavailable_source_ids
 from aiq_agent.common import validate_tool_availability
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
+from aiq_agent.common.data_source_registry import get_all_sources
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import verify_deferred_tool_loading
 from aiq_agent.project_context import get_organization_id_from_context
@@ -80,15 +83,38 @@ class ResearchAgentConfig(FunctionBaseConfig, name="research_agent"):
         default_factory=list,
         description="Tool names to exclude when inheriting from registry.",
     )
-    max_llm_turns: int | None = Field(
-        default=None,
+    max_tool_iterations: int = Field(
+        default=5,
         description=(
-            "IGNORED, accepted for old YAMLs. The tool loop was never bounded by an LLM-turn count: it "
-            "stops at `max_tool_iterations` plus the reserved skill loads, and the graph's recursion "
-            "guard is derived from that ceiling. Delete the key."
+            "The research budget in tool-calling ROUNDS — LLM decisions that emitted tool calls — "
+            "before synthesis is forced. A round costs one whatever it asked for, so a batch of five "
+            "parallel passage opens is one and so is a single `use_skill`. The graph's recursion "
+            "guard is derived from it; nothing else bounds the loop."
         ),
     )
-    max_tool_iterations: int = Field(default=5, description="Maximum tool-calling iterations before forcing synthesis")
+    max_input_tokens_per_turn: int = Field(
+        default=600_000,
+        description=(
+            "Cumulative INPUT tokens one turn may spend before synthesis is forced, read off the "
+            "cost tracker that already meters every call. The bound that protects the person paying, "
+            "since rounds no longer do: a round is one decision however many calls it fans out into. "
+            "Sized well above the worst turn measured (~289k prompt tokens over eight calls), because "
+            "a bound that fires on a hard question is a hobble — this one is here to stop a runaway. "
+            "0 disables it."
+        ),
+    )
+    max_calls_per_round: int = Field(
+        default=12,
+        description=(
+            "How many tool calls of ONE round are actually run. A runaway guard, not a doctrine: "
+            "a round costs one whatever it fans out into, and a model that opens all five members "
+            "of a Richtlinien-Familie at once is using its round well — so this sits far above any "
+            "batch the prompt asks for. What it bounds is the shape nothing else sees, a round of "
+            "sixty parallel calls into the stores, which `max_input_tokens_per_turn` only notices "
+            "at the START of the next round. The calls past it are answered with a notice saying "
+            "they may be issued again next round, never removed from the message. 0 disables it."
+        ),
+    )
     repair_pass: bool = Field(
         default=True,
         description=(
@@ -186,11 +212,11 @@ async def _resolve_skill_runtime(
     """The org's skills for THIS run (ADR-0018: never cached on the agent), or None.
 
     Builtin + org set from the resolver, narrowed by the config allowlist. The
-    catalog is announced BEFORE the LLM runs: what was resolved and what the
-    user forced, on the technical channel. The per-skill announcement fires at
-    delivery instead, because a forced skill is a name in the prompt until the
-    model calls ``use_skill``. No skills resolved: nothing to offer, no tool to
-    bind, and silence is the correct announcement.
+    catalog is announced BEFORE the LLM runs — how many skills were offered, on
+    the technical channel. The per-skill announcement fires at delivery instead,
+    because a catalog line is an offer until the model calls ``use_skill``. No
+    skills resolved: nothing to offer, no tool to bind, and silence is the
+    correct announcement.
     """
     if not config.skills_enabled:
         return None
@@ -209,7 +235,7 @@ async def _resolve_skill_runtime(
         resolved = tuple(skill for skill in resolved if skill.name in allow)
     if not resolved:
         return None
-    runtime = SkillRuntime(skills=resolved, force_names=state.force_skills)
+    runtime = SkillRuntime(skills=resolved)
     emit_skills_offered(runtime)
     return runtime
 
@@ -267,50 +293,54 @@ async def _active_provider(provider: LLMProvider) -> LLMProvider:
 
 
 def _skills_block(runtime: SkillRuntime) -> str:
-    return "\n\n".join(block for block in (runtime.prompt_block(), runtime.forced_block()) if block)
+    return runtime.prompt_block() or ""
 
 
 def _report_skills(result: ResearchAgentState, runtime: SkillRuntime) -> None:
-    """Lift what was DELIVERED onto the result; log what was forced and never read.
+    """Lift what was DELIVERED onto the result.
 
     ``skills_activated`` is rendered to the reader as what shaped this answer,
-    so a skill the model never opened must not be in it. The other half, the
-    forced skill the model ignored, is logged rather than reported (what the
-    READER should be shown is a product decision) but countable per
-    deployment. Only for an answer that had subject matter: a direct reply had
-    nothing for the house voice to shape, and is not a miss.
+    so only a skill whose body the model opened belongs in it. A catalog the
+    model read past is not a miss to report: the offer was the whole mechanism.
     """
     result.skills_activated = list(runtime.activated)
     hidden = list(runtime.hidden_activated)
     if hidden:
         result.skills_hidden = hidden
-    unread = runtime.forced_not_activated
-    researched = (
-        bool(runtime.activated)
-        or getattr(result, "source_lookup_attempted", True) is not False
-        or getattr(result, "answer_confidence_marker", None) is not None
-    )
-    if unread and researched:
-        logger.warning(
-            "Forced skills never loaded by the model: %s (activated=%s)",
-            ", ".join(unread),
-            ", ".join(runtime.activated) or "-",
-        )
 
 
 def _reply(state: ResearchAgentState, text: str) -> ResearchAgentState:
     return ResearchAgentState(messages=state.messages + [AIMessage(content=text)])
 
 
+def _warn_if_nothing_is_reachable(disabled_sources: frozenset[str]) -> None:
+    """The one diagnostic the narrowing used to give: a turn with no source left.
+
+    It is a request the caller probably did not mean (``data_sources`` naming
+    nothing the registry knows, or every source toggled off), and it no longer
+    shows up as an empty tool list — the tools are all still bound, they will
+    all just refuse.
+    """
+    if not disabled_sources:
+        return
+    reachable = [meta.id for meta in get_all_sources() if meta.id.lower() not in disabled_sources]
+    if not reachable:
+        logger.warning("Research turn has every data source switched off; every retrieval call will be refused")
+
+
 async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> ResearchAgentState:
     """One request: narrow the tools, resolve the skills, run the shared agent."""
     config = deployment.config
-    # No `data_sources is not None` guard: org-disabled sources (ADR-0022)
-    # narrow the selection even when the request selects "all tools".
-    selected_tools = filter_tools_by_sources(deployment.tools, state.data_sources)
-    if all_mapped_tools_filtered_out(deployment.tools, selected_tools, state.data_sources):
-        logger.warning("Research received data_sources with no matching tools")
-    is_valid, unavailable_tools = _tool_availability(deployment, selected_tools)
+    # The tool set does NOT vary with the toggles any more (row 6). A source the
+    # org switched off (ADR-0022) or the request did not select stays BOUND and
+    # is refused per call in the tools node, so every turn of an org sends the
+    # same tool payload and lands on one prompt-cache shard instead of one per
+    # toggle combination. No `data_sources is not None` guard, for the same
+    # reason as before: an org's toggle applies to a request that asked for
+    # "all tools".
+    disabled_sources = unavailable_source_ids(state.data_sources)
+    _warn_if_nothing_is_reachable(disabled_sources)
+    is_valid, unavailable_tools = _tool_availability(deployment, deployment.tools)
     if not is_valid:
         return _reply(state, format_user_facing_tool_error(_RESEARCH_TYPE, unavailable_tools))
 
@@ -323,15 +353,11 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     # verbs over a store namespaced by conversation, or nothing at all when the
     # turn has no conversation to namespace by (CLI, eval, worker).
     draft_tools = await draft_tools_for_turn()
-    turn_tools = list(selected_tools) + (list(runtime.build_tools()) if runtime is not None else []) + draft_tools
+    turn_tools = list(deployment.tools) + (list(runtime.build_tools()) if runtime is not None else []) + draft_tools
     turn = TurnConfig(
         llm_provider=await _active_provider(deployment.provider),
         tools=turn_tools,
-        # The skills this DEPLOYMENT forces are overhead, not research: each
-        # costs a `use_skill` call before a single source is read, and the
-        # count is a property of what the platform owner has published, which
-        # changes without a deploy.
-        reserved_tool_iterations=runtime.standard_count if runtime is not None else 0,
+        disabled_sources=disabled_sources,
     )
     if runtime is not None:
         state.skills_block = _skills_block(runtime)
@@ -357,12 +383,6 @@ async def research_agent(config: ResearchAgentConfig, builder: Builder):
     """Research agent with tool-calling capabilities."""
     llm = await get_langchain_llm(builder, config.llm)
     tools = await _load_tools(config, builder)
-    if config.max_llm_turns is not None:
-        logger.warning(
-            "shallow_research_agent: `max_llm_turns` is ignored; the loop stops at max_tool_iterations=%d "
-            "(+ reserved skill loads). Remove the key from the YAML.",
-            config.max_tool_iterations,
-        )
 
     # Deferred tool loading is verified HERE, at build time, against the live
     # endpoint, before a user turn exists to lose. The failure it guards is a
@@ -377,6 +397,8 @@ async def research_agent(config: ResearchAgentConfig, builder: Builder):
         llm_provider=provider,
         tools=tools,
         max_tool_iterations=config.max_tool_iterations,
+        max_input_tokens_per_turn=config.max_input_tokens_per_turn,
+        max_calls_per_round=config.max_calls_per_round,
         callbacks=callbacks,
         tool_search=config.tool_search,
         deferred_tool_loading=config.deferred_tool_loading,

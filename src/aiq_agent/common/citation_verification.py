@@ -11,6 +11,11 @@ Usage:
     # ... populate via SourceRegistryMiddleware or manually ...
     result = verify_citations(report_text, registry)
     clean_report = result.verified_report
+
+Where the regexes live, and why. The TOOL side is structured: an evidence tool
+states :class:`~aiq_agent.common.grounding_block.GroundingHit` records and this
+module reads the fields (ADR-0061). The ANSWER side is text, because the model
+writes text and a citation key in prose is all there is to read.
 """
 
 from __future__ import annotations
@@ -39,6 +44,8 @@ from urllib.parse import unquote
 from urllib.parse import urlparse
 from urllib.parse import urlunparse
 
+from aiq_agent.common.grounding_block import GroundingHit
+from aiq_agent.common.grounding_block import get_grounding_block
 from aiq_agent.common.source_kinds import SCOPE_QUALIFIERS
 from aiq_agent.common.source_kinds import TOOL_RESULT_SOURCE_TYPE
 from aiq_agent.common.source_kinds import Shelf
@@ -570,6 +577,14 @@ _REGISTRY_CACHE_TTL_SECONDS = int(os.environ.get("GRID_CITATION_REGISTRY_TTL_SEC
 
 
 def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
+    """Rebuild a session's registry from the cached dicts ``persist_session_registry`` wrote.
+
+    Every field a later turn can still read off an entry is restored, including
+    ``punkt`` and ``score``: they reach the wire (``source_entry_to_wire``), so
+    dropping them made a resumed conversation's chips lose the locus and the
+    match strength that the same conversation had shown a minute earlier, on a
+    replica move nobody could see.
+    """
     registry = SourceRegistry()
     if isinstance(entries, list):
         for item in entries:
@@ -587,6 +602,8 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                             doc_class=item.get("doc_class"),
                             authored_by=item.get("authored_by"),
                             chunk_text=item.get("chunk_text"),
+                            punkt=item.get("punkt"),
+                            score=item.get("score"),
                             rank=item.get("rank"),
                             binding_status=item.get("binding_status", "unbekannt"),
                         )
@@ -766,12 +783,20 @@ def extract_sources_from_tool_result(
     """Extract sources from a tool's output.
 
     Strategy:
+    0. If this exact text was rendered from a grounding block during this turn,
+       copy the fields off the records the producer stated (ADR-0061). No
+       parsing, and nothing the passage body can forge.
     1. If a registered parser matches the tool name, use it (for special
        formats like knowledge layer citation keys).
     2. Otherwise, fall back to the generic URL extractor which finds all
        URLs in any tool output regardless of format.
     3. If neither produces entries, register the tool result itself as a
        non-URL citation source.
+
+    Step 0 misses for everything that holds the text without the records: a
+    turn replayed from Postgres, a registry hydrated from the shared cache, the
+    job runner's callback. Those fall through to the text parsers below, which
+    is what the parsers are still there for.
 
     This means new sources (Bing, Perplexity, etc.) work automatically
     without any parser registration — as long as their output contains URLs.
@@ -785,6 +810,12 @@ def extract_sources_from_tool_result(
     :func:`aiq_agent.common.data_source_registry.get_source_id_for_tool`,
     but it does not gate the fallback.
     """
+    block = get_grounding_block(content)
+    if block is not None:
+        # Block order is load-bearing: ``SourceRegistry.add`` merges a repeated
+        # (collection, filename, page) onto the entry that arrived first.
+        return [_entry_from_hit(hit, tool_name) for hit in block.hits]
+
     name_lower = tool_name.lower()
     for match_fn, parser_fn in _PARSER_REGISTRY:
         if match_fn(name_lower):
@@ -872,6 +903,42 @@ def _is_status_message(content: str) -> bool:
             "no documents found",
             "no results found",
         )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Structured reader: the live path
+# ---------------------------------------------------------------------------
+
+
+def _entry_from_hit(hit: GroundingHit, tool_name: str) -> SourceEntry:
+    """One captured grounding hit as a registry entry, by field copy.
+
+    The structured twin of :func:`_kl_entry`, and the reason the text parsers
+    below no longer run on a live turn. Every value here is the one the
+    producer stated, so the only work left is the registry's emptiness
+    convention: ``""`` and ``None`` mean the same thing to every reader
+    downstream, and the entry states ``None``.
+
+    ``url`` stays unset even for a hit that carries a ``source_url``. A RIS
+    passage is cited by its key, not by its link, and giving it a URL would
+    move it onto the registry's URL identity and out of the document dedup.
+    """
+    return SourceEntry(
+        citation_key=hit.citation_key.strip(),
+        title=hit.display_title.strip() or None,
+        source_type="knowledge_layer",
+        tool_name=tool_name,
+        collection=(hit.collection or "").strip() or None,
+        shelf=str(hit.shelf) if hit.shelf is not None else None,
+        doc_class=(hit.doc_class or "").strip() or None,
+        authored_by=hit.authored_by,
+        # The body as EVIDENCE: no truncation marker (the renderer adds it) and
+        # no surrounding blank lines, so ``verify_quoted_spans`` matches an
+        # answer's quote against the passage and nothing else.
+        chunk_text=hit.body.strip() or None,
+        punkt=(hit.punkt or "").strip() or None,
+        score=hit.score,
     )
 
 
@@ -971,6 +1038,18 @@ def _parse_generic_urls(content: str, tool_name: str) -> list[SourceEntry]:
     return entries
 
 
+# --- The LEGACY path: reading a grounding block back out of its text --------
+#
+# Everything from here to ``_parse_knowledge_layer`` reconstructs hits from the
+# rendered block. On a live turn it does not run: the producer's records are
+# captured by the renderer and read by ``_entry_from_hit`` (ADR-0061). It stays
+# for the callers that hold the text and never had the records: a registry
+# hydrated from the shared cache, a turn replayed out of Postgres, and the job
+# runner's callback, which can run outside the tool's context.
+#
+# It is not deprecated and it is not allowed to rot: those callers are real, and
+# the pipeline contract test asserts that both paths produce the same entries.
+#
 # Knowledge layer is the only source that needs a specific parser because
 # it uses citation keys (e.g., "report.pdf, p.15") instead of URLs.
 _KL_CITATION_RE = re.compile(r"^Citation:\s*(.+)$", re.MULTILINE)
@@ -997,8 +1076,11 @@ _KL_PROVENANCE_RE = re.compile(r"^Herkunft:\s*(.+)$", re.MULTILINE)
 # pages) and ``_format_results`` states it. This is the citation form Austrian
 # building law actually uses ("OIB-RL 2, Pkt. 3.5.2"); until it was parsed here
 # the number reached the model as prose and died before the citation the reader
-# sees. Absent for page-fallback chunks and every non-OIB document.
-_KL_PUNKT_RE = re.compile(r"^Punkt:\s*(\S+)\s*$", re.MULTILINE)
+# sees. Absent for page-fallback chunks and web documents. The value is the
+# rest of the line, not one token: the corpus form is ``3.5.2``, a RIS passage
+# states its locus the way a lawyer reads it, ``§ 63 Abs 1``, and squeezing that
+# to ``§63Abs1`` to fit a one-token rule put an unreadable locus on every chip.
+_KL_PUNKT_RE = re.compile(r"^Punkt:\s*(.+?)\s*$", re.MULTILINE)
 # The retrieval score ``_format_results`` prints, a true cosine similarity since
 # the audit's F6 fix. Parsed from the WHOLE block rather than the header region:
 # the header is defined as everything above this very line. A body could in
@@ -1158,7 +1240,7 @@ def _parse_kl_score(value: str | None) -> float | None:
 
 
 def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
-    """Parse knowledge layer retrieval output.
+    """Parse knowledge layer retrieval output. THE LEGACY PATH; see the banner above.
 
     Extracts citation keys (filename + page), the retrieval ``Collection:``
     each hit came from (threaded by the KB tool so ``source_lane`` can place
@@ -1232,6 +1314,23 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
 # Register knowledge layer as the only special-case parser.
 # All other tools (Tavily, paper search, etc.) use the generic URL fallback.
 register_source_parser(lambda name: "knowledge" in name, _parse_knowledge_layer)
+# ``ris_lookup`` emits the SAME grounding grammar (``ris_adapter.lookup``), so
+# it gets the same parser rather than a second one: a RIS passage carries a
+# Citation key, a Punkt (``§63Abs1``) and ``Dokumentart: gesetz``, and every one
+# of those dies in the generic URL extractor — which is what the three older RIS
+# tools still fall through to, correctly, because their output is references and
+# a 40 000-character blob, not passages. One grammar, one parser, two producers.
+register_source_parser(lambda name: "ris_lookup" in name, _parse_knowledge_layer)
+# ``read_passage`` is the third producer of that grammar: it renders through the
+# knowledge layer's own ``_format_results``, and its name does not contain
+# "knowledge", so it used to fall all the way through to the non-URL fallback and
+# register ONE source whose citation key was the string "read_passage". A turn
+# that opened a passage and cited it therefore had that citation dropped as
+# ``citation_key_not_in_registry``, while the config comment beside the tool said
+# the opposite. Registering it here is also what keeps the two readers level: the
+# structured path reads its block by hash and would otherwise recover passages
+# the text path cannot (ADR-0061).
+register_source_parser(lambda name: "read_passage" in name, _parse_knowledge_layer)
 
 # ---------------------------------------------------------------------------
 # Citation parsing and source-section layout normalization

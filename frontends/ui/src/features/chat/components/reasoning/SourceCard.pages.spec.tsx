@@ -11,7 +11,7 @@
 
 import { render, screen } from '@/test-utils'
 import { describe, test, expect } from 'vitest'
-import { SourceCard } from './SourceCard'
+import { BareSourceCard, SourceCard } from './SourceCard'
 import type { CitedDocument } from '../../lib/citations'
 
 const document = (loci: CitedDocument['loci']): CitedDocument => ({
@@ -50,5 +50,64 @@ describe('SourceCard — pages', () => {
 
     expect(screen.getByText('p. 9')).toBeInTheDocument()
     expect(screen.queryByText('retrieved, not cited')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * Under a round the ledger accounts for, the card speaks for THAT round.
+ *
+ * The turn aggregate — "2 Treffer", the cited page — is identical on every
+ * repeat of the same file, which is what made a round that re-opened four
+ * files at new pages indistinguishable from a second fetch of them.
+ */
+describe('SourceCard — a ledger round speaks for its own slot', () => {
+  const loci: CitedDocument['loci'] = [
+    { key: 'p:4', page: 4, isCited: true, number: 1 },
+    { key: 'p:9', page: 9, isCited: true, number: 2 },
+  ]
+
+  test('the locus line is the round’s own, and a re-read says so instead of counting', () => {
+    render(
+      <SourceCard
+        document={document(loci)}
+        hitLabel="2 hits"
+        gapLabel="Nothing found"
+        round={{ detail: 'p. 12', repeat: true }}
+      />
+    )
+
+    expect(screen.getByText('p. 12')).toBeInTheDocument()
+    expect(screen.getByText('already retrieved')).toBeInTheDocument()
+    // Neither the turn's tally nor its cited pages: both are claims about the
+    // whole turn, and this slot is a claim about one round.
+    expect(screen.queryByText('2 hits')).not.toBeInTheDocument()
+    expect(screen.queryByText('pp. 4, 9')).not.toBeInTheDocument()
+  })
+
+  test('a round showing a file for the first time keeps the count, and names no locus it did not read', () => {
+    render(
+      <SourceCard
+        document={document(loci)}
+        hitLabel="2 hits"
+        gapLabel="Nothing found"
+        round={{ repeat: false }}
+      />
+    )
+
+    expect(screen.getByText('2 hits')).toBeInTheDocument()
+    expect(screen.queryByText('already retrieved')).not.toBeInTheDocument()
+    // The round named no page, so the card names none — borrowing the turn's
+    // would attribute another round's passage to this one.
+    expect(screen.queryByText('pp. 4, 9')).not.toBeInTheDocument()
+  })
+
+  test('a ledger doc with no card is a name and a locus, and nothing that claims more', () => {
+    render(<BareSourceCard name="Reparatur.pdf" detail="p. 1" />)
+
+    expect(screen.getByText('Reparatur.pdf')).toBeInTheDocument()
+    expect(screen.getByText('p. 1')).toBeInTheDocument()
+    // No preview chip, no markers: there is no card behind this name, so every
+    // control would open nothing.
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 })

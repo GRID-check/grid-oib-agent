@@ -560,6 +560,36 @@ describe('NATWebSocketClient — the ingest-only user_message payload', () => {
     expect(sentPayload(ws)).not.toHaveProperty('focus_version_state')
   })
 
+  /**
+   * The key the composer stopped sending.
+   *
+   * `skills: ['name']` carried a `/name` invocation, and the backend lifted it
+   * onto `force_skills` — the turn then HAD to apply that skill. Removed with
+   * the platform's `standard` delivery tier (migration 0088), because a skill
+   * is a capability the model may reach for and forcing one is an instruction
+   * wearing a capability's clothes. The name now travels as the message TEXT
+   * and the model picks the skill out of its own catalog.
+   *
+   * Asserted at the WIRE and not only at the composer, because this is the
+   * boundary the backend reads: a caller that hands `sendMessage` an unknown
+   * option must not be able to put the field back on the envelope.
+   */
+  test('a slash-invoked message carries its skill as text and nothing structured', async () => {
+    const { client, ws } = await openClient()
+
+    client.sendMessage('/oib-brandschutz Stiegenhaus prüfen', ['source-1'], {
+      // Deliberately an option the type no longer has: a stray caller (or an
+      // older build sharing the bundle) must not be able to reintroduce it.
+      ...({ skills: ['oib-brandschutz'] } as Record<string, unknown>),
+    })
+
+    expect(sentPayload(ws)).toEqual({
+      query: '/oib-brandschutz Stiegenhaus prüfen',
+      data_sources: ['source-1'],
+    })
+    expect(sentPayload(ws)).not.toHaveProperty('skills')
+  })
+
   test('an ordinary send is byte-for-byte what it always was — no new keys', async () => {
     const { client, ws } = await openClient()
 

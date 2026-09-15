@@ -227,13 +227,26 @@ def test_the_generic_card_seed_carries_the_craft_the_tool_no_longer_states():
 #: Surfaces the seeds are asserted against. Answer shape is taught on three
 #: prompts and the split between them is what these last tests pin; the deep
 #: agent module is read for the second delivery channel it opens.
-PILOTI_PROMPT = REPO_ROOT / "src/aiq_agent/agents/piloti/prompts/piloti.j2"
+#: Piloti's prompt is two files: the bundled static half (the platform prompt,
+#: whose live version is authored in Langfuse) and the dynamic template. These
+#: tests ask what the prompt SAYS, so they read both — asserting against
+#: `piloti.j2` alone would silently stop seeing every section above the KV-cache
+#: boundary, which is most of them.
+PILOTI_PROMPT_FILES = (
+    REPO_ROOT / "src/aiq_agent/agents/piloti/prompts/piloti_static.md",
+    REPO_ROOT / "src/aiq_agent/agents/piloti/prompts/piloti.j2",
+)
 DEEP_WRITER_PROMPT = REPO_ROOT / "src/aiq_agent/agents/deep_researcher/prompts/writer.j2"
 DEEP_AGENT = REPO_ROOT / "src/aiq_agent/agents/deep_researcher/agent.py"
 
 
+def _piloti_prompt_text() -> str:
+    """Both halves of Piloti's bundled prompt, in the order they are rendered."""
+    return "\n".join(path.read_text(encoding="utf-8") for path in PILOTI_PROMPT_FILES)
+
+
 def _prompt_section(name: str) -> str:
-    prompt = PILOTI_PROMPT.read_text(encoding="utf-8")
+    prompt = _piloti_prompt_text()
     match = re.search(rf"<{name}>.*?</{name}>", prompt, re.DOTALL)
     assert match is not None, f"Piloti's prompt no longer has a <{name}> section"
     return match.group(0)
@@ -332,7 +345,7 @@ def test_the_prompt_carries_the_voice_craft_the_retired_seed_taught():
         assert rule in body
 
     # The old split's section is gone, pointer and all.
-    prompt = PILOTI_PROMPT.read_text(encoding="utf-8")
+    prompt = _piloti_prompt_text()
     assert "<answer_shape>" not in prompt
     assert "writing skill active for this turn" not in prompt
 
@@ -446,7 +459,7 @@ def test_the_notation_rule_and_the_prompt_formatting_rule_stay_on_their_own_ques
     craft a platform owner may rewrite. Asserted against each other so that a
     second copy of either in the other's home fails here rather than drifting.
     """
-    prompt = PILOTI_PROMPT.read_text(encoding="utf-8")
+    prompt = _piloti_prompt_text()
     match = re.search(r"<formatting>.*?</formatting>", prompt, re.DOTALL)
     assert match is not None, "Piloti's prompt no longer has a <formatting> section"
     formatting = match.group(0)
@@ -481,7 +494,7 @@ def test_the_voice_carries_the_certainty_split_the_confidence_field_cannot():
     prompt's ``<stimme>`` section (the live voice) and the retired seed body
     (the history it condenses).
     """
-    prompt = PILOTI_PROMPT.read_text(encoding="utf-8")
+    prompt = _piloti_prompt_text()
     body = _unwrapped(_effective_row("piloti-voice")["body"])
 
     assert "Every researched answer carries `confidence`" in prompt
@@ -1137,41 +1150,35 @@ def test_the_retirement_rollback_restores_both_rows_without_trampling():
     assert _effective_row("piloti-cards")["description"] in down
 
 
-def test_the_prompt_carries_the_card_craft_the_retired_seed_taught():
-    """The ``<cards>`` section owns the judgement ``piloti-cards`` carried.
+def test_the_card_craft_the_retired_seed_taught_lives_in_the_tool():
+    """The ``emit_card`` tool owns the judgement ``piloti-cards`` carried.
 
-    The contract (trigger table, honesty rule, budget ceiling, placement) stays
-    in the ``emit_card`` description; the CRAFT — the recognised-card rule and
-    the per-card judgement — is in the prompt now, unconditional. Pinned rule
-    by rule against the retired body's load-bearing sentences, so a later
-    tightening of the section cannot silently drop one.
+    The craft moved from the prompt's ``<cards>`` section into the tool's own
+    doctrine, one home, beside each card's trigger; the prompt keeps only what
+    the tool cannot say (placement, and that the envelope fields are not
+    cards). Pinned against the doctrine's load-bearing sentences so a later
+    tightening cannot silently drop one.
     """
-    section = _prompt_section("cards")
+    from aiq_agent.cards.catalog import render_card_doctrine
+    from aiq_agent.cards.register import _build_tool_description
 
-    # The recognised card that never comes is the expensive failure.
-    assert "recognised card that never comes" in section
-    assert "describe_card` call is cheaper than the card that does not come" in section
-    # The one-row test that separates the three table-shaped cards, and the
-    # Vorfrage that keeps a tree from marking three branches at once.
-    assert "does ONE row hold for this project, do ALL rows hold at once" in section
-    assert "more than one branch can hold at once" in section
-    assert "guessing is worse than no card" in section
+    # The doctrine wraps its craft to the tool's column; compare on words.
+    doctrine = " ".join(render_card_doctrine().split())
     # calculation: operands in, result computed, factor belongs to the rule.
-    assert "there is no result field, on purpose" in section
-    assert "`factor`, never a second operand" in section
-    # process_map: stations carry something; current_step never guessed.
-    assert "stations must CARRY something" in section
-    assert "only when the conversation established it" in section
-    # document_checklist rows are states; a guessed status falsifies the tally.
-    assert "states, not names" in section
-    assert "falsifies the balance" in section
-    # deadline_timeline: verbatim periods, never dates.
-    assert "verbatim from the Bestimmung, never a date" in section
+    assert "there is no result field, on purpose" in doctrine
+    assert "never a second operand" in doctrine
+    # document_checklist: a guessed status falsifies the tally.
+    assert "falsifies the balance" in doctrine
     # change_impact: every consequence carries its own Fundstelle.
-    assert "its OWN Fundstelle" in section
-    # The budget and the deletion test.
-    assert "two content cards is the ceiling" in section
-    assert "delete the cards mentally" in section.lower()
+    assert "its OWN Fundstelle" in doctrine
+    # The deletion test rides the tool description's opening line.
+    assert "delete the cards mentally" in _build_tool_description().lower()
+
+    section = _prompt_section("cards")
+    assert "[[card:" in section
+    assert "NOT cards" in section
+    for craft in ("does ONE row hold", "stations must CARRY", "describe_card"):
+        assert craft not in section, craft
 
 
 def test_the_answer_envelope_replaces_the_envelope_cards():
@@ -1185,7 +1192,7 @@ def test_the_answer_envelope_replaces_the_envelope_cards():
     from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
     from aiq_agent.cards.catalog import model_facing_card_types
     from aiq_agent.cards.catalog import render_card_catalog
-    from aiq_agent.cards.register import _CARD_DOCTRINE
+    from aiq_agent.cards.register import _ENVELOPE_REFUSAL
 
     section = _prompt_section("answer_envelope")
     # The rhetorical fields, each with its earning condition.
@@ -1210,5 +1217,10 @@ def test_the_answer_envelope_replaces_the_envelope_cards():
     catalog = render_card_catalog()
     for card_type in ("verdict_header", "key_takeaways", "callout"):
         assert f'"{card_type}"' not in catalog
-    # And the answering tool's doctrine points at the envelope.
-    assert "answer_json" in _CARD_DOCTRINE
+    # And the answering tool points at the envelope — on the refusal, which is
+    # the one call that needs it, rather than in the doctrine every turn pays.
+    # The up-front sentence is the prompt's; two copies is two things to keep in
+    # step, and the doctrine's copy also reached the post-hoc surface, which has
+    # no envelope at all.
+    assert "answer_json" in _ENVELOPE_REFUSAL
+    assert "is not emitted as a card" in _ENVELOPE_REFUSAL

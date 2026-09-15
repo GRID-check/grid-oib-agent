@@ -21,6 +21,7 @@ import { SectionLabel } from '@/components/ui/section-label'
 import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import type { ThinkingStep, CitationSource } from '../types'
+import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { deriveTraceLanes } from '../lib/trace-lanes'
 import { buildCitationModel } from '../lib/citations'
 import { deriveLiveActivity } from '../lib/live-activity'
@@ -75,6 +76,13 @@ export interface ChatThinkingProps {
   onChoiceRespond?: (promptId: string, choice: string) => void
   /** Set when this turn escalated shallow→deep — framing-node narration. */
   escalationReason?: string
+  /**
+   * The answer message's `retrievalLedger` — the backend's own account of what
+   * each retrieval round returned. Passed straight through to the spine, which
+   * builds a round's fan from it when it has that round. Absent (older turns,
+   * a turn that recorded none) and the spine matches filenames as before.
+   */
+  retrievalLedger?: RetrievalLedger
   /** Render the Herleitung expanded on first mount (e.g. the current turn). */
   defaultOpen?: boolean
   /**
@@ -102,6 +110,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
   choicePrompt,
   onChoiceRespond,
   escalationReason,
+  retrievalLedger,
   defaultOpen = false,
   autoOpen,
 }) => {
@@ -357,6 +366,7 @@ export const ChatThinking: FC<ChatThinkingProps> = ({
                   choicePrompt={choicePrompt}
                   onChoiceRespond={onChoiceRespond}
                   escalationReason={escalationReason}
+                  retrievalLedger={retrievalLedger}
                   live={isThinking}
                 />
               </div>

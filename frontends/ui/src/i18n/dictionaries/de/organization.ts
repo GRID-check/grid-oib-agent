@@ -129,6 +129,30 @@ export const organization: typeof en.organization = {
     saveError: 'Die Organisationseinstellungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.',
     loadError: 'Die Organisationseinstellungen konnten gerade nicht geladen werden. Bitte laden Sie die Seite neu.',
   },
+  /**
+   * Organisation → Anweisungen: der Anweisungsblock, unter dem jede Antwort
+   * dieser Organisation geschrieben wird. Der Hinweis nennt die Grenze
+   * ausdrücklich, weil sie der Punkt ist: stehende Vorlieben zu Form, Fokus und
+   * Ablauf — keine Regel, die Piloti aushebelt, und kein normativer Wert.
+   */
+  instructions: {
+    title: 'Anweisungen',
+    description:
+      'Was Piloti für Ihre Organisation dauerhaft beachten soll. Wird bei jeder Anfrage mitgegeben.',
+    label: 'Stehende Anweisungen',
+    placeholder:
+      'z. B. Antworten zuerst mit dem Ergebnis, dann mit der Begründung. Standardmäßig Wien annehmen, wenn kein Bundesland genannt ist. Bei Prüfaufträgen immer eine Mängelliste anhängen.',
+    hint: 'Stehende Vorlieben zu Form, Fokus und Ablauf. Sie setzen Pilotis eigene Regeln nie außer Kraft und liefern nie einen normativen Wert — eine OIB-Anforderung stammt aus der Richtlinie, nie aus diesem Feld.',
+    remaining: '{used} von {max} Zeichen',
+    overCap: '{over} Zeichen zu viel. Bitte kürzen Sie den Text, bevor Sie speichern.',
+    save: 'Anweisungen speichern',
+    saving: 'Wird gespeichert…',
+    saved: 'Anweisungen gespeichert',
+    clear: 'Löschen',
+    cleared: 'Anweisungen gelöscht',
+    saveError: 'Die Anweisungen konnten nicht gespeichert werden. Bitte versuchen Sie es erneut.',
+    loadError: 'Die Anweisungen konnten gerade nicht geladen werden. Bitte laden Sie die Seite neu.',
+  },
   members: {
     title: 'Mitglieder',
     description: 'Laden Sie Personen ein, weisen Sie Rollen zu und verwalten Sie den Zugriff.',

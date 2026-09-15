@@ -418,6 +418,42 @@ What is missing:
   top of the deep-research templates, which fragments the prefix per project
   rather than per turn. Stable per project, so low priority.
 
+**Resolved since (see `common/prompt_caching.py`).** Both findings above were
+half right and one was a wrong diagnosis, which is worth keeping:
+
+- `cache_control` is **not** what OpenAI-family models need — OpenRouter
+  documents their caching as automatic above 1024 prompt tokens, with no
+  request field at all. What a cache does need is landing twice on the same
+  upstream endpoint, and OpenRouter's mechanism for that is sticky routing
+  keyed on a `session_id` (falling back to `prompt_cache_key`). That key is now
+  derived from the request's own stable prefix — tenant, model, system prompt,
+  tool set — and attached in the seam this section already named,
+  `common/llm_factory`. `provider.order` stays unset on purpose: a manual order
+  *disables* sticky routing.
+- `cached_tokens` was being read (`cost_tracking`, `langfuse_trace_attributes`)
+  and arriving as zero for a reason neither had to do with caching: on
+  `api_type: responses` langchain-openai drops the provider usage object
+  entirely, and only its normalized `usage_metadata` (`input_token_details.cache_read`)
+  survives. Both readers now fall back to it, so `input_cached_tokens` and
+  `output_reasoning_tokens` appear on those generations for the first time.
+- The per-project blocks above have their counterpart in `piloti.j2`:
+  `norm_doctrine` (`:198`) and the three capability blocks (`drafting_enabled`,
+  `tidying_enabled`, `delegating_enabled`, `:297-324`) sit ABOVE the
+  `KV CACHE BOUNDARY` comment (`:338`). They are stable per project, so they do
+  not cost a turn anything; moving them below the boundary would lengthen the
+  prefix that is shared ACROSS tenants, which is only worth doing if the cache
+  key stops being tenant-scoped.
+
+  *Read this bullet as of its date.* The split (`0e89484`) inverted the file:
+  `piloti.j2` now holds the dynamic half ALONE and the boundary is its second
+  line, so all four blocks were below it, paying per call. The ADR-0060
+  amendment moved `norm_doctrine` up into `piloti_static.md` and emptied
+  `<aufraeumen>` and `<delegieren>` into their tools' descriptions. Of the four,
+  `<entwuerfe>` is the one that still renders, down to the two sentences no tool
+  description can carry: the `daraus`/`davon` antecedent, which lives in the
+  transcript, and what a conversation with no project can still do with a
+  draft. The dynamic half fell from 7,724 tokens to 2,962.
+
 ### 4.3 What should be cached and is not
 
 Ranked by seconds saved per turn:

@@ -12,6 +12,8 @@ Two things are worth pinning here, and they are not the same thing:
    `redaction_attributes` still claims to cover them.
 """
 
+import json
+
 import pytest
 
 from aiq_agent.observability.langfuse_trace_attributes import IDENTITY_ATTRIBUTES_ENV
@@ -530,6 +532,99 @@ class TestExtractProviderUsage:
         assert extract_provider_usage('{"chat_responses": []}') is None
         assert extract_provider_usage("not-json") is None
         assert extract_provider_usage(None) is None
+
+
+class TestResponsesApiSpanUsage:
+    """A Responses-API generation leaves only LangChain's normalized usage.
+
+    langchain-openai builds no ``llm_output`` there and keeps ``usage`` out of
+    ``response_metadata``, so the provider object never reaches the span. Before
+    this fallback existed the scan found nothing, the exporter's bare
+    ``llm.token_count.*`` took over, and every Piloti research generation
+    rendered with input/output/total and no cache bucket — which is exactly
+    what two production trace exports showed.
+    """
+
+    METADATA = json.dumps(
+        {
+            "chat_responses": [
+                {
+                    "message": {
+                        "response_metadata": {"model_name": "openai/gpt-5.6-luna"},
+                        "usage_metadata": {
+                            "input_tokens": 41883,
+                            "output_tokens": 514,
+                            "total_tokens": 42397,
+                            "input_token_details": {"cache_read": 35072},
+                            "output_token_details": {"reasoning": 192},
+                        },
+                    }
+                }
+            ]
+        }
+    )
+
+    def test_cached_and_reasoning_tokens_are_recovered(self):
+        from aiq_agent.observability.langfuse_trace_attributes import extract_provider_usage
+
+        usage = extract_provider_usage(self.METADATA)
+        assert usage == {
+            "prompt_tokens": 41883,
+            "completion_tokens": 514,
+            "total_tokens": 42397,
+            "cached_tokens": 35072,
+            "reasoning_tokens": 192,
+            "cost_usd": None,
+        }
+
+    def test_the_cached_bucket_reaches_the_observation_attributes(self):
+        from aiq_agent.observability.langfuse_trace_attributes import OBSERVATION_USAGE_DETAILS
+        from aiq_agent.observability.langfuse_trace_attributes import extract_provider_usage
+        from aiq_agent.observability.langfuse_trace_attributes import usage_observation_attributes
+
+        usage = extract_provider_usage(self.METADATA)
+        attributes = usage_observation_attributes(
+            prompt_tokens=usage["prompt_tokens"],
+            completion_tokens=usage["completion_tokens"],
+            total_tokens=usage["total_tokens"],
+            cached_tokens=usage["cached_tokens"],
+            reasoning_tokens=usage["reasoning_tokens"],
+            cost_usd=usage["cost_usd"],
+            model="openai/gpt-5.6-luna",
+        )
+        details = json.loads(attributes[OBSERVATION_USAGE_DETAILS])
+        assert details["input_cached_tokens"] == 35072
+        # The buckets are exclusive, so Langfuse cannot bill a token twice.
+        assert details["input"] == 41883 - 35072
+        assert details["output"] == 514 - 192
+
+    def test_the_provider_object_still_wins_when_both_are_present(self):
+        from aiq_agent.observability.langfuse_trace_attributes import extract_provider_usage
+
+        metadata = json.dumps(
+            {
+                "chat_responses": [
+                    {
+                        "message": {
+                            "response_metadata": {
+                                "token_usage": {
+                                    "prompt_tokens": 10,
+                                    "completion_tokens": 5,
+                                    "total_tokens": 15,
+                                    "cost": 0.5,
+                                    "prompt_tokens_details": {"cached_tokens": 4},
+                                }
+                            },
+                            "usage_metadata": {"input_tokens": 999, "output_tokens": 9},
+                        }
+                    }
+                ]
+            }
+        )
+        usage = extract_provider_usage(metadata)
+        # Only the provider object carries `cost`, so it must not be shadowed.
+        assert usage["prompt_tokens"] == 10
+        assert usage["cost_usd"] == 0.5
 
 
 class TestSpanTokenCounts:

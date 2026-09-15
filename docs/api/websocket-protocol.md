@@ -46,6 +46,7 @@ The `server.js` gateway handles WebSocket upgrade requests:
    - `x-grid-collection-scope` header — passes collection scope to backend.
    - `x-grid-organization-id` / `x-grid-user-id` — forwards user context.
    - `x-grid-project-id` / `x-grid-project-context` / `x-grid-project-memory` — project id + injected profile/memory (the latter two base64url-encoded).
+   - `x-grid-org-instructions` — the organization's standing instructions for this turn, base64url-encoded like the two above it. Preferences on form, focus and workflow; the backend bounds it at `ORG_INSTRUCTIONS_MAX_CHARS` (1500) on decode and appends a one-line marker when it had to cut, and the prompt renders it as `## Anweisungen des Büros` below the KV-cache boundary — never as a source, and never above the rules it may not override.
    - `x-grid-feature-memory-reflection` (`true`/`false`) — whether the async memory-reflection stage is enabled for the caller (per-org `memory-reflection` WorkOS flag; no env-var fallback). Fail-closed: absent → off.
    - `authorization: Bearer <accessToken>` — forwards backend access token.
 3. **Backend proxy:** Forwards the upgraded socket to `BACKEND_WS_URL + '/websocket'`.
@@ -133,29 +134,19 @@ Sent when the user submits a chat message.
 
 The `content.text` field is a JSON-encoded string containing both the query text and the list of enabled data source IDs.
 
-##### Invoking a skill (`skills`)
+##### Invoking a skill (no wire field)
 
-One further additive field inside that JSON payload names the Agent Skills
-(ADR-0046) this turn invokes:
+There is no `skills` field on this payload. A skill is a working method the
+model picks out of its L1 catalog with `use_skill`, and nothing a request says
+can require one: the array the composer used to send (lifted onto the agent
+state as `force_skills`) is **no longer read anywhere in the backend**, and a
+client that still sends it is ignored.
 
-| Field | Type | Meaning |
-|-------|------|---------|
-| `skills` | `string[]` | Skill names to force-activate for this turn. The backend lifts the array onto the agent state as `force_skills`, so the named skills' instructions are loaded whether or not the model would have chosen them. Names that match no resolved skill are dropped silently — a typo never errors a turn. |
-
-```typescript
-text: JSON.stringify({
-  query: "Prüfe die Einreichunterlagen",
-  data_sources: [],
-  skills: ["oib-vorpruefung"]   // omitted entirely when no skill is invoked
-})
-```
-
-The field is set by the composer's `/name` invocation: typing `/` at the start
-of a message opens a picker of invocable skills (`GET /api/skills/invocable`),
-and the chosen name goes on the wire here — resolved from the text being sent,
-so editing the token out removes the invocation. Selection is a *request*
-decision, exactly like `data_sources`. See
-`docs/architecture/agent-skills.md`.
+The composer's `/name` invocation writes a MENTION into the message text
+instead, which is the one channel that reaches the model. Standing instructions
+that used to travel as a forced skill are prompt text now: the platform prompt,
+and the office's own bounded block (`X-Grid-Org-Instructions`, see the header
+list above). See `docs/architecture/agent-skills.md`.
 
 ##### Ingest-only messages (`context_only`)
 
@@ -434,8 +425,8 @@ The client extracts content in priority order: `output` → `text` → raw strin
 | `read_sources` | `Array<{ document_id?, citation_key?, file_name?, page?, collection?, shelf?, kind?, lane?, lane_label?, title?, url? }>` | Retrieved-but-uncited documents this turn: identity + placement, NO prose. Renders the collapsed "Gelesen, nicht zitiert" disclosure inside the answer details (muted document chips, capped at eight with an overflow count). Absent when everything retrieved was cited. |
 | `job_admission_rejected` | `true` | Marks the answer text as a queue-rejection notice (NOT a research answer). The client renders a warning banner (error code `research.queue_full`) and leaves the composer unlocked. |
 | `retry_after_seconds` | `number` | Only alongside `job_admission_rejected` — retry hint (seconds). |
-| `skills_activated` | `string[]` | Agent Skills whose full instructions were LOADED this turn (forced first, then those the model pulled in with `use_skill`, deduped). Absent/empty on a turn that activated none. Rendered as a quiet "Skills used" disclosure under the answer; the reconnect path persists it into assistant-message metadata. Availability is the constant, activation is the event — see `docs/architecture/agent-skills.md`. |
-| `retrieval_ledger` | `RetrievalLedgerEntry[]` | The backend's own account of this turn's retrieval rounds: per announced round what it was asked (query, tools), what it returned (docs with title/detail/shelf), and what was new (`new_docs`); `hits`/`documents` are tallies over `docs`. Absent when no round was announced. Carried for the Herleitung — **no renderer reads it yet (phase b)** — and persisted into message metadata/provenance so reloads read the same account. Known exclusion: the answer-repair pass retrieves outside the tool node and announces no round, so its findings are absent by design. |
+| `skills_activated` | `string[]` | Agent Skills whose full instructions were LOADED this turn — the ones the model pulled in with `use_skill`, in call order, deduped. Absent/empty on a turn that activated none. Rendered as a quiet "Skills used" disclosure under the answer; the reconnect path persists it into assistant-message metadata. Availability is the constant, activation is the event — see `docs/architecture/agent-skills.md`. |
+| `retrieval_ledger` | `RetrievalLedgerEntry[]` | The backend's own account of this turn's retrieval rounds: per announced round what it was asked (query, tools), what it returned (docs with title/detail/shelf), and what was new (`new_docs`); `hits`/`documents` are tallies over `docs`. Absent when no round was announced. The Herleitung spine draws each round's fan from it: the page or Punkt each round reached, „bereits abgerufen" on a file an earlier round already returned, and an „Öffnen" step kind for a round that only opened passages with `read_passage`. Persisted into message metadata/provenance so reloads read the same account. Known exclusion: the answer-repair pass retrieves outside the tool node and announces no round, so its findings are absent by design. |
 
 #### system_intermediate_message
 

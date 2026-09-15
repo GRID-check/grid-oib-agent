@@ -19,7 +19,7 @@ One event is for the reader:
   and which way that is**".
 
   What is EMITTED is never that sentence. It is a stable key
-  (``skill.activated`` / ``skill.forced``) plus one value — the skill's
+  (``skill.activated``) plus one value — the skill's
   :func:`~.models.skill_title` — and the frontend owns the words in both
   locales. This module used to ship a finished German sentence in a ``text``
   field, which an English-locale reader then saw verbatim; nothing in emitted
@@ -32,9 +32,9 @@ One event is for the reader:
 Two are telemetry, and are marked :data:`~aiq_agent.common.turn_status.CHANNEL_TECHNICAL`
 so they can only reach the opt-in details panel:
 
-- ``offered`` — how large the catalog was and what the user forced. Catalog
-  SIZE is availability, not activity; rendering it live would repeat the
-  mistake that once put a phantom "web search" in front of users.
+- ``offered`` — how large the catalog was. Catalog SIZE is availability, not
+  activity; rendering it live would repeat the mistake that once put a phantom
+  "web search" in front of users.
 - ``loaded`` — the body arrived through ``use_skill``. That is plumbing: the
   reader was already told the skill is being applied, and a character count of
   its instructions is not something anyone can act on.
@@ -91,22 +91,19 @@ SKILL_STEP_PREFIX = "skill:"
 #: here is an excerpt, for an operator reading the details panel.
 MAX_EVENT_DESCRIPTION_CHARS = 160
 
-#: Stable dotted ids for the one skill event a reader actually sees. Two keys
-#: rather than one plus a flag, because the difference between a skill the
-#: MODEL chose and one the USER named is a different sentence in every
-#: language, not a word swapped inside one. Both resolve under
+#: The stable dotted id of the one skill event a reader actually sees. ONE key,
+#: because there is now one way a skill runs: the model read its description in
+#: the catalog and chose to open it. (``skill.forced`` was its sibling while a
+#: request or a deployment could require a skill; forcing is gone, so a second
+#: key would name a state that cannot happen.) It resolves under
 #: ``chat.thinking.skill.*`` in the frontend dictionary; a key with no entry
 #: there renders nothing at all.
 KEY_SKILL_ACTIVATED = "skill.activated"
-KEY_SKILL_FORCED = "skill.forced"
 
 #: EVERY key this module can emit — the counterpart of
 #: :data:`~aiq_agent.common.turn_status.ALL_STATUS_KEYS`, and read by the same
 #: two tests.
-ALL_SKILL_KEYS: tuple[str, ...] = (
-    "skill.activated",
-    "skill.forced",
-)
+ALL_SKILL_KEYS: tuple[str, ...] = ("skill.activated",)
 
 
 class SkillEvent(BaseModel):
@@ -130,12 +127,7 @@ class SkillEvent(BaseModel):
             the surface decides how to degrade, and no title is invented here.
         description: Truncated excerpt of the model-facing description.
         origin: ``platform`` (ships with Grid) or ``org`` (the tenant's own).
-        forced: ``activated`` only — whether the USER named this skill
-            (``/name`` in the composer) rather than the model choosing it.
-            ``None`` on the phases where the question does not arise, so a
-            reader never has to interpret a default.
         offered_count: ``offered`` only — how many skills were in the catalog.
-        forced_names: ``offered`` only — the ids the user forced.
         body_chars: ``loaded`` only — characters of instruction pulled in.
     """
 
@@ -147,9 +139,7 @@ class SkillEvent(BaseModel):
     title: str | None = None
     description: str | None = None
     origin: str | None = None
-    forced: bool | None = None
     offered_count: int | None = None
-    forced_names: list[str] | None = None
     body_chars: int | None = None
 
 
@@ -184,21 +174,18 @@ def emit_skills_offered(runtime: SkillRuntime) -> None:
             phase="offered",
             channel=CHANNEL_TECHNICAL,
             offered_count=len(skills),
-            forced_names=list(runtime.forced) or None,
         )
         push_custom_step(SELECTION_STEP_NAME, _payload(event))
     except Exception:  # noqa: BLE001 — transparency must never take a turn down
         logger.debug("Skill 'offered' event not emitted", exc_info=True)
 
 
-def emit_skill_activated(skill: Skill, *, forced: bool) -> None:
+def emit_skill_activated(skill: Skill) -> None:
     """Say that this skill is now shaping the answer. The one LIVE skill event.
 
-    Fires from the single activation site in ``SkillRuntime``, so a skill the
-    user forced and a skill the model chose are announced by the same code in
-    the same words — the only difference is which KEY it is (``skill.forced`` vs
-    ``skill.activated``), which is a fact about who decided, not about what
-    runs.
+    Fires from the single activation site in ``SkillRuntime``, which is reached
+    only when ``use_skill`` hands a body over — so the line is a report of
+    delivery, never of an intention.
 
     A skill with no ``grid-title`` gets no live key: an id like
     ``oib-brandschutznachweis-2024`` in a status line is worse than silence,
@@ -222,7 +209,7 @@ def emit_skill_activated(skill: Skill, *, forced: bool) -> None:
         # skill needs to stay OUT of that line even when it has one. Either
         # condition alone demotes the event to technical and withholds the key.
         live = bool(title) and not skill_hidden(skill.metadata)
-        key = (KEY_SKILL_FORCED if forced else KEY_SKILL_ACTIVATED) if live else None
+        key = KEY_SKILL_ACTIVATED if live else None
         event = SkillEvent(
             phase="activated",
             channel=CHANNEL_LIVE if live else CHANNEL_TECHNICAL,
@@ -232,7 +219,6 @@ def emit_skill_activated(skill: Skill, *, forced: bool) -> None:
             title=title,
             description=_describe(skill),
             origin=skill.origin,
-            forced=forced,
         )
         push_custom_step(f"{SKILL_STEP_PREFIX}{skill.name}", _payload(event))
     except Exception:  # noqa: BLE001 — transparency must never take a turn down

@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from aiq_agent.tools.bim.failures import NO_MODEL_TEXT
+from aiq_agent.tools.bim.failures import NOT_READY_TEXT
+
 #: Plural noun → the whole singular phrase, article included. A lookup rather
 #: than a rule because German plurals and genders are not derivable, and
 #: "ein weiteres Raum" in an answer an architect reads is worse than a wrong
@@ -60,6 +63,17 @@ def listed(
     return lines + [f"{indent}{note}"] if note else lines
 
 
+#: The reasons no argument fixes within this turn, each with the sentence that
+#: says so. ``ambiguous`` and ``no_match`` are deliberately absent: there a
+#: second call with a different ``model_name`` is the right move, and the
+#: listed alternatives are what it is made from.
+_NOTHING_TO_READ = {
+    "no_models": NO_MODEL_TEXT,
+    "extraction_failed": NO_MODEL_TEXT,
+    "not_ready": NOT_READY_TEXT,
+}
+
+
 def render_unresolved(result: dict[str, Any], fallback: str) -> str:
     """A model that could not be selected, with the alternatives when there are any.
 
@@ -67,7 +81,24 @@ def render_unresolved(result: dict[str, Any], fallback: str) -> str:
     ``not_ready`` the route returns the model that could not be read, and
     calling that available beside "(processing, 0 Bauteile)" reads as a
     building with no elements.
+
+    A project with nothing to read gets the sentence saying so AND what to do
+    with it (:data:`~aiq_agent.tools.bim.failures.NO_MODEL_TEXT`). The route's
+    „Für dieses Projekt ist kein IFC-Modell hinterlegt" alone reads as one
+    operation's miss, and the agent spent the rest of its rounds trying the
+    others. ``not_ready`` gets its own sentence
+    (:data:`~aiq_agent.tools.bim.failures.NOT_READY_TEXT`) for the same reason
+    and a different fact: extraction finishes after this turn, so the model
+    named under „noch nicht abfragbar" answers a later question and not this
+    one.
     """
+    text = _unresolved_message(result, fallback)
+    advice = _NOTHING_TO_READ.get(str(result.get("reason")))
+    return f"{text} {advice}" if advice else text
+
+
+def _unresolved_message(result: dict[str, Any], fallback: str) -> str:
+    """The route's own sentence, plus the model list when there is one."""
     message = result.get("message") or fallback
     models = result.get("models") or []
     if not models:

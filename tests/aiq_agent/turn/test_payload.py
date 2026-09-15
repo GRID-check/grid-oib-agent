@@ -49,25 +49,22 @@ class TestExtractQueryFromText:
 
     def test_extract_simple_text(self):
         """Test extracting from plain text."""
-        query, sources, skills, _intent = _extract_query_from_text("What is CUDA?")
+        query, sources, _intent = _extract_query_from_text("What is CUDA?")
         assert query == "What is CUDA?"
         assert sources is None
-        assert skills is None
 
     def test_extract_empty_text(self):
         """Test extracting from empty string."""
-        query, sources, skills, _intent = _extract_query_from_text("")
+        query, sources, _intent = _extract_query_from_text("")
         assert query == ""
         assert sources is None
-        assert skills is None
 
     def test_extract_json_payload(self):
         """Test extracting from JSON payload."""
         text = '{"query": "Test query", "data_sources": ["web_search"]}'
-        query, sources, skills, _intent = _extract_query_from_text(text)
+        query, sources, _intent = _extract_query_from_text(text)
         assert query == "Test query"
         assert sources == ["web_search"]
-        assert skills is None
 
     def test_the_parser_returns_the_intent_and_sets_nothing(self):
         """A parser with a side effect hid a failure to set the turn's focus
@@ -98,20 +95,24 @@ class TestExtractQueryFromText:
         assert parsed.intent.file_name == "a.pdf"
         assert parsed.intent.shelf is None
 
-    def test_extract_json_payload_with_skills(self):
-        """Test extracting forced skills from a JSON payload."""
-        text = '{"query": "Analyse", "skills": ["forecast-analysis", "data-table-analysis"]}'
-        query, _, skills, _intent = _extract_query_from_text(text)
+    def test_a_skills_array_in_the_payload_is_ignored(self):
+        """Nothing reads it any more, and its presence must not disturb the parse.
+
+        Forcing a skill is gone: a skill is what the model picks out of its
+        catalog, so an old client still sending `skills` gets the same turn as
+        one that does not — not an error, and not a silently forced skill.
+        """
+        text = '{"query": "Analyse", "skills": ["forecast-analysis"]}'
+        query, sources, _intent = _extract_query_from_text(text)
         assert query == "Analyse"
-        assert skills == ["forecast-analysis", "data-table-analysis"]
+        assert sources is None
 
     def test_extract_invalid_json(self):
         """Test invalid JSON returns original text."""
         text = '{"invalid json'
-        query, sources, skills, _intent = _extract_query_from_text(text)
+        query, sources, _intent = _extract_query_from_text(text)
         assert query == text
         assert sources is None
-        assert skills is None
 
 
 class TestExtractQueryAndSources:
@@ -125,10 +126,9 @@ class TestExtractQueryAndSources:
                 "data_sources": ["confluence"],
             }
         }
-        query, sources, skills, _intent = _extract_query_and_sources(payload)
+        query, sources, _intent = _extract_query_and_sources(payload)
         assert query == "Query text"
         assert sources == ["confluence"]
-        assert skills is None
 
     def test_extract_from_object_payload(self):
         """Test extracting from object payload with messages."""
@@ -139,17 +139,15 @@ class TestExtractQueryAndSources:
         payload.messages = [user_msg]
         payload.data_sources = None
         payload.skills = None
-        query, sources, skills, _intent = _extract_query_and_sources(payload)
+        query, sources, _intent = _extract_query_and_sources(payload)
         assert query == "Object query"
         assert sources is None
-        assert skills is None
 
     def test_extract_from_string_payload(self):
         """Test extracting from string payload."""
-        query, sources, skills, _intent = _extract_query_and_sources("Plain query string")
+        query, sources, _intent = _extract_query_and_sources("Plain query string")
         assert query == "Plain query string"
         assert sources is None
-        assert skills is None
 
     def test_explicit_empty_data_sources_preserved(self):
         """An explicit [] ("no data-source tools") must not fall back to None."""
@@ -157,11 +155,10 @@ class TestExtractQueryAndSources:
             "data_sources": [],
             "content": {"messages": [{"role": "user", "content": "Query text"}]},
         }
-        query, sources, skills, _intent = _extract_query_and_sources(payload)
+        query, sources, _intent = _extract_query_and_sources(payload)
         assert query == "Query text"
         # [] must survive: `or`-chaining would overwrite it with None ("all tools").
         assert sources == []
-        assert skills is None
 
     def test_top_level_empty_not_overwritten_by_content_sources(self):
         """A top-level [] wins over content-level sources (both explicit)."""
@@ -172,65 +169,40 @@ class TestExtractQueryAndSources:
                 "data_sources": ["confluence"],
             },
         }
-        _query, sources, _skills, _intent = _extract_query_and_sources(payload)
+        _query, sources, _intent = _extract_query_and_sources(payload)
         assert sources == []
 
-    def test_forced_skills_extracted_top_level(self):
-        """The WS content JSON's `skills` array is extracted at the top level."""
-        payload = {
-            "skills": ["forecast-analysis"],
-            "content": {"messages": [{"role": "user", "content": "Prognose für Krankenhaus?"}]},
-        }
-        query, _sources, skills, _intent = _extract_query_and_sources(payload)
-        assert query == "Prognose für Krankenhaus?"
-        assert skills == ["forecast-analysis"]
+    def test_the_skills_array_reaches_nothing_wherever_it_sits(self):
+        """Top level, inside `content`, or inline in the message JSON.
 
-    def test_forced_skills_content_level_when_top_level_absent(self):
-        """`skills` inside `content` is the fallback location."""
-        payload = {
-            "content": {
-                "messages": [{"role": "user", "content": "Berechnung"}],
-                "skills": ["lightweight-calculation"],
-            }
-        }
-        query, _sources, skills, _intent = _extract_query_and_sources(payload)
-        assert query == "Berechnung"
-        assert skills == ["lightweight-calculation"]
-
-    def test_top_level_empty_skills_not_overwritten_by_content_skills(self):
-        """An explicit top-level [] wins over content-level skills."""
-        payload = {
-            "skills": [],
-            "content": {
-                "messages": [{"role": "user", "content": "Query text"}],
-                "skills": ["lightweight-calculation"],
+        All three used to be read into `force_skills`. The parse now returns
+        the query and the data sources and nothing else, at every one of them,
+        so a client that never stopped sending the array cannot force a skill
+        by accident.
+        """
+        payloads = [
+            {
+                "skills": ["forecast-analysis"],
+                "content": {"messages": [{"role": "user", "content": "Prognose?"}]},
             },
-        }
-        _query, _sources, skills, _intent = _extract_query_and_sources(payload)
-        assert skills == []
-
-    def test_forced_skills_from_inline_json(self):
-        """Inline JSON inside the user message also carries the skills array."""
-        payload = {
-            "content": {
-                "messages": [{"role": "user", "content": '{"query": "Analyse", "skills": ["data-table-analysis"]}'}]
-            }
-        }
-        query, _sources, skills, _intent = _extract_query_and_sources(payload)
-        assert query == "Analyse"
-        assert skills == ["data-table-analysis"]
-
-    def test_malformed_skills_content_cleaned(self):
-        """Non-name junk in the skills array is stringified (mirroring
-        parse_data_sources); unknown names are resolved away downstream by the
-        reminder runtime (never an error)."""
-        payload = {
-            "skills": ["forecast-analysis", 42, None, " "],
-            "content": {"messages": [{"role": "user", "content": "Query"}]},
-        }
-        query, _sources, skills, _intent = _extract_query_and_sources(payload)
-        assert query == "Query"
-        assert skills == ["forecast-analysis", "42", "None"]
+            {
+                "content": {
+                    "messages": [{"role": "user", "content": "Prognose?"}],
+                    "skills": ["lightweight-calculation"],
+                }
+            },
+            {
+                "content": {
+                    "messages": [
+                        {"role": "user", "content": '{"query": "Prognose?", "skills": ["data-table-analysis"]}'}
+                    ]
+                }
+            },
+        ]
+        for payload in payloads:
+            parsed = _extract_query_and_sources(payload)
+            assert parsed.query_text == "Prognose?"
+            assert len(parsed) == 3, "query, data sources, intent — nothing else"
 
 
 class TestExtractTurnInputs:
@@ -283,13 +255,16 @@ class TestExtractTurnInputs:
         assert inputs.focus_file_name == "a.pdf"
         assert inputs.focus_shelf is None
 
-    def test_data_sources_and_skills_still_come_through(self):
+    def test_data_sources_come_through_and_skills_carry_nothing(self):
         from aiq_agent.turn.payload import extract_turn_inputs
 
         inputs = extract_turn_inputs('{"query": "x", "data_sources": ["web_search"], "skills": ["oib"]}')
 
         assert inputs.data_sources == ["web_search"]
-        assert inputs.force_skills == ["oib"]
+        # The lift has no skills field at all: a turn cannot be told which
+        # working method to use, only which sources it may read.
+        assert not hasattr(inputs, "force_skills")
+        assert "skills" not in inputs._fields
 
     def test_the_intent_is_set_for_retrieval_by_the_lift(self):
         from aiq_agent.common.focus_file import get_focused_file_name

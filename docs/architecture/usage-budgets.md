@@ -78,7 +78,15 @@ reference (https://openrouter.ai/docs/api_reference/overview):
   (`total_cost`, native token counts) — the reconciliation path.
 - langchain-openai surfaces the usage object verbatim as
   `llm_output["token_usage"]` on each `LLMResult` (provider extras like
-  `cost` survive the SDK's `model_dump`).
+  `cost` survive the SDK's `model_dump`) — **on the chat-completions path
+  only**. A role on `api_type: responses` (today: `research_llm`) gets a
+  `ChatResult` with no `llm_output` at all and a `response_metadata` that
+  excludes `usage`, so the provider object never reaches this process. What
+  survives is LangChain's normalized `usage_metadata`, where the cache bucket
+  is spelled `input_token_details.cache_read` and `cost` does not exist;
+  `extract_usage_event` reads it and marks those rows `costSource: missing`
+  rather than inventing a number. Reconcile them by `generation_id` against
+  `GET /api/v1/generation?id=`.
 
 ### ⚠️ Dry-run verification status
 

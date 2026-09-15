@@ -850,7 +850,6 @@ async def run_agent_job(
     clarifier_result: str | None = None,
     memory_reflection_enabled: bool = False,
     memory_reflection_llm: str | None = None,
-    force_skills: list[str] | None = None,
     # DB-queue claim owner (the worker's own id) for the still-owner publish
     # gate. None on the Dask path, which has no claim table, and at submit
     # time (unclaimed); the DB worker fills in its own id at replay. Must stay
@@ -915,11 +914,6 @@ async def run_agent_job(
             finished report to record durable project findings — the chat path
             skips reflection for deep jobs because the report only exists once
             the async job completes.
-        force_skills: Optional list of skill names the agent run must
-            force-activate. Injected onto the agent state as ``force_skills``
-            where the state model declares the field — the same guarded path
-            ``data_sources``/``project_context`` take (Agent Skills feature;
-            the state-field consumer is added by ``src/aiq_agent``).
         claim_owner: Optional DB-queue claim owner (worker id) for the
             still-owner publish gate. ``None`` (Dask path, or unclaimed at
             submit) skips the ownership check and only the terminal verdict
@@ -1362,7 +1356,6 @@ async def run_agent_job(
                             clarifier_result=clarifier_result,
                             project_context=agent_project_context,
                             platform_lessons=platform_lessons,
-                            force_skills=force_skills,
                             organization_id=_job_org_id,
                         )
 
@@ -1739,7 +1732,6 @@ async def _run_agent(
     clarifier_result: str | None = None,
     project_context: str | None = None,
     platform_lessons: str | None = None,
-    force_skills: list[str] | None = None,
     organization_id: str | None = None,
 ) -> Any:
     """
@@ -1783,7 +1775,6 @@ async def _run_agent(
                 ("clarifier_result", clarifier_result),
                 ("project_context", project_context),
                 ("platform_lessons", platform_lessons),
-                ("force_skills", force_skills),
                 # No request headers exist in a Dask worker, so an agent that
                 # resolves per-tenant data (deep research resolves the org's
                 # skills) cannot read the organization off the context the way
@@ -1822,8 +1813,6 @@ async def _run_agent(
                 state["project_context"] = project_context
             if platform_lessons is not None:
                 state["platform_lessons"] = platform_lessons
-            if force_skills is not None:
-                state["force_skills"] = force_skills
 
         return await run_with_cancellation(
             agent.run(state),

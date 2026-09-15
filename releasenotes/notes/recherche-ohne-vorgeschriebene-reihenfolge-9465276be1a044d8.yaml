@@ -1,0 +1,19 @@
+---
+improvements:
+  - >
+    Piloti wählt die Quelle jetzt nach der Frage, nicht nach einer festen
+    Rangfolge. Die Arbeitsanweisung sagt, was eine Antwort können muss — jeder
+    genannte Wert stammt aus einer Stelle, die in diesem Zug wirklich gelesen
+    wurde — und nicht mehr, welches Werkzeug in welcher Reihenfolge zu bedienen
+    ist. Eine Frage zur Bauordnung landet dadurch dort, wo die Bauordnung steht.
+  - >
+    Die erste Runde einer Recherche ist nicht mehr auf zwei Suchen begrenzt.
+    Berührt eine Frage mehrere Quellen — die Richtlinien, das österreichische
+    Rechtsinformationssystem und das Web —, prüft Piloti sie gleich zu Beginn
+    gemeinsam, statt eine davon auf später zu verschieben und dafür eine Runde
+    zu verbrauchen.
+  - >
+    Eine Antwort mit Karte kostet einen Schritt weniger. Piloti muss die Form
+    einer Karte nicht mehr in einer eigenen Abfrage erfragen: Das Werkzeug
+    bringt sie selbst mit und nennt sie noch einmal, wenn eine Karte beim ersten
+    Versuch nicht passt.

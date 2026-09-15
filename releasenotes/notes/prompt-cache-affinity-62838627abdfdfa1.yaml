@@ -1,0 +1,16 @@
+---
+improvements:
+  - >
+    Die einzelnen Rechercheschritte einer Antwort kosten jetzt weniger. Der
+    unveränderliche Teil jeder Anfrage — die Arbeitsanweisung und die
+    Werkzeugbeschreibungen — wird beim Modellanbieter zwischengespeichert,
+    statt auf jedem Schritt neu gelesen zu werden. Das senkt den Verbrauch
+    einer Frage und verkürzt die Wartezeit, ohne an der Antwort etwas zu
+    ändern.
+fixes:
+  - >
+    Die Nutzungsabrechnung weist zwischengespeicherte Eingabe-Token jetzt
+    getrennt aus. Bei der schnellen Recherche stand dort bisher für jeden
+    Schritt eine Null: Die Zahlen kamen vom Anbieter an, gingen aber auf dem
+    Weg in die Abrechnung verloren, sodass Verbrauch und Kosten höher wirkten
+    als sie waren.

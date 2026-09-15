@@ -1,16 +1,15 @@
 /**
  * One curated skill (ADR-0016). Platform owners only.
  *
- * PATCH  — edit it, including publishing and withdrawing (`published`) and
- *          moving it between the two deliveries (`delivery`). An edit reaches
- *          every organization running the skill immediately: the body lives here
- *          and only here, which is the property the removed "clone a platform
- *          skill" flow could not have.
+ * PATCH  — edit it, including publishing and withdrawing (`published`). An edit
+ *          reaches every organization running the skill immediately: the body
+ *          lives here and only here, which is the property the removed "clone a
+ *          platform skill" flow could not have.
  *
- *          `delivery` is the field that decides whether an organization gets a
- *          choice at all. Promoting an offer to `standard` starts every tenant
- *          running it, including ones that had explicitly switched it off;
- *          demoting stops every tenant until each switches the skill on again.
+ *          Nothing here decides FOR an organization. `delivery` used to: an
+ *          offer promoted to `standard` started every tenant running the skill,
+ *          including ones that had switched it off. Migration 0088 retired that
+ *          tier, so the field has one value and an organization always decides.
  * DELETE — withdraw it from the fleet. Organizations stop resolving it; their
  *          activation rows are left alone, so re-creating the skill under the
  *          same name restores the fleet as it was.

@@ -204,7 +204,7 @@ boundary in `ConversationGraph.run()`:
   quantity at all (`NON_MEASURING_OPERATIONS` — briefing, find_elements,
   element, draw, view, shopping_list) carry no trailer, because „Messwerte in
   diesem Ergebnis: 0" on a `draw` reads to the model as a measurement that
-  failed and invites a retry that costs one of five tool iterations. Suppression
+  failed and invites a retry that costs one of the turn's research rounds. Suppression
   is safe in the same direction as everything else here: no trailer reads as no
   measurement, so an operation nobody thought to list still grants nothing.
 - `citations_removed` (`{count, reasons[]}`, deduped, max 5) — from the research
@@ -968,6 +968,42 @@ deterministically from `storageKey`, and a missing/expired SeaweedFS object fall
 back gracefully to the SVG sketch. Re-ingesting a document overwrites the
 thumbnail at the same key.
 
+### The grounding block: a record, and the text that renders it (ADR-0061)
+
+Every evidence tool answers in one grammar: a preamble, a run of
+`--- Result N ---` blocks whose header states `Source:`, `Collection:`,
+`Shelf:`, `Dokumentart:`, `Punkt:`, `Citation:` and `Relevance Score:`, the
+passage body under that last line, and one `## Trace-Lanes` object at the end.
+
+The hit is now a record and the text is its rendering.
+`common/grounding_block.py` holds `GroundingHit`, `GroundingBlock` and the one
+renderer, `render_grounding_block`. Both producers build records and call it:
+`knowledge_layer.register._format_results` turns chunks into hits
+(`_grounding_hit`, which is also where the Trace-Lanes fan-out reads a hit's
+shelf, Dokumentart and title from, so the header and the fan-out cannot
+disagree), and `ris_adapter.lookup.render.format_passages` turns `Passage`
+objects into the same records. Neither writes grammar text any more.
+
+The renderer files each block under the SHA-256 of the exact bytes it returns,
+in a per-turn `ContextVar` that `PilotiAgent.run` opens beside
+`begin_lane_capture`. `citation_verification.extract_sources_from_tool_result`
+looks the block up by that hash and builds `SourceEntry`s by field copy, so a
+passage body cannot supply a header field the producer omitted. `PilotiAgent.run`
+is the only caller that opens the capture, so the structured read is what a
+Piloti turn gets for `knowledge_search`, `read_passage` and `ris_lookup`, and
+the deep researcher, the conversation path and the job runner parse the text.
+The text parsers in `citation_verification`
+(`_parse_knowledge_layer` and the eleven `_KL_*` regexes) stay for the callers
+that hold the bytes without the records: a registry hydrated from the shared
+cache, a turn replayed out of Postgres, and the job runner's callback in
+`frontends/aiq_api/src/aiq_api/jobs/callbacks.py`. The contract test asserts the
+two readers produce the same entries
+(`tests/aiq_agent/common/test_citation_pipeline_contract.py`).
+
+The boundary is worth stating once: the TOOL side is structured, and the ANSWER
+side stays text, because the model writes text and a citation key in prose is
+all there is to read.
+
 ### The locator: `read_passage`
 
 `knowledge_search` is a *search*, and for a long time it was the only way to
@@ -980,16 +1016,32 @@ lookup it could already address.
 `read_passage` (`sources/knowledge_layer/src/read_passage.py`) is that lookup:
 `document` (exact indexed name, stored display title, or the derived OIB title)
 plus `punkt` (the `punkt_id` the Punkt chunker verified against the corpus's own
-contents pages) or `page`. It is deterministic — one filtered fetch per
-collection the named document lives in, no reranker, no requery, no LLM
-anywhere — and it re-checks the Punkt/page in Python after the store's metadata
-filter, because "the store applies the filter" is a contract and a locator that
-returns the neighbouring requirement is worse than one that returns nothing.
+contents pages) or `page`. `document` with neither is the **outline**: the
+document's scope passage (Punkt 0, else the first top-level Punkt) followed by a
+`## Gliederung` of its depth-1 and depth-2 Punkte with their pages. That is the
+overview question ("worum geht es in der OIB 2?"), which names no Punkt and no
+page; refusing it sent the model to a search that returns cover pages and then to
+a Punkt number it had guessed. The Gliederung is an index, not evidence — only
+the passages carry a Citation, and a listed Punkt is read by calling again with
+`punkt=`. A document with no Punkte at all — most project uploads — returns its
+opening passages instead: the first chunks in document order, because `page_label` is not always a page number.
+
+It is deterministic — one filtered fetch per collection the named document
+lives in, no reranker, no requery, no LLM anywhere — and it re-checks the
+Punkt/page in Python after the store's metadata filter, because "the store
+applies the filter" is a contract and a locator that returns the neighbouring
+requirement is worse than one that returns nothing.
 
 Three things make it fit the rest of the tier rather than sit beside it. Its
 output is `_format_results`, so citations, the `Punkt:` line and the
 `## Trace-Lanes` fan-out under the round stamp all work unchanged and nothing
-downstream learns a second shape. Its collection scope, base corpus and file
+downstream learns a second shape. That claim was false for one release:
+`citation_verification` registers its knowledge parser on the substring
+`knowledge`, which `read_passage` does not contain, so the locator's passages
+fell to the non-URL fallback and registered one source whose citation key was
+the string `read_passage`. A citation to a passage the turn OPENED rather than
+searched was then dropped as `citation_key_not_in_registry`. The tool name is
+registered explicitly now, beside `ris_lookup`. Its collection scope, base corpus and file
 exclusions are read off the `knowledge_search` instance named in its config
 (`knowledge_search: knowledge_search`) rather than restated, so the two cannot
 end up pointed at different corpora. And it is listed under the same
@@ -1003,6 +1055,22 @@ and that budget is what bounds evidence-gathering; it is simply the cheapest
 thing the budget can buy. The live line names what is being read rather than a
 corpus: `status.retrieval.punkt` / `status.retrieval.page`
 ("Liest OIB-Richtlinie 2, Pkt. 3.5.2").
+
+A fetch it already made this turn is not made twice. `piloti/agent.py` derives a
+signature per call (`fetch_signature` in `common/turn_status.py`: the tool plus
+its locus or its query and narrowing) and carries the turn's `executed_fetches`
+on the state; a `knowledge_search` or `read_passage` call whose signature already
+ran is **withheld** — derived once, read in both the agent node and the tools
+node (one of three guards on that seam, beside the switched-off data source
+and the per-round width cap `max_calls_per_round`; the round-zero fan-out cap
+that judged the SHAPE of a round is gone, and the width cap is a runaway guard
+set far above any batch the prompt asks for, not a doctrine),
+never charged, the
+call left on the AIMessage and answered with a `ToolMessage` saying the result is
+already above. A round that was only repeats therefore costs one interaction
+call, so a model that repeats forever still reaches forced synthesis inside the
+recursion limit, and the technical `status:repeat:N` record makes the rate
+countable in a trace.
 
 ### Agentic retrieval quality package (ADR-0039)
 
@@ -1178,7 +1246,10 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   re-verification. Austria: the nine state building codes, Wiener
   Garagengesetz, WBTV, Kleingartengesetz, and the federal acts (ASchG, AStV,
   BKAG, ZTG, WGG, DMSG, UVP-G, WRG, ForstG, GewO). Pointer index only: full
-  texts still go through `ris_fetch_document`.
+  texts are still fetched live — by `ris_lookup` on the chat surface (it takes
+  the pointer, downloads the law and returns the answering §§ as citable
+  passages: `sources/ris_adapter/src/lookup/`), and by `ris_fetch_document` in
+  deep research, which still drives the three older RIS tools itself.
 - **The OIB corpus is not in the catalog.** `data/oib/` → `oib_knowledge` is
   its own source of truth; what a corpus file *is* (Richtlinie / Leitfaden /
   Erläuterung / Begriffsbestimmungen / Zitierte Normen / Änderungsdokument)
@@ -1186,7 +1257,15 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   `aenderungen_*` diff files and the superseded `zitierte_normen` revision are
   excluded from retrieval via the knowledge tool's `exclude_file_names`
   config (a `file_name NOT IN [...]` filter on the base collection only —
-  session/project collections are never filtered).
+  session/project collections are never filtered). The same base-collection
+  filter always carries `chunking != "page"`
+  (`_NON_EVIDENCE_CHUNKING` in the knowledge layer's `register.py`): the Punkt
+  chunker emits each Richtlinie's cover page and Impressum as per-page chunks,
+  they are the only chunks still carrying the running title, and a title-shaped
+  query therefore returned four cover pages at page 1 and nothing citable. `$ne`
+  keeps every record that lacks the key, so the keyless majority of the corpus
+  stays searchable. `read_passage` builds its own filters and can still open
+  page 1 on request.
 - **Storage & admin surface** — runtime source precedence: the admin-managed
   store, then the YAML seed, fail-open. `knowledge/norm_store.py` keeps one
   JSON row per country (same DB URL as the summary store), seeds itself from
@@ -1206,8 +1285,15 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   the curated `binding_note` lines, a static OIB-corpus citation note, and the
   project applicability section (`applicability.render_project_block`). The
   Normenhierarchie doctrine itself is one constant (`NORM_DOCTRINE`) injected
-   into Piloti, deep-researcher, planner, and writer templates
-   as `{{ norm_doctrine }}`.
+   into the deep-researcher, planner and writer templates as
+   `{{ norm_doctrine }}`.
+  **Piloti renders neither.** `ris_lookup` resolves a catalog pointer out of
+  the question itself, so the list is a per-turn copy of something the tool
+  already holds, and the doctrine is constant per deployment, so it belongs in
+  the cacheable prefix. Piloti renders the applicability section alone
+  (`prompt.oib_applicability`, derived from this project's `confirmed:` facts)
+  and keeps the doctrine above the KV-cache boundary in `piloti_static.md`
+  (`<dokumentrollen>`). See the ADR-0060 amendment.
 - **Jurisdiction** — `resolve_country(project_context)` regexes the structured
    `country=<cc>` fact from the prompt text (`at`/`de`/`ch`/`other`, authored
    by the intake wizard's new A2_country question); absent → `"at"`. Every
@@ -1528,9 +1614,10 @@ in `grid_app` (`FOR UPDATE SKIP LOCKED`) and fires through the BFF's internal
 endpoint into `POST /v1/internal/skills/submit` (internal-token-guarded wrapper
 around `submit_agent_job`, so admission control and cost tracking apply
 unchanged). The agent follows the job's `output` (`chat` →
-`researcher`, `deep-research` → `deep_researcher`), and the submitted
-job carries `force_skills` — the attached skill's name, or an empty list when
-the prompt runs alone. A `chat` job additionally carries a `conversation_id`,
+`researcher`, `deep-research` → `deep_researcher`). The attached skill reaches
+the run inside the composed `input` — the BFF concatenates the job prompt and
+the skill body — and the `skills` array on the submit body is a name list for
+the log; nothing is forced onto the worker's state. A `chat` job additionally carries a `conversation_id`,
 and the worker writes the question and answer into that thread at completion
 (`aiq_api/jobs/conversation_output.py`, best-effort — it can never fail a run).
 This replaces the ADR-0023 Workflows scheduler, which was removed. See
@@ -1569,6 +1656,78 @@ providing `resolve_tools()`, `build_llm_provider()`, `with_tool_guard()`, a
 prompt-loading mixin, and an eval-wrapper factory — collapsing the duplication
 without touching the genuinely agent-specific LangGraph node logic. This is a
 refactor that should be verified against a running stack before merge.
+
+### Prompts: three layers, and where each is authored
+
+What reaches a model as its system prompt is assembled from three layers with
+three different owners. Confusing them is how a prompt change lands in the
+wrong place and appears not to work.
+
+1. **The platform prompt** — the static half of `piloti.j2`, everything above
+   the `KV CACHE BOUNDARY` marker. Identical for every tenant and every turn,
+   which is what makes it both cacheable by the provider and manageable outside
+   a release. **Authored and versioned in Langfuse**, under the prompt name
+   `piloti-system-static` and the label `production`, and pulled by the agent
+   at render time (`src/aiq_agent/common/prompt_store.py`).
+2. **The office's standing instructions** — the tenant's own preferences,
+   arriving per request on the `x-grid-org-instructions` header
+   (`project_context.py`, bounded at 1500 characters) and rendered BELOW the
+   boundary, because they vary per tenant. The template frames them as
+   preferences that neither supply a normative value nor outrank the static
+   rules.
+3. **Skills** — chosen by the model, per turn, from the L1 catalog the register
+   layer collates (ADR-0046, §8d). Nothing here is authored in a prompt file at
+   all: a skill is a document the agent decides to read.
+
+**What the dynamic half still carries, and why it is short.** Below the
+boundary `piloti.j2` renders per-turn FACTS and nothing standing: the date and
+user, the tool-name index (the model's only namespace listing under deferred
+loading, ADR-0048), the skills catalog, which file the composer has open, the
+knowledge-base inventory, what this conversation already read, the project's
+parcel documents, the OIB-Richtlinien this project's own facts make applicable,
+the platform lessons, the office block and the Project Context. Two sentences
+of rule survive, in `<entwuerfe>`: what „mach daraus ein File" refers to, which
+only the transcript knows, and that filing needs a project.
+
+Everything else that used to sit here is either a tool's own contract, which
+now lives in the tool description that owns it (ADR-0060 (d)), or standing
+platform doctrine, which moved ABOVE the boundary into `piloti_static.md`
+(`<dokumentrollen>`, `<project_record>`). The measured dynamic half on a
+realistic turn fell from 7,724 tokens to 2,962. The amendment section of
+[ADR-0060](../adr/0060-three-instruction-layers-and-tools-that-answer.md)
+records what moved where.
+
+**The direction is Langfuse → repository, and only that way.** A prompt change
+is made in the Langfuse UI: it creates a version, and moving the `production`
+label is what ships it. Running processes pick it up within
+`LANGFUSE_PROMPT_CACHE_TTL_SECONDS` (60s default) — the SDK serves the cached
+text and refreshes in the background, so no turn waits for it.
+
+`src/aiq_agent/agents/piloti/prompts/piloti_static.md` in the repository is the
+**bundled fallback**, not the original: what a process renders when prompt
+management is off (the default), when the Langfuse keys are absent, when
+Langfuse is unreachable, or when it holds no such prompt. It is allowed to lag
+the live version and nothing checks the difference — there is no push path and
+no drift gate. `task prompts:pull` (`scripts/prompts_pull.py`) writes the
+current production version into that file so a maintainer can commit a fresher
+fallback now and then. Labels other than `production` are for experiments; a
+deployment joins one by setting `LANGFUSE_PROMPT_LABEL`.
+
+The served text is still a Jinja template when it reaches the agent, with
+exactly one variable, `{{ answer_envelope_schema }}`, which the renderer fills
+from the envelope models. Any other `{{ … }}` in a Langfuse version is a
+render error, and so is a JSON example that opens with `{{`. That error does
+not reach a turn: a version that does not render is logged once and the
+bundled file serves until the published version is fixed
+(`prompt.py:resolve_static_block`). The trace then names the git file, which
+is how an author finds out their version is not the one answering.
+
+Every generation span carries `langfuse.observation.prompt.name` and
+`.version`, so a trace says which version produced an answer — including when
+the bundled fallback served, where the name is the file path and the version is
+its git blob hash. Env vars:
+[`environment-variables.md`](../deployment/environment-variables.md)
+§Prompt management.
 
 ### Project memory (implemented)
 
@@ -1688,14 +1847,17 @@ yet).
 ## 8d. Agent skills (ADR-0046)
 
 Reusable instruction packages (`SKILL.md`, agentskills.io contract) that
-extend a research turn's procedure. A user can force a skill (`/name`, a
-job, `force_skills` on submit). The model may also pick from the L1 catalog
-unless the skill sets `grid-auto-invoke: false`. Delivery is **progressive
-disclosure**: L1 is a one-line-per-skill catalog in the
-system prompt (`## Available skills` + a forced-skills block), L2 is the
-full body, loaded only when the model calls the `use_skill` tool. Per-run
-`SkillRuntime` (ADR-0018 — never cached on the shared agent) tracks forced
-vs. invoked names for `skills_activated` on the terminal frame.
+extend a research turn's procedure. A skill is an OFFER the model takes up:
+nothing can require one. The model picks from the L1 catalog unless the skill
+sets `grid-auto-invoke: false`, and `/name` in the composer inserts a mention
+into the message text rather than a force list on the wire. Delivery is
+**progressive disclosure**: L1 is a one-line-per-skill catalog in the system
+prompt (`## Available skills`), L2 is the full body, loaded only when the model
+calls the `use_skill` tool. Per-run `SkillRuntime` (ADR-0018 — never cached on
+the shared agent) records what was DELIVERED for `skills_activated` on the
+terminal frame. Standing instructions are prompt text instead: the platform
+prompt, and the office's own bounded block (`X-Grid-Org-Instructions`, rendered
+below the KV-cache boundary as `## Anweisungen des Büros`).
 
 The set per run = builtin (`src/aiq_agent/skills/builtin/`, discovered
 deterministically, validated strictly) + org rows from the BFF internal

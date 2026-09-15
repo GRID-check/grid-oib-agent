@@ -483,7 +483,7 @@ class TestSubmitDeepResearchJob:
 
         job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
         # Tail order: ..., user_info, clarifier_result,
-        # memory_reflection_enabled, memory_reflection_llm, force_skills.
+        # memory_reflection_enabled, memory_reflection_llm.
         assert _job_arg(job_args, "user_info") == {"name": "Ada", "email": "ada@example.com"}
         assert _job_arg(job_args, "clarifier_result") == "User confirmed scope: OIB 4 only."
 

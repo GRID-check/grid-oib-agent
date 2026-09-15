@@ -19,6 +19,19 @@
  * and renders at 1:1 — its height comes from MEASURED node heights (no fitView,
  * no hardcoded guesses), so it sits inline in the chat like any other block.
  *
+ * ## What hangs under a checkpoint
+ *
+ * The backend's `retrieval_ledger` states, per round, the documents THAT round
+ * returned and the page it read each at. When the message carries one, the fan
+ * under a round is built from its ledger round (matched by `index`): the same
+ * turn-level cards, so the chip, the preview and the markers are untouched, but
+ * each card names the locus that round read and a file an earlier round already
+ * showed says so instead of repeating the turn's hit count. Without a ledger —
+ * or for a round it does not cover — the fan is the filename match it always
+ * was. Before this, a round that re-opened four files at new pages drew four
+ * identical cards a second time, and a re-read was indistinguishable from a
+ * second fetch. See `roundFan`.
+ *
  * ## Layout: columns, not an orientation flip
  *
  * The sources always fan out into COLUMNS across the full container width. How
@@ -144,7 +157,7 @@ import type { ThinkingStep, CitationSource } from '../../types'
 import { deriveTraceLanes } from '../../lib/trace-lanes'
 import { buildCitationModel, citedLoci, totalHits, type CitedDocument, type CitationLocus } from '../../lib/citations'
 import { documentShortName } from '../../lib/document-names'
-import { SourceCard } from './SourceCard'
+import { BareSourceCard, SourceCard } from './SourceCard'
 import { SectionLabel } from '@/components/ui/section-label'
 import { BranchOptions } from './BranchOptions'
 import { citationChips } from './citations'
@@ -156,7 +169,8 @@ import {
   type DeepResearchCutoff,
 } from '../../lib/turn-events'
 import { stepNameLabel } from '../../lib/executed-steps'
-import { documentsForRound, retrievalRounds } from '../../lib/retrieval-rounds'
+import { retrievalRounds, roundFan, type FanCard } from '../../lib/retrieval-rounds'
+import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import type { ChoicePrompt } from './citations'
 
 /** Hidden connection handle (edges anchor to it; the dot itself is invisible). */
@@ -211,7 +225,13 @@ type FramingData = {
  * collapsing the whole graph into a vertical chain.
  */
 type SourceColumnData = {
-  cards: CitedDocument[]
+  /**
+   * The slots this column carries. A slot is a card plus, when the backend's
+   * ledger accounted for the round, what THAT round did with it — see
+   * `FanCard`. The turn-level fan passes plain card slots and reads exactly as
+   * it always did.
+   */
+  cards: FanCard[]
   hitLabel: (count: number) => string
   gapLabel: string
   /**
@@ -419,14 +439,17 @@ const RoundFlowNode: FC<NodeProps<Node<RoundData>>> = ({ data }) => (
 const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) => {
   const stack = (
     <div role="list" aria-label={data.groupLabel} className="flex w-full flex-col">
-      {data.cards.map((card, i) => {
+      {data.cards.map((fanCard, i) => {
         // Only a card that has never animated gets the entrance. Everything else
         // is here because the fan re-packed — it was on screen a frame ago, and
         // replaying its entrance is the flash this graph used to be full of.
-        const slot = data.enterOrder.get(card.id)
+        // Keyed on the DOCUMENT, so a file two rounds both returned animates
+        // once; a bare ledger slot has no card identity and never animates.
+        const card = fanCard.card
+        const slot = card ? data.enterOrder.get(card.id) : undefined
         const entering = slot !== undefined
         return (
-          <div key={card.id} className="flex flex-col">
+          <div key={fanCard.key} className="flex flex-col">
             {i > 0 && (
               <span
                 aria-hidden="true"
@@ -452,12 +475,20 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
                   : undefined
               }
             >
-              <SourceCard
-                document={card}
-                hitLabel={data.hitLabel(card.loci.length)}
-                gapLabel={data.gapLabel}
-                live={data.live}
-              />
+              {card ? (
+                <SourceCard
+                  document={card}
+                  hitLabel={data.hitLabel(card.loci.length)}
+                  gapLabel={data.gapLabel}
+                  live={data.live}
+                  {...(fanCard.round ? { round: fanCard.round } : {})}
+                />
+              ) : (
+                <BareSourceCard
+                  name={documentShortName(fanCard.name, fanCard.title)}
+                  {...(fanCard.round?.detail ? { detail: fanCard.round.detail } : {})}
+                />
+              )}
             </div>
           </div>
         )
@@ -582,6 +613,14 @@ export interface ReasoningFlowProps {
   choicePrompt?: ChoicePrompt
   onChoiceRespond?: (promptId: string, choice: string) => void
   escalationReason?: string
+  /**
+   * The backend's own account of this turn's retrieval rounds. When a round is
+   * in it (matched by `index`), the fan under that round is the LEDGER's docs
+   * — each at the page THAT round read, and marked when an earlier round had
+   * already shown the file. A round the ledger does not have keeps the
+   * filename match, which is what every turn before the ledger had.
+   */
+  retrievalLedger?: RetrievalLedger
   /** Turn is still streaming — edges animate and the graph keeps growing. */
   live?: boolean
 }
@@ -866,14 +905,28 @@ export function defaultFoldedRounds(_count: number): Set<number> {
   return new Set()
 }
 
+/** The tool that opens a passage of a document the turn already found. */
+const READ_PASSAGE = 'read_passage'
+
+/** Tool basename as the round records it (`tool: read_passage` → `read_passage`). */
+const toolBase = (tool: string): string => tool.trim().replace(/^tool:\s*/i, '').toLowerCase()
+
+/** This layer only opened passages — it searched for nothing new. */
+const onlyOpened = (tools: string[]): boolean =>
+  tools.length > 0 && tools.every((tool) => toolBase(tool) === READ_PASSAGE)
+
 /**
- * WHAT a retrieval layer did, from the two facts the spine already owns about
- * it: whether the model wrote a Thought (it concluded something) and whether
- * the fetch returned files. A layer that concluded on the back of what it
- * fetched is a finding; a bare fetch that returned nothing is a search. The
- * NUMBER on the layer (`Schritt N`) is the execution order; this is the type.
+ * WHAT a retrieval layer did, from the facts the spine already owns about it:
+ * the tools it called, whether the model wrote a Thought (it concluded
+ * something) and whether the fetch returned files. A layer that only opened
+ * passages of files the turn already had OPENED them: it searched for nothing,
+ * and a re-read at a new page is precisely the round a reader needs told apart
+ * from a fresh fetch. A layer that concluded on the back of what it fetched is
+ * a finding; a bare fetch that returned nothing is a search. The NUMBER on the
+ * layer (`Schritt N`) is the execution order; this is the type.
  */
-function roundKind(hasThought: boolean, fileCount: number, t: Translator): string {
+function roundKind(hasThought: boolean, fileCount: number, tools: string[], t: Translator): string {
+  if (fileCount > 0 && onlyOpened(tools)) return t('thinking.node.stepKindOpen')
   if (hasThought && fileCount > 0) return t('thinking.node.stepKindFinding')
   if (hasThought) return t('thinking.node.stepKindConclusion')
   if (fileCount > 0) return t('thinking.node.stepKindRead')
@@ -908,19 +961,36 @@ function foldLocusLabel(doc: CitedDocument, t: Translator): string | undefined {
   return undefined
 }
 
+/** The name a fan slot folds to: the card's short name, else the ledger's own. */
+const foldName = (slot: FanCard): string =>
+  slot.card
+    ? documentShortName(slot.card.fileName ?? slot.card.title, slot.card.title)
+    : documentShortName(slot.name, slot.title)
+
 /**
- * The scent of a folded fan, from the round's own cards (no new backend):
- * one file is document + its cited locus (bare name when the answer never
- * cited it — see `foldLocusOf`), two files are both names, three or more are
- * count + first name + "u.a.". Short names throughout — the edition tail says
- * nothing a folded layer needs. Empty when the fetch returned nothing (the
- * layer is then not foldable, so this never renders).
+ * The locus beside a folded single file: THAT round's own, when the ledger
+ * accounted for the round. The fan under it says the same thing, and a fold
+ * that fell back to the turn aggregate would name a page a different round
+ * read. Without a ledger it stays the cited passage (see `foldLocusOf`).
  */
-function foldSummary(roundCards: CitedDocument[], t: Translator): string {
-  const names = roundCards.map((doc) => documentShortName(doc.fileName ?? doc.title, doc.title))
+const foldLocus = (slot: FanCard, t: Translator): string | undefined => {
+  if (slot.round) return slot.round.detail
+  return slot.card ? foldLocusLabel(slot.card, t) : undefined
+}
+
+/**
+ * The scent of a folded fan, from the round's own slots: one file is document +
+ * its locus (bare name when there is none to name — see `foldLocus`), two
+ * files are both names, three or more are count + first name + "u.a.". Short
+ * names throughout — the edition tail says nothing a folded layer needs. Empty
+ * when the fetch returned nothing (the layer is then not foldable, so this
+ * never renders).
+ */
+function foldSummary(roundCards: FanCard[], t: Translator): string {
+  const names = roundCards.map(foldName)
   if (names.length === 0) return ''
   if (names.length === 1) {
-    const locus = foldLocusLabel(roundCards[0]!, t)
+    const locus = foldLocus(roundCards[0]!, t)
     return locus
       ? t('thinking.node.roundFoldOne', { name: names[0], locus })
       : t('thinking.node.roundFoldOneBare', { name: names[0] })
@@ -1134,7 +1204,7 @@ export function buildGraph(
   // checkpoint wires straight into the next one.
   const fans = spine
     ? rounds.map((round, i) => {
-        const roundCards = documentsForRound(round, cards)
+        const roundCards = roundFan(round, cards, props.retrievalLedger)
         const packed = planFan(layout.contentW, roundCards.length)
         const folded = folding.folded.has(i)
         return {
@@ -1146,7 +1216,7 @@ export function buildGraph(
       })
     : []
 
-  const pushColumns = (ids: string[], packed: FanLayout, roundCards: CitedDocument[]) => {
+  const pushColumns = (ids: string[], packed: FanLayout, roundCards: FanCard[]) => {
     // Driven by the ID list, not by the packing: a FOLDED layer keeps its
     // packing (the cards are still its cards) and is given no ids, and walking
     // the packing here would push column nodes with an `undefined` id that
@@ -1181,7 +1251,7 @@ export function buildGraph(
       const fileCount = fan.roundCards.length
       const roundData: RoundData = {
         label: t('thinking.node.stepTab', { n: i + 1 }),
-        sub: roundKind(text.length > 0, fileCount, t),
+        sub: roundKind(text.length > 0, fileCount, round.tools, t),
         text,
         actions: actionLabels(round.tools),
         targets: [CENTRE_TOP],
@@ -1205,7 +1275,12 @@ export function buildGraph(
   } else {
     columns.forEach((indices, i) => {
       const columnData: SourceColumnData = {
-        cards: indices.map((idx) => cards[idx]!),
+        // The turn-level fan: a slot is just its card, with no round to speak
+        // for — the aggregate IS the claim there.
+        cards: indices.map((idx) => {
+          const card = cards[idx]!
+          return { key: card.id, card, name: card.fileName ?? card.title }
+        }),
         hitLabel,
         gapLabel: t('thinking.gapHit'),
         enterOrder,
@@ -1482,6 +1557,7 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
     choicePrompt,
     onChoiceRespond,
     escalationReason,
+    retrievalLedger,
     live,
   } = props
   const t = useTranslations('chat')
@@ -1603,6 +1679,9 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
           choicePrompt,
           onChoiceRespond,
           escalationReason,
+          // The backend's account of the rounds, when this message carries one:
+          // it decides what hangs under each checkpoint.
+          ...(retrievalLedger ? { retrievalLedger } : {}),
           // Drives the pending converge node: while the turn streams the graph
           // still needs its merge point, or the source columns end in mid-air.
           live,
@@ -1621,6 +1700,7 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
       choicePrompt,
       onChoiceRespond,
       escalationReason,
+      retrievalLedger,
       live,
       t,
       layout,

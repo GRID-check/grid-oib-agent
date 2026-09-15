@@ -38,12 +38,14 @@ from .data_source_registry import get_source_id_for_tool
 from .data_sources import DEFAULT_DATA_SOURCES
 from .data_sources import DISABLED_SOURCES_HEADER
 from .data_sources import all_mapped_tools_filtered_out
+from .data_sources import disabled_source_notice
 from .data_sources import extract_messages_and_sources
 from .data_sources import filter_tools_by_sources
 from .data_sources import format_data_source_tools
 from .data_sources import get_disabled_sources_from_context
 from .data_sources import parse_data_sources
 from .data_sources import parse_disabled_sources
+from .data_sources import unavailable_source_ids
 from .db_utils import redact_db_url
 from .human_prompt import build_human_prompt
 from .human_prompt import extract_user_response
@@ -114,6 +116,7 @@ __all__ = [
     "SpanClosingProfilerHandler",
     "VerboseTraceCallback",
     "all_mapped_tools_filtered_out",
+    "disabled_source_notice",
     "CONTINUATION_TURN",
     "content_to_text",
     "create_budget_guard_callback",
@@ -135,6 +138,7 @@ __all__ = [
     "extract_user_response",
     "extract_messages_and_sources",
     "filter_tools_by_sources",
+    "unavailable_source_ids",
     "format_data_source_tools",
     "format_tool_unavailability_error",
     "format_user_facing_tool_error",

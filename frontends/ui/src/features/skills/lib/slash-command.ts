@@ -1,22 +1,32 @@
 /**
- * The TEXT side of a `/skill` invocation in the composer.
+ * The `/skill` picker in the composer, which is entirely a TEXT affair.
  *
- * A skill is invoked by typing `/name` at the start of a message. That reaches
- * the agent as a STRUCTURED field (`skills: ['name']` on the message envelope,
- * which the backend lifts onto `force_skills`), not as prose — the same
- * separation `mention-text.ts` keeps for `@` mentions, and for the same reason:
- * the composer is a plain textarea, so the token can be edited or deleted after
- * it is inserted and the structured value must be re-derived from the text at
- * the last possible moment rather than remembered.
+ * Typing `/name` at the start of a message names a skill. That name reaches the
+ * agent as PROSE — the token stays in the message and the model picks the skill
+ * out of the catalog it reads every turn, exactly as it would for a skill
+ * somebody typed the name of by hand.
+ *
+ * It used to travel as a structured field as well (`skills: ['name']` on the
+ * envelope, lifted onto `force_skills`), which made the turn apply the skill
+ * whether or not the model judged it relevant. That is gone: a skill is a
+ * capability the model may reach for, and a forced skill is an instruction
+ * wearing a capability's clothes. What an office always wants applied is a
+ * standing instruction, and those live in the platform prompt and in the
+ * organization's own instruction block instead.
+ *
+ * So the picker is a convenience over the textarea and nothing more — which is
+ * also why `resolveSlashInvocation` survives the removal. Nothing on the wire
+ * depends on it; the composer uses it to show which skill the current text
+ * names (the chip, and the control that removes the token again).
  *
  * Three operations, kept here rather than inside the composer so they can be
  * tested directly instead of through the DOM:
  *
  * 1. **Find the fragment being typed** (`findSlashCommandQuery`) — what opens
  *    and filters the menu — and **replace it** on pick (`insertSlashCommand`).
- * 2. **Resolve before sending** (`resolveSlashInvocation`) — match the leading
- *    token against the skills that actually exist, and report the argument text
- *    that follows it.
+ * 2. **Read the leading token back** (`resolveSlashInvocation`) — match it
+ *    against the skills that actually exist, and report the argument text that
+ *    follows it.
  *
  * ## Why only at the start of the message
  *
@@ -32,9 +42,9 @@
  * ## Why an unknown name is not an invocation
  *
  * `resolveSlashInvocation` matches against the caller's list of real skills. A
- * message that merely starts with a slash — `/etc/passwd ist gemeint` — is sent
- * as the plain text it is. Inventing a skill name from text would be the same
- * mistake `mention-text` avoids by never deriving mentions from prose.
+ * message that merely starts with a slash — `/etc/passwd ist gemeint` — carries
+ * no skill reference, so no chip appears over it and nothing offers to remove a
+ * token that is part of the sentence.
  *
  * Pure and dependency-free on purpose.
  */
@@ -49,7 +59,7 @@ export interface SlashCommandQuery {
   end: number
 }
 
-/** A resolved invocation: which skill, and what the user asked alongside it. */
+/** What the leading token names: which skill, and what was asked alongside it. */
 export interface SlashInvocation {
   /** The skill's `name` — the frontmatter/`use_skill` identifier. */
   skillName: string
@@ -111,7 +121,10 @@ export function insertSlashCommand(
 }
 
 /**
- * The invocation this message carries, or `null` when it carries none.
+ * The skill this message's leading token names, or `null` when it names none.
+ *
+ * Used by the composer to render the chip and to offer removing the token
+ * again. Nothing on the wire reads it — the name travels as the text it is.
  *
  * Matched against `knownNames` — the skills the member can actually invoke — so
  * a leading slash that names nothing real stays ordinary text. Matching is

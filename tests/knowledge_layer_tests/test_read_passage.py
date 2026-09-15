@@ -192,11 +192,22 @@ class TestTheFilterIsTheAnswer:
         (call,) = store.calls
         assert {"page_label": {"$eq": "12"}} in call["filters"]["$and"]
 
-    async def test_neither_punkt_nor_page_is_refused_before_any_fetch(self, store):
+    async def test_neither_punkt_nor_page_outlines_the_document_instead_of_refusing(self, store):
+        """Naming only the document is the OVERVIEW question, not a malformed call.
+
+        It used to be refused, and the model answered the refusal by guessing a
+        Punkt. These chunks carry no `punkt_depth`, so the outline finds no
+        heading structure and falls back to the document's opening pages — two
+        fetches, and a block that says plainly there is no Gliederung to list.
+        """
+        store.chunks = [_chunk(page=1, content="Titelblatt …", chunk_id="t1")]
+
         out = await _read(document=OIB)
 
-        assert "Provide `punkt=`" in out
-        assert store.calls == []
+        assert "Provide `punkt=`" not in out
+        assert "nicht nach Punkten gegliedert" in out
+        assert "## Gliederung" not in out
+        assert len(store.calls) == 2
 
     def test_the_order_is_page_then_punkt_numerically(self):
         """`3.10` after `3.9`, which a string sort gets backwards."""

@@ -1,29 +1,42 @@
-"""Base-collection file-exclusion filter (exclude_file_names) and caller-filter merging."""
+"""Base-collection metadata filter: the page-chunk exclusion, ``exclude_file_names``, caller filters."""
 
 from knowledge_layer import register as reg
 from knowledge_layer.register import KnowledgeRetrievalConfig
 
+#: What every base-corpus search carries, whatever else is configured.
+NO_PAGE_CHUNKS = {"chunking": {"$ne": "page"}}
+
 
 class TestBaseCollectionFilters:
+    def test_page_chunks_are_excluded_even_when_nothing_is_configured(self):
+        """The cover page and the Impressum are never evidence — see ``_NON_EVIDENCE_CHUNKING``."""
+        config = KnowledgeRetrievalConfig(collection_name="oib_knowledge")
+        assert reg._base_collection_filters(config, None) == NO_PAGE_CHUNKS
+
     def test_exclusions_become_nin_clause_sorted_and_deduped(self):
         config = KnowledgeRetrievalConfig(
             collection_name="oib_knowledge", exclude_file_names=["b.pdf", "a.pdf", "b.pdf"]
         )
-        assert reg._base_collection_filters(config, None) == {"file_name": {"$nin": ["a.pdf", "b.pdf"]}}
+        assert reg._base_collection_filters(config, None) == {
+            "$and": [NO_PAGE_CHUNKS, {"file_name": {"$nin": ["a.pdf", "b.pdf"]}}]
+        }
 
-    def test_caller_filters_pass_through_when_no_exclusions(self):
+    def test_caller_filters_are_anded_with_the_page_exclusion(self):
         config = KnowledgeRetrievalConfig(collection_name="oib_knowledge")
         caller = {"content_type": "text"}
-        assert reg._base_collection_filters(config, caller) == caller
+        assert reg._base_collection_filters(config, caller) == {"$and": [NO_PAGE_CHUNKS, caller]}
 
     def test_caller_filters_anded_with_exclusions(self):
         config = KnowledgeRetrievalConfig(collection_name="oib_knowledge", exclude_file_names=["x.pdf"])
         caller = {"content_type": "text"}
-        assert reg._base_collection_filters(config, caller) == {"$and": [{"file_name": {"$nin": ["x.pdf"]}}, caller]}
+        assert reg._base_collection_filters(config, caller) == {
+            "$and": [NO_PAGE_CHUNKS, {"file_name": {"$nin": ["x.pdf"]}}, caller]
+        }
 
-    def test_none_when_nothing_configured(self):
+    def test_the_filter_is_never_empty(self):
+        """It used to return None when nothing was configured; the page exclusion is unconditional."""
         config = KnowledgeRetrievalConfig(collection_name="oib_knowledge")
-        assert reg._base_collection_filters(config, None) is None
+        assert reg._base_collection_filters(config, None) is not None
 
 
 class TestBaseCollectionProfileRouting:

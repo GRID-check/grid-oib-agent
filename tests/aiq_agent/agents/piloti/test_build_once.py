@@ -21,7 +21,6 @@ from langchain_core.tools import tool
 
 import aiq_agent.agents.piloti.register as register_module
 from aiq_agent.agents.piloti import prompt as prompt_module
-from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_ALLOWANCE
 from aiq_agent.agents.piloti.agent import PilotiAgent
 from aiq_agent.agents.piloti.agent import TurnConfig
 from aiq_agent.agents.piloti.agent import _recursion_limit
@@ -64,15 +63,12 @@ def _mock_llm():
     return llm
 
 
-def _skill_runtime(standard_count: int = 2):
+def _skill_runtime():
     runtime = MagicMock()
     runtime.prompt_block.return_value = "## Verfügbare Skills"
-    runtime.forced_block.return_value = None
     runtime.build_tools.return_value = [use_skill]
     runtime.activated = []
-    runtime.forced_not_activated = ()
     runtime.hidden_activated = ()
-    runtime.standard_count = standard_count
     return runtime
 
 
@@ -110,12 +106,18 @@ def counters(monkeypatch):
         counts["agents_built"] += 1
         real_init(self, *args, **kwargs)
 
+    # BOTH caches, both ends. The prompt is two files now — the dynamic
+    # template and the bundled static half — each read through its own
+    # `functools.cache`. Leaving either primed would make this counter depend
+    # on which test ran first, and it would read LOWER than the truth.
     prompt_module.system_prompt_template.cache_clear()
+    prompt_module.bundled_static_block.cache_clear()
     monkeypatch.setattr(prompt_module, "load_prompt", counting_load)
     monkeypatch.setattr(PilotiAgent, "_build_graph", counting_build)
     monkeypatch.setattr(PilotiAgent, "__init__", counting_init)
     yield counts
     prompt_module.system_prompt_template.cache_clear()
+    prompt_module.bundled_static_block.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -141,7 +143,10 @@ async def test_two_skills_turns_build_one_agent_read_the_prompt_once_and_compile
 
     assert first.messages[-1].content == "Die Antwort [1]."
     assert second.messages[-1].content == "Die Antwort [1]."
-    assert counters == {"prompt_reads": 1, "graph_compiles": 1, "agents_built": 1}
+    # Two reads, both at BOOT and neither per turn: the dynamic template and
+    # the bundled static half are two files now. What this counts is still the
+    # same thing — a read that happens per turn moves this number.
+    assert counters == {"prompt_reads": 2, "graph_compiles": 1, "agents_built": 1}
     # What a turn DOES cost: one binding of the turn's tool set (search +
     # use_skill), because the skill closure is per turn. Never more.
     assert llm.bind_tools.call_count == 1 + 2
@@ -161,38 +166,46 @@ async def test_a_turn_that_varies_nothing_reuses_the_boot_binding():
     await agent.run(ResearchAgentState(messages=[HumanMessage(content="Q")]))
     await agent.run(
         ResearchAgentState(messages=[HumanMessage(content="Q")]),
-        turn=TurnConfig(llm_provider=provider, tools=[web_search_tool], reserved_tool_iterations=0),
+        turn=TurnConfig(llm_provider=provider, tools=[web_search_tool]),
     )
 
     llm.bind_tools.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_the_turns_reserve_reaches_the_ceiling_through_the_graph_config():
-    """The binding travels on the LangGraph config, not on a rebuilt agent.
+async def test_the_ceiling_is_the_research_budget_and_nothing_is_added_to_it():
+    """One number bounds the turn, on the boot binding and on a turn binding alike.
 
-    Research budget 3, two skill loads already spent: without the reserve the
-    first call is forced synthesis; with it, the model gets its research.
+    A turn used to be able to raise the ceiling for the ``use_skill`` calls the
+    deployment forced. Nothing is forced now, so ``TurnConfig`` cannot vary the
+    budget at all: what the config says is what the turn gets, which is what the
+    traced floors in ``config_oib_openrouter.yml`` measure.
     """
     llm = _mock_llm()
     provider = MagicMock(spec=LLMProvider)
     provider.get = MagicMock(return_value=llm)
     agent = PilotiAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=3)
-    spent = ResearchAgentState(messages=[HumanMessage(content="Wie tief?")], tool_iterations=3)
+    assert agent.tool_iteration_ceiling == 3
+    assert "reserved_tool_iterations" not in TurnConfig.__dataclass_fields__
 
+    spent = ResearchAgentState(messages=[HumanMessage(content="Wie tief?")], tool_iterations=3)
     truncated = await agent.run(spent.model_copy(deep=True))
-    reserved = await agent.run(spent.model_copy(deep=True), turn=TurnConfig(reserved_tool_iterations=2))
+    still_truncated = await agent.run(
+        spent.model_copy(deep=True), turn=TurnConfig(llm_provider=provider, tools=[web_search_tool])
+    )
 
     assert truncated.research_truncated is True
-    assert reserved.research_truncated is None
-    # The boot agent is unchanged by the turn.
-    assert agent.tool_iteration_ceiling == 3
+    assert still_truncated.research_truncated is True
 
 
 def test_the_recursion_guard_is_derived_from_the_ceiling():
-    """Two steps per round: every costing round (≤ ceiling) plus every free
-    interaction round (≤ allowance), the final synthesis, and slack."""
+    """Two steps per round, the final synthesis, and slack.
+
+    Nothing is added on top of the ceiling any more: a round costs one whatever
+    it asked for, so there is no second allowance that could buy rounds the
+    guard has to leave room for.
+    """
     for ceiling in (0, 5, 7):
-        rounds = ceiling + _INTERACTION_TOOL_ALLOWANCE
-        assert _recursion_limit(ceiling) > 2 * rounds + 1
+        assert _recursion_limit(ceiling) > 2 * ceiling + 1
+    assert _recursion_limit(5) == (5 * 2) + 10
     assert _recursion_limit(5) < _recursion_limit(7)

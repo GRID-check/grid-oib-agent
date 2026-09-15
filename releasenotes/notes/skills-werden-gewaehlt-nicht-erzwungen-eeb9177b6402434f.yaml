@@ -1,0 +1,25 @@
+---
+improvements:
+  - >
+    Ein Skill ist jetzt durchgehend eine Arbeitsweise, die Piloti selbst
+    auswählt. Kein Skill wird einem Zug mehr aufgezwungen — weder von der
+    Plattform noch über die Nachricht. Piloti liest die Kurzbeschreibung jedes
+    verfügbaren Skills und lädt die Anleitung, wenn sie zur Frage passt. Unter
+    der Antwort steht weiterhin, welche Anleitung sie tatsächlich geprägt hat.
+  - >
+    Ein Skill mit Schrägstrich zu nennen schreibt den Namen jetzt einfach in
+    Ihre Nachricht. Piloti liest ihn dort und greift zu dem gemeinten Skill,
+    statt dass die Nachricht eine unsichtbare Anweisung mitträgt. Der Name lässt
+    sich vor dem Senden wieder löschen wie jedes andere Wort, und was Piloti
+    erreicht, ist genau der Text, den Sie abgeschickt haben.
+upgrade:
+  - >
+    Skills, die die Plattform bisher für alle Organisationen mitlaufen ließ,
+    gibt es nicht mehr. Sie stehen jetzt als Angebot auf dem Skills-Tab Ihrer
+    Organisation und sind ausgeschaltet, bis jemand sie einschaltet; ihre Texte
+    bleiben erhalten. Was in Ihrem Büro für jede Antwort gelten soll, gehört
+    jetzt unter Organisation, Anweisungen.
+  - >
+    Ein Skill, den Ihre Organisation selbst schreibt, darf jetzt jeden Namen
+    tragen. Bisher waren einzelne Namen für die Plattform reserviert; trägt Ihr
+    Skill denselben Namen wie ein Angebot, gilt Ihre eigene Fassung.

@@ -115,7 +115,7 @@ bounded by per-org/member/project budgets — see
   (ADR-0048).** `LLMBaseConfig.api_type` (`chat_completion` | `responses`) is
   already understood by NAT: `nat.plugins.langchain.llm.openai_langchain`
   builds `ChatOpenAI(use_responses_api=True, use_previous_response_id=True)`
-  when it is `responses`, so no app-side shim exists or is needed. Only roles
+  when it is `responses`. The one app-side adjustment is `llm_factory.disable_previous_response_id`, which turns the response handle off for OpenRouter targets: its Responses API is stateless and rejects a non-null `previous_response_id` with a 400. Only roles
   that require a Responses-only capability set it — today that is
   `research_llm` when `shallow_research_agent.deferred_tool_loading` is
   enabled, because OpenRouter's server-side tool search has no Chat
