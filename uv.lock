@@ -160,6 +160,7 @@ dependencies = [
     { name = "deepagents" },
     { name = "knowledge-layer", extra = ["all"] },
     { name = "langchain-modal" },
+    { name = "langfuse" },
     { name = "langgraph-checkpoint-postgres" },
     { name = "langgraph-checkpoint-sqlite" },
     { name = "nvidia-nat", extra = ["async-endpoints", "langchain", "mcp", "phoenix"] },
@@ -230,6 +231,7 @@ requires-dist = [
     { name = "fakeredis", marker = "extra == 'dev'", specifier = ">=2.20.0" },
     { name = "knowledge-layer", extras = ["all"], editable = "sources/knowledge_layer" },
     { name = "langchain-modal", specifier = "==0.0.5" },
+    { name = "langfuse", specifier = ">=4.15.3,<5" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.0.0" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=2.3.0" },
@@ -540,6 +542,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/7d/b2/51899539b6ceeeb420d40ed3cd4b7a40519404f9baf3d4ac99dc413a834b/babel-2.18.0.tar.gz", hash = "sha256:b80b99a14bd085fcacfa15c9165f651fbb3406e66cc603abf11c5750937c992d", size = 9959554, upload-time = "2026-02-01T12:30:56.078Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/77/f5/21d2de20e8b8b0408f0681956ca2c69f1320a3848ac50e6e7f39c6159675/babel-2.18.0-py3-none-any.whl", hash = "sha256:e2b422b277c2b9a9630c1d7903c2a00d0830c409c59ac8cae9081c92f1aeba35", size = 10196845, upload-time = "2026-02-01T12:30:53.445Z" },
+]
+
+[[package]]
+name = "backoff"
+version = "2.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/d7/5bbeb12c44d7c4f2fb5b56abce497eb5ed9f34d85701de869acedd602619/backoff-2.2.1.tar.gz", hash = "sha256:03f829f5bb1923180821643f8753b0502c3b682293992485b0eef2807afa5cba", size = 17001, upload-time = "2022-10-05T19:19:32.061Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/73/b6e24bd22e6720ca8ee9a85a0c4a2971af8497d8f3193fa05390cbd46e09/backoff-2.2.1-py3-none-any.whl", hash = "sha256:63579f9a0628e06278f7e47b7d7d5b6ce20dc65c5e96a6f3ca99a6adca0396e8", size = 15148, upload-time = "2022-10-05T19:19:30.546Z" },
 ]
 
 [[package]]
@@ -2326,6 +2337,26 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/26/9f/6c545900fefb7b00ddfa3f16b80d61338a0ec68c31c5451eeeab99082760/langchain_text_splitters-1.1.2.tar.gz", hash = "sha256:782a723db0a4746ac91e251c7c1d57fd23636e4f38ed733074e28d7a86f41627", size = 293580, upload-time = "2026-04-16T14:20:39.162Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d3/26/1ef06f56198d631296d646a6223de35bcc6cf9795ceb2442816bc963b84c/langchain_text_splitters-1.1.2-py3-none-any.whl", hash = "sha256:a2de0d799ff31886429fd6e2e0032df275b60ec817c19059a7b46181cc1c2f10", size = 35903, upload-time = "2026-04-16T14:20:38.243Z" },
+]
+
+[[package]]
+name = "langfuse"
+version = "4.15.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "backoff" },
+    { name = "httpx" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-sdk" },
+    { name = "packaging" },
+    { name = "pydantic" },
+    { name = "typing-extensions" },
+    { name = "wrapt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/cd/82/6de19be5a32d3466188d17eece4832da8e43b786bf9efdbe70f8e77c99e1/langfuse-4.15.3.tar.gz", hash = "sha256:2377ea0b179fe612992d8b79da6ec5a68a0b420c606aa1d523cf728431030aa8", size = 392243, upload-time = "2026-09-15T14:00:22.886Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/19/cc006e525fa838259c4d870069c4329e4b5fd2e2de61684dad1a58d93490/langfuse-4.15.3-py3-none-any.whl", hash = "sha256:0d2b2484734e73772fe978e4f1a569117da403cb80dc6a951a81bf59b3f54076", size = 706345, upload-time = "2026-09-15T14:00:24.838Z" },
 ]
 
 [[package]]

@@ -54,6 +54,11 @@ def _registry_env(tmp_path, monkeypatch):
 def _render_template(template_path: Path, ris_catalog) -> str:
     return render_prompt_template(
         template_path.read_text(encoding="utf-8"),
+        # Piloti's template opens with the static half, which lives in its own
+        # file now (`piloti_static.md`, the bundled fallback for the prompt
+        # Langfuse serves). The registry block this test is about sits BELOW the
+        # KV-cache boundary, so an empty static half changes nothing here.
+        static_block="",
         current_datetime="2026-07-16",
         user_info=None,
         tools=[],

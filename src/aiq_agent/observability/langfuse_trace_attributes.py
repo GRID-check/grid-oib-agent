@@ -243,6 +243,82 @@ OBSERVATION_COST_DETAILS = "langfuse.observation.cost_details"
 OBSERVATION_MODEL_NAME = "langfuse.observation.model.name"
 
 
+# ---------------------------------------------------------------------------
+# Prompt linkage: which prompt version produced this generation
+# ---------------------------------------------------------------------------
+#
+# Langfuse renders `promptName`/`promptVersion` on a generation and lets the
+# trace list filter and aggregate on them — "did version 12 cost more than
+# version 11" is the question prompt management exists to answer, and until
+# something writes these two attributes both columns are null.
+#
+# The names are Langfuse's OTel property mapping, verified against its docs
+# (https://langfuse.com/integrations/native/opentelemetry) rather than guessed:
+# `langfuse.observation.prompt.name` and `langfuse.observation.prompt.version`,
+# in the same `langfuse.observation.*` namespace as the usage keys above, which
+# "always take precedence over the generic OpenTelemetry conventions".
+#
+# WHY A PROCESS GLOBAL AND NOT A ContextVar. What is being named here is the
+# PLATFORM prompt: one static text per process, identical for every tenant and
+# every turn, changing only when `common/prompt_store.py` refreshes it from
+# Langfuse. That makes it process state, not turn state — and a ContextVar
+# would be actively worse here: LangGraph runs each node in a context built
+# with `copy_context()`, so a value set where the prompt is rendered (the agent
+# node, and only on the first iteration, since later iterations reuse
+# `cached_system_prompt`) is written to a copy that dies at the node boundary.
+# The link would reach the first generation of a turn and no other.
+#
+# THE KNOWN OVER-BROADNESS: a generation from another agent in this process —
+# the clarifier, deep research — renders its own prompt, which nothing manages,
+# and still gets stamped with the platform prompt's identity. Accepted rather
+# than unnoticed: the remedy is to bring those prompts under the store too, at
+# which point each records its own link and this becomes a per-prompt map.
+OBSERVATION_PROMPT_NAME = "langfuse.observation.prompt.name"
+OBSERVATION_PROMPT_VERSION = "langfuse.observation.prompt.version"
+
+#: The prompt identity this process is currently serving; see the note above.
+_PROMPT_LINK: dict[str, str] = {}
+
+
+def record_prompt_link(*, name: str, version: str) -> None:
+    """Remember which prompt version this process renders with.
+
+    Called by the prompt store's caller every time the static half is
+    resolved, which is at boot and then whenever a refreshed version is served.
+    Best-effort like everything else here: telemetry bookkeeping must never
+    fail the render that was producing it.
+    """
+    try:
+        if not name or not version:
+            return
+        _PROMPT_LINK["name"] = str(name)
+        _PROMPT_LINK["version"] = str(version)
+    except Exception:
+        logger.debug("Failed to record the Langfuse prompt link", exc_info=True)
+
+
+def prompt_observation_attributes(*, name: str | None, version: str | None) -> dict[str, Any]:
+    """The two span attributes that link a generation to a prompt version.
+
+    Pure, so the mapping is testable without a span. Both or neither: a name
+    with no version renders as a prompt Langfuse cannot resolve to a text, and
+    a version with no name belongs to nothing.
+    """
+    if not name or not version:
+        return {}
+    return {OBSERVATION_PROMPT_NAME: str(name), OBSERVATION_PROMPT_VERSION: str(version)}
+
+
+def current_prompt_attributes() -> dict[str, Any]:
+    """The prompt link for the version this process is serving, or ``{}``."""
+    return prompt_observation_attributes(name=_PROMPT_LINK.get("name"), version=_PROMPT_LINK.get("version"))
+
+
+def reset_prompt_link() -> None:
+    """Forget the recorded prompt link. Test-only."""
+    _PROMPT_LINK.clear()
+
+
 def identity_attributes_enabled() -> bool:
     """Whether to stamp per-request identity onto spans.
 
@@ -447,6 +523,18 @@ def usage_observation_attributes(
     return attributes
 
 
+def is_generation_span(attributes: dict[str, Any]) -> bool:
+    """Whether a span is an LLM call, i.e. a Langfuse *generation*.
+
+    NAT writes its event type under a namespaced key whose prefix varies with
+    the exporter, so the suffix is what is matched — the same test the usage
+    processor has always used, lifted here so both processors agree on what a
+    generation is rather than each carrying its own copy.
+    """
+    event_type = next((value for key, value in attributes.items() if key.endswith(".event_type")), None)
+    return isinstance(event_type, str) and event_type.startswith("LLM")
+
+
 def langfuse_attributes_for(
     *,
     user_id: str | None,
@@ -585,11 +673,7 @@ try:
             """
             try:
                 attributes = item.attributes or {}
-                event_type = next(
-                    (value for key, value in attributes.items() if key.endswith(".event_type")),
-                    None,
-                )
-                if not isinstance(event_type, str) or not event_type.startswith("LLM"):
+                if not is_generation_span(attributes):
                     return item
                 counts: dict[str, Any] | None = None
                 for key, value in attributes.items():
@@ -617,9 +701,37 @@ try:
                 logger.debug("Failed to stamp usage attributes onto a span", exc_info=True)
             return item
 
+    class PromptLinkProcessor(Processor[Span, Span]):
+        """Name the prompt version on every generation span.
+
+        Without it Langfuse renders `promptName`/`promptVersion` as null on
+        every observation, and prompt management is a store nothing reads back:
+        the version an answer was produced with is exactly what an operator
+        comparing two prompt versions needs the trace to carry.
+
+        Generations only. A retrieval or tool span has no prompt, and stamping
+        one would make Langfuse's per-prompt aggregates count spans that never
+        used it. Installed unconditionally like the usage processor — a prompt
+        name and a version number are not personal data — and ahead of
+        redaction, so an operator can still redact them if a prompt name ever
+        carries something they would rather not export.
+        """
+
+        async def process(self, item: Span) -> Span:
+            """Stamp the process's current prompt link onto one generation span."""
+            try:
+                if not is_generation_span(item.attributes or {}):
+                    return item
+                for key, value in current_prompt_attributes().items():
+                    item.set_attribute(key, value)
+            except Exception:
+                logger.debug("Failed to stamp the prompt link onto a span", exc_info=True)
+            return item
+
 except Exception:  # pragma: no cover - exercised only without the NAT extras
     # Mirrors the import guards in `otel_header_redaction_exporter.py`: the
     # pure mapping above stays importable (and testable) even where the NAT
     # observability extras are not installed.
     LangfuseTraceAttributeProcessor = None  # type: ignore[assignment,misc]
     UsageAttributeProcessor = None  # type: ignore[assignment,misc]
+    PromptLinkProcessor = None  # type: ignore[assignment,misc]

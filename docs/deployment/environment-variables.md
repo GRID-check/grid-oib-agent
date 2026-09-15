@@ -346,6 +346,34 @@ The Aspire ingestion key is NOT an env var on producers — it lives in the
 Kubernetes Secret `aspire-dashboard-secrets`, referenced only by the collector and the
 dashboard (see `docs/deployment/kubernetes.md` §9).
 
+## Prompt management (Langfuse)
+
+The static half of Piloti's system prompt — the platform prompt — is authored
+and versioned in Langfuse and PULLED by the agent at render time
+(`src/aiq_agent/common/prompt_store.py`). `prompts/piloti_static.md` in the
+image is the bundled fallback, and nothing here ever writes to Langfuse. The
+architecture section is `docs/architecture/backend-deep-dive.md` §Prompts.
+
+Availability is a flag AND a capability, in the sense of
+`docs/contributing/code-conventions.md`: the flag is the product decision, the
+keys are the dependency. Both must be present or the bundled fallback is
+rendered with no network touched at all.
+
+The keys are the SAME Langfuse project keys the trace exporter already uses
+(`public-key` / `secret-key` in the Langfuse Secret,
+`deploy/pulumi/src/platform/langfuse.ts`), under Langfuse's own env names
+because its SDK reads them. The agent tiers do not receive them today — a
+deployment that wants prompt management injects them from that Secret.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `LANGFUSE_PROMPTS_ENABLED` | No | unset (off) | When truthy (`1`/`true`/`yes`/`on`), the agent serves the platform prompt from Langfuse instead of the bundled file. Off by default: it decides whether a remote store may be the authority for the text the fleet reasons with, which is a product decision rather than a performance knob. With it off, no client is built and no request is made. Backend (aiq-agent) and agent-worker services. |
+| `LANGFUSE_PUBLIC_KEY` | No | unset | Langfuse project public key. Half of the capability: without both keys the store logs once and serves the bundled prompt. Also read by `task prompts:pull`. |
+| `LANGFUSE_SECRET_KEY` | No | unset | Langfuse project secret key. See above. |
+| `LANGFUSE_HOST` | No | `https://cloud.langfuse.com` | Base URL of the Langfuse API. Self-hosted deployments set this to their own Langfuse web tier; the SDK's default is Langfuse Cloud, which is not where a self-hosted stack's prompts are. |
+| `LANGFUSE_PROMPT_LABEL` | No | `production` | Which Langfuse label the fleet serves. `production` is what runs; other labels exist for experiments, and pointing a deployment at one is how an experiment is run without touching what everyone else gets. |
+| `LANGFUSE_PROMPT_CACHE_TTL_SECONDS` | No | `60` | How long a fetched version is served before the SDK refreshes it in the background (stale-while-revalidate: the turn is served immediately from cache either way). Also the window for which a FAILED fetch is not retried, which is what keeps a Langfuse outage from costing a network attempt on every turn. A change in Langfuse therefore reaches the fleet within this many seconds, not instantly. |
+
 ## Data-tier authentication (Kubernetes/Pulumi-injected)
 
 Set by the Pulumi stack on infrastructure containers, not on any first-party

@@ -63,6 +63,11 @@ def real_tool():
 
 def _render(agent: PilotiAgent, **overrides) -> str:
     kwargs = {
+        # The static half is its own file now (`piloti_static.md`, the bundled
+        # fallback for the prompt Langfuse serves). The subject block this test
+        # is about sits BELOW the KV-cache boundary, so rendering the template
+        # with an empty static half changes nothing it asserts.
+        "static_block": "",
         "tools": [{"name": "knowledge_search", "description": "Search the knowledge base"}],
         "user_info": None,
         "current_datetime": "2026-08-18",
