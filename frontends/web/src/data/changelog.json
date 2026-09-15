@@ -130,6 +130,19 @@
             {
               "en": "Bei einer veröffentlichten Datei zeigte der Abschnitt eine einzelne Schaltfläche und sonst nichts: Der Satz, der den Stand erklärt, fehlte genau dann. Er steht jetzt immer da.",
               "de": "Bei einer veröffentlichten Datei zeigte der Abschnitt eine einzelne Schaltfläche und sonst nichts: Der Satz, der den Stand erklärt, fehlte genau dann. Er steht jetzt immer da."
+            },
+            {
+              "en": "Downloading an answer as PDF no longer fails on certain reports. Exports that previously ended in an error now produce the document.",
+              "de": "Downloading an answer as PDF no longer fails on certain reports. Exports that previously ended in an error now produce the document."
+            }
+          ]
+        },
+        {
+          "key": "upgrade",
+          "notes": [
+            {
+              "en": "„Läufe\" heißen jetzt Tasks — dieselben Zeilen, das Wort, das im Rest des Produkts für übergebene Arbeit steht.",
+              "de": "„Läufe\" heißen jetzt Tasks — dieselben Zeilen, das Wort, das im Rest des Produkts für übergebene Arbeit steht."
             }
           ]
         },
