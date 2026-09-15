@@ -115,7 +115,7 @@ LABEL_ENV = "LANGFUSE_PROMPT_LABEL"
 CACHE_TTL_ENV = "LANGFUSE_PROMPT_CACHE_TTL_SECONDS"
 #: The dependency. Langfuse's own env names, read by its SDK as well as by us.
 PUBLIC_KEY_ENV = "LANGFUSE_PUBLIC_KEY"
-SECRET_KEY_ENV = "LANGFUSE_SECRET_KEY"
+SECRET_KEY_ENV = "LANGFUSE_SECRET_KEY"  # pragma: allowlist secret
 HOST_ENV = "LANGFUSE_HOST"
 
 DEFAULT_LABEL = "production"

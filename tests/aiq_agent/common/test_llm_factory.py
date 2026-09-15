@@ -99,7 +99,7 @@ def _openrouter_chat_model(**kwargs):
 
     llm = ChatOpenAI(
         model="openai/gpt-5.6-luna",
-        api_key="test-key",
+        api_key="test-key",  # pragma: allowlist secret
         base_url="https://openrouter.ai/api/v1",
         **kwargs,
     )
@@ -210,7 +210,11 @@ def test_a_non_openrouter_model_sends_no_cache_routing():
     from aiq_agent.common.llm_factory import enforce_chat_request_contract
 
     llm = enforce_chat_request_contract(
-        ChatOpenAI(model="gpt-5.6", api_key="test-key", base_url="https://api.openai.test/v1")
+        ChatOpenAI(
+            model="gpt-5.6",
+            api_key="test-key",  # pragma: allowlist secret
+            base_url="https://api.openai.test/v1",
+        )
     )
     payload = _sent_payload(llm, _messages())
     assert "extra_body" not in payload
@@ -256,7 +260,7 @@ def _responses_chat_model(base_url):
 
     return ChatOpenAI(
         model="openai/gpt-5.6-luna",
-        api_key="test-key",
+        api_key="test-key",  # pragma: allowlist secret
         base_url=base_url,
         use_responses_api=True,
         use_previous_response_id=True,
