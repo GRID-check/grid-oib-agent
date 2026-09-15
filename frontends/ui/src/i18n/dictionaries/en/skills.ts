@@ -93,6 +93,8 @@ export const skills = {
     originClone: 'Cloned from “{name}”',
     goneTitle: 'Not found',
     gone: 'This skill is not on this page. The link may be stale, or the skill was deleted.',
+    /** The title while a deep link is still being checked — no finding yet. */
+    loadingTitle: 'Loading',
   },
 
   // What Piloti curates for every organization — the top of the page, because

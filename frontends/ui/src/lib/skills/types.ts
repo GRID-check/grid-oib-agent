@@ -341,6 +341,13 @@ export const MAX_CATEGORY_NAME_LENGTH = 60
 export const MAX_CATEGORY_DESCRIPTION_LENGTH = 500
 
 /**
+ * Postgres `integer` is 32-bit signed. The schema says so before the database
+ * has to — an out-of-range sort order would otherwise travel all the way to
+ * the INSERT and come back a 500.
+ */
+export const sortOrderSchema = z.number().int().min(-2147483648).max(2147483647)
+
+/**
  * Category names are labels, not slash-names: spaces and mixed case are the
  * point ("OIB", "Eigene Prüfungen"). The prompt-safety tag rule still applies
  * — names render in the UI, and a stray tag there is still a stray tag.
@@ -363,7 +370,7 @@ const categoryDescriptionSchema = z
 export const createCategorySchema = z.object({
   name: categoryNameSchema,
   description: categoryDescriptionSchema.optional(),
-  sortOrder: z.number().int().optional(),
+  sortOrder: sortOrderSchema.optional(),
 })
 
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>
@@ -371,7 +378,7 @@ export type CreateCategoryInput = z.infer<typeof createCategorySchema>
 export const patchCategorySchema = z.object({
   name: categoryNameSchema.optional(),
   description: categoryDescriptionSchema.nullable().optional(),
-  sortOrder: z.number().int().optional(),
+  sortOrder: sortOrderSchema.optional(),
 })
 
 export type PatchCategoryInput = z.infer<typeof patchCategorySchema>

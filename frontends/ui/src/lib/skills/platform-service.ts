@@ -212,7 +212,7 @@ export async function listPlatformSkillCategories(): Promise<{ categories: Skill
   return { categories: rows.map(toCategoryListItem) }
 }
 
-/** Add a platform skill category. Names are unique among platform categories. */
+/** Add a platform skill category. Names are unique among platform skill categories. */
 export async function createPlatformSkillCategory(
   input: CreateCategoryInput,
   author: { userId: string; email: string | null },
@@ -220,6 +220,16 @@ export async function createPlatformSkillCategory(
   const existing = await categoryRepository.findPlatformSkillCategoryByName(input.name)
   if (existing) {
     throw new ConflictError(`A category named "${input.name}" already exists.`)
+  }
+  // Same cap as the org path: past the list limit, categories silently fall
+  // off the catalogue read, so the overflowing create is refused instead.
+  const visible = await categoryRepository.listPlatformSkillCategories(
+    categoryRepository.CATEGORIES_LIST_LIMIT + 1,
+  )
+  if (visible.length > categoryRepository.CATEGORIES_LIST_LIMIT) {
+    throw new ConflictError(
+      `Category limit reached (${categoryRepository.CATEGORIES_LIST_LIMIT}). Remove an unused category before adding another.`
+    )
   }
   const row = await categoryRepository.insertCategory({
     organizationId: null,

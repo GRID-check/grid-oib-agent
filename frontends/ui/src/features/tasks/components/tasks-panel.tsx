@@ -142,8 +142,14 @@ export function TasksPanel({
   /** A pre-filled draft — a run the reader asked to keep as a standing task. */
   const [wizardDraft, setWizardDraft] = useState<ScheduleDraft | null>(null)
   const [selectedTask, setSelectedTask] = useState<string | null>(() => readTaskSelectionFromUrl())
+  /**
+   * A URL carrying BOTH deep links names two drawers, and two drawers are two
+   * stacked modal focus traps. One selection wins — the run, which is what the
+   * tab opens on — and the URL sync below drops the loser on mount, so the
+   * address bar never keeps promising both.
+   */
   const [selectedSchedule, setSelectedSchedule] = useState<string | null>(() =>
-    readScheduleSelectionFromUrl(),
+    readTaskSelectionFromUrl() ? null : readScheduleSelectionFromUrl(),
   )
 
   // Whether this is still the first load, which owns the skeleton and the error

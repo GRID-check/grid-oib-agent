@@ -34,6 +34,7 @@ vi.mock('./platform-repository', () => ({
 }))
 
 vi.mock('./skill-category-repository', () => ({
+  CATEGORIES_LIST_LIMIT: 100,
   listCategoriesForOrg: vi.fn(),
   findCategoryInScope: vi.fn(),
   findPlatformSkillCategory: vi.fn(),
@@ -203,6 +204,7 @@ function makeCategory(
     organizationId: string | null
     name: string
     description: string | null
+    slug: string | null
     sortOrder: number
   }> = {}
 ) {
@@ -211,6 +213,7 @@ function makeCategory(
     organizationId: null,
     name: 'Recherche',
     description: null,
+    slug: null,
     sortOrder: 0,
     createdBy: 'owner',
     createdByEmail: null,
@@ -1056,5 +1059,22 @@ describe('skill category CRUD', () => {
     vi.mocked(categoryRepository.deleteCategory).mockResolvedValue(true)
     await expect(deleteSkillCategory(session, 'cat-1')).rejects.toBeInstanceOf(NotFoundError)
     expect(categoryRepository.deleteCategory).not.toHaveBeenCalled()
+  })
+
+  it('refuses a create past the list limit instead of silently dropping rows', async () => {
+    vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(null)
+    vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue(
+      Array.from({ length: 101 }, (_, index) =>
+        makeCategory({ id: `cat-${index}`, name: `Kat ${index}` })
+      )
+    )
+    vi.mocked(categoryRepository.insertCategory).mockImplementation(async (values) => ({
+      ...makeCategory({ organizationId: 'org_1' }),
+      ...values,
+    }))
+    await expect(createSkillCategory(session, { name: 'Eine zu viel' })).rejects.toBeInstanceOf(
+      ConflictError
+    )
+    expect(categoryRepository.insertCategory).not.toHaveBeenCalled()
   })
 })

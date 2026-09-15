@@ -91,8 +91,10 @@ export const skills: typeof en.skills = {
     originOrg: 'In dieser Organisation geschrieben',
     originPlatform: 'Von Piloti kuratiert',
     originClone: 'Geklont von „{name}“',
-    goneTitle: 'Nicht gefunden',
-    gone: 'Dieser Skill steht nicht auf dieser Seite. Der Link ist möglicherweise veraltet, oder der Skill wurde gelöscht.',
+      goneTitle: 'Nicht gefunden',
+      gone: 'Dieser Skill steht nicht auf dieser Seite. Der Link ist möglicherweise veraltet, oder der Skill wurde gelöscht.',
+      /** Die Überschrift, solange ein Deep Link noch geprüft wird — kein Befund. */
+      loadingTitle: 'Wird geladen',
   },
 
   curated: {

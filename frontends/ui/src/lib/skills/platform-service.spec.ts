@@ -26,6 +26,7 @@ vi.mock('./platform-skills', () => ({
 }))
 
 vi.mock('./skill-category-repository', () => ({
+  CATEGORIES_LIST_LIMIT: 100,
   listPlatformSkillCategories: vi.fn(),
   findPlatformSkillCategory: vi.fn(),
   findPlatformSkillCategoryByName: vi.fn(),
@@ -339,8 +340,7 @@ describe('platform skill categories', () => {
     await expect(deletePlatformSkillCategory('cat-9')).resolves.toEqual({ deleted: true })
   })
 
-  it('assigns catalogue rows to platform categories only', async () => {
-    vi.mocked(categoryRepository.findPlatformSkillCategory).mockResolvedValue(
+  it('assigns catalogue rows to platform categories only', async () => {    vi.mocked(categoryRepository.findPlatformSkillCategory).mockResolvedValue(
       makeCategory({ id: 'cat-1' })
     )
     vi.mocked(repository.insertPlatformSkillRow).mockImplementation(async (values) => ({
@@ -362,5 +362,22 @@ describe('platform skill categories', () => {
     await expect(
       createPlatformSkill({ name: 'x', description: 'd', body: 'b', categoryId: 'cat-x' }, author)
     ).rejects.toBeInstanceOf(NotFoundError)
+  })
+
+  it('refuses a create past the list limit', async () => {
+    vi.mocked(categoryRepository.findPlatformSkillCategoryByName).mockResolvedValue(null)
+    vi.mocked(categoryRepository.listPlatformSkillCategories).mockResolvedValue(
+      Array.from({ length: 101 }, (_, index) =>
+        makeCategory({ id: `cat-${index}`, name: `Kat ${index}` })
+      )
+    )
+    vi.mocked(categoryRepository.insertCategory).mockImplementation(async (values) => ({
+      ...makeCategory(),
+      ...values,
+    }))
+    await expect(createPlatformSkillCategory({ name: 'Eine zu viel' }, author)).rejects.toBeInstanceOf(
+      ConflictError
+    )
+    expect(categoryRepository.insertCategory).not.toHaveBeenCalled()
   })
 })

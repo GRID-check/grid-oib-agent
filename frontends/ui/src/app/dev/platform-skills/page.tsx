@@ -73,12 +73,59 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   const w = window as unknown as { __platformSkillsShim?: boolean }
   if (!w.__platformSkillsShim) {
     w.__platformSkillsShim = true
+    // Mutable working copy: the category manager's create/rename/remove runs
+    // against this, so the preview shows the interaction rather than an error.
+    const categories = [...CATEGORIES]
+
+    /** The JSON body the BFF clients send — unparseable means no fields. */
+    const parseJsonBody = (body: BodyInit | null | undefined): { name?: unknown } => {
+      if (typeof body !== 'string') return {}
+      try {
+        return JSON.parse(body) as { name?: unknown }
+      } catch {
+        return {}
+      }
+    }
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url =
         typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const method = (init?.method ?? 'GET').toUpperCase()
       if (url === '/api/platform/skills') {
         return Response.json({ skills: SKILLS })
+      }
+      if (url === '/api/platform/skill-categories' && method === 'GET') {
+        return Response.json({ categories })
+      }
+      if (url === '/api/platform/skill-categories' && method === 'POST') {
+        const body = parseJsonBody(init?.body)
+        const created = {
+          id: `cat-dev-${Date.now()}`,
+          name:
+            typeof body?.name === 'string' && body.name.trim() ? body.name.trim() : 'Neue Kategorie',
+          description: null,
+          slug: null,
+          sortOrder: 0,
+          scope: 'platform',
+        }
+        categories.push(created)
+        return Response.json({ category: created }, { status: 201 })
+      }
+      const match = /^\/api\/platform\/skill-categories\/([^/]+)$/.exec(
+        new URL(url, location.origin).pathname,
+      )
+      if (match && (method === 'PATCH' || method === 'DELETE')) {
+        const index = categories.findIndex((category) => category.id === match[1])
+        if (index === -1) return Response.json({ error: 'not found' }, { status: 404 })
+        if (method === 'DELETE') {
+          categories.splice(index, 1)
+          return Response.json({ deleted: true })
+        }
+        const body = parseJsonBody(init?.body)
+        if (typeof body?.name === 'string' && body.name.trim()) {
+          categories[index] = { ...categories[index], name: body.name.trim() }
+        }
+        return Response.json({ category: categories[index] })
       }
       if (url === '/api/platform/skill-categories') {
         return Response.json({ categories: CATEGORIES })

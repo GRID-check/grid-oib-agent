@@ -69,7 +69,7 @@ export const tasks: typeof en.tasks = {
     /** Die Läufe eines Zeitplans — jeder davon ein Task, also heißt es so. */
     runs: 'Tasks',
     /** Macht aus einem Einmaligen eine stehende Aufgabe, vorausgefüllt. */
-    promote: 'Als Aufgabe speichern',
+    promote: 'Als stehende Aufgabe speichern',
     promoteHint: 'Öffnet den Aufgaben-Assistenten, dieser Auftrag ist schon eingetragen.',
     gone: 'Das gibt es nicht mehr — möglicherweise wurde es gelöscht.',
     /**

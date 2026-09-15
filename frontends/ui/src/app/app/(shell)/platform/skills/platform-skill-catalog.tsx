@@ -72,6 +72,8 @@ export function PlatformSkillCatalog(): JSX.Element {
   const tSkills = useTranslations('skills')
   const [skills, setSkills] = useState<PlatformSkillItem[] | null>(null)
   const [categories, setCategories] = useState<SkillCategoryListItem[]>([])
+  /** A failed category read degrades the catalogue rather than failing it (see load). */
+  const [categoriesFailed, setCategoriesFailed] = useState(false)
   const [error, setError] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<PlatformSkillItem | null>(null)
@@ -91,11 +93,18 @@ export function PlatformSkillCatalog(): JSX.Element {
 
   const load = useCallback(() => {
     setSkills(null)
+    setCategoriesFailed(false)
     setError(false)
-    Promise.all([listPlatformSkills(), listPlatformCategories()])
-      .then(([rows, listed]) => {
+    // The categories are arrangement, not the catalogue: a category read that
+    // fails must not hide skills that loaded fine. Skills stay fatal; without
+    // categories the badges and the picker simply read unsorted, and the manager
+    // button hides itself rather than opening onto an error.
+    listPlatformSkills()
+      .then((rows) => {
         setSkills(rows)
-        setCategories(listed)
+        listPlatformCategories()
+          .then(setCategories)
+          .catch(() => setCategoriesFailed(true))
       })
       .catch(() => setError(true))
   }, [])
@@ -194,9 +203,11 @@ export function PlatformSkillCatalog(): JSX.Element {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-muted-foreground max-w-3xl text-sm">{t('skills.hint')}</p>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={() => setCategoriesOpen(true)}>
-            {tSkills('toolbox.categories.button')}
-          </Button>
+          {!categoriesFailed && (
+            <Button size="sm" variant="outline" onClick={() => setCategoriesOpen(true)}>
+              {tSkills('toolbox.categories.button')}
+            </Button>
+          )}
           <Button size="sm" onClick={() => openEditor(null)}>
             <Plus className="size-4" aria-hidden />
             {t('skills.new')}

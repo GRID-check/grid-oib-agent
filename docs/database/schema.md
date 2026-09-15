@@ -862,7 +862,10 @@ platform categories (`oib`, `research`, `presentation`, `bim`, `synthesis`)
 that builtin file offers resolve to at read time, so renaming a display name
 never detaches them. Tenant predicate with a NULL arm —
 `organization_id IS NULL OR organization_id = grid_current_org()` — in
-`rls-coverage.spec.ts`'s `BOUNDARY_MIGRATIONS`.
+`rls-coverage.spec.ts`'s `BOUNDARY_MIGRATIONS`, plus three RESTRICTIVE
+write-guard policies: the tenant role reads platform rows but writes only its
+own org's (the helper installs one policy per table for every command, so the
+split is stated explicitly).
 
 ---
 

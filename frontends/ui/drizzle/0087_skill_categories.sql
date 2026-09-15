@@ -48,10 +48,9 @@
 -- Tenant predicate with a NULL arm: platform skill categories are readable by every
 -- tenant, org skill categories only by their org —
 -- `organization_id IS NULL OR organization_id = grid_current_org()`.
--- The WITH CHECK half is the same predicate, which lets the tenant role write
--- NULL-org rows at the RLS layer; that write path is closed one layer up, in
--- the service (platform skill categories require the platform permission, org skill categories
--- the org one). RLS is the backstop, never the plan. This migration joins
+-- The helper's single policy would govern writes with the same predicate, so
+-- the three RESTRICTIVE write guards below close that half: the tenant role
+-- reads platform rows but writes only its own org's. This migration joins
 -- `rls-coverage.spec.ts`'s BOUNDARY_MIGRATIONS.
 
 --> statement-breakpoint
@@ -97,6 +96,29 @@ CREATE INDEX IF NOT EXISTS "idx_platform_skills_category_id"
 --> statement-breakpoint
 SELECT grid_secure_table('skill_categories',
   'organization_id IS NULL OR organization_id = grid_current_org()');
+--> statement-breakpoint
+-- Writes are stricter than reads, and that takes three RESTRICTIVE policies
+-- rather than a narrower helper call.
+--
+-- `grid_secure_table` installs ONE permissive policy for every command, so the
+-- read predicate above (`... IS NULL OR ...`) would also govern writes — and a
+-- NULL `organization_id` passes it, which would let the tenant role insert,
+-- update or delete PLATFORM rows. The service already refuses that (platform
+-- shelves require the platform permission), but RLS is the backstop, never the
+-- plan, so the backstop says it too: restrictive policies AND with the
+-- permissive one, and a write to a platform row fails both halves at once.
+-- Reads are untouched (these policies name write commands only), and platform
+-- writes are unaffected — `grid_app_platform` holds BYPASSRLS and never
+-- evaluates a policy either way.
+CREATE POLICY grid_tenant_write_guard_ins ON "skill_categories" AS RESTRICTIVE
+  FOR INSERT WITH CHECK ("organization_id" = grid_current_org());
+--> statement-breakpoint
+CREATE POLICY grid_tenant_write_guard_upd ON "skill_categories" AS RESTRICTIVE
+  FOR UPDATE USING ("organization_id" = grid_current_org())
+  WITH CHECK ("organization_id" = grid_current_org());
+--> statement-breakpoint
+CREATE POLICY grid_tenant_write_guard_del ON "skill_categories" AS RESTRICTIVE
+  FOR DELETE USING ("organization_id" = grid_current_org());
 --> statement-breakpoint
 -- Stable seed ids AND slugs: referenced by the backfill below and by the
 -- read-time file resolution, so neither must move.

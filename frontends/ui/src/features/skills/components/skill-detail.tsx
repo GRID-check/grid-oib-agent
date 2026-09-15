@@ -27,6 +27,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
+import { Spinner } from '@/components/ui/spinner'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { SkillListItem } from '@/adapters/api/skills-client'
@@ -37,6 +38,13 @@ interface SkillDetailProps {
   /** The category's display name, or null when unsorted. */
   categoryName: string | null
   open: boolean
+  /**
+   * The deep link has not been checked against a loaded list yet. Neither the
+   * skill nor the gone claim is earned while the first load is pending, so the
+   * drawer waits instead of flashing "not found" at a row that is still
+   * arriving — the same rule the task drawers follow.
+   */
+  resolving?: boolean
   canManage: boolean
   onEdit: (skill: SkillListItem) => void
   onToggle: (skill: SkillListItem, enabled: boolean) => void
@@ -50,6 +58,7 @@ export function SkillDetail({
   skill,
   categoryName,
   open,
+  resolving = false,
   canManage,
   onEdit,
   onToggle,
@@ -58,6 +67,7 @@ export function SkillDetail({
   onClose,
 }: SkillDetailProps): JSX.Element {
   const t = useTranslations('skills')
+  const tCommon = useTranslations('common')
   const isOrg = skill !== null && skill.id !== null
   const scopeKey = skill ? agentScopeLabelKey(skill.metadata['grid-agents']) : null
 
@@ -163,9 +173,19 @@ export function SkillDetail({
         ) : (
           <div className="py-8">
             <SheetHeader>
-              <SheetTitle>{t('drawer.goneTitle')}</SheetTitle>
+              {/* While the deep link is still being checked, the heading says
+                  so: „Nicht gefunden" over a pending read is a finding before
+                  there is anything to find. */}
+              <SheetTitle>{resolving ? t('drawer.loadingTitle') : t('drawer.goneTitle')}</SheetTitle>
             </SheetHeader>
-            <p className="text-muted-foreground mt-2 text-sm">{t('drawer.gone')}</p>
+            {resolving ? (
+              <p className="text-muted-foreground mt-2 flex items-center gap-2 text-sm">
+                <Spinner size="sm" aria-hidden />
+                {tCommon('states.loading')}
+              </p>
+            ) : (
+              <p className="text-muted-foreground mt-2 text-sm">{t('drawer.gone')}</p>
+            )}
           </div>
         )}
       </SheetContent>

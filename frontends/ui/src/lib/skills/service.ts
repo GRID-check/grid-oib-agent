@@ -595,7 +595,9 @@ export async function listSkillCategories(
  * Add a category to this organization. `org:skills:manage` required.
  *
  * Names are unique within the org (the partial index is the backstop; the
- * pre-check turns it into a 409 with a message rather than a 500).
+ * pre-check turns it into a 409 with a message rather than a 500). The count
+ * is capped at the list limit: past it, categories would silently fall off the
+ * toolbox read, so the overflowing create is refused instead.
  */
 export async function createSkillCategory(
   session: AuthorizedSession,
@@ -607,6 +609,15 @@ export async function createSkillCategory(
   const existing = await categoryRepository.findOrgCategoryByName(input.name, session.organizationId)
   if (existing) {
     throw new ConflictError(`A category named "${input.name}" already exists in this organization.`)
+  }
+  const visible = await categoryRepository.listCategoriesForOrg(
+    session.organizationId,
+    categoryRepository.CATEGORIES_LIST_LIMIT + 1,
+  )
+  if (visible.length > categoryRepository.CATEGORIES_LIST_LIMIT) {
+    throw new ConflictError(
+      `Category limit reached (${categoryRepository.CATEGORIES_LIST_LIMIT}). Remove an unused category before adding another.`
+    )
   }
   const row = await categoryRepository.insertCategory(
     categoryRepository.orgCategoryValues(session.organizationId, {

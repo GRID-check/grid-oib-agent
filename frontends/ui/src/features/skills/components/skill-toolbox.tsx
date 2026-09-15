@@ -371,6 +371,7 @@ export function SkillToolbox({
         skill={selectedSkill}
         categoryName={selectedSkill ? categoryName(selectedSkill.categoryId) : null}
         open={selected !== null}
+        resolving={selected !== null && selectedSkill === null && skills === null}
         canManage={canManage}
         onEdit={(skill) => {
           closeDetail()
