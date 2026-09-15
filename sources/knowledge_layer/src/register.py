@@ -566,22 +566,53 @@ def _resolve_target_collections(
     return [entry.collection for entry in _resolve_scoped_collections(config, session_id, base_collection)]
 
 
-def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: dict | None) -> dict | None:
-    """Base-collection metadata filter: configured file exclusions merged with caller filters.
+#: The ``chunking`` value the base corpus uses for text that is not evidence.
+#:
+#: ``punkt_documents`` (``llamaindex/punkt_chunking.py``) cuts a Punkt-structured
+#: Richtlinie into one chunk per numbered Punkt, tagged ``chunking: "punkt"``, and
+#: emits everything outside that run -- the cover page and the Impressum -- as
+#: per-page Documents tagged ``chunking: "page"``. Neither is citable: pdfplumber
+#: returns the cover's display type as garble, and the Impressum is furniture. A
+#: title-shaped query ("OIB-Richtlinie 2 Ausgabe Mai 2023") matched exactly those
+#: two, so an overview question came back as four cover pages at page 1 and the
+#: model learned nothing.
+#:
+#: The exclusion is a STORE filter rather than a post-retrieval drop because a
+#: dropped hit still costs its candidate slot. It is ``$ne`` rather than a
+#: whitelist of ``punkt`` on purpose: only Punkt-structured documents carry the
+#: key at all -- Begriffsbestimmungen, Zitierte Normen, project uploads and office
+#: files carry no ``chunking`` key -- and a whitelist would delete them from
+#: search. Measured against the deployed store (chromadb 1.5.9, the version
+#: ``deploy/`` pins): ``$ne`` KEEPS records that lack the key, so the keyless
+#: majority of the corpus is untouched. ``tests/knowledge_layer_tests/
+#: test_page_chunk_exclusion.py`` round-trips that through a real collection, so
+#: a version bump that changed the semantics fails a test rather than emptying
+#: the corpus silently.
+#:
+#: ``read_passage`` builds its own filters and is deliberately NOT subject to
+#: this: naming page 1 of a Richtlinie is an explicit request, not a similarity hit.
+_NON_EVIDENCE_CHUNKING = "page"
 
-    ``exclude_file_names`` becomes a ``file_name NOT IN [...]`` clause; the caller's
-    optional ``filters`` dict is AND-ed with it. Applied to the base collection only
-    (session/project collections are never filtered). Returns None when neither is set.
+
+def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: dict | None) -> dict:
+    """Base-collection metadata filter: the page-chunk exclusion, file exclusions, caller filters.
+
+    Three clauses, AND-ed, applied to the base collection only (session/project
+    collections are user content and are never filtered):
+
+    1. ``chunking != "page"``, always. See :data:`_NON_EVIDENCE_CHUNKING`.
+    2. ``exclude_file_names`` as a ``file_name NOT IN [...]`` clause, when configured.
+    3. the caller's optional ``filters`` dict, when given.
+
+    Never returns None: clause 1 holds for every base-corpus search.
     """
+    clauses: list[dict] = [{"chunking": {"$ne": _NON_EVIDENCE_CHUNKING}}]
     excluded = sorted(set(config.exclude_file_names))
-    clauses: list[dict] = []
     if excluded:
         clauses.append({"file_name": {"$nin": excluded}})
     if caller_filters:
         clauses.append(caller_filters)
 
-    if not clauses:
-        return None
     if len(clauses) == 1:
         return clauses[0]
     return {"$and": clauses}
