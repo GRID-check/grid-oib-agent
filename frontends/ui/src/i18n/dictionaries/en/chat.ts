@@ -871,8 +871,8 @@ export const chat = {
       planning: 'Choosing the research path …',
       searchingWeb: 'Searching the web …',
       searchingKnowledge: 'Searching knowledge …',
-      searchingRis: 'Searching RIS (Austrian law) …',
-      searchingSources: 'Searching your sources …',
+      searchingRis: 'Searching RIS …',
+      searchingSources: 'Searching sources …',
       researching: 'Researching …',
       reading: 'Reading the results …',
       composing: 'Composing the answer …',
@@ -929,9 +929,12 @@ export const chat = {
           // itself and never translated.
           punkt: 'Reading {document}, Pkt. {punkt} …',
           page: 'Reading {document}, p. {page} …',
-          // The first pool was not enough; other formulations are being tried.
-          // The formulations are the model's words, so they stay off the line.
-          requery: 'First results are not enough — searching with other terms …',
+          // Other formulations are being tried — the action, not the verdict:
+          // the line says what is happening NOW, replacing the round's search
+          // line, so it must not open with a failure. That the first pool was
+          // not enough lives in the key (`requery`), not the sentence. The
+          // formulations are the model's words, so they stay off the line.
+          requery: 'Searching with other terms …',
         },
         // Non-retrieval tools the user asked for by name. A tool with no entry
         // gets no line at all: its internal name is not a status.
@@ -948,7 +951,7 @@ export const chat = {
           // A workspace change being PROPOSED. Present tense and no verb: the
           // card names the operation and the file a moment later, with the
           // buttons attached, so saying it twice would only say it worse.
-          fileProposal: 'Preparing a suggestion for your files…',
+          fileProposal: 'Preparing a suggestion for your files …',
           // The two steps that leave the conversation. Their own lines, because
           // what changes here is not the draft but where it lives — and because
           // filing and sending for approval are two different things to the
@@ -957,6 +960,11 @@ export const chat = {
           draftSubmitted: 'Sending the draft for approval …',
           taskCreated: 'Creating the task …',
         },
+        // The tools are done, the answer is being written. The same words as
+        // `activity.composing` above: one vocabulary for one thing — whether
+        // the line comes from a turn event or the legacy classification must
+        // not show.
+        synthesis: 'Composing the answer …',
         // The product's trust proposition said out loud: what is checked is not
         // "the citations" in the abstract but every one of them, against what
         // was actually retrieved.

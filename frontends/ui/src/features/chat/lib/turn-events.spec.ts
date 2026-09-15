@@ -110,6 +110,21 @@ describe('turnEventLiveText', () => {
     expect(turnEventLiveText(step, tDe)).toBe('Kurzrecherche reicht nicht — Tiefenrecherche startet')
   })
 
+  test('the synthesis phase is phrased in the composing words', () => {
+    // Without this the line keeps showing the last retrieval event through
+    // the whole synthesis call. Same words as the legacy `composing` activity
+    // on purpose: one vocabulary, whichever era produced the line.
+    const step = event('status:synthesis', {
+      kind: 'status',
+      channel: 'live',
+      slot: 'synthesis',
+      key: 'status.synthesis',
+      values: {},
+    })
+    expect(turnEventLiveText(step, tDe)).toBe('Antwort wird formuliert …')
+    expect(turnEventLiveText(step, tEn)).toBe('Composing the answer …')
+  })
+
   test('a technical event is refused even if it somehow carries a key', () => {
     // `channel` is the contract; the absent `key` is the structural backup.
     // Belt and braces, because a leak here is the phantom-Websuche class of bug.

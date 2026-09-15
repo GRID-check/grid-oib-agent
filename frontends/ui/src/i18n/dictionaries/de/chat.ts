@@ -853,7 +853,7 @@ export const chat: typeof en.chat = {
       planning: 'Rechercheweg wird festgelegt …',
       searchingWeb: 'Web wird durchsucht …',
       searchingKnowledge: 'Wissen wird durchsucht …',
-      searchingRis: 'RIS (österreichisches Recht) wird durchsucht …',
+      searchingRis: 'RIS wird durchsucht …',
       searchingSources: 'Quellen werden durchsucht …',
       researching: 'Recherche läuft …',
       reading: 'Ergebnisse werden gelesen …',
@@ -911,10 +911,14 @@ export const chat: typeof en.chat = {
           // unübersetzt durchgereicht wird.
           punkt: 'Liest {document}, Pkt. {punkt} …',
           page: 'Liest {document}, S. {page} …',
-          // Die erste Trefferliste reichte nicht; es wird mit anderen
-          // Formulierungen weitergesucht. Die Formulierungen selbst sind
-          // die des Modells und stehen deshalb nicht in der Zeile.
-          requery: 'Erste Treffer reichen nicht — sucht mit anderen Begriffen weiter …',
+          // Es wird mit anderen Formulierungen weitergesucht — die Aktion,
+          // nicht das Urteil: Die Zeile sagt, was GERADE geschieht, und sie
+          // ersetzt dabei die Suchzeile der Runde, also darf sie nicht mit
+          // einem Misserfolg eröffnen. Dass die erste Trefferliste nicht
+          // reichte, steht im Schlüssel (`requery`), nicht im Satz. Die
+          // Formulierungen selbst sind die des Modells und stehen deshalb
+          // nicht in der Zeile.
+          requery: 'Sucht mit anderen Begriffen weiter …',
         },
         // Werkzeuge, die keine Recherche sind, aber vom Nutzer gewollt waren.
         // Ein Werkzeug ohne Eintrag bekommt gar keine Zeile: sein interner
@@ -941,6 +945,11 @@ export const chat: typeof en.chat = {
           draftSubmitted: 'Entwurf wird zur Freigabe eingereicht …',
           taskCreated: 'Auftrag wird angelegt …',
         },
+        // Die Werkzeuge sind durch, die Antwort wird geschrieben. Dieselben
+        // Worte wie `activity.composing` darüber: ein Vokabular für dieselbe
+        // Sache — ob die Zeile aus einem Turn-Event oder aus der
+        // Legacy-Klassifikation kommt, darf man ihr nicht ansehen.
+        synthesis: 'Antwort wird formuliert …',
         // Das Vertrauensversprechen des Produkts, laut ausgesprochen: geprüft
         // wird nicht „irgendetwas an den Belegen“, sondern jede Fundstelle
         // gegen das, was tatsächlich abgerufen wurde.

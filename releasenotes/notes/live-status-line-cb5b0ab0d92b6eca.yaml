@@ -1,0 +1,11 @@
+---
+improvements:
+  - >
+    Die Statuszeile über der Herleitung sagt jetzt auch während des
+    Formulierens, was gerade geschieht: Sobald die Recherche abgeschlossen
+    ist und die Antwort geschrieben wird, steht dort, dass die Antwort
+    formuliert wird, statt weiter die letzte Suche zu melden.
+  - >
+    Die Statusmeldungen beim Suchen sind ruhiger geworden: Die Zeile meldet,
+    wonach gerade gesucht wird, statt mit einer Fehlermeldung zu eröffnen,
+    wenn die erste Trefferliste nicht gereicht hat.
