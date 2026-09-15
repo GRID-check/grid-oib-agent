@@ -372,6 +372,11 @@ functions:
         name: "RIS – Österreichisches Recht"
         description: "Search Austrian federal/state law and case law in the official RIS (Rechtsinformationssystem des Bundes) and fetch entire documents on demand."
         tools:
+          # All four, deliberately: `get_source_id_for_tool` must resolve the
+          # name a tool result arrives under, or nothing it returned is captured
+          # as a citable source. `ris_lookup_tool` is the chat surface's one RIS
+          # tool; the other three are deep research's (and its own internals).
+          - ris_lookup_tool
           - ris_search_tool
           - ris_fetch_tool
           - ris_catalog_lookup_tool
@@ -427,6 +432,18 @@ functions:
   ris_fetch_tool:
     _type: ris_fetch_document
     max_chars: 40000
+    ingest_into_knowledge: true
+
+  # The chat surface's single RIS tool: question in, citable passages out.
+  # Its bounds are its own (candidates 3, fetches 2, passages 6) and live in
+  # `sources/ris_adapter/src/lookup/`, one module per stage — they are not
+  # tunable here, because each is a claim about what one charged call may cost.
+  # `planner_llm` serves BOTH internal LLM calls: planning a live search and
+  # picking the answering §§ out of a law's headings. Neither happens when the
+  # catalog answers and the caller named a §.
+  ris_lookup_tool:
+    _type: ris_lookup
+    planner_llm: ris_planner_llm
     ingest_into_knowledge: true
 
   # Norm registry (configs/norms/<country>/registry.yml, override via
@@ -690,9 +707,14 @@ functions:
       - knowledge_search
       - read_passage
       - view_knowledge_image
-      - ris_search_tool
-      - ris_fetch_tool
-      - ris_catalog_lookup_tool
+      # ONE RIS tool on the chat surface. Search → pick → fetch → find the
+      # paragraph was three charged calls and a 40 000-character blob that
+      # carried no Citation key, so nothing downstream could treat it as
+      # evidence; `ris_lookup` runs that path inside itself and returns passages
+      # in the knowledge layer's own grounding grammar. The other three stay
+      # registered and stay bound to deep research below, which has its own
+      # budget shape.
+      - ris_lookup_tool
       - remember
       - emit_card
       - surface_documents

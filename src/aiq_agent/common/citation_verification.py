@@ -1232,6 +1232,13 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
 # Register knowledge layer as the only special-case parser.
 # All other tools (Tavily, paper search, etc.) use the generic URL fallback.
 register_source_parser(lambda name: "knowledge" in name, _parse_knowledge_layer)
+# ``ris_lookup`` emits the SAME grounding grammar (``ris_adapter.lookup``), so
+# it gets the same parser rather than a second one: a RIS passage carries a
+# Citation key, a Punkt (``§63Abs1``) and ``Dokumentart: gesetz``, and every one
+# of those dies in the generic URL extractor — which is what the three older RIS
+# tools still fall through to, correctly, because their output is references and
+# a 40 000-character blob, not passages. One grammar, one parser, two producers.
+register_source_parser(lambda name: "ris_lookup" in name, _parse_knowledge_layer)
 
 # ---------------------------------------------------------------------------
 # Citation parsing and source-section layout normalization

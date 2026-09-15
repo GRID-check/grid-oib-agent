@@ -1,4 +1,4 @@
-# Twenty-three questions a Wiener Planungsbüro actually asks, for the loop eval.
+# Twenty-seven questions a Wiener Planungsbüro actually asks, for the loop eval.
 #
 # WHAT THIS SET IS FOR
 # --------------------
@@ -32,12 +32,22 @@
 #           is numbered.
 #           Bauordnung rows carry no `punkt`: their paragraphs come from RIS, and
 #           nothing committed here can verify one.
+# `paragraph` The § the citation should name, for a Bauordnung row, or `null`.
+#           Same discipline as `punkt` and for the same reason: a § number read
+#           off a fetched consolidated text and committed beside the question,
+#           never one somebody remembered. There is no committed RIS fixture in
+#           this repo yet, so every one of them is `null` today and
+#           `paragraph_match` falls back to the §§ the turn itself retrieved
+#           (scripts/loop_eval.py). Filling one in is what turns that column
+#           from "did the answer cite something it read" into "did the answer
+#           cite the right §".
 # `kind`    The answer envelope's `kind` the turn should reach: `ruling` only where
 #           there is a copyable legal value, `walkthrough` where the honest answer
 #           is prose, `direct` where nothing is retrieved at all.
 #
-# Adding a question: give it an id nobody else has, and leave `punkt` null unless
-# you looked it up in the index.
+# Adding a question: give it an id nobody else has, and leave `punkt` and
+# `paragraph` null unless you looked them up in the index / read them off a
+# committed fixture.
 
 questions:
   - id: fluchtweg-gk4
@@ -200,6 +210,48 @@ questions:
       eines Wohnhauses?
     family: Bauordnung
     punkt: null
+    kind: walkthrough
+
+  # Four more Bauordnung rows. One row out of twenty-three could not measure a
+  # retrieval path, and RIS is the half of the corpus the punkt_index cannot
+  # check — so this family is where a RIS change shows up or does not. Each
+  # names a Land whose Bauordnung the norm registry actually points at, and
+  # `stellplatz-tirol` is the row that catches a Viennese answer to a Tyrolean
+  # question (`focus_entries` drops other states' law silently).
+  - id: bauhoehe-wien
+    question: >-
+      Wie hoch dürfen wir in Bauklasse I bauen, und wie wird die Gebäudehöhe
+      überhaupt gemessen?
+    family: Bauordnung
+    punkt: null
+    paragraph: null
+    kind: ruling
+
+  - id: stellplatz-tirol
+    question: >-
+      Wie viele Stellplätze müssen wir bei einem Wohnhaus in Innsbruck
+      herstellen?
+    family: Bauordnung
+    punkt: null
+    paragraph: null
+    kind: ruling
+
+  - id: abstandsflaeche-noe
+    question: >-
+      Welche Abstände zum Nachbargrundstück müssen wir in Niederösterreich
+      einhalten?
+    family: Bauordnung
+    punkt: null
+    paragraph: null
+    kind: walkthrough
+
+  - id: bewilligungsfrei-salzburg
+    question: >-
+      Welche Bauvorhaben sind in Salzburg bewilligungsfrei, und was müssen wir
+      trotzdem anzeigen?
+    family: Bauordnung
+    punkt: null
+    paragraph: null
     kind: walkthrough
 
   - id: was-steht-im-brandschutzkonzept

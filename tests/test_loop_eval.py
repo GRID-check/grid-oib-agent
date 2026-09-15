@@ -51,6 +51,9 @@ def _row(question_id: str, **overrides) -> loop_eval.Observation:
         "truncated": "no",
         "checkpoint_sources": "none>argument",
         "family_coverage": "2 3/4",
+        "ris_calls": "1",
+        "paragraph_match": "",
+        "ris_citation_resolved": "",
         "error": "",
     }
     return loop_eval.Observation(**{**base, **overrides})
@@ -62,11 +65,11 @@ def questions():
 
 
 class TestTheQuestionSet:
-    """The fixture the runner reads. Twenty-three questions, each answerable."""
+    """The fixture the runner reads. Twenty-seven questions, each answerable."""
 
-    def test_it_is_twenty_three_questions_with_unique_ids(self, questions):
-        assert len(questions) == 23
-        assert len({q.id for q in questions}) == 23
+    def test_it_is_twenty_seven_questions_with_unique_ids(self, questions):
+        assert len(questions) == 27
+        assert len({q.id for q in questions}) == 27
 
     def test_every_question_declares_an_expected_kind(self, questions):
         assert {q.kind for q in questions} <= {"ruling", "walkthrough", "direct"}
@@ -80,6 +83,24 @@ class TestTheQuestionSet:
         families = {q.family for q in questions}
         assert len({f for f in families if f and f.startswith("OIB-RL")}) >= 6
         assert "Bauordnung" in families
+
+    def test_provincial_law_is_measurable_and_spans_more_than_one_land(self, questions):
+        """One Bauordnung row out of twenty-three could not measure a retrieval
+        path, and the nine state codes differ — a set that only ever asks about
+        Wien cannot notice a Viennese answer to a Tyrolean question."""
+        bauordnung = [q for q in questions if q.family == "Bauordnung"]
+        assert len(bauordnung) >= 5
+        asked = " ".join(q.question for q in bauordnung)
+        assert "Innsbruck" in asked or "Tirol" in asked
+        assert "Niederösterreich" in asked
+        assert "Salzburg" in asked
+
+    def test_no_bauordnung_row_claims_a_paragraph_nothing_here_can_verify(self, questions):
+        """`paragraph` follows `punkt`'s discipline: a § read off a committed
+        fixture, never one somebody remembered. There is no committed RIS
+        fixture yet, so every one of them is null — and the day one is filled
+        in, this test is the line that says where it must come from."""
+        assert [q.id for q in questions if q.paragraph] == []
 
     def test_every_expected_punkt_exists_in_the_committed_structural_index(self, questions):
         """A remembered Punkt number scores a correct answer as wrong.
@@ -295,6 +316,97 @@ class TestCapRetryIsPositional:
             ("retrieve.knowledge", {"input": {"query": "b"}}),
         ]
         assert loop_eval.flag_cap_retry(payloads) == "no"
+
+
+class TestTheRisColumns:
+    """The three numbers the RIS consolidation is judged on.
+
+    Each is read off the same telemetry the product emits — the round
+    announcements' `tools` list and the `retrieve.ris_lookup` span — so a
+    before/after run measures the agent and not a second measuring channel.
+    """
+
+    def _question(self, **overrides) -> loop_eval.Question:
+        base = {
+            "id": "einreichung-wien-unterlagen",
+            "question": "Welche Unterlagen verlangt die Baubehörde in Wien?",
+            "family": "Bauordnung",
+            "punkt": None,
+            "kind": "walkthrough",
+        }
+        return loop_eval.Question(**{**base, **overrides})
+
+    def _steps(self, *payloads: dict) -> list[dict]:
+        import json
+
+        return [{"name": name, "payload": json.dumps(body)} for name, body in payloads]
+
+    def _span(self, *, keys: list[str] | None = None, punkte: list[str] | None = None) -> tuple[str, dict]:
+        output: dict = {"picked": []}
+        if keys:
+            output["citation_keys"] = keys
+        if punkte:
+            output["punkt_ids"] = punkte
+        return ("retrieve.ris_lookup", {"input": {"round": 0, "tool": "ris_lookup"}, "output": output})
+
+    def test_the_old_three_tool_shape_counts_three_calls(self):
+        """What a before-run looks like: catalog, search, fetch."""
+        tools = ["ris_catalog_lookup_tool", "ris_search_tool", "ris_fetch_tool", "knowledge_search"]
+
+        assert loop_eval.count_ris_calls(tools) == 3
+
+    def test_the_consolidated_shape_counts_one(self):
+        assert loop_eval.count_ris_calls(["ris_lookup_tool", "knowledge_search"]) == 1
+
+    def test_a_turn_that_never_touched_ris_counts_zero(self):
+        assert loop_eval.count_ris_calls(["knowledge_search", "read_passage"]) == 0
+
+    def test_ris_calls_is_read_off_the_round_announcements(self):
+        steps = self._steps(("status:retrieval:0", {"tools": ["ris_lookup_tool"]}))
+
+        row = loop_eval.observe(self._question(), steps, "Antwort", {})
+
+        assert row.ris_calls == "1"
+
+    def test_a_cited_paragraph_the_turn_retrieved_matches(self):
+        payloads = [self._span(punkte=["§63Abs1"])]
+
+        assert loop_eval.paragraph_matches(self._question(), "… § 63 Abs 1 BO Wien …", payloads) == "yes"
+
+    def test_a_cited_paragraph_the_turn_never_retrieved_does_not(self):
+        payloads = [self._span(punkte=["§63Abs1"])]
+
+        assert loop_eval.paragraph_matches(self._question(), "… § 99 BO Wien …", payloads) == "no"
+
+    def test_a_committed_expectation_outranks_what_the_turn_retrieved(self):
+        """The same precedence `punkt` has: a fact somebody checked beats the
+        turn's own account of itself."""
+        payloads = [self._span(punkte=["§63"])]
+        question = self._question(paragraph="§ 70")
+
+        assert loop_eval.paragraph_matches(question, "… § 63 …", payloads) == "no"
+        assert loop_eval.paragraph_matches(question, "… § 70 Abs 2 …", payloads) == "yes"
+
+    def test_a_turn_with_no_paragraph_to_check_is_unmeasured_not_a_miss(self):
+        assert loop_eval.paragraph_matches(self._question(), "Antwort ohne Paragraf", []) == ""
+
+    def test_a_ris_citation_still_in_the_answer_resolved(self):
+        """The answer this harness reads is the post-verification one, so a key
+        still in it is a key `verify_citations` kept."""
+        payloads = [self._span(keys=["Bauordnung für Wien, § 63 Abs 1"])]
+        answer = "Laut Bauordnung für Wien, § 63 Abs 1 sind die Pläne anzuschließen."
+
+        assert loop_eval.flag_ris_citation_resolved(answer, payloads) == "yes"
+
+    def test_a_ris_citation_stripped_from_the_answer_did_not(self):
+        payloads = [self._span(keys=["Bauordnung für Wien, § 63 Abs 1"])]
+
+        assert loop_eval.flag_ris_citation_resolved("Dazu kann ich nichts sagen.", payloads) == "no"
+
+    def test_a_turn_with_no_ris_span_leaves_the_cell_empty(self):
+        """Before the consolidation there was no span at all — an unmeasured
+        cell, not a failure to attribute to the agent."""
+        assert loop_eval.flag_ris_citation_resolved("Antwort", []) == ""
 
 
 class TestTheCli:

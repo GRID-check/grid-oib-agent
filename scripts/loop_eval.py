@@ -93,6 +93,11 @@ class Question:
     family: str | None
     punkt: str | None
     kind: str
+    #: The § a Bauordnung row's citation should name, or None. Optional, and
+    #: None everywhere today: nothing committed in this repo can verify a RIS
+    #: paragraph, so `paragraph_match` falls back to the §§ the turn itself
+    #: retrieved. See the question set's own header.
+    paragraph: str | None = None
 
 
 @dataclass
@@ -138,6 +143,18 @@ class Observation:
     cross_turn: str = ""
     #: The turn read more than one family, or a family it was not asked for.
     family_overlap: str = ""
+    #: RIS tool calls in the turn. Before the consolidation the shape was 2-3
+    #: (catalog → search → fetch); after it, one `ris_lookup` answers. This is
+    #: the whole claim of that change, as one integer.
+    ris_calls: str = ""
+    #: Did the answer cite a § the turn actually retrieved (or the § the row
+    #: expects, when it names one)? Same three-value shape as `punkt_match`.
+    paragraph_match: str = ""
+    #: Did a RIS citation key survive into the answer? The answer this harness
+    #: reads is the POST-verification one, so a key still in it is a key
+    #: `verify_citations` kept. Structurally near-zero before the
+    #: consolidation: `ris_fetch_document` emitted no Citation key at all.
+    ris_citation_resolved: str = ""
     error: str = ""
 
 
@@ -157,8 +174,13 @@ _DOUBLE_FETCH_FIELDS: tuple[str, ...] = (
     "family_overlap",
 )
 
+#: Columns added for the RIS consolidation, read back the same way: a run
+#: written before they existed compares with these cells empty rather than
+#: being refused, which is the whole point of having a before.csv.
+_RIS_FIELDS: tuple[str, ...] = ("ris_calls", "paragraph_match", "ris_citation_resolved")
+
 #: Columns whose value is a yes/no, counted as a rate by :func:`summarise`.
-_BOOLEAN_FIELDS = ("verdict", "read_passage", "truncated", *_DOUBLE_FETCH_FIELDS)
+_BOOLEAN_FIELDS = ("verdict", "read_passage", "truncated", *_DOUBLE_FETCH_FIELDS, "ris_citation_resolved")
 
 
 def _yes_no(value: bool) -> str:
@@ -178,6 +200,7 @@ def load_questions(path: Path) -> list[Question]:
             family=row.get("family"),
             punkt=None if row.get("punkt") is None else str(row["punkt"]),
             kind=str(row["kind"]),
+            paragraph=None if row.get("paragraph") is None else str(row["paragraph"]),
         )
         for row in rows
     ]
@@ -387,6 +410,106 @@ def flag_cross_turn(payloads: Sequence[tuple[str, dict]]) -> str:
     return "no"
 
 
+# --- RIS consolidation columns -----------------------------------------------
+#
+# Read off the SAME telemetry the product emits: the round announcements name
+# the tools a round called, and `retrieve.ris_lookup` spans carry the citation
+# keys and § ids the call returned (`ris_adapter.lookup.telemetry`). No second
+# measuring channel, and nothing read out of anybody's prose.
+
+#: Tool basenames belonging to RIS. The prefix, not a list of names, because
+#: `turn_status._SEARCH_CORPORA` maps the same prefix to the `ris` corpus and
+#: two lists of RIS tool names would drift.
+_RIS_TOOL_PREFIX = "ris"
+
+#: A § as an answer writes it ("§ 63", "§ 63 Abs 1", "Art 5", "§ 63a") and as
+#: the span records it ("§63Abs1" — one token, because the ``Punkt:`` line is
+#: read as one). Both collapse to the same comparable key.
+#:
+#: The suffix letter is guarded by a lookahead: without it ``\d+[a-z]?`` eats
+#: the "A" of "§63Abs1" as a paragraph suffix and the Absatz is never seen.
+_PARAGRAPH_RE = re.compile(
+    r"(§|Art(?:ikel)?\.?)\s*(\d+)([a-z](?![a-z]))?(?:\s*Abs\.?\s*(\d+[a-z]?))?",
+    re.IGNORECASE,
+)
+
+
+def count_ris_calls(tools: Sequence[str]) -> int:
+    """How many RIS tool calls the turn made, over every announced round."""
+    return sum(1 for tool in tools if str(tool).lower().startswith(_RIS_TOOL_PREFIX))
+
+
+def _paragraph_keys(text: object) -> list[str]:
+    """Every § in a text, as comparable keys: ``§ 63 Abs 1`` → ``§63abs1``."""
+    keys = []
+    for match in _PARAGRAPH_RE.finditer(str(text or "")):
+        kind = "art" if match.group(1).lower().startswith("art") else "§"
+        suffix = (match.group(3) or "").lower()
+        absatz = f"abs{match.group(4).lower()}" if match.group(4) else ""
+        keys.append(f"{kind}{match.group(2)}{suffix}{absatz}")
+    return keys
+
+
+def _same_paragraph(cited: str, expected: str) -> bool:
+    """Whether two § keys name the same provision.
+
+    Either may state an Absatz the other does not: an answer citing "§ 70 Abs 2"
+    satisfies an expectation of "§ 70", and an answer citing "§ 63" cites a §
+    the document contains even when the span recorded "§ 63 Abs 1". The § is
+    the unit; the Absatz is a refinement, the same way a Punkt's child counts.
+    """
+    return cited.startswith(expected) or expected.startswith(cited)
+
+
+def _retrieved_paragraphs(payloads: Sequence[tuple[str, dict]]) -> set[str]:
+    """The § ids the turn's RIS spans say it returned."""
+    found: set[str] = set()
+    for name, body in payloads:
+        if not name.startswith("retrieve.ris"):
+            continue
+        out = _as_payload_dict(body.get("output"))
+        for value in out.get("punkt_ids") or []:
+            found.update(_paragraph_keys(value))
+    return found
+
+
+def paragraph_matches(question: Question, answer: str, payloads: Sequence[tuple[str, dict]]) -> str:
+    """Did the answer cite a § it is entitled to cite?
+
+    The expectation is the row's committed ``paragraph`` when it has one, and
+    otherwise the §§ the turn's own spans say it retrieved — "did the answer
+    cite a § the fetched document actually contains". Empty when there is
+    neither, which is an unmeasured cell and must not count as a miss.
+    """
+    expected = set(_paragraph_keys(question.paragraph)) or _retrieved_paragraphs(payloads)
+    if not expected:
+        return ""
+    cited = set(_paragraph_keys(answer))
+    if not cited:
+        return "no"
+    return _yes_no(any(_same_paragraph(one, other) for one in cited for other in expected))
+
+
+def flag_ris_citation_resolved(answer: str, payloads: Sequence[tuple[str, dict]]) -> str:
+    """Did a RIS citation key survive into the answer the reader gets?
+
+    The answer this harness reads is the one `verify_citations` already
+    pruned, so a key still present is a key that resolved. Empty when the turn
+    made no RIS call — an unmeasured cell, not a failure.
+    """
+    keys = [
+        str(key).strip()
+        for name, body in payloads
+        if name.startswith("retrieve.ris")
+        for key in (_as_payload_dict(body.get("output")).get("citation_keys") or [])
+        if str(key).strip()
+    ]
+    if not keys:
+        return ""
+    lowered = (answer or "").casefold()
+    return _yes_no(any(key.casefold() in lowered for key in keys))
+
+
 def _expected_family_number(family: str | None) -> str | None:
     """``"OIB-RL 2.1"`` → ``"2"``; ``"Bauordnung"``/None → None."""
     if not family:
@@ -458,6 +581,9 @@ def observe(question: Question, steps: Sequence[dict], answer: str, envelope: di
         repair_fetch=flag_repair_fetch(payloads),
         cross_turn=flag_cross_turn(payloads),
         family_overlap=flag_family_overlap(question.family, family_cell),
+        ris_calls=str(count_ris_calls(tools)),
+        paragraph_match=paragraph_matches(question, answer, payloads),
+        ris_citation_resolved=flag_ris_citation_resolved(answer, payloads),
     )
 
 
@@ -480,8 +606,10 @@ def read_csv(path: Path) -> list[Observation]:
     The header is the contract. A CSV from another version of this script has
     different columns, and comparing the two without noticing produces a delta
     that came from the schema rather than from the agent. The one exception is
-    the double-fetch columns: runs written before they existed read with those
-    cells empty rather than refused, so an old ``before.csv`` still compares.
+    the ADDED columns — the double-fetch six and the RIS three: runs written
+    before they existed read with those cells empty rather than refused, so an
+    old ``before.csv`` still compares. That exemption is what makes a
+    before/after run across a change to this script possible at all.
     """
     with path.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -489,9 +617,10 @@ def read_csv(path: Path) -> list[Observation]:
         if header != FIELDS:
             missing = [name for name in FIELDS if name not in header]
             extra = [name for name in header if name not in FIELDS]
-            legacy_missing = [name for name in missing if name not in _DOUBLE_FETCH_FIELDS]
+            added = {*_DOUBLE_FETCH_FIELDS, *_RIS_FIELDS}
+            legacy_missing = [name for name in missing if name not in added]
             legacy_extra = [name for name in extra]
-            if set(missing) <= set(_DOUBLE_FETCH_FIELDS) and not legacy_extra and not legacy_missing:
+            if set(missing) <= added and not legacy_extra and not legacy_missing:
                 return [Observation(**{name: str(row.get(name) or "") for name in FIELDS}) for row in reader]
             raise ValueError(
                 f"{path} does not carry this script's columns "
@@ -512,6 +641,9 @@ class Summary:
     kind_as_expected: int = 0
     punkt_measured: int = 0
     punkt_matched: int = 0
+    paragraph_measured: int = 0
+    paragraph_matched: int = 0
+    ris_calls: int = 0
     booleans: dict[str, int] = field(default_factory=dict)
     checkpoint_sources: dict[str, int] = field(default_factory=dict)
     families_touched: int = 0
@@ -550,6 +682,9 @@ def summarise(rows: Sequence[Observation]) -> Summary:
         kind_as_expected=sum(1 for row in rows if row.kind and row.kind == row.expected_kind),
         punkt_measured=sum(1 for row in rows if row.punkt_match),
         punkt_matched=sum(1 for row in rows if row.punkt_match == "yes"),
+        paragraph_measured=sum(1 for row in rows if row.paragraph_match),
+        paragraph_matched=sum(1 for row in rows if row.paragraph_match == "yes"),
+        ris_calls=sum(int(row.ris_calls or 0) for row in rows),
         booleans=booleans,
         checkpoint_sources=sources,
         families_touched=len(touched),
@@ -570,6 +705,7 @@ _COMPARED_FIELDS = (
     "checkpoint_sources",
     "family_coverage",
     *_DOUBLE_FETCH_FIELDS,
+    *_RIS_FIELDS,
 )
 
 
@@ -607,6 +743,9 @@ def format_comparison(before: Sequence[Observation], after: Sequence[Observation
         f"retrieval rounds, total: {_delta(old.rounds_total, new.rounds_total)}",
         f"cited Punkt matched: {_delta(old.punkt_matched, new.punkt_matched)}"
         f" of {_delta(old.punkt_measured, new.punkt_measured)} measured",
+        f"cited § matched: {_delta(old.paragraph_matched, new.paragraph_matched)}"
+        f" of {_delta(old.paragraph_measured, new.paragraph_measured)} measured",
+        f"RIS tool calls, total: {_delta(old.ris_calls, new.ris_calls)}",
     ]
     lines += [f"{name}: {_delta(old.booleans.get(name, 0), new.booleans.get(name, 0))}" for name in _BOOLEAN_FIELDS]
     lines.append(

@@ -1202,7 +1202,10 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   re-verification. Austria: the nine state building codes, Wiener
   Garagengesetz, WBTV, Kleingartengesetz, and the federal acts (ASchG, AStV,
   BKAG, ZTG, WGG, DMSG, UVP-G, WRG, ForstG, GewO). Pointer index only: full
-  texts still go through `ris_fetch_document`.
+  texts are still fetched live — by `ris_lookup` on the chat surface (it takes
+  the pointer, downloads the law and returns the answering §§ as citable
+  passages: `sources/ris_adapter/src/lookup/`), and by `ris_fetch_document` in
+  deep research, which still drives the three older RIS tools itself.
 - **The OIB corpus is not in the catalog.** `data/oib/` → `oib_knowledge` is
   its own source of truth; what a corpus file *is* (Richtlinie / Leitfaden /
   Erläuterung / Begriffsbestimmungen / Zitierte Normen / Änderungsdokument)
