@@ -333,6 +333,19 @@ describe('researchTruncation — where a cut-off turn stopped', () => {
   const budget = (extra: Record<string, unknown>) =>
     event('status:budget', { kind: 'status', channel: 'technical', slot: 'budget', ...extra })
 
+  test('the input-token ceiling is a truncation in its own slot', () => {
+    const found = researchTruncation([
+      event('status:budget:input', {
+        kind: 'status',
+        channel: 'technical',
+        slot: 'budget:input',
+        truncated: true,
+        tools: ['knowledge_search', 'read_passage'],
+      }),
+    ])
+    expect(found).toEqual({ lastTool: 'read_passage' })
+  })
+
   test('a turn with no budget step was never truncated', () => {
     expect(researchTruncation([status('retrieval:0', 'status.retrieval.plain', { corpus: 'knowledge' })])).toBeNull()
   })

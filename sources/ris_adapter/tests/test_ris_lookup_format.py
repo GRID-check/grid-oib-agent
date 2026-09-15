@@ -32,7 +32,7 @@ async def test_the_block_carries_every_field_the_grounding_grammar_needs(lookup,
     assert f"Source URL: {lookup.WIEN_URL}" in output
     assert "Shelf: base" in output
     assert "Dokumentart: gesetz — Gesetz / Bauordnung" in output
-    assert "Punkt: §63Abs1" in output
+    assert "Punkt: § 63 Abs 1" in output
     assert "Citation: Bauordnung für Wien, § 63 Abs 1" in output
     assert "Content Type: text" in output
     assert "Relevance Score: 1.00" in output
@@ -49,7 +49,7 @@ async def test_the_knowledge_parser_reads_it_as_evidence(lookup, catalog):
     assert len(entries) == 1
     entry = entries[0]
     assert entry.citation_key == "Bauordnung für Wien, § 63 Abs 1"
-    assert entry.punkt == "§63Abs1"
+    assert entry.punkt == "§ 63 Abs 1"
     assert entry.doc_class == "gesetz"
     assert entry.source_type == "knowledge_layer"
     assert entry.shelf == "base"

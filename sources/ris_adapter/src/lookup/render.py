@@ -56,8 +56,11 @@ def _passage_block(index: int, passage: Passage) -> list[str]:
         "Shelf: base",
         f"Dokumentart: {DOC_CLASS} — {DOCUMENT_CLASS_LABELS.get(DOC_CLASS, DOC_CLASS)}",
     ]
-    if passage.punkt_token:
-        lines.append(f"Punkt: {passage.punkt_token}")
+    if passage.punkt_label:
+        # The locus as a lawyer reads it, ``§ 63 Abs 1``: the same string the
+        # citation key carries and the chip shows. ``_KL_PUNKT_RE`` reads the
+        # whole line, so nothing here is squeezed to fit a token rule.
+        lines.append(f"Punkt: {passage.punkt_label}")
     if passage.status_note:
         # The Konsolidierte-Fassung disclaimer rides as its own header line and
         # is never inside a body: a passage body is text the answer may quote.

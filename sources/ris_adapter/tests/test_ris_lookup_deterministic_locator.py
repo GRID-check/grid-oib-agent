@@ -26,7 +26,7 @@ async def test_a_named_paragraph_makes_no_picker_call(lookup, catalog, monkeypat
     output = await lookup.run(question="Was verlangt § 63 BO Wien?", instrument="BO Wien")
 
     assert picker.calls == [], "the § was named; nothing should have asked a model which § to read"
-    assert "Punkt: §63" in output
+    assert "Punkt: § 63" in output
     assert "Dem Ansuchen um Baubewilligung" in output
 
 
@@ -59,7 +59,7 @@ async def test_only_the_named_paragraph_comes_back(lookup, catalog):
     output = await lookup.run(question="Wie hoch darf das Gebäude sein? § 75", instrument="BO Wien")
 
     assert output.count("--- Result ") == 1
-    assert "Punkt: §75" in output
+    assert "Punkt: § 75" in output
     assert "Bauklasse" in output
 
 
@@ -75,4 +75,4 @@ async def test_a_pasted_ris_url_is_an_address_and_needs_no_search(lookup, monkey
     assert planner.calls == []
     assert lookup.client.search_calls == []
     assert lookup.client.fetch_calls == [lookup.WIEN_URL]
-    assert "Punkt: §63" in output
+    assert "Punkt: § 63" in output

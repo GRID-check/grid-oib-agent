@@ -35,7 +35,7 @@ async def test_a_second_question_about_the_same_law_downloads_nothing_either(loo
     output = await lookup.run(question="Wie hoch darf gebaut werden? § 75", instrument="BO Wien")
 
     assert lookup.client.fetch_calls == [lookup.WIEN_URL]
-    assert "Punkt: §75" in output
+    assert "Punkt: § 75" in output
 
 
 async def test_ris_lookup_is_not_signed_by_the_duplicate_fetch_guard(lookup):

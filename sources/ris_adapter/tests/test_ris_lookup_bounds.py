@@ -125,4 +125,4 @@ async def test_a_nine_hundred_kilobyte_law_does_not_reach_the_transcript(lookup,
     output = await lookup.run(question="Was verlangt § 63 BO Wien?", instrument="BO Wien")
 
     assert len(output) < 10_000
-    assert "Punkt: §63" in output
+    assert "Punkt: § 63" in output

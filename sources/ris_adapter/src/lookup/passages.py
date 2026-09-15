@@ -43,7 +43,6 @@ class Passage:
     title: str
     url: str
     collection: str
-    punkt_token: str
     punkt_label: str
     citation: str
     body: str
@@ -72,7 +71,6 @@ def _passages_for(selection: Selection, address: Address) -> list[Passage]:
                 title=title,
                 url=document.url,
                 collection=collection,
-                punkt_token=punkt_token(section.kind, section.number, resolved),
                 punkt_label=label,
                 citation=citation_for(title, label, candidate.version_date),
                 body=cut_on_absatz(body),
@@ -81,18 +79,6 @@ def _passages_for(selection: Selection, address: Address) -> list[Passage]:
             )
         )
     return out
-
-
-def punkt_token(kind: str, number: str, absatz: str) -> str:
-    """The machine locus, as ONE token — ``§63``, ``§63Abs1``, ``Art5``.
-
-    ``citation_verification._KL_PUNKT_RE`` reads ``Punkt:`` as a single
-    non-space token (the corpus form is ``3.5.2``), so the readable
-    ``§ 63 Abs 1`` cannot go on that line. It goes in ``Citation:``, which is
-    the string the answer copies; this is the locus the chip and the eval count.
-    """
-    token = f"{kind}{number}" if kind and number else ""
-    return f"{token}Abs{absatz}" if token and absatz else token
 
 
 def collection_for(candidate: Candidate) -> str:

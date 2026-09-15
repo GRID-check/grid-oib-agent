@@ -997,8 +997,11 @@ _KL_PROVENANCE_RE = re.compile(r"^Herkunft:\s*(.+)$", re.MULTILINE)
 # pages) and ``_format_results`` states it. This is the citation form Austrian
 # building law actually uses ("OIB-RL 2, Pkt. 3.5.2"); until it was parsed here
 # the number reached the model as prose and died before the citation the reader
-# sees. Absent for page-fallback chunks and every non-OIB document.
-_KL_PUNKT_RE = re.compile(r"^Punkt:\s*(\S+)\s*$", re.MULTILINE)
+# sees. Absent for page-fallback chunks and web documents. The value is the
+# rest of the line, not one token: the corpus form is ``3.5.2``, a RIS passage
+# states its locus the way a lawyer reads it, ``§ 63 Abs 1``, and squeezing that
+# to ``§63Abs1`` to fit a one-token rule put an unreadable locus on every chip.
+_KL_PUNKT_RE = re.compile(r"^Punkt:\s*(.+?)\s*$", re.MULTILINE)
 # The retrieval score ``_format_results`` prints, a true cosine similarity since
 # the audit's F6 fix. Parsed from the WHOLE block rather than the header region:
 # the header is defined as everything above this very line. A body could in
