@@ -314,3 +314,79 @@ class TestDeferredFlush:
             future.result(timeout=5)
         assert post.call_count == 1
         assert tracker.flush(wait=False) is None
+
+
+# The shape an `api_type: responses` role actually leaves behind. langchain-openai's
+# `_construct_lc_result_from_responses_api` builds a ChatResult with NO llm_output
+# and a response_metadata that excludes `usage`, so the provider object — the only
+# carrier of `cost` and `cache_discount` — never reaches this process; what survives
+# is LangChain's normalized usage_metadata, in which OpenRouter's
+# `input_tokens_details.cached_tokens` has become `input_token_details.cache_read`.
+RESPONSES_USAGE_METADATA = {
+    "input_tokens": 41883,
+    "output_tokens": 514,
+    "total_tokens": 42397,
+    "input_token_details": {"cache_read": 35072},
+    "output_token_details": {"reasoning": 192},
+}
+
+
+def _responses_result(usage_metadata=RESPONSES_USAGE_METADATA) -> LLMResult:
+    message = AIMessage(content="answer", id="resp_01HXYZ", usage_metadata=usage_metadata)
+    return LLMResult(generations=[[ChatGeneration(message=message)]], llm_output=None)
+
+
+class TestResponsesApiUsage:
+    """The Responses path must still land cached tokens on the ledger."""
+
+    def test_cached_and_reasoning_tokens_survive_the_normalized_shape(self):
+        event = extract_usage_event(_responses_result())
+        assert event is not None
+        assert event.prompt_tokens == 41883
+        assert event.completion_tokens == 514
+        assert event.cached_tokens == 35072
+        assert event.reasoning_tokens == 192
+
+    def test_cost_is_reported_missing_rather_than_invented(self):
+        # OpenRouter's `cost` is genuinely absent on this path. A zero that
+        # claimed to be a measurement would be worse than one that says so.
+        event = extract_usage_event(_responses_result())
+        assert event is not None
+        assert event.cost_usd == 0.0
+        assert event.cost_source == "missing"
+
+    def test_cached_tokens_reach_the_ledger_payload(self):
+        event = extract_usage_event(_responses_result())
+        assert event is not None
+        assert event.to_payload()["cachedTokens"] == 35072
+
+    def test_a_call_without_cache_details_reports_zero(self):
+        usage = {"input_tokens": 100, "output_tokens": 10, "total_tokens": 110}
+        event = extract_usage_event(_responses_result(usage))
+        assert event is not None
+        assert event.cached_tokens == 0
+        assert event.reasoning_tokens == 0
+
+
+class TestPromptCacheSummary:
+    def test_summary_counts_cached_against_total_input(self, caplog):
+        tracker = GridCostTracker(organization_id="org_1")
+        tracker.on_llm_end(_responses_result(), run_id="run-1")
+        assert tracker.cached_tokens == 35072
+        with caplog.at_level("INFO", logger="aiq_agent.common.cost_tracking"):
+            tracker.log_prompt_cache_summary()
+        line = next(r.getMessage() for r in caplog.records if "[PromptCache]" in r.getMessage())
+        assert "35072/41883" in line
+        assert "6811 uncached" in line
+
+    def test_nothing_recorded_logs_nothing(self, caplog):
+        tracker = GridCostTracker(organization_id="org_1")
+        with caplog.at_level("INFO", logger="aiq_agent.common.cost_tracking"):
+            tracker.log_prompt_cache_summary()
+        assert not [r for r in caplog.records if "[PromptCache]" in r.getMessage()]
+
+    def test_the_turn_scope_summarises_on_exit(self, caplog):
+        with caplog.at_level("INFO", logger="aiq_agent.common.cost_tracking"):
+            with track_llm_costs(inline_flush=False) as tracker:
+                tracker.on_llm_end(_responses_result(), run_id="run-1")
+        assert [r for r in caplog.records if "[PromptCache]" in r.getMessage()]

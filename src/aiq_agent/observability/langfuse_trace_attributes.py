@@ -202,7 +202,13 @@ def reset_contributions() -> None:
 #    ``TokenUsageBaseModel`` at all), and the span exporter forwards only
 #    ``llm.token_count.prompt/completion/total``. The OpenRouter object —
 #    the only place ``cost`` lives — survives solely inside the span's
-#    ``nat.metadata`` JSON (``chat_responses[].message.response_metadata``).
+#    ``nat.metadata`` JSON (``chat_responses[].message.response_metadata``),
+#    and only on the chat-completions path: a role on ``api_type: responses``
+#    leaves nothing there but LangChain's normalized ``usage_metadata``,
+#    whose ``input_token_details.cache_read`` is the cached bucket under
+#    another name. Reading only the provider shape is what rendered every
+#    Piloti research generation with bare input/output/total and no cache
+#    bucket, however well the provider was caching.
 # 2. The turn's terminal ``ChatResponse`` is built with an empty
 #    ``Usage()`` (see ``aiq_agent.common._create_chat_response``), so even
 #    the API-level generation object carries no totals.
@@ -254,32 +260,80 @@ def _as_count(value: Any) -> int:
         return 0
 
 
-def _find_provider_usage(node: Any, depth: int = 0) -> dict[str, Any] | None:
-    """First OpenRouter-shaped usage object under ``node``, or None.
+def _is_provider_usage(node: dict[str, Any]) -> bool:
+    """Whether ``node`` is OpenRouter's own usage object (the one carrying ``cost``)."""
+    return isinstance(node.get("prompt_tokens"), int | float) and isinstance(node.get("completion_tokens"), int | float)
+
+
+def _is_langchain_usage(node: dict[str, Any]) -> bool:
+    """Whether ``node`` is LangChain's normalized ``usage_metadata``.
+
+    The only usage a Responses-API call leaves in the span: langchain-openai
+    builds no ``llm_output`` there and keeps ``usage`` out of
+    ``response_metadata``, so the provider object never reaches the span and
+    the scan above found nothing — which is why every ``api_type: responses``
+    generation rendered with bare input/output/total and no cache bucket.
+    """
+    return isinstance(node.get("input_tokens"), int | float) and isinstance(node.get("output_tokens"), int | float)
+
+
+def _find_usage(node: Any, matches: Any, depth: int = 0) -> dict[str, Any] | None:
+    """First dict under ``node`` that ``matches``, or None.
 
     A bounded recursive scan (not a fixed path) because the span metadata
-    serializer normalizes shapes across NAT versions while the provider key
-    names (``prompt_tokens``/``completion_tokens``) are stable. Depth-capped
-    so a pathological payload cannot recurse.
+    serializer normalizes shapes across NAT versions while the usage key names
+    are stable. Depth-capped so a pathological payload cannot recurse.
     """
     if depth > 6 or node is None:
         return None
+    children: Any = None
     if isinstance(node, dict):
-        prompt = node.get("prompt_tokens")
-        completion = node.get("completion_tokens")
-        if isinstance(prompt, int | float) and isinstance(completion, int | float):
+        if matches(node):
             return node
-        for value in node.values():
-            found = _find_provider_usage(value, depth + 1)
-            if found is not None:
-                return found
+        children = node.values()
+    elif isinstance(node, list):
+        children = node
+    if children is None:
         return None
-    if isinstance(node, list):
-        for value in node:
-            found = _find_provider_usage(value, depth + 1)
-            if found is not None:
-                return found
+    for value in children:
+        found = _find_usage(value, matches, depth + 1)
+        if found is not None:
+            return found
     return None
+
+
+def _normalize_langchain_usage(usage: dict[str, Any]) -> dict[str, Any]:
+    """LangChain's ``usage_metadata`` reshaped into the provider key names.
+
+    ``input_token_details.cache_read`` is where langchain-openai puts
+    OpenRouter's ``input_tokens_details.cached_tokens`` (Responses) /
+    ``prompt_tokens_details.cached_tokens`` (Chat Completions). No ``cost``
+    exists on this shape, so none is claimed.
+    """
+    input_details = usage.get("input_token_details") or {}
+    output_details = usage.get("output_token_details") or {}
+    return {
+        "prompt_tokens": usage.get("input_tokens"),
+        "completion_tokens": usage.get("output_tokens"),
+        "total_tokens": usage.get("total_tokens"),
+        "prompt_tokens_details": {"cached_tokens": input_details.get("cache_read")},
+        "completion_tokens_details": {"reasoning_tokens": output_details.get("reasoning")},
+    }
+
+
+def _find_provider_usage(node: Any, depth: int = 0) -> dict[str, Any] | None:
+    """The best usage object under ``node``, or None.
+
+    Prefers OpenRouter's own object — it alone carries ``cost`` — and falls
+    back to LangChain's normalized one, which is all a Responses-API call
+    leaves behind. ``depth`` is accepted for the recursive-scan callers that
+    predate the split.
+    """
+    provider = _find_usage(node, _is_provider_usage, depth)
+    if provider is not None:
+        return provider
+    normalized = _find_usage(node, _is_langchain_usage, depth)
+    return _normalize_langchain_usage(normalized) if normalized is not None else None
 
 
 def extract_provider_usage(metadata_json: Any) -> dict[str, int | float] | None:
@@ -287,9 +341,18 @@ def extract_provider_usage(metadata_json: Any) -> dict[str, int | float] | None:
 
     Reads the OpenRouter ``usage`` object NAT keeps inside ``nat.metadata``
     (``chat_responses[].message.response_metadata.token_usage``): the only
-    span-side carrier of ``cost`` and of cached/reasoning detail. Returns the
-    counts with ``cost_usd`` (or None when the provider reported no cost), or
-    None when no usage object is present. Pure, so tests pin it without a span.
+    span-side carrier of ``cost`` and of cached/reasoning detail. Falls back to
+    LangChain's normalized ``usage_metadata`` on the same span, which is all a
+    Responses-API call leaves behind — counts including the cache bucket, no
+    cost. Returns the counts with ``cost_usd`` (or None when the provider
+    reported no cost), or None when no usage object is present. Pure, so tests
+    pin it without a span.
+
+    ``cache_discount`` is deliberately NOT returned: OpenRouter's ``cost`` is
+    already net of it ("The ``cache_discount`` field in the response body will
+    tell you how much the response saved on cache usage"), so emitting it as a
+    second cost bucket would bill the saving twice. The saving is visible where
+    it belongs — as ``input_cached_tokens`` priced at the cache-read rate.
     """
     if not isinstance(metadata_json, str) or not metadata_json:
         return None

@@ -11,9 +11,15 @@ Cost source of truth is OpenRouter's usage accounting: every chat completion
 response carries a ``usage`` object including ``cost`` (USD),
 ``prompt_tokens_details.cached_tokens`` and
 ``completion_tokens_details.reasoning_tokens``; for streaming it arrives on
-the final SSE chunk. langchain-openai surfaces that object verbatim as
-``llm_output["token_usage"]``. The response/generation id is recorded so any
-row can be reconciled against ``GET /api/v1/generation?id=`` after the fact.
+the final SSE chunk (no request flag asks for it — OpenRouter's
+``usage: {include: true}`` is deprecated and always-on). langchain-openai
+surfaces that object verbatim as ``llm_output["token_usage"]`` — on the
+**chat-completions** path only. A role on ``api_type: responses`` gets a
+``ChatResult`` with no ``llm_output`` and a ``response_metadata`` that omits
+``usage``, so only LangChain's normalized ``usage_metadata`` survives: token
+counts including the cache-read bucket, and no ``cost``. Those rows carry
+``costSource: missing``, which is the honest reading, and are reconciled
+against ``GET /api/v1/generation?id=`` by the recorded generation id.
 
 Events are written to the auditable ``llm_usage_events`` ledger via the
 token-guarded internal BFF endpoint ``POST /api/internal/usage`` — the
@@ -191,6 +197,33 @@ def _as_int(value: Any) -> int:
         return 0
 
 
+def _usage_from_langchain_metadata(usage_metadata: Any) -> dict[str, Any]:
+    """LangChain's normalized ``usage_metadata``, reshaped as a provider usage object.
+
+    The ONLY usage a Responses-API call carries. ``_construct_lc_result_from_responses_api``
+    returns a ``ChatResult`` with no ``llm_output`` at all and a
+    ``response_metadata`` that excludes ``usage``, so the provider object —
+    with ``cost`` and ``cache_discount`` on it — never reaches this process on
+    that path; what survives is this normalized view, in which OpenRouter's
+    ``input_tokens_details.cached_tokens`` has become ``input_token_details.cache_read``.
+    Reading only the three scalars, as this did before, is what silently
+    zeroed ``cachedTokens`` on every row written by an ``api_type: responses``
+    role. The cost stays absent and is reported as ``missing`` rather than
+    invented.
+    """
+    if not usage_metadata:
+        return {}
+    input_details = usage_metadata.get("input_token_details") or {}
+    output_details = usage_metadata.get("output_token_details") or {}
+    return {
+        "prompt_tokens": usage_metadata.get("input_tokens", 0),
+        "completion_tokens": usage_metadata.get("output_tokens", 0),
+        "total_tokens": usage_metadata.get("total_tokens", 0),
+        "prompt_tokens_details": {"cached_tokens": input_details.get("cache_read", 0)},
+        "completion_tokens_details": {"reasoning_tokens": output_details.get("reasoning", 0)},
+    }
+
+
 def extract_usage_event(response: Any) -> UsageEvent | None:
     """Build a UsageEvent from a LangChain ``LLMResult``.
 
@@ -217,13 +250,7 @@ def extract_usage_event(response: Any) -> UsageEvent | None:
             usage = response_metadata.get("token_usage") or {}
         # usage_metadata is LangChain's normalized fallback (no cost field).
         if not usage:
-            usage_metadata = getattr(message, "usage_metadata", None) or {}
-            if usage_metadata:
-                usage = {
-                    "prompt_tokens": usage_metadata.get("input_tokens", 0),
-                    "completion_tokens": usage_metadata.get("output_tokens", 0),
-                    "total_tokens": usage_metadata.get("total_tokens", 0),
-                }
+            usage = _usage_from_langchain_metadata(getattr(message, "usage_metadata", None))
 
     if not usage:
         return None
@@ -292,6 +319,11 @@ class GridCostTracker(BaseCallbackHandler):
         # stage dimension.
         self._prompt_tokens = 0
         self._completion_tokens = 0
+        #: Prompt tokens the provider served from its cache. Summarised once at
+        #: the end of the turn — the per-call numbers are in the ledger, but
+        #: "did this turn's prefix stay cached across its iterations" is a
+        #: question about the turn, and nothing else answers it in the log.
+        self._cached_tokens = 0
         # Requested model per LLM run: deep research fires concurrent LLM
         # calls (possibly on different models), so a single shared slot would
         # attribute one call's usage to whichever model started last. Keyed by
@@ -369,6 +401,7 @@ class GridCostTracker(BaseCallbackHandler):
             self._turn_cost_usd += event.cost_usd
             self._prompt_tokens += event.prompt_tokens
             self._completion_tokens += event.completion_tokens
+            self._cached_tokens += event.cached_tokens
             source = event.cost_source
             self._cost_sources[source] = self._cost_sources.get(source, 0) + 1
             should_flush = len(self._pending) >= _FLUSH_BATCH_SIZE
@@ -401,6 +434,36 @@ class GridCostTracker(BaseCallbackHandler):
     def completion_tokens(self) -> int:
         """Completion tokens (reasoning included) across every call tracked."""
         return self._completion_tokens
+
+    @property
+    def cached_tokens(self) -> int:
+        """Prompt tokens read from the provider's prompt cache across this scope."""
+        return self._cached_tokens
+
+    def log_prompt_cache_summary(self) -> None:
+        """One INFO line per turn: how much of the input the provider had cached.
+
+        Counts only — no prompt text, no identity beyond the org already on
+        every other line of this module (ADR-0045). A turn that reports 0 cached
+        of a large input is the symptom indexed in
+        ``docs/contributing/gotchas.md``: the prefix is being re-read in full on
+        every iteration.
+        """
+        with self._lock:
+            prompt_tokens = self._prompt_tokens
+            cached = self._cached_tokens
+            calls = self._events_recorded
+        if prompt_tokens <= 0:
+            return
+        share = 100.0 * cached / prompt_tokens
+        logger.info(
+            "[PromptCache] %d call(s): %d/%d input tokens served from cache (%.1f%%), %d uncached",
+            calls,
+            cached,
+            prompt_tokens,
+            share,
+            prompt_tokens - cached,
+        )
 
     @property
     def cost_source(self) -> str | None:
@@ -624,6 +687,8 @@ def track_llm_costs(
     finally:
         if token is not None:
             grid_cost_tracker_var.reset(token)
+        if tracker is not None:
+            tracker.log_prompt_cache_summary()
         if tracker is not None and inline_flush:
             try:
                 # Inline post at teardown: a wait=False flush would hand the
