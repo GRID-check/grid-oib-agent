@@ -96,11 +96,6 @@ _MAX_OUTLINE_CHUNKS = 160
 #: 80 lines is roughly one search result in tokens.
 _MAX_OUTLINE_LINES = 80
 
-#: The pages that stand in for an outline in a document with no Punkte at all
-#: (project uploads, Begriffsbestimmungen): its opening, as passages. Strings,
-#: because ``page_label`` is stored as one — see :func:`_passage_filters`.
-_OUTLINE_PAGES = ("1", "2", "3")
-
 # Agent-facing contract. Anthropic: the description IS the prompt — when to
 # call, when not to, and what a miss means. Deliberately paired with
 # `_KNOWLEDGE_SEARCH_DESCRIPTION`: each names the other as the wrong tool.
@@ -256,27 +251,56 @@ def _passage_filters(file_name: str, punkt: str | None, page: int | None) -> dic
     return {"$and": clauses}
 
 
+#: The two heading levels an outline lists. The Punkt chunker writes
+#: ``punkt_depth`` as an int and a backend that round-trips metadata through
+#: JSON hands it back as a string, so :func:`_outline_filters` asks for both
+#: spellings and :func:`_punkt_depth` normalises them.
+_OUTLINE_DEPTHS = (1, 2)
+
+
 def _outline_filters(file_name: str) -> dict[str, Any]:
     """The metadata filter that admits a document's top-level structure.
 
     Punkt ``0`` (``Vorbemerkungen``, the passage that says what the Richtlinie
     is for) plus everything at depth 1 or 2 — the headings a reader would scan
     a contents page for. ``punkt_depth`` is stored as an int by the Punkt
-    chunker, so the clause compares ints; the Python re-check below accepts
-    either spelling, because a backend that round-trips metadata through JSON
-    may hand the depth back as a string.
+    chunker, and a backend that round-trips metadata through JSON may hand it
+    back as a string, so the clause asks for BOTH spellings: :func:`_punkt_depth`
+    accepts either, and a clause that admitted only the int would leave that
+    tolerance backing a set the store could never deliver.
+
+    Two homogeneous ``$in`` clauses rather than one mixed list, because
+    LlamaIndex's ``MetadataFilter.value`` is typed ``list[int] | list[str] |
+    …``: a list holding both spellings fails validation before it reaches any
+    store, which would take the outline down on the default backend.
     """
     return {
         "$and": [
             {"file_name": {"$eq": file_name}},
-            {"$or": [{"punkt_id": {"$eq": "0"}}, {"punkt_depth": {"$in": [1, 2]}}]},
+            {
+                "$or": [
+                    {"punkt_id": {"$eq": "0"}},
+                    {"punkt_depth": {"$in": list(_OUTLINE_DEPTHS)}},
+                    {"punkt_depth": {"$in": [str(depth) for depth in _OUTLINE_DEPTHS]}},
+                ]
+            },
         ]
     }
 
 
-def _first_pages_filters(file_name: str) -> dict[str, Any]:
-    """The fallback outline: the opening pages of a document with no Punkte."""
-    return {"$and": [{"file_name": {"$eq": file_name}}, {"page_label": {"$in": list(_OUTLINE_PAGES)}}]}
+def _whole_document_filters(file_name: str) -> dict[str, Any]:
+    """The fallback outline's filter: the named document, nothing narrower.
+
+    It used to narrow to ``page_label $in ("1", "2", "3")``, on the assumption
+    that ``page_label`` holds a page number. It does not always: the Office
+    extractors write the WORKSHEET NAME there for ``.xlsx``/``.xlsm``
+    (``llamaindex/office_extractors``), so an indexed spreadsheet matched no
+    chunk at all and the outline told the model the store held none of it.
+    The file-name clause and ``_MAX_OUTLINE_CHUNKS`` bound the set; document
+    order then decides which ``_MAX_PASSAGE_CHUNKS`` of it are returned, which
+    is the opening of a paginated document and the first sheets of a workbook.
+    """
+    return {"file_name": {"$eq": file_name}}
 
 
 def _addresses(chunk: Any, punkt: str | None, page: int | None) -> bool:
@@ -347,14 +371,7 @@ def _is_outline_chunk(chunk: Any) -> bool:
     silently listed every depth-3 sub-Punkt would be a contents page nobody
     can read.
     """
-    return _punkt_of(chunk) == "0" or _punkt_depth(chunk) in (1, 2)
-
-
-def _on_first_pages(chunk: Any) -> bool:
-    """Whether this chunk is on one of the opening pages the fallback fetched."""
-    metadata = getattr(chunk, "metadata", None) or {}
-    label = str(metadata.get("page_label") or getattr(chunk, "page_number", "") or "")
-    return label in _OUTLINE_PAGES
+    return _punkt_of(chunk) == "0" or _punkt_depth(chunk) in _OUTLINE_DEPTHS
 
 
 @dataclass(frozen=True)
@@ -385,7 +402,7 @@ def _outline_entries(chunks: Sequence[Any]) -> list[OutlineEntry]:
         metadata = getattr(chunk, "metadata", None) or {}
         punkt_id = _punkt_of(chunk)
         depth = _punkt_depth(chunk)
-        if depth not in (1, 2) or not punkt_id or punkt_id in entries:
+        if depth not in _OUTLINE_DEPTHS or not punkt_id or punkt_id in entries:
             continue
         entries[punkt_id] = OutlineEntry(
             punkt_id=punkt_id,
@@ -442,7 +459,7 @@ _OUTLINE_INSTRUCTION = (
 #: The same sentence for a document that has no Punkte to list.
 _NO_PUNKTE_LINE = (
     "Dieses Dokument ist nicht nach Punkten gegliedert, es gibt also keine Gliederung — oben "
-    "stehen seine ersten Seiten; weitere Seiten öffnest du mit `read_passage(document=…, page=…)`."
+    "stehen seine ersten Passagen; weitere Seiten öffnest du mit `read_passage(document=…, page=…)`."
 )
 
 
@@ -732,7 +749,7 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
         fetched, failures = await _fetch_all(targets, _outline_filters, query, _MAX_OUTLINE_CHUNKS)
         chunks = [chunk for chunk in fetched if _is_outline_chunk(chunk)]
         if not chunks:
-            return await _first_pages(document, targets, query, failures)
+            return await _opening_passages(document, targets, query, failures)
 
         entries = _outline_entries(chunks)
         passages = _scope_chunks(chunks)[:_MAX_PASSAGE_CHUNKS]
@@ -740,29 +757,31 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
         logger.info("read_passage: %s outlined %d Punkt(e)", query, len(entries))
         return formatted + "\n" + _gliederung_block(entries)
 
-    async def _first_pages(
+    async def _opening_passages(
         document: str, targets: list[PassageTarget], query: str, failures: list[BaseException]
     ) -> str:
-        """The outline of a document with no Punkt metadata: its opening pages.
+        """The outline of a document with no Punkt metadata: its opening passages.
 
         Those chunks ARE the passages — there is no heading structure to index,
-        so the block carries no Gliederung and says so in one line.
+        so the block carries no Gliederung and says so in one line. Nothing is
+        re-checked here beyond the document itself: the fetch narrows to the
+        file and the document-order sort decides which chunks open it, because
+        a second clause on ``page_label`` would exclude every store that fills
+        it with something other than a page number.
         """
         from .register import _format_results
 
-        fetched, page_failures = await _fetch_all(targets, _first_pages_filters, query, _MAX_OUTLINE_CHUNKS)
-        chunks = [chunk for chunk in fetched if _on_first_pages(chunk)]
+        fetched, page_failures = await _fetch_all(targets, _whole_document_filters, query, _MAX_OUTLINE_CHUNKS)
         broke = failures + page_failures
-        if not chunks and broke:
+        if not fetched and broke:
             logger.warning("read_passage: every outline fetch failed for %r", query, exc_info=broke[0])
             return _store_silent_message(query)
-        if not chunks:
+        if not fetched:
             return _empty_document_message(document)
 
-        chunks.sort(key=_punkt_sort_key)
-        merged = _passage_result(chunks[:_MAX_PASSAGE_CHUNKS], query)
+        merged = _passage_result(sorted(fetched, key=_punkt_sort_key)[:_MAX_PASSAGE_CHUNKS], query)
         formatted = await asyncio.to_thread(_format_results, merged, query)
-        logger.info("read_passage: %s outlined %d page chunk(s)", query, len(merged.chunks))
+        logger.info("read_passage: %s outlined %d opening chunk(s)", query, len(merged.chunks))
         return formatted + "\n" + _NO_PUNKTE_LINE
 
     yield FunctionInfo.from_fn(_read, description=_READ_PASSAGE_DESCRIPTION)

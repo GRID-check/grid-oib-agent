@@ -278,6 +278,43 @@ def _generate_file_tags(file_path: str, llm=None, text: str | None = None) -> li
     return classify_document_tags(text, Path(file_path).name, llm)
 
 
+def _filter_expr(filters: dict[str, Any] | str) -> str:
+    """Translate one backend-neutral filter dict into the server's ``filter_expr``.
+
+    This backend reaches its index through an HTTP service whose filter is a
+    STRING expression, so only the flat equality shape survives the trip:
+    ``{"file_name": "a.pdf", "doc_class": "norm"}`` becomes
+    ``file_name == "a.pdf" and doc_class == "norm"``. A pre-built expression
+    (a plain string, or ``filter_expr`` in the dict) is passed through as-is.
+
+    Everything else RAISES: an operator node (``{"chunking": {"$ne": "page"}}``,
+    ``{"punkt_id": {"$eq": "3.5.2"}}``) and an ``$and``/``$or`` group have no
+    translation here. They used to be formatted with ``f"{k} == {v}"`` whatever
+    ``v`` was, which sent ``punkt_id == {'$eq': '3.5.2'}`` to the server: an
+    expression that matches nothing it was meant to and, once the server
+    ignores or drops it, comes back as an UNFILTERED ranking the caller reads
+    as the passage it addressed. Over-retrieval is invisible; a raise is not,
+    and every caller of :meth:`FoundationalRagRetriever.retrieve` turns it into
+    a visible failure rather than a wrong citation.
+    """
+    if isinstance(filters, str):
+        return filters
+    if "filter_expr" in filters:
+        return str(filters["filter_expr"])
+    parts: list[str] = []
+    for key, value in filters.items():
+        if key.startswith("$") or not isinstance(value, str | int | float | bool):
+            raise ValueError(
+                f"Unsupported metadata filter for the foundational_rag backend: {{{key!r}: {value!r}}}. "
+                "Its filter_expr covers flat `field == value` equality only; an operator node "
+                "($eq/$ne/$in/$nin) or an $and/$or group cannot be translated, and translating it "
+                "loosely would silently over-retrieve. Pass a flat dict, or a ready-made "
+                "`filter_expr` string."
+            )
+        parts.append(f'{key} == "{value}"' if isinstance(value, str) else f"{key} == {value}")
+    return " and ".join(parts)
+
+
 @register_retriever("foundational_rag")
 class FoundationalRagRetriever(BaseRetriever):
     """
@@ -348,10 +385,18 @@ class FoundationalRagRetriever(BaseRetriever):
             query: Search query string.
             collection_name: Target collection name.
             top_k: Maximum number of results (maps to reranker_top_k).
-            filters: Optional metadata filters (maps to filter_expr).
+            filters: Optional metadata filters (maps to filter_expr). Flat
+                ``field: value`` equality only — see :func:`_filter_expr`.
 
         Returns:
             RetrievalResult with normalized Chunk objects.
+
+        Raises:
+            ValueError: The filter dict carries an operator node or an
+                ``$and``/``$or`` group, which this backend's ``filter_expr``
+                cannot express. Raised rather than sent loosely, because an
+                unfilterable filter that goes out anyway comes back as an
+                unfiltered ranking.
         """
         try:
             endpoint = f"{self.rag_url}/search"
@@ -365,23 +410,13 @@ class FoundationalRagRetriever(BaseRetriever):
                 "enable_reranker": True,  # Enable reranking for better results
             }
 
-            # Add filter expression if provided
-            if filters:
-                if isinstance(filters, str):
-                    payload["filter_expr"] = filters
-                elif "filter_expr" in filters:
-                    payload["filter_expr"] = filters["filter_expr"]
-                else:
-                    # Try to build filter expression from dict
-                    # e.g., {"category": "AI"} -> "category == 'AI'"
-                    filter_parts = []
-                    for k, v in filters.items():
-                        if isinstance(v, str):
-                            filter_parts.append(f'{k} == "{v}"')
-                        else:
-                            filter_parts.append(f"{k} == {v}")
-                    if filter_parts:
-                        payload["filter_expr"] = " and ".join(filter_parts)
+            # Add filter expression if provided. `_filter_expr` raises on a
+            # shape this backend cannot express, which is deliberate: the
+            # alternative is a mangled expression and a silently unfiltered
+            # ranking.
+            expression = _filter_expr(filters) if filters else ""
+            if expression:
+                payload["filter_expr"] = expression
 
             logger.debug(f"Search request to {endpoint}: {payload}")
 

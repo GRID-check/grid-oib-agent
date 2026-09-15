@@ -988,7 +988,7 @@ page; refusing it sent the model to a search that returns cover pages and then t
 a Punkt number it had guessed. The Gliederung is an index, not evidence — only
 the passages carry a Citation, and a listed Punkt is read by calling again with
 `punkt=`. A document with no Punkte at all — most project uploads — returns its
-opening pages instead.
+opening passages instead: the first chunks in document order, because `page_label` is not always a page number.
 
 It is deterministic — one filtered fetch per collection the named document
 lives in, no reranker, no requery, no LLM anywhere — and it re-checks the

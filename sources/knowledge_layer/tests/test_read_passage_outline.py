@@ -35,6 +35,7 @@ rp = importlib.import_module("knowledge_layer.read_passage")
 
 OIB = "oib-rl_2_ausgabe_mai_2023.pdf"
 PLAN = "Brandschutzkonzept.pdf"
+SHEET = "Kostenaufstellung.xlsx"
 
 
 def _document(file_name: str, display_title: str | None = None) -> SimpleNamespace:
@@ -70,6 +71,24 @@ def _punkt_chunk(
     )
 
 
+def _sheet_chunk(sheet: str, content: str, *, file_name: str = SHEET) -> Chunk:
+    """A worksheet of an indexed workbook, as ``office_extractors`` writes it.
+
+    ``page_label`` carries the SHEET NAME, not a page number — the whole reason
+    the fallback may not narrow on it.
+    """
+    return Chunk(
+        chunk_id=f"{file_name}:{sheet}",
+        content=content,
+        score=0.71,
+        file_name=file_name,
+        page_number=None,
+        display_citation=f"{file_name}, {sheet}",
+        content_type=ContentType.TEXT,
+        metadata={"chunking": "page", "page_label": sheet},
+    )
+
+
 def _page_chunk(page: int, content: str, *, file_name: str = PLAN) -> Chunk:
     """A chunk of a document the Punkt chunker rejected: no punkt_* metadata at all."""
     return Chunk(
@@ -84,8 +103,9 @@ def _page_chunk(page: int, content: str, *, file_name: str = PLAN) -> Chunk:
     )
 
 
-def _is_page_fetch(filters: dict) -> bool:
-    return any("page_label" in clause for clause in filters.get("$and", []))
+def _is_fallback_fetch(filters: dict) -> bool:
+    """The fallback fetch narrows to the file alone; the outline fetch adds the depth group."""
+    return "$and" not in filters
 
 
 class _Store:
@@ -99,13 +119,13 @@ class _Store:
 
     async def retrieve(self, query, collection_name, top_k, filters):
         self.calls.append({"query": query, "collection": collection_name, "top_k": top_k, "filters": filters})
-        chunks = self.page_chunks if _is_page_fetch(filters) else self.outline_chunks
+        chunks = self.page_chunks if _is_fallback_fetch(filters) else self.outline_chunks
         return SimpleNamespace(chunks=list(chunks), success=True, error_message=None)
 
 
 @pytest.fixture
 def store(monkeypatch):
-    handle = _Store([_document(OIB, "OIB-Richtlinie 2, Ausgabe Mai 2023"), _document(PLAN)])
+    handle = _Store([_document(OIB, "OIB-Richtlinie 2, Ausgabe Mai 2023"), _document(PLAN), _document(SHEET)])
 
     async def _documents(collection: str):
         return list(handle.documents)
@@ -327,6 +347,17 @@ class TestThePerPageFallback:
 
         assert out.index(f"Citation: {PLAN}, p.1") < out.index(f"Citation: {PLAN}, p.3")
 
+    async def test_only_the_opening_passages_travel(self, store):
+        """The fetch is bounded by `_MAX_OUTLINE_CHUNKS`, what is RENDERED by
+        `_MAX_PASSAGE_CHUNKS` — a long document opens, it does not arrive."""
+        store.page_chunks = [_page_chunk(page, f"Seite {page}") for page in range(1, 41)]
+
+        out = await _read(document=PLAN)
+
+        assert f"Found {rp._MAX_PASSAGE_CHUNKS} relevant document(s)" in out
+        assert "Seite 1" in out
+        assert "Seite 40" not in out
+
     async def test_a_document_with_nothing_stored_is_not_an_invented_citation(self, store):
         out = await _read(document=PLAN)
 
@@ -345,7 +376,13 @@ class TestWhatTheStoreIsAsked:
         assert call["filters"] == {
             "$and": [
                 {"file_name": {"$eq": OIB}},
-                {"$or": [{"punkt_id": {"$eq": "0"}}, {"punkt_depth": {"$in": [1, 2]}}]},
+                {
+                    "$or": [
+                        {"punkt_id": {"$eq": "0"}},
+                        {"punkt_depth": {"$in": [1, 2]}},
+                        {"punkt_depth": {"$in": ["1", "2"]}},
+                    ]
+                },
             ]
         }
         assert call["top_k"] == rp._MAX_OUTLINE_CHUNKS == 160
@@ -360,14 +397,16 @@ class TestWhatTheStoreIsAsked:
 
         assert store.calls[0]["query"] == OIB
 
-    async def test_the_page_fallback_asks_for_pages_one_to_three(self, store):
+    async def test_the_fallback_asks_for_the_document_and_nothing_narrower(self, store):
+        """It used to add `page_label $in ("1", "2", "3")`, which no workbook can
+        match: `page_label` holds the WORKSHEET NAME for .xlsx/.xlsm. The file
+        clause and `_MAX_OUTLINE_CHUNKS` bound the set on their own."""
         store.page_chunks = [_page_chunk(1, "Seite 1")]
 
         await _read(document=PLAN)
 
-        assert [call["filters"] for call in store.calls][1] == {
-            "$and": [{"file_name": {"$eq": PLAN}}, {"page_label": {"$in": ["1", "2", "3"]}}]
-        }
+        assert [call["filters"] for call in store.calls][1] == {"file_name": {"$eq": PLAN}}
+        assert "page_label" not in str(store.calls[1]["filters"])
 
     async def test_the_page_fetch_only_happens_when_there_are_no_punkte(self, store):
         store.outline_chunks = _oib_outline()
@@ -383,7 +422,62 @@ class TestWhatTheStoreIsAsked:
         from knowledge_layer.llamaindex.adapter import _to_metadata_filters
 
         assert _to_metadata_filters(rp._outline_filters(OIB)) is not None
-        assert _to_metadata_filters(rp._first_pages_filters(OIB)) is not None
+        assert _to_metadata_filters(rp._whole_document_filters(OIB)) is not None
+
+
+class TestADocumentWhosePageLabelIsNotAPage:
+    """`page_label` is whatever the extractor wrote: the WORKSHEET NAME for
+    .xlsx/.xlsm (`llamaindex/office_extractors`). The fallback used to filter
+    `page_label $in ("1", "2", "3")`, so an indexed spreadsheet matched nothing
+    and the outline told the model the store held no chunk of it."""
+
+    async def test_a_workbook_outlines_with_its_sheets_as_passages(self, store):
+        store.page_chunks = [
+            _sheet_chunk("Kostenaufstellung", "Position | Betrag …"),
+            _sheet_chunk("Annahmen", "Preisbasis 2024 …"),
+        ]
+
+        out = await _read(document=SHEET, conclusion="Ich weiß noch nicht, was die Datei enthält.")
+
+        assert "Found 2 relevant document(s)" in out
+        assert "Position | Betrag …" in out
+        assert "Preisbasis 2024 …" in out
+        assert "no passage of it could be read" not in out
+        assert "nicht nach Punkten gegliedert" in out
+
+    async def test_the_workbook_passages_carry_a_citation(self, store):
+        store.page_chunks = [_sheet_chunk("Kostenaufstellung", "Position | Betrag …")]
+
+        out = await _read(document=SHEET)
+
+        assert f"Citation: {SHEET}" in out
+        assert "## Trace-Lanes" in out
+
+
+class TestTheDepthClauseMatchesTheRecheck:
+    """`_punkt_depth` accepts the string a JSON round-trip produces, so the
+    clause has to ASK for it: an int-only `$in` can never deliver the chunk the
+    re-check was written to keep, and the tolerance is dead code."""
+
+    def test_the_clause_asks_for_both_spellings(self):
+        """Two homogeneous `$in` clauses, not one mixed list: `MetadataFilter.value`
+        is typed `list[int] | list[str] | …`, so a mixed list fails validation
+        before it reaches any store."""
+        assert rp._outline_filters(OIB)["$and"][1]["$or"][1:] == [
+            {"punkt_depth": {"$in": [1, 2]}},
+            {"punkt_depth": {"$in": ["1", "2"]}},
+        ]
+
+    def test_every_spelling_it_asks_for_passes_the_recheck(self):
+        from types import SimpleNamespace as NS
+
+        asked = [
+            depth for clause in rp._outline_filters(OIB)["$and"][1]["$or"][1:] for depth in clause["punkt_depth"]["$in"]
+        ]
+
+        assert asked == [1, 2, "1", "2"]
+        for depth in asked:
+            assert rp._is_outline_chunk(NS(metadata={"punkt_id": "2", "punkt_depth": depth})), depth
 
 
 class TestResolutionIsUnchanged:
