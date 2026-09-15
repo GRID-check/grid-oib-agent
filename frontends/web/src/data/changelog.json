@@ -42,12 +42,41 @@
           "key": "improvements",
           "notes": [
             {
+              "en": "„Freigabe und Fassungen\" steht jetzt am Ende der Dateiinfo und ist zugeklappt. Zugeklappt sagt der Abschnitt nur, wo das Dokument steht: den Stand, eine Strecke von Entwurf über In Prüfung und Freigegeben bis Veröffentlicht, und einen Satz dazu, worauf es wartet.",
+              "de": "„Freigabe und Fassungen\" steht jetzt am Ende der Dateiinfo und ist zugeklappt. Zugeklappt sagt der Abschnitt nur, wo das Dokument steht: den Stand, eine Strecke von Entwurf über In Prüfung und Freigegeben bis Veröffentlicht, und einen Satz dazu, worauf es wartet."
+            },
+            {
+              "en": "Wartet eine Fassung auf Sie, klappt der Abschnitt von selbst auf. Sie müssen also nichts aufklappen, um zu merken, dass Sie an der Reihe sind.",
+              "de": "Wartet eine Fassung auf Sie, klappt der Abschnitt von selbst auf. Sie müssen also nichts aufklappen, um zu merken, dass Sie an der Reihe sind."
+            },
+            {
+              "en": "Die Strecke zeigt auch, wenn es nicht weitergeht: Bei „Änderungen erbeten\" und „Abgelehnt\" ist der nächste Abschnitt gestrichelt statt offen.",
+              "de": "Die Strecke zeigt auch, wenn es nicht weitergeht: Bei „Änderungen erbeten\" und „Abgelehnt\" ist der nächste Abschnitt gestrichelt statt offen."
+            },
+            {
               "en": "Die Statuszeile über der Herleitung sagt jetzt auch während des Formulierens, was gerade geschieht: Sobald die Recherche abgeschlossen ist und die Antwort geschrieben wird, steht dort, dass die Antwort formuliert wird, statt weiter die letzte Suche zu melden.",
               "de": "Die Statuszeile über der Herleitung sagt jetzt auch während des Formulierens, was gerade geschieht: Sobald die Recherche abgeschlossen ist und die Antwort geschrieben wird, steht dort, dass die Antwort formuliert wird, statt weiter die letzte Suche zu melden."
             },
             {
               "en": "Die Statusmeldungen beim Suchen sind ruhiger geworden: Die Zeile meldet, wonach gerade gesucht wird, statt mit einer Fehlermeldung zu eröffnen, wenn die erste Trefferliste nicht gereicht hat.",
               "de": "Die Statusmeldungen beim Suchen sind ruhiger geworden: Die Zeile meldet, wonach gerade gesucht wird, statt mit einer Fehlermeldung zu eröffnen, wenn die erste Trefferliste nicht gereicht hat."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "„Archivieren\" heißt jetzt „Stilllegen\". Der alte Name war das Gegenteil dessen, was passiert: Ins Archiv legt man ein Dokument, damit es zu Bürowissen wird — stillgelegt wird es herausgenommen.",
+              "de": "„Archivieren\" heißt jetzt „Stilllegen\". Der alte Name war das Gegenteil dessen, was passiert: Ins Archiv legt man ein Dokument, damit es zu Bürowissen wird — stillgelegt wird es herausgenommen."
+            },
+            {
+              "en": "Stilllegen fragt jetzt nach und sagt vorher, was es tut: dass die Datei aus der Dateiliste verschwindet, dass Piloti sie nicht mehr zitiert, dass nichts gelöscht wird — und dass es sich hier nicht rückgängig machen lässt.",
+              "de": "Stilllegen fragt jetzt nach und sagt vorher, was es tut: dass die Datei aus der Dateiliste verschwindet, dass Piloti sie nicht mehr zitiert, dass nichts gelöscht wird — und dass es sich hier nicht rückgängig machen lässt."
+            },
+            {
+              "en": "Bei einer veröffentlichten Datei zeigte der Abschnitt eine einzelne Schaltfläche und sonst nichts: Der Satz, der den Stand erklärt, fehlte genau dann. Er steht jetzt immer da.",
+              "de": "Bei einer veröffentlichten Datei zeigte der Abschnitt eine einzelne Schaltfläche und sonst nichts: Der Satz, der den Stand erklärt, fehlte genau dann. Er steht jetzt immer da."
             }
           ]
         }
