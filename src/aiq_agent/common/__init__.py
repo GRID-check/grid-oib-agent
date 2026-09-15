@@ -45,7 +45,6 @@ from .data_sources import format_data_source_tools
 from .data_sources import get_disabled_sources_from_context
 from .data_sources import parse_data_sources
 from .data_sources import parse_disabled_sources
-from .data_sources import turn_disabled_sources_scope
 from .data_sources import unavailable_source_ids
 from .db_utils import redact_db_url
 from .human_prompt import build_human_prompt
@@ -139,7 +138,6 @@ __all__ = [
     "extract_user_response",
     "extract_messages_and_sources",
     "filter_tools_by_sources",
-    "turn_disabled_sources_scope",
     "unavailable_source_ids",
     "format_data_source_tools",
     "format_tool_unavailability_error",

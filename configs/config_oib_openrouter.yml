@@ -829,6 +829,19 @@ functions:
     # record is worth reading. Lower it only against measurement, never to
     # "save money" on a distribution nobody has looked at. 0 disables it.
     max_input_tokens_per_turn: 600000
+    # A RUNAWAY GUARD, not a doctrine. Nothing caps the width of a round on
+    # purpose — a round costs one whatever it fans out into, and the family
+    # overview the prompt asks for is five parallel opens in one batch — but
+    # "no cap at all" means one confused decision can put sixty concurrent
+    # calls into the vector store, and the token bound above only sees that at
+    # the START of the next round, after the fan-out has been served. 12 sits
+    # far above every batch the prompt asks for, so a normal turn never meets
+    # it. The calls past it are not refused: each is answered with a notice
+    # saying it was not run THIS round and may be issued again in the next one,
+    # and it stays on the message (a provider rejects an un-answered call).
+    # Each firing leaves a `status:width:N` record, so a cap that fires on real
+    # turns is visible rather than inferred. 0 disables it.
+    max_calls_per_round: 12
     # The turn's one repair (roadmap loop L0): when a citation or a quote fails
     # verification, one more retrieval aimed at the failing text and one rewrite,
     # re-verified; the better answer ships. Off = ship the markers as before.

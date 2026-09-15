@@ -24,6 +24,7 @@ The post-answer pipeline lives in :mod:`.answer_pipeline`, the repair pass in
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Iterable
 from collections.abc import Mapping
@@ -60,17 +61,18 @@ from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.cost_tracking import grid_cost_tracker_var
 from aiq_agent.common.data_sources import disabled_source_notice
-from aiq_agent.common.data_sources import turn_disabled_sources_scope
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.turn_status import FETCH_FAILED_MARKER
 from aiq_agent.common.turn_status import begin_lane_capture
 from aiq_agent.common.turn_status import emit_family_coverage
 from aiq_agent.common.turn_status import emit_input_budget_exhausted
+from aiq_agent.common.turn_status import emit_refused_source
 from aiq_agent.common.turn_status import emit_repeat_fetch
 from aiq_agent.common.turn_status import emit_research_truncated
 from aiq_agent.common.turn_status import emit_retrieval
 from aiq_agent.common.turn_status import emit_synthesis
+from aiq_agent.common.turn_status import emit_width_cap
 from aiq_agent.common.turn_status import end_lane_capture
 from aiq_agent.common.turn_status import fetch_signature
 from aiq_agent.common.turn_status import get_lane_captures
@@ -146,6 +148,36 @@ _REPEAT_FETCH_MESSAGE = (
     "nicht mit einer Wiederholung"
 )
 
+#: What a same-batch repeat of a FAILED fetch is answered with. The turn holds
+#: no result for it — the first occurrence ran and the store did not answer —
+#: so :data:`_REPEAT_FETCH_MESSAGE` would point at a result that does not
+#: exist, which is the one thing the guard must never do (a failure signs
+#: nothing, precisely so the retry stays available). Says what happened and
+#: when the call may be made again.
+_FAILED_FETCH_REPEAT_MESSAGE = (
+    "Nicht ausgeführt: dieser Aufruf war in dieser Runde schon einmal enthalten, und dieser erste "
+    "Versuch ist fehlgeschlagen — es liegt kein Ergebnis vor. Du kannst ihn in der nächsten Runde "
+    "erneut stellen oder eine andere Stelle wählen."
+)
+
+#: How many tool calls ONE round may actually run. A runaway guard, not a
+#: doctrine: a round costs one whatever it fans out into, and a model opening
+#: all five members of a Richtlinien-Familie at once is using its round well.
+#: What this bounds is the shape nothing else sees — sixty parallel calls into
+#: the vector store, which ``max_input_tokens_per_turn`` only notices at the
+#: START of the next round, by which time the fan-out has already been served.
+#: 0 disables it.
+_DEFAULT_MAX_CALLS_PER_ROUND = 12
+
+#: What a call beyond the width cap is answered with. An INSTRUCTION, like the
+#: two notices above: the call was not refused, it was not RUN THIS ROUND, and
+#: the useful next move is to ask for it again in the next one.
+_WIDTH_CAP_MESSAGE = (
+    "Nicht ausgeführt: diese Runde hat mehr parallele Aufrufe angefordert, als eine Runde ausführen "
+    "darf. Die ersten Aufrufe der Runde sind gelaufen; dieser hier nicht. Stell ihn in der nächsten "
+    "Runde erneut, wenn du ihn nach den Ergebnissen oben noch brauchst."
+)
+
 #: Why the loop stopped early. Stable tokens, not prose: they are counted, and
 #: they name two different sizing questions. ``rounds`` is the investigation
 #: being cut off — the worst failure this product has. ``input_tokens`` is the
@@ -210,6 +242,10 @@ class TurnBinding:
     #: The bound that protects the user's bill, since rounds no longer do:
     #: one round of twelve fetches is cheap in rounds and is not cheap.
     max_input_tokens: int = 0
+    #: How many calls of ONE round are actually run. Read in BOTH nodes, like
+    #: :attr:`disabled_sources`, so the round the agent node charges is the
+    #: round the tools node executes. 0 disables the cap.
+    max_calls_per_round: int = 0
     #: See :attr:`TurnConfig.disabled_sources`. Read in BOTH nodes, so the
     #: round the agent node announces is the round the tools node runs.
     disabled_sources: frozenset[str] = frozenset()
@@ -275,17 +311,34 @@ def _repeat_fetches(calls: Sequence[Any], executed: Sequence[str]) -> list[Any]:
     return repeats
 
 
+def _over_width(running: Sequence[Any], max_calls: int) -> list[Any]:
+    """The tail of one round beyond the width cap, in the order the model emitted it.
+
+    Applied to what the other two guards left, because the cap bounds what
+    RUNS: a round of fifteen calls of which four are repeats asks the stores
+    for eleven, and eleven is what the cap has an opinion about. First N kept
+    rather than a sample — the model emits its most important call first, and a
+    guard that reordered the round would be making a research decision.
+    """
+    if max_calls <= 0 or len(running) <= max_calls:
+        return []
+    return list(running[max_calls:])
+
+
 def _withheld_calls(
     calls: Sequence[Any],
     state: ResearchAgentState,
     disabled: frozenset[str],
-) -> tuple[list[Any], list[tuple[Any, str]]]:
-    """The two guards on this seam, applied once: ``(repeats, refused)``.
+    max_calls: int = 0,
+) -> tuple[list[Any], list[tuple[Any, str]], list[Any]]:
+    """The three guards on this seam, applied once: ``(repeats, refused, over_width)``.
 
-    A fetch whose answer the turn already holds (:func:`_repeat_fetches`), and
-    a call to a source this conversation switched off — each paired with the
-    sentence that answers it. Repeats are decided first, so a call that is both
-    is counted once and answered as the repeat it is.
+    A fetch whose answer the turn already holds (:func:`_repeat_fetches`), a
+    call to a source this conversation switched off — each paired with the
+    sentence that answers it — and the calls past the round's width cap
+    (:func:`_over_width`). Repeats are decided first, so a call that is both is
+    counted once and answered as the repeat it is; the cap sees what the other
+    two left.
 
     PURE, and the single derivation both nodes read. The agent node calls it to
     decide what to ANNOUNCE, the tools node to decide what to RUN; two
@@ -298,18 +351,25 @@ def _withheld_calls(
         for call in calls
         if id(call) not in seen and (sentence := disabled_source_notice(_call_name(call), disabled)) is not None
     ]
-    return repeats, refused
+    seen |= {id(call) for call, _ in refused}
+    over_width = _over_width([call for call in calls if id(call) not in seen], max_calls)
+    return repeats, refused, over_width
 
 
-def _drop_withheld(calls: list[Any], state: ResearchAgentState, disabled: frozenset[str]) -> list[Any]:
+def _drop_withheld(
+    calls: list[Any],
+    state: ResearchAgentState,
+    disabled: frozenset[str],
+    max_calls: int = 0,
+) -> list[Any]:
     """The calls that will actually RUN, and the records the withholding leaves.
 
-    Neither guard charges anything — charging is per ROUND now, and the round is
-    charged whatever survives here — and both keep their calls out of the
+    No guard charges anything — charging is per ROUND now, and the round is
+    charged whatever survives here — and all three keep their calls out of the
     announcement, so a batch that is only withheld calls consumes no
     ``status:retrieval:N`` slot and does not advance the round counter.
     """
-    repeats, refused = _withheld_calls(calls, state, disabled)
+    repeats, refused, over_width = _withheld_calls(calls, state, disabled, max_calls)
     if repeats:
         emit_repeat_fetch(round_index=state.retrieval_round, withheld=len(repeats))
         logger.info(
@@ -319,14 +379,29 @@ def _drop_withheld(calls: list[Any], state: ResearchAgentState, disabled: frozen
             state.retrieval_round,
         )
     if refused:
+        emit_refused_source(round_index=state.retrieval_round, withheld=len(refused))
         logger.info(
             "Disabled source: %d call(s) answered with the refusal notice (round=%d)",
             len(refused),
             state.retrieval_round,
         )
+    if over_width:
+        emit_width_cap(
+            round_index=state.retrieval_round,
+            kept=max_calls,
+            withheld=len(over_width),
+        )
+        logger.warning(
+            "Round width cap: %d of %d call(s) run, %d deferred to the next round (cap=%d, round=%d)",
+            max_calls,
+            len(calls),
+            len(over_width),
+            max_calls,
+            state.retrieval_round,
+        )
     # By identity: two parallel calls to one tool can be equal dicts, and
     # ``in`` would then drop the occurrence that is supposed to run.
-    withheld = {id(call) for call in (*repeats, *(call for call, _ in refused))}
+    withheld = {id(call) for call in (*repeats, *(call for call, _ in refused), *over_width)}
     if not withheld:
         return calls
     return [call for call in calls if id(call) not in withheld]
@@ -376,6 +451,7 @@ def _charge_tool_calls(
     state: ResearchAgentState,
     ceiling: int,
     disabled: frozenset[str] = frozenset(),
+    max_calls: int = 0,
 ) -> tuple[int, int, dict[str, Any] | None]:
     """What this round COSTS and ANNOUNCED: ``(rounds, retrieval_round, record)``.
 
@@ -393,14 +469,15 @@ def _charge_tool_calls(
     is simply a round, and it costs one like every other. A repeat-only round
     costs one too (:func:`_charge_empty_round`).
 
-    What the round pays for does not include a WITHHELD call — a repeat fetch
-    or a call to a switched-off source is neither run nor announced — but the
-    round that asked for nothing else still costs its one.
+    What the round pays for does not include a WITHHELD call — a repeat fetch,
+    a call to a switched-off source, or a call past the round's width cap is
+    neither run nor announced — but the round that asked for nothing else still
+    costs its one.
     """
     calls = getattr(response, "tool_calls", None) or []
     if not calls:
         return state.tool_iterations, state.retrieval_round, None
-    calls = _drop_withheld(calls, state, disabled)
+    calls = _drop_withheld(calls, state, disabled, max_calls)
     if not calls:
         return _charge_empty_round(state, ceiling)
     rounds = state.tool_iterations + 1
@@ -435,7 +512,7 @@ def _charge_tool_calls(
     return rounds, retrieval_round, record
 
 
-def _executing_retrieval_round(state: ResearchAgentState) -> int | None:
+def _executing_retrieval_round(state: ResearchAgentState, ran: Sequence[Any]) -> int | None:
     """The round the tools node is about to execute, or ``None`` for no round.
 
     Off by one on purpose, and the reason is worth spelling out. The agent node
@@ -448,11 +525,14 @@ def _executing_retrieval_round(state: ResearchAgentState) -> int | None:
     rather than the previous fetch's number, which would file a card write
     under the search before it.
 
-    Both halves therefore read the SAME predicate off the SAME calls
-    (:func:`is_retrieval_round`) as the announcement did.
+    ``ran`` is what the guards LEFT (``_split_round(...).ran``), not what the
+    model asked for, because that is what the agent node counted: a round whose
+    every fetch was withheld and whose ``emit_card`` survived advanced no
+    counter, so reading the raw AIMessage here would file that card under the
+    previous round's search. Both halves therefore read the SAME predicate
+    (:func:`is_retrieval_round`) off the SAME calls as the announcement did.
     """
-    last = state.messages[-1] if state.messages else None
-    calls = [call for call in (getattr(last, "tool_calls", None) or []) if isinstance(call, dict)]
+    calls = [call for call in ran if isinstance(call, dict)]
     if not is_retrieval_round(calls):
         return None
     # max(): the graph always runs agent→tools, so 0 here means the announcement
@@ -540,21 +620,30 @@ def _notice(call: Any, content: str) -> ToolMessage:
     )
 
 
-def _repeat_answer(call: Any, results: Mapping[str, str]) -> str:
+def _repeat_answer(call: Any, results: Mapping[str, str], attempted: frozenset[str] = frozenset()) -> str:
     """What a withheld repeat is answered with: the first execution's own result.
 
     A tool delivers an answer. The guard's job is to stop the turn PAYING for
     the same fetch twice, not to stop the model having the text — so the text
-    comes back, labelled, and the model has nothing left to retry. Falls back
-    to :data:`_REPEAT_FETCH_MESSAGE` only when the turn does not hold the
-    result (the tools node driven directly, or a first execution that returned
-    nothing at all).
+    comes back, labelled, and the model has nothing left to retry.
+
+    With no result to hand back there are two different things to say, and
+    saying the wrong one is a lie the model acts on. ``attempted`` is the
+    signatures THIS round handed to the tools: a signature in it that produced
+    no result is a fetch that FAILED, and the repeat withheld beside it must be
+    told exactly that, or ``_REPEAT_FETCH_MESSAGE`` points at „das Ergebnis
+    oben" when there is no result above — the same lie a cross-round failure is
+    carefully kept from telling (a failure signs nothing, so its retry runs).
+    Everything else — the tools node driven directly, a first execution that
+    returned nothing at all — is the old fallback.
     """
     signature = fetch_signature(call)
     cached = results.get(signature) if signature is not None else None
-    if not cached:
-        return _REPEAT_FETCH_MESSAGE
-    return f"{_REPEAT_FETCH_PREFIX}\n\n{cached}"
+    if cached:
+        return f"{_REPEAT_FETCH_PREFIX}\n\n{cached}"
+    if signature is not None and signature in attempted:
+        return _FAILED_FETCH_REPEAT_MESSAGE
+    return _REPEAT_FETCH_MESSAGE
 
 
 @dataclass(frozen=True)
@@ -566,32 +655,53 @@ class _RoundSplit:
     #: ``(call, the sentence that answers it)`` for every call addressing a
     #: source this conversation switched off.
     refused: list[tuple[Any, str]]
+    #: The calls past the round's width cap: not refused, just not run THIS
+    #: round, and the model is told it may ask again next round.
+    over_width: list[Any]
 
     @property
     def withheld(self) -> list[Any]:
         """Every call the ``ToolNode`` must not be given."""
-        return [*self.repeats, *(call for call, _ in self.refused)]
+        return [*self.repeats, *(call for call, _ in self.refused), *self.over_width]
+
+    @property
+    def attempted(self) -> frozenset[str]:
+        """The fetch signatures this round HANDS to the tools, failures included.
+
+        What :func:`_repeat_answer` needs to tell a same-batch repeat of a
+        failed fetch from one the turn simply does not hold: the signature was
+        tried here and there is no result, which is a failure and not an
+        earlier answer.
+        """
+        return frozenset(signature for call in self.ran if (signature := fetch_signature(call)) is not None)
 
     def notices(self, results: Mapping[str, str]) -> list[ToolMessage]:
         """The answer each withheld call gets."""
+        attempted = self.attempted
         return [
-            *(_notice(call, _repeat_answer(call, results)) for call in self.repeats),
+            *(_notice(call, _repeat_answer(call, results, attempted)) for call in self.repeats),
             *(_notice(call, sentence) for call, sentence in self.refused),
+            *(_notice(call, _WIDTH_CAP_MESSAGE) for call in self.over_width),
         ]
 
 
-def _split_round(state: ResearchAgentState, disabled: frozenset[str]) -> _RoundSplit:
+def _split_round(state: ResearchAgentState, disabled: frozenset[str], max_calls: int = 0) -> _RoundSplit:
     """What the tools node runs, derived the way the agent node derived its charge.
 
     :func:`_withheld_calls`, reading the SAME calls, the SAME
-    ``executed_fetches`` and the SAME disabled set the agent node read — the
-    agent node writes none of them — so what is charged and what is executed
-    cannot drift apart.
+    ``executed_fetches``, the SAME disabled set and the SAME width cap the
+    agent node read — the agent node writes none of them — so what is charged
+    and what is executed cannot drift apart.
     """
     calls = _last_tool_calls(state)
-    repeats, refused = _withheld_calls(calls, state, disabled)
-    withheld = {id(call) for call in (*repeats, *(call for call, _ in refused))}
-    return _RoundSplit(ran=[call for call in calls if id(call) not in withheld], repeats=repeats, refused=refused)
+    repeats, refused, over_width = _withheld_calls(calls, state, disabled, max_calls)
+    withheld = {id(call) for call in (*repeats, *(call for call, _ in refused), *over_width)}
+    return _RoundSplit(
+        ran=[call for call in calls if id(call) not in withheld],
+        repeats=repeats,
+        refused=refused,
+        over_width=over_width,
+    )
 
 
 def _failed_call_ids(messages: Iterable[Any]) -> set[str]:
@@ -824,6 +934,7 @@ class PilotiAgent:
         system_prompt: str | None = None,
         max_tool_iterations: int = 5,
         max_input_tokens_per_turn: int = _DEFAULT_MAX_INPUT_TOKENS_PER_TURN,
+        max_calls_per_round: int = _DEFAULT_MAX_CALLS_PER_ROUND,
         callbacks: list[Any] | None = None,
         tool_search: ToolSearchSettings | None = None,
         deferred_tool_loading: DeferredToolLoadingSettings | None = None,
@@ -847,6 +958,13 @@ class PilotiAgent:
                 spend before synthesis is forced, read off the cost tracker
                 that already meters them. The bound that protects the person
                 paying, now that rounds do not: 0 disables it.
+            max_calls_per_round: How many tool calls of ONE round are run. A
+                runaway guard and not a doctrine — a round costs one however
+                wide it fans out, and a wide round is usually the model using
+                it well — so it sits far above any batch the prompt asks for.
+                The calls past it are answered with a notice saying they may be
+                issued again next round, never deleted from the AIMessage. 0
+                disables it.
             callbacks: Optional LangGraph callbacks.
             tool_search: Optional retrieval-based tool narrowing. None (or
                 disabled) binds the full set.
@@ -867,6 +985,7 @@ class PilotiAgent:
         self.tools = list(tools)
         self.max_tool_iterations = max_tool_iterations
         self.max_input_tokens_per_turn = max_input_tokens_per_turn
+        self.max_calls_per_round = max_calls_per_round
         self.callbacks = callbacks or []
         self.repair_pass = repair_pass
         self.tool_search = tool_search if (tool_search is not None and tool_search.enabled) else None
@@ -938,6 +1057,7 @@ class PilotiAgent:
             source_tool_names=frozenset(t.name for t in tools),
             ceiling=self.max_tool_iterations,
             max_input_tokens=self.max_input_tokens_per_turn,
+            max_calls_per_round=self.max_calls_per_round,
         )
 
     def _resolve_turn(self, turn: TurnConfig | None) -> TurnBinding:
@@ -1068,7 +1188,15 @@ class PilotiAgent:
         # tool-loop iterations and the norm-block computation runs once.
         system_prompt = state.cached_system_prompt
         if system_prompt is None:
-            system_prompt = render_system_prompt(self.system_prompt, state, tools_info)
+            # In a THREAD, because the render resolves the static half through
+            # the prompt store: with Langfuse prompt management on, that is one
+            # bounded HTTP call (2 s) on the first render of a TTL window, and
+            # a blocking call inside a coroutine stalls every other turn this
+            # worker is serving, not only this one. ``to_thread`` copies the
+            # context, so every ContextVar the render reads is the turn's own,
+            # and nothing in it depends on the thread it runs on.
+            # ``register.py`` moves its blocking reads the same way.
+            system_prompt = await asyncio.to_thread(render_system_prompt, self.system_prompt, state, tools_info)
         cutoff = _turn_cutoff(state, binding)
         if cutoff is not None:
             return await self._forced_synthesis(state, binding, system_prompt, cutoff=cutoff)
@@ -1084,7 +1212,7 @@ class PilotiAgent:
         if _starts_synthesis(response, state):
             emit_synthesis()
         rounds, retrieval_round, round_record = _charge_tool_calls(
-            response, state, binding.ceiling, binding.disabled_sources
+            response, state, binding.ceiling, binding.disabled_sources, binding.max_calls_per_round
         )
         update: dict[str, Any] = {
             "messages": [response],
@@ -1176,18 +1304,20 @@ class PilotiAgent:
         source: it produces no citable passage.
 
         The round stamp is set HERE, around the invocation, because this is the
-        node the tools actually run in — see :func:`_executing_retrieval_round`.
-        The turn's switched-off sources are bound HERE for the same reason: a
-        ``ContextVar`` set beside the LLM call dies at the node boundary, and
-        the tools run as children of THIS node.
+        node the tools actually run in — a ``ContextVar`` set beside the LLM
+        call dies at the node boundary, while the tools run as children of THIS
+        node. It is derived from the calls that will RUN, never from the raw
+        AIMessage: see :func:`_executing_retrieval_round`.
 
-        Both withholding guards land here: a fetch this turn already ran is
-        answered with its OWN earlier result, and a call to a source this
-        conversation switched off with one sentence saying so. Both are derived
-        from the same calls the agent node charged. The AIMessage keeps ALL of
-        its tool calls — a provider rejects a tool result with no matching call,
-        and it would reject the un-answered calls too — so every call still gets
-        exactly one result and the model reads why some of them did not run.
+        All three withholding guards land here: a fetch this turn already ran is
+        answered with its OWN earlier result, a call to a source this
+        conversation switched off with one sentence saying so, and a call past
+        the round's width cap with a notice saying it may be issued again next
+        round. All are derived from the same calls the agent node charged. The
+        AIMessage keeps ALL of its tool calls — a provider rejects a tool result
+        with no matching call, and it would reject the un-answered calls too —
+        so every call still gets exactly one result and the model reads why some
+        of them did not run.
 
         What actually RETURNED is written back as ``executed_fetches`` and
         ``fetch_results``, which is the only thing the duplicate guard may be
@@ -1197,10 +1327,10 @@ class PilotiAgent:
         for.
         """
         binding = self._turn_binding(config)
-        executing_round = _executing_retrieval_round(state)
-        split = _split_round(state, binding.disabled_sources)
+        split = _split_round(state, binding.disabled_sources, binding.max_calls_per_round)
         withheld = split.withheld
-        with retrieval_round_scope(executing_round), turn_disabled_sources_scope(binding.disabled_sources):
+        executing_round = _executing_retrieval_round(state, split.ran)
+        with retrieval_round_scope(executing_round):
             result = await binding.tool_node.ainvoke(_without_dropped_calls(state, withheld) if withheld else state)
         registry = get_session_registry()
         if registry is None:

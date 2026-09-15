@@ -1292,6 +1292,71 @@ def emit_repeat_fetch(*, round_index: int, withheld: int) -> None:
     )
 
 
+#: Slot prefix for the switched-off-source refusal. Per round, like
+#: :data:`REPEAT_FETCH_SLOT` and for the same dedupe reason.
+REFUSED_SOURCE_SLOT = "refused"
+
+
+def emit_refused_source(*, round_index: int, withheld: int) -> None:
+    """Record that a round called a source this conversation switched off.
+
+    The counterpart of :func:`emit_repeat_fetch`, on the same channel and with
+    no ``key`` for the same reason: whether the READER is told "one of your
+    searches went to a source you turned off" is a product decision, and a live
+    key would make it silently. The operator question it answers is the one the
+    toggle creates — *how often does a turn reach for a switched-off source,
+    and does the refusal change what it does next?* — which nothing else
+    records, because a refused call runs nothing and announces nothing.
+
+    Args:
+        round_index: The round the refusal applied to.
+        withheld: Calls answered with the refusal instead of being run.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{REFUSED_SOURCE_SLOT}:{round_index}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": f"{REFUSED_SOURCE_SLOT}:{round_index}",
+            "round": round_index,
+            "withheld": withheld,
+        },
+    )
+
+
+#: Slot prefix for the per-round WIDTH cap. Per round for the dedupe reason
+#: above, and its own slot rather than :data:`BUDGET_SLOT`: the two answer
+#: different questions — "the turn ran out of budget" against "one round asked
+#: for more calls at once than a round may run".
+WIDTH_CAP_SLOT = "width"
+
+
+def emit_width_cap(*, round_index: int, kept: int, withheld: int) -> None:
+    """Record that a round asked for more parallel calls than the cap allows.
+
+    Technical channel and no ``key``, like the two guards beside it. A round
+    costs one whatever it fans out into, which is deliberate — but the width of
+    a fan-out is what the stores feel, and nothing else counts it: a 60-call
+    round and a 6-call round are the same single ``status:retrieval:N`` line.
+
+    Args:
+        round_index: The round the cap applied to.
+        kept: Calls handed to the tools, in the order the model emitted them.
+        withheld: Calls answered with the cap notice instead of being run.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{WIDTH_CAP_SLOT}:{round_index}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": f"{WIDTH_CAP_SLOT}:{round_index}",
+            "round": round_index,
+            "kept": kept,
+            "withheld": withheld,
+        },
+    )
+
+
 def emit_research_truncated(
     *,
     ceiling: int,

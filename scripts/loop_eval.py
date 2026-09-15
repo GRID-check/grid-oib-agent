@@ -251,7 +251,8 @@ def punkt_matches(expected: str | None, cited: Sequence[str]) -> str:
 # countable offline and pin-able in tests. They read the SAME events the
 # product emits: ``status:retrieval:N`` live lines, ``retrieve.*`` spans
 # (extended with round/tool/normalized_query/citation_keys/requery and
-# cap/refusal flags), ``status:budget*`` cap records and ``status:repair``.
+# cap/refusal flags), the ``status:budget*`` and ``status:width:N`` cap records
+# and ``status:repair``.
 # No usage/cost telemetry: queries, keys and counts only.
 
 
@@ -271,8 +272,17 @@ _LOCATOR_ELIGIBLE_RE = re.compile(
     re.IGNORECASE,
 )
 
-#: Step names that record a capped fetch (fanout guard, budget exhaustion).
-_CAP_STEP_NAMES = frozenset({"status:budget", "status:budget:fanout"})
+#: Step names that record the turn being CUT OFF: the round ceiling and the
+#: input-token bound. ``status:budget:fanout`` used to be here and names a slot
+#: nothing emits — the round-zero fan-out cap was removed — while
+#: ``status:budget:input`` was missing, so every token-bound stop read as no cap
+#: at all.
+_CAP_STEP_NAMES = frozenset({"status:budget", "status:budget:input"})
+
+#: The per-round WIDTH cap carries its round in the step name
+#: (``status:width:N``), like the retrieval line, so it is matched by prefix
+#: rather than by equality.
+_WIDTH_CAP_STEP_PREFIX = "status:width:"
 
 _REPAIR_STEP_NAME = "status:repair"
 
@@ -350,7 +360,8 @@ def flag_cap_retry(payloads: Sequence[tuple[str, dict]]) -> str:
     """
     capped_at: int | None = None
     for index, (name, body) in enumerate(payloads):
-        if name in _CAP_STEP_NAMES or (name.startswith("retrieve.") and _dropped_by_cap(body)):
+        capped = name in _CAP_STEP_NAMES or name.startswith(_WIDTH_CAP_STEP_PREFIX)
+        if capped or (name.startswith("retrieve.") and _dropped_by_cap(body)):
             capped_at = index
             continue
         if capped_at is not None and (name.startswith("retrieve.") or _ROUND_STEP_RE.match(name)):

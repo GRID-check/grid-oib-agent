@@ -19,9 +19,6 @@ import base64
 import json
 import logging
 from collections.abc import Iterable
-from collections.abc import Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
 from typing import Any
 
 from langchain_core.messages import BaseMessage
@@ -66,31 +63,6 @@ def get_disabled_sources_from_context() -> set[str]:
     return parse_disabled_sources(_read_header(DISABLED_SOURCES_HEADER))
 
 
-#: The sources THIS turn may not consult, for the tools that run inside it.
-#: A ContextVar and not an argument, because a tool signature is the model's
-#: contract and a turn-scoped fact is not the model's business. Set in Piloti's
-#: TOOLS node, around the ``ToolNode`` call — LangGraph runs each node in a task
-#: built with ``copy_context()``, so a value set beside the LLM call is written
-#: to a copy that dies at the node boundary, while the tools are children of the
-#: tools node and do inherit it.
-_turn_disabled_sources: ContextVar[frozenset[str]] = ContextVar("grid_turn_disabled_sources", default=frozenset())
-
-
-def get_turn_disabled_sources() -> frozenset[str]:
-    """The source ids this turn may not consult; empty outside a bound turn."""
-    return _turn_disabled_sources.get()
-
-
-@contextmanager
-def turn_disabled_sources_scope(source_ids: Iterable[str]) -> Iterator[None]:
-    """Bind the turn's switched-off sources for the tools running inside."""
-    token = _turn_disabled_sources.set(frozenset(str(s).strip().lower() for s in source_ids if str(s).strip()))
-    try:
-        yield
-    finally:
-        _turn_disabled_sources.reset(token)
-
-
 def unavailable_source_ids(
     data_sources: list[str] | None,
     disabled_sources: set[str] | None = None,
@@ -116,7 +88,7 @@ def unavailable_source_ids(
     return frozenset(unavailable)
 
 
-def disabled_source_notice(tool_name: str, disabled: Iterable[str] | None = None) -> str | None:
+def disabled_source_notice(tool_name: str, disabled: Iterable[str]) -> str | None:
     """What a call to a switched-off source is answered with; ``None`` to run it.
 
     The ONE place that decides, so a tool, an interception point at the
@@ -128,10 +100,11 @@ def disabled_source_notice(tool_name: str, disabled: Iterable[str] | None = None
     the same reason: the useful next move is to answer from what the turn holds
     and to SAY the source went unconsulted, not to try the same tool again.
 
-    ``disabled=None`` reads the turn's ContextVar, so a tool can call this with
-    nothing but its own name.
+    ``disabled`` is passed, never read from ambient state: the one caller is the
+    interception point at the ``ToolNode`` boundary, and it holds the turn's set
+    on the binding both graph nodes read.
     """
-    unavailable = frozenset(disabled) if disabled is not None else get_turn_disabled_sources()
+    unavailable = frozenset(disabled)
     if not unavailable:
         return None
     source_id = get_source_id_for_tool(tool_name)

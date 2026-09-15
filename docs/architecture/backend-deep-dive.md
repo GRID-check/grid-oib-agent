@@ -1019,8 +1019,10 @@ signature per call (`fetch_signature` in `common/turn_status.py`: the tool plus
 its locus or its query and narrowing) and carries the turn's `executed_fetches`
 on the state; a `knowledge_search` or `read_passage` call whose signature already
 ran is **withheld** — derived once, read in both the agent node and the tools
-node (the one guard on that seam, since the round-zero fan-out cap was removed:
-the budget bounds what a turn costs without prescribing the shape of a round),
+node (one of three guards on that seam, beside the switched-off data source
+and the per-round width cap `max_calls_per_round`; the round-zero fan-out cap
+that judged the SHAPE of a round is gone, and the width cap is a runaway guard
+set far above any batch the prompt asks for, not a doctrine),
 never charged, the
 call left on the AIMessage and answered with a `ToolMessage` saying the result is
 already above. A round that was only repeats therefore costs one interaction

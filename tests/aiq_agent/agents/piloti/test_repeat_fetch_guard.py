@@ -52,6 +52,7 @@ from aiq_agent.common import turn_status
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.turn_status import FETCH_FAILED_MARKER
+from aiq_agent.common.turn_status import current_retrieval_round
 
 #: The research budget these tests run on. Small, so a runaway loop hits the
 #: ceiling inside the test rather than inside the recursion limit.
@@ -60,6 +61,11 @@ _CEILING = 7
 #: Which tools actually ran, in execution order. Module level because a
 #: LangChain ``@tool`` is a module-level object; cleared per test.
 RAN: list[str] = []
+
+#: ``(tool, the round stamp it saw)`` for every tool that RAN. The stamp is
+#: what files a result under a layer of the Herleitung, and it is only readable
+#: from inside the running tool.
+STAMPS: list[tuple[str, int | None]] = []
 
 
 @tool
@@ -80,6 +86,7 @@ def knowledge_search(
             "Retry once with the same query; if it fails again, say you could not search."
         )
     RAN.append(f"knowledge_search:{query}|{file_name or ''}")
+    STAMPS.append(("knowledge_search", current_retrieval_round()))
     return f"Treffer zu: {query}"
 
 
@@ -87,6 +94,7 @@ def knowledge_search(
 def read_passage(document: str, punkt: str | None = None, page: int | None = None) -> str:
     """Open a named passage of a known document."""
     RAN.append(f"read_passage:{document}|{punkt or ''}|{page or ''}")
+    STAMPS.append(("read_passage", current_retrieval_round()))
     return f"Passage aus {document}"
 
 
@@ -114,6 +122,7 @@ def web_search_tool(query: str) -> str:
 def emit_card(kind: str) -> str:
     """Emit a UI card."""
     RAN.append(f"emit_card:{kind}")
+    STAMPS.append(("emit_card", current_retrieval_round()))
     return "Karte erstellt"
 
 
@@ -124,9 +133,11 @@ _TOOLS = [knowledge_search, read_passage, ris_search_tool, web_search_tool, emit
 def _clean_slate():
     FAILING_QUERIES.clear()
     RAN.clear()
+    STAMPS.clear()
     turn_status._retrieval_round.set(None)
     yield
     RAN.clear()
+    STAMPS.clear()
     turn_status._retrieval_round.set(None)
 
 
@@ -472,3 +483,54 @@ class TestTheNoticeItself:
         assert "bereits" in _REPEAT_FETCH_MESSAGE
         assert "Ergebnis oben" in _REPEAT_FETCH_MESSAGE
         assert "andere" in _REPEAT_FETCH_MESSAGE
+
+
+class TestWhatTheSurvivingCallIsFiledUnder:
+    """The round stamp is derived from the calls that RUN, never from the raw message.
+
+    The two nodes agree about which calls are withheld; the stamp has to agree
+    too. The agent node decides „is this a retrieval round?" off what SURVIVED
+    the guards — a round whose only fetch was withheld announces nothing and
+    advances no counter — while the tools node used to ask the same question of
+    the AIMessage, which still carries every call the model asked for. A round
+    of [duplicate fetch, emit_card] therefore answered „yes" on one side and
+    „no" on the other, and the card's result was filed under the PREVIOUS
+    round's search: a layer of the Herleitung gaining a fact that belongs to
+    nothing it did.
+    """
+
+    async def test_a_surviving_action_call_is_not_filed_under_the_last_search(self, scripted_agent):
+        agent = scripted_agent(
+            _batch(_call("read_passage", "a", document="OIB-Richtlinie 2", punkt="3.5.2")),
+            _batch(
+                _call("read_passage", "b", document="OIB-Richtlinie 2", punkt="3.5.2"),
+                _call("emit_card", "c", kind="legal_basis"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        await _run(agent)
+
+        assert STAMPS == [
+            ("read_passage", 0),
+            # Round 1 fetched nothing: its only fetch was the repeat. What ran
+            # is an action, and an action belongs to no layer of the spine —
+            # stamping it 0 would hang the card on the search before it.
+            ("emit_card", None),
+        ]
+
+    async def test_a_round_that_still_fetches_keeps_its_own_number(self, scripted_agent):
+        """The guard took one call; the round is still a fetch round, and the
+        search that survived is filed under the round that announced it."""
+        agent = scripted_agent(
+            _batch(_call("knowledge_search", "a", query="Fluchtweg")),
+            _batch(
+                _call("knowledge_search", "b", query="Fluchtweg"),
+                _call("knowledge_search", "c", query="Treppenraum"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        await _run(agent)
+
+        assert STAMPS == [("knowledge_search", 0), ("knowledge_search", 1)]

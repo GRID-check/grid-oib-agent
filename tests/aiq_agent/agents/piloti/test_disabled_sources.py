@@ -15,9 +15,9 @@ executed. Org-disabled sources (ADR-0022) stay enforced — by the layer that
 cannot be talked around, rather than by absence.
 
 Through the COMPILED GRAPH, because the claim is about what RUNS and what the
-model reads next, and because the ContextVar that carries the turn's set is only
-correct when it is set in the tools node (LangGraph builds each node's task with
-``copy_context()``; a value set beside the LLM call dies at the node boundary).
+model reads next: the agent node decides what to charge and the tools node what
+to execute, and a unit test of either half passes while the two disagree about
+which calls were withheld.
 """
 
 from __future__ import annotations
@@ -43,15 +43,12 @@ from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.data_source_registry import populate_from_config
 from aiq_agent.common.data_source_registry import reset_registry
 from aiq_agent.common.data_sources import disabled_source_notice
-from aiq_agent.common.data_sources import get_turn_disabled_sources
 from aiq_agent.common.data_sources import unavailable_source_ids
 from aiq_agent.common.prompt_caching import prompt_cache_key
 
 _PROMPT = "Du bist Piloti."
 
 RAN: list[str] = []
-#: What the turn's ContextVar looked like from INSIDE a tool that ran.
-SEEN_DISABLED: list[frozenset[str]] = []
 
 
 @tool
@@ -65,7 +62,6 @@ def web_search_tool(query: str) -> str:
 def knowledge_search(query: str) -> str:
     """Search the OIB knowledge corpus."""
     RAN.append(f"knowledge_search:{query}")
-    SEEN_DISABLED.append(get_turn_disabled_sources())
     return f"Treffer zu: {query}"
 
 
@@ -118,11 +114,9 @@ def _registry():
 @pytest.fixture(autouse=True)
 def _clean_slate():
     RAN.clear()
-    SEEN_DISABLED.clear()
     turn_status._retrieval_round.set(None)
     yield
     RAN.clear()
-    SEEN_DISABLED.clear()
     turn_status._retrieval_round.set(None)
 
 
@@ -285,15 +279,31 @@ class TestWhatARefusedRoundCosts:
         assert result.tool_iterations == 1
         assert [step["slot"] for step in steps if str(step["slot"]).startswith("retrieval")] == []
 
+    async def test_the_refusal_is_reported_as_its_own_technical_event(self, steps):
+        """A refused call runs nothing and announces nothing, so without this
+        record the toggle's effect on a turn is invisible — the repeat guard
+        beside it has had `status:repeat:N` all along."""
+        agent, _llm = _agent(
+            _batch(
+                _call("web_search_tool", "w", query="OIB 2"),
+                _call("knowledge_search", "k", query="OIB 2"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
 
-class TestTheTurnsSetReachesTheTools:
-    async def test_a_tool_that_runs_can_read_the_switched_off_set(self):
-        """The ContextVar is set in the TOOLS node, so the tools inherit it.
+        await _run(agent, {"web_search"})
 
-        Set beside the LLM call it would be written to a context copy that dies
-        at the node boundary, and every tool would see an empty set while the
-        unit tests stayed green.
-        """
+        (record,) = [step for step in steps if str(step["slot"]).startswith("refused")]
+        assert record["step"] == "status:refused:0"
+        assert (record["round"], record["withheld"]) == (0, 1)
+        # Technical and key-less, like the repeat record: whether the READER is
+        # told is a product decision, and a live key would make it silently.
+        assert record["channel"] == turn_status.CHANNEL_TECHNICAL
+        assert "key" not in record
+
+    async def test_a_round_with_nothing_refused_leaves_no_record(self, steps):
+        """A constant is not an event: the toggle is on for the whole turn, and
+        only a call that MET it is worth a record."""
         agent, _llm = _agent(
             _batch(_call("knowledge_search", "k", query="OIB 2")),
             AIMessage(content="Die Antwort [1]."),
@@ -301,17 +311,7 @@ class TestTheTurnsSetReachesTheTools:
 
         await _run(agent, {"web_search"})
 
-        assert SEEN_DISABLED == [frozenset({"web_search"})]
-
-    async def test_it_is_unbound_again_after_the_turn(self):
-        agent, _llm = _agent(
-            _batch(_call("knowledge_search", "k", query="OIB 2")),
-            AIMessage(content="Die Antwort [1]."),
-        )
-
-        await _run(agent, {"web_search"})
-
-        assert get_turn_disabled_sources() == frozenset()
+        assert [step for step in steps if str(step["slot"]).startswith("refused")] == []
 
 
 class TestOneCacheShardPerOrgAndModel:

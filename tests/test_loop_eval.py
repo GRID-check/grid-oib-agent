@@ -287,7 +287,7 @@ class TestCapRetryIsPositional:
         payloads = [
             ("status:retrieval:0", {}),
             ("retrieve.knowledge", {"input": {"query": "a"}}),
-            ("status:budget:fanout", {}),
+            ("status:width:0", {"kept": 12, "withheld": 3}),
             ("status:retrieval:1", {}),
             ("retrieve.knowledge", {"input": {"query": "b"}}),
         ]
@@ -297,9 +297,18 @@ class TestCapRetryIsPositional:
         payloads = [
             ("status:retrieval:0", {}),
             ("retrieve.knowledge", {"input": {"query": "a"}}),
-            ("status:budget:fanout", {}),
+            ("status:width:0", {"kept": 12, "withheld": 3}),
         ]
         assert loop_eval.flag_cap_retry(payloads) == "no"
+
+    def test_the_input_token_stop_is_a_cap(self):
+        """The slot that replaced the deleted fan-out one. It was missing from
+        the set, so every token-bound stop read as no cap at all."""
+        payloads = [
+            ("status:budget:input", {"limit": 600000, "spent": 600001}),
+            ("retrieve.knowledge", {"input": {"query": "b"}}),
+        ]
+        assert loop_eval.flag_cap_retry(payloads) == "yes"
 
     def test_a_diversity_cap_on_a_retrieved_pool_counts_too(self):
         payloads = [

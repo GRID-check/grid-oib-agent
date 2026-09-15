@@ -34,9 +34,12 @@ from unittest.mock import patch
 import pytest
 from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
+from aiq_agent.agents.piloti.agent import _DEFAULT_MAX_CALLS_PER_ROUND
 from aiq_agent.agents.piloti.agent import _SYNTHESIS_ANCHOR
+from aiq_agent.agents.piloti.agent import _WIDTH_CAP_MESSAGE
 from aiq_agent.agents.piloti.agent import PilotiAgent
 from aiq_agent.agents.piloti.agent import _recursion_limit
 from aiq_agent.agents.piloti.models import ResearchAgentState
@@ -140,7 +143,12 @@ def _batch(*calls: dict, thought: str = "") -> AIMessage:
     return AIMessage(content=thought, tool_calls=list(calls))
 
 
-def _agent(*rounds: AIMessage, ceiling: int = 7, max_input_tokens: int = 0) -> PilotiAgent:
+def _agent(
+    *rounds: AIMessage,
+    ceiling: int = 7,
+    max_input_tokens: int = 0,
+    max_calls_per_round: int = 0,
+) -> PilotiAgent:
     llm = MagicMock()
     llm.bind_tools = MagicMock(return_value=llm)
     llm.bind = MagicMock(return_value=llm)
@@ -153,6 +161,7 @@ def _agent(*rounds: AIMessage, ceiling: int = 7, max_input_tokens: int = 0) -> P
         system_prompt=_PROMPT,
         max_tool_iterations=ceiling,
         max_input_tokens_per_turn=max_input_tokens,
+        max_calls_per_round=max_calls_per_round,
     )
 
 
@@ -334,3 +343,154 @@ class TestTheInputTokenStop:
 
         assert result.tool_iterations == 1
         assert result.research_truncated is None
+
+
+class TestTheRoundWidthCap:
+    """What bounds ONE round's fan-out, which neither other bound sees.
+
+    A round costs one whatever it asked for — that is the point of the round
+    budget, and the family overview the prompt asks for is five parallel opens
+    in one batch. But „a round is free to be wide" and „a round may be sixty
+    concurrent calls into the vector store" are not the same claim, and the
+    input-token bound cannot tell them apart: it is checked at the START of the
+    next round, by which time the fan-out has already been served.
+
+    So the cap keeps the first N calls in the order the model emitted them and
+    answers the rest under the withholding pattern the other two guards use —
+    still on the AIMessage, still answered exactly once, and told they may be
+    issued again next round.
+    """
+
+    async def test_a_round_wider_than_the_cap_runs_only_the_first_calls(self):
+        agent = _agent(
+            _batch(*(_call("read_passage", f"p{index}", document=f"Dok {index}") for index in range(6))),
+            AIMessage(content="Die Antwort [1]."),
+            max_calls_per_round=2,
+        )
+
+        result = await _run(agent)
+
+        assert len(RAN) == 2
+        # The FIRST two, not a sample: the model emits its most important call
+        # first, and a guard that reordered the round would be researching.
+        assert set(RAN) == {"read_passage:Dok 0|", "read_passage:Dok 1|"}
+        assert result.tool_iterations == 1
+
+    async def test_the_deferred_calls_are_answered_not_deleted(self):
+        """A provider rejects an un-answered tool call on the NEXT request, so
+        the withheld ones keep their place on the message and get a result."""
+        agent = _agent(
+            _batch(*(_call("read_passage", f"p{index}", document=f"Dok {index}") for index in range(4))),
+            AIMessage(content="Die Antwort [1]."),
+            max_calls_per_round=2,
+        )
+
+        result = await _run(agent)
+
+        asked = [call["id"] for m in result.messages if isinstance(m, AIMessage) for call in (m.tool_calls or [])]
+        answered = [m.tool_call_id for m in result.messages if isinstance(m, ToolMessage)]
+        assert sorted(answered) == sorted(asked) == ["p0", "p1", "p2", "p3"]
+
+    async def test_the_notice_says_it_may_be_issued_again_next_round(self):
+        """Not a refusal: the call was not run THIS round. A notice that read
+        as „never" would cost the turn the passage it still needs."""
+        agent = _agent(
+            _batch(
+                _call("read_passage", "a", document="Dok A"),
+                _call("read_passage", "b", document="Dok B"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+            max_calls_per_round=1,
+        )
+
+        result = await _run(agent)
+
+        (deferred,) = [m for m in result.messages if isinstance(m, ToolMessage) and m.tool_call_id == "b"]
+        assert str(deferred.content) == _WIDTH_CAP_MESSAGE
+        assert "nächsten Runde" in _WIDTH_CAP_MESSAGE
+        assert "Nicht ausgeführt" in _WIDTH_CAP_MESSAGE
+
+    async def test_a_capped_round_leaves_its_own_technical_record(self, steps):
+        agent = _agent(
+            _batch(*(_call("read_passage", f"p{index}", document=f"Dok {index}") for index in range(5))),
+            AIMessage(content="Die Antwort [1]."),
+            max_calls_per_round=2,
+        )
+
+        await _run(agent)
+
+        (record,) = [step for step in steps if str(step["slot"]).startswith("width")]
+        assert record["step"] == "status:width:0"
+        assert (record["round"], record["kept"], record["withheld"]) == (0, 2, 3)
+        assert record["channel"] == turn_status.CHANNEL_TECHNICAL
+        assert "key" not in record
+
+    async def test_the_deferred_call_runs_when_it_is_issued_again(self):
+        """The whole claim of „next round": nothing about the call was recorded
+        as done, so the second round runs it for real."""
+        agent = _agent(
+            _batch(
+                _call("read_passage", "a", document="Dok A"),
+                _call("read_passage", "b", document="Dok B"),
+            ),
+            _batch(_call("read_passage", "b2", document="Dok B")),
+            AIMessage(content="Die Antwort [1]."),
+            max_calls_per_round=1,
+        )
+
+        result = await _run(agent)
+
+        assert RAN == ["read_passage:Dok A|", "read_passage:Dok B|"]
+        assert result.tool_iterations == 2
+
+    async def test_a_round_at_the_cap_is_untouched(self, steps):
+        """A guard that fires on the batch the prompt asks for is a hobble."""
+        agent = _agent(
+            _batch(*(_call("read_passage", f"p{index}", document=f"Dok {index}") for index in range(5))),
+            AIMessage(content="Die Antwort [1]."),
+            max_calls_per_round=5,
+        )
+
+        result = await _run(agent)
+
+        assert len(RAN) == 5
+        assert result.tool_iterations == 1
+        assert [step for step in steps if str(step["slot"]).startswith("width")] == []
+
+    async def test_zero_disables_the_cap(self):
+        agent = _agent(
+            _batch(*(_call("read_passage", f"p{index}", document=f"Dok {index}") for index in range(20))),
+            AIMessage(content="Die Antwort [1]."),
+            max_calls_per_round=0,
+        )
+
+        await _run(agent)
+
+        assert len(RAN) == 20
+
+    async def test_the_cap_counts_what_would_RUN_not_what_was_asked(self):
+        """The other guards go first. Two of these four calls are the same
+        passage twice, so the round asks the store for three — and a cap of
+        three has no opinion about it."""
+        agent = _agent(
+            _batch(
+                _call("read_passage", "a", document="Dok A"),
+                _call("read_passage", "a2", document="Dok A"),
+                _call("read_passage", "b", document="Dok B"),
+                _call("read_passage", "c", document="Dok C"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+            max_calls_per_round=3,
+        )
+
+        result = await _run(agent)
+
+        assert len(RAN) == 3
+        assert result.tool_iterations == 1
+        assert not any(str(m.content) == _WIDTH_CAP_MESSAGE for m in result.messages if isinstance(m, ToolMessage))
+
+    def test_the_default_is_a_runaway_guard_not_a_doctrine(self):
+        """Far above every batch the prompt asks for. A cap that fires on a
+        normal turn would price parallelism, which the round budget exists to
+        stop doing."""
+        assert _DEFAULT_MAX_CALLS_PER_ROUND >= 12

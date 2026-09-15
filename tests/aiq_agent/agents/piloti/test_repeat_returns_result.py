@@ -26,6 +26,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
+from aiq_agent.agents.piloti.agent import _FAILED_FETCH_REPEAT_MESSAGE
 from aiq_agent.agents.piloti.agent import _REPEAT_FETCH_MESSAGE
 from aiq_agent.agents.piloti.agent import _REPEAT_FETCH_PREFIX
 from aiq_agent.agents.piloti.agent import PilotiAgent
@@ -217,6 +218,65 @@ class TestWhatIsStillTheSentence:
 
         assert len(RAN) == 2, "the retry was withheld and answered with a result nothing fetched"
         assert _answer_for(result, "b") == _PASSAGE
+
+    async def test_a_same_batch_duplicate_of_a_FAILED_fetch_is_told_it_failed(self):
+        """The one case where „das Ergebnis oben ist die Antwort" is a lie.
+
+        Both calls are in ONE batch, so the guard withholds the second before
+        anything has run — and the first then fails. There is no result above,
+        so the standard notice points at nothing and the model, believing the
+        passage is in its transcript, stops asking for it. A failure signs
+        nothing precisely so its retry stays available; the notice has to say
+        the same thing.
+        """
+        FAILING.add("OIB-Richtlinie 2")
+        agent = _agent(
+            _batch(
+                _call("read_passage", "a", document="OIB-Richtlinie 2", punkt="3.5.2"),
+                _call("read_passage", "b", document="OIB-Richtlinie 2", punkt="3.5.2"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert len(RAN) == 1, "the duplicate still does not run"
+        assert _answer_for(result, "b") == _FAILED_FETCH_REPEAT_MESSAGE
+        assert "fehlgeschlagen" in _FAILED_FETCH_REPEAT_MESSAGE
+        assert "nächsten Runde" in _FAILED_FETCH_REPEAT_MESSAGE
+        assert "Ergebnis oben" not in _FAILED_FETCH_REPEAT_MESSAGE
+
+    async def test_the_retry_of_that_failed_fetch_runs_in_the_next_round(self):
+        """Which is what the notice promised: nothing was recorded as fetched,
+        so the round after it may ask again and the call really runs."""
+        FAILING.add("OIB-Richtlinie 2")
+        agent = _agent(
+            _batch(
+                _call("read_passage", "a", document="OIB-Richtlinie 2", punkt="3.5.2"),
+                _call("read_passage", "b", document="OIB-Richtlinie 2", punkt="3.5.2"),
+            ),
+            _batch(_call("read_passage", "c", document="OIB-Richtlinie 2", punkt="3.5.2")),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert len(RAN) == 2
+        assert _answer_for(result, "c") == _PASSAGE
+
+    async def test_a_successful_first_call_still_hands_back_its_text(self):
+        """The failure branch must not swallow the ordinary same-batch case."""
+        agent = _agent(
+            _batch(
+                _call("read_passage", "a", document="OIB-Richtlinie 2", punkt="3.5.2"),
+                _call("read_passage", "b", document="OIB-Richtlinie 2", punkt="3.5.2"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert _answer_for(result, "b") == f"{_REPEAT_FETCH_PREFIX}\n\n{_PASSAGE}"
 
     def test_a_signature_the_turn_does_not_hold_falls_back_to_the_sentence(self):
         """Driven directly (no cached map), the guard still answers rather than

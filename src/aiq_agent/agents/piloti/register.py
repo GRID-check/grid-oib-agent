@@ -103,6 +103,18 @@ class ResearchAgentConfig(FunctionBaseConfig, name="research_agent"):
             "0 disables it."
         ),
     )
+    max_calls_per_round: int = Field(
+        default=12,
+        description=(
+            "How many tool calls of ONE round are actually run. A runaway guard, not a doctrine: "
+            "a round costs one whatever it fans out into, and a model that opens all five members "
+            "of a Richtlinien-Familie at once is using its round well — so this sits far above any "
+            "batch the prompt asks for. What it bounds is the shape nothing else sees, a round of "
+            "sixty parallel calls into the stores, which `max_input_tokens_per_turn` only notices "
+            "at the START of the next round. The calls past it are answered with a notice saying "
+            "they may be issued again next round, never removed from the message. 0 disables it."
+        ),
+    )
     repair_pass: bool = Field(
         default=True,
         description=(
@@ -386,6 +398,7 @@ async def research_agent(config: ResearchAgentConfig, builder: Builder):
         tools=tools,
         max_tool_iterations=config.max_tool_iterations,
         max_input_tokens_per_turn=config.max_input_tokens_per_turn,
+        max_calls_per_round=config.max_calls_per_round,
         callbacks=callbacks,
         tool_search=config.tool_search,
         deferred_tool_loading=config.deferred_tool_loading,

@@ -192,6 +192,10 @@ functions:
       - emit_card
     verbose: true
     max_tool_iterations: 5
+    # Runaway guard on ONE round's fan-out, not a doctrine: a round costs
+    # one however wide it is, and the calls past this are answered with a
+    # notice saying they may be issued again next round. 0 disables it.
+    max_calls_per_round: 12
 
   deep_research_agent:
     _type: deep_research_agent
