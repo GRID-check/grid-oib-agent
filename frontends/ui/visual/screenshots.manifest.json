@@ -1248,7 +1248,7 @@
     },
     "platform-skills": {
       "route": "src/app/dev/platform-skills/page.tsx",
-      "routeHash": "9694a351dc118cc67f44018a23c2c241b9aab22755caae6d0df1e9db3795f6f4",
+      "routeHash": "3290e3c6ef822365c630011744bbac7ea5b17d09ff0fc737419e106f1c47c396",
       "shots": [
         "platform-skills.light.png",
         "platform-skills.dark.png"
@@ -1560,7 +1560,7 @@
     },
     "skills-panel": {
       "route": "src/app/dev/skills-panel/page.tsx",
-      "routeHash": "b80872801310badede246fab3b26a2dad7de7b8c807a5db46c10333a29e27f4f",
+      "routeHash": "f4f90abdb80ad9ac55b605b140fff2dd019f179bdd5a510468035ffe9e11b963",
       "shots": [
         "skills-panel.light.png",
         "skills-panel.dark.png"
