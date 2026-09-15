@@ -16,8 +16,11 @@ that fetch returned — not a mutated search caption.
 
 **The agent is built once, at boot.** The prompt is read, the graph compiled
 and the boot tools bound in `register.py`; what a turn varies — model override,
-narrowed data sources, the org's `use_skill` closure — travels as a
-`TurnConfig` into `agent.run`. Anything you add that reads a file, compiles a
+the org's `use_skill` closure, the data sources this conversation switched off —
+travels as a `TurnConfig` into `agent.run`. A switched-off source does NOT
+narrow the binding: the tool stays bound and the call is refused at the
+`ToolNode` boundary, so the tool payload (and the prompt-cache shard keyed on
+it) is the same for every turn of an org. Anything you add that reads a file, compiles a
 graph or builds an index belongs in the boot half.
 `tests/aiq_agent/agents/piloti/test_build_once.py` counts it.
 
@@ -38,7 +41,7 @@ grounding a legal verdict.
 |---|---|---|
 | Rename a config key, a graph node, or `PROFILE_AGENT_NAME` | Leave the wire names in the section below as they are | Nothing local. Stored turns re-render wrong, or a checkpoint stops resuming. A comment at each site names the reader |
 | Add a field the reader sees | Put it on Piloti's state and lift it through `conversation.ANSWER_LIFTS` / `turn.response` | Silence. `research_truncated` was set, declared by the frontend, and reached nobody for months |
-| Change what a round of tool calls COSTS or RUNS | Derive it once and read it in both nodes. The agent node decides what to charge, the tools node what to execute, and they see the same calls at different `retrieval_round` values (`_announced_round` / `_executing_retrieval_round` — off by one, on purpose). One guard sits on that seam: the duplicate-fetch guard (a fetch whose signature already ran this turn). It withholds without charging. Two derivations eventually charge for a call nothing ran, or run one nothing paid for | Nothing local, and nothing in a unit test of either half. Only a test through the compiled graph that asserts both the spend and the executed calls (`test_repeat_fetch_guard.py`) |
+| Change what a round of tool calls COSTS or RUNS | Derive it once and read it in both nodes. The agent node decides what to charge, the tools node what to execute, and they see the same calls at different `retrieval_round` values (`_announced_round` / `_executing_retrieval_round` — off by one, on purpose). The budget is ONE per round, whatever the round asked for, so what the two nodes must agree on is which calls are WITHHELD, not how many there are. Two guards sit on that seam: the duplicate-fetch guard (a fetch whose signature already ran this turn, answered with that fetch's own earlier result) and the switched-off data source (`disabled_source_notice`, answered with one sentence). Both withhold without running and without being announced; the round they empty still costs its one. Two derivations eventually announce a search nothing ran, or run one nothing paid for | Nothing local, and nothing in a unit test of either half. Only a test through the compiled graph that asserts both the spend and the executed calls (`test_repeat_fetch_guard.py`, `test_repeat_returns_result.py`, `test_disabled_sources.py`, `test_budget_by_rounds.py`) |
 | Withhold a tool call the model asked for | Leave it on the AIMessage and answer it with a `ToolMessage` saying why. Never delete it from `tool_calls` | A provider rejects a tool result with no matching call, and an un-answered call too. The turn dies on the NEXT request, not on this one |
 | Give a TOOL something about this turn through a `ContextVar` | Set it in `_tools_node`, around the `ToolNode` call, never beside the LLM call in the agent node. LangGraph runs each node in a task built with `copy_context()`, so a value set in the agent node is written to a copy that dies at the node boundary — parallel tool calls, being children of the tools node, do inherit it | Silence, and green unit tests. Every Trace-Lanes hit shipped with no round stamp for a release and the Herleitung hung both fetches on the first checkpoint. Only a test that goes through the compiled graph and reads the var inside a tool can fail on it |
 | Change what the clarify step is given | Edit `ClarifierSettings` on `chat_deepresearcher_agent`, and leave `AgentGroup.CLARIFIER` alone: an org's model choice is stored against it | An org's pinned clarifier model silently stops applying |

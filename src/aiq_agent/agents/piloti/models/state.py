@@ -35,10 +35,7 @@ class ResearchAgentState(BaseModel):
         focus_file_name: Filename of the composer's "Asking about <file>" subject.
         focus_shelf: Shelf that focused file sits on (session/project/archiv).
         collection_name: Knowledge collection name (for fetching documents).
-        tool_iterations: Counter for tool-calling iterations (the RESEARCH
-            budget; see ``interaction_iterations`` for the output channel).
-        interaction_iterations: Counter for interaction-tool calls (`emit_card`,
-            `describe_card`, `remember`), which are budgeted separately.
+        tool_iterations: Counter for tool-calling ROUNDS (the research budget).
         source_lookup_attempted: Whether the turn called a data-source tool at
             all. Set by ``run()``. With the self-assessment it is what the chat
             node reads the observed routing from: neither → a direct reply.
@@ -65,6 +62,18 @@ class ResearchAgentState(BaseModel):
     #: just-attached plan look exactly like a file that does not exist.
     in_flight_documents: list[str] | None = None
     collection_name: str | None = None
+    #: Tool-calling ROUNDS this turn has spent — LLM decisions that emitted tool
+    #: calls — against ``max_tool_iterations``. The NAME says iterations and is
+    #: kept deliberately: it is what the config key, the agent kwarg and the
+    #: suite all call this number, and renaming it would buy nothing but churn.
+    #: What changed is the UNIT. It used to be emitted CALLS, so a round of five
+    #: parallel ``read_passage`` opens — the family overview the prompt asks for
+    #: — cost five of seven and the commonest question the product answers ran
+    #: out of budget. A round is one decision; how many calls the model fans it
+    #: into is the model using the round well or badly, and that is not
+    #: something a budget should price. An interaction-only round (`emit_card`,
+    #: `remember`, the working directory's file verbs) costs one like every
+    #: other, which is why there is no second counter beside this one any more.
     tool_iterations: int = 0
     #: How many SEARCH rounds this turn has already announced. Distinct from
     #: ``tool_iterations`` so ``emit_card`` / ``remember`` cannot steal the
@@ -88,24 +97,15 @@ class ResearchAgentState(BaseModel):
     #: chat node builds a fresh state each turn, and a fetch is only wasted
     #: within the turn that already holds its result.
     executed_fetches: list[str] = []
-    # Interaction-tool calls spent this turn (`emit_card`, `describe_card`,
-    # `remember`). Counted APART from ``tool_iterations`` because those calls are
-    # the answer's output channel rather than research: charging them to the
-    # research budget made the turn's second card unreachable on any turn that
-    # had actually searched, since cards are emitted last and forced synthesis
-    # forbids further tool calls. The first
-    # ``agent._INTERACTION_TOOL_ALLOWANCE`` of them cost no research budget; the
-    # rest are charged normally, so the loop still terminates on the same
-    # ceiling. Per-turn: the chat node builds a fresh state each turn.
-    #
-    # One thing that is not an interaction call is counted here too: a ROUND
-    # whose every call was withheld (the round-zero cap, or the duplicate-fetch
-    # guard against ``executed_fetches``). It bought no evidence, so it must not
-    # shrink the research budget — but it cost a graph round, and this is the
-    # allowance that is already bounded and already stops being free, so it is
-    # what makes a model that re-asks for the same passage every round
-    # terminate. See ``agent._charge_tool_calls``.
-    interaction_iterations: int = 0
+    #: What each of those fetches RETURNED, signature → the tool's own text.
+    #: The other half of ``executed_fetches``, written by the same node from the
+    #: same calls under the same rule (a failure signs nothing). It exists so a
+    #: withheld repeat can be answered with the ORIGINAL RESULT instead of a
+    #: sentence pointing at the transcript: a tool delivers an answer, and a
+    #: model told to go and look further up asks a third time. Holds references
+    #: to strings the transcript already carries, so it costs the turn nothing
+    #: beyond the dict. Per-turn like the signatures beside it.
+    fetch_results: dict[str, str] = {}
     project_context: str | None = None
     # Anonymized fleet-wide failure patterns distilled from user feedback,
     # threaded through from ``ConversationState`` (see the note there).

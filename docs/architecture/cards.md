@@ -486,7 +486,8 @@ unreachable, for a reason that had nothing to do with the doctrine.
 
 Piloti forces synthesis at `tool_iteration_ceiling` (`max_tool_iterations`,
 seven in production — one number, with nothing reserved on top of it since no
-skill is forced on a turn), and every tool call was charged to it — `emit_card` and `describe_card` included. Those are the answer's OUTPUT
+skill is forced on a turn), and every tool CALL used to be charged to it —
+`emit_card` and `describe_card` included. Those are the answer's OUTPUT
 channel, and they are called last, after the searching is done, so on any turn
 that actually researched, the ceiling landed on the cards rather than on the
 research. The forced-synthesis anchor then says "Do not attempt any further tool
@@ -494,15 +495,13 @@ calls", which made the second card unreachable by construction: the model had
 already decided to draw it, and nothing in the answer, the log or the
 `research_truncated` note said what had been lost.
 
-So the interaction tools have their own allowance
-(`_INTERACTION_TOOL_ALLOWANCE`, six — one shape lookup, three `emit_card` calls,
-a `remember`, and one spare for the retry a validation failure invites), spent
-before the research budget is touched. It is sized at the doctrine's most
-generous reading on purpose: it decides only when a card starts costing
-research, never how many cards an answer should carry. It is a CEILING on the
-exemption rather than a second budget: a call past it is charged to research
-again, so the tool loop still terminates where it always did. The counter is
-`interaction_iterations` on Piloti's state, per turn.
+The fix was the UNIT, not an exemption. The budget counts tool-calling ROUNDS
+now — one LLM decision that emitted tool calls, costing one whatever it asked
+for — so a round that draws a shape lookup and both cards costs exactly what
+the search before it cost, and the card channel needs no allowance of its own.
+The separate `_INTERACTION_TOOL_ALLOWANCE` and its `interaction_iterations`
+counter are gone with the per-call budget they existed to survive: a second
+currency is a second thing to keep in step, and this one now buys nothing.
 
 The rule this leaves is the one that was always meant to be in force: how many
 cards an answer carries is a judgement about the answer, decided by the doctrine

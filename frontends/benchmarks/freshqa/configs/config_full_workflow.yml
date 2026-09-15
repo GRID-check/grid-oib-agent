@@ -47,7 +47,6 @@ functions:
     llm: nemotron_super_llm
     tools:
       - web_search_tool
-    max_llm_turns: 10
     max_tool_iterations: 5
     verbose: true
 

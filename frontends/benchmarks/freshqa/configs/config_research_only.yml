@@ -38,7 +38,6 @@ functions:
   shallow_research_agent:
     _type: research_agent
     llm: nemotron_super_llm
-    max_llm_turns: 20
     tools:
       - web_search_tool
 

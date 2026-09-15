@@ -275,7 +275,7 @@ class ConversationGraph:
         deep_research_fn: Callable[[DeepResearchAgentState], Awaitable[DeepResearchAgentState]],
         clarifier_fn: ClarifyFn | None,
         *,
-        max_history_tokens: int = 8000,
+        max_history_tokens: int = 40000,
         deep_research_job_submitter: Callable[[ConversationState], Awaitable[str]] | None = None,
         checkpointer: BaseCheckpointSaver | None = None,
         validate_deep_research_tools_fn: Callable[[list[str] | None], tuple[bool, str]] | None = None,

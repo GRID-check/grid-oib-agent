@@ -1210,6 +1210,13 @@ def emit_synthesis() -> None:
 #: a retrieval line and the frontend's name dedupe keeps it apart.
 BUDGET_SLOT = "budget"
 
+#: Slot for the INPUT-TOKEN stop. Its own slot rather than :data:`BUDGET_SLOT`,
+#: for the reason ``budget:deep`` has one: two step records sharing a name
+#: collapse under the frontend's dedupe, and these two answer different
+#: questions — "the investigation was cut off" against "the turn got
+#: expensive". Counting them together would make either unanswerable.
+INPUT_BUDGET_SLOT = "budget:input"
+
 
 #: Slot prefix for the family-coverage record. The family key is part of the
 #: STEP NAME, like ``status:checkpoint:N`` and for the same reason: a turn that
@@ -1303,14 +1310,19 @@ def emit_research_truncated(
     exist at all before it can be counted.
 
     Args:
-        ceiling: The tool-call count that triggered forced synthesis.
+        ceiling: The ROUND count that triggered forced synthesis.
         research_budget: ``max_tool_iterations``. The same number as ``ceiling``
             now that nothing is reserved on top of it; both are recorded so a
             counted record stays readable across the change.
-        spent: Tool calls charged when the ceiling was hit (≥ ceiling: a
-            parallel batch can cross it by more than one).
-        rounds: LLM turns that asked for tools — the pair with ``spent`` that
-            distinguishes one greedy batch from a long walk into the wall.
+        spent: Rounds charged when the ceiling was hit. Equal to ``rounds``
+            since the budget became one unit per ROUND rather than per emitted
+            call; both stay on the payload so a record counted before and after
+            the change reads the same way, and a reader never has to know which
+            release wrote it.
+        rounds: LLM turns that asked for tools. Was the pair with ``spent``
+            that told one greedy batch from a long walk into the wall — a
+            distinction the round budget removes, because a greedy batch is now
+            one round and costs one.
         shape: Ordered tool basenames of the run. Names only; a query string is
             the reader's own words and does not belong in telemetry.
     """
@@ -1327,6 +1339,46 @@ def emit_research_truncated(
     if shape:
         payload["tools"] = list(shape)
     push_custom_step(f"{STATUS_STEP_PREFIX}{BUDGET_SLOT}", payload)
+
+
+def emit_input_budget_exhausted(
+    *,
+    limit: int,
+    spent: int,
+    rounds: int,
+    shape: list[str] | None = None,
+) -> None:
+    """Record that a turn was cut off by what it COST, not by how far it got.
+
+    The other half of :func:`emit_research_truncated`, and technical for the
+    same reason: whether the reader is told "this answer stopped early" is a
+    product decision. What this is for is the operator question the bound
+    creates the moment it exists — *does it ever fire, and on what?* A stop
+    sized above every turn we have measured should be silent for releases at a
+    time; the day it is not is either a runaway worth seeing or a ceiling that
+    has gone stale, and nothing else in the log tells the two apart.
+
+    Args:
+        limit: ``max_input_tokens_per_turn``, the bound that fired.
+        spent: Cumulative input tokens the turn had metered when it fired
+            (≥ limit: the call that crossed it is never cut off mid-flight).
+        rounds: Rounds the turn had spent — the pair with ``spent`` that says
+            whether this was one enormous context or many ordinary ones.
+        shape: Ordered tool basenames of the run. Names only; a query string is
+            the reader's own words and does not belong in telemetry.
+    """
+    payload: dict[str, Any] = {
+        "kind": "status",
+        "channel": CHANNEL_TECHNICAL,
+        "slot": INPUT_BUDGET_SLOT,
+        "truncated": True,
+        "limit": limit,
+        "spent": spent,
+        "rounds": rounds,
+    }
+    if shape:
+        payload["tools"] = list(shape)
+    push_custom_step(f"{STATUS_STEP_PREFIX}{INPUT_BUDGET_SLOT}", payload)
 
 
 #: Slot for the DEEP researcher's own budget record. Its own slot rather than

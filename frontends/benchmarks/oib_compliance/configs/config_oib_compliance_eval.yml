@@ -191,7 +191,6 @@ functions:
       - remember
       - emit_card
     verbose: true
-    max_llm_turns: 10
     max_tool_iterations: 5
 
   deep_research_agent:

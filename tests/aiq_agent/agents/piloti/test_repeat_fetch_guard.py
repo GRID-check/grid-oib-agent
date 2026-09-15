@@ -17,8 +17,16 @@ or a call nothing paid for.
 
 The transcript invariant is pinned here too. The AIMessage keeps every tool
 call it made and each one gets exactly one result — the withheld ones get the
-sentence saying why — because a provider rejects a tool result with no matching
-call, and rejects an un-answered call too.
+FIRST execution's own result back, behind one line saying it is the earlier one
+— because a provider rejects a tool result with no matching call, and rejects
+an un-answered call too.
+
+What a withheld repeat is ANSWERED with is the other half of the guard. A tool
+delivers an answer; a sentence pointing at the transcript ("das Ergebnis oben
+ist die Antwort") asks the model to go and find something, and a model that
+cannot find it asks a third time. So the cached result comes back verbatim, and
+the retry the notice was trying to talk the model out of has nothing left to
+want.
 """
 
 from __future__ import annotations
@@ -35,6 +43,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
 from aiq_agent.agents.piloti.agent import _REPEAT_FETCH_MESSAGE
+from aiq_agent.agents.piloti.agent import _REPEAT_FETCH_PREFIX
 from aiq_agent.agents.piloti.agent import _SYNTHESIS_ANCHOR
 from aiq_agent.agents.piloti.agent import PilotiAgent
 from aiq_agent.agents.piloti.models import ResearchAgentState
@@ -200,6 +209,11 @@ def _answer_for(result, call_id: str) -> str:
     return str(message.content)
 
 
+def _is_repeat_notice(text: str) -> bool:
+    """Whether a tool result is the guard's answer rather than a fresh fetch."""
+    return text.startswith(_REPEAT_FETCH_PREFIX) or text == _REPEAT_FETCH_MESSAGE
+
+
 def _asked(result) -> list[str]:
     """Every tool-call id the model asked for, in order."""
     return [call["id"] for m in result.messages if isinstance(m, AIMessage) for call in (m.tool_calls or [])]
@@ -216,13 +230,12 @@ class TestTheSecondIdenticalFetch:
         result = await _run(agent)
 
         assert RAN == ["knowledge_search:Fluchtweglänge GK4|"]
-        assert _answer_for(result, "b") == _REPEAT_FETCH_MESSAGE
-        # One research call for the search that ran, and one for the round that
-        # asked again: the guard saves the FETCH, not the round. Charging the
-        # round to the card allowance instead used to let nine repeats exhaust
-        # it and flag a turn `research_truncated` that was never cut short.
+        # The repeat is answered with what the first call returned, not with a
+        # pointer at the transcript.
+        assert _answer_for(result, "b") == f"{_REPEAT_FETCH_PREFIX}\n\nTreffer zu: Fluchtweglänge GK4"
+        # One round for the search that ran, and one for the round that asked
+        # again: the guard saves the FETCH, not the round.
         assert result.tool_iterations == 2
-        assert result.interaction_iterations == 0
         # The call stays on the AIMessage: the transcript shows what was asked.
         assert _asked(result) == ["a", "b"]
         # And a round that fetched nothing is not a layer of the spine.
@@ -255,7 +268,8 @@ class TestTheSecondIdenticalFetch:
         result = await _run(agent)
 
         assert RAN == ["read_passage:OIB-Richtlinie 2|3.5.2|"]
-        assert _answer_for(result, "b") == _REPEAT_FETCH_MESSAGE
+        # Its own batch's result, which the round produced a moment earlier.
+        assert _answer_for(result, "b") == f"{_REPEAT_FETCH_PREFIX}\n\nPassage aus OIB-Richtlinie 2"
         assert result.tool_iterations == 1
 
     async def test_case_whitespace_and_a_trailing_dot_are_the_same_passage(self, scripted_agent):
@@ -269,7 +283,7 @@ class TestTheSecondIdenticalFetch:
         result = await _run(agent)
 
         assert RAN == ["read_passage:OIB-Richtlinie 2.pdf|3.5.2.|"]
-        assert _answer_for(result, "b") == _REPEAT_FETCH_MESSAGE
+        assert _answer_for(result, "b") == f"{_REPEAT_FETCH_PREFIX}\n\nPassage aus OIB-Richtlinie 2.pdf"
 
     async def test_every_call_still_gets_exactly_one_result(self, scripted_agent):
         """The transcript invariant: a provider rejects an un-answered call and
@@ -300,7 +314,7 @@ class TestWhatIsNotARepeat:
         result = await _run(agent)
 
         assert RAN == ["read_passage:Brandschutzkonzept.pdf||12", "read_passage:Brandschutzkonzept.pdf||13"]
-        assert _REPEAT_FETCH_MESSAGE not in [m.content for m in _tool_messages(result)]
+        assert not any(_is_repeat_notice(str(m.content)) for m in _tool_messages(result))
         assert result.tool_iterations == 2
 
     async def test_the_same_query_narrowed_to_another_file_is_another_search(self, scripted_agent):
@@ -314,7 +328,7 @@ class TestWhatIsNotARepeat:
         result = await _run(agent)
 
         assert RAN == ["knowledge_search:Fluchtweg|", "knowledge_search:Fluchtweg|Brandschutz.pdf"]
-        assert _REPEAT_FETCH_MESSAGE not in [m.content for m in _tool_messages(result)]
+        assert not any(_is_repeat_notice(str(m.content)) for m in _tool_messages(result))
         assert result.tool_iterations == 2
 
     async def test_a_tool_that_is_not_a_fetch_is_never_withheld(self, scripted_agent):
@@ -328,7 +342,7 @@ class TestWhatIsNotARepeat:
         result = await _run(agent)
 
         assert RAN == ["emit_card:legal_basis", "emit_card:legal_basis"]
-        assert _REPEAT_FETCH_MESSAGE not in [m.content for m in _tool_messages(result)]
+        assert not any(_is_repeat_notice(str(m.content)) for m in _tool_messages(result))
 
 
 class TestTheGuardIsTheOnlyOneOnTheSeam:
@@ -355,10 +369,11 @@ class TestTheGuardIsTheOnlyOneOnTheSeam:
         # order is the scheduler's (docs/contributing/gotchas.md).
         assert set(RAN) == {"knowledge_search:Fluchtweg|", "knowledge_search:Treppenraum|"}
         assert len(RAN) == 2
-        assert _answer_for(result, "b") == _REPEAT_FETCH_MESSAGE
-        assert _answer_for(result, "c") != _REPEAT_FETCH_MESSAGE
-        # Charged for the two that ran; the withheld repeat costs nothing.
-        assert result.tool_iterations == 2
+        assert _answer_for(result, "b") == f"{_REPEAT_FETCH_PREFIX}\n\nTreffer zu: Fluchtweg"
+        assert not _is_repeat_notice(_answer_for(result, "c"))
+        # ONE round: three calls the model decided on in one go, minus the
+        # repeat that never ran, is still one decision and costs one.
+        assert result.tool_iterations == 1
 
 
 class TestAFailedFetchIsNotAFetch:
@@ -385,7 +400,7 @@ class TestAFailedFetchIsNotAFetch:
             "knowledge_search:Fluchtweglänge GK4|:failed",
             "knowledge_search:Fluchtweglänge GK4|",
         ], "the retry the tool asked for was withheld as a repeat"
-        assert _answer_for(result, "b") != _REPEAT_FETCH_MESSAGE
+        assert not _is_repeat_notice(_answer_for(result, "b"))
         assert _answer_for(result, "b") == "Treffer zu: Fluchtweglänge GK4"
 
     async def test_a_third_call_after_the_retry_succeeded_is_withheld_again(self, scripted_agent):
@@ -402,7 +417,7 @@ class TestAFailedFetchIsNotAFetch:
         result = await _run(agent)
 
         assert len(RAN) == 2
-        assert _answer_for(result, "c") == _REPEAT_FETCH_MESSAGE
+        assert _answer_for(result, "c") == f"{_REPEAT_FETCH_PREFIX}\n\nTreffer zu: Fluchtweglänge GK4"
 
 
 class TestTheLoopStillTerminates:
@@ -410,9 +425,9 @@ class TestTheLoopStillTerminates:
         """A withheld fetch is free; the round that asked for it is not.
 
         The round cost an LLM call and two graph steps and nothing ran to pay
-        for them, so it is charged one RESEARCH call — the budget it was trying
-        to spend. That is what ends this loop: the model walks into the ceiling
-        in at most `ceiling` rounds and is forced into synthesis, instead of
+        for them, so it is charged one ROUND — the budget it was trying to
+        spend. That is what ends this loop: the model walks into the ceiling in
+        at most `ceiling` rounds and is forced into synthesis, instead of
         running until ``GraphRecursionError`` and leaving the reader no answer
         at all.
         """
@@ -434,17 +449,26 @@ class TestTheLoopStillTerminates:
         assert RAN == ["knowledge_search:Fluchtweglänge GK4|"], "the fetch ran once, however often it was asked for"
         assert result.messages[-1].content == "Die Antwort [1]."
         assert result.research_truncated is True
-        # The research budget, and only it: the card allowance belongs to the
-        # card channel and a repeated fetch must not be able to spend it.
-        assert result.interaction_iterations == 0
         assert result.tool_iterations >= _CEILING
         # Bounded well inside what ``_recursion_limit`` was sized for.
         assert rounds["n"] <= _CEILING
 
 
 class TestTheNoticeItself:
-    def test_it_says_the_answer_is_already_there_and_what_to_do_next(self):
-        """An error string would invite a retry of the identical call."""
+    def test_the_prefix_labels_the_result_and_says_what_to_do_next(self):
+        """It must read as the EARLIER result, not as a second agreeing one.
+
+        Two answers that look independent are two sources to a model counting
+        agreement, which is exactly the false confidence the guard is supposed
+        to save the turn from paying for twice.
+        """
+        assert "bereits" in _REPEAT_FETCH_PREFIX
+        assert "nicht erneut" in _REPEAT_FETCH_PREFIX
+        assert "andere" in _REPEAT_FETCH_PREFIX
+
+    def test_the_fallback_still_says_the_answer_is_already_there(self):
+        """When the turn does not hold the result, an error string would invite
+        a retry of the identical call."""
         assert "bereits" in _REPEAT_FETCH_MESSAGE
         assert "Ergebnis oben" in _REPEAT_FETCH_MESSAGE
         assert "andere" in _REPEAT_FETCH_MESSAGE

@@ -84,8 +84,21 @@ class ChatDeepResearcherConfig(FunctionBaseConfig, name="chat_deepresearcher_age
     """Configuration for the chat deep researcher orchestrator agent."""
 
     max_history_tokens: int = Field(
-        default=8000,
-        description="Maximum number of tokens of chat history to keep before invoking the agent",
+        default=40000,
+        description=(
+            "Tokens of chat history kept before the agent runs (`history.trim_message_history`). "
+            "The CONVERSATION is the one thing in the context nobody else can reconstruct: the "
+            "system prompt is rendered from the template, the tool schemas come from the binding, "
+            'the retrieved passages are in the index and the „Bereits gelesen" digest carries what '
+            "was READ — but not what was SAID, and not the correction the reader made two turns "
+            "ago. The old 8 000 predates the context sizes this surface runs on: one call here "
+            "carries 37-84k input tokens with ~14k of static prompt in it, so the window that got "
+            "cut was the only irreplaceable one, and `<project_brief>` and PROJECT_MEMORY exist "
+            "partly to carry facts across the gap it created. 40 000 is a floor chosen against "
+            "those measurements. The RIGHT budget is the residual — model context minus prompt "
+            "minus tool schemas minus this turn's observations minus a synthesis reserve — which "
+            "is the only one that means anything and is not computed anywhere yet (follow-up)."
+        ),
     )
     verbose: bool = Field(default=False, description="Enable verbose logging")
     enable_clarifier: bool = Field(default=False, description="Enable clarification of research queries")

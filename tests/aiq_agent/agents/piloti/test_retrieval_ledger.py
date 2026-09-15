@@ -132,20 +132,20 @@ def test_charge_threads_two_rounds_with_their_facts():
     search = [{"name": "knowledge_search", "args": {"query": "OIB 2"}}]
     opens = [{"name": "read_passage", "args": {"document": "oib-rl_2.pdf", "punkt": "3.5.2"}}]
     state = _state()
-    research, _interaction, retrieval_round, first = _charge_tool_calls(_response(search), state, 9)
-    assert (research, retrieval_round) == (1, 1)
+    rounds, retrieval_round, first = _charge_tool_calls(_response(search), state, 9)
+    assert (rounds, retrieval_round) == (1, 1)
     assert first is not None
     assert first["key"] == "status.retrieval.withQuery"
     assert first["query"] == "OIB 2"
     assert "purpose" not in first
     state = state.model_copy(
         update={
-            "tool_iterations": research,
+            "tool_iterations": rounds,
             "retrieval_round": retrieval_round,
             "retrieval_rounds": [first],
         }
     )
-    _research, _interaction, retrieval_round, second = _charge_tool_calls(
+    _rounds, retrieval_round, second = _charge_tool_calls(
         _response(opens, "Die Richtlinie gilt grundsätzlich."), state, 9
     )
     assert retrieval_round == 2
@@ -157,9 +157,7 @@ def test_charge_threads_two_rounds_with_their_facts():
 def test_charge_records_nothing_for_action_batches():
     """Action batches announce no round and advance no counter."""
     state = _state()
-    _research, _interaction, retrieval_round, record = _charge_tool_calls(
-        _response([{"name": "remember", "args": {}}]), state, 9
-    )
+    _rounds, retrieval_round, record = _charge_tool_calls(_response([{"name": "remember", "args": {}}]), state, 9)
     assert retrieval_round == 0
     assert record is None
 
@@ -167,7 +165,7 @@ def test_charge_records_nothing_for_action_batches():
 def test_charge_without_tool_calls_keeps_the_tuple_shape():
     """A tool-free synthesis reply still unpacks in the agent node."""
     state = _state()
-    assert _charge_tool_calls(_response([], "Die Antwort."), state, 9) == (0, 0, 0, None)
+    assert _charge_tool_calls(_response([], "Die Antwort."), state, 9) == (0, 0, None)
 
 
 def test_assemble_attaches_the_ledger_and_omits_it_without_rounds():

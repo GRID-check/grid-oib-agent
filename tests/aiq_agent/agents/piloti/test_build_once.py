@@ -21,7 +21,6 @@ from langchain_core.tools import tool
 
 import aiq_agent.agents.piloti.register as register_module
 from aiq_agent.agents.piloti import prompt as prompt_module
-from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_ALLOWANCE
 from aiq_agent.agents.piloti.agent import PilotiAgent
 from aiq_agent.agents.piloti.agent import TurnConfig
 from aiq_agent.agents.piloti.agent import _recursion_limit
@@ -107,12 +106,18 @@ def counters(monkeypatch):
         counts["agents_built"] += 1
         real_init(self, *args, **kwargs)
 
+    # BOTH caches, both ends. The prompt is two files now — the dynamic
+    # template and the bundled static half — each read through its own
+    # `functools.cache`. Leaving either primed would make this counter depend
+    # on which test ran first, and it would read LOWER than the truth.
     prompt_module.system_prompt_template.cache_clear()
+    prompt_module.bundled_static_block.cache_clear()
     monkeypatch.setattr(prompt_module, "load_prompt", counting_load)
     monkeypatch.setattr(PilotiAgent, "_build_graph", counting_build)
     monkeypatch.setattr(PilotiAgent, "__init__", counting_init)
     yield counts
     prompt_module.system_prompt_template.cache_clear()
+    prompt_module.bundled_static_block.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -138,7 +143,10 @@ async def test_two_skills_turns_build_one_agent_read_the_prompt_once_and_compile
 
     assert first.messages[-1].content == "Die Antwort [1]."
     assert second.messages[-1].content == "Die Antwort [1]."
-    assert counters == {"prompt_reads": 1, "graph_compiles": 1, "agents_built": 1}
+    # Two reads, both at BOOT and neither per turn: the dynamic template and
+    # the bundled static half are two files now. What this counts is still the
+    # same thing — a read that happens per turn moves this number.
+    assert counters == {"prompt_reads": 2, "graph_compiles": 1, "agents_built": 1}
     # What a turn DOES cost: one binding of the turn's tool set (search +
     # use_skill), because the skill closure is per turn. Never more.
     assert llm.bind_tools.call_count == 1 + 2
@@ -191,9 +199,13 @@ async def test_the_ceiling_is_the_research_budget_and_nothing_is_added_to_it():
 
 
 def test_the_recursion_guard_is_derived_from_the_ceiling():
-    """Two steps per round: every costing round (≤ ceiling) plus every free
-    interaction round (≤ allowance), the final synthesis, and slack."""
+    """Two steps per round, the final synthesis, and slack.
+
+    Nothing is added on top of the ceiling any more: a round costs one whatever
+    it asked for, so there is no second allowance that could buy rounds the
+    guard has to leave room for.
+    """
     for ceiling in (0, 5, 7):
-        rounds = ceiling + _INTERACTION_TOOL_ALLOWANCE
-        assert _recursion_limit(ceiling) > 2 * rounds + 1
+        assert _recursion_limit(ceiling) > 2 * ceiling + 1
+    assert _recursion_limit(5) == (5 * 2) + 10
     assert _recursion_limit(5) < _recursion_limit(7)

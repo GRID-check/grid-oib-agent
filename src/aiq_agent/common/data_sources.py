@@ -1,12 +1,32 @@
-"""Shared utilities for data source handling across agents."""
+"""Shared utilities for data source handling across agents.
+
+A DISABLED source does not lose its tool. Piloti binds the same tools on every
+turn and REFUSES a call to a source this conversation switched off
+(:func:`disabled_source_notice`), instead of dropping the tool from the
+binding. Two reasons, both measured. The provider's prompt cache is keyed on
+the tool payload (``common/prompt_caching.py``), so a tool set that varies with
+the toggles makes one cache shard per toggle combination on a workload that is
+~99 % input tokens and re-sends its prefix 3-8 times per turn. And a refusal is
+a fact the model can say out loud — "I could not check the web" — where an
+absent tool is one it has to infer, and the prompt had to teach it to.
+
+:func:`filter_tools_by_sources` is still how the OTHER agents narrow, and it is
+unchanged: deep research fans out to workers with no interception point to
+refuse at, so for them absence remains the enforcement.
+"""
 
 import base64
 import json
 import logging
+from collections.abc import Iterable
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from langchain_core.messages import BaseMessage
 
+from .data_source_registry import get_all_sources
 from .data_source_registry import get_source
 from .data_source_registry import get_source_id_for_tool
 
@@ -44,6 +64,85 @@ def get_disabled_sources_from_context() -> set[str]:
     from aiq_agent.project_context import _read_header
 
     return parse_disabled_sources(_read_header(DISABLED_SOURCES_HEADER))
+
+
+#: The sources THIS turn may not consult, for the tools that run inside it.
+#: A ContextVar and not an argument, because a tool signature is the model's
+#: contract and a turn-scoped fact is not the model's business. Set in Piloti's
+#: TOOLS node, around the ``ToolNode`` call — LangGraph runs each node in a task
+#: built with ``copy_context()``, so a value set beside the LLM call is written
+#: to a copy that dies at the node boundary, while the tools are children of the
+#: tools node and do inherit it.
+_turn_disabled_sources: ContextVar[frozenset[str]] = ContextVar("grid_turn_disabled_sources", default=frozenset())
+
+
+def get_turn_disabled_sources() -> frozenset[str]:
+    """The source ids this turn may not consult; empty outside a bound turn."""
+    return _turn_disabled_sources.get()
+
+
+@contextmanager
+def turn_disabled_sources_scope(source_ids: Iterable[str]) -> Iterator[None]:
+    """Bind the turn's switched-off sources for the tools running inside."""
+    token = _turn_disabled_sources.set(frozenset(str(s).strip().lower() for s in source_ids if str(s).strip()))
+    try:
+        yield
+    finally:
+        _turn_disabled_sources.reset(token)
+
+
+def unavailable_source_ids(
+    data_sources: list[str] | None,
+    disabled_sources: set[str] | None = None,
+) -> frozenset[str]:
+    """Every configured source this turn may not consult, as one set.
+
+    Two things the caller used to express by deleting tools, said once as data:
+    what the ORGANIZATION turned off (ADR-0022, the ``x-grid-disabled-sources``
+    header) and what this REQUEST did not select. ``data_sources=None`` selects
+    everything, so only the org's toggles remain; ``[]`` selects nothing and
+    every registered source comes back.
+
+    Pure given its arguments. ``disabled_sources=None`` reads the current
+    request's header, exactly as :func:`filter_tools_by_sources` does.
+    """
+    if disabled_sources is None:
+        disabled_sources = get_disabled_sources_from_context()
+    unavailable = {str(source_id).strip().lower() for source_id in disabled_sources if str(source_id).strip()}
+    if data_sources is None:
+        return frozenset(unavailable)
+    selected = {source_id.strip().lower() for source_id in data_sources if source_id.strip()}
+    unavailable |= {meta.id.lower() for meta in get_all_sources() if meta.id.lower() not in selected}
+    return frozenset(unavailable)
+
+
+def disabled_source_notice(tool_name: str, disabled: Iterable[str] | None = None) -> str | None:
+    """What a call to a switched-off source is answered with; ``None`` to run it.
+
+    The ONE place that decides, so a tool, an interception point at the
+    ``ToolNode`` boundary and anything added later cannot disagree about which
+    tool belongs to which source — the registry already knows
+    (:func:`get_source_id_for_tool`), and a second mapping would drift.
+
+    German, like the duplicate-fetch notice beside it, and an INSTRUCTION for
+    the same reason: the useful next move is to answer from what the turn holds
+    and to SAY the source went unconsulted, not to try the same tool again.
+
+    ``disabled=None`` reads the turn's ContextVar, so a tool can call this with
+    nothing but its own name.
+    """
+    unavailable = frozenset(disabled) if disabled is not None else get_turn_disabled_sources()
+    if not unavailable:
+        return None
+    source_id = get_source_id_for_tool(tool_name)
+    if source_id is None or source_id.lower() not in unavailable:
+        return None
+    meta = get_source(source_id)
+    label = meta.name if meta else source_id.replace("_", " ").title()
+    return (
+        f"Nicht ausgeführt: {label} ist für dieses Gespräch abgeschaltet. "
+        f"Antworte mit dem, was du bereits hast, und schreib im Text, dass {label} nicht konsultiert wurde."
+    )
 
 
 def parse_data_sources(raw: Any) -> list[str] | None:
