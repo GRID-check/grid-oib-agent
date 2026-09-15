@@ -373,7 +373,15 @@ export const GET = tenantSlotRoute(async function GET(
     // Handle error responses
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('[Deep Research API] Backend error:', response.status, errorText)
+      // #632: cancel-after-terminal race — the client already parses this via
+      // `readTerminalVerdictFromCancelError` and treats it as a verdict, not a
+      // failure. Warn so err2issue stops filing an ERROR per double-clicked
+      // cancel on an already-finished job.
+      if (response.status === 400 && errorText.includes('Job not cancellable')) {
+        console.warn('[Deep Research API] Cancel race: job already terminal:', errorText.slice(0, 200))
+      } else {
+        console.error('[Deep Research API] Backend error:', response.status, errorText)
+      }
 
       return backendErrorEnvelope(response.status, errorText)
     }
@@ -418,7 +426,15 @@ export const GET = tenantSlotRoute(async function GET(
       return handleAuthzError(error)
     }
 
-    console.error('[Deep Research API] GET error:', error)
+    // #646: backend unreachable (EHOSTUNREACH, fetch failed) is a transient
+    // transport miss, not an application bug. Warn with the host so operators
+    // can see which tier dropped, without filing an ERROR per blip.
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.includes('fetch failed') || message.includes('EHOSTUNREACH') || message.includes('ECONNREFUSED')) {
+      console.warn('[Deep Research API] GET transport miss:', message.slice(0, 300))
+    } else {
+      console.error('[Deep Research API] GET error:', error)
+    }
 
     return proxyErrorEnvelope(error)
   }
@@ -549,7 +565,13 @@ export const DELETE = tenantSlotRoute(async function DELETE(
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('[Deep Research API] DELETE Backend error:', response.status, errorText)
+      // Same cancel-after-terminal race as GET (#632): a DELETE that lands
+      // after the job finished is a verdict, not a failure.
+      if (response.status === 400 && errorText.includes('Job not cancellable')) {
+        console.warn('[Deep Research API] DELETE cancel race: job already terminal:', errorText.slice(0, 200))
+      } else {
+        console.error('[Deep Research API] DELETE Backend error:', response.status, errorText)
+      }
 
       return backendErrorEnvelope(response.status, errorText)
     }
