@@ -162,8 +162,12 @@ does not exist, so a moved file is caught; a missing row is not.
 | Concept | Owning code | Doc of record | Decision |
 |---|---|---|---|
 | Piloti's tool loop | `src/aiq_agent/agents/piloti/agent.py` — `PilotiAgent.run` | [`backend-deep-dive.md`](backend-deep-dive.md) | ADR-0052 |
-| Research budget and the interaction allowance | `src/aiq_agent/agents/piloti/agent.py` — `_INTERACTION_TOOL_ALLOWANCE`; `max_tool_iterations` in `src/aiq_agent/agents/piloti/register.py` | same | ADR-0052 |
+| Research budget, in ROUNDS | `src/aiq_agent/agents/piloti/agent.py` — `_charge_tool_calls`; `max_tool_iterations` in `src/aiq_agent/agents/piloti/register.py` | same | ADR-0052 |
+| The turn's cost bound | `src/aiq_agent/agents/piloti/agent.py` — `_turn_cutoff`, `_turn_input_tokens`; `max_input_tokens_per_turn` in `src/aiq_agent/agents/piloti/register.py`, metered by `src/aiq_agent/common/cost_tracking.py` | same | ADR-0015 |
+| A data source switched off for a turn | `src/aiq_agent/common/data_sources.py` — `disabled_source_notice`, `unavailable_source_ids`, refused at the `ToolNode` boundary in `agent._split_round` | same | ADR-0022 |
 | Forced synthesis at the ceiling | `src/aiq_agent/agents/piloti/agent.py` — `_forced_synthesis`, `_SYNTHESIS_ANCHOR` | same | ADR-0052 |
+| Which limit on a turn is a ratchet, a budget or a hobble | `src/aiq_agent/agents/piloti/agent.py`, `configs/config_oib_openrouter.yml` — the register indexes them one by one and says what closed each | [Hobble register (2026-09)](hobble-register-2026-09.md) | ADR-0060 |
+| The office's standing instructions for every turn | `frontends/ui/src/lib/org-instructions/service.ts` — `saveOrgInstructions`; read back in `src/aiq_agent/project_context.py` — `normalize_org_instructions` | [`agent-skills.md`](agent-skills.md) | ADR-0060 |
 | The envelope-enforced LLM call | `src/aiq_agent/agents/piloti/envelope_call.py` — `ainvoke_with_envelope_json_mode` | same | ADR-0052 |
 | Answer envelope, Python | `src/aiq_agent/common/answer_envelope.py` — `extract_answer_envelope`, `gate_answer_meta` | [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md) | ADR-0037 |
 | Answer envelope, TypeScript sanitizer | `frontends/ui/src/lib/conversations/message-answer-meta.ts` — `sanitizeAnswerMeta` | same | ADR-0037 |

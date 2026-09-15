@@ -5,10 +5,19 @@ format) that extend what the model can be told how to do on:
 - **Interactive chat turns** (`researcher`), and
 - **Async deep-research jobs** (`deep_researcher`).
 
+A skill is a **working method the model chooses**, never one it is told to run:
+it reaches the model as one line in a catalog, and its body arrives only when
+the model calls `use_skill`. Nothing can require one — not a request, not a
+deployment, not a job. What must hold on every answer is prompt text instead,
+at two levels (the platform prompt and the organization's own instruction
+block); that split is [ADR-0060](../adr/0060-three-instruction-layers-and-tools-that-answer.md),
+and the two mechanisms it retired are recorded below under "The `standard`
+tier, and why it is gone".
+
 A **job** is the other half of the feature and a separate object: a
-project-scoped *prompt on a timer* that MAY attach a skill, exactly as typing
-`/name` before a message would attach it. That is the whole relationship. A
-skill knows nothing about time and nothing about output format; a job needs no
+project-scoped *prompt on a timer* that MAY attach a skill, whose body is then
+inlined into the fire prompt it sends. That is the whole relationship. A skill
+knows nothing about time and nothing about output format; a job needs no
 skill.
 
 This doc is the whole subsystem: the backend half (where skills come from, how
@@ -41,12 +50,14 @@ validated strictly by `src/aiq_agent/skills/models.py`:
 | `metadata` | String-map; reserved GRID keys are validated — `grid-agents` (who may use it), `grid-cards` (preferred output card types), `grid-title`, `grid-hidden` (mute the live line), `grid-auto-invoke` (whether the model may pick it from L1; absent = on), `grid-catalog` (`curated` = offer, absent = machinery). Every other key is opaque |
 | `license` / `compatibility` / `allowed_tools` | Optional free-form strings |
 
-`Skill` carries two more fields that are **not** frontmatter and cannot be
-written by a skill author: `origin` (where the document came from) and
-`standard` (whether the platform publishes it as fleet standard equipment).
-Both are set by the resolver from the source it read, never parsed out of a
-`SKILL.md` — a document that could declare itself standard would be a tenant
-promoting their own instruction to platform policy by typing a word.
+`Skill` carries one more field that is **not** frontmatter and cannot be written
+by a skill author: `origin`, where the document came from. It is set by the
+resolver from the source it read, never parsed out of a `SKILL.md`.
+
+There was a second, `standard` — whether the platform published the skill as
+fleet standard equipment, which the runtime then forced onto every run. The tier
+is retired (ADR-0060); the backend has no such field, and a `standard` marker
+left on a BFF payload is ignored rather than obeyed.
 
 Unlike deepagents' warn-and-continue scan, GRID's substrate validates
 **strictly**: an invalid builtin SKILL.md is a deployment error
@@ -98,41 +109,28 @@ are a parse error for a builtin
   (see below), a flow the product no longer has. Existing rows keep the value
   and behave as ordinary org rows; nothing writes it any more.
 
-### Three sources, four audiences
+### Three sources, three audiences
 
 | source | who writes it | who sees it |
 |---|---|---|
 | `src/aiq_agent/skills/builtin/**` (files) | this repository | **nobody.** Pipeline machinery: never listed, never switchable, always resolved. |
 | `platform_skills` rows, `delivery: 'offer'` | the platform owner, in **Platform → Skills** | every organization, as an OFFER it may switch on. |
-| `platform_skills` rows, `delivery: 'standard'` | the platform owner, in **Platform → Skills** | **nobody.** Fleet standard equipment: applied on every run for every organization, never listed, not switchable, not shadowable. |
 | `skills` (rows) | an organization | that organization. |
 
-Three sources but four audiences, because one table carries two of them. The
-middle two rows are the fleet-wide channel: write a skill once in the platform
-dashboard, publish it, and it reaches every organization. `delivery` decides
-whether that means *offered to* or *running in*. The body lives in that one row
-either way — an edit reaches every org running the skill immediately, with
-nothing to re-take.
+The middle row is the fleet-wide channel: write a skill once in the platform
+dashboard, publish it, and it reaches every organization — as something it may
+take or leave. The body lives in that one row, so an edit reaches every org
+running the skill immediately, with nothing to re-take.
 
-**Standard** is the tier for a house instruction: the thing every organization is
-supposed to be running and none of them should have to know about, let alone
-maintain a decision on. Before it existed the only always-on tier was the
-builtin FILES, which means a code review and a deploy, and which are the
-deep-research pipeline's own machinery rather than a place to put fleet policy.
-A standard skill is that same "machinery" property — never listed, never
-switchable, always resolved *and* always applied — made available one tier up,
-to a dashboard.
+There used to be a fourth audience in the same table, `delivery: 'standard'`:
+published rows that every organization ran, unlisted, unswitchable and FORCED
+onto each run. Migration 0088 retired the tier and narrowed the CHECK to one
+legal value; the history and the reasoning are below.
 
-It is deliberately a column on `platform_skills` rather than a fourth table. The
-document is identical either way (same agentskills.io contract, same editor, same
-reviewer, same reserved metadata); only its audience differs, and a second table
-would have forked the write path to record one word.
-
-Both defaults are closed, and they close different doors: `published` defaults
-to false so a draft is invisible, `delivery` defaults to `offer` so a skill that
-says nothing about its audience is one an organization may take or leave. A
-published standard row is the only combination that imposes anything, and it
-takes two deliberate acts to reach.
+Both of the table's defaults are closed, and they close different doors:
+`published` defaults to false so a draft is invisible, and `delivery` is `offer`
+so a published skill is one an organization may take or leave. Nothing a
+platform owner can write imposes a skill on a turn.
 
 That is what replaced **clone**. The Skills tab used to list every builtin
 as equal cards with a "Clone" button, which copied the whole instruction into
@@ -148,158 +146,80 @@ chat-usable FILE offer starts ON, a dashboard offer or a deep-research-only
 file starts OFF. It is NOT a `skills` row, precisely because a `skills` row
 carries a body and a body is a copy that drifts.
 
-A **standard** skill has no such decision and consults none: an activation row
-left over from when the skill was an offer is kept but not read, so a promotion
-followed by a demotion returns the fleet to where it started rather than to a
-blank slate.
+### The `standard` tier, and why it is gone
 
-### Standard skills: the six properties, and where each is enforced
-
-Each is a separate line, because each one failing on its own would hand an
-organization a grip on platform policy.
-
-| property | mechanism |
-|---|---|
-| **invisible** | not in `curatedOffers()`, so absent from `listSkills` (the Skills tab); `resolveSelectableSkills` strips it from the `/` picker and the job builder's skill picker |
-| **default-on** | merged into `resolveAll` unconditionally — no activation row consulted, no decision to make |
-| ~~**applied**~~ | **Removed.** `SkillRuntime` forced every resolved standard skill until the forcing pass was deleted; a standard row is now an ordinary line in the L1 catalog, and the model opens it or does not. A standing instruction the fleet must follow is prompt text (the platform prompt, and the office's own `X-Grid-Org-Instructions` block), which costs no tool call and cannot be half-applied |
-| **non-targetable** | `setCuratedSkillEnabled` resolves against `curatedOffers()` only, so a hand-crafted `PATCH /api/skills/curated/{name}` gets a 404 |
-| **non-shadowable** | merged LAST in `resolveAll`, after the org's own rows, as a `delete` **then** a put. The one place the ordering is load-bearing rather than defensive |
-| **platform-owned** | `assertNameNotStandardised` refuses the name at the org write boundary — on create, on rename, and on every edit of a row already wearing it; `grid_secure_platform_table` means a tenant role has SELECT on `platform_skills` and nothing else |
-
-And one property it deliberately does NOT have: a standard skill does not
-outrank the pipeline machinery (see below).
-
-Three of those need their reasoning stated rather than just their location.
-
-**Why "applied" was tried, and why it is gone.** `delivery: standard` claimed to
-be fleet standard equipment — "resolved for every organization, never listed, not
-switchable" — and resolving it only put its one-line **description** in the L1
-catalogue. The answer at the time was to FORCE it: name it in an "Active skills"
-block and tell the model to open it. That bought less than it looked like.
-Forcing puts a NAME in the prompt and nothing else, because the body travels
-through exactly one path (the `use_skill` closure), so a model that skipped the
-call read not one word of the instruction while a model that made it paid a tool
-call and thousands of tokens for a standing rule that could have been three
-sentences of prompt. The tier now carries its other five properties and stops at
-the catalog: a standard row is offered like any other skill, and fleet policy
-lives in prompt text — the platform prompt, and the office's own bounded
-`X-Grid-Org-Instructions` block.
-
-Which leaves `ResolvedSkill.standard` (`frontends/ui/src/lib/skills/service.ts`)
-as a BFF-side marker for the merge order and the write boundary. The backend no
-longer has a `Skill.standard` field at all: `_build_org_skills` (`resolver.py`)
-ignores the flag on the payload, so the wire stays compatible and nothing in
-`src/aiq_agent` can tell a standard row from an ordinary one.
+`delivery: standard` claimed to be fleet standard equipment — "resolved for
+every organization, never listed, not switchable" — and resolving it only put
+the skill's one-line **description** in the L1 catalogue. The answer at the time
+was to FORCE it: name it in an "Active skills" block and tell the model to open
+it. That bought less than it looked like. Forcing puts a NAME in the prompt and
+nothing else, because the body travels through exactly one path (the `use_skill`
+closure), so a model that skipped the call read not one word of the instruction
+while a model that made it paid a tool call and thousands of tokens for a
+standing rule that could have been three sentences of prompt.
 
 The first standard skills were `piloti-voice` (seeded by
-`0053_piloti_voice_standard_skill.sql`) and `piloti-cards` — and both are
-**retired** (`0071_retire_piloti_house_skills.sql`): their craft moved into Piloti's system prompt (`<stimme>` and `<cards>` in `piloti.j2`) and
-the deep writer's prompt. The trade the delivery tier made for them did not
-hold: a forced skill contributes only its NAME to the prompt, the body travels
-through exactly one path — the `use_skill` closure — and a model that never
-calls it never reads a word, so the house voice was absent from exactly the
-answers that skipped the call, while every turn that did call paid two reserved
-tool iterations and ~7,800 tokens of body. That reasoning was later applied to
-the mechanism itself: forcing is gone, the reserve with it, and what those two
-skills were retired INTO — prompt text — is where every standing instruction
-now lives.
+`0053_piloti_voice_standard_skill.sql`) and `piloti-cards`, and both were
+**retired** into prompt text (`0071_retire_piloti_house_skills.sql`) long before
+the mechanism was: their craft moved into Piloti's system prompt and the deep
+writer's prompt, because the house voice was absent from exactly the answers
+that skipped the call, while every turn that did call paid two reserved tool
+iterations and ~7,800 tokens of body. ADR-0060 applied that reasoning to the
+mechanism itself. Both ways of forcing a skill are gone — the tier, and the
+composer's `skills` array on the WS envelope — and so are the reserved
+iterations, the `Skill.standard` field and the `forced` / `forced_names` event
+fields.
 
-Two more need their reasoning stated rather than just their location.
+What replaced them is where those two skills had already gone: **standing
+instructions are prompt text**, in two places, neither of them this table.
+The platform's own rules are the platform prompt, whose static half is
+committed in this repo and served to the fleet through Langfuse with git as the
+source of truth, so changing a house rule is a prompt edit rather than a
+published row. An organization's standing preferences are its
+bounded instruction block (`organization_instructions`, migration 0087, 1500
+characters, sent per turn as `X-Grid-Org-Instructions`). Both cost no tool call
+and cannot be half-applied.
 
-**Why the org write boundary refuses the name at all.** Everywhere else, an org
-row of the same name *shadows* the platform's — the tenant's version wins,
-mirroring ADR-0022's "explicit org value beats deployment default". That is right
-for machinery and for offers and wrong here, so the resolver merges standard last
-and the org row would never run. Accepting the save and silently ignoring the
-result is exactly the failure this codebase exists to avoid: the author would get
-a skill in their toolbox, a green save, and an agent that never once follows it,
-with nothing anywhere saying why. The error message names the collision and
-nothing else — an org that cannot see a standard skill should not learn its
-purpose from a 409. Only PUBLISHED standard rows reserve a name; a draft imposes
-nothing, so it has no business taking a word out of a tenant's vocabulary.
+Migration 0088 is what makes it a fact rather than a convention:
 
-**Why `resolveSkillSnapshot` checks standard FIRST**, before even the org
-lookup. Two different bugs otherwise: the standard skill itself would become
-attachable to a job (an instruction the org cannot read in the preview pane,
-edit, or keep), and a legacy org row wearing the same name would be found first
-and snapshot ITS body — pinning a job to instructions the run has already been
-told to ignore.
+| what the tier had | what happened to it |
+|---|---|
+| `delivery IN ('offer','standard')` | `platform_skills_delivery_check` now admits `offer` alone; existing standard rows were UPDATEd to `offer`, not deleted |
+| `idx_platform_skills_standard` (partial index on the resolver's hot path) | dropped — nothing asks that question any more |
+| `assertNameNotStandardised` at the org write boundary | deleted. A standard row outranked an org row of the same name, so authoring one was a green save with no effect; every platform skill is an offer now and an org row **shadows** it, ADR-0022's "explicit org value beats deployment default" |
+| the `standard` flag on `ResolvedSkill` | deleted from the wire. `resolver.py` ignores the key if an older BFF sends it |
+| `resolveSkillSnapshot`'s standard-first lookup | deleted; the ordinary rule applies again — the org's own row wins, then the platform's |
+| `listPublishedStandardRows` (deliberately uncapped, because a truncated read would have stopped fleet policy silently) | deleted with its query. `listPublishedOfferRows` keeps the 200-row catalogue rail |
 
-**What standard skills do NOT change: activation transparency.** They are
-excluded from `listInvocableSkills`, which is also what `SkillsUsedDisclosure`
-reads for descriptions, so an activated standard skill is named in the
-disclosure with no description rather than hidden from it. That is deliberate.
-Administrative invisibility is not concealment: the disclosure reports what
-shaped the answer, and a product built on traceable sourcing must not have a
-class of instruction it declines to admit ran. Now that standard skills are
-forced rather than merely resolved, this is the ordinary case rather than the
-corner one — a fleet with a standard skill published names it under every
-research answer, which is the honest reading of "this instruction shaped it".
+The consequence is deliberate and worth stating plainly: a row that was
+standard **stops running** for everyone. It is listed on each organization's
+Skills tab and starts OFF until that organization switches it on. Anything in it
+that must keep applying to every turn belongs in the platform prompt.
 
-**And what they inherit: `grid-agents` still applies.** That gate answers "which
-agent CAN run this", which is a different question from "who decides that it
-runs". A standard skill written for deep research is not handed to a chat turn
-that cannot execute it.
+**One property of the retired tier survives as a general rule.** A dashboard row
+never replaces a shipped FILE of the same name. The write boundary refuses that
+create, and the other direction is a deploy — a new `SKILL.md` matching a row
+published months ago — which no write boundary can see coming, so
+`livePlatformSkills()` skips any published row whose name `findPlatformSkill`
+knows. The file is product code, the row is dashboard copy, and product wins.
 
-Which is exactly why the last merge step is a **`delete` followed by a put**
-rather than an overwrite. `grid-agents` can filter a standard skill out of one
-agent's set, and an overwrite-only merge would then leave a legacy org row
-standing on a name the platform owns — the shadowing this tier exists to
-prevent, arriving through the targeting gate instead of through the merge order.
-The rule is therefore stated positively: **a standardised name resolves to the
-platform's skill or to nothing; it never resolves to a tenant's.**
+**And what every skill inherits: `grid-agents` still applies.** That gate
+answers "which agent CAN run this", which is a different question from "who
+decides that it runs". A skill written for deep research is not offered to a
+chat turn that cannot execute it.
 
-**Standard does NOT outrank the machinery, and cannot be allowed to.** Merge
-order alone cannot deliver that: org rows deliberately shadow machinery
-(ADR-0022), standard has to outrank org rows, so standard necessarily outranks
-machinery too. `assertNameIsFree` guards only one direction — it refuses a ROW
-named after an existing builtin — and the other direction is a deploy: shipping
-a new `SKILL.md` whose name matches a standard row published months ago. No
-write boundary can see that coming, and the consequence would be a dashboard row
-silently replacing how deep research writes its report for every tenant at once.
+**Activation transparency is unchanged, and now says one thing.** The
+disclosure under an answer reports what shaped it, and a product built on
+traceable sourcing must not have a class of instruction it declines to admit
+ran. With forcing gone there is one way a skill runs — the model read its line
+in the catalog and called `use_skill` — so the panel names exactly the bodies
+that were delivered.
 
-So the collision is made **inert at read time** instead:
-`livePlatformSkills()` drops any standard row whose name `findPlatformSkill`
-knows. Machinery wins, both resolvers give the same answer, and the standard row
-starts working again if that builtin is ever removed. Dropping against *every*
-builtin rather than only the machinery also closes the curated-file case — a
-`grid-catalog: curated` FILE and a standard ROW sharing a name would otherwise
-put that name in BOTH halves, which is precisely the state where a standard
-skill appears on the Skills tab with a working switch.
-
-**Editing a legacy row wearing a standardised name is refused, not just
-renaming it.** `updateSkill` checks the row's CURRENT name on every edit. Such a
-row is inert — the resolver deletes the name before merging the platform's
-version — so a successful save would be the same green-save-no-effect failure
-the create boundary exists to prevent, reached by editing a row that was already
-there. Refused rather than hidden: the row stays on the Skills tab and
-`deleteSkill` still works, so the author can see what they have and remove it.
-
-**Fleet policy is read uncapped.** `listPublishedOfferRows` keeps the 200-row
-catalogue rail; `listPublishedStandardRows` deliberately has none. A truncated
-standard read would stop policy running for every organization on the platform —
-silently, since nothing errors — while `findStandardPlatformSkillRowByName`
-(uncapped) went on reserving the name and 404ing job attachment. A cap is a rail
-against an unbounded read; this set is bounded by how many house rules somebody
-wrote, and `idx_platform_skills_standard` covers the predicate exactly. That is
-two queries where one used to do, and the round trip is worth it.
-
-**A job that pinned a snapshot before publication keeps running it.** Jobs
-snapshot the attached skill's body at save time and `buildFirePrompt` inlines it
-verbatim, so a job attached to a legacy org row named X goes on sending that
-tenant's instruction under X's name after X is standardised. This is the
-existing, deliberate WYSIWYG-snapshot contract — the same reason a withdrawn
-offer keeps running in jobs that already attached it — and
-`resolveSkillSnapshot`'s guard only stops NEW attachments. Detaching or
-re-saving the job clears it.
-
-**Fail-open drops them**, like offers — see Resolution below. Standard skills
+**Fail-open drops offers and keeps machinery** — see Resolution below. Offers
 reach a run through the BFF payload, and the backend's fail-open baseline is the
-filesystem. A BFF outage therefore suspends fleet policy for the duration rather
-than taking chat down, which is the same trade every non-machinery skill makes.
-The 60s resolver cache also means a newly published standard skill reaches a
-given org's runs within a cache TTL, not instantly.
+filesystem, so a BFF outage suspends the org's chosen skills for the duration
+rather than taking chat down. The 60s resolver cache also means a newly
+published offer reaches a given org's runs within a cache TTL, not instantly.
 
 ### Machinery vs. offers (`grid-catalog`)
 
@@ -313,10 +233,9 @@ frontmatter metadata:
 
 Machinery is the default deliberately: a new builtin that says nothing about
 itself stays invisible, and exposing one to every tenant has to be a sentence
-somebody wrote. **Every builtin shipping today is machinery** — none declares
-this key. The door exists so a builtin can become org-facing without
+somebody wrote. The door exists so a builtin can become org-facing without
 first becoming a database row; day to day, curation happens in `platform_skills`.
-somebody wrote. Genre methods (Brandschutz, Gebäudeklasse, Hygiene) stay
+Genre methods (Brandschutz, Gebäudeklasse, Hygiene) stay
 machinery so an ordinary question still auto-loads them. Job playbooks
 (`einreichcheck`, `bestand`) declare `grid-catalog: curated`: they appear on
 the Skills tab. A chat-usable FILE offer starts ON; a dashboard offer starts
@@ -328,15 +247,12 @@ The split is enforced on both tiers, and both must agree:
 
 - BFF — `isCuratedPlatformSkill` (`lib/skills/types.ts`) and
   `livePlatformSkills()` (`lib/skills/service.ts`), which reads the published
-  offers and the published standard rows (two queries — see "Fleet policy is
-  read uncapped" above), unions the offers with any `grid-catalog: curated`
-  file, and drops any standard row a builtin has named. `curatedOffers()` is the
-  thin wrapper returning the offer half alone.
-  `listSkills` lists org rows plus offers — never machinery and never standard
-  skills; `resolveSkillsForAgent` and `resolveSkillSnapshot` gate offers on the
+  offer rows, unions them with any `grid-catalog: curated` file, and skips a row
+  whose name a builtin already has. `curatedOffers()` is the thin wrapper over
+  the result. `listSkills` lists org rows plus offers — never machinery;
+  `resolveSkillsForAgent` and `resolveSkillSnapshot` gate offers on the
   activation; `setCuratedSkillEnabled` 404s anything that is not an offer, so
-  neither the machinery nor a standard skill can be switched off by
-  hand-crafting a request.
+  the machinery cannot be switched off by hand-crafting a request.
 - Backend — `_is_curated` and `SkillResolver.always_on`
   (`src/aiq_agent/skills/resolver.py`). `resolve()` starts from `always_on`
   rather than every builtin, because the BFF payload can only ADD to that
@@ -496,8 +412,9 @@ Progressive disclosure has exactly two levels:
   than a fatal turn.
 
 **Every scaffolding string in the runtime is English**, and that is a decision
-rather than an oversight. These headings used to be German (`## Verfügbare
-Skills`, `## Aktive Skills (vom Nutzer erzwungen)`). The agent answers in the
+rather than an oversight. The one heading left was German once (`## Verfügbare
+Skills`; its sibling `## Aktive Skills (vom Nutzer erzwungen)` is gone with
+forcing). The agent answers in the
 user's language, and that is decided per turn from the question — not baked into
 the machinery — so a prompt that mixes German block headings into English
 instructions is neither localised nor language-agnostic. It is also a country
@@ -523,9 +440,9 @@ applies.
 
 - **Endpoint:** `GET /api/skills/invocable` → `listInvocableSkills`, filtered
   to enabled *offers* and org-authored skills a chat turn can actually run
-  (`researcher`). Pipeline machinery and standard skills are not in
-  this list: they load on their own, and putting them in a `/` menu would
-  hand somebody a name they cannot look up, edit or switch off. Deep-research
+  (`researcher`). Pipeline machinery is not in
+  this list: it is resolved for every run anyway, and putting it in a `/` menu
+  would hand somebody a name they cannot look up, edit or switch off. Deep-research
   skills stay out for the same reason they stay out of chat. Any org member
   may list: invoking a skill is *using* the product, not administering it
   (authoring stays `org:skills:manage`).
@@ -541,13 +458,14 @@ applies.
   would interrupt someone writing a normal sentence about a Richtlinie. An
   invocation applies to the whole turn, so the front of the message costs
   nothing and removes the entire class of false positives.
-- **No invocation state.** The invoked skill is derived from the composer text
-  on every render, so deleting the token removes the invocation with no
-  bookkeeping and nothing can drift from what the user sees. Mentions cannot
-  do this (two people may share a display name); a skill name is unique and
-  exact, so the text is a complete record, and what goes on the wire is
-  resolved from the text *being sent*. A leading slash that names no real
-  skill is ordinary text, not an invocation.
+- **The text IS the invocation.** Nothing structured leaves with the message,
+  and the named skill is derived from the composer text on every render, so
+  deleting the token removes the reference with no bookkeeping and nothing can
+  drift from what the user sees. Mentions cannot do this (two people may share
+  a display name); a skill name is unique and exact, which is what lets the
+  text be the complete record. A leading slash that names no real skill is
+  ordinary text: no chip, and nothing offering to remove a token that is part
+  of the sentence.
 - **Degradation.** With the feature off, or if the request fails, `/` is an
   ordinary character again. A successful empty answer still opens the panel —
   that panel is where the product explains what a skill is.
@@ -634,7 +552,12 @@ adds the link from a conversation back to the job that produced it, and
 (a seed, not a source of truth: `ON CONFLICT DO NOTHING`, so re-running
 migrations cannot revert what the platform owner has since written) and
 `0071_retire_piloti_house_skills.sql` deletes the two house rows again — guarded
-on the md5 of the body each chain last wrote, so an owner-edited row survives. Each
+on the md5 of the body each chain last wrote, so an owner-edited row survives.
+`0088_platform_skills_drop_standard_delivery.sql` ends that line: every
+surviving standard row becomes an offer, the CHECK narrows to `offer` and the
+partial index goes. Its counterpart `0087_organization_instructions.sql` adds
+`organization_instructions`, the tenant-side home for what the tier was misused
+for (ADR-0060). Each
 tenant table joins the tenant boundary with a `grid_secure_table()` line (ADR-0041) —
 re-emitted by 0043 under the new names, because a rename carries the policy
 along but leaves its stored predicate written against the old table name.
@@ -661,28 +584,36 @@ way.
 `platform_skills` — the fleet-wide catalogue
 - `id` uuid PK, `name` text with a UNIQUE index (`idx_platform_skills_name`):
   the name is the key an organization's activation decision refers to, so two
-  curated skills sharing one would make that decision ambiguous. It is also what
-  a standard skill reserves against org authoring
+  curated skills sharing one would make that decision ambiguous
 - `description` / `body` / `metadata` — the same SKILL.md contract as an org row
 - `published` boolean NOT NULL default **false** — a draft is invisible
   fleet-wide, which is what makes the dashboard usable as a writing surface
 - `delivery` text NOT NULL default **`'offer'`** (migration 0050), constrained by
-  `platform_skills_delivery_check` to `offer | standard`. Orthogonal to
+  `platform_skills_delivery_check` to `offer` and nothing else since 0088. The
+  column is kept with one legal value rather than dropped: it still says
+  something true — a curated skill is OFFERED — and a column with one legal
+  value and no CHECK is a column that accepts the next typo. Orthogonal to
   `published`, and the two closed defaults mean different things: unpublished is
-  *invisible*, `offer` *requires consent*. The CHECK is in the database and not
-  only in `platformSkillDeliverySchema` because the resolver asks
-  `delivery = 'standard'` — an unrecognised value would fail toward "offer" and
-  silently demote a fleet instruction rather than erroring
-- Partial index `idx_platform_skills_standard` on `(name)` WHERE
-  `delivery = 'standard' AND published` — the point lookup the org write boundary
-  and `resolveSkillSnapshot` make. Partial because drafts and offers are the
-  overwhelming majority of a mature catalogue and none can satisfy the predicate.
-  Not expressible in the Drizzle builder, so it lives in the SQL migration
+  *invisible*, `offer` *requires consent*
 - No `organization_id`: one row reaches every tenant at once. Secured with
   `grid_secure_platform_table` — every tenant reads it, only the platform role
-  writes it. That is what makes `standard` an enforced boundary rather than a
-  convention: a tenant cannot write this column, so a tenant cannot demote a
-  standard skill into something it may switch off
+  writes it, so the fleet catalogue is an enforced boundary rather than a
+  convention
+
+`organization_instructions` — one standing instruction block per tenant (0087)
+- PK `organization_id` text, `instructions` text, `updated_by` /
+  `updated_by_email`, `updated_at`
+- `organization_instructions_length` CHECK at **1500 characters** (`char_length`,
+  not `octet_length` — the editor counts characters down and an umlaut must not
+  cost two), and `organization_instructions_not_blank`, because a row that says
+  nothing would encode a header carrying nothing. Clearing the text DELETES the
+  row, so "never written" and "written, then emptied" are one state
+- Its own table rather than a key in `organizations.settings`, for three things
+  the jsonb bag cannot hold: the bound in SQL, attribution for "who told the
+  agent to do that", and its own cache entry on the WS-upgrade hot path
+- Secured with `grid_secure_table('organization_instructions',
+  'organization_id = grid_current_org()')` and listed in `rls-coverage.spec.ts`
+- It is **not a skill** and does not appear in any catalog: see ADR-0060
 
 `curated_skill_activations` — an org's decision about one curated skill
 - PK `(organization_id, skill_name)`, `enabled` boolean NOT NULL default false
@@ -781,23 +712,21 @@ Org toolbox (`frontends/ui/src/app/api/skills/…`):
 
 - `GET  /api/skills` — what the organization has: its own rows plus the
   platform's **offers** (each carrying the org's on/off decision), org
-  rows shadowing an offer of the same name. Never the machinery, and never a
-  standard skill. Any member may read.
+  rows shadowing an offer of the same name. Never the machinery. Any member
+  may read.
 - `POST /api/skills` — author a skill (`org:skills:manage`). Validates the
   name/description rules and the reserved `grid-cards` value against the
-  model-facing card catalog. 409s a name reserved by a published **standard**
-  platform skill, with a message that names the collision and nothing else.
-  (`clonedFrom` is still accepted for compatibility but nothing sends it: the
-  clone flow is gone.)
-- `PATCH`/`DELETE /api/skills/{skillId}` — `org:skills:manage`. A rename
-  re-checks the standard reservation.
+  model-facing card catalog. No name is reserved fleet-wide any more: an org row
+  named after a platform offer shadows it, and the tenant's version is the one
+  that runs. (`clonedFrom` is still accepted for compatibility but nothing sends
+  it: the clone flow is gone.)
+- `PATCH`/`DELETE /api/skills/{skillId}` — `org:skills:manage`.
 - `PATCH /api/skills/curated/{name}` — switch a platform **offer** on or
   off for this organization, body `{ enabled }` (`org:skills:manage`).
   Addressed by NAME, not by id: a curated skill's id belongs to the platform
   catalogue, and handing it to a tenant would invite a PATCH against the
   fleet's copy. The service 404s any name that is not a published offer, so
-  neither the machinery nor a standard skill can be switched off by
-  hand-crafting a request.
+  the machinery cannot be switched off by hand-crafting a request.
 
 Platform catalogue (`frontends/ui/src/app/api/platform/skills/…`) — platform
 owners only (ADR-0016), no per-org feature flag; this is the layer *under*
@@ -809,16 +738,25 @@ every tenant's skill list:
   unless `published` / `delivery` say otherwise. A name that belongs to a builtin
   is refused: a curated skill shadowing the machinery would silently replace how
   deep research writes its report for every org that switched it on.
-- `PATCH`/`DELETE /api/platform/skills/{skillId}` — edit (including publishing,
-  withdrawing, and moving between deliveries) or withdraw from the fleet. A
-  withdrawal leaves activation rows alone, so re-creating the skill under the
-  same name restores the fleet as it was.
-  `delivery` changes are not symmetrical: **offer → standard** starts every
-  organization running it, including ones that had explicitly switched it off;
-  **standard → offer** is a fleet-wide deactivation, since every org stops until
-  it switches the skill on and the stored activation rows come back into force.
+- `PATCH`/`DELETE /api/platform/skills/{skillId}` — edit (including publishing
+  and withdrawing) or withdraw from the fleet. A withdrawal leaves activation
+  rows alone, so re-creating the skill under the same name restores the fleet as
+  it was. `delivery` takes one value, so there is no promotion to make: a
+  published row is an offer, and each organization decides.
 - `GET  /api/skills/invocable` — the `/name` picker's list (name +
   description only, chat-executable, enabled). Any org member.
+
+Organization settings (`frontends/ui/src/app/api/organization/instructions`) —
+not a skill route, and here because it is where forcing went:
+
+- `GET  /api/organization/instructions` — the org's standing instruction block.
+  Any member may read it: it shapes every answer they get, so it is not a secret
+  from them, and the read is keyed by `session.organizationId`.
+- `PUT  /api/organization/instructions` — write it (`org:settings:manage`, the
+  same gate as `/api/organization/settings`). An empty body clears the block,
+  which deletes the row. The service caps at 1500 characters, the CHECK caps
+  again, and `server.js` sends the result on every WS upgrade as
+  `X-Grid-Org-Instructions` (base64url) beside the project context.
 - `GET  /api/skills/attachable?output=chat|deep-research` — the job builder's
   skill picker: the skills the chosen output kind's agent can run, resolved
   through the same one gate. Carries bodies, because the builder previews the
@@ -1208,22 +1146,21 @@ history surfaces, and the run-history link and job-glyph rendering that
 
 - `tests/aiq_agent/skills/` — model validation, builtin discovery, resolver
   caching/shadowing/fail-open (including the resolve query contract: URL,
-  token header, both param cases), runtime prompt/tool wiring, and the
-  **applied** half of the standard tier — `test_runtime.py` pins that a
-  `standard` skill is forced without being asked for, that the user's own
-  forces are listed before it, and that a user forcing a standard skill by name
-  does not list it twice.
+  token header, both param cases), runtime prompt/tool wiring, and the rule
+  that nothing may require a skill: `test_runtime.py` pins that the runtime
+  offers and cannot require, that a `standard` marker on the payload is an
+  ordinary catalog entry, and that only a delivered body counts as activated.
 - `tests/aiq_agent/turn/test_payload.py` and
-  `tests/aiq_agent/turn/test_payload_parsing.py` — the envelope parsing;
-  `tests/aiq_agent/agents/piloti/` — per-turn skill forcing.
+  `tests/aiq_agent/turn/test_payload_parsing.py` — the envelope parsing,
+  including that a `skills` array from an older client is dropped rather than
+  obeyed.
 - BFF vitest, toolbox: `lib/skills/service.spec.ts` (authz, tenant filters,
   snapshot and targeting semantics — pinned against the Python cases — plus the
-  `platform standard skills` block, which asserts each of the standard-tier
-  properties the BFF owns independently, including the legacy-collision and
-  unpublished-draft cases, and that `standard` is marked on the wire for a
-  standard row and on nothing else), `lib/skills/platform-service.spec.ts`
-  (the closed `delivery` default and moving a row between deliveries without
-  touching the document),
+  `a published platform row, after the standard tier was retired` block, which
+  asserts that such a row is an ordinary offer: it starts off, an org row of the
+  same name shadows it, a job may snapshot it, and nothing marks it on the wire),
+  `lib/skills/platform-service.spec.ts` (the closed `delivery` default and
+  editing a row without touching the document),
   `lib/skills/types.spec.ts`, `lib/skills/platform-skills.spec.ts` (which
   asserts every builtin still declares `grid-agents`, now the only thing
   keeping them out of chat), `features/skills/lib/slash-command.spec.ts`,

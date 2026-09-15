@@ -204,7 +204,7 @@ boundary in `ConversationGraph.run()`:
   quantity at all (`NON_MEASURING_OPERATIONS` — briefing, find_elements,
   element, draw, view, shopping_list) carry no trailer, because „Messwerte in
   diesem Ergebnis: 0" on a `draw` reads to the model as a measurement that
-  failed and invites a retry that costs one of five tool iterations. Suppression
+  failed and invites a retry that costs one of the turn's research rounds. Suppression
   is safe in the same direction as everything else here: no trailer reads as no
   measurement, so an operation nobody thought to list still grants nothing.
 - `citations_removed` (`{count, reasons[]}`, deduped, max 5) — from the research
@@ -1605,6 +1605,51 @@ providing `resolve_tools()`, `build_llm_provider()`, `with_tool_guard()`, a
 prompt-loading mixin, and an eval-wrapper factory — collapsing the duplication
 without touching the genuinely agent-specific LangGraph node logic. This is a
 refactor that should be verified against a running stack before merge.
+
+### Prompts: three layers, and where each is authored
+
+What reaches a model as its system prompt is assembled from three layers with
+three different owners. Confusing them is how a prompt change lands in the
+wrong place and appears not to work.
+
+1. **The platform prompt** — the static half of `piloti.j2`, everything above
+   the `KV CACHE BOUNDARY` marker. Identical for every tenant and every turn,
+   which is what makes it both cacheable by the provider and manageable outside
+   a release. **Authored and versioned in Langfuse**, under the prompt name
+   `piloti-system-static` and the label `production`, and pulled by the agent
+   at render time (`src/aiq_agent/common/prompt_store.py`).
+2. **The office's standing instructions** — the tenant's own preferences,
+   arriving per request on the `x-grid-org-instructions` header
+   (`project_context.py`, bounded at 1500 characters) and rendered BELOW the
+   boundary, because they vary per tenant. The template frames them as
+   preferences that neither supply a normative value nor outrank the static
+   rules.
+3. **Skills** — chosen by the model, per turn, from the L1 catalog the register
+   layer collates (ADR-0046, §8d). Nothing here is authored in a prompt file at
+   all: a skill is a document the agent decides to read.
+
+**The direction is Langfuse → repository, and only that way.** A prompt change
+is made in the Langfuse UI: it creates a version, and moving the `production`
+label is what ships it. Running processes pick it up within
+`LANGFUSE_PROMPT_CACHE_TTL_SECONDS` (60s default) — the SDK serves the cached
+text and refreshes in the background, so no turn waits for it.
+
+`src/aiq_agent/agents/piloti/prompts/piloti_static.md` in the repository is the
+**bundled fallback**, not the original: what a process renders when prompt
+management is off (the default), when the Langfuse keys are absent, when
+Langfuse is unreachable, or when it holds no such prompt. It is allowed to lag
+the live version and nothing checks the difference — there is no push path and
+no drift gate. `task prompts:pull` (`scripts/prompts_pull.py`) writes the
+current production version into that file so a maintainer can commit a fresher
+fallback now and then. Labels other than `production` are for experiments; a
+deployment joins one by setting `LANGFUSE_PROMPT_LABEL`.
+
+Every generation span carries `langfuse.observation.prompt.name` and
+`.version`, so a trace says which version produced an answer — including when
+the bundled fallback served, where the name is the file path and the version is
+its git blob hash. Env vars:
+[`environment-variables.md`](../deployment/environment-variables.md)
+§Prompt management.
 
 ### Project memory (implemented)
 

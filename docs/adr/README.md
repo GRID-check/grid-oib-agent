@@ -119,6 +119,7 @@ Consequences, where a reader looks for them.
 | [0057](0057-agentic-retrieval-quality-package.md) | Agentic retrieval quality package (filters, hybrid RRF, LLM-judge reranker) | Accepted |
 | [0058](0058-retrieval-correctness-and-the-measurement-gate.md) | Retrieval correctness, structure-aware chunking, and the measurement gate | Proposed |
 | [0059](0059-assignment-is-not-access.md) | Assignment is not access (and not provenance) | Proposed |
+| [0060](0060-three-instruction-layers-and-tools-that-answer.md) | Instructions live in three layers, and a tool delivers an answer | Accepted |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off
