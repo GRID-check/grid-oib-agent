@@ -17,12 +17,17 @@ evidence.
 from __future__ import annotations
 
 import importlib
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 from knowledge_layer.register import KnowledgeRetrievalConfig
 
+from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+from aiq_agent.common.grounding_block import begin_grounding_capture
+from aiq_agent.common.grounding_block import end_grounding_capture
+from aiq_agent.common.grounding_block import get_grounding_block
 from aiq_agent.common.source_kinds import Shelf
 from aiq_agent.knowledge.schema import Chunk
 from aiq_agent.knowledge.schema import ContentType
@@ -514,3 +519,57 @@ class TestTheContract:
 
         assert "Gliederung" in returns
         assert "not evidence" in returns
+
+
+#: The bytes this tool returned before the Gliederung moved inside the block.
+#: Captured from the code that appended it, so the move cannot change what the
+#: model reads (ADR-0061: the text may not move by a byte).
+OUTLINE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "read_passage_outline.txt"
+
+
+@pytest.fixture
+def capturing():
+    """The turn-scoped capture ``PilotiAgent.run`` opens around a live turn."""
+    token = begin_grounding_capture()
+    yield
+    end_grounding_capture(token)
+
+
+class TestTheOutlineIsReadAsRecords:
+    """An outline result must be findable by its own bytes.
+
+    ``read_passage(document=…)`` is the most common call this tool takes, and
+    its output used to be concatenated after the renderer had already filed the
+    block under the hash of what it returned. Every one of those results missed
+    the structured reader and fell to the regex parser, which recovers less than
+    the producer stated. The Gliederung travels as the block's trailer now.
+    """
+
+    async def test_an_outline_result_is_filed_under_its_own_bytes(self, store, capturing):
+        store.outline_chunks = _oib_outline()
+
+        assert get_grounding_block(await _read(document=OIB)) is not None
+
+    async def test_a_document_without_punkte_is_filed_too(self, store, capturing):
+        """The no-Punkte line is the same decoration, and was the same miss."""
+        store.page_chunks = [_page_chunk(1, "Seite 1 des Konzepts")]
+
+        assert get_grounding_block(await _read(document=PLAN)) is not None
+
+    async def test_the_outline_bytes_did_not_move(self, store):
+        """Byte identity against what the concatenating code produced."""
+        store.outline_chunks = _oib_outline()
+
+        assert await _read(document=OIB) == OUTLINE_FIXTURE.read_text(encoding="utf-8")
+
+    async def test_the_gliederung_is_still_not_evidence_on_the_text_path(self, store):
+        """The reader that parses the text cuts at ``## Trace-Lanes``.
+
+        The trailer sits after the fan-out, so a heading cannot arrive as a
+        passage body no matter which of the two readers sees the result.
+        """
+        store.outline_chunks = _oib_outline()
+
+        entries = extract_sources_from_tool_result("read_passage", await _read(document=OIB))
+
+        assert [entry.chunk_text for entry in entries] == ["Diese Richtlinie gilt für …", "… und ist so zu lesen."]

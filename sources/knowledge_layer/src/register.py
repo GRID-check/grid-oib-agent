@@ -1351,18 +1351,18 @@ def _stamp_and_capture_lane_source(entry: dict) -> None:
     try:
         from aiq_agent.common.turn_status import current_retrieval_round
         from aiq_agent.common.turn_status import record_lane_hit
+
+        round_index = current_retrieval_round()
+        if round_index is not None:
+            entry["round"] = round_index
+        record_lane_hit(
+            entry["name"],
+            title=entry.get("title"),
+            detail=entry.get("detail"),
+            shelf=entry.get("shelf"),
+        )
     except Exception:  # noqa: BLE001 (the fan-out survives a missing status module)
         logger.debug("Turn status unavailable; lane hit goes unstamped", exc_info=True)
-        return
-    round_index = current_retrieval_round()
-    if round_index is not None:
-        entry["round"] = round_index
-    record_lane_hit(
-        entry["name"],
-        title=entry.get("title"),
-        detail=entry.get("detail"),
-        shelf=entry.get("shelf"),
-    )
 
 
 def _hit_provenance(chunk):
@@ -1518,23 +1518,30 @@ def _grounding_hits(chunks) -> tuple:
     )
 
 
-def _format_results(retrieval_result, query: str, notice: str = "") -> str:
+def _format_results(retrieval_result, query: str, notice: str = "", trailer: str = "") -> str:
     """Build this result set's grounding hits and render them for the LLM.
 
     The layout itself lives in
     :func:`~aiq_agent.common.grounding_block.render_grounding_block`, which also
     files the records under the hash of the bytes it returns, so the citation
     registry reads fields rather than re-parsing this text (ADR-0061). That is
-    why ``notice`` (the requery notice) is rendered here and never prepended by
-    the caller: a byte added after rendering changes the hash, and the reader
-    would fall back to parsing the text.
+    why both decorations are rendered here and neither is glued on by the
+    caller: a byte added after rendering changes the hash, and the reader would
+    fall back to parsing the text. ``notice`` is the requery notice and goes
+    ahead of everything; ``trailer`` is ``read_passage``'s ``## Gliederung``
+    index and follows the fan-out.
     """
+    # The two answers below carry no block, so they carry no hash to protect
+    # either; there the trailer is simply appended, which keeps it stated
+    # whichever answer this call has.
+    tail = f"\n{trailer}" if trailer else ""
+
     # Check for retrieval errors and surface them to the agent
     # getattr: callers pass duck-typed result-likes (e.g. SimpleNamespace in
     # tests) that may not carry the optional error_message field.
     if not retrieval_result.success:
         error_msg = getattr(retrieval_result, "error_message", None) or "Unknown error"
-        return f"Knowledge retrieval failed: {error_msg}\n\nQuery: '{query}'"
+        return f"Knowledge retrieval failed: {error_msg}\n\nQuery: '{query}'{tail}"
 
     # Degraded partial retrieval (e.g. the base corpus dropped out on an
     # embedding-fingerprint mismatch while other layers survived): the chunks
@@ -1544,7 +1551,7 @@ def _format_results(retrieval_result, query: str, notice: str = "") -> str:
     degraded_banner = notice + (f"WARNING: {degraded_detail}\n\n" if degraded_detail else "")
 
     if not retrieval_result.chunks:
-        return f"{degraded_banner}No relevant documents found for query: '{query}'"
+        return f"{degraded_banner}No relevant documents found for query: '{query}'{tail}"
 
     from aiq_agent.common.grounding_block import GroundingBlock
     from aiq_agent.common.grounding_block import render_grounding_block
@@ -1558,6 +1565,7 @@ def _format_results(retrieval_result, query: str, notice: str = "") -> str:
             # Fan-out summary for the Herleitung UI, from the same records the
             # header lines state.
             lanes=_trace_lanes_for_hits(hits),
+            trailer=trailer,
         )
     )
 

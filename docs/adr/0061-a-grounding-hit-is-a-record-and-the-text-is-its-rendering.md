@@ -66,7 +66,7 @@ rendered bytes", because it makes the text a projection of data the producer
 already had, while leaving that text the only thing that reaches the model.
 
 `common/grounding_block.py` holds `GroundingHit` (frozen, one citable passage),
-`GroundingBlock` (preamble, degraded banner, hits, lanes) and
+`GroundingBlock` (preamble, degraded banner, hits, lanes, trailer) and
 `render_grounding_block`, which is the one place the grammar's line order and
 spacing live. The renderer records the block under `sha256(rendered_text)` in a
 per-turn `ContextVar`, opened in `PilotiAgent.run` beside `begin_lane_capture`.
@@ -90,7 +90,11 @@ in the fleet for one of them.
 
 * Good, because the header lines, the Trace-Lanes fan-out and the citation
   registry now read a hit's shelf, Dokumentart and title from one function
-  (`_grounding_hit`), so they cannot disagree.
+  (`_grounding_hit`), so they cannot disagree. RIS is the one exception, and it
+  is deliberate: its fan-out names a passage by its citation (`Bauordnung für
+  Wien, § 63 Abs 1`) where the `Source:` line carries the Kurztitel, because a
+  Herleitung entry that showed the law's name alone would drop the § the reader
+  came for (`ris_adapter.lookup.render._trace_lanes_block`).
 * Good, because a passage body can no longer forge a header field on the live
   path. There is no scan for it to poison.
 * Good, because RIS stopped carrying its own copy of the grammar. Adding a
@@ -102,8 +106,10 @@ in the fleet for one of them.
   drift. The contract test below is what holds them together.
 * Bad, because the lookup is keyed on exact bytes. A producer that decorates its
   own output after rendering falls back to the text path and nothing says so
-  out loud. The one decoration there was, the requery notice, is rendered
-  inside the block for that reason; a new one has to go the same way.
+  out loud. Both decorations are rendered inside the block for that reason: the
+  requery notice as the `degraded_banner`, ahead of everything, and
+  `read_passage`'s outline index as the `trailer`, after the fan-out. A new one
+  has to go the same way.
 * Bad, because the structured reader keeps a precision the rendered line rounds
   away: `Relevance Score:` prints two decimals and `SourceEntry.score` now
   carries what retrieval measured. No surface renders a score today.
@@ -126,13 +132,18 @@ Three gates, all in CI's backend jobs:
   `grounding_block_ris.txt`. Those two fixtures are the bytes the hand-written
   producers emitted before the renderer existed, captured and checked in, so a
   changed line order fails rather than ships.
-* `tests/aiq_agent/common/test_citation_pipeline_contract.py` reads the same
-  producer output twice, once with the capture open and once without, and
+* `tests/aiq_agent/common/test_citation_pipeline_contract.py` reads each
+  producer's output twice, once with the capture open and once without, and
   asserts the two readers produce identical `SourceEntry` lists field by field.
-  That is what keeps the text parsers honest while they are still needed.
+  Both producers are in it, `_format_results` and RIS `format_passages`, so the
+  fields only RIS states (source URL, Rechtlicher Hinweis, a Punkt that is a §)
+  are covered too. That is what keeps the text parsers honest while they are
+  still needed.
 * `sources/ris_adapter/tests/test_ris_lookup_format.py` and
   `sources/knowledge_layer/tests/test_read_passage_outline.py` assert the
-  grammar's text directly, from the real tools.
+  grammar's text directly, from the real tools. The outline tests also pin that
+  a `read_passage(document=…)` result is found in the capture, and its bytes
+  against what the code that appended the Gliederung produced.
 
 ## More Information
 

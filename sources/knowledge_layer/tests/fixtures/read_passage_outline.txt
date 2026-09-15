@@ -1,0 +1,38 @@
+Found 2 relevant document(s):
+
+--- Result 1 ---
+Source: OIB-Richtlinie 2, Ausgabe Mai 2023
+Collection: oib_knowledge
+Shelf: base
+Page: 3
+Punkt: 0
+Citation: oib-rl_2_ausgabe_mai_2023.pdf, p.3
+Content Type: text
+Relevance Score: 0.71
+
+Diese Richtlinie gilt für …
+
+--- Result 2 ---
+Source: OIB-Richtlinie 2, Ausgabe Mai 2023
+Collection: oib_knowledge
+Shelf: base
+Page: 3
+Punkt: 0
+Citation: oib-rl_2_ausgabe_mai_2023.pdf, p.3
+Content Type: text
+Relevance Score: 0.71
+
+… und ist so zu lesen.
+
+## Trace-Lanes
+{"lanes": [{"key": "baurecht_oib", "label": "OIB-Richtlinie", "kind": "baurecht", "hitCount": 2, "sources": [{"name": "oib-rl_2_ausgabe_mai_2023.pdf", "title": "OIB-Richtlinie 2, Ausgabe Mai 2023", "detail": "p.3", "shelf": "base"}]}]}
+
+## Gliederung
+- Punkt 0: Vorbemerkungen (S. 3)
+- Punkt 1: Begriffsbestimmungen (S. 3)
+- Punkt 2: Allgemeine Anforderungen (S. 4)
+  - Punkt 2.1: Abstände (S. 4)
+  - Punkt 2.9: Löschwasser (S. 5)
+  - Punkt 2.10: Blitzschutz (S. 5)
+
+Einen gelisteten Punkt öffnest du mit `read_passage(document=…, punkt=…)`; die Gliederung ist ein Index, keine Evidenz — nur die Passage(n) oben tragen eine Citation.

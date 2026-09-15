@@ -28,6 +28,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from ris_adapter.lookup.address import Address
+from ris_adapter.lookup.passages import SCORE_ADDRESSED
+from ris_adapter.lookup.passages import SCORE_RANKED_TOP
+from ris_adapter.lookup.passages import Passage
+from ris_adapter.lookup.render import format_passages
 
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
@@ -484,8 +489,14 @@ class TestTheTwoReadersAgree:
     the job runner's callback.
 
     That makes the two paths a pair, and a pair drifts. Here they read the SAME
-    bytes from the same producer, one with the capture open and one without, and
+    bytes off a real producer, one with the capture open and one without, and
     every field of every entry has to match.
+
+    Both evidence producers are read this way. RIS states fields the corpus
+    never does (a source URL, a Rechtlicher Hinweis, a Punkt that is a §), and
+    it is the producer whose fan-out deliberately names a document differently
+    from its ``Source:`` line, so it is the one where a drift would be easiest
+    to argue away.
     """
 
     RICH_HITS = [
@@ -572,6 +583,56 @@ class TestTheTwoReadersAgree:
             "lose_notiz.pdf",
             "langer_bericht.pdf, p.1",
         ]
+
+    #: One § the caller addressed, with the disclaimer a consolidated version
+    #: carries, and one the picker ranked, with none.
+    RIS_PASSAGES = [
+        Passage(
+            title="Bauordnung für Wien",
+            url="https://www.ris.bka.gv.at/Bauordnung-Wien",
+            collection="ris/LrKons/Wien",
+            punkt_label="§ 63 Abs 1",
+            citation="Bauordnung für Wien, § 63 Abs 1",
+            body="Dem Ansuchen um Baubewilligung sind anzuschließen …",
+            score=SCORE_ADDRESSED,
+            status_note="Konsolidierte Fassung. Maßgeblich ist das Landesgesetzblatt.",
+        ),
+        Passage(
+            title="Wiener Garagengesetz",
+            url="https://www.ris.bka.gv.at/Garagengesetz",
+            collection="ris/LrKons/Wien",
+            punkt_label="§ 50",
+            citation="Wiener Garagengesetz, § 50",
+            body="Stellplätze sind in der erforderlichen Anzahl herzustellen.",
+            score=SCORE_RANKED_TOP,
+        ),
+    ]
+
+    def read_ris_both_ways(self) -> tuple[list[SourceEntry], list[SourceEntry]]:
+        """The RIS producer's output, read once off the records and once off the text."""
+        from aiq_agent.common.grounding_block import begin_grounding_capture
+        from aiq_agent.common.grounding_block import end_grounding_capture
+
+        address = Address(kind="§", number="63", absatz="1", bundesland="W", bundesland_source="the question")
+        token = begin_grounding_capture()
+        try:
+            tool_output = format_passages(self.RIS_PASSAGES, None, address)
+            structured = extract_sources_from_tool_result("ris_lookup", tool_output)
+        finally:
+            end_grounding_capture(token)
+        return structured, extract_sources_from_tool_result("ris_lookup", tool_output)
+
+    def test_a_ris_block_reads_identically_field_by_field(self):
+        structured, parsed = self.read_ris_both_ways()
+        assert [dataclasses.asdict(entry) for entry in structured] == [dataclasses.asdict(entry) for entry in parsed]
+
+    def test_the_structured_read_carries_what_ris_stated(self):
+        """Guards the premise above, and pins the § as the Punkt it is."""
+        structured, _ = self.read_ris_both_ways()
+        wien, garagen = structured
+        assert (wien.punkt, wien.doc_class, wien.shelf, wien.score) == ("§ 63 Abs 1", "gesetz", "base", 1.0)
+        assert (garagen.punkt, garagen.doc_class, garagen.shelf) == ("§ 50", "gesetz", "base")
+        assert wien.citation_key == "Bauordnung für Wien, § 63 Abs 1"
 
 
 class TestDocumentKey:

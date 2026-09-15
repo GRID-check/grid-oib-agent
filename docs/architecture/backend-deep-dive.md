@@ -988,8 +988,11 @@ The renderer files each block under the SHA-256 of the exact bytes it returns,
 in a per-turn `ContextVar` that `PilotiAgent.run` opens beside
 `begin_lane_capture`. `citation_verification.extract_sources_from_tool_result`
 looks the block up by that hash and builds `SourceEntry`s by field copy, so a
-live turn parses nothing and a passage body cannot supply a header field the
-producer omitted. The text parsers in `citation_verification`
+passage body cannot supply a header field the producer omitted. `PilotiAgent.run`
+is the only caller that opens the capture, so the structured read is what a
+Piloti turn gets for `knowledge_search`, `read_passage` and `ris_lookup`, and
+the deep researcher, the conversation path and the job runner parse the text.
+The text parsers in `citation_verification`
 (`_parse_knowledge_layer` and the eleven `_KL_*` regexes) stay for the callers
 that hold the bytes without the records: a registry hydrated from the shared
 cache, a turn replayed out of Postgres, and the job runner's callback in

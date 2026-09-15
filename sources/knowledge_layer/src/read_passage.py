@@ -785,9 +785,15 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
 
         entries = _outline_entries(chunks)
         passages = _scope_chunks(chunks)[:_MAX_PASSAGE_CHUNKS]
-        formatted = await asyncio.to_thread(_format_results, _passage_result(passages, query), query)
+        # The Gliederung travels as the block's trailer rather than being glued
+        # on here: the renderer files the records under the hash of the bytes it
+        # returns, and a byte added afterwards costs this tool the structured
+        # read on its most common call (ADR-0061).
+        formatted = await asyncio.to_thread(
+            _format_results, _passage_result(passages, query), query, trailer=_gliederung_block(entries)
+        )
         logger.info("read_passage: %s outlined %d Punkt(e)", query, len(entries))
-        return formatted + "\n" + _gliederung_block(entries)
+        return formatted
 
     async def _opening_passages(
         document: str, targets: list[PassageTarget], query: str, failures: list[BaseException]
@@ -812,9 +818,11 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
             return _empty_document_message(document)
 
         merged = _passage_result(sorted(fetched, key=_punkt_sort_key)[:_MAX_PASSAGE_CHUNKS], query)
-        formatted = await asyncio.to_thread(_format_results, merged, query)
+        # The line that replaces the Gliederung rides the same trailer, and for
+        # the same reason: the hash is over the whole text.
+        formatted = await asyncio.to_thread(_format_results, merged, query, trailer=_NO_PUNKTE_LINE)
         logger.info("read_passage: %s outlined %d opening chunk(s)", query, len(merged.chunks))
-        return formatted + "\n" + _NO_PUNKTE_LINE
+        return formatted
 
     yield FunctionInfo.from_fn(_read, description=_READ_PASSAGE_DESCRIPTION)
 

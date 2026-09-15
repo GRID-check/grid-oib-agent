@@ -137,6 +137,13 @@ class GroundingBlock(BaseModel):
     hits: tuple[GroundingHit, ...]
     #: The ``## Trace-Lanes`` JSON, built by the producer from these same hits.
     lanes: str
+    #: What is rendered after the lanes and outside the grammar: ``read_passage``
+    #: puts its ``## Gliederung`` index here, and the one line that replaces the
+    #: index for a document with no Punkte. Empty when neither applies. It is
+    #: part of the block for the same reason the banner is: the reader looks the
+    #: records up by the hash of the WHOLE text, so a producer that appended
+    #: these bytes itself fell back to the text parser.
+    trailer: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +165,8 @@ def render_grounding_block(block: GroundingBlock) -> str:
     lines.append("## Trace-Lanes")
     lines.append(block.lanes)
     lines.append("")
+    if block.trailer:
+        lines.append(block.trailer)
     rendered = block.degraded_banner + "\n".join(lines)
     record_grounding_block(block, rendered)
     return rendered
@@ -175,31 +184,51 @@ def _header_lines(hit: GroundingHit) -> Iterator[str]:
     The absence is the message: a reader must see that a hit stated no shelf,
     no Dokumentart and no folder, rather than read a default the pipeline
     picked. ``Relevance Score:`` is last because it delimits the body.
+
+    Every string value goes through :func:`_line`, because a header field is
+    one line by definition and several of these values come from a document's
+    own text (a title read out of a PDF, a folder a user named). The numbers
+    and the :class:`~aiq_agent.common.source_kinds.Shelf` enum cannot carry a
+    newline, so they go in as they are.
     """
-    yield f"Source: {hit.display_title}"
+    yield f"Source: {_line(hit.display_title)}"
     if hit.source_url:
-        yield f"Source URL: {hit.source_url}"
+        yield f"Source URL: {_line(hit.source_url)}"
     if hit.collection:
-        yield f"Collection: {hit.collection}"
+        yield f"Collection: {_line(hit.collection)}"
     if hit.shelf is not None:
         yield f"Shelf: {hit.shelf}"
     if hit.folder_path:
-        yield f"Ordner: {hit.folder_path}"
+        yield f"Ordner: {_line(hit.folder_path)}"
     if hit.doc_class:
-        yield f"Dokumentart: {hit.doc_class} — {_doc_class_label(hit.doc_class)}"
+        yield f"Dokumentart: {_line(hit.doc_class)} — {_line(_doc_class_label(hit.doc_class))}"
     if hit.provenance is not None:
-        yield f"Herkunft: {provenance_label(hit.provenance)}"
+        yield f"Herkunft: {_line(provenance_label(hit.provenance))}"
     if hit.page is not None:
         yield f"Page: {hit.page}"
     if hit.punkt:
-        yield f"Punkt: {hit.punkt}"
+        yield f"Punkt: {_line(hit.punkt)}"
     if hit.status_note:
-        yield f"Rechtlicher Hinweis: {hit.status_note}"
-    yield f"Citation: {hit.citation_key}"
-    yield f"Content Type: {hit.content_type}"
+        yield f"Rechtlicher Hinweis: {_line(hit.status_note)}"
+    yield f"Citation: {_line(hit.citation_key)}"
+    yield f"Content Type: {_line(hit.content_type)}"
     if hit.stored_image_index is not None:
         yield f"Image: stored (view_knowledge_image image_index={hit.stored_image_index})"
     yield f"Relevance Score: {hit.score:.2f}"
+
+
+def _line(value: str) -> str:
+    """``value`` as ONE header line: every line break becomes a single space.
+
+    A header field states what the HIT says. A value that carries a newline
+    would render as further header lines, and the text reader would then read a
+    ``Shelf:`` or a ``Dokumentart:`` off a title the producer took out of a
+    document. The structured reader copies fields and never sees this, so the
+    collapse is what keeps the two readers on one answer. A value with no line
+    break is returned unchanged, which is why the byte-identity fixtures still
+    hold.
+    """
+    return value.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
 
 
 def _doc_class_label(doc_class: str) -> str:
