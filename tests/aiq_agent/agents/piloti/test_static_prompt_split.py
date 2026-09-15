@@ -182,6 +182,49 @@ class TestPromptLink:
         lta.reset_prompt_link()
 
 
+class TestServedTextThatDoesNotRender:
+    """
+    The store promises never to raise into a turn, and keeps it for the FETCH.
+    The text it fetched is still a template one layer up: a prompt author who
+    pastes a JSON example with ``{{`` into Langfuse, or writes ``{{ project }}``
+    expecting substitution, must not take every turn on every replica down for
+    as long as that version is published. The bundled file is the floor here too.
+    """
+
+    def _serve(self, monkeypatch, text: str) -> None:
+        served = _FakeStore(ResolvedPrompt(text=text, name=STATIC_PROMPT_NAME, version="13"))
+        monkeypatch.setattr(prompt_module, "prompt_store", lambda: served)
+
+    def test_an_undefined_variable_in_the_served_text_serves_the_bundled_file(self, monkeypatch):
+        self._serve(monkeypatch, "Hallo {{ buero_name }}")
+
+        assert resolve_static_block() == bundled_static_block()
+
+    def test_json_braces_in_the_served_text_serve_the_bundled_file(self, monkeypatch):
+        self._serve(monkeypatch, 'Beispiel: {{"a": 1}}')
+
+        assert resolve_static_block() == bundled_static_block()
+
+    def test_the_trace_names_the_git_file_when_the_served_text_did_not_render(self, monkeypatch):
+        from aiq_agent.observability import langfuse_trace_attributes as lta
+
+        lta.reset_prompt_link()
+        self._serve(monkeypatch, "Hallo {{ buero_name }}")
+
+        resolve_static_block()
+
+        assert lta.current_prompt_attributes()[lta.OBSERVATION_PROMPT_NAME] == "git:prompts/piloti_static.md"
+        lta.reset_prompt_link()
+
+    def test_a_served_text_that_renders_is_still_served(self, monkeypatch):
+        self._serve(monkeypatch, "MANAGED {{ answer_envelope_schema }}")
+
+        resolved = resolve_static_block()
+
+        assert resolved.is_fallback is False
+        assert resolved.version == "13"
+
+
 class _FakeStore:
     """A store that serves one answer and records what it was asked for."""
 

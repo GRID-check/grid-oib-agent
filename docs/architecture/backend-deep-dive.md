@@ -1644,6 +1644,15 @@ current production version into that file so a maintainer can commit a fresher
 fallback now and then. Labels other than `production` are for experiments; a
 deployment joins one by setting `LANGFUSE_PROMPT_LABEL`.
 
+The served text is still a Jinja template when it reaches the agent, with
+exactly one variable, `{{ answer_envelope_schema }}`, which the renderer fills
+from the envelope models. Any other `{{ … }}` in a Langfuse version is a
+render error, and so is a JSON example that opens with `{{`. That error does
+not reach a turn: a version that does not render is logged once and the
+bundled file serves until the published version is fixed
+(`prompt.py:resolve_static_block`). The trace then names the git file, which
+is how an author finds out their version is not the one answering.
+
 Every generation span carries `langfuse.observation.prompt.name` and
 `.version`, so a trace says which version produced an answer — including when
 the bundled fallback served, where the name is the file path and the version is

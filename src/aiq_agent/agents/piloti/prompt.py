@@ -40,6 +40,7 @@ from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.common.prompt_store import ResolvedPrompt
 from aiq_agent.common.prompt_store import git_blob_version
 from aiq_agent.common.prompt_store import prompt_store
+from aiq_agent.common.prompt_utils import PromptError
 from aiq_agent.common.source_kinds import SHELF_QUALIFIERS
 from aiq_agent.common.source_kinds import parse_shelf
 from aiq_agent.knowledge.already_read import render_already_read_block
@@ -107,8 +108,30 @@ def resolve_static_block() -> ResolvedPrompt:
     waits on it twice.
     """
     resolved = prompt_store().get(STATIC_PROMPT_NAME, fallback=bundled_static_block())
+    if not resolved.is_fallback and not _renders(resolved.text):
+        # The store's promise ("never raises into a turn") covers the FETCH.
+        # The text it fetched is still a Jinja template one layer up, and a
+        # prompt author who pastes a JSON example with ``{{`` into Langfuse
+        # would otherwise fail every turn on every replica for as long as the
+        # version is published. The bundled file is the floor here too.
+        resolved = bundled_static_block()
     record_prompt_link(name=resolved.name, version=resolved.version)
     return resolved
+
+
+@functools.lru_cache(maxsize=4)
+def _renders(static_text: str) -> bool:
+    """Whether a served text renders as the static half; logged once per text."""
+    try:
+        render_static_block(static_text)
+    except PromptError:
+        logger.warning(
+            "The static prompt served by the store does not render as a template; "
+            "the bundled file serves until the published version is fixed",
+            exc_info=True,
+        )
+        return False
+    return True
 
 
 @functools.lru_cache(maxsize=4)
