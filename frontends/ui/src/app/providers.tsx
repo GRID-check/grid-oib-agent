@@ -67,6 +67,15 @@ const PostHogIdentitySync = (): null => {
 
   useEffect(() => {
     if (!distinctId) {
+      // Losing the id without passing through `handleSignOut` — an expired
+      // session, a failed token refresh — must still clear PostHog's OWN
+      // persisted identity, not just this ref. Clearing the ref alone was
+      // actively harmful: it made the `previousDistinctId.current` guard below
+      // false, so the next sign-in on the same browser identified a DIFFERENT
+      // user onto the previous user's persisted distinct id instead of
+      // resetting first. Resetting here is self-limiting — it runs only on the
+      // transition into the no-id state, because the ref is null afterwards.
+      if (previousDistinctId.current && isPosthogEnabled()) resetPosthog()
       previousDistinctId.current = null
       return
     }
