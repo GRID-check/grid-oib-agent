@@ -162,7 +162,7 @@ organization a grip on platform policy.
 |---|---|
 | **invisible** | not in `curatedOffers()`, so absent from `listSkills` (the Skills tab); `resolveSelectableSkills` strips it from the `/` picker and the job builder's skill picker |
 | **default-on** | merged into `resolveAll` unconditionally — no activation row consulted, no decision to make |
-| **applied** | `SkillRuntime` FORCES every resolved standard skill for the run, so its body is loaded rather than waiting to be chosen. The one property enforced on the backend rather than in the BFF |
+| ~~**applied**~~ | **Removed.** `SkillRuntime` forced every resolved standard skill until the forcing pass was deleted; a standard row is now an ordinary line in the L1 catalog, and the model opens it or does not. A standing instruction the fleet must follow is prompt text (the platform prompt, and the office's own `X-Grid-Org-Instructions` block), which costs no tool call and cannot be half-applied |
 | **non-targetable** | `setCuratedSkillEnabled` resolves against `curatedOffers()` only, so a hand-crafted `PATCH /api/skills/curated/{name}` gets a 404 |
 | **non-shadowable** | merged LAST in `resolveAll`, after the org's own rows, as a `delete` **then** a put. The one place the ordering is load-bearing rather than defensive |
 | **platform-owned** | `assertNameNotStandardised` refuses the name at the org write boundary — on create, on rename, and on every edit of a row already wearing it; `grid_secure_platform_table` means a tenant role has SELECT on `platform_skills` and nothing else |
@@ -172,36 +172,25 @@ outrank the pipeline machinery (see below).
 
 Three of those need their reasoning stated rather than just their location.
 
-**Why default-on was not enough on its own.** `delivery: standard` claimed to be
-fleet standard equipment — "resolved for every organization, never listed, not
-switchable". Resolving it only put its one-line **description** in the L1
-catalogue, though, and a description the model may or may not open through
-`use_skill` is not fleet policy. The tier resolved everywhere and bound nowhere:
-the platform owner published a house instruction, every org's runs carried it,
-and whether it shaped an answer was left to the model's judgement on the turn.
-So **applied** is a distinct property, and it is the one that makes the tier mean
-what its name says. `SkillRuntime` forces every resolved standard skill, after
-the user's own `/name` forces so the forced block reads in the order they asked
-for; standard skills follow, because they are the floor rather than the request.
+**Why "applied" was tried, and why it is gone.** `delivery: standard` claimed to
+be fleet standard equipment — "resolved for every organization, never listed, not
+switchable" — and resolving it only put its one-line **description** in the L1
+catalogue. The answer at the time was to FORCE it: name it in an "Active skills"
+block and tell the model to open it. That bought less than it looked like.
+Forcing puts a NAME in the prompt and nothing else, because the body travels
+through exactly one path (the `use_skill` closure), so a model that skipped the
+call read not one word of the instruction while a model that made it paid a tool
+call and thousands of tokens for a standing rule that could have been three
+sentences of prompt. The tier now carries its other five properties and stops at
+the catalog: a standard row is offered like any other skill, and fleet policy
+lives in prompt text — the platform prompt, and the office's own bounded
+`X-Grid-Org-Instructions` block.
 
-That forcing is deliberately keyed off a **property of the skill** rather than a
-list of names in the runtime. The platform owner publishes a standard skill in
-the dashboard and it takes effect — no deploy, and nothing in code to keep in
-sync with a row somebody can rename.
-
-Which means the property has to survive the wire, and it does, in two places:
-
-- `ResolvedSkill.standard` (`frontends/ui/src/lib/skills/service.ts`) on the
-  internal resolve payload. Only the BFF can see `platform_skills`, so only the
-  BFF can mark it — and it is **not derivable from `origin`**, which is also
-  `'platform'` for the pipeline machinery and for offers an org took up, neither
-  of which imposes anything. `resolveAll` sets it on the standard merge pass
-  alone.
-- `Skill.standard` (`src/aiq_agent/skills/models.py`), **defaulting false**. A
-  row that omits the flag is an ordinary skill, which is the safe direction:
-  forgetting it under-applies rather than imposing a tenant's instruction on a
-  run that never agreed to it. `_build_org_skills` reads it off the payload
-  (`resolver.py`); nothing else in the backend sets it, and no `SKILL.md` can.
+Which leaves `ResolvedSkill.standard` (`frontends/ui/src/lib/skills/service.ts`)
+as a BFF-side marker for the merge order and the write boundary. The backend no
+longer has a `Skill.standard` field at all: `_build_org_skills` (`resolver.py`)
+ignores the flag on the payload, so the wire stays compatible and nothing in
+`src/aiq_agent` can tell a standard row from an ordinary one.
 
 The first standard skills were `piloti-voice` (seeded by
 `0053_piloti_voice_standard_skill.sql`) and `piloti-cards` — and both are
@@ -211,10 +200,10 @@ hold: a forced skill contributes only its NAME to the prompt, the body travels
 through exactly one path — the `use_skill` closure — and a model that never
 calls it never reads a word, so the house voice was absent from exactly the
 answers that skipped the call, while every turn that did call paid two reserved
-tool iterations and ~7,800 tokens of body. The MECHANISM stays: `delivery:
-'standard'` still forces whatever the platform owner publishes next, and the
-chain is pinned end to end by
-`tests/.../test_standard_skills_reach_the_model.py` over synthetic rows.
+tool iterations and ~7,800 tokens of body. That reasoning was later applied to
+the mechanism itself: forcing is gone, the reserve with it, and what those two
+skills were retired INTO — prompt text — is where every standing instruction
+now lives.
 
 Two more need their reasoning stated rather than just their location.
 
@@ -470,51 +459,41 @@ filter applies to platform rows as well as org rows.
 
 ## Selection & progressive disclosure
 
-Skill selection is **never model-chosen**. Two things can force a skill onto a
-turn, and neither of them is the model: the user's own request, and the
-platform's standard tier.
+Skill selection is **model-chosen, and only model-chosen**. Nothing can force a
+skill onto a turn: not the request, not the deployment, not a job.
 
-- Chat turns: `_extract_query_and_sources` / `_extract_query_from_text` in
-  `src/aiq_agent/turn/payload.py` parse `data_sources` and
-  `skills` out of the turn input. The JSON envelope mirrors the
-  `data_sources` mechanism, so a message like
-  `{"query": "...", "data_sources": ["web_search"], "skills": ["forecast-analysis"]}`
-  forces those skills for the turn — the backend lifts the array onto the
-  agent state as `force_skills`. Unknown names are dropped by the
-  enforcement machinery (they simply don't match a resolved skill). The `/name`
-  composer invocation below is what sets that field in the product.
-- Remote submissions: `/v1/internal/skills/submit` carries `force_skills` so a
-  job run force-activates the skill it attached — **or an empty list**, when no
-  skill is attached and the prompt runs alone. Agent selection follows the
+- Chat turns: `src/aiq_agent/turn/payload.py` parses `data_sources` out of the
+  turn input and nothing else. The `skills` array it used to read is gone
+  (`force_skills` with it), so a client that still sends one is ignored. The
+  `/name` composer invocation below writes a MENTION into the message text
+  instead — the model reads the mention and decides, exactly as it decides
+  whether to search.
+- Remote submissions: `/v1/internal/skills/submit` still takes a `skills` name
+  list, for the log. The attached skill's BODY is already inside the composed
+  `input` the BFF sends, so the run has the instruction without a tool call and
+  the worker's agent state carries no force list. Agent selection follows the
   JOB's `output`, never anything read off the skill. Deep-research runs get
   their skills the deepagents-native way (see Config).
-- Standard skills: no request at all. `SkillRuntime` forces every resolved
-  skill carrying `standard`, appended after the user's own forces so the block
-  reads in the order they asked for. This is platform policy, not selection —
-  see [the six properties](#standard-skills-the-six-properties-and-where-each-is-enforced).
+- Standing instructions are not skills. What must hold on every answer is
+  prompt text: the platform prompt, and the office's own bounded block
+  (`X-Grid-Org-Instructions` → `## Anweisungen des Büros`, rendered below the
+  KV-cache boundary, never a source and never above the rules it may not
+  override).
 
 Progressive disclosure has exactly two levels:
 
-- **L1 — the catalog.** One line per skill the model may pick unprompted
+- **L1 — the catalog.** One line per skill the model may pick
   (`name: description`) under the system prompt's `## Available skills`
-  heading, plus an `## Active skills (required for this turn)` block listing
-  the skills forced for this turn. `grid-auto-invoke: false` omits a skill
-  from L1. It stays resolved, stays in the `/` picker, and stays loadable
-  when forced. Absent means on. Both blocks are pre-collated by the register
-  layer (`piloti/register.py::_skills_block`,
-  `deep_researcher/agent.py::_skills_block`) and render via the runtime's
-  `prompt_block()` / `forced_block()`; `None` renders no section.
+  heading, and nothing else — there is no second, "active" block any more.
+  `grid-auto-invoke: false` omits a skill from L1; it stays resolved and stays
+  in the `/` picker, which reaches the model through the message text. Absent
+  means on. The block is pre-collated by the register layer
+  (`piloti/register.py::_skills_block`, `deep_researcher/agent.py::_skills_block`)
+  and renders via the runtime's `prompt_block()`; `None` renders no section.
 - **L2 — the body.** The model must call the `use_skill` tool to load a
   body before following it. A failed lookup returns an error listing the
   available names, so a hallucinated skill name is self-correcting rather
   than a fatal turn.
-
-The forced block does not merely name its skills; it tells the model to call
-`use_skill` for each of them **as soon as its instructions become relevant —
-for a skill that governs how you WRITE, that is before you write the answer**.
-Naming a skill and leaving the timing open is how a forced writing skill gets
-loaded after the answer is already composed, which is the same nothing that
-resolving alone bought.
 
 **Every scaffolding string in the runtime is English**, and that is a decision
 rather than an oversight. These headings used to be German (`## Verfügbare
@@ -528,16 +507,19 @@ Country- or language-specific wording belongs in `CountryProfile` or in an
 authored skill body, never in string constants in `runtime.py`.
 
 `SkillRuntime` (`src/aiq_agent/skills/runtime.py`) is **per run**
-(ADR-0018 — never cached on a shared agent instance): it owns the forced/
-activated name lists, so `skills_activated` on the terminal frame records
-exactly which skills were forced vs. invoked this run.
+(ADR-0018 — never cached on a shared agent instance): it owns the activation
+list, so `skills_activated` on the terminal frame records exactly which bodies
+were delivered this run — and nothing else, because delivery is the only event
+there is.
 
 ## Invoking a skill in chat (`/name`)
 
 Typing `/` as the first non-whitespace character of a composer message opens a
-picker of the skills this member may invoke; picking one inserts `/name ` and
-sending carries `skills: ['name']` on the chat message envelope, which the
-backend lifts onto `force_skills`.
+picker of the skills this member may invoke; picking one inserts a `/name`
+mention into the message TEXT, and that text is what is sent. Nothing rides
+beside it on the wire: the model reads the mention in the question, sees the
+skill's line in its catalog, and calls `use_skill` if it agrees the skill
+applies.
 
 - **Endpoint:** `GET /api/skills/invocable` → `listInvocableSkills`, filtered
   to enabled *offers* and org-authored skills a chat turn can actually run
@@ -578,8 +560,8 @@ contract and panel as `MentionPicker`) and `components/InvokedSkillChip.tsx`
 
 ## Activation transparency (`skills_activated`)
 
-The runtime records which skills were actually **loaded** — forced first, then
-invoked via `use_skill`, deduped — and the agent lifts that list onto the
+The runtime records which skills were actually **loaded** — the ones invoked
+via `use_skill`, in call order, deduped — and the agent lifts that list onto the
 terminal `system_response_message` as `skills_activated`; the reconnect path
 persists it into assistant-message metadata
 (`docs/api/websocket-protocol.md`).
@@ -614,12 +596,8 @@ Both are fields on `ResearchAgentConfig`. `use_skill` and the skill
 index are bound on **every** turn, greetings included: there is no classifier
 and no `requires_sources` gate in front of the answering agent any more
 (ADR-0052), so whether a turn loads a skill is the model's call, pinned by the
-prompt. Forced names and the allowlist filter to the actual resolved set;
-unknown names are simply ignored (fail-open on both sides: a typo in `skills:`
-never errors a turn).
-
-`force_skills` is only ever set by an explicit `/name` invocation or a job run
-and is loaded regardless of what the model would have chosen.
+prompt. The allowlist filters to the actual resolved set; an unknown name in it
+is simply ignored (fail-open, so a typo never errors a turn).
 
 The deep-research side is different by construction: it does NOT use the
 `use_skill` tool or these config keys. Its skills are deepagents-native
@@ -627,8 +605,8 @@ The deep-research side is different by construction: it does NOT use the
 config): per-agent skill *sources* wired through `SkillsMiddleware` with a
 `FilesystemBackend` over `src/aiq_agent/skills/builtin/` and read-only
 filesystem permission rules (`factory.runtime_skill_filesystem_permissions`).
-`force_skills` is never passed to deep research — the conversation graph drops
-it (`piloti/conversation.py`).
+The writer's BFF-served skills reach it the same way they reach chat: as the L1
+catalog it may pick from, never as a body it was told to open.
 
 ## Data model (grid_app, Drizzle)
 
@@ -1012,9 +990,9 @@ is about to write into would destroy the output to tidy up a row.
 `GRID_INTERNAL_API_TOKEN` (constant-time compare, dev-default-token refusal
 outside dev — the `maintenance.py` pattern; NOT on the external-path
 allowlist). It wraps `submit_agent_job`, so admission control, cost tracking
-and `job_access` ownership apply exactly like the public submit route; the job
-carries `force_skills` (possibly empty) so the worker force-activates whatever
-the job attached. Error mapping matches the public route: 429 + `Retry-After`,
+and `job_access` ownership apply exactly like the public submit route; the
+`skills` name list is recorded in the log and the attached skill's body rides
+inside the composed `input`, so nothing is forced on the worker. Error mapping matches the public route: 429 + `Retry-After`,
 409 duplicate, 503 scheduler-not-configured, 403 bad/missing token. Full
 payload and response in `docs/api/python-endpoints.md`.
 

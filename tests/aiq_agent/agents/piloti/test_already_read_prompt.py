@@ -77,13 +77,16 @@ class TestLocatorFirstRule:
         assert "kein Digest-Eintrag passt" in rendered
         assert "unknown document" in rendered
 
-    def test_the_batched_round_preference_stays(self):
-        """Several digest hits are one parallel round, not one round each.
+    def test_the_rule_states_an_outcome_and_prescribes_no_round_shape(self):
+        """What must be true, not how many calls to make when.
 
-        The rule used to be stated twice: here, and again in a paragraph about
-        Sammelfragen that the round-zero cap and the locator's outline mode have
-        since made redundant. The digest bullet is the one that survived.
+        The bullet used to end by telling the model to bundle several digest
+        hits into ONE parallel `read_passage` round. That is the agent's own
+        business: the rule it needs is that something already read is opened
+        rather than searched for again, and how it spends a round is a decision
+        the tool contracts and the budget already bound.
         """
         rendered = _render(already_read_digest=list(DIGEST))
 
-        assert "EINER parallelen `read_passage`-Runde" in rendered
+        assert "EINER parallelen" not in rendered
+        assert "Bereits-Gelesen-Digest zuerst" in rendered

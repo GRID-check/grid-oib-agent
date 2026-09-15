@@ -336,12 +336,9 @@ class ConversationGraph:
             already_read_digest=list(state.already_read_digest) if state.already_read_digest else None,
             project_context=state.project_context,
             platform_lessons=state.platform_lessons,
+            org_instructions=state.org_instructions,
             focus_file_name=state.focus_file_name,
             focus_shelf=state.focus_shelf,
-            # The user-requested forced skills, resolved by Piloti's
-            # register layer against the run's skill set — never passed to deep
-            # research.
-            force_skills=state.force_skills,
         )
 
     async def _run_research(self, research_state: ResearchAgentState) -> ResearchAgentState | dict[str, Any]:

@@ -718,15 +718,13 @@ functions:
     #   * PARALLEL calls each cost one, so a model emitting three per turn gets
     #     two round trips out of five, not five — and this surface runs frontier
     #     models, which emit parallel calls routinely;
-    #   * `use_skill` is a real tool call — but the skills this DEPLOYMENT
-    #     forces (`delivery: standard`, currently piloti-voice and
-    #     piloti-cards) are no longer charged here. The register reserves one
-    #     iteration per standard skill on top of this number
-    #     (`reserved_tool_iterations`), because otherwise publishing a second
-    #     house skill in the dashboard silently shortens every research chain
-    #     in the product by one, with no deploy and nothing to notice it. The
-    #     floors below still count ONE `use_skill` — the one the QUESTION
-    #     spends, on a skill the model or the user chose.
+    #   * `use_skill` is a real tool call and is charged here like any other.
+    #     Nothing is reserved on top of this number any more: no skill is
+    #     forced on a turn, so every `use_skill` call is one the QUESTION spent
+    #     on a skill the model chose to open — which is what the floors below
+    #     already count. A standing instruction that used to arrive as a forced
+    #     skill is prompt text now (the platform prompt, and the office's own
+    #     `X-Grid-Org-Instructions` block), and prompt text costs no call.
     #
     # Floors traced against the tool surface as it now stands (survey landed
     # since the number was last touched, and it shortened exactly one shape):
@@ -762,10 +760,9 @@ functions:
     #
     # 7 serial iterations = 15 node visits + forced synthesis, well under
     # `recursion_limit` 30 (`max_llm_turns * 2 + 10`), so this does not need
-    # max_llm_turns moved with it. The two reserved skill iterations take the
-    # worst case to 9 = 19 node visits + synthesis, still under 30 — and a
-    # third standard skill would take it to 21, so the reserve is bounded by
-    # what the platform owner publishes and wants watching if that grows.
+    # max_llm_turns moved with it. The ceiling IS this number: nothing is added
+    # to it per turn, so the worst case does not move with what the platform
+    # owner publishes.
     max_tool_iterations: 7
     # The turn's one repair (roadmap loop L0): when a citation or a quote fails
     # verification, one more retrieval aimed at the failing text and one rewrite,

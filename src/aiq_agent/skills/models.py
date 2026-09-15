@@ -51,8 +51,8 @@ MAX_COMPATIBILITY_CHARS = 500
 #: metadata entry, and nothing reads it.
 #:
 #: ``grid-auto-invoke`` is a different question: whether the model may pick
-#: this skill from the L1 catalog unprompted. Slash invocation and jobs still
-#: attach it when the flag is off. Absent means on, matching today's behaviour.
+#: this skill from the L1 catalog unprompted. Absent means on, matching today's
+#: behaviour.
 GRID_METADATA_KEYS = frozenset(
     {"grid-agents", "grid-cards", "grid-title", "grid-hidden", "grid-auto-invoke", "grid-catalog"}
 )
@@ -107,17 +107,16 @@ MAX_TITLE_CHARS = 60
 #: transparency).
 #:
 #: A property of the SKILL, keyed off metadata rather than a name list in the
-#: runtime, for the same reason ``standard`` is: the platform owner sets it on a
-#: row and it takes effect with no deploy.
+#: runtime: the platform owner sets it on a row and it takes effect with no
+#: deploy.
 GRID_HIDDEN_KEY = "grid-hidden"
 
 #: ``grid-auto-invoke`` — whether the model may pick this skill from L1.
 #:
 #: On (the default, and the absent key): the one-line description sits in the
 #: catalog the model reads every turn, and it may call ``use_skill`` unprompted.
-#: Off: the skill is still resolved, still in the ``/`` picker, still attachable
-#: to a job, still loadable when forced. It is merely invisible to the model
-#: until a person or a job names it.
+#: Off: the skill is still resolved and still in the ``/`` picker. It is merely
+#: invisible to the model's catalog until a person names it in the message.
 #:
 #: This is not scheduling. A skill still says nothing about when a job fires.
 #: It is catalog membership, the same object as the author's "Agent may pick
@@ -167,10 +166,6 @@ class Skill(BaseModel):
             ``use_skill``).
         metadata: Reserved GRID keys + free-form extra keys.
         origin: ``platform`` for builtin files, ``org`` for BFF-served rows.
-        standard: Fleet standard equipment — a published ``delivery: standard``
-            platform row. The organization made no decision about it and cannot
-            switch it off, so it is applied on every run that resolves it (see
-            ``SkillRuntime``) rather than waiting to be chosen.
         collection: Mid-level collection dir name for builtin files
             (bim|oib|presentation|research|synthesis); ``None`` for org rows.
         license: Optional license string.
@@ -183,7 +178,6 @@ class Skill(BaseModel):
     body: str
     metadata: dict[str, str] = {}
     origin: Literal["platform", "org"] = "platform"
-    standard: bool = False
     collection: str | None = None
     license: str | None = None
     compatibility: str | None = None
@@ -479,8 +473,7 @@ def skill_auto_invoke(metadata: dict[str, str]) -> bool:
 
     Absent or unrecognised reads as on: that is today's behaviour, and
     forgetting the flag must not silently hide a skill from every turn. Only a
-    recognised falsy token opts out. Slash invocation, jobs, and a forced
-    standard skill still attach it either way — see :data:`GRID_AUTO_INVOKE_KEY`.
+    recognised falsy token opts out — see :data:`GRID_AUTO_INVOKE_KEY`.
     """
     token = metadata.get(GRID_AUTO_INVOKE_KEY, "").strip().lower()
     if not token:
@@ -495,7 +488,6 @@ def build_skill_from_payload(
     *,
     origin: Literal["platform", "org"] = "platform",
     collection: str | None = None,
-    standard: bool = False,
 ) -> Skill:
     """Build + validate a :class:`Skill` from parsed data (YAML frontmatter or BFF row).
 
@@ -528,7 +520,6 @@ def build_skill_from_payload(
         body=body,
         metadata=metadata,
         origin=origin,
-        standard=standard,
         collection=collection,
         license=license_ if isinstance(license_, str) else None,
         compatibility=compatibility,
@@ -542,7 +533,6 @@ def parse_skill_md(
     *,
     origin: Literal["platform", "org"] = "platform",
     collection: str | None = None,
-    standard: bool = False,
 ) -> Skill:
     """Parse a SKILL.md document into a validated :class:`Skill`.
 

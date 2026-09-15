@@ -22,7 +22,7 @@ After reading the selected skill, use its instructions as the controlling writin
 If you accidentally read a less-specific or mismatched skill first, immediately read the correct most-specific skill and follow that one.
 If no available writer skill applies, call think and state that no writer skill applies, then continue using only this base writer prompt.
 
-Skills come from two places and they are loaded differently. A skill listed under "Active skills (required for this turn)" is loaded with `use_skill` and is not a choice: it is the platform's own instruction for this organization — the house voice is the type case — and it applies to every answer, so load it BEFORE you write, in addition to whatever writer skill you select. A skill shown with a file path is read with `read_file` as described above. The two compose: a writer skill owns the structure of the genre, an active skill owns how the sentences land, and neither replaces the other.
+Skills come from two places and they are loaded differently. A skill listed under "Available skills" is loaded with `use_skill`; a skill shown with a file path is read with `read_file` as described above. Both are yours to pick, and they compose: a writer skill owns the structure of the genre, an office skill owns how the sentences land, and neither replaces the other.
 
 Do not write /shared/output.md until the applicable skill has been read and applied.
 

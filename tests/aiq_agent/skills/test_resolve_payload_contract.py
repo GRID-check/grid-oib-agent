@@ -1,22 +1,21 @@
 """Cross-language contract: the BFF resolve payload, read by the real resolver.
 
-``GET /api/internal/skills/resolve`` is where a word in a migration becomes
-fleet policy. ``delivery: 'standard'`` on a ``platform_skills`` row makes the
-BFF mark the served row ``standard: true``; :func:`_build_org_skills` reads that
-key to set :attr:`Skill.standard`, and that flag is the whole difference between
-a skill that is APPLIED on every run and one whose one-line description sits in
-a catalog the model may never open. The same payload carries the row's
-``metadata`` verbatim, and three reserved keys ride it: ``grid-hidden`` routes
-the activation off the live line, ``grid-cards`` inlines the card shapes with
-the body, and ``grid-agents`` decides which agent may run the skill at all.
+``GET /api/internal/skills/resolve`` is where an org's rows become the run's
+catalog. The payload carries each row's ``metadata`` verbatim, and three
+reserved keys ride it: ``grid-hidden`` routes the activation off the live line,
+``grid-cards`` inlines the card shapes with the body, and ``grid-agents``
+decides which agent may run the skill at all.
+
+The ``standard`` flag also rides it, and the backend now IGNORES it — forcing is
+gone, so a standard row resolves into the catalog like any other skill and the
+model opens it or does not. It stays on the wire because the BFF still needs it
+(merge order, and the org write boundary that refuses the name), and it is
+pinned here in that direction: served, and deliberately without effect.
 
 ``ce47667b`` pinned this side of the seam against a HAND-WRITTEN payload, which
 is what left the crossing open: nothing said the hand-written keys were the keys
-the BFF actually sends. Renaming ``standard`` in ``lib/skills/service.ts`` — with
-``service.spec.ts`` renamed along with it, as a refactor would — left the whole
-frontend suite and all 3,909 tests here green while ``piloti-voice`` and
-``piloti-cards`` silently stopped being forced. Erasing the served ``metadata``
-was caught by nothing at all.
+the BFF actually sends. Erasing the served ``metadata`` was caught by nothing at
+all.
 
 A process boundary cannot be crossed inside one test, so both sides assert
 against the SAME checked-in fixture — the device
@@ -93,24 +92,24 @@ def test_every_served_row_survives_validation(resolved: dict[str, Skill]) -> Non
     assert set(resolved) == {row["name"] for row in served_rows()}
 
 
-def test_the_standard_row_arrives_as_fleet_policy(resolved: dict[str, Skill]) -> None:
-    """``standard: true`` on the wire must become ``Skill.standard``.
+def test_the_standard_row_resolves_as_an_ordinary_skill(resolved: dict[str, Skill]) -> None:
+    """``standard: true`` on the wire must change NOTHING on this side.
 
-    This is the assertion the mutation that started all of this would break:
-    drop the flag on either side and the house voice resolves into the catalog
-    as an ordinary offer, which the model is free to never open.
+    The flag used to force the row's body in front of the model. The backend no
+    longer has a field for it: every resolved row is an offer, and a standard
+    one is distinguished only by the fact that every organization gets it.
     """
-    assert resolved[STANDARD].standard is True
+    row = next(row for row in served_rows() if row["name"] == STANDARD)
+    assert row["standard"] is True, "the BFF still marks it — this side simply does not read it"
+    assert "standard" not in Skill.model_fields
+    voice = resolved[STANDARD]
+    assert voice.name == STANDARD and voice.body
 
 
-def test_nothing_else_in_the_payload_is_fleet_policy(resolved: dict[str, Skill]) -> None:
-    """``standard`` is not derivable from ``origin``, and must not be derived.
-
-    The machinery and a taken-up offer both arrive with ``origin='platform'``;
-    reading policy off that would force every builtin on the fleet.
-    """
-    imposed = {name for name, skill in resolved.items() if skill.standard}
-    assert imposed == {STANDARD}
+def test_no_row_in_the_payload_can_impose_itself(resolved: dict[str, Skill]) -> None:
+    """There is no field on a resolved skill that means "apply this anyway"."""
+    for skill in resolved.values():
+        assert not hasattr(skill, "standard")
 
 
 def test_the_reserved_metadata_survives_the_crossing(resolved: dict[str, Skill]) -> None:

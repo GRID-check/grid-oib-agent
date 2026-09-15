@@ -575,9 +575,14 @@ def _empty_document_message(document: str) -> str:
 
 def _store_silent_message(query: str) -> str:
     """Every fetch for this locus raised. Not an empty document; an unanswered store."""
+    from aiq_agent.common.turn_status import FETCH_FAILED_MARKER
+
+    # Marked so the agent's duplicate-fetch guard can tell this apart from a
+    # passage that was actually read: without the marker the retry this
+    # sentence asks for comes back "you already fetched that".
     return (
-        f"Could not read {query}: the knowledge store did not answer. Retry once; if it "
-        "fails again, say so and do not invent a citation."
+        f"{FETCH_FAILED_MARKER} Could not read {query}: the knowledge store did not answer. "
+        "Retry once; if it fails again, say so and do not invent a citation."
     )
 
 

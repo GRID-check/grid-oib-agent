@@ -64,15 +64,12 @@ def _mock_llm():
     return llm
 
 
-def _skill_runtime(standard_count: int = 2):
+def _skill_runtime():
     runtime = MagicMock()
     runtime.prompt_block.return_value = "## Verfügbare Skills"
-    runtime.forced_block.return_value = None
     runtime.build_tools.return_value = [use_skill]
     runtime.activated = []
-    runtime.forced_not_activated = ()
     runtime.hidden_activated = ()
-    runtime.standard_count = standard_count
     return runtime
 
 
@@ -161,32 +158,36 @@ async def test_a_turn_that_varies_nothing_reuses_the_boot_binding():
     await agent.run(ResearchAgentState(messages=[HumanMessage(content="Q")]))
     await agent.run(
         ResearchAgentState(messages=[HumanMessage(content="Q")]),
-        turn=TurnConfig(llm_provider=provider, tools=[web_search_tool], reserved_tool_iterations=0),
+        turn=TurnConfig(llm_provider=provider, tools=[web_search_tool]),
     )
 
     llm.bind_tools.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_the_turns_reserve_reaches_the_ceiling_through_the_graph_config():
-    """The binding travels on the LangGraph config, not on a rebuilt agent.
+async def test_the_ceiling_is_the_research_budget_and_nothing_is_added_to_it():
+    """One number bounds the turn, on the boot binding and on a turn binding alike.
 
-    Research budget 3, two skill loads already spent: without the reserve the
-    first call is forced synthesis; with it, the model gets its research.
+    A turn used to be able to raise the ceiling for the ``use_skill`` calls the
+    deployment forced. Nothing is forced now, so ``TurnConfig`` cannot vary the
+    budget at all: what the config says is what the turn gets, which is what the
+    traced floors in ``config_oib_openrouter.yml`` measure.
     """
     llm = _mock_llm()
     provider = MagicMock(spec=LLMProvider)
     provider.get = MagicMock(return_value=llm)
     agent = PilotiAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=3)
-    spent = ResearchAgentState(messages=[HumanMessage(content="Wie tief?")], tool_iterations=3)
+    assert agent.tool_iteration_ceiling == 3
+    assert "reserved_tool_iterations" not in TurnConfig.__dataclass_fields__
 
+    spent = ResearchAgentState(messages=[HumanMessage(content="Wie tief?")], tool_iterations=3)
     truncated = await agent.run(spent.model_copy(deep=True))
-    reserved = await agent.run(spent.model_copy(deep=True), turn=TurnConfig(reserved_tool_iterations=2))
+    still_truncated = await agent.run(
+        spent.model_copy(deep=True), turn=TurnConfig(llm_provider=provider, tools=[web_search_tool])
+    )
 
     assert truncated.research_truncated is True
-    assert reserved.research_truncated is None
-    # The boot agent is unchanged by the turn.
-    assert agent.tool_iteration_ceiling == 3
+    assert still_truncated.research_truncated is True
 
 
 def test_the_recursion_guard_is_derived_from_the_ceiling():

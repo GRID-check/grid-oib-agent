@@ -552,33 +552,14 @@ def _search_corpus(base: str) -> str | None:
 def is_search_call(call: Any) -> bool:
     """Does this ONE tool call fetch evidence from a corpus?
 
-    The atom under :func:`is_retrieval_round`, exported because the round-zero
-    fan-out cap counts and drops exactly these: an interaction call
-    (``emit_card``, ``remember``), a skill load or an ``ask_user`` is not a
-    search and must never be the call a cap takes away.
+    The atom under :func:`is_retrieval_round`: an interaction call
+    (``emit_card``, ``remember``), a skill load or an ``ask_user`` fetches no
+    evidence and is not a search.
     """
     if not isinstance(call, dict):
         return False
     base = tool_basename(str(call.get("name") or ""))
     return bool(base) and base != "use_skill" and _search_corpus(base) is not None
-
-
-def is_locator_call(call: Any) -> bool:
-    """Does this ONE tool call OPEN a named passage instead of searching for one?
-
-    A subset of :func:`is_search_call`: a locator reads the same corpus and is
-    the same layer of the spine, so it stays a retrieval everywhere that counts
-    evidence — the round stamp, the ledger, the duplicate-fetch guard.
-
-    The round-zero fan-out cap is the one reader that needs them apart. Its
-    rationale is that a third SEARCH before anything has been read is the same
-    guess in different words; an open by exact document name is not a guess at
-    all, it is an address, so withholding one buys the turn nothing and costs
-    it a member of the Richtlinien-Familie it was asked to describe.
-    """
-    if not isinstance(call, dict):
-        return False
-    return tool_basename(str(call.get("name") or "")) in _LOCATOR_TOOL_BASENAMES
 
 
 def is_retrieval_round(tool_calls: list[dict[str, Any]] | None) -> bool:
@@ -659,6 +640,23 @@ def _passage_signature(args: dict[str, Any]) -> str:
             _page_text(args.get("page")),
         ]
     )
+
+
+#: What a retrieval tool puts at the FRONT of a result that is a failure rather
+#: than an answer.
+#:
+#: The duplicate-fetch guard withholds a call whose signature already ran this
+#: turn and tells the model the result is already above. That is only true when
+#: something was fetched. Both retrieval tools answer a dead store with a string
+#: that asks the model to retry the identical call — so the guard was answering
+#: "retry once" with "you already did", and the passage was never read at all.
+#:
+#: A marker rather than an exception because the tools deliberately return
+#: PROSE: a raised error kills the turn, while a sentence lets the model say it
+#: could not search. The marker is what makes that sentence machine-readable at
+#: the one place that needs to know (``piloti/agent.py::_tools_node``, which
+#: signs only the fetches that really returned something).
+FETCH_FAILED_MARKER = "[fetch failed]"
 
 
 def fetch_signature(call: Any) -> str | None:
@@ -1165,7 +1163,7 @@ def emit_answer_repair(*, citations_removed: int, quotes_failed: int) -> None:
     The two counts ride this SAME step as technical detail rather than a
     second, technical-channel step of their own: the frontend dedupes status
     steps by name, so ``status:repair`` twice loses one of the two — on exactly
-    the turns that had a repair (the lesson :data:`FANOUT_SLOT` records). The
+    the turns that had a repair. The
     live line renders from ``key``; ``citationsRemoved`` and ``quotesFailed``
     are what the opt-in Herleitung detail shows, and they are counts rather
     than text for the same reason every other record here is: a quote is the
@@ -1253,41 +1251,6 @@ def emit_family_coverage(*, family: str, listed: int, opened: int) -> None:
     )
 
 
-#: Slot for the round-zero fan-out cap. Its OWN slot rather than
-#: :data:`BUDGET_SLOT`: this is the budget being PROTECTED, not exhausted, and
-#: collapsing the two under one step name would make the frontend's name dedupe
-#: drop one of them — on exactly the turns that had both.
-FANOUT_SLOT = "budget:fanout"
-
-
-def emit_fanout_capped(*, round_index: int, kept: int, dropped: int) -> None:
-    """Record that a first round asked for more searches than it may run.
-
-    Technical channel, and no ``key``: whether the reader should be told "two
-    of your three searches did not run" is a product decision, and shipping a
-    live key would make it silently. What this is for is the operator question
-    the cap creates — *how often does a first round fan out past two, and does
-    the second round then get its budget?* — which the truncation event alone
-    cannot answer, because a capped turn is precisely one that did NOT truncate.
-
-    Args:
-        round_index: The fetch round the cap applied to (zero, by construction).
-        kept: Search calls executed.
-        dropped: Search calls answered with the explanation instead.
-    """
-    push_custom_step(
-        f"{STATUS_STEP_PREFIX}{FANOUT_SLOT}",
-        {
-            "kind": "status",
-            "channel": CHANNEL_TECHNICAL,
-            "slot": FANOUT_SLOT,
-            "round": round_index,
-            "kept": kept,
-            "dropped": dropped,
-        },
-    )
-
-
 #: Slot prefix for the duplicate-fetch guard. The round is part of the STEP
 #: NAME, like ``status:checkpoint:N`` and for the same reason: a turn that
 #: re-asked for the same passage in three separate rounds must leave three
@@ -1299,12 +1262,12 @@ REPEAT_FETCH_SLOT = "repeat"
 def emit_repeat_fetch(*, round_index: int, withheld: int) -> None:
     """Record that a round asked again for something this turn already fetched.
 
-    Technical channel and no ``key``, exactly like :func:`emit_fanout_capped`:
-    whether the reader should be told "one of your searches was a repeat" is a
-    product decision, and shipping a live key would make it silently. What this
-    is for is the operator question the guard creates — *how often does a model
-    re-fetch inside one turn, and does the budget it saves become another
-    round?* — which neither the truncation event nor the cap event can answer.
+    Technical channel and no ``key``: whether the reader should be told "one of
+    your searches was a repeat" is a product decision, and shipping a live key
+    would make it silently. What this is for is the operator question the guard
+    creates — *how often does a model re-fetch inside one turn, and does the
+    budget it saves become another round?* — which the truncation event cannot
+    answer.
 
     Args:
         round_index: The fetch round the guard applied to.
@@ -1326,7 +1289,6 @@ def emit_research_truncated(
     *,
     ceiling: int,
     research_budget: int,
-    reserved: int,
     spent: int,
     rounds: int,
     shape: list[str] | None = None,
@@ -1342,9 +1304,9 @@ def emit_research_truncated(
 
     Args:
         ceiling: The tool-call count that triggered forced synthesis.
-        research_budget: ``max_tool_iterations`` — the part of the ceiling the
-            question itself was allowed to spend.
-        reserved: The part granted for forced-skill overhead.
+        research_budget: ``max_tool_iterations``. The same number as ``ceiling``
+            now that nothing is reserved on top of it; both are recorded so a
+            counted record stays readable across the change.
         spent: Tool calls charged when the ceiling was hit (≥ ceiling: a
             parallel batch can cross it by more than one).
         rounds: LLM turns that asked for tools — the pair with ``spent`` that
@@ -1359,7 +1321,6 @@ def emit_research_truncated(
         "truncated": True,
         "ceiling": ceiling,
         "research_budget": research_budget,
-        "reserved": reserved,
         "spent": spent,
         "rounds": rounds,
     }

@@ -84,8 +84,8 @@ class ResearchAgentConfig(FunctionBaseConfig, name="research_agent"):
         default=None,
         description=(
             "IGNORED, accepted for old YAMLs. The tool loop was never bounded by an LLM-turn count: it "
-            "stops at `max_tool_iterations` plus the reserved skill loads, and the graph's recursion "
-            "guard is derived from that ceiling. Delete the key."
+            "stops at `max_tool_iterations`, and the graph's recursion guard is derived from that "
+            "ceiling. Delete the key."
         ),
     )
     max_tool_iterations: int = Field(default=5, description="Maximum tool-calling iterations before forcing synthesis")
@@ -186,11 +186,11 @@ async def _resolve_skill_runtime(
     """The org's skills for THIS run (ADR-0018: never cached on the agent), or None.
 
     Builtin + org set from the resolver, narrowed by the config allowlist. The
-    catalog is announced BEFORE the LLM runs: what was resolved and what the
-    user forced, on the technical channel. The per-skill announcement fires at
-    delivery instead, because a forced skill is a name in the prompt until the
-    model calls ``use_skill``. No skills resolved: nothing to offer, no tool to
-    bind, and silence is the correct announcement.
+    catalog is announced BEFORE the LLM runs — how many skills were offered, on
+    the technical channel. The per-skill announcement fires at delivery instead,
+    because a catalog line is an offer until the model calls ``use_skill``. No
+    skills resolved: nothing to offer, no tool to bind, and silence is the
+    correct announcement.
     """
     if not config.skills_enabled:
         return None
@@ -209,7 +209,7 @@ async def _resolve_skill_runtime(
         resolved = tuple(skill for skill in resolved if skill.name in allow)
     if not resolved:
         return None
-    runtime = SkillRuntime(skills=resolved, force_names=state.force_skills)
+    runtime = SkillRuntime(skills=resolved)
     emit_skills_offered(runtime)
     return runtime
 
@@ -267,35 +267,20 @@ async def _active_provider(provider: LLMProvider) -> LLMProvider:
 
 
 def _skills_block(runtime: SkillRuntime) -> str:
-    return "\n\n".join(block for block in (runtime.prompt_block(), runtime.forced_block()) if block)
+    return runtime.prompt_block() or ""
 
 
 def _report_skills(result: ResearchAgentState, runtime: SkillRuntime) -> None:
-    """Lift what was DELIVERED onto the result; log what was forced and never read.
+    """Lift what was DELIVERED onto the result.
 
     ``skills_activated`` is rendered to the reader as what shaped this answer,
-    so a skill the model never opened must not be in it. The other half, the
-    forced skill the model ignored, is logged rather than reported (what the
-    READER should be shown is a product decision) but countable per
-    deployment. Only for an answer that had subject matter: a direct reply had
-    nothing for the house voice to shape, and is not a miss.
+    so only a skill whose body the model opened belongs in it. A catalog the
+    model read past is not a miss to report: the offer was the whole mechanism.
     """
     result.skills_activated = list(runtime.activated)
     hidden = list(runtime.hidden_activated)
     if hidden:
         result.skills_hidden = hidden
-    unread = runtime.forced_not_activated
-    researched = (
-        bool(runtime.activated)
-        or getattr(result, "source_lookup_attempted", True) is not False
-        or getattr(result, "answer_confidence_marker", None) is not None
-    )
-    if unread and researched:
-        logger.warning(
-            "Forced skills never loaded by the model: %s (activated=%s)",
-            ", ".join(unread),
-            ", ".join(runtime.activated) or "-",
-        )
 
 
 def _reply(state: ResearchAgentState, text: str) -> ResearchAgentState:
@@ -327,11 +312,6 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     turn = TurnConfig(
         llm_provider=await _active_provider(deployment.provider),
         tools=turn_tools,
-        # The skills this DEPLOYMENT forces are overhead, not research: each
-        # costs a `use_skill` call before a single source is read, and the
-        # count is a property of what the platform owner has published, which
-        # changes without a deploy.
-        reserved_tool_iterations=runtime.standard_count if runtime is not None else 0,
     )
     if runtime is not None:
         state.skills_block = _skills_block(runtime)
@@ -359,8 +339,8 @@ async def research_agent(config: ResearchAgentConfig, builder: Builder):
     tools = await _load_tools(config, builder)
     if config.max_llm_turns is not None:
         logger.warning(
-            "shallow_research_agent: `max_llm_turns` is ignored; the loop stops at max_tool_iterations=%d "
-            "(+ reserved skill loads). Remove the key from the YAML.",
+            "shallow_research_agent: `max_llm_turns` is ignored; the loop stops at max_tool_iterations=%d. "
+            "Remove the key from the YAML.",
             config.max_tool_iterations,
         )
 

@@ -82,8 +82,10 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "you cite a project or Büroarchiv file, do not also call "
     "`surface_documents`; the UI peeks the cited file. Live Austrian law "
     "(statutes, Bauordnungen) is the RIS tools, not this index. When you "
-    "already know the document AND the Punkt or page you need, that is "
-    "`read_passage` — a lookup, not a second search.\n"
+    "already know WHICH document you need, that is `read_passage` — with the "
+    "Punkt or page when you have one, with the document alone when you do not "
+    "(it then returns that document's scope and its outline). A lookup, not a "
+    "second search.\n"
     "HOW TO QUERY — rewrite the user question into a search query (topic + "
     "jurisdiction + implied year). Prefer one precise call over a broad dump. "
     "If a conclusion names a document and a Punkt or page you have not opened, "
@@ -2244,9 +2246,15 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             return notice + formatted
 
         except Exception as e:
+            from aiq_agent.common.turn_status import FETCH_FAILED_MARKER
+
             logger.error(f"Knowledge search failed: {e}")
+            # The marker is load-bearing, not decoration: the agent's
+            # duplicate-fetch guard reads it to tell a failed call from a
+            # fetched one, so the retry this sentence asks for is not
+            # withheld as a repeat (`FETCH_FAILED_MARKER`).
             return (
-                f"Knowledge search failed for query={query!r}. "
+                f"{FETCH_FAILED_MARKER} Knowledge search failed for query={query!r}. "
                 "Retry once with the same query; if it fails again, say you "
                 "could not search the knowledge base and do not invent a citation. "
                 f"Technical detail: {e}"

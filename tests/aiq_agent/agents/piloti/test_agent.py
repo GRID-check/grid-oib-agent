@@ -155,16 +155,15 @@ class TestPilotiAgent:
         assert agent.system_prompt == custom_system
 
     def test_init_with_custom_limits(self, mock_llm_provider, real_tool):
-        """The research budget plus the reserve is the ceiling; nothing else bounds the loop."""
+        """The research budget IS the ceiling; nothing else bounds the loop."""
         agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
             max_tool_iterations=3,
-            reserved_tool_iterations=1,
         )
 
         assert agent.max_tool_iterations == 3
-        assert agent.tool_iteration_ceiling == 4
+        assert agent.tool_iteration_ceiling == 3
 
     def test_init_with_callbacks(self, mock_llm_provider, real_tool):
         """Test PilotiAgent initialization with callbacks."""
@@ -2660,21 +2659,23 @@ class TestADirectReplyMayStillEmitACard:
         # it writes prose beside its calls.
         assert "`conclusion` argument" in rules
         assert "empty on your first call" in rules.lower()
-        # …and a conclusion that names its passage is opened, not searched for.
-        assert "`read_passage`" in rules
-        # The one place the prompt states a NUMBER, because the runtime enforces
-        # it: a model that is capped without being told reads the notice as a
-        # failure and retries the search it just lost.
-        assert "first round runs at most two searches" in rules
-        # …and the cap counts SEARCHES. An open by document name is an address,
-        # not a guess, so it is exempt at runtime — and a model told only the
-        # number would ration the family overview the bullet above asks for.
-        assert "opens by document name are not searches and are not counted" in rules
-        # A family question is not answered by opening most of the family, and an
-        # overview names no Punkt to open by. The inventory names the members, the
-        # locator's outline mode opens each one, and the escape hatch the rule
-        # leaves is naming a member, never describing one.
-        assert "`read_passage(document=…)` per member" in rules
+        # …and a repeat of a fetch this turn already made is answered from the
+        # transcript rather than run again — stated as the fact it is, so the
+        # model can plan around it.
+        assert "not run a second time" in rules
+        assert "transcript" in rules
+        # The rules state no number and prescribe no sequence: the prompt says
+        # what a finished answer must be true of, and the tool descriptions say
+        # what each tool delivers. Nothing here rations a round.
+        assert "at most two searches" not in rules
+        assert "ONE parallel round" not in rules
+        assert "per member" not in rules
+        # A family question is not answered by opening most of the family. The
+        # OUTCOME is pinned — every member opened, `read_passage(document=…)`
+        # named as what delivers a member's scope and Gliederung — and the
+        # escape hatch the rule leaves is naming a member, never describing one.
+        assert "complete only when every member" in rules
+        assert "`read_passage(document=…)`" in rules
         assert "every member the knowledge-base inventory lists" in rules
         assert "nicht gelesen" in rules
         stimme = rendered.split("<stimme>")[1].split("</stimme>")[0]
@@ -3199,36 +3200,19 @@ class TestMeasurementSourcesDoNotGroundCitations:
 # ---------------------------------------------------------------------------
 
 
-class TestTheResearchBudgetIsNotSpentOnForcedSkills:
-    """``max_tool_iterations`` is the RESEARCH ceiling, not the tool-call ceiling.
+class TestTheResearchBudgetIsOneNumber:
+    """``max_tool_iterations`` is the whole ceiling, and every call is charged to it.
 
-    The budget is charged per CALL (``new_iterations += len(response.tool_calls)``),
-    and the deployment forces two standard skills, so on this fleet the model
-    has to spend two of them on ``use_skill`` before it may read a single
-    source. The config's traced floors assume ONE, which is how an OIB 3
-    daylight chain — knowledge_search, find_elements, relations, overhang,
-    light_incidence — lands exactly on the ceiling and gets forced into
-    synthesis before the measurement that answers the question.
-
-    So the overhead the DEPLOYMENT imposes is reserved on top of the number,
-    and the research ceiling stops depending on how many house skills the
-    platform owner happens to have published.
+    It used to have a reserve on top, sized to the skills the deployment forced
+    onto every turn: those calls were overhead the question never asked for, and
+    charging them shortened every research chain in the product by one per
+    published house skill. Nothing is forced now — a ``use_skill`` call is one
+    the model chose, exactly like a search — so there is no overhead to
+    compensate, and the number the config's traced floors measure is the number
+    the turn gets.
     """
 
-    @pytest.fixture(autouse=True)
-    def _bypass_citation_pipeline(self):
-        with (
-            patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-            patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as verify,
-            patch("aiq_agent.agents.piloti.answer_pipeline.sanitize_report") as sanitize,
-        ):
-            verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
-                verified_report=content, removed_citations=[]
-            )
-            sanitize.side_effect = lambda content: MagicMock(sanitized_report=content)
-            yield
-
-    def _agent(self, reserved: int, iterations: int = 3):
+    def _agent(self, iterations: int = 3):
         llm = MagicMock()
         llm.ainvoke = AsyncMock()
         llm.bind_tools = MagicMock(return_value=llm)
@@ -3236,66 +3220,20 @@ class TestTheResearchBudgetIsNotSpentOnForcedSkills:
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
         return (
-            PilotiAgent(
-                llm_provider=provider,
-                tools=[web_search_tool],
-                max_tool_iterations=iterations,
-                reserved_tool_iterations=reserved,
-            ),
+            PilotiAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=iterations),
             llm,
         )
 
-    def test_the_reserve_is_added_to_the_ceiling_not_taken_from_it(self):
-        agent, _ = self._agent(reserved=2, iterations=7)
-        # The research budget is untouched — it is what the config's floors are
-        # traced against — and the forced-skill overhead rides on top of it.
+    def test_the_ceiling_is_the_budget(self):
+        agent, _ = self._agent(iterations=7)
         assert agent.max_tool_iterations == 7
-        assert agent.tool_iteration_ceiling == 9
-
-    def test_a_deployment_with_no_standard_skills_is_unchanged(self):
-        agent, _ = self._agent(reserved=0, iterations=7)
         assert agent.tool_iteration_ceiling == 7
 
-    @pytest.mark.asyncio
-    async def test_the_reserved_calls_do_not_end_the_research(self):
-        """The behaviour, not the arithmetic: two skill calls, then full research.
+    def test_the_agent_takes_no_reserve_at_all(self):
+        """Not "reserve zero": the knob is gone, so nothing can put one back."""
+        import inspect
 
-        With a 3-call research budget and two forced skills, a turn that opens
-        both skills must still get three research calls. Charge the skills to
-        the research budget and the third one never happens — the model is
-        handed the "you have exhausted your research budget" anchor instead,
-        with no tools bound, and whatever it had by then becomes the answer.
-        """
-        agent, llm = self._agent(reserved=2, iterations=3)
-        calls = [
-            AIMessage(content="", tool_calls=[{"name": "web_search_tool", "args": {"query": "a"}, "id": "c1"}]),
-            AIMessage(content="", tool_calls=[{"name": "web_search_tool", "args": {"query": "b"}, "id": "c2"}]),
-            AIMessage(content="", tool_calls=[{"name": "web_search_tool", "args": {"query": "c"}, "id": "c3"}]),
-            AIMessage(content="Die Antwort [1]."),
-        ]
-        llm.ainvoke = AsyncMock(side_effect=calls)
-
-        # Two `use_skill` calls are already charged when research begins.
-        state = ResearchAgentState(
-            messages=[HumanMessage(content="Wie tief ist der Lichteinfall?")],
-            tool_iterations=2,
-        )
-        await agent.run(state)
-
-        anchored = [
-            index
-            for index, call in enumerate(llm.ainvoke.call_args_list)
-            if any("exhausted your research budget" in str(m.content) for m in call.args[0])
-        ]
-        # Calls 0, 1 and 2 are the three research calls the budget promises;
-        # only call 3, with the budget genuinely spent, may be forced synthesis.
-        # Charge the two skill loads to the research budget and the anchor
-        # arrives on call 1 instead — two thirds of the research never happens.
-        assert anchored == [3], (
-            f"forced synthesis fired on LLM call(s) {anchored}; expected only the last. "
-            "The forced-skill calls were charged to the research budget."
-        )
-        assert llm.ainvoke.await_count == 4
+        assert "reserved_tool_iterations" not in inspect.signature(PilotiAgent.__init__).parameters
 
 
 class TestTruncationIsObservable:
@@ -3355,8 +3293,7 @@ class TestTruncationIsObservable:
         agent = PilotiAgent(
             llm_provider=provider,
             tools=[web_search_tool],
-            max_tool_iterations=3,
-            reserved_tool_iterations=2,
+            max_tool_iterations=5,
         )
         # A run that already spent its whole ceiling: two skill loads and three
         # searches — the shape of an OIB measurement chain walking into the wall.
@@ -3393,8 +3330,7 @@ class TestTruncationIsObservable:
         line = lines[0]
         # The numbers that make "how often" answerable per deployment…
         assert "ceiling=5" in line
-        assert "research_budget=3" in line
-        assert "reserved=2" in line
+        assert "research_budget=5" in line
         assert "spent=5" in line
         # …rounds beside calls, because one greedy parallel batch and a long
         # walk into the wall are different failures…
@@ -3416,7 +3352,9 @@ class TestTruncationIsObservable:
         )
         record = records[0]
         assert record["truncated"] is True
-        assert (record["ceiling"], record["research_budget"], record["reserved"]) == (5, 3, 2)
+        assert (record["ceiling"], record["research_budget"]) == (5, 5)
+        # Nothing was reserved, so the record carries no such field to read.
+        assert "reserved" not in record
         assert record["spent"] == 5
         assert record["rounds"] == 3
         assert record["tools"][:2] == ["use_skill", "use_skill"]

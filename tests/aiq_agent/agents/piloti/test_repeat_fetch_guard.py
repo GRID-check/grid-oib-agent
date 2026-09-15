@@ -7,10 +7,10 @@ second identical search is wasted"), and prose does not hold: the call is
 charged when the model emits it and never refunded, so a re-fetch costs the
 round that would have found the thing it was still missing.
 
-The guard is the round-zero fan-out cap's sibling and is built the same way,
-for the reason that file spells out: ONE pure derivation
-(``agent._repeat_fetches``) read in BOTH nodes — the agent node decides what to
-charge, the tools node what to run. So these tests go through the COMPILED
+The guard is built on ONE pure derivation (``agent._repeat_fetches``) read in
+BOTH nodes — the agent node decides what to charge, the tools node what to run.
+It is the only guard on that seam now that the round-zero fan-out cap is gone.
+So these tests go through the COMPILED
 GRAPH and assert both halves; a unit test of either one passes while they
 disagree, and a disagreement means either a charge for a call nothing executed
 or a call nothing paid for.
@@ -34,8 +34,6 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 
-from aiq_agent.agents.piloti.agent import _FANOUT_DROPPED_MESSAGE
-from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_ALLOWANCE
 from aiq_agent.agents.piloti.agent import _REPEAT_FETCH_MESSAGE
 from aiq_agent.agents.piloti.agent import _SYNTHESIS_ANCHOR
 from aiq_agent.agents.piloti.agent import PilotiAgent
@@ -44,6 +42,7 @@ from aiq_agent.common import LLMProvider
 from aiq_agent.common import turn_status
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
+from aiq_agent.common.turn_status import FETCH_FAILED_MARKER
 
 #: The research budget these tests run on. Small, so a runaway loop hits the
 #: ceiling inside the test rather than inside the recursion limit.
@@ -64,6 +63,13 @@ def knowledge_search(
     filters: dict | None = None,
 ) -> str:
     """Search the OIB knowledge corpus."""
+    if query in FAILING_QUERIES:
+        FAILING_QUERIES.discard(query)
+        RAN.append(f"knowledge_search:{query}|{file_name or ''}:failed")
+        return (
+            f"{FETCH_FAILED_MARKER} Knowledge search failed for query={query!r}. "
+            "Retry once with the same query; if it fails again, say you could not search."
+        )
     RAN.append(f"knowledge_search:{query}|{file_name or ''}")
     return f"Treffer zu: {query}"
 
@@ -73,6 +79,12 @@ def read_passage(document: str, punkt: str | None = None, page: int | None = Non
     """Open a named passage of a known document."""
     RAN.append(f"read_passage:{document}|{punkt or ''}|{page or ''}")
     return f"Passage aus {document}"
+
+
+#: Queries the fake store refuses, once each: the first call comes back as the
+#: tool's own failure PROSE (marked), the retry succeeds — the exact shape of a
+#: store that was briefly unreachable.
+FAILING_QUERIES: set[str] = set()
 
 
 @tool
@@ -101,6 +113,7 @@ _TOOLS = [knowledge_search, read_passage, ris_search_tool, web_search_tool, emit
 
 @pytest.fixture(autouse=True)
 def _clean_slate():
+    FAILING_QUERIES.clear()
     RAN.clear()
     turn_status._retrieval_round.set(None)
     yield
@@ -204,8 +217,12 @@ class TestTheSecondIdenticalFetch:
 
         assert RAN == ["knowledge_search:Fluchtweglänge GK4|"]
         assert _answer_for(result, "b") == _REPEAT_FETCH_MESSAGE
-        # Charged for what ran, never for the sentence explaining a repeat.
-        assert result.tool_iterations == 1
+        # One research call for the search that ran, and one for the round that
+        # asked again: the guard saves the FETCH, not the round. Charging the
+        # round to the card allowance instead used to let nine repeats exhaust
+        # it and flag a turn `research_truncated` that was never cut short.
+        assert result.tool_iterations == 2
+        assert result.interaction_iterations == 0
         # The call stays on the AIMessage: the transcript shows what was asked.
         assert _asked(result) == ["a", "b"]
         # And a round that fetched nothing is not a layer of the spine.
@@ -314,14 +331,14 @@ class TestWhatIsNotARepeat:
         assert _REPEAT_FETCH_MESSAGE not in [m.content for m in _tool_messages(result)]
 
 
-class TestTheTwoGuardsCompose:
-    async def test_the_overflow_is_dropped_first_and_the_repeat_second(self, scripted_agent):
-        """Order matters and is asserted, not assumed.
+class TestTheGuardIsTheOnlyOneOnTheSeam:
+    async def test_a_batch_keeps_everything_but_its_own_duplicate(self, scripted_agent):
+        """A first round of three searches runs three searches, minus the repeat.
 
-        The cap is applied to the batch, then the duplicate guard to what
-        survived it. Reversed, the in-batch duplicate would come out first and
-        the third search would no longer be overflow — so it would RUN, which
-        is exactly what the cap exists to prevent.
+        Nothing caps a round's fan-out any more: the budget bounds what a turn
+        may spend without judging the shape of one round. What is still withheld
+        is only the call whose answer the turn already holds — here the second
+        „Fluchtweg", identical to the first in the same batch.
         """
         agent = scripted_agent(
             _batch(
@@ -334,19 +351,70 @@ class TestTheTwoGuardsCompose:
 
         result = await _run(agent)
 
-        assert RAN == ["knowledge_search:Fluchtweg|"]
+        # A set: one batch's parallel calls run concurrently and their append
+        # order is the scheduler's (docs/contributing/gotchas.md).
+        assert set(RAN) == {"knowledge_search:Fluchtweg|", "knowledge_search:Treppenraum|"}
+        assert len(RAN) == 2
         assert _answer_for(result, "b") == _REPEAT_FETCH_MESSAGE
-        assert _answer_for(result, "c") == _FANOUT_DROPPED_MESSAGE
-        assert result.tool_iterations == 1
+        assert _answer_for(result, "c") != _REPEAT_FETCH_MESSAGE
+        # Charged for the two that ran; the withheld repeat costs nothing.
+        assert result.tool_iterations == 2
+
+
+class TestAFailedFetchIsNotAFetch:
+    """The guard withholds a repeat because the answer is already above.
+
+    That is only true when something was fetched. Both retrieval tools answer
+    an unreachable store with prose asking the model to RETRY the identical
+    call — so a failure that signed itself as executed turned the tool's own
+    instruction into a call the guard refused, and the passage was never read
+    at all. Nothing in the answer would have said so.
+    """
+
+    async def test_the_retry_of_a_failed_search_runs(self, scripted_agent):
+        FAILING_QUERIES.add("Fluchtweglänge GK4")
+        agent = scripted_agent(
+            _batch(_call("knowledge_search", "a", query="Fluchtweglänge GK4")),
+            _batch(_call("knowledge_search", "b", query="Fluchtweglänge GK4")),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert RAN == [
+            "knowledge_search:Fluchtweglänge GK4|:failed",
+            "knowledge_search:Fluchtweglänge GK4|",
+        ], "the retry the tool asked for was withheld as a repeat"
+        assert _answer_for(result, "b") != _REPEAT_FETCH_MESSAGE
+        assert _answer_for(result, "b") == "Treffer zu: Fluchtweglänge GK4"
+
+    async def test_a_third_call_after_the_retry_succeeded_is_withheld_again(self, scripted_agent):
+        """The exemption is the failure, not the query: once it answers, the
+        guard is back."""
+        FAILING_QUERIES.add("Fluchtweglänge GK4")
+        agent = scripted_agent(
+            _batch(_call("knowledge_search", "a", query="Fluchtweglänge GK4")),
+            _batch(_call("knowledge_search", "b", query="Fluchtweglänge GK4")),
+            _batch(_call("knowledge_search", "c", query="Fluchtweglänge GK4")),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert len(RAN) == 2
+        assert _answer_for(result, "c") == _REPEAT_FETCH_MESSAGE
 
 
 class TestTheLoopStillTerminates:
     async def test_a_model_that_repeats_forever_reaches_synthesis(self):
-        """The guard withholds without charging research, so something else has
-        to end the loop: a round whose every call was withheld spends one of the
-        bounded interaction allowance, and past it is charged research like any
-        other call. Without that bound this turn would run until
-        ``GraphRecursionError`` and the reader would get no answer at all.
+        """A withheld fetch is free; the round that asked for it is not.
+
+        The round cost an LLM call and two graph steps and nothing ran to pay
+        for them, so it is charged one RESEARCH call — the budget it was trying
+        to spend. That is what ends this loop: the model walks into the ceiling
+        in at most `ceiling` rounds and is forced into synthesis, instead of
+        running until ``GraphRecursionError`` and leaving the reader no answer
+        at all.
         """
         rounds = {"n": 0}
 
@@ -366,12 +434,12 @@ class TestTheLoopStillTerminates:
         assert RAN == ["knowledge_search:Fluchtweglänge GK4|"], "the fetch ran once, however often it was asked for"
         assert result.messages[-1].content == "Die Antwort [1]."
         assert result.research_truncated is True
-        # The allowance first, then the research budget: both bounded, and
-        # ``_recursion_limit`` is derived from exactly that sum, so the loop
-        # cannot outrun the step guard it was sized against.
-        assert result.interaction_iterations > _INTERACTION_TOOL_ALLOWANCE
+        # The research budget, and only it: the card allowance belongs to the
+        # card channel and a repeated fetch must not be able to spend it.
+        assert result.interaction_iterations == 0
         assert result.tool_iterations >= _CEILING
-        assert rounds["n"] <= _INTERACTION_TOOL_ALLOWANCE + _CEILING
+        # Bounded well inside what ``_recursion_limit`` was sized for.
+        assert rounds["n"] <= _CEILING
 
 
 class TestTheNoticeItself:
@@ -380,4 +448,3 @@ class TestTheNoticeItself:
         assert "bereits" in _REPEAT_FETCH_MESSAGE
         assert "Ergebnis oben" in _REPEAT_FETCH_MESSAGE
         assert "andere" in _REPEAT_FETCH_MESSAGE
-        assert _REPEAT_FETCH_MESSAGE != _FANOUT_DROPPED_MESSAGE

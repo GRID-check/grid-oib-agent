@@ -215,7 +215,6 @@ def _turn_state(
         messages=[HumanMessage(content=inputs.query_text)],
         user_info=user_info_from_principal(),
         data_sources=inputs.data_sources,
-        force_skills=inputs.force_skills,
         available_documents=inventory.available_documents,
         in_flight_documents=inventory.in_flight_documents,
         collection_scope=[entry.collection for entry in header_scope] if header_scope else None,
@@ -224,6 +223,7 @@ def _turn_state(
         skip_clarifier=skip_clarifier,
         project_context=context.project_context,
         platform_lessons=context.platform_lessons,
+        org_instructions=context.org_instructions,
     )
 
 

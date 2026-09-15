@@ -739,9 +739,8 @@ class TestTheRepairRecordCarriesItsCounts:
 
     One step, because the frontend dedupes status steps by NAME: a second
     ``status:repair`` on the technical channel would cost one of the two — on
-    exactly the turns that had a repair (:data:`turn_status.FANOUT_SLOT`
-    records that lesson). So the counts ride the live record as detail, which
-    is what ``emit_status``'s ``extra`` is for.
+    exactly the turns that had a repair. So the counts ride the live record as
+    detail, which is what ``emit_status``'s ``extra`` is for.
     """
 
     def test_one_step_named_status_repair(self, steps) -> None:
@@ -874,33 +873,26 @@ class TestLaneCaptureKeepsRoundsApart:
         assert turn_status.get_lane_captures() == []
 
 
-class TestTheLocatorPredicate:
-    """``is_locator_call`` is the round-zero cap's one exemption.
+class TestTheFetchFailureMarker:
+    """A result that is a failure must be distinguishable from a fetch.
 
-    An open names its document, so it is an address rather than a guess, and
-    the cap's whole rationale — a third search before anything has been read
-    says the same guess a third time — has nothing to say about it. Everything
-    else that counts evidence still sees it as the retrieval it is.
+    Both retrieval tools answer an unreachable store with PROSE asking the
+    model to retry the identical call. The duplicate-fetch guard withholds
+    exactly that call and says the answer is already above — true for a fetch
+    that returned, a lie for one that never ran. The marker is what tells the
+    two apart at the one place that has to know.
     """
 
-    def test_an_open_is_a_locator_and_still_a_search(self) -> None:
-        call = {"name": "read_passage", "args": {"document": "OIB-Richtlinie 2", "punkt": "3.5.2"}}
-        assert turn_status.is_locator_call(call) is True
-        assert turn_status.is_search_call(call) is True, "still a retrieval for the round stamp and the ledger"
+    def test_the_marker_is_a_stable_prefix_both_tools_can_write(self) -> None:
+        assert turn_status.FETCH_FAILED_MARKER == "[fetch failed]"
 
-    def test_a_group_qualified_name_is_read_the_same_way(self) -> None:
-        """NAT qualifies a tool name; the cap must not stop exempting it."""
-        assert turn_status.is_locator_call({"name": "oib__read_passage", "args": {"document": "x"}}) is True
+    def test_both_retrieval_tools_start_their_failure_string_with_it(self) -> None:
+        from knowledge_layer.read_passage import _store_silent_message
 
-    def test_a_search_is_not_a_locator(self) -> None:
-        for name in ("knowledge_search", "ris_search_tool", "web_search_tool", "emit_card", ""):
-            assert turn_status.is_locator_call({"name": name, "args": {}}) is False, name
-
-    def test_something_that_is_not_a_call_is_not_a_locator(self) -> None:
-        """Conservative in the same direction as every other predicate here:
-        an unreadable call is never the one a guard exempts or takes away."""
-        assert turn_status.is_locator_call(None) is False
-        assert turn_status.is_locator_call("read_passage") is False
+        assert _store_silent_message("OIB-Richtlinie 2, Pkt. 3.5.2").startswith(turn_status.FETCH_FAILED_MARKER)
+        # The search side is asserted through the agent's graph
+        # (`test_repeat_fetch_guard.py`), where the string is produced inside
+        # the tool's own except branch.
 
 
 class TestFetchSignature:

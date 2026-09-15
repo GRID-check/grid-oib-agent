@@ -1018,8 +1018,10 @@ A fetch it already made this turn is not made twice. `piloti/agent.py` derives a
 signature per call (`fetch_signature` in `common/turn_status.py`: the tool plus
 its locus or its query and narrowing) and carries the turn's `executed_fetches`
 on the state; a `knowledge_search` or `read_passage` call whose signature already
-ran is **withheld** the way the round-zero fan-out cap withholds overflow —
-derived once, read in both the agent node and the tools node, never charged, the
+ran is **withheld** — derived once, read in both the agent node and the tools
+node (the one guard on that seam, since the round-zero fan-out cap was removed:
+the budget bounds what a turn costs without prescribing the shape of a round),
+never charged, the
 call left on the AIMessage and answered with a `ToolMessage` saying the result is
 already above. A round that was only repeats therefore costs one interaction
 call, so a model that repeats forever still reaches forced synthesis inside the
@@ -1558,9 +1560,10 @@ in `grid_app` (`FOR UPDATE SKIP LOCKED`) and fires through the BFF's internal
 endpoint into `POST /v1/internal/skills/submit` (internal-token-guarded wrapper
 around `submit_agent_job`, so admission control and cost tracking apply
 unchanged). The agent follows the job's `output` (`chat` →
-`researcher`, `deep-research` → `deep_researcher`), and the submitted
-job carries `force_skills` — the attached skill's name, or an empty list when
-the prompt runs alone. A `chat` job additionally carries a `conversation_id`,
+`researcher`, `deep-research` → `deep_researcher`). The attached skill reaches
+the run inside the composed `input` — the BFF concatenates the job prompt and
+the skill body — and the `skills` array on the submit body is a name list for
+the log; nothing is forced onto the worker's state. A `chat` job additionally carries a `conversation_id`,
 and the worker writes the question and answer into that thread at completion
 (`aiq_api/jobs/conversation_output.py`, best-effort — it can never fail a run).
 This replaces the ADR-0023 Workflows scheduler, which was removed. See
@@ -1718,14 +1721,17 @@ yet).
 ## 8d. Agent skills (ADR-0046)
 
 Reusable instruction packages (`SKILL.md`, agentskills.io contract) that
-extend a research turn's procedure. A user can force a skill (`/name`, a
-job, `force_skills` on submit). The model may also pick from the L1 catalog
-unless the skill sets `grid-auto-invoke: false`. Delivery is **progressive
-disclosure**: L1 is a one-line-per-skill catalog in the
-system prompt (`## Available skills` + a forced-skills block), L2 is the
-full body, loaded only when the model calls the `use_skill` tool. Per-run
-`SkillRuntime` (ADR-0018 — never cached on the shared agent) tracks forced
-vs. invoked names for `skills_activated` on the terminal frame.
+extend a research turn's procedure. A skill is an OFFER the model takes up:
+nothing can require one. The model picks from the L1 catalog unless the skill
+sets `grid-auto-invoke: false`, and `/name` in the composer inserts a mention
+into the message text rather than a force list on the wire. Delivery is
+**progressive disclosure**: L1 is a one-line-per-skill catalog in the system
+prompt (`## Available skills`), L2 is the full body, loaded only when the model
+calls the `use_skill` tool. Per-run `SkillRuntime` (ADR-0018 — never cached on
+the shared agent) records what was DELIVERED for `skills_activated` on the
+terminal frame. Standing instructions are prompt text instead: the platform
+prompt, and the office's own bounded block (`X-Grid-Org-Instructions`, rendered
+below the KV-cache boundary as `## Anweisungen des Büros`).
 
 The set per run = builtin (`src/aiq_agent/skills/builtin/`, discovered
 deterministically, validated strictly) + org rows from the BFF internal

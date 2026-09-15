@@ -118,13 +118,19 @@ def render_system_prompt(
         in_flight_documents=state.in_flight_documents,
         project_context=state.project_context,
         platform_lessons=render_lessons_block(state.platform_lessons),
+        # The office's own standing instructions, below the KV-cache boundary
+        # because they vary per tenant. Bounded at the header boundary
+        # (``project_context.ORG_INSTRUCTIONS_MAX_CHARS``), so nothing here has
+        # to remember a cap; the template frames them as preferences that
+        # neither supply a normative value nor outrank the static rules.
+        org_instructions=state.org_instructions,
         focus_file_name=state.focus_file_name,
         focus_shelf_label=shelf_label(state.focus_shelf),
         ris_catalog=render_block_for_prompt(state.project_context),
         norm_doctrine=doctrine_for(state.project_context),
         parcel_note=parcel_note(documents),
-        # Skills catalog + forced-skills block, collated by the register layer;
-        # None renders no section.
+        # The L1 skills catalog, collated by the register layer; None renders
+        # no section.
         skills_block=state.skills_block,
     )
     if os.environ.get("DEBUG_PROMPTS"):

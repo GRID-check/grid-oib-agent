@@ -110,6 +110,10 @@ class ResearchAgentState(BaseModel):
     # Anonymized fleet-wide failure patterns distilled from user feedback,
     # threaded through from ``ConversationState`` (see the note there).
     platform_lessons: str | None = None
+    # The office's standing instructions for this turn, threaded through from
+    # ``ConversationState`` (see the note there). Bounded at the header
+    # boundary; rendered below the KV-cache boundary as its own section.
+    org_instructions: str | None = None
     # The composer's "Asking about <file>" subject for this turn (filename +
     # shelf). Rendered into the system prompt so "summarize this document"
     # has an antecedent.
@@ -209,24 +213,18 @@ class ResearchAgentState(BaseModel):
     # None when no round was announced — a direct reply has no retrieval to
     # account for, and the wire field stays absent rather than null.
     retrieval_ledger: list[dict[str, Any]] | None = None
-    # Skill names FORCED for this turn by the incoming request (parsed from the
-    # WS content JSON's `skills` array by Piloti). Resolved
-    # against the run's skill set into the forced-activation list. None = no
-    # skills were forced.
-    force_skills: list[str] | None = None
     # Pre-rendered skills section for the system prompt (guarded in the
-    # template): the progressive-disclosure catalog plus the forced-skills
-    # block. Set by the register layer before ``run()`` when skills are
-    # enabled; None otherwise.
+    # template): the progressive-disclosure catalog the model picks from. Set
+    # by the register layer before ``run()`` when skills are enabled; None
+    # otherwise.
     skills_block: str | None = None
     # Ordered names of the skills whose BODY reached the model this turn, in
-    # delivery order, deduped. DELIVERED, not forced: the disclosure renders
-    # this as "what shaped this answer", and a forced skill contributes only
-    # its NAME to the prompt until the model calls ``use_skill`` — so a model
-    # that ignores the forced block has read nothing, and this list is empty.
-    # Set by the register layer after ``run()`` whenever skills are enabled on
-    # a research turn; None on meta turns / disabled config — the chat node
-    # lifts it onto the terminal ChatResponse only when present.
+    # delivery order, deduped. DELIVERED, not offered: the disclosure renders
+    # this as "what shaped this answer", and a skill the model read past in the
+    # catalog shaped nothing. Set by the register layer after ``run()`` whenever
+    # skills are enabled on a research turn; None on meta turns / disabled
+    # config — the chat node lifts it onto the terminal ChatResponse only when
+    # present.
     skills_activated: list[str] | None = None
     # The subset of ``skills_activated`` marked ``grid-hidden`` — a skill that
     # runs on every answer (the house voice) is named in the disclosure but

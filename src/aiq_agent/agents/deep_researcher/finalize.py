@@ -535,12 +535,10 @@ def finalize_report(
 
 
 def record_skill_transparency(result: Any, skill_runtime: SkillRuntime | None) -> None:
-    """Say which skills shaped this report, and shout when a forced one did not.
+    """Say which skills shaped this report.
 
-    DELIVERED, not merely forced: a skill whose body the model never opened
-    shaped nothing and must not be claimed. Its counterpart — the turn told the
-    model to apply a skill and it never asked for it — is the failure nobody
-    can see from the answer, so it is logged loudly.
+    DELIVERED, not merely offered: a skill whose body the writer never opened
+    shaped nothing and must not be claimed.
     """
     if skill_runtime is None:
         return
@@ -550,13 +548,6 @@ def record_skill_transparency(result: Any, skill_runtime: SkillRuntime | None) -
     hidden = list(skill_runtime.hidden_activated)
     if hidden:
         set_state_field(result, "skills_hidden", hidden)
-    unread = skill_runtime.forced_not_activated
-    if unread:
-        logger.warning(
-            "Deep research: forced skills never loaded by the writer: %s (activated=%s)",
-            ", ".join(unread),
-            ", ".join(activated) or "-",
-        )
 
 
 def annotate_state(result: Any, finalized: FinalizedReport, skill_runtime: SkillRuntime | None) -> None:
