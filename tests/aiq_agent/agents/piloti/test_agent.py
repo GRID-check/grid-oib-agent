@@ -2555,11 +2555,9 @@ class TestADirectReplyMayStillEmitACard:
         direct_shape = contract.split("An off-topic decline")[0]
         assert "every tool on every turn" in direct_shape
         assert "no tool calls" not in direct_shape
-        # A search is the model's call, and files the user wants to SEE are a
-        # surface call, not a list of names — the case that used to answer
-        # "the tool is not available in this session".
+        # A search is the model's call. Which tool shows a file is the tool
+        # description's business, not the prompt's.
         assert "A search is not wrong here" in direct_shape
-        assert "`surface_documents`" in direct_shape
 
     def test_the_off_topic_shape_still_forbids_every_tool_call(self):
         # The carve-out is for a turn that ANSWERS something. A decline has no
@@ -2584,7 +2582,7 @@ class TestADirectReplyMayStillEmitACard:
 
     def test_the_cards_block_says_out_loud_that_it_is_always_on(self):
         cards = self._render().split("\n<cards>\n")[1].split("\n</cards>\n")[0]
-        assert "on for EVERY turn" in cards
+        assert "a direct reply included" in cards
 
     def test_the_contract_names_the_four_kinds_and_earns_a_ruling(self):
         """A workspace turn is not a researched Bescheid by default.
@@ -2638,11 +2636,13 @@ class TestADirectReplyMayStillEmitACard:
         assert "Ich beantworte Fragen zu OIB" not in identity
         assert "OIB-Richtlinien, österreichischem Baurecht" not in identity
 
-    def test_the_research_budget_is_a_ceiling_not_a_two_call_cap(self):
-        """The runtime already loops; the old cap told the model not to.
+    def test_the_research_rules_state_outcomes_not_a_procedure(self):
+        """The rules say what must be true of a finished answer, never which
+        tool to call next or how many times.
 
-        A conclusion that names a file, Punkt or measure not yet opened
-        must fetch it. The numeric budget is the ceiling.
+        The budget is the graph's business and the prompt no longer names it;
+        a fetch the turn already ran is answered from the transcript, stated
+        as the fact it is; and the Herleitung checkpoint is a declared slot.
         """
         rendered = self._render()
         assert "Grid OIB Research Agent" not in rendered
@@ -2650,32 +2650,23 @@ class TestADirectReplyMayStillEmitACard:
         assert "not every question is a legal question" in rendered
         assert "commit to it; re-plan only" not in rendered
         rules = rendered.split("<research_rules>")[1].split("</research_rules>")[0]
-        assert "ceiling" in rules.lower() or "budget" in rules.lower()
-        assert "Punkt" in rules or "punkt" in rules.lower()
+        assert "retrieved or measured this turn" in rules
+        assert "never describe a document you did not open" in rules
         assert "Herleitung checkpoint" in rules
-        assert "files that fetch returned" in rules
-        # The checkpoint has a SLOT now, not just an instruction to narrate:
-        # a tool-calling model fills a declared argument far more reliably than
-        # it writes prose beside its calls.
         assert "`conclusion` argument" in rules
         assert "empty on your first call" in rules.lower()
-        # …and a repeat of a fetch this turn already made is answered from the
-        # transcript rather than run again — stated as the fact it is, so the
-        # model can plan around it.
         assert "not run a second time" in rules
-        assert "transcript" in rules
-        # The rules state no number and prescribe no sequence: the prompt says
-        # what a finished answer must be true of, and the tool descriptions say
-        # what each tool delivers. Nothing here rations a round.
-        assert "at most two searches" not in rules
-        assert "ONE parallel round" not in rules
-        assert "per member" not in rules
-        # A family question is not answered by opening most of the family. The
-        # OUTCOME is pinned — every member opened, `read_passage(document=…)`
-        # named as what delivers a member's scope and Gliederung — and the
-        # escape hatch the rule leaves is naming a member, never describing one.
         assert "complete only when every member" in rules
         assert "`read_passage(document=…)`" in rules
+        procedures = (
+            "at most two searches",
+            "ONE parallel round",
+            "per member",
+            "Choose sources in this order",
+            "rewrite the user's question",
+        )
+        for procedure in procedures:
+            assert procedure not in rendered, procedure
         assert "every member the knowledge-base inventory lists" in rules
         assert "nicht gelesen" in rules
         stimme = rendered.split("<stimme>")[1].split("</stimme>")[0]

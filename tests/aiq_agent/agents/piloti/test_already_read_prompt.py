@@ -64,29 +64,28 @@ class TestDigestBlock:
 
 
 class TestLocatorFirstRule:
-    def test_a_digest_hit_means_read_passage_never_search(self):
-        rendered = _render(already_read_digest=list(DIGEST))
+    def test_the_digest_names_are_the_locator_names(self):
+        """The digest lists what was opened, under names `read_passage` accepts.
 
-        assert "Bereits-Gelesen-Digest zuerst" in rendered
-        assert "read_passage" in rendered
-        assert "niemals mit `knowledge_search`" in rendered
-
-    def test_search_stays_for_missing_entries_and_no_passage_replies(self):
-        rendered = _render(already_read_digest=list(DIGEST))
-
-        assert "kein Digest-Eintrag passt" in rendered
-        assert "unknown document" in rendered
-
-    def test_the_rule_states_an_outcome_and_prescribes_no_round_shape(self):
-        """What must be true, not how many calls to make when.
-
-        The bullet used to end by telling the model to bundle several digest
-        hits into ONE parallel `read_passage` round. That is the agent's own
-        business: the rule it needs is that something already read is opened
-        rather than searched for again, and how it spends a round is a decision
-        the tool contracts and the budget already bound.
+        A fact, not an instruction: the model reads which names the locator
+        takes and decides itself when to open one.
         """
         rendered = _render(already_read_digest=list(DIGEST))
 
+        assert "## Bereits gelesen (diese Unterhaltung)" in rendered
+        assert "exact names `read_passage` accepts" in rendered
+
+    def test_a_stale_entry_is_named_and_search_resolves_it(self):
+        rendered = _render(already_read_digest=list(DIGEST))
+
+        assert "unknown document" in rendered
+        assert "a search resolves it again" in rendered
+
+    def test_the_rule_states_an_outcome_and_prescribes_no_round_shape(self):
+        """What must be true, not how many calls to make when, or which tool
+        is forbidden: the locator's contract lives in its description."""
+        rendered = _render(already_read_digest=list(DIGEST))
+
         assert "EINER parallelen" not in rendered
-        assert "Bereits-Gelesen-Digest zuerst" in rendered
+        assert "niemals mit `knowledge_search`" not in rendered
+        assert "Bereits-Gelesen-Digest zuerst" not in rendered

@@ -1137,42 +1137,35 @@ def test_the_retirement_rollback_restores_both_rows_without_trampling():
     assert _effective_row("piloti-cards")["description"] in down
 
 
-def test_the_prompt_carries_the_card_craft_the_retired_seed_taught():
-    """The ``<cards>`` section owns the judgement ``piloti-cards`` carried.
+def test_the_card_craft_the_retired_seed_taught_lives_in_the_tool():
+    """The ``emit_card`` tool owns the judgement ``piloti-cards`` carried.
 
-    The contract (trigger table, honesty rule, budget ceiling, placement) stays
-    in the ``emit_card`` description; the CRAFT — the recognised-card rule and
-    the per-card judgement — is in the prompt now, unconditional. Pinned rule
-    by rule against the retired body's load-bearing sentences, so a later
-    tightening of the section cannot silently drop one.
+    The craft moved from the prompt's ``<cards>`` section into the tool's own
+    doctrine, one home, beside each card's trigger; the prompt keeps only what
+    the tool cannot say (placement, and that the envelope fields are not
+    cards). Pinned against the doctrine's load-bearing sentences so a later
+    tightening cannot silently drop one.
     """
-    section = _prompt_section("cards")
+    from aiq_agent.cards.catalog import render_card_doctrine
+    from aiq_agent.cards.register import _build_tool_description
 
-    # The recognised card that never comes is the expensive failure.
-    assert "recognised card that never comes" in section
-    assert "describe_card` call is cheaper than the card that does not come" in section
-    # The one-row test that separates the three table-shaped cards, and the
-    # Vorfrage that keeps a tree from marking three branches at once.
-    assert "does ONE row hold for this project, do ALL rows hold at once" in section
-    assert "more than one branch can hold at once" in section
-    assert "guessing is worse than no card" in section
+    # The doctrine wraps its craft to the tool's column; compare on words.
+    doctrine = " ".join(render_card_doctrine().split())
     # calculation: operands in, result computed, factor belongs to the rule.
-    assert "there is no result field, on purpose" in section
-    assert "`factor`, never a second operand" in section
-    # process_map: stations carry something; current_step never guessed.
-    assert "stations must CARRY something" in section
-    assert "only when the conversation established it" in section
-    # document_checklist rows are states; a guessed status falsifies the tally.
-    assert "states, not names" in section
-    assert "falsifies the balance" in section
-    # deadline_timeline: verbatim periods, never dates.
-    assert "verbatim from the Bestimmung, never a date" in section
+    assert "there is no result field, on purpose" in doctrine
+    assert "never a second operand" in doctrine
+    # document_checklist: a guessed status falsifies the tally.
+    assert "falsifies the balance" in doctrine
     # change_impact: every consequence carries its own Fundstelle.
-    assert "its OWN Fundstelle" in section
-    # The budget and the deletion test.
-    assert "two content cards is the ceiling" in section
-    assert "delete the cards mentally" in section.lower()
+    assert "its OWN Fundstelle" in doctrine
+    # The deletion test rides the tool description's opening line.
+    assert "delete the cards mentally" in _build_tool_description().lower()
 
+    section = _prompt_section("cards")
+    assert "[[card:" in section
+    assert "NOT cards" in section
+    for craft in ("does ONE row hold", "stations must CARRY", "describe_card"):
+        assert craft not in section, craft
 
 def test_the_answer_envelope_replaces_the_envelope_cards():
     """The rhetorical shapes moved from tool calls into the answer contract.
