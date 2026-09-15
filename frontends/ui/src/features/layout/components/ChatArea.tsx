@@ -912,6 +912,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             choicePrompt={choicePrompt}
                             onChoiceRespond={handlePromptRespond}
                             escalationReason={agentMsg?.escalationReason}
+                            retrievalLedger={agentMsg?.retrievalLedger}
                           />
                         </div>
                       )}

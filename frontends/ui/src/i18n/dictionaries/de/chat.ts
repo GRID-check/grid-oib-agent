@@ -1094,6 +1094,10 @@ export const chat: typeof en.chat = {
       stepKindRead: 'Lesen',
       stepKindFinding: 'Befund',
       stepKindConclusion: 'Schluss',
+      // Eine Schicht, die ausschließlich Passagen bereits gefundener Dateien
+      // aufgeschlagen hat: sie hat nichts Neues gesucht. Genau diese Runde von
+      // einem frischen Abruf zu unterscheiden, ist der Sinn des Wortes.
+      stepKindOpen: 'Öffnen',
       // Zugeklappte Schicht: die Spur ihres Fächers — Anzahl plus oberste
       // Dateinamen, nie eine nackte Zahl. Eine Zahl allein liest sich als
       // „kein Beleg“. Weiterhin nie die Suchanfrage (PF-12).
@@ -1110,6 +1114,11 @@ export const chat: typeof en.chat = {
       // Der Kartentext selbst ist eine Folgerung und taugt nicht als Name.
       roundFold: 'Schritt {n} zuklappen',
       roundUnfold: 'Schritt {n} aufklappen',
+      // Eine Datei, die eine frühere Runde schon gezeigt hat, steht an der
+      // Stelle der Trefferzahl. Die Zahl ist die Bilanz des ganzen Turns und
+      // damit bei jeder Wiederholung dieselbe — genau das ließ ein erneutes
+      // Aufschlagen wie einen zweiten Abruf aussehen.
+      roundDocRepeat: 'bereits abgerufen',
       contextLabel: 'Kontext',
       sourcesTab: 'Quellen',
       sourcesTitle: 'Geprüfte Quellen',

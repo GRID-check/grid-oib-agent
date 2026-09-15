@@ -18,6 +18,7 @@
  * stream order. Requery (`status:retrieval:requery`) is not a round.
  */
 
+import type { RetrievalLedger, RetrievalLedgerEntry } from '@/lib/conversations/message-retrieval-ledger'
 import { isStatusStepName, turnEventOf, type TurnEventStep } from './turn-events'
 import { extractTraceLanesFromPayload } from './trace-lanes'
 import { normalizeFileName, type CitedDocument } from './citations/model'
@@ -139,23 +140,118 @@ export const retrievalRounds = (steps: RoundStep[]): RetrievalRound[] => {
 const cardKey = (card: CitedDocument): string =>
   normalizeFileName(card.fileName) || normalizeFileName(card.title) || normalizeFileName(card.id)
 
+/** Every normalised name a card answers to, most specific first. */
+const cardKeys = (card: CitedDocument): string[] =>
+  [cardKey(card), normalizeFileName(card.fileName), normalizeFileName(card.title)].filter(Boolean)
+
 /** The documents this round's fetch actually returned, in card order. */
 export const documentsForRound = (round: RetrievalRound, cards: CitedDocument[]): CitedDocument[] => {
   if (round.sourceNames.length === 0) return []
   const wanted = new Set(round.sourceNames.map((name) => normalizeFileName(name)).filter(Boolean))
-  return cards.filter((card) => {
-    const keys = [cardKey(card), normalizeFileName(card.fileName), normalizeFileName(card.title)].filter(Boolean)
-    return keys.some((key) => wanted.has(key))
+  return cards.filter((card) => cardKeys(card).some((key) => wanted.has(key)))
+}
+
+/** First card per normalised name — the lookup a ledger doc resolves through. */
+const cardsByName = (cards: CitedDocument[]): Map<string, CitedDocument> => {
+  const index = new Map<string, CitedDocument>()
+  for (const card of cards) {
+    for (const key of cardKeys(card)) if (!index.has(key)) index.set(key, card)
+  }
+  return index
+}
+
+/** What ONE round did with one document, when the ledger accounts for the round. */
+export interface RoundLocus {
+  /**
+   * The page / Punkt THIS round read, as the backend stated it. Absent when
+   * the round named none — the turn aggregate is never borrowed in its place,
+   * because that is the very conflation the ledger exists to end.
+   */
+  detail?: string
+  /** An earlier round already showed this file — it is not among `newDocs`. */
+  repeat: boolean
+}
+
+/**
+ * One slot in the fan under a round.
+ *
+ * Without a ledger a slot is just a card, exactly as before. With one, the slot
+ * is the LEDGER's doc: the same turn-level card (so the chip, the preview and
+ * the citation markers behave identically) plus what that round did with it.
+ * A ledger doc the card model has no card for — the answer-repair pass, or a
+ * name the model dropped — keeps its slot and renders bare.
+ */
+export interface FanCard {
+  /** Unique within the fan. One round may read the same file at two pages. */
+  key: string
+  /** The turn-level card this slot stands for, when there is one. */
+  card?: CitedDocument
+  /** The ledger's own name for the document; the label of a bare slot. */
+  name: string
+  /** The ledger's display title, when it carried one. */
+  title?: string
+  /** Present only for a ledger-backed slot — see {@link RoundLocus}. */
+  round?: RoundLocus
+}
+
+/** The fan of a ledger round: one slot per doc THAT round returned, in its order. */
+export const ledgerFan = (entry: RetrievalLedgerEntry, cards: CitedDocument[]): FanCard[] => {
+  const index = cardsByName(cards)
+  const fresh = new Set(entry.newDocs.map((name) => normalizeFileName(name)).filter(Boolean))
+  return entry.docs.map((doc, i) => {
+    const key = normalizeFileName(doc.name)
+    const card = key ? index.get(key) : undefined
+    return {
+      // The name is in the key so a re-ordered ledger does not reuse a slot
+      // identity, and the ordinal so the same file at two pages is two slots.
+      key: `r${entry.index}-${i}-${doc.name}`,
+      ...(card ? { card } : {}),
+      name: doc.name,
+      ...(doc.title ? { title: doc.title } : {}),
+      round: { ...(doc.detail ? { detail: doc.detail } : {}), repeat: !fresh.has(key) },
+    }
   })
+}
+
+/**
+ * The fan under one round: the backend's own account of it when the ledger has
+ * that round (matched by `index`), else today's filename match.
+ *
+ * The fallback is not a degraded mode — it is what every turn recorded before
+ * the ledger existed, and what a turn whose ledger lost a round still gets.
+ */
+export const roundFan = (
+  round: RetrievalRound,
+  cards: CitedDocument[],
+  ledger?: RetrievalLedger | null
+): FanCard[] => {
+  const entry = ledger?.find((candidate) => candidate.index === round.index)
+  if (entry) return ledgerFan(entry, cards)
+  return documentsForRound(round, cards).map((card) => ({
+    key: card.id,
+    card,
+    name: card.fileName ?? card.title,
+  }))
 }
 
 /**
  * Cards no round claimed. They stay in the citation model ("Belegt durch");
  * the spine does not pretend the last fetch returned them.
+ *
+ * Ledger-backed rounds claim through the same fan the graph draws, so a card a
+ * ledger round showed is claimed even though no filename match assigned it.
  */
-export const unassignedDocuments = (rounds: RetrievalRound[], cards: CitedDocument[]): CitedDocument[] => {
+export const unassignedDocuments = (
+  rounds: RetrievalRound[],
+  cards: CitedDocument[],
+  ledger?: RetrievalLedger | null
+): CitedDocument[] => {
   const claimed = new Set(
-    rounds.flatMap((round) => documentsForRound(round, cards).map((card) => card.id))
+    rounds.flatMap((round) =>
+      roundFan(round, cards, ledger)
+        .map((slot) => slot.card?.id)
+        .filter((id): id is string => id !== undefined)
+    )
   )
   return cards.filter((card) => !claimed.has(card.id))
 }
