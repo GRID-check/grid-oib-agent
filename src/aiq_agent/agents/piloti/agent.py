@@ -55,6 +55,7 @@ from aiq_agent.common.turn_status import emit_family_coverage
 from aiq_agent.common.turn_status import emit_fanout_capped
 from aiq_agent.common.turn_status import emit_research_truncated
 from aiq_agent.common.turn_status import emit_retrieval
+from aiq_agent.common.turn_status import emit_synthesis
 from aiq_agent.common.turn_status import end_lane_capture
 from aiq_agent.common.turn_status import get_lane_captures
 from aiq_agent.common.turn_status import is_retrieval_round
@@ -359,6 +360,24 @@ def _drop_round_zero_overflow(calls: list[Any], state: ResearchAgentState) -> li
     # would then drop both of them.
     overflow = {id(call) for call in dropped}
     return [call for call in calls if id(call) not in overflow]
+
+
+def _starts_synthesis(response: Any, state: ResearchAgentState) -> bool:
+    """Did this response end the tool loop with the answer being written?
+
+    Exactly-once per turn by construction: the loop routes to ``__end__`` on
+    the first response without tool calls, so no later round can re-trigger
+    it. Gated on tool work done — a direct reply never searched, and claiming
+    a synthesis phase there would narrate a distinction the turn does not
+    have. Blank content with no calls is degenerate, not synthesis.
+    """
+    calls = getattr(response, "tool_calls", None) or []
+    if calls:
+        return False
+    text = " ".join(content_to_text(getattr(response, "content", "") or "").split())
+    if not text:
+        return False
+    return (state.tool_iterations + state.interaction_iterations) > 0
 
 
 def _charge_tool_calls(
@@ -892,6 +911,11 @@ class PilotiAgent:
             response = await ainvoke_with_envelope_json_mode(llm_with_tools, messages)
         else:
             response = await llm_with_tools.ainvoke(messages)
+        # The tool calls are over and the answer is being written. Without
+        # this the live line keeps showing the last retrieval event through
+        # the whole synthesis call.
+        if _starts_synthesis(response, state):
+            emit_synthesis()
         research, interaction, retrieval_round, round_record = _charge_tool_calls(response, state, binding.ceiling)
         update: dict[str, Any] = {
             "messages": [response],
@@ -944,6 +968,8 @@ class PilotiAgent:
         # Anchored at the end to combat "Loss in the Middle".
         messages = [SystemMessage(content=system_prompt), *state.messages, HumanMessage(content=_SYNTHESIS_ANCHOR)]
         response = await ainvoke_with_envelope_json_mode(binding.llm, messages)
+        if _starts_synthesis(response, state):
+            emit_synthesis()
         return {
             "messages": [response],
             "tool_iterations": state.tool_iterations,

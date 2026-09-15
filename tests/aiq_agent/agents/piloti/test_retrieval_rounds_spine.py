@@ -185,6 +185,59 @@ class TestTheRoundStampReachesTheTool:
         assert current_retrieval_round() is None
 
 
+class TestSynthesisAnnouncement:
+    """The live line during the answer write: `status:synthesis`, once per researched turn.
+
+    Without it the line keeps showing the last retrieval event through the
+    whole synthesis call — the stale-label fault the legacy path fixed by
+    never letting a finished step drive the phrase, reintroduced by events
+    that never complete.
+    """
+
+    @pytest.fixture
+    def synthesis_steps(self):
+        """Every status payload pushed during the test, oldest first."""
+        from nat.builder.context import ContextState
+        from nat.utils.reactive.subject import Subject
+
+        state = ContextState.get()
+        state.active_span_id_stack.set(["root"])
+        state._event_stream.set(Subject())
+        seen: list[dict] = []
+
+        def _on_next(step) -> None:
+            payload = step.payload
+            body = getattr(payload.data, "input", None)
+            if isinstance(body, str) and str(payload.event_type).endswith("START"):
+                seen.append(json.loads(body))
+
+        state.event_stream.get().subscribe(_on_next)
+        yield seen
+        state.active_span_id_stack.set(["root"])
+        state._event_stream.set(Subject())
+
+    @pytest.mark.asyncio
+    async def test_a_researched_turn_announces_synthesis_once(self, scripted_agent, synthesis_steps):
+        agent = scripted_agent(
+            _search("k1", "Fluchtweglänge GK4"),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        await agent.run(ResearchAgentState(messages=[HumanMessage(content="Wie lang?")]))
+
+        syntheses = [step for step in synthesis_steps if step.get("slot") == "synthesis"]
+        assert len(syntheses) == 1
+        assert syntheses[0]["key"] == "status.synthesis"
+
+    @pytest.mark.asyncio
+    async def test_a_direct_reply_announces_no_synthesis(self, scripted_agent, synthesis_steps):
+        agent = scripted_agent(AIMessage(content="Hallo!"))
+
+        await agent.run(ResearchAgentState(messages=[HumanMessage(content="Hallo?")]))
+
+        assert [step for step in synthesis_steps if step.get("slot") == "synthesis"] == []
+
+
 class TestTheLaneCaptureReachesTheLedger:
     """Capture begun in ``run()`` must be visible to the TOOL task.
 

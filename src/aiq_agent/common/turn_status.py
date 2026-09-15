@@ -313,6 +313,11 @@ KEY_CITATIONS = "status.citations"
 #: with its markers. Value-less; the counts travel as detail.
 KEY_REPAIR = "status.repair"
 KEY_ESCALATION = "status.escalation"
+#: The model stopped calling tools and is writing the answer. Without this the
+#: live line keeps showing the last retrieval event through the whole synthesis
+#: call — the same stale-label fault the legacy path fixed by never letting a
+#: finished step drive the phrase. Value-less: the sentence is the dictionary's.
+KEY_SYNTHESIS = "status.synthesis"
 
 #: EVERY key this module can emit, exhaustively. Two tests hang off it: the
 #: Python one asserts nothing is emitted that is not in here, and the UI one
@@ -343,6 +348,7 @@ ALL_STATUS_KEYS: tuple[str, ...] = (
     "status.citations",
     "status.repair",
     "status.escalation",
+    "status.synthesis",
 )
 
 
@@ -1071,6 +1077,19 @@ def emit_escalation(reason: str | None = None) -> None:
     """
     reason_text = " ".join(str(reason).split()) if reason else ""
     emit_status("escalation", KEY_ESCALATION, reason=clip(reason_text, MAX_REASON_CHARS) or None)
+
+
+def emit_synthesis() -> None:
+    """The tool calls are over and the answer is being written.
+
+    Fires exactly once per turn that researched: the agent node's response
+    carries tool calls on every round but the last, so a call-less response
+    after at least one tool round IS the synthesis — no heuristic, no timer.
+    Value-less like the repair line: what is being written is the reader's
+    answer, and quoting it back as a status would be the model narrating
+    itself.
+    """
+    emit_status("synthesis", KEY_SYNTHESIS)
 
 
 #: Slot for the budget-exhaustion record. Its own slot, so it never overwrites

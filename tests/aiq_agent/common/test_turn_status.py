@@ -532,6 +532,16 @@ class TestEscalation:
         assert payload["reason"] == "Shallow agent emitted insufficiency marker"
 
 
+class TestSynthesis:
+    def test_the_line_marks_the_answer_being_written(self, steps) -> None:
+        turn_status.emit_synthesis()
+        payload = _live(steps)[0]
+        assert payload["key"] == "status.synthesis"
+        # Value-less on purpose: what is being written is the reader's answer,
+        # and quoting it back as a status would be the model narrating itself.
+        assert payload["values"] == {}
+
+
 class TestTheSubjectDocument:
     """Read as bytes because retrieval cannot see it — telemetry, not a line."""
 
@@ -669,6 +679,7 @@ def _every_live_payload(steps) -> list[dict]:
     turn_status.emit_citation_check(source_count=3)
     turn_status.emit_answer_repair(citations_removed=1, quotes_failed=1)
     turn_status.emit_escalation("Shallow agent emitted insufficiency marker")
+    turn_status.emit_synthesis()
     return _live(steps)
 
 
