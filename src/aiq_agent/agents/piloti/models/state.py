@@ -78,6 +78,16 @@ class ResearchAgentState(BaseModel):
     #: Plain dicts (see ``turn_status.record_round_announcement`` for the shape),
     #: never checkpointed — ``ResearchAgentState`` is one turn, not history.
     retrieval_rounds: list[dict[str, Any]] = []
+    #: Signatures (``turn_status.fetch_signature``) of the fetches this turn
+    #: has actually RUN, in execution order. Written by the TOOLS node, after
+    #: the ``ToolNode`` returned, from the calls it really executed — never
+    #: from the calls the model asked for, or a withheld repeat would mark
+    #: itself as done. Both nodes read it to derive the same withholding
+    #: (``agent._repeat_fetches``): the agent node decides what not to CHARGE,
+    #: the tools node what not to RUN. Per-turn like the round counter — the
+    #: chat node builds a fresh state each turn, and a fetch is only wasted
+    #: within the turn that already holds its result.
+    executed_fetches: list[str] = []
     # Interaction-tool calls spent this turn (`emit_card`, `describe_card`,
     # `remember`). Counted APART from ``tool_iterations`` because those calls are
     # the answer's output channel rather than research: charging them to the
@@ -87,6 +97,14 @@ class ResearchAgentState(BaseModel):
     # ``agent._INTERACTION_TOOL_ALLOWANCE`` of them cost no research budget; the
     # rest are charged normally, so the loop still terminates on the same
     # ceiling. Per-turn: the chat node builds a fresh state each turn.
+    #
+    # One thing that is not an interaction call is counted here too: a ROUND
+    # whose every call was withheld (the round-zero cap, or the duplicate-fetch
+    # guard against ``executed_fetches``). It bought no evidence, so it must not
+    # shrink the research budget — but it cost a graph round, and this is the
+    # allowance that is already bounded and already stops being free, so it is
+    # what makes a model that re-asks for the same passage every round
+    # terminate. See ``agent._charge_tool_calls``.
     interaction_iterations: int = 0
     project_context: str | None = None
     # Anonymized fleet-wide failure patterns distilled from user feedback,

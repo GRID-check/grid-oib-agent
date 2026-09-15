@@ -872,3 +872,120 @@ class TestLaneCaptureKeepsRoundsApart:
         assert turn_status.get_lane_captures() == []
         turn_status.record_lane_hit("y.pdf")
         assert turn_status.get_lane_captures() == []
+
+
+class TestFetchSignature:
+    """What a call FETCHES, as one comparable id.
+
+    The atom under the duplicate-fetch guard. It lives here because this module
+    already owns what the retrieval tools' arguments mean, and two readings of
+    ``document``/``punkt``/``page`` would drift apart without anything failing.
+
+    The rule it encodes: two calls share a signature when they would return the
+    same bytes. Everything that changes WHICH passage comes back — a page, a
+    ``file_name``, a ``folder`` — is part of the identity; everything that is
+    only how the model typed it — case, whitespace, a trailing dot on a
+    Punkt — is not.
+    """
+
+    def test_a_search_folds_case_and_whitespace_in_the_query(self) -> None:
+        first = turn_status.fetch_signature({"name": "knowledge_search", "args": {"query": "Fluchtweglänge GK4"}})
+        second = turn_status.fetch_signature({"name": "knowledge_search", "args": {"query": "  fluchtweglänge   gk4 "}})
+        assert first is not None
+        assert first == second
+
+    def test_a_narrowing_argument_is_part_of_the_identity(self) -> None:
+        """Same words against another file are another corpus and another answer."""
+        plain = turn_status.fetch_signature({"name": "knowledge_search", "args": {"query": "Fluchtweg"}})
+        narrowed = turn_status.fetch_signature(
+            {"name": "knowledge_search", "args": {"query": "Fluchtweg", "file_name": "Brandschutz.pdf"}}
+        )
+        foldered = turn_status.fetch_signature(
+            {"name": "knowledge_search", "args": {"query": "Fluchtweg", "folder": "Brandschutz"}}
+        )
+        assert len({plain, narrowed, foldered}) == 3
+
+    def test_a_file_name_is_matched_case_insensitively(self) -> None:
+        upper = turn_status.fetch_signature(
+            {"name": "knowledge_search", "args": {"query": "q", "file_name": "Brandschutz.PDF"}}
+        )
+        lower = turn_status.fetch_signature(
+            {"name": "knowledge_search", "args": {"query": "q", "file_name": " brandschutz.pdf"}}
+        )
+        assert upper == lower
+
+    def test_filters_compare_by_content_and_not_by_key_order(self) -> None:
+        one = turn_status.fetch_signature(
+            {"name": "knowledge_search", "args": {"query": "q", "filters": {"a": 1, "b": 2}}}
+        )
+        other = turn_status.fetch_signature(
+            {"name": "knowledge_search", "args": {"query": "q", "filters": {"b": 2, "a": 1}}}
+        )
+        unfiltered = turn_status.fetch_signature({"name": "knowledge_search", "args": {"query": "q"}})
+        assert one == other
+        assert one != unfiltered
+
+    def test_an_empty_narrowing_is_the_same_as_none(self) -> None:
+        """A model that fills the slot with "" narrowed nothing."""
+        blank = turn_status.fetch_signature(
+            {"name": "knowledge_search", "args": {"query": "q", "doc_class": "  ", "filters": {}}}
+        )
+        assert blank == turn_status.fetch_signature({"name": "knowledge_search", "args": {"query": "q"}})
+
+    def test_a_punkt_is_the_same_point_with_or_without_its_trailing_dot(self) -> None:
+        """The Richtlinien print both, and so does the model."""
+        dotted = turn_status.fetch_signature(
+            {"name": "read_passage", "args": {"document": "OIB-Richtlinie 2", "punkt": "3.5.2."}}
+        )
+        plain = turn_status.fetch_signature(
+            {"name": "read_passage", "args": {"document": " oib-richtlinie 2 ", "punkt": "3.5.2"}}
+        )
+        assert dotted is not None
+        assert dotted == plain
+
+    def test_another_page_of_one_document_is_another_passage(self) -> None:
+        twelve = turn_status.fetch_signature({"name": "read_passage", "args": {"document": "plan.pdf", "page": 12}})
+        as_text = turn_status.fetch_signature({"name": "read_passage", "args": {"document": "plan.pdf", "page": "12"}})
+        thirteen = turn_status.fetch_signature({"name": "read_passage", "args": {"document": "plan.pdf", "page": 13}})
+        assert twelve == as_text
+        assert twelve != thirteen
+
+    def test_a_group_qualified_tool_name_still_signs(self) -> None:
+        assert turn_status.fetch_signature(
+            {"name": "mcp__knowledge_search", "args": {"query": "q"}}
+        ) == turn_status.fetch_signature({"name": "knowledge_search", "args": {"query": "q"}})
+
+    def test_every_other_tool_is_never_guarded(self) -> None:
+        """Two cards are two cards; two measurements are not the same bytes."""
+        for name in ("emit_card", "remember", "ris_search_tool", "web_search_tool", "ifc_measure", "use_skill"):
+            assert turn_status.fetch_signature({"name": name, "args": {"query": "q"}}) is None
+
+    def test_a_call_it_cannot_read_is_not_signed(self) -> None:
+        """A guard that cannot read a call must not take it away."""
+        assert turn_status.fetch_signature({"name": "knowledge_search"}) is None
+        assert turn_status.fetch_signature({"name": "knowledge_search", "args": "query=q"}) is None
+        assert turn_status.fetch_signature("knowledge_search") is None
+
+
+class TestTheRepeatFetchRecord:
+    """The duplicate-fetch guard's own technical record.
+
+    Its own slot per round, like ``status:checkpoint:N``: a turn that re-asked
+    in three rounds must leave three countable records, and two steps sharing a
+    name collapse into one under the frontend's dedupe. No ``key``, because
+    whether the reader is told is a product decision and shipping a live key
+    would make it silently.
+    """
+
+    def test_it_never_reaches_the_live_line(self, steps) -> None:
+        turn_status.emit_repeat_fetch(round_index=1, withheld=2)
+        assert _live(steps) == []
+        (payload,) = _technical(steps)
+        assert payload["channel"] == turn_status.CHANNEL_TECHNICAL
+        assert "key" not in payload
+        assert (payload["round"], payload["withheld"]) == (1, 2)
+
+    def test_each_round_leaves_its_own_step(self, steps) -> None:
+        turn_status.emit_repeat_fetch(round_index=0, withheld=1)
+        turn_status.emit_repeat_fetch(round_index=1, withheld=1)
+        assert _started(steps, "status:repeat") == ["status:repeat:0", "status:repeat:1"]

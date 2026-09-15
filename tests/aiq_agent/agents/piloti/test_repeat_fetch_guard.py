@@ -1,0 +1,383 @@
+"""A turn fetches each passage once: the second identical call is not made.
+
+Within one turn the model re-asks for what it already holds — the same
+``read_passage(document, punkt)`` a round later, the same ``knowledge_search``
+query with the same narrowing. Until now only prompt prose forbade it ("a
+second identical search is wasted"), and prose does not hold: the call is
+charged when the model emits it and never refunded, so a re-fetch costs the
+round that would have found the thing it was still missing.
+
+The guard is the round-zero fan-out cap's sibling and is built the same way,
+for the reason that file spells out: ONE pure derivation
+(``agent._repeat_fetches``) read in BOTH nodes — the agent node decides what to
+charge, the tools node what to run. So these tests go through the COMPILED
+GRAPH and assert both halves; a unit test of either one passes while they
+disagree, and a disagreement means either a charge for a call nothing executed
+or a call nothing paid for.
+
+The transcript invariant is pinned here too. The AIMessage keeps every tool
+call it made and each one gets exactly one result — the withheld ones get the
+sentence saying why — because a provider rejects a tool result with no matching
+call, and rejects an un-answered call too.
+"""
+
+from __future__ import annotations
+
+import json
+from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
+from unittest.mock import patch
+
+import pytest
+from langchain_core.messages import AIMessage
+from langchain_core.messages import HumanMessage
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import tool
+
+from aiq_agent.agents.piloti.agent import _FANOUT_DROPPED_MESSAGE
+from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_ALLOWANCE
+from aiq_agent.agents.piloti.agent import _REPEAT_FETCH_MESSAGE
+from aiq_agent.agents.piloti.agent import _SYNTHESIS_ANCHOR
+from aiq_agent.agents.piloti.agent import PilotiAgent
+from aiq_agent.agents.piloti.models import ResearchAgentState
+from aiq_agent.common import LLMProvider
+from aiq_agent.common import turn_status
+from aiq_agent.common.citation_verification import SourceEntry
+from aiq_agent.common.citation_verification import SourceRegistry
+
+#: The research budget these tests run on. Small, so a runaway loop hits the
+#: ceiling inside the test rather than inside the recursion limit.
+_CEILING = 7
+
+#: Which tools actually ran, in execution order. Module level because a
+#: LangChain ``@tool`` is a module-level object; cleared per test.
+RAN: list[str] = []
+
+
+@tool
+def knowledge_search(
+    query: str,
+    doc_class: str | None = None,
+    title_contains: str | None = None,
+    file_name: str | None = None,
+    folder: str | None = None,
+    filters: dict | None = None,
+) -> str:
+    """Search the OIB knowledge corpus."""
+    RAN.append(f"knowledge_search:{query}|{file_name or ''}")
+    return f"Treffer zu: {query}"
+
+
+@tool
+def read_passage(document: str, punkt: str | None = None, page: int | None = None) -> str:
+    """Open a named passage of a known document."""
+    RAN.append(f"read_passage:{document}|{punkt or ''}|{page or ''}")
+    return f"Passage aus {document}"
+
+
+@tool
+def ris_search_tool(query: str) -> str:
+    """Search Austrian law in RIS."""
+    RAN.append(f"ris_search_tool:{query}")
+    return f"RIS-Treffer zu: {query}"
+
+
+@tool
+def web_search_tool(query: str) -> str:
+    """Search the web."""
+    RAN.append(f"web_search_tool:{query}")
+    return f"Web-Treffer zu: {query}"
+
+
+@tool
+def emit_card(kind: str) -> str:
+    """Emit a UI card."""
+    RAN.append(f"emit_card:{kind}")
+    return "Karte erstellt"
+
+
+_TOOLS = [knowledge_search, read_passage, ris_search_tool, web_search_tool, emit_card]
+
+
+@pytest.fixture(autouse=True)
+def _clean_slate():
+    RAN.clear()
+    turn_status._retrieval_round.set(None)
+    yield
+    RAN.clear()
+    turn_status._retrieval_round.set(None)
+
+
+@pytest.fixture(autouse=True)
+def _bypass_citation_pipeline():
+    """The answer pipeline is not what these tests are about."""
+    with (
+        patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
+        patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as verify,
+        patch("aiq_agent.agents.piloti.answer_pipeline.sanitize_report") as sanitize,
+    ):
+        verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
+            verified_report=content, removed_citations=[]
+        )
+        sanitize.side_effect = lambda content: MagicMock(sanitized_report=content)
+        yield
+
+
+def _agent(llm: MagicMock) -> PilotiAgent:
+    provider = MagicMock(spec=LLMProvider)
+    provider.get = MagicMock(return_value=llm)
+    return PilotiAgent(llm_provider=provider, tools=_TOOLS, max_tool_iterations=_CEILING)
+
+
+@pytest.fixture
+def scripted_agent():
+    """A PilotiAgent whose LLM plays a fixed script of tool rounds."""
+
+    def build(*rounds: AIMessage) -> PilotiAgent:
+        llm = MagicMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
+        llm.ainvoke = AsyncMock(side_effect=list(rounds))
+        return _agent(llm)
+
+    return build
+
+
+@pytest.fixture
+def steps():
+    """Every custom step pushed during the test, as parsed payloads."""
+    from nat.builder.context import ContextState
+    from nat.utils.reactive.subject import Subject
+
+    state = ContextState.get()
+    state.active_span_id_stack.set(["root"])
+    state._event_stream.set(Subject())
+    seen: list[dict] = []
+
+    def _on_next(step) -> None:
+        payload = step.payload
+        body = getattr(payload.data, "input", None)
+        if isinstance(body, str) and str(payload.event_type).endswith("START"):
+            seen.append({"step": payload.name, **json.loads(body)})
+
+    state.event_stream.get().subscribe(_on_next)
+    yield seen
+    state.active_span_id_stack.set(["root"])
+    state._event_stream.set(Subject())
+
+
+def _call(name: str, call_id: str, **args) -> dict:
+    return {"name": name, "args": args, "id": call_id}
+
+
+def _batch(*calls: dict, thought: str = "") -> AIMessage:
+    return AIMessage(content=thought, tool_calls=list(calls))
+
+
+async def _run(agent: PilotiAgent, question: str = "Wie lang darf der Fluchtweg sein?"):
+    return await agent.run(ResearchAgentState(messages=[HumanMessage(content=question)]))
+
+
+def _tool_messages(result) -> list[ToolMessage]:
+    return [m for m in result.messages if isinstance(m, ToolMessage)]
+
+
+def _answer_for(result, call_id: str) -> str:
+    (message,) = [m for m in _tool_messages(result) if m.tool_call_id == call_id]
+    return str(message.content)
+
+
+def _asked(result) -> list[str]:
+    """Every tool-call id the model asked for, in order."""
+    return [call["id"] for m in result.messages if isinstance(m, AIMessage) for call in (m.tool_calls or [])]
+
+
+class TestTheSecondIdenticalFetch:
+    async def test_the_same_search_a_round_later_is_answered_not_run(self, scripted_agent, steps):
+        agent = scripted_agent(
+            _batch(_call("knowledge_search", "a", query="Fluchtweglänge GK4")),
+            _batch(_call("knowledge_search", "b", query="Fluchtweglänge GK4")),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert RAN == ["knowledge_search:Fluchtweglänge GK4|"]
+        assert _answer_for(result, "b") == _REPEAT_FETCH_MESSAGE
+        # Charged for what ran, never for the sentence explaining a repeat.
+        assert result.tool_iterations == 1
+        # The call stays on the AIMessage: the transcript shows what was asked.
+        assert _asked(result) == ["a", "b"]
+        # And a round that fetched nothing is not a layer of the spine.
+        assert [step["slot"] for step in steps if str(step["slot"]).startswith("retrieval")] == ["retrieval:0"]
+
+    async def test_the_withheld_round_is_reported_as_its_own_technical_event(self, scripted_agent, steps):
+        agent = scripted_agent(
+            _batch(_call("read_passage", "a", document="OIB-Richtlinie 2", punkt="3.5.2")),
+            _batch(_call("read_passage", "b", document="OIB-Richtlinie 2", punkt="3.5.2")),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        await _run(agent)
+
+        (record,) = [step for step in steps if str(step["slot"]).startswith("repeat")]
+        assert record["step"] == "status:repeat:1"
+        assert (record["round"], record["withheld"]) == (1, 1)
+        assert record["channel"] == turn_status.CHANNEL_TECHNICAL
+
+    async def test_two_identical_calls_in_ONE_batch_run_once(self, scripted_agent):
+        """The first occurrence runs; the rest are the same guess said twice."""
+        agent = scripted_agent(
+            _batch(
+                _call("read_passage", "a", document="OIB-Richtlinie 2", punkt="3.5.2"),
+                _call("read_passage", "b", document="OIB-Richtlinie 2", punkt="3.5.2"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert RAN == ["read_passage:OIB-Richtlinie 2|3.5.2|"]
+        assert _answer_for(result, "b") == _REPEAT_FETCH_MESSAGE
+        assert result.tool_iterations == 1
+
+    async def test_case_whitespace_and_a_trailing_dot_are_the_same_passage(self, scripted_agent):
+        """How the model typed the address is not part of the address."""
+        agent = scripted_agent(
+            _batch(_call("read_passage", "a", document="OIB-Richtlinie 2.pdf", punkt="3.5.2.")),
+            _batch(_call("read_passage", "b", document="  oib-richtlinie 2.PDF ", punkt="3.5.2")),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert RAN == ["read_passage:OIB-Richtlinie 2.pdf|3.5.2.|"]
+        assert _answer_for(result, "b") == _REPEAT_FETCH_MESSAGE
+
+    async def test_every_call_still_gets_exactly_one_result(self, scripted_agent):
+        """The transcript invariant: a provider rejects an un-answered call and
+        rejects a result with no call, so the two sets must be equal."""
+        agent = scripted_agent(
+            _batch(
+                _call("knowledge_search", "a", query="Fluchtweg"),
+                _call("knowledge_search", "b", query="fluchtweg"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        answered = [m.tool_call_id for m in _tool_messages(result)]
+        assert sorted(answered) == sorted(_asked(result))
+        assert len(answered) == len(set(answered)), "a call answered twice is as invalid as one answered never"
+
+
+class TestWhatIsNotARepeat:
+    async def test_the_same_document_at_another_page_is_another_passage(self, scripted_agent):
+        agent = scripted_agent(
+            _batch(_call("read_passage", "a", document="Brandschutzkonzept.pdf", page=12)),
+            _batch(_call("read_passage", "b", document="Brandschutzkonzept.pdf", page=13)),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert RAN == ["read_passage:Brandschutzkonzept.pdf||12", "read_passage:Brandschutzkonzept.pdf||13"]
+        assert _REPEAT_FETCH_MESSAGE not in [m.content for m in _tool_messages(result)]
+        assert result.tool_iterations == 2
+
+    async def test_the_same_query_narrowed_to_another_file_is_another_search(self, scripted_agent):
+        """A narrowing argument changes which corpus answers, so it is identity."""
+        agent = scripted_agent(
+            _batch(_call("knowledge_search", "a", query="Fluchtweg")),
+            _batch(_call("knowledge_search", "b", query="Fluchtweg", file_name="Brandschutz.pdf")),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert RAN == ["knowledge_search:Fluchtweg|", "knowledge_search:Fluchtweg|Brandschutz.pdf"]
+        assert _REPEAT_FETCH_MESSAGE not in [m.content for m in _tool_messages(result)]
+        assert result.tool_iterations == 2
+
+    async def test_a_tool_that_is_not_a_fetch_is_never_withheld(self, scripted_agent):
+        """Two identical cards are two cards. Only a passage is the same bytes twice."""
+        agent = scripted_agent(
+            _batch(_call("emit_card", "a", kind="legal_basis")),
+            _batch(_call("emit_card", "b", kind="legal_basis")),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert RAN == ["emit_card:legal_basis", "emit_card:legal_basis"]
+        assert _REPEAT_FETCH_MESSAGE not in [m.content for m in _tool_messages(result)]
+
+
+class TestTheTwoGuardsCompose:
+    async def test_the_overflow_is_dropped_first_and_the_repeat_second(self, scripted_agent):
+        """Order matters and is asserted, not assumed.
+
+        The cap is applied to the batch, then the duplicate guard to what
+        survived it. Reversed, the in-batch duplicate would come out first and
+        the third search would no longer be overflow — so it would RUN, which
+        is exactly what the cap exists to prevent.
+        """
+        agent = scripted_agent(
+            _batch(
+                _call("knowledge_search", "a", query="Fluchtweg"),
+                _call("knowledge_search", "b", query="Fluchtweg"),
+                _call("knowledge_search", "c", query="Treppenraum"),
+            ),
+            AIMessage(content="Die Antwort [1]."),
+        )
+
+        result = await _run(agent)
+
+        assert RAN == ["knowledge_search:Fluchtweg|"]
+        assert _answer_for(result, "b") == _REPEAT_FETCH_MESSAGE
+        assert _answer_for(result, "c") == _FANOUT_DROPPED_MESSAGE
+        assert result.tool_iterations == 1
+
+
+class TestTheLoopStillTerminates:
+    async def test_a_model_that_repeats_forever_reaches_synthesis(self):
+        """The guard withholds without charging research, so something else has
+        to end the loop: a round whose every call was withheld spends one of the
+        bounded interaction allowance, and past it is charged research like any
+        other call. Without that bound this turn would run until
+        ``GraphRecursionError`` and the reader would get no answer at all.
+        """
+        rounds = {"n": 0}
+
+        async def _reply(messages, **_kwargs):
+            if any(_SYNTHESIS_ANCHOR in str(getattr(message, "content", "")) for message in messages):
+                return AIMessage(content="Die Antwort [1].")
+            rounds["n"] += 1
+            return _batch(_call("knowledge_search", f"r{rounds['n']}", query="Fluchtweglänge GK4"))
+
+        llm = MagicMock()
+        llm.bind_tools = MagicMock(return_value=llm)
+        llm.bind = MagicMock(return_value=llm)
+        llm.ainvoke = AsyncMock(side_effect=_reply)
+
+        result = await _run(_agent(llm))
+
+        assert RAN == ["knowledge_search:Fluchtweglänge GK4|"], "the fetch ran once, however often it was asked for"
+        assert result.messages[-1].content == "Die Antwort [1]."
+        assert result.research_truncated is True
+        # The allowance first, then the research budget: both bounded, and
+        # ``_recursion_limit`` is derived from exactly that sum, so the loop
+        # cannot outrun the step guard it was sized against.
+        assert result.interaction_iterations > _INTERACTION_TOOL_ALLOWANCE
+        assert result.tool_iterations >= _CEILING
+        assert rounds["n"] <= _INTERACTION_TOOL_ALLOWANCE + _CEILING
+
+
+class TestTheNoticeItself:
+    def test_it_says_the_answer_is_already_there_and_what_to_do_next(self):
+        """An error string would invite a retry of the identical call."""
+        assert "bereits" in _REPEAT_FETCH_MESSAGE
+        assert "Ergebnis oben" in _REPEAT_FETCH_MESSAGE
+        assert "andere" in _REPEAT_FETCH_MESSAGE
+        assert _REPEAT_FETCH_MESSAGE != _FANOUT_DROPPED_MESSAGE

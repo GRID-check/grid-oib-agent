@@ -575,6 +575,104 @@ def is_retrieval_round(tool_calls: list[dict[str, Any]] | None) -> bool:
     return any(is_search_call(call) for call in tool_calls or ())
 
 
+#: Separator inside a fetch signature. A unit separator rather than a printable
+#: character: every part is a model-written string, and a "|" inside a query
+#: would otherwise let two different calls build the same signature.
+_SIGNATURE_SEPARATOR = "\x1f"
+
+
+def _argument_text(args: dict[str, Any], name: str, *, fold_case: bool = False) -> str:
+    """One argument as a comparable string; absent and empty are the same thing."""
+    value = args.get(name)
+    text = str(value).strip() if value is not None else ""
+    return text.casefold() if fold_case else text
+
+
+def _page_text(value: Any) -> str:
+    """A page number as its canonical decimal, or the raw text when it is not one."""
+    text = str(value).strip() if value is not None else ""
+    if not text:
+        return ""
+    try:
+        return str(int(text))
+    except ValueError:
+        return text
+
+
+def _search_signature(args: dict[str, Any]) -> str:
+    """What a ``knowledge_search`` call ASKS FOR: the query plus every narrowing.
+
+    The query is whitespace-folded and casefolded because the model rewrites
+    its own query between rounds and a changed capital is not a changed
+    question. Every narrowing argument is part of the identity: the same words
+    against a different ``file_name`` or ``folder`` is a different corpus and a
+    different answer, which is why (e) is not a repeat.
+    """
+    filters = args.get("filters")
+    canonical = (
+        json.dumps(filters, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str) if filters else ""
+    )
+    return _SIGNATURE_SEPARATOR.join(
+        [
+            "knowledge_search",
+            " ".join(str(args.get("query") or "").split()).casefold(),
+            _argument_text(args, "doc_class"),
+            _argument_text(args, "title_contains"),
+            _argument_text(args, "file_name", fold_case=True),
+            _argument_text(args, "folder"),
+            canonical,
+        ]
+    )
+
+
+def _passage_signature(args: dict[str, Any]) -> str:
+    """What a ``read_passage`` call OPENS: the document and the locus in it.
+
+    ``punkt`` loses its surrounding dots because "3.5.2." and "3.5.2" are the
+    same point printed two ways — the Richtlinien themselves print both — and
+    the page stays part of the identity, so the same document at a different
+    page is a different passage.
+    """
+    return _SIGNATURE_SEPARATOR.join(
+        [
+            "read_passage",
+            _argument_text(args, "document", fold_case=True),
+            _argument_text(args, "punkt").strip("."),
+            _page_text(args.get("page")),
+        ]
+    )
+
+
+def fetch_signature(call: Any) -> str | None:
+    """What this ONE call would fetch, as a comparable id — ``None`` when it is not a fetch.
+
+    The atom under the duplicate-fetch guard, and it lives here for the same
+    reason :func:`is_search_call` does: this module already owns what the
+    retrieval tools' arguments MEAN (:func:`_locator_line` reads
+    ``document``/``punkt``/``page``, :data:`_QUERY_KEYS` reads the query), and
+    a second reading of those argument names somewhere else would drift from
+    this one without anything failing.
+
+    Only the two tools that open a passage get a signature. Everything else is
+    ``None`` and is therefore never withheld: two ``emit_card`` calls are two
+    cards, two ``remember`` calls are two facts, and a repeated measurement or
+    web search is not the same bytes twice. A call whose ``args`` are missing
+    or not a dict is ``None`` as well — the conservative direction, since a
+    guard that cannot read a call must not take it away.
+    """
+    if not isinstance(call, dict):
+        return None
+    args = call.get("args")
+    if not isinstance(args, dict):
+        return None
+    base = tool_basename(str(call.get("name") or ""))
+    if base == "knowledge_search":
+        return _search_signature(args)
+    if base == "read_passage":
+        return _passage_signature(args)
+    return None
+
+
 def _locator_line(args: Any) -> tuple[str, dict[str, str]] | None:
     """The ``(key, values)`` for a round that OPENS a named passage.
 
@@ -1168,6 +1266,40 @@ def emit_fanout_capped(*, round_index: int, kept: int, dropped: int) -> None:
             "round": round_index,
             "kept": kept,
             "dropped": dropped,
+        },
+    )
+
+
+#: Slot prefix for the duplicate-fetch guard. The round is part of the STEP
+#: NAME, like ``status:checkpoint:N`` and for the same reason: a turn that
+#: re-asked for the same passage in three separate rounds must leave three
+#: countable records, and two steps sharing a name collapse into one under the
+#: frontend's dedupe.
+REPEAT_FETCH_SLOT = "repeat"
+
+
+def emit_repeat_fetch(*, round_index: int, withheld: int) -> None:
+    """Record that a round asked again for something this turn already fetched.
+
+    Technical channel and no ``key``, exactly like :func:`emit_fanout_capped`:
+    whether the reader should be told "one of your searches was a repeat" is a
+    product decision, and shipping a live key would make it silently. What this
+    is for is the operator question the guard creates — *how often does a model
+    re-fetch inside one turn, and does the budget it saves become another
+    round?* — which neither the truncation event nor the cap event can answer.
+
+    Args:
+        round_index: The fetch round the guard applied to.
+        withheld: Calls answered with the explanation instead of being run.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{REPEAT_FETCH_SLOT}:{round_index}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": f"{REPEAT_FETCH_SLOT}:{round_index}",
+            "round": round_index,
+            "withheld": withheld,
         },
     )
 
