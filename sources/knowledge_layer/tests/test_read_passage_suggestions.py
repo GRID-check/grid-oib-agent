@@ -109,3 +109,22 @@ class TestRefusalMessage:
         assert "inventory" in message
         assert "knowledge_search" in message
         assert "Did you mean" not in message
+
+
+class TestCoercePage:
+    """#656: providers send '' for 'no page'; the int schema rejects it."""
+
+    def test_empty_string_means_omitted(self):
+        assert rp._coerce_page("") is None
+        assert rp._coerce_page("   ") is None
+        assert rp._coerce_page(None) is None
+
+    def test_ints_pass_through(self):
+        assert rp._coerce_page(12) == 12
+
+    def test_numeric_strings_coerce(self):
+        assert rp._coerce_page("12") == 12
+        assert rp._coerce_page(" 7 ") == 7
+
+    def test_garbage_means_omitted_not_crash(self):
+        assert rp._coerce_page("abc") is None
