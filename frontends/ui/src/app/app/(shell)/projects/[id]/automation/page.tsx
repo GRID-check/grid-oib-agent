@@ -9,10 +9,11 @@ import { findProjectInOrg } from '@/lib/projects/repository'
 import { getTranslations } from '@/i18n/server'
 import { AutomationPanel } from '@/features/automation/components/automation-panel'
 import { parseAutomationTab } from '@/features/automation/lib/automation-tab'
+import { parseTasksView } from '@/features/tasks/lib/tasks-view'
 
 interface AutomationPageProps {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ tab?: string }>
+  searchParams: Promise<{ tab?: string; view?: string }>
 }
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -21,18 +22,21 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * Automation — the merged home of Jobs and Skills, as tabs (`?tab=jobs|skills`).
+ * Automation — Tasks and Skills as tabs (`?tab=tasks|skills`), with the tasks
+ * VIEW on `?view=list|timetable`.
  *
- * Jobs is project-scoped (a prompt THIS project runs on a timer, run history
- * joined against the project's Qdrant collection); Skills is the org toolbox
- * reached through the project. The section carries both authorizations
- * separately: `project:skills:manage` gates job mutations, `org:skills:manage`
- * gates skill mutations, and reading either needs only `project:view`.
+ * Tasks is project-scoped (what Piloti did and what it will do: runs plus the
+ * standing arrangements behind them, run history joined against the project's
+ * Qdrant collection); Skills is the org toolbox reached through the project.
+ * The section carries both authorizations separately: `project:skills:manage`
+ * gates task mutations, `org:skills:manage` gates skill mutations, and reading
+ * either needs only `project:view`.
  *
- * Gated on the `skills` feature flag as one unit — the two surfaces ship
- * together, and a job builder whose skill picker resolves nothing is not a
- * half-feature worth having. 404 rather than a locked section, like every
- * dark-launched surface.
+ * A legacy `?tab=schedule` link lands on the Tasks tab showing the timetable
+ * view — the scheduled tasks it always meant. Gated on the `skills` feature
+ * flag as one unit — the two surfaces ship together, and a task builder whose
+ * skill picker resolves nothing is not a half-feature worth having. 404 rather
+ * than a locked section, like every dark-launched surface.
  */
 export default async function AutomationPage({
   params,
@@ -43,7 +47,7 @@ export default async function AutomationPage({
       notFound()
     }
     const { id } = await params
-    const { tab } = await searchParams
+    const { tab, view } = await searchParams
     await requireProjectAccess(session, id, 'project:view')
 
     const project = await findProjectInOrg(id, session.organizationId)
@@ -77,6 +81,9 @@ export default async function AutomationPage({
       // Read-only chat.
     }
 
+    // A legacy `?tab=schedule` link without an explicit view meant the
+    // scheduled tasks: open the timetable view for it.
+    const initialView = tab === 'schedule' && !view ? 'timetable' : parseTasksView(view)
     return (
       <AutomationPanel
         projectId={id}
@@ -85,6 +92,7 @@ export default async function AutomationPage({
         canManageJobs={canManageJobs}
         canChatInProject={canChatInProject}
         initialTab={parseAutomationTab(tab)}
+        initialView={initialView}
       />
     )
   })

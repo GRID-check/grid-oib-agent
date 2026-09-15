@@ -10,6 +10,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 import { projects } from './projects'
+import { skillCategories } from './skill-categories'
 import type { SkillSnapshot } from '@/lib/skills/types'
 
 /**
@@ -83,6 +84,16 @@ export const skills = pgTable(
     // platform skill (cloned_from carries the platform name).
     origin: text('origin').$type<SkillOrigin>().notNull().default('org'),
     clonedFrom: text('cloned_from'),
+    /**
+     * The shelf this skill stands on — an org shelf of this organization, or a
+     * platform shelf. NULL is unsorted, which is where every existing row
+     * starts: categorising the back-catalogue is curation, not migration.
+     * SET NULL on delete, for the same reason skills survive their skill's
+     * deletion everywhere else: removing a shelf must never remove the books.
+     */
+    categoryId: uuid('category_id').references(() => skillCategories.id, {
+      onDelete: 'set null',
+    }),
     enabled: boolean('enabled').notNull().default(true),
     createdBy: text('created_by').notNull(),
     createdByEmail: text('created_by_email'),

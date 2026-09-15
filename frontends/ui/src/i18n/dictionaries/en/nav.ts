@@ -21,14 +21,12 @@ export const nav = {
     files: 'Files',
     knowledge: 'Knowledge',
     research: 'Research',
-    /** Automation — Tasks, Zeitplan and Skills as tabs inside one section. */
+    /** Automation — Tasks and Skills as tabs inside one section. */
     automation: 'Automation',
     skills: 'Skills',
     jobs: 'Jobs',
     /** The tab that leads: work delegated to Piloti, one card per task (ADR-0051). */
     tasks: 'Tasks',
-    /** The week Piloti is committed to — the timetable and the schedules on it. */
-    schedule: 'Schedule',
     archiv: 'Archiv',
     settings: 'Settings',
     // The intake wizard, labelled "Setup" in the product (⌘K palette only).

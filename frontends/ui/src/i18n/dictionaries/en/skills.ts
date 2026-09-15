@@ -36,7 +36,65 @@ export const skills = {
       delete: 'Delete',
       viewBody: 'View instruction',
       enabledAria: 'Use the skill “{name}” in this organization',
+      openAria: 'Open the skill “{name}”',
     },
+    /** Filter the whole page by name or description. */
+    search: {
+      label: 'Search skills',
+      placeholder: 'Search skills…',
+      noMatches: 'No skills match “{query}”.',
+      showAll: 'Show everything',
+    },
+    /** Category subheadings inside each half of the page. */
+    category: {
+      unsortedHeading: 'Unsorted',
+    },
+    /** The org's own category arrangement — create, rename, remove. */
+    categories: {
+      button: 'Categories',
+      title: 'Arrange categories',
+      description:
+        'Categories group the Skills tab. Removing one never removes the skills on it — they fall back to unsorted.',
+      newPlaceholder: 'New category name…',
+      create: 'Add category',
+      nameLabel: 'Name',
+      descriptionLabel: 'Description (optional)',
+      save: 'Save',
+      cancel: 'Cancel',
+      rename: 'Rename',
+      renameAria: 'Rename category “{name}”',
+      delete: 'Remove category',
+      deleteAria: 'Remove category “{name}”',
+      count: '{count, plural, one {# skill} other {# skills}}',
+      deleteTitle: 'Remove the category “{name}”?',
+      deleteDescription:
+        '{count, plural, one {# skill stands on it and falls back to unsorted.} other {# skills stand on it and fall back to unsorted.}}',
+      deleteConfirm: 'Remove category',
+      empty: 'No categories yet — add one to start arranging.',
+      createError: 'The category could not be saved.',
+      deleteError: 'The category could not be removed.',
+    },
+  },
+
+  /** The skill drawer — the same card, opened up. */
+  drawer: {
+    close: 'Close details',
+    categoryLabel: 'Category',
+    unsorted: 'Unsorted',
+    statusLabel: 'Status',
+    statusOn: 'In play',
+    statusOff: 'Switched off',
+    originLabel: 'Maintained by',
+    switchAria: 'Use the skill “{name}” in this organization',
+    instructionHeading: 'Instruction',
+    detailHeading: 'About this skill',
+    originOrg: 'Written in this organization',
+    originPlatform: 'Curated by Piloti',
+    originClone: 'Cloned from “{name}”',
+    goneTitle: 'Not found',
+    gone: 'This skill is not on this page. The link may be stale, or the skill was deleted.',
+    /** The title while a deep link is still being checked — no finding yet. */
+    loadingTitle: 'Loading',
   },
 
   // What Piloti curates for every organization — the top of the page, because
@@ -165,6 +223,12 @@ export const skills = {
       empty: 'No preference — the agent picks the card that fits the answer.',
       noMatches: 'No card matches that search.',
       removeAria: 'Remove card type “{type}” from the preference',
+    },
+    category: {
+      heading: 'Category',
+      hint: 'Where the toolbox groups it. Unsorted is a real answer.',
+      label: 'Category',
+      unsorted: 'Unsorted',
     },
     autoInvokeLabel: 'Agent may pick this',
     autoInvokeHint:

@@ -70,10 +70,10 @@ interface TaskDetailProps {
    * instead of flashing "not found" at a row that is still arriving.
    */
   resolving?: boolean
-  /** Whether this member may create schedules (`project:skills:manage`). */
+  /** Whether this member may create standing tasks (`project:skills:manage`). */
   canManageJobs: boolean
-  /** Hands a pre-filled schedule to the Zeitplan tab. Omit to hide the action. */
-  onPromoteToSchedule?: (draft: ScheduleDraft) => void
+  /** Hands a pre-filled draft to the task wizard. Omit to hide the action. */
+  onPromoteToTask?: (draft: ScheduleDraft) => void
   onClose: () => void
 }
 
@@ -84,7 +84,7 @@ export function TaskDetail({
   goneReason = 'deleted',
   resolving = false,
   canManageJobs,
-  onPromoteToSchedule,
+  onPromoteToTask,
   onClose,
 }: TaskDetailProps): JSX.Element {
   const t = useTranslations('tasks')
@@ -103,7 +103,7 @@ export function TaskDetail({
             projectId={projectId}
             task={task}
             canManageJobs={canManageJobs}
-            onPromoteToSchedule={onPromoteToSchedule}
+            onPromoteToTask={onPromoteToTask}
           />
         ) : (
           <div className="py-8">
@@ -134,12 +134,12 @@ function TaskDetailBody({
   projectId,
   task,
   canManageJobs,
-  onPromoteToSchedule,
+  onPromoteToTask,
 }: {
   projectId: string
   task: TaskWireRow
   canManageJobs: boolean
-  onPromoteToSchedule: ((draft: ScheduleDraft) => void) | undefined
+  onPromoteToTask: ((draft: ScheduleDraft) => void) | undefined
 }): JSX.Element {
   const t = useTranslations('tasks')
   const { locale } = useLocale()
@@ -149,7 +149,7 @@ function TaskDetailBody({
   // A scheduled run's prompt is the schedule's, and promoting it would offer
   // to duplicate the schedule that fired it.
   const promotable =
-    canManageJobs && onPromoteToSchedule && task.trigger !== 'schedule' && Boolean(task.goal)
+    canManageJobs && onPromoteToTask && task.trigger !== 'schedule' && Boolean(task.goal)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto py-2 pr-1">
@@ -186,7 +186,7 @@ function TaskDetailBody({
               <Button
                 variant="outline"
                 onClick={() =>
-                  onPromoteToSchedule?.({ name: task.title, prompt: task.goal ?? '' })
+                  onPromoteToTask?.({ name: task.title, prompt: task.goal ?? '' })
                 }
                 data-testid="task-detail-promote"
               >

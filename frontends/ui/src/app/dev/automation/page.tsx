@@ -1,17 +1,17 @@
 'use client'
 
 /**
- * Dev preview for the merged Automation section — Aufgaben and Skills as tabs
+ * Dev preview for the merged Automation section — Tasks and Skills as tabs
  * inside one project section (visual/registry.mjs → `automation-panel`). Not
  * linked anywhere and 404s outside development.
  *
- * The two panels have their own richer previews (`/dev/tasks-panel`,
- * `/dev/skills-panel`); what THIS page is evidence of is the join — the single
- * slim tab bar under the section frame (the frame owns title and subtitle, so
- * the panel adds no second description strip), that only the active tab mounts,
- * and that the schedules group carries its own create action. The fetch shim
- * answers both panels' list calls with empty sets so the chrome is the subject,
- * not the fixtures.
+ * The two panels have their own richer previews (`/dev/task-list`,
+ * `/dev/schedule-panel`, `/dev/skills-panel`); what THIS page is evidence of
+ * is the join — the single slim tab bar under the section frame (the frame
+ * owns title and subtitle, so the panel adds no second description strip),
+ * that only the active tab mounts, and that the Tasks tab carries the one
+ * create action. The fetch shim answers all list calls with empty sets so the
+ * chrome is the subject, not the fixtures.
  */
 
 import { notFound } from 'next/navigation'

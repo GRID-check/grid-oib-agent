@@ -1,4 +1,5 @@
 import { boolean, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { skillCategories } from './skill-categories'
 
 /**
  * How a curated skill reaches organizations.
@@ -86,6 +87,14 @@ export const platformSkills = pgTable(
      * org could route around by crafting a request.
      */
     delivery: text('delivery').$type<PlatformSkillDelivery>().notNull().default('offer'),
+    /**
+     * The platform shelf this skill stands on — a platform-owned category, or
+     * NULL for unsorted. Tenant shelves are never addressable here: the
+     * service validates the category's ownership on write.
+     */
+    categoryId: uuid('category_id').references(() => skillCategories.id, {
+      onDelete: 'set null',
+    }),
     createdBy: text('created_by').notNull(),
     createdByEmail: text('created_by_email'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

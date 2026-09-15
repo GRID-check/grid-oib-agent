@@ -849,6 +849,24 @@ reading before a rollback — published standard rows become ordinary offers, wh
 means they run for nobody until each organization switches them on, and nothing
 records which rows were standard.
 
+## skill_categories (migration 0087)
+
+The skill categories — one table for both curators. `organization_id`
+NULL is a platform skill category (read by every tenant, written through
+**Platform → Skills**); set, it is that org's own category for the skills it
+authors. `skills.category_id` and `platform_skills.category_id` reference it
+`ON DELETE SET NULL`: removing a category never removes the skills on it, they
+fall back to unsorted. Names are unique per owner (two partial unique indexes,
+because Postgres treats NULLs as distinct); the `slug` marks the five seeded
+platform categories (`oib`, `research`, `presentation`, `bim`, `synthesis`)
+that builtin file offers resolve to at read time, so renaming a display name
+never detaches them. Tenant predicate with a NULL arm —
+`organization_id IS NULL OR organization_id = grid_current_org()` — in
+`rls-coverage.spec.ts`'s `BOUNDARY_MIGRATIONS`, plus three RESTRICTIVE
+write-guard policies: the tenant role reads platform rows but writes only its
+own org's (the helper installs one policy per table for every command, so the
+split is stated explicitly).
+
 ---
 
 ## answer_feedback (migration 0020)

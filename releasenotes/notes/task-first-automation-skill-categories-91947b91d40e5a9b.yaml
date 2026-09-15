@@ -1,0 +1,11 @@
+---
+features:
+  - >
+    The Automation section now has two tabs: Tasks and Skills. A task can
+    carry its own schedule, and the week timetable is a view inside Tasks
+    rather than a place of its own — old Zeitplan links keep working.
+improvements:
+  - >
+    Skills can now be arranged into categories, curated by Piloti or by your
+    own organization. The Skills tab groups both halves onto them, with
+    search, counts and a detail view for every skill.

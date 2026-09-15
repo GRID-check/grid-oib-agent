@@ -70,8 +70,12 @@ const BOUNDARY_MIGRATIONS = [
   '0082_document_versions.sql',
   // Collapses jobs/job_runs/tasks into task_definitions + task_runs
   // (follow-up to PR #659). Both tables are project-scoped tenant data; the
-  // old three keep their 0043/0075 entries until 0087 drops them.
+  // old three keep their 0043/0075 entries until a later migration drops them.
   '0086_task_definitions.sql',
+  // Adds skill_categories — the shelves skills stand on. Mixed ownership:
+  // NULL organization_id is a platform shelf (readable by every tenant),
+  // a set one is that org's own, so the predicate carries a NULL arm.
+  '0087_skill_categories.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>
