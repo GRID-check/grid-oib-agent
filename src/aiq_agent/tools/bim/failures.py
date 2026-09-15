@@ -32,6 +32,18 @@ NO_PROJECT_TEXT = (
 
 NO_ORG_TEXT = "Error: organization unknown for this session — the BIM model cannot be read. Do not retry."
 
+#: The project is right and there is nothing in it to read: no model stored
+#: (``no_models``), or the one stored never produced an index
+#: (``extraction_failed``). The route's own sentence names the situation; this
+#: one says what to do with it, because the answer the agent reaches for
+#: otherwise is another operation on the same absent model. Same shape as
+#: ``NO_PROJECT_TEXT``: one call is the answer, and the reply says so.
+NO_MODEL_TEXT = (
+    "This one call is the answer: tell the user (in German) that no readable IFC model is stored for "
+    "this project, and answer the rest of their question without any claim about the building. "
+    "Another call with different arguments returns this same result."
+)
+
 #: Nothing was looked at. "Could not look" is not "looked and found nothing".
 UNAVAILABLE_TEXT = (
     "Error: das Modell konnte gerade nicht gelesen werden (der Modelldienst ist nicht erreichbar). "

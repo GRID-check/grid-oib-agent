@@ -33,9 +33,8 @@ from typing import Any
 
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
-from aiq_agent.common.norm_registry import doctrine_for
+from aiq_agent.common.applicability import render_project_block
 from aiq_agent.common.norm_registry import parcel_note
-from aiq_agent.common.norm_registry import render_block_for_prompt
 from aiq_agent.common.platform_lessons import render_lessons_block
 from aiq_agent.common.prompt_store import ResolvedPrompt
 from aiq_agent.common.prompt_store import git_blob_version
@@ -167,6 +166,22 @@ def shelf_label(shelf: str | None) -> str | None:
     return SHELF_QUALIFIERS.get(parsed) if parsed is not None else None
 
 
+def oib_applicability(project_context: str | None) -> str | None:
+    """Which OIB-Richtlinien this project's own facts make applicable, or None.
+
+    The one part of the old ``## Normenregister`` block that survives the cut:
+    the catalog itself was a list of RIS addresses ``ris_lookup`` resolves from
+    a free-text question (ADR-0060 (d)), while this section is derived from the
+    project's `confirmed:` facts and no tool can produce it from the question.
+    Fail-open, because a verdict list is never worth a turn.
+    """
+    try:
+        return render_project_block(project_context or "")
+    except Exception:  # noqa: BLE001 — applicability must never break prompt building
+        logger.warning("piloti: OIB applicability block failed — omitted", exc_info=True)
+        return None
+
+
 def build_tools_info(tools: Sequence[Any]) -> list[dict[str, str]]:
     """Name + description per tool, the shape the template's tool list reads."""
     return [
@@ -201,20 +216,12 @@ def render_system_prompt(
         # The <entwuerfe> block is rendered only for a turn that HAS the working
         # directory bound (`tools/documents`). A turn without a conversation to
         # namespace by gets no file verbs, and a prompt telling that model to
-        # write a document would be describing a tool it cannot call.
+        # write a document would be describing a tool it cannot call. What the
+        # block still carries is the two sentences no tool description can: the
+        # anaphora („mach daraus ein File") and what happens without a project.
+        # Everything else it used to say is in `write_file`, `edit_file`,
+        # `file_draft` and `submit_draft` (ADR-0060 (d)).
         drafting_enabled=any(tool.get("name") == "write_file" for tool in tools_info),
-        # Same rule for the <aufraeumen> block and the five file-operation
-        # tools (`tools/files`): they are bound by the config and refuse
-        # outright without a project, so a deployment or a chat that does not
-        # have them must not be told to reach for them. Keyed on the one verb
-        # that is unambiguous — `create_folder` also exists as a word in the
-        # working directory's vocabulary, `move_document` does not.
-        tidying_enabled=any(tool.get("name") == "move_document" for tool in tools_info),
-        # And for the <delegieren> block. `create_task` refuses without a project
-        # and without a signed envelope, so a deployment that does not bind it —
-        # and every unattended run, which has no envelope — must not be told that
-        # handing work over is something this turn can do.
-        delegating_enabled=any(tool.get("name") == "create_task" for tool in tools_info),
         user_info=state.user_info,
         current_datetime=datetime.now().strftime("%Y-%m-%d"),
         available_documents=documents,
@@ -235,8 +242,7 @@ def render_system_prompt(
         org_instructions=state.org_instructions,
         focus_file_name=state.focus_file_name,
         focus_shelf_label=shelf_label(state.focus_shelf),
-        ris_catalog=render_block_for_prompt(state.project_context),
-        norm_doctrine=doctrine_for(state.project_context),
+        oib_applicability=oib_applicability(state.project_context),
         parcel_note=parcel_note(documents),
         # The L1 skills catalog, collated by the register layer; None renders
         # no section.

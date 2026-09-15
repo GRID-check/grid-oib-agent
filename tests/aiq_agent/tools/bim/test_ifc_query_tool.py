@@ -153,6 +153,79 @@ class TestRender:
     def test_an_unresolved_result_with_no_models_is_just_the_message(self):
         assert _render({"resolved": False, "message": "Kein Modell hinterlegt."}) == "Kein Modell hinterlegt."
 
+
+class TestTheFourWaysAModelIsNotResolved:
+    """Which reasons are worth a second call, and which the reply closes.
+
+    `no_models` and `extraction_failed` are facts about the PROJECT: no
+    argument to this tool changes them, and the route's own sentence („Für
+    dieses Projekt ist kein IFC-Modell hinterlegt.") reads like one operation's
+    miss, so the agent used to spend its remaining rounds on `overview`,
+    `types`, `elements` and `health` in turn. `ambiguous` and `no_match` are
+    the opposite: a second call with a different `model_name` is the right
+    move, and the listed alternatives are what it is made from.
+    """
+
+    NO_MODELS = {
+        "resolved": False,
+        "reason": "no_models",
+        "message": "Für dieses Projekt ist kein IFC-Modell hinterlegt.",
+        "models": [],
+    }
+    EXTRACTION_FAILED = {
+        "resolved": False,
+        "reason": "extraction_failed",
+        "message": "Dieses IFC-Modell konnte nicht gelesen werden.",
+        "models": [{"filename": "haus-a.ifc", "status": "failed", "elements": 0}],
+    }
+    AMBIGUOUS = {
+        "resolved": False,
+        "reason": "ambiguous",
+        "message": "Mehrere Modelle.",
+        "models": [{"filename": "haus-a.ifc", "status": "ready", "elements": 120}],
+    }
+    NO_MATCH = {
+        "resolved": False,
+        "reason": "no_match",
+        "message": "Kein Modell mit dem Namen „haus-c“ gefunden.",
+        "models": [{"filename": "haus-a.ifc", "status": "ready", "elements": 120}],
+    }
+
+    def test_no_models_says_the_call_is_the_answer(self):
+        rendered = _render(self.NO_MODELS)
+
+        assert "Für dieses Projekt ist kein IFC-Modell hinterlegt." in rendered
+        assert "This one call is the answer" in rendered
+        assert "without any claim about the building" in rendered
+        assert "returns this same result" in rendered
+
+    def test_extraction_failed_says_the_same_and_still_names_the_model(self):
+        """The reason is as final as `no_models`, and WHICH model failed is
+        what the user needs to hear."""
+        rendered = _render(self.EXTRACTION_FAILED)
+
+        assert "haus-a.ifc (failed, 0 Bauteile)" in rendered
+        assert "This one call is the answer" in rendered
+
+    def test_ambiguous_keeps_the_alternatives_and_invites_the_retry(self):
+        rendered = _render(self.AMBIGUOUS)
+
+        assert "Verfügbare Modelle: haus-a.ifc (ready, 120 Bauteile)." in rendered
+        assert "This one call is the answer" not in rendered
+
+    def test_no_match_keeps_the_alternatives_and_invites_the_retry(self):
+        rendered = _render(self.NO_MATCH)
+
+        assert "Verfügbare Modelle: haus-a.ifc (ready, 120 Bauteile)." in rendered
+        assert "This one call is the answer" not in rendered
+
+    def test_the_do_not_retry_wording_has_one_source(self):
+        """`NO_PROJECT_TEXT` and this one are the two finals, and they read the
+        same way on purpose: one call, then tell the user."""
+        from aiq_agent.tools.bim.failures import NO_MODEL_TEXT
+
+        assert NO_MODEL_TEXT in _render(self.NO_MODELS)
+
     def test_the_summary_line_is_the_answer(self):
         rendered = _render(
             {

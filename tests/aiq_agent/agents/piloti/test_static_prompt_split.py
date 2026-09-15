@@ -1,17 +1,19 @@
-"""The prompt split: the same bytes, from two files and a store.
+"""The rendered prompt, pinned: two files and a store, one string.
 
-The static half moved out of `piloti.j2` into `piloti_static.md` so it could be
-managed in Langfuse. The move is only safe if it changed nothing the model sees:
-a stray newline at the seam is a different prefix, which costs every tenant
-their provider prompt-cache hit on every turn and shows up as latency rather
-than as a failure. So the first test here renders the split template and
-compares it, byte for byte, with a rendering of the ONE-FILE template as it
-stood at 0e89484 — the commit before the split.
+The static half lives in `piloti_static.md` so it can be managed in Langfuse,
+and `piloti.j2` holds the dynamic half. The seam between them is bytes: a stray
+newline there is a different prefix, which costs every tenant their provider
+prompt-cache hit on every turn and shows up as latency rather than as a
+failure. So the first test renders both halves with pinned inputs and compares
+the result, byte for byte, with the committed fixture.
 
-Regenerating the fixture: it is a rendering of
-`git show 0e89484:src/aiq_agent/agents/piloti/prompts/piloti.j2` through
-`render_prompt_template` with `PINNED` below. It is committed rather than
-computed so the test needs neither git nor a repository with history.
+The fixture is a GOLDEN FILE, not a claim about any past version. A deliberate
+prompt edit changes it, and the diff is what review reads; an accidental one
+fails a test instead of shipping. Regenerate with:
+
+    PYTHONPATH=src .venv/bin/python -c "
+    from tests.aiq_agent.agents.piloti.test_static_prompt_split import regenerate
+    regenerate()"
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ from aiq_agent.common.prompt_store import PromptStore
 from aiq_agent.common.prompt_store import ResolvedPrompt
 from aiq_agent.common.prompt_utils import render_prompt_template
 
-FIXTURE = Path(__file__).parent / "fixtures" / "piloti_prompt_0e89484.txt"
+FIXTURE = Path(__file__).parent / "fixtures" / "piloti_prompt_rendered.txt"
 
 #: The render inputs the fixture was produced with. `answer_envelope_schema`
 #: and `document_inventory` are pinned to placeholders on purpose: this test is
@@ -43,17 +45,14 @@ PINNED = dict(
     tools=[{"name": "search_documents"}, {"name": "write_file"}, {"name": "move_document"}, {"name": "create_task"}],
     user_info={"name": "Test User", "email": "test@example.invalid"},
     drafting_enabled=True,
-    tidying_enabled=True,
-    delegating_enabled=True,
     already_read_block="<<ALREADY READ>>",
     org_instructions="<<ORG INSTRUCTIONS>>",
     focus_file_name="Einreichplan.pdf",
     focus_shelf_label="<<SHELF>>",
-    norm_doctrine="<<NORM DOCTRINE>>",
+    oib_applicability="<<OIB APPLICABILITY>>",
     parcel_note="<<PARCEL NOTE>>",
     platform_lessons="<<PLATFORM LESSONS>>",
     project_context={"name": "Testprojekt"},
-    ris_catalog="<<RIS CATALOG>>",
     skills_block="<<SKILLS>>",
 )
 
@@ -64,8 +63,14 @@ def _render(static_text: str) -> str:
     return render_prompt_template(system_prompt_template(), static_block=block, **PINNED)
 
 
+def regenerate() -> None:
+    """Rewrite the golden file from the committed prompt files."""
+    committed = (PROMPTS_DIR / STATIC_PROMPT_FILE).read_text(encoding="utf-8")
+    FIXTURE.write_text(_render(committed), encoding="utf-8")
+
+
 class TestByteIdentity:
-    def test_the_split_renders_exactly_what_the_one_file_template_rendered(self):
+    def test_the_two_halves_render_the_committed_prompt(self):
         committed = (PROMPTS_DIR / STATIC_PROMPT_FILE).read_text(encoding="utf-8")
 
         assert _render(committed) == FIXTURE.read_text(encoding="utf-8")

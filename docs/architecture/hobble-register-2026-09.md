@@ -62,6 +62,13 @@ by `8773a95`: each turn's prefix is pinned to one provider cache shard and the
 cached/uncached split is reported per turn. §4.5 of the latency audit carries
 that half.
 
+**And the half this audit did not measure.** Everything above is the STATIC
+prefix. The dynamic half below the `KV CACHE BOUNDARY` marker was never counted
+here, and on a realistic turn it was **7,724 tokens** — none of it cacheable,
+so all of it charged fresh on every call. It is now **2,962** (row 23). The
+pattern was row 8's, three more times: a tool's contract written out in prose
+beside the tool that already states it.
+
 ---
 
 ## 1. The register, ranked
@@ -95,6 +102,7 @@ retune · **D** = defect.
 | 20 | `tool_search` off; `deferred_tool_loading` on with `min_intelligence_index: 50` | `configs/…`; `piloti/tool_search.py`; ADR-0048 | Both *add* capability or leave it untouched; the off switch is argued from measurement (71 % answering-tool recall) | **B/R**, keep | None. `tool_search.py` names the real constraint — "turns are the scarce resource" — which is row #2 | **Keep** |
 | 21 | Citation verification only ever removes; confidence capped without verified citations | `piloti.j2`; `piloti/grounding.py`; `piloti/AGENTS.md` "two currencies" | Catches a false claim **after** the fact | **R**, keep | None. This is the archetype of what must stay | **Keep** |
 | 22 | `conclusion=` required on every retrieval call | `knowledge_layer/register.py`; `turn_status.py` | One sentence per call, deliberately unread by the tool | **R** (it is the Herleitung's evidence, and it is a *slot*, not a sequence) | Keep. Extend to `ris_lookup` | **Keep**, and extended in §3 |
+| 23 | The DYNAMIC half restates tool contracts and standing doctrine | `piloti.j2` below the boundary: `<entwuerfe>` 788 · `<aufraeumen>` 329 · `<delegieren>` 383 · `ris_catalog` 1 544 · `norm_doctrine` 788 · the three `project_context` explanations 718 | 7 724 tokens on a realistic turn, none of it cacheable, so every call of every turn pays all of it. Row 8's pattern, three more times: a bound tool's contract written out beside the tool that already states it | **H** | Each rule into the tool description that owns it; standing doctrine ABOVE the boundary, where identical bytes are cached; the catalog deleted, because `ris_lookup` resolves a pointer from the question | **Closed** — ADR-0060 amendment. 7 724 → 2 962; two sentences of rule survive (`<entwuerfe>`: the anaphora, and that filing needs a project) and per-turn FACTS are all that is left |
 
 ---
 

@@ -84,7 +84,9 @@ _MOVE_DESCRIPTION = (
     "Dateiübersicht steht; `target_folder` ist ein Ordnerpfad, der es bereits gibt (z. B. "
     "'Einreichung/Pläne'), oder eine leere Zeichenkette für die oberste Ebene. Gibt es den Ordner noch "
     "nicht, zuerst `create_folder` aufrufen. Mehrere Aufrufe in derselben Antwort sammeln sich auf EINER "
-    "Karte, damit „räum die Einreichunterlagen zusammen“ eine Entscheidung bleibt und nicht vier."
+    "Karte, damit „räum die Einreichunterlagen zusammen“ eine Entscheidung bleibt und nicht vier. "
+    "Nur vorschlagen, wenn die Nutzerin darum bittet („leg die Einreichunterlagen in einen Ordner“). "
+    "Aufräumen, um das niemand gebeten hat, ist keine Aufgabe dieses Werkzeugs."
 )
 
 
@@ -180,7 +182,9 @@ _CREATE_FOLDER_DESCRIPTION = (
     "der Karte. `name` ist der Name des neuen Ordners (EIN Segment, keine Schrägstriche); `parent` ist "
     "der Pfad eines vorhandenen Ordners oder eine leere Zeichenkette für die oberste Ebene. Danach kann "
     "`move_document` Dateien hineinlegen — beide Vorschläge stehen dann als zwei Karten nebeneinander, "
-    "und die Nutzerin nimmt sie in dieser Reihenfolge an."
+    "und die Nutzerin nimmt sie in dieser Reihenfolge an. "
+    "Nur vorschlagen, wenn die Nutzerin einen Ordner will oder ein gewünschtes Verschieben einen "
+    "braucht. Eine Ordnerstruktur, nach der niemand gefragt hat, entsteht hier nicht."
 )
 
 #: One segment. The BFF's own folder validation refuses separators

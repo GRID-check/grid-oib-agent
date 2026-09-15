@@ -740,7 +740,6 @@ class TestPilotiAgent:
             current_datetime="2026-07-15",
             available_documents=[],
             project_context=project_context,
-            ris_catalog=None,
         )
 
     def test_the_formatting_block_routes_a_diagram_to_a_drawing_card(self, mock_llm_provider, real_tool):
@@ -2459,8 +2458,6 @@ class TestClarificationGuidance:
             current_datetime="2026-07-23",
             available_documents=[],
             project_context=project_context,
-            ris_catalog=None,
-            norm_doctrine=None,
             parcel_note=None,
         )
 
@@ -2505,8 +2502,6 @@ class TestOffTopicDeclineShape:
             current_datetime="2026-07-23",
             available_documents=[],
             project_context=None,
-            ris_catalog=None,
-            norm_doctrine=None,
             parcel_note=None,
         )
 
@@ -2838,8 +2833,6 @@ class TestTheModelCardsAreActuallyAskedFor:
             current_datetime="2026-07-23",
             available_documents=[],
             project_context=None,
-            ris_catalog=None,
-            norm_doctrine=None,
             parcel_note=None,
         )
 
@@ -3570,14 +3563,8 @@ class TestRepairRetrievalsRunTogether:
 # ---------------------------------------------------------------------------
 
 
-def _render_researcher_prompt(
-    *,
-    drafting_enabled: bool = False,
-    tidying_enabled: bool = False,
-    delegating_enabled: bool = False,
-) -> str:
-    """The default prompt, rendered with the working directory / the file verbs /
-    delegation on or off."""
+def _render_researcher_prompt(*, drafting_enabled: bool = False) -> str:
+    """The default prompt, rendered with the working directory on or off."""
 
     from aiq_agent.common import render_prompt_template
 
@@ -3589,12 +3576,8 @@ def _render_researcher_prompt(
         current_datetime="2026-09-10",
         available_documents=[],
         project_context=None,
-        ris_catalog=None,
-        norm_doctrine=None,
         parcel_note=None,
         drafting_enabled=drafting_enabled,
-        tidying_enabled=tidying_enabled,
-        delegating_enabled=delegating_enabled,
     )
 
 
@@ -3603,71 +3586,39 @@ def _entwuerfe_block() -> str:
 
 
 class TestTheWorkingDirectoryBlock:
-    """What the prompt says about drafting, and whether it says it at all."""
+    """What is LEFT in the prompt about drafting, after ADR-0060's amendment.
+
+    The block used to teach the whole drafting workflow: which verb writes,
+    which revises, when to file, when to submit, what a filed draft may be
+    called. Every one of those is a tool's own contract and now lives in the
+    tool description that owns it (see ``TestTheDraftingRulesLiveInTheTools``).
+    Two sentences stay here, because no tool description can carry them: what
+    „mach daraus ein File" refers to, and what happens with no project.
+    """
 
     def test_a_turn_without_the_tools_is_never_told_to_write(self):
         """A prompt describing a tool the model was not given is a promise it cannot keep."""
         assert "<entwuerfe>" not in _render_researcher_prompt(drafting_enabled=False)
 
-    def test_a_commissioned_document_is_written_not_described(self):
+    def test_the_anaphora_resolves_against_the_previous_answer(self):
+        """„kannst du daraus ein File machen" has an antecedent only the
+        transcript holds, so no tool description can resolve it."""
         block = _entwuerfe_block()
-        assert "`write_file`" in block
-        assert "/entwuerfe/" in block
-        # The five kinds the product commissions, named so the model recognises
-        # the request instead of judging every long answer to be one.
-        for kind in ("Aktenvermerk", "Protokoll", "Checkliste", "Flächenaufstellung", "Konzeptentwurf"):
-            assert kind in block
-        assert "nicht in der Antwort beschrieben" in block
-
-    def test_a_revision_edits_the_file_it_already_wrote(self):
-        block = _entwuerfe_block()
-        assert "`edit_file`" in block
-        assert "kein zweiter Entwurf" in block
-
-    def test_the_answer_still_says_what_happened(self):
-        """One sentence, not the document again: the draft is beside the answer."""
-        assert "EINEM Satz" in _entwuerfe_block()
-
-    def test_the_draft_is_not_a_source(self):
-        """The one thing that must not blur: a draft cannot ground an answer."""
-        assert "keine Fundstelle" in _entwuerfe_block()
-
-    def test_filing_happens_on_request_and_names_its_tool(self):
-        block = _entwuerfe_block()
-        assert "`file_draft`" in block
-        # The four ways a user asks for it, so the model recognises the request
-        # rather than filing after every write.
-        for phrase in ("leg das ins Projekt", "ablegen", "abspeichern"):
-            assert phrase in block
-        assert "Von selbst wird nichts abgelegt" in block
-
-    def test_submitting_is_its_own_gesture_and_needs_a_filed_draft(self):
-        block = _entwuerfe_block()
-        assert "`submit_draft`" in block
-        assert "bereits abgelegten Entwurf" in block
-        assert "ausdrücklichen Wunsch" in block
-
-    def test_a_named_person_is_passed_through_and_never_guessed(self):
-        """`reviewer` is a name this tier does not resolve, so the prompt has to
-        say both halves: pass the name the user said, and invent nothing."""
-        block = _entwuerfe_block()
-        assert "`reviewer`" in block
-        assert "unverändert" in block
-        assert "nicht raten" in block
-
-    def test_a_submit_with_nobody_named_says_where_it_went(self):
-        """Without a reviewer the BFF submits to the project's EDITORS. An answer
-        that only says „wartet auf eine Person" leaves the reader guessing which."""
-        assert "an die Bearbeiter des Projekts" in _entwuerfe_block()
-
-    def test_nothing_filed_may_be_called_approved(self):
-        """The claim that would reach a Bauherr: a draft is not a Freigabe."""
-        block = _entwuerfe_block()
-        assert "ENTWURF" in block
-        assert "Sage nie, es sei freigegeben, veröffentlicht" in block
+        assert "`daraus`/`davon`/`das`" in block
+        assert "vorige Antwort dieser Unterhaltung" in block
+        assert "ohne Rückfrage nach Format oder Inhalt" in block
 
     def test_a_conversation_without_a_project_is_told_what_happens(self):
-        assert "Ohne Projekt" in _entwuerfe_block()
+        block = _entwuerfe_block()
+        assert "Ohne Projekt" in block
+        assert "bleibt der Entwurf im Arbeitsordner" in block
+
+    def test_the_workflow_the_tools_own_is_no_longer_in_the_prompt(self):
+        """The cut itself. Each of these was a sentence about how to hold a
+        tool, charged on every call of every turn (ADR-0060 (d))."""
+        block = _entwuerfe_block()
+        for teaching in ("`write_file`", "`edit_file`", "`file_draft`", "`submit_draft`", "`reviewer`"):
+            assert teaching not in block, teaching
 
     def test_the_block_follows_the_tools_and_not_a_second_switch(self):
         """The flag is derived from what is bound, by the renderer itself."""
@@ -3689,71 +3640,113 @@ class TestTheWorkingDirectoryBlock:
         assert "<entwuerfe>" not in without
 
 
-def _delegieren_block() -> str:
-    return _render_researcher_prompt(delegating_enabled=True).split("<delegieren>")[1].split("</delegieren>")[0]
+class TestTheDraftingRulesLiveInTheTools:
+    """Every rule the `<entwuerfe>` block dropped, in the description that owns it.
+
+    A tool owns its whole contract (ADR-0060 (d)), so a rule deleted from the
+    prompt has to be findable in the schema the provider already sends. These
+    are the receipts for that move, one assertion per deleted sentence.
+    """
+
+    @staticmethod
+    def _draft_verbs() -> dict[str, str]:
+        from aiq_agent.tools.documents.tools import _TOOL_DESCRIPTIONS
+
+        return _TOOL_DESCRIPTIONS
+
+    def test_write_file_says_a_commissioned_document_is_written_not_described(self):
+        description = self._draft_verbs()["write_file"]
+        for kind in ("Aktenvermerk", "Protokoll", "Checkliste", "Flächenaufstellung", "Konzeptentwurf"):
+            assert kind in description
+        assert "nicht in der Antwort beschrieben" in description
+        # And the one sentence the answer owes the reader afterwards.
+        assert "in einem Satz" in description
+
+    def test_a_revision_edits_the_file_it_already_wrote(self):
+        verbs = self._draft_verbs()
+        assert "`edit_file` das Werkzeug" in verbs["write_file"]
+        assert "`write_file` verwenden" in verbs["edit_file"]
+
+    def test_ls_says_the_working_directory_is_not_a_source(self):
+        """The one thing that must not blur: a draft cannot ground an answer.
+
+        It sits on `ls` because that is the verb that shows the model what the
+        working directory holds, which is the moment the confusion starts.
+        """
+        description = self._draft_verbs()["ls"]
+        assert "keine Fundstelle" in description
+        assert "belegt" in description
+
+    def test_file_draft_says_filing_happens_on_request(self):
+        from aiq_agent.tools.documents.register import _FILE_DRAFT_DESCRIPTION
+
+        for phrase in ("leg das ins Projekt", "ablegen", "abspeichern"):
+            assert phrase in _FILE_DRAFT_DESCRIPTION
+        assert "nicht von selbst nach jedem Schreiben" in _FILE_DRAFT_DESCRIPTION
+        # And nothing filed may be called approved — the claim that reaches a Bauherr.
+        assert "ENTWURF" in _FILE_DRAFT_DESCRIPTION
+        assert "niemand hat ihn freigegeben" in _FILE_DRAFT_DESCRIPTION
+
+    def test_submit_draft_needs_a_filed_draft_and_an_explicit_request(self):
+        from aiq_agent.tools.documents.register import _SUBMIT_DRAFT_DESCRIPTION
+
+        assert "bereits im Projekt abgelegten Entwurf" in _SUBMIT_DRAFT_DESCRIPTION
+        assert "Nur aufrufen, wenn die Nutzerin um Freigabe" in _SUBMIT_DRAFT_DESCRIPTION
+        # The reviewer name is passed through and never guessed…
+        assert "unverändert" in _SUBMIT_DRAFT_DESCRIPTION
+        # …and without one the draft goes to the project's editors, which the
+        # answer has to be able to say.
+        assert "an die Bearbeiter des Projekts" in _SUBMIT_DRAFT_DESCRIPTION
 
 
-class TestTheDelegationBlock:
-    """What the prompt says about handing work over, and whether it says it at all."""
+class TestTheDelegationRulesLiveInTheTool:
+    """`<delegieren>` is gone; `create_task`'s description carries what it said."""
 
-    def test_a_turn_without_the_tool_is_never_told_to_delegate(self):
-        """`create_task` refuses without a project AND without a signed envelope."""
-        assert "<delegieren>" not in _render_researcher_prompt(delegating_enabled=False)
+    @staticmethod
+    def _description() -> str:
+        from aiq_agent.tools.tasks.register import _CREATE_TASK_DESCRIPTION
 
-    def test_it_names_the_tool_and_the_delegatable_kinds(self):
+        return _CREATE_TASK_DESCRIPTION
+
+    def test_the_prompt_no_longer_teaches_delegation(self):
+        assert "<delegieren>" not in _render_researcher_prompt(drafting_enabled=True)
+
+    def test_it_names_the_delegatable_kinds(self):
         """All four kinds are delegatable: the retirement was the chat TOOL, not the kind.
 
         ``compliance_check`` was removed from the chat agent's tool list; it
         stays a durable task kind and runs as a delegated Normprüfung
-        (`delegation.ts::TASK_ENGINES`, `docs/architecture/system-overview.md`),
-        so the delegation block must offer it like the other three.
+        (`delegation.ts::TASK_ENGINES`, `docs/architecture/system-overview.md`).
         """
-        block = _delegieren_block()
-        assert "`create_task`" in block
+        description = self._description()
         for kind in ("compliance_check", "einreichcheck", "document", "revision"):
-            assert f"`{kind}`" in block
+            assert f"`{kind}`" in description
 
     def test_it_names_the_requests_a_person_actually_makes(self):
         """So the model recognises the handoff instead of judging every long task one."""
-        block = _delegieren_block()
-        assert "Einreichcheck bis Freitag" in block
-        assert "@Piloti prüf das" in block
+        description = self._description()
+        assert "Einreichcheck bis Freitag" in description
+        assert "@Piloti prüf das" in description
 
     def test_the_deadline_is_a_date_and_not_a_phrase(self):
         """A string nothing can compare is a deadline the scheduler never enforces."""
-        block = _delegieren_block()
-        assert "`JJJJ-MM-TT`" in block
-        assert "keinen Text eintragen" in block
+        description = self._description()
+        assert "`JJJJ-MM-TT`" in description
+        assert "gib keinen Text an" in description
 
     def test_the_answer_must_not_claim_the_work_is_done(self):
         """The sentence this whole tool exists to stop."""
-        block = _delegieren_block()
-        assert "EINEM Satz" in block
-        assert "Sage nie, die Arbeit sei erledigt" in block
+        assert "ANGELEGT, nicht erledigt" in self._description()
 
     def test_delegating_is_not_a_way_out_of_answering(self):
-        assert "keine Art, einer Recherche auszuweichen" in _delegieren_block()
+        assert "nicht für eine Frage, die sich jetzt beantworten lässt" in self._description()
 
-    def test_nothing_is_delegated_unasked(self):
-        assert "Von selbst wird kein Auftrag angelegt" in _delegieren_block()
-
-    def test_the_block_follows_the_tools_and_not_a_second_switch(self):
-        from aiq_agent.agents.piloti.prompt import render_system_prompt
-        from aiq_agent.agents.piloti.prompt import system_prompt_template
-
-        state = ResearchAgentState(messages=[HumanMessage(content="Mach den Einreichcheck bis Freitag")])
-        with_tool = render_system_prompt(
-            system_prompt_template(),
-            state,
-            [{"name": "create_task", "description": "Legt einen Auftrag an"}],
-        )
-        without = render_system_prompt(
-            system_prompt_template(),
-            state,
-            [{"name": "web_search_tool", "description": "Search"}],
-        )
-        assert "<delegieren>" in with_tool
-        assert "<delegieren>" not in without
+    def test_the_precondition_is_stated_where_the_model_reads_it(self):
+        """Without a project no task is created — the fact the deleted block
+        carried and the description did not."""
+        description = self._description()
+        assert "Ohne Projekt in dieser Unterhaltung entsteht keiner" in description
+        assert "statt es erneut zu versuchen" in description
 
 
 class TestTheWorkingDirectoryBudget:
@@ -4016,67 +4009,56 @@ class TestATurnThatWritesADraft:
 # ---------------------------------------------------------------------------
 
 
-def _aufraeumen_block() -> str:
-    return _render_researcher_prompt(tidying_enabled=True).split("<aufraeumen>")[1].split("</aufraeumen>")[0]
+def _file_verb_descriptions() -> dict[str, str]:
+    from aiq_agent.tools.files import register as files_register
+
+    return {
+        "move_document": files_register._MOVE_DESCRIPTION,
+        "rename_document": files_register._RENAME_DESCRIPTION,
+        "create_folder": files_register._CREATE_FOLDER_DESCRIPTION,
+        "assign_document": files_register._ASSIGN_DESCRIPTION,
+    }
 
 
-class TestTheTidyingBlock:
-    """What the prompt says about file operations, and whether it says it at all."""
+class TestTheTidyingRulesLiveInTheTools:
+    """`<aufraeumen>` is gone; the four descriptions carry what it said.
 
-    def test_a_turn_without_the_tools_is_never_told_to_tidy(self):
-        """The block names four tools; a turn that has none of them cannot obey it."""
-        assert "<aufraeumen>" not in _render_researcher_prompt(tidying_enabled=False)
+    The block taught four tools how to behave, in a paragraph charged on every
+    call of every turn. A tool owns its whole contract (ADR-0060 (d)), and
+    these four already said most of it — the assertions below are what the
+    move had to leave intact, plus the one rule two of them lacked.
+    """
 
-    def test_all_four_verbs_are_named(self):
-        block = _aufraeumen_block()
-        for verb in (
-            "`move_document`",
-            "`rename_document`",
-            "`create_folder`",
-            "`assign_document`",
-        ):
-            assert verb in block
+    def test_the_prompt_no_longer_teaches_tidying(self):
+        assert "<aufraeumen>" not in _render_researcher_prompt(drafting_enabled=True)
 
-    def test_the_block_does_not_offer_a_verb_that_is_not_bound(self):
-        """`set_doc_class` is gone; a prompt still naming it teaches a tool call
-        that fails, and a Dokumentart the reader could never accept."""
-        block = _aufraeumen_block()
-        assert "set_doc_class" not in block
-        assert "Dokumentart" not in block
+    def test_every_verb_says_it_changes_nothing(self):
+        """The one failure this rule exists to prevent: „ist verschoben"."""
+        for name, description in _file_verb_descriptions().items():
+            assert "SCHLÄGT VOR" in description, name
+            assert "Karte" in description, name
 
-    def test_nothing_may_be_claimed_as_done(self):
-        """The one failure this block exists to prevent: „ist verschoben"."""
-        block = _aufraeumen_block()
-        assert "ÄNDERN NICHTS" in block
-        assert "erst das Annehmen" in block
-        assert "Sage darum nie" in block
+    def test_every_verb_says_the_user_decides(self):
+        for name, description in _file_verb_descriptions().items():
+            decides = "die Nutzerin annimmt oder verwirft" in description or "Die Nutzerin entscheidet" in description
+            assert decides, name
+
+    def test_every_verb_is_asked_for_and_not_volunteered(self):
+        """The rule the block carried and `move_document` / `create_folder`
+        lacked: these answer a request, they are not a tidy-up nobody asked
+        for."""
+        for name, description in _file_verb_descriptions().items():
+            assert "Nur vorschlagen" in description or "nur vorschlagen" in description, name
+
+    def test_no_verb_offers_one_that_is_not_bound(self):
+        """`set_doc_class` is gone; a description still naming it teaches a tool
+        call that fails, and a Dokumentart the reader could never accept."""
+        for name, description in _file_verb_descriptions().items():
+            assert "set_doc_class" not in description, name
 
     def test_a_name_is_taken_from_the_inventory_and_never_invented(self):
-        block = _aufraeumen_block()
-        assert "Rate nicht" in block
-        assert "frage nach dem genauen Namen" in block
-
-    def test_tidying_is_asked_for_and_not_volunteered(self):
-        assert "keine Aufräumaktion, um die niemand gebeten hat" in _aufraeumen_block()
-
-    def test_the_block_follows_the_tools_and_not_a_second_switch(self):
-        """The flag is derived from what is bound, by the renderer itself."""
-        from aiq_agent.agents.piloti.prompt import render_system_prompt
-        from aiq_agent.agents.piloti.prompt import system_prompt_template
-
-        state = ResearchAgentState(messages=[HumanMessage(content="Leg das zu den Einreichunterlagen")])
-        with_tools = render_system_prompt(
-            system_prompt_template(),
-            state,
-            [{"name": "move_document", "description": "Schlägt vor …"}],
-        )
-        without = render_system_prompt(
-            system_prompt_template(),
-            state,
-            [{"name": "web_search_tool", "description": "Search"}],
-        )
-        assert "<aufraeumen>" in with_tools
-        assert "<aufraeumen>" not in without
+        moved = _file_verb_descriptions()["move_document"]
+        assert "genau so, wie er in der Dateiübersicht steht" in moved
 
 
 class TestTheRepairIsAnObservationTheModelCanSee:

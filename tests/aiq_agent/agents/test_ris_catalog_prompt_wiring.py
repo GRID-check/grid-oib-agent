@@ -1,4 +1,11 @@
-"""Prompt wiring: the norm registry block reaches both answering prompts."""
+"""Prompt wiring: the norm registry block reaches the deep-research prompt.
+
+Piloti no longer renders the catalog. Its entries are RIS addresses, and
+``ris_lookup`` resolves one out of the question itself (ADR-0060 (d)), so a
+per-turn copy of the list below the KV-cache boundary bought the turn nothing
+and cost it ~1,500 tokens. Deep research, whose researcher orchestrates RIS by
+hand, still gets it — which is why the wiring is still pinned here.
+"""
 
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -54,10 +61,6 @@ def _registry_env(tmp_path, monkeypatch):
 def _render_template(template_path: Path, ris_catalog) -> str:
     return render_prompt_template(
         template_path.read_text(encoding="utf-8"),
-        # Piloti's template opens with the static half, which lives in its own
-        # file now (`piloti_static.md`, the bundled fallback for the prompt
-        # Langfuse serves). The registry block this test is about sits BELOW the
-        # KV-cache boundary, so an empty static half changes nothing here.
         static_block="",
         current_datetime="2026-07-16",
         user_info=None,
@@ -69,19 +72,26 @@ def _render_template(template_path: Path, ris_catalog) -> str:
     )
 
 
-@pytest.mark.parametrize("template_path", [PILOTI_TEMPLATE, DEEP_TEMPLATE])
-def test_templates_render_registry_block_when_present(template_path):
-    rendered = _render_template(template_path, "- BO Wien — Bauordnung für Wien [LrKons/NOR12345678]")
+def test_the_deep_template_renders_the_registry_block_when_present():
+    rendered = _render_template(DEEP_TEMPLATE, "- BO Wien — Bauordnung für Wien [LrKons/NOR12345678]")
 
     assert _HEADING in rendered
     assert "BO Wien" in rendered
 
 
-@pytest.mark.parametrize("template_path", [PILOTI_TEMPLATE, DEEP_TEMPLATE])
-def test_templates_omit_registry_block_when_absent(template_path):
-    rendered = _render_template(template_path, None)
+def test_the_deep_template_omits_the_registry_block_when_absent():
+    rendered = _render_template(DEEP_TEMPLATE, None)
 
     assert _HEADING not in rendered
+
+
+def test_piloti_carries_no_catalog_variable_at_all():
+    """Not "renders empty": the variable is gone from the template, so a
+    caller cannot reintroduce 1,500 tokens by passing one."""
+    source = PILOTI_TEMPLATE.read_text(encoding="utf-8")
+
+    assert "ris_catalog" not in source
+    assert _HEADING not in source
 
 
 def _graph_context(prompts: dict[str, str], project_context: str | None = None) -> DeepResearchGraphContext:

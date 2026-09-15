@@ -444,6 +444,13 @@ half right and one was a wrong diagnosis, which is worth keeping:
   prefix that is shared ACROSS tenants, which is only worth doing if the cache
   key stops being tenant-scoped.
 
+  *Read this bullet as of its date.* The split (`0e89484`) inverted the file:
+  `piloti.j2` now holds the dynamic half ALONE and the boundary is its second
+  line, so all four blocks were below it, paying per call. The ADR-0060
+  amendment removed all four — the three capability blocks into their tools'
+  descriptions, `norm_doctrine` up into `piloti_static.md` — and the dynamic
+  half fell from 7,724 tokens to 2,962.
+
 ### 4.3 What should be cached and is not
 
 Ranked by seconds saved per turn:

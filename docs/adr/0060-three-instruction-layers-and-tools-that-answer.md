@@ -177,6 +177,73 @@ buys the turn nothing and the guard measures the call, not the reasoning.
   cached-token share now reported per turn. A prompt edit that re-teaches a
   sequence shows up there or nowhere.
 
+## Amendment (2026-09-15): the dynamic half gets the same treatment
+
+The decision above cut the STATIC prefix and left the half below the
+`KV CACHE BOUNDARY` marker alone. Measured on a realistic turn (a Viennese
+project, twenty inventory files, a focused file, an office block, six already-read
+entries), that half was **7,724 tokens**, and it is the expensive one: nothing
+below the marker is cacheable, so every token of it is charged fresh on every
+call of every turn. It is now **2,962 tokens** on the same turn, plus ~240 for
+the applicability section, which the measurement's project-context shape does
+not produce.
+
+What it held was the two things (a) and (d) already forbid, arriving by a
+different door.
+
+**Tool contracts, moved into the tools that own them.** `<entwuerfe>` (788),
+`<aufraeumen>` (329) and `<delegieren>` (383) each taught a bound tool how to
+behave, in prose charged per call. Each rule now sits in the description the
+provider already sends: the drafting workflow in `write_file` / `edit_file` /
+`ls` / `file_draft` / `submit_draft`, the four proposal verbs' own rules in
+`tools/files/register.py`, delegation in `_CREATE_TASK_DESCRIPTION`. Two
+sentences stayed in `<entwuerfe>`, because no description can carry them: what
+„mach daraus ein File" refers to (the transcript knows; the tool does not), and
+that filing needs a project. Two rules had no home and were added: the
+no-project precondition on `create_task`, and „only when the user asks" on
+`move_document` and `create_folder`. The focus-file block lost its retrieval
+procedure, which restated `knowledge_search`'s own `file_name=` rule, and kept
+the fact; the inventory trailer and the tail of `parcel_note` went the same way.
+
+**The `ris_catalog` Normenregister block (1,544), deleted.** Its own header
+said the RIS tools resolve a catalog entry themselves, and `ris_lookup`'s
+description says it again. The per-project applicability section that rode
+inside `render_block_for_prompt` is the one part no tool can produce from a
+free-text question, so Piloti renders that alone
+(`prompt.oib_applicability`). Deep research still renders the full catalog: its
+researcher orchestrates RIS by hand, which is the situation the catalog was
+written for.
+
+**Standing doctrine, moved ABOVE the boundary.** `norm_doctrine` (788) and the
+three PROJECT_MEMORY / PROPOSAL_DECISIONS / REVIEW_DECISIONS explanations (718)
+were identical bytes on every turn, rendered below the marker where identical
+bytes cost the most. They are now `<dokumentrollen>` and `<project_record>` in
+`prompts/piloti_static.md`: cacheable, and editable in Langfuse, which is where
+platform doctrine belongs under (a). The doctrine's first paragraph was dropped
+rather than moved — it reintroduced the retrieval order „Wissensbasis → RIS →
+Web" that this ADR deleted from the static half, and its other half (the
+authority chain) is already `<domain_brief>`.
+
+**The country-profile caveat.** `norm_doctrine` resolves through
+`country_profile`, and only `at` is registered, so the text is constant per
+deployment and the move is safe today. A second country profile makes it vary
+per project, and the doctrine then belongs below the boundary again — as a
+rendered variable, the way it was, not as two copies of a static file.
+
+Kept below the boundary on purpose: `## Available Tools`, 94 tokens of tool
+NAMES, because under deferred loading (ADR-0048) it is the model's only index
+of the namespace it can search.
+
+**What pins it.** `tests/aiq_agent/agents/piloti/test_agent.py` asserts, per
+moved rule, that the tool description carries it and the rendered prompt does
+not (`TestTheDraftingRulesLiveInTheTools`,
+`TestTheDelegationRulesLiveInTheTool`, `TestTheTidyingRulesLiveInTheTools`);
+`test_ris_catalog_prompt_wiring.py` pins that `piloti.j2` has no `ris_catalog`
+variable at all, so a caller cannot reintroduce the block by passing one; and
+`test_static_prompt_split.py` holds the whole rendered prompt as a golden file,
+so an accidental edit fails a test and a deliberate one arrives as a diff
+review reads.
+
 ## Pros and Cons of the Options
 
 ### 1. Keep forcing, inline the body

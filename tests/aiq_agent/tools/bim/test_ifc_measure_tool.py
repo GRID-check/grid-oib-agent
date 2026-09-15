@@ -802,6 +802,48 @@ class TestRendering:
         assert "noch nicht abfragbar" in rendered
         assert "Verfügbare Modelle" not in rendered
 
+    def test_a_project_with_no_model_is_told_that_this_call_is_the_answer(self):
+        """The same reply `ifc_query` gives, because the two share
+        `render_unresolved` and a retry on the other tool is the same wasted
+        round."""
+        rendered = _render_unresolved(
+            {
+                "resolved": False,
+                "reason": "no_models",
+                "message": "Für dieses Projekt ist kein IFC-Modell hinterlegt.",
+                "models": [],
+            }
+        )
+        assert "Für dieses Projekt ist kein IFC-Modell hinterlegt." in rendered
+        assert "This one call is the answer" in rendered
+
+    def test_an_unreadable_model_is_told_the_same(self):
+        rendered = _render_unresolved(
+            {
+                "resolved": False,
+                "reason": "extraction_failed",
+                "message": "Dieses IFC-Modell konnte nicht gelesen werden.",
+                "models": [{"filename": "haus-a.ifc", "status": "failed", "elements": 0}],
+            }
+        )
+        assert "haus-a.ifc (failed, 0 Bauteile)" in rendered
+        assert "This one call is the answer" in rendered
+
+    def test_a_retryable_reason_keeps_its_invitation(self):
+        """`ambiguous` and `no_match` are fixed by a different `model_name`, so
+        nothing here tells the model to stop."""
+        for reason in ("ambiguous", "no_match"):
+            rendered = _render_unresolved(
+                {
+                    "resolved": False,
+                    "reason": reason,
+                    "message": "Bitte eines auswählen.",
+                    "models": [{"filename": "haus-a.ifc", "status": "ready", "elements": 120}],
+                }
+            )
+            assert "Verfügbare Modelle" in rendered, reason
+            assert "This one call is the answer" not in rendered, reason
+
 
 class TestOnlyAQuantityCountsAsAMeasurement:
     """`_measured_count` decides what the confidence gate may stand on.
