@@ -196,6 +196,7 @@ class TestSynthesisAnnouncement:
 
     @pytest.fixture
     def synthesis_steps(self):
+        """Status payloads pushed during the test, oldest first."""
         """Every status payload pushed during the test, oldest first."""
         from nat.builder.context import ContextState
         from nat.utils.reactive.subject import Subject
@@ -218,6 +219,7 @@ class TestSynthesisAnnouncement:
 
     @pytest.mark.asyncio
     async def test_a_researched_turn_announces_synthesis_once(self, scripted_agent, synthesis_steps):
+        """One synthesis event per researched turn, keyed for the live line."""
         agent = scripted_agent(
             _search("k1", "Fluchtweglänge GK4"),
             AIMessage(content="Die Antwort [1]."),
@@ -231,6 +233,7 @@ class TestSynthesisAnnouncement:
 
     @pytest.mark.asyncio
     async def test_a_direct_reply_announces_no_synthesis(self, scripted_agent, synthesis_steps):
+        """A reply with no tool work announces no synthesis phase."""
         agent = scripted_agent(AIMessage(content="Hallo!"))
 
         await agent.run(ResearchAgentState(messages=[HumanMessage(content="Hallo?")]))
@@ -250,6 +253,7 @@ class TestTheLaneCaptureReachesTheLedger:
 
     @pytest.mark.asyncio
     async def test_a_tools_hits_join_their_round_in_the_ledger(self, scripted_agent):
+        """Hits recorded inside the tool task join their round — the ContextVar crossed the node boundary."""
         agent = scripted_agent(
             _search("k1", "OIB 2", "Ich brauche zuerst die Grundregel."),
             AIMessage(
@@ -275,6 +279,7 @@ class TestTheLaneCaptureReachesTheLedger:
 
     @pytest.mark.asyncio
     async def test_the_capture_does_not_outlive_the_turn(self, scripted_agent):
+        """The capture window closes with the turn; nothing leaks across turns."""
         agent = scripted_agent(_search("k1", "Geländerhöhe"), AIMessage(content="Die Antwort [1]."))
 
         await agent.run(ResearchAgentState(messages=[HumanMessage(content="Wie hoch?")]))

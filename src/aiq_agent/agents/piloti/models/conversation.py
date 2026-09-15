@@ -146,6 +146,7 @@ class ConversationState(BaseModel):
     # Herleitung — no renderer reads it yet (phase b) — and persisted now so
     # the record exists from the first turn, not from the release that renders
     # it. None when no round was announced.
+    retrieval_ledger: list[dict[str, Any]] | None = None
     # --- Transparency extras (WP-A) -------------------------------------------
     # All optional/additive: absent means "unknown/not applicable". Lifted onto
     # the terminal ChatResponseChunk (``turn.streaming.STREAM_EXTRA_FIELDS``) and onto

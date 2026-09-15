@@ -194,6 +194,7 @@ class TestLaneCapture:
     """Shown web hits reach the per-round ledger with their round stamp."""
 
     async def test_result_urls_are_captured_with_the_round(self, fake_langchain_tavily):
+        """Result URLs are captured with the active round."""
         from aiq_agent.common import turn_status
 
         token = turn_status.begin_lane_capture()

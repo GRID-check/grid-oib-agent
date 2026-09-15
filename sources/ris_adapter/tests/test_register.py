@@ -946,6 +946,7 @@ class TestLaneCapture:
     """
 
     async def test_search_hits_are_captured_with_the_round(self, fake_client):
+        """Shown search hits are captured with the active round."""
         from aiq_agent.common import turn_status
 
         fake_client.search_result = RisSearchResult(hits=[_sample_hit()], total=1, page=1, page_size=20)
@@ -967,6 +968,7 @@ class TestLaneCapture:
         ]
 
     async def test_catalog_shortcut_hits_are_captured(self, fake_client, fake_catalog):
+        """Catalog shortcut hits are captured like live hits."""
         from aiq_agent.common import turn_status
 
         token = turn_status.begin_lane_capture()
@@ -987,6 +989,7 @@ class TestLaneCapture:
         ]
 
     async def test_fetch_captures_the_document_url(self, fake_client):
+        """A fetched document is captured by URL."""
         from aiq_agent.common import turn_status
 
         fake_client.fetch_result = RisDocument(
@@ -1015,6 +1018,7 @@ class TestLaneCapture:
         ]
 
     async def test_a_cached_search_still_captures_its_hits(self, fake_client):
+        """A repeat search served from cache still feeds the ledger."""
         """A repeat search must not record a round that returned nothing.
 
         The read-through cache short-circuits before the live path, so without

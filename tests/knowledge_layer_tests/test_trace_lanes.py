@@ -128,6 +128,7 @@ def test_trace_lanes_sources_carry_the_retrieval_round():
 
 
 def test_emitted_hits_are_captured_for_the_per_round_ledger():
+    """Emitted hits land in the capture with the active round's stamp."""
     """The ledger reads the capture, never the prose: same emission, both ships."""
     from aiq_agent.common.turn_status import begin_lane_capture
     from aiq_agent.common.turn_status import end_lane_capture

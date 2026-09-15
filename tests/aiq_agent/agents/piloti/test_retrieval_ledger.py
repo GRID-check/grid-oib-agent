@@ -22,6 +22,7 @@ from aiq_agent.agents.piloti.models.state import ResearchAgentState
 
 
 def _announcement(index, tools, corpora, query=None, reason=None, key="status.retrieval.withQuery"):
+    """An announcement dict shaped like ``record_round_announcement`` output."""
     record = {
         "index": index,
         "key": key,
@@ -36,6 +37,7 @@ def _announcement(index, tools, corpora, query=None, reason=None, key="status.re
 
 
 def _hit(round_index, name, detail=None):
+    """A captured lane hit shaped like the emitter records it."""
     hit = {"round": round_index, "name": name}
     if detail is not None:
         hit["detail"] = detail
@@ -64,6 +66,7 @@ def test_same_docs_reopened_carry_no_new_docs():
 
 
 def test_new_docs_are_listed_per_round_case_insensitively():
+    """A later round re-showing a file does not count it as new, whatever the casing."""
     announcements = [
         _announcement(0, ["knowledge_search"], ["knowledge"]),
         _announcement(1, ["knowledge_search"], ["knowledge"]),
@@ -75,6 +78,7 @@ def test_new_docs_are_listed_per_round_case_insensitively():
 
 
 def test_no_announcements_means_no_ledger_not_an_empty_one():
+    """No rounds announced means no ledger — absent, not an empty list."""
     assert build_retrieval_ledger([], [_hit(0, "x.pdf")]) is None
     assert build_retrieval_ledger(None, None) is None
 
@@ -90,6 +94,7 @@ def test_an_announced_round_with_no_hits_stays_a_layer_without_docs():
 
 
 def test_unstamped_hits_follow_capture_order_like_stream_order():
+    """Unstamped hits follow capture order, like the frontend's stream order."""
     announcements = [
         _announcement(0, ["knowledge_search"], ["knowledge"]),
         _announcement(1, ["read_passage"], ["knowledge"]),
@@ -103,6 +108,7 @@ def test_unstamped_hits_follow_capture_order_like_stream_order():
 
 
 def test_duplicate_name_and_detail_pairs_count_once():
+    """Identical name+detail pairs count once; one file at two pages counts twice."""
     announcements = [_announcement(0, ["knowledge_search"], ["knowledge"])]
     hits = [_hit(0, "a.pdf", "p.12"), _hit(0, "a.pdf", "p.12"), _hit(0, "a.pdf", "p.31")]
     ledger = build_retrieval_ledger(announcements, hits)
@@ -112,14 +118,17 @@ def test_duplicate_name_and_detail_pairs_count_once():
 
 
 def _response(tool_calls, content=""):
+    """A bare tool-call response for driving ``_charge_tool_calls``."""
     return SimpleNamespace(tool_calls=tool_calls, content=content)
 
 
 def _state(**overrides):
+    """A fresh research state for the reference question."""
     return ResearchAgentState(messages=[HumanMessage(content="Was weißt du über die OIB 2?")], **overrides)
 
 
 def test_charge_threads_two_rounds_with_their_facts():
+    """Two charge calls accumulate rounds with their facts, in slot order."""
     search = [{"name": "knowledge_search", "args": {"query": "OIB 2"}}]
     opens = [{"name": "read_passage", "args": {"document": "oib-rl_2.pdf", "punkt": "3.5.2"}}]
     state = _state()
@@ -146,6 +155,7 @@ def test_charge_threads_two_rounds_with_their_facts():
 
 
 def test_charge_records_nothing_for_action_batches():
+    """Action batches announce no round and advance no counter."""
     state = _state()
     _research, _interaction, retrieval_round, record = _charge_tool_calls(
         _response([{"name": "remember", "args": {}}]), state, 9
@@ -161,6 +171,7 @@ def test_charge_without_tool_calls_keeps_the_tuple_shape():
 
 
 def test_assemble_attaches_the_ledger_and_omits_it_without_rounds():
+    """The ledger attaches when rounds exist and stays absent otherwise."""
     announcements = [_announcement(0, ["knowledge_search"], ["knowledge"])]
     hits = [_hit(0, "oib-rl_2.pdf", "p.12")]
     graph_result = {"retrieval_rounds": announcements, "answer_measurement_grounded": False}

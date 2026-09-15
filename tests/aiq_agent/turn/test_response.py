@@ -105,6 +105,7 @@ class TestResponseLifts:
         assert response.read_sources == read
 
     def test_the_retrieval_ledger_rides_when_present_and_stays_absent_otherwise(self):
+        """The ledger rides the response when present and stays absent otherwise."""
         ledger = [{"index": 0, "docs": [], "new_docs": []}]
         response = _response()
         apply_state_extras(response, _state(retrieval_ledger=ledger))

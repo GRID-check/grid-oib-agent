@@ -764,10 +764,12 @@ class TestTheRepairRecordCarriesItsCounts:
 
 
 def _search_calls():
+    """A knowledge search batch."""
     return [{"name": "knowledge_search", "args": {"query": "Fluchtweglänge GK4"}}]
 
 
 def _open_calls():
+    """A read_passage batch opening one named Punkt."""
     return [{"name": "read_passage", "args": {"document": "oib-rl_2.pdf", "punkt": "3.5.2"}}]
 
 
@@ -781,6 +783,7 @@ class TestRoundAnnouncementMirrorsTheLiveFrame:
     """
 
     def test_a_search_round_records_its_facts_and_no_guessed_purpose(self) -> None:
+        """Query, tools, corpora and key are recorded; nothing is guessed."""
         record = turn_status.record_round_announcement(round_index=0, calls=_search_calls(), conclusion=None)
         assert record == {
             "index": 0,
@@ -791,12 +794,14 @@ class TestRoundAnnouncementMirrorsTheLiveFrame:
         }
 
     def test_a_locator_round_records_its_key(self) -> None:
+        """A locator round keeps its punkt key, not the search template."""
         record = turn_status.record_round_announcement(round_index=1, calls=_open_calls(), conclusion=None)
         assert record is not None
         assert record["key"] == turn_status.KEY_RETRIEVAL_PUNKT
         assert record["tools"] == ["read_passage"]
 
     def test_action_batches_and_empties_record_nothing(self) -> None:
+        """Action batches and empty batches record nothing, like the counter skips them."""
         assert (
             turn_status.record_round_announcement(
                 round_index=0,
@@ -838,6 +843,7 @@ class TestLaneCaptureKeepsRoundsApart:
     """Per-round hits for the ledger, read off the same stamp the block gets."""
 
     def test_hits_land_with_the_current_round(self) -> None:
+        """Hits land stamped with the round active when recorded."""
         token = turn_status.begin_lane_capture()
         try:
             with turn_status.retrieval_round_scope(0):
@@ -853,6 +859,7 @@ class TestLaneCaptureKeepsRoundsApart:
         ]
 
     def test_capture_is_scoped_and_best_effort(self) -> None:
+        """Capture is silent outside its window and bounded inside it."""
         turn_status.record_lane_hit("x.pdf")
         assert turn_status.get_lane_captures() == []
         token = turn_status.begin_lane_capture()

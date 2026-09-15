@@ -72,12 +72,15 @@ const MAX_TITLE_CHARS = 256
 const MAX_DETAIL_CHARS = 128
 const MAX_SHELF_CHARS = 64
 
+/** A plain JSON object — never an array, never null. */
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
+/** A trimmed non-empty string within budget, or undefined. */
 const cap = (value: unknown, max: number): string | undefined =>
   typeof value === 'string' && value.trim().length > 0 ? value.trim().slice(0, max) : undefined
 
+/** A bounded string list: capped items, dropped empties, undefined when none survive. */
 const capList = (value: unknown, maxItems: number, maxChars: number): string[] | undefined => {
   if (!Array.isArray(value)) return undefined
   const items: string[] = []
@@ -89,12 +92,15 @@ const capList = (value: unknown, maxItems: number, maxChars: number): string[] |
   return items.length > 0 ? items : undefined
 }
 
+/** A safe non-negative integer, or undefined. */
 const int = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : undefined
 
 /** Presentation compare matching the backend's own: case- and space-insensitive. */
+/** Presentation compare matching the backend's own: case- and space-insensitive. */
 const docKey = (name: string): string => name.trim().toLowerCase()
 
+/** One bounded ledger doc, or undefined when it has no name. */
 function sanitizeDoc(input: unknown): RetrievalLedgerDoc | undefined {
   if (!isRecord(input)) return undefined
   const name = cap(input.name, MAX_NAME_CHARS)
@@ -109,6 +115,7 @@ function sanitizeDoc(input: unknown): RetrievalLedgerDoc | undefined {
   return doc
 }
 
+/** One bounded ledger entry, or undefined when it has no index. Tallies are derived from docs. */
 function sanitizeEntry(input: unknown): RetrievalLedgerEntry | undefined {
   if (!isRecord(input)) return undefined
   const index = int(input.index)
