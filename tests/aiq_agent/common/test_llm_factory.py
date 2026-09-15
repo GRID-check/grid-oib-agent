@@ -240,3 +240,72 @@ def test_a_model_override_changes_the_key():
     before = _sent_payload(llm, _messages(), tools=DEFERRED_TOOLS)
     after = _sent_payload(override_model(llm, "anthropic/claude-sonnet-5"), _messages(), tools=DEFERRED_TOOLS)
     assert before["extra_body"]["session_id"] != after["extra_body"]["session_id"]
+
+
+# -- previous_response_id on the OpenRouter Responses path ---------------------
+#
+# NAT hands every `api_type: responses` client `use_previous_response_id=True`,
+# which langchain-openai fills from the last `resp_…` AIMessage id. OpenRouter
+# rejects the field outright, so `get_langchain_llm` must turn it off — and only
+# for OpenRouter, where a direct OpenAI endpoint keeps the feature it supports.
+
+
+def _responses_chat_model(base_url):
+    """A client shaped exactly the way NAT builds an `api_type: responses` one."""
+    from langchain_openai import ChatOpenAI
+
+    return ChatOpenAI(
+        model="openai/gpt-5.6-luna",
+        api_key="test-key",
+        base_url=base_url,
+        use_responses_api=True,
+        use_previous_response_id=True,
+    )
+
+
+async def _resolved(llm):
+    builder = SimpleNamespace(get_llm=AsyncMock(return_value=llm))
+    return await get_langchain_llm(builder, "some_ref")
+
+
+def _turn_after_a_resp_id_answer():
+    from langchain_core.messages import AIMessage
+    from langchain_core.messages import HumanMessage
+
+    return [
+        *_messages(),
+        AIMessage(content="Einen Meter.", response_metadata={"id": "resp_abc"}),
+        HumanMessage(content="Und im Dachgeschoss?"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_openrouter_responses_client_never_sends_previous_response_id():
+    llm = await _resolved(_responses_chat_model("https://openrouter.ai/api/v1"))
+    assert llm.use_previous_response_id is False
+
+    payload = _sent_payload(llm, _turn_after_a_resp_id_answer())
+    assert "input" in payload  # still the Responses shape, not chat completions
+    assert "previous_response_id" not in payload
+    assert "previous_response_id" not in payload.get("extra_body", {})
+
+
+@pytest.mark.asyncio
+async def test_the_whole_conversation_still_goes_without_the_server_side_handle():
+    # Dropping the handle is only safe because the payload stops being truncated
+    # to the messages *after* the resp_ id: OpenRouter is stateless, so the
+    # history has to travel with every request.
+    llm = await _resolved(_responses_chat_model("https://openrouter.ai/api/v1"))
+    payload = _sent_payload(llm, _turn_after_a_resp_id_answer())
+    sent = str(payload["input"])
+    assert "Brüstung" in sent
+    assert "Dachgeschoss" in sent
+
+
+@pytest.mark.asyncio
+async def test_a_non_openrouter_responses_client_is_untouched():
+    llm = await _resolved(_responses_chat_model("https://api.openai.test/v1"))
+    assert llm.use_previous_response_id is True
+
+    payload = _sent_payload(llm, _turn_after_a_resp_id_answer())
+    assert payload["previous_response_id"] == "resp_abc"

@@ -37,13 +37,8 @@
  * migration 0088 retired the tier together with the composer's `skills` array:
  * an instruction that always applies is not a capability. The key is therefore
  * pinned by its ABSENCE below — a payload that grew it back would mean the tier
- * came back with it.
- *
- * The shared fixture still carries `standard: true` on `piloti-voice` until the
- * backend half of this change lands (it owns the Python side of the same
- * fixture), so the row-for-row comparison drops the retired key rather than
- * asserting against a value neither side produces any more. When the fixture
- * loses the key, {@link RETIRED_KEYS} stops matching anything and can go.
+ * came back with it. The shared fixture no longer carries it either, so the
+ * row-for-row comparison is now against the sample as checked in.
  */
 
 import { readFileSync } from 'node:fs'
@@ -118,9 +113,6 @@ const OFFER_ROW: PlatformSkillRow = {
   metadata: { 'grid-catalog': 'curated' },
 }
 
-/** Keys the fixture still carries that this payload no longer emits. */
-const RETIRED_KEYS = ['standard'] as const
-
 /** The pipeline's own machinery: a builtin file, no `grid-catalog`. */
 const MACHINERY = {
   name: 'data-table-analysis',
@@ -179,9 +171,7 @@ describe('the resolve payload the backend reads', () => {
     for (const sampled of SAMPLE) {
       const row = live.get(sampled.name as string)
       expect(row, sampled.name as string).toBeDefined()
-      const expected = { ...sampled }
-      for (const key of RETIRED_KEYS) delete expected[key]
-      expect(row, sampled.name as string).toMatchObject(expected)
+      expect(row, sampled.name as string).toMatchObject(sampled)
     }
   })
 

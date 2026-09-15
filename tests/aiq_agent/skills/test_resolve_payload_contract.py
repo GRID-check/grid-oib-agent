@@ -6,11 +6,11 @@ reserved keys ride it: ``grid-hidden`` routes the activation off the live line,
 ``grid-cards`` inlines the card shapes with the body, and ``grid-agents``
 decides which agent may run the skill at all.
 
-The ``standard`` flag also rides it, and the backend now IGNORES it — forcing is
-gone, so a standard row resolves into the catalog like any other skill and the
-model opens it or does not. It stays on the wire because the BFF still needs it
-(merge order, and the org write boundary that refuses the name), and it is
-pinned here in that direction: served, and deliberately without effect.
+The ``standard`` flag used to ride it too, and it is now gone from both halves:
+forcing is retired, so a fleet-wide row resolves into the catalog like any other
+skill and the model opens it or does not. It is pinned here by its ABSENCE —
+neither the payload nor :class:`Skill` has a field that means "apply this
+anyway", and a row that grew one back would mean the tier came back with it.
 
 ``ce47667b`` pinned this side of the seam against a HAND-WRITTEN payload, which
 is what left the crossing open: nothing said the hand-written keys were the keys
@@ -93,14 +93,14 @@ def test_every_served_row_survives_validation(resolved: dict[str, Skill]) -> Non
 
 
 def test_the_standard_row_resolves_as_an_ordinary_skill(resolved: dict[str, Skill]) -> None:
-    """``standard: true`` on the wire must change NOTHING on this side.
+    """``standard`` is off the wire entirely, and there is no field to read it into.
 
-    The flag used to force the row's body in front of the model. The backend no
-    longer has a field for it: every resolved row is an offer, and a standard
-    one is distinguished only by the fact that every organization gets it.
+    The flag used to force the row's body in front of the model. Neither half
+    carries it now: every resolved row is an offer, and a fleet-wide one is
+    distinguished only by the fact that every organization gets it.
     """
     row = next(row for row in served_rows() if row["name"] == STANDARD)
-    assert row["standard"] is True, "the BFF still marks it — this side simply does not read it"
+    assert "standard" not in row, "the BFF stopped serving it; a payload that grew it back retired nothing"
     assert "standard" not in Skill.model_fields
     voice = resolved[STANDARD]
     assert voice.name == STANDARD and voice.body

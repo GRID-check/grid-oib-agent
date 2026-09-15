@@ -16,8 +16,12 @@ automatically:
   ``session_id`` + ``prompt_cache_key`` derived from the request's own stable
   prefix, so the 3-6 calls of one turn land on the endpoint that cached it
   instead of being spread across a model's providers.
+- ``use_previous_response_id=False`` on the Responses path (see
+  :func:`disable_previous_response_id`): OpenRouter's Responses API is
+  stateless and rejects the field, while NAT turns it on for every
+  ``api_type: responses`` client.
 
-This is an OpenRouter-specific request-body field, so it is applied only to LLMs
+Every one of these is OpenRouter-specific, so each is applied only to LLMs
 whose ``base_url`` points at OpenRouter — non-OpenRouter deployments (e.g.
 NVIDIA-hosted models) are returned untouched.
 
@@ -119,6 +123,38 @@ def apply_openrouter_structured_defaults(llm: Any) -> Any:
         llm.extra_body = merged
     except Exception:  # noqa: BLE001 - never let hardening break model resolution
         logger.warning("Could not apply OpenRouter structured defaults to %s", type(llm).__name__, exc_info=True)
+    return llm
+
+
+def disable_previous_response_id(llm: Any) -> Any:
+    """Stop an OpenRouter-bound Responses-API client from sending ``previous_response_id``.
+
+    NAT builds every ``api_type: responses`` client with
+    ``use_previous_response_id=True`` (``nat/plugins/langchain/llm.py``), and
+    langchain-openai then fills the field in from the most recent ``AIMessage``
+    whose id starts with ``resp_`` and truncates the request to the messages
+    after it. OpenRouter cannot serve that:
+
+        "Requests that set ``store: true`` or a non-null
+        ``previous_response_id`` are rejected with a ``400`` error."
+        -- https://openrouter.ai/docs/api_reference/responses/overview
+
+    It is dormant only because OpenRouter does not currently hand back ids of
+    that shape; its own documented examples are ``resp_…``, so the day it does,
+    every follow-up call inside a turn 400s at once.
+
+    Flipping the flag off does not leave the Responses path: NAT sets
+    ``use_responses_api=True`` explicitly alongside it. No-op off OpenRouter,
+    where the field is the provider's own state handle and works as documented.
+    """
+    if not llm_targets_openrouter(llm):
+        return llm
+    if not getattr(llm, "use_previous_response_id", False):
+        return llm
+    try:
+        llm.use_previous_response_id = False
+    except Exception:  # noqa: BLE001 - never let hardening break model resolution
+        logger.warning("Could not disable previous_response_id on %s", type(llm).__name__, exc_info=True)
     return llm
 
 
@@ -259,7 +295,8 @@ async def get_langchain_llm(builder: Any, ref: Any) -> Any:
     the instance), never here.
     """
     llm = await builder.get_llm(ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-    return enforce_chat_request_contract(apply_openrouter_structured_defaults(llm))
+    hardened = disable_previous_response_id(apply_openrouter_structured_defaults(llm))
+    return enforce_chat_request_contract(hardened)
 
 
 def strict_response_format(schema: Any) -> Any:
