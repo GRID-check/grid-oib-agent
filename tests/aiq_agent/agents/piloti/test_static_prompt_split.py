@@ -100,6 +100,21 @@ class TestByteIdentity:
         assert "{{ answer_envelope_schema }}" in committed
 
 
+class TestTheRulesThePolishMustNotInvert:
+    """Wordings whose meaning flips on one verb, asserted on the rendered text.
+
+    `angenommen` closes a point. A polish pass once turned "do not propose it
+    again" into "and propose something else", which reads as an instruction to
+    make a further proposal on the very point the user just settled.
+    """
+
+    def test_an_accepted_proposal_reads_as_settled(self):
+        rendered = FIXTURE.read_text(encoding="utf-8")
+
+        assert "That point is settled, and a further proposal is about something else." in rendered
+        assert "and propose something else" not in rendered
+
+
 class TestStoreSeam:
     def test_the_bundled_file_is_the_fallback_and_names_itself(self):
         bundled = bundled_static_block()

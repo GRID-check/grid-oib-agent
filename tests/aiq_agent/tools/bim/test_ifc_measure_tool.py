@@ -802,6 +802,24 @@ class TestRendering:
         assert "noch nicht abfragbar" in rendered
         assert "Verfügbare Modelle" not in rendered
 
+    def test_a_model_that_is_still_extracting_closes_the_turn(self):
+        """„noch nicht abfragbar" beside a filename reads as an invitation to
+        call again with that name, and extraction finishes after this turn."""
+        from aiq_agent.tools.bim.failures import NO_MODEL_TEXT
+
+        rendered = _render_unresolved(
+            {
+                "resolved": False,
+                "reason": "not_ready",
+                "message": "Dieses IFC-Modell wird derzeit verarbeitet. Es steht noch nicht zur Abfrage bereit.",
+                "models": [{"filename": "haus-a.ifc", "status": "extracting", "elements": 0}],
+            }
+        )
+        assert "This one call is the answer for this turn" in rendered
+        assert "not ready to be queried yet" in rendered
+        # And never the sentence for a project that has no model at all.
+        assert NO_MODEL_TEXT not in rendered
+
     def test_a_project_with_no_model_is_told_that_this_call_is_the_answer(self):
         """The same reply `ifc_query` gives, because the two share
         `render_unresolved` and a retry on the other tool is the same wasted

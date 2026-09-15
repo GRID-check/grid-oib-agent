@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from aiq_agent.tools.bim.failures import NO_MODEL_TEXT
+from aiq_agent.tools.bim.failures import NOT_READY_TEXT
 
 #: Plural noun → the whole singular phrase, article included. A lookup rather
 #: than a rule because German plurals and genders are not derivable, and
@@ -62,10 +63,15 @@ def listed(
     return lines + [f"{indent}{note}"] if note else lines
 
 
-#: The two reasons no argument can fix. ``ambiguous`` and ``no_match`` are
-#: deliberately absent: there a second call with a different ``model_name`` is
-#: the right move, and the listed alternatives are what it is made from.
-_NOTHING_TO_READ = frozenset({"no_models", "extraction_failed"})
+#: The reasons no argument fixes within this turn, each with the sentence that
+#: says so. ``ambiguous`` and ``no_match`` are deliberately absent: there a
+#: second call with a different ``model_name`` is the right move, and the
+#: listed alternatives are what it is made from.
+_NOTHING_TO_READ = {
+    "no_models": NO_MODEL_TEXT,
+    "extraction_failed": NO_MODEL_TEXT,
+    "not_ready": NOT_READY_TEXT,
+}
 
 
 def render_unresolved(result: dict[str, Any], fallback: str) -> str:
@@ -80,12 +86,15 @@ def render_unresolved(result: dict[str, Any], fallback: str) -> str:
     with it (:data:`~aiq_agent.tools.bim.failures.NO_MODEL_TEXT`). The route's
     „Für dieses Projekt ist kein IFC-Modell hinterlegt" alone reads as one
     operation's miss, and the agent spent the rest of its rounds trying the
-    others.
+    others. ``not_ready`` gets its own sentence
+    (:data:`~aiq_agent.tools.bim.failures.NOT_READY_TEXT`) for the same reason
+    and a different fact: extraction finishes after this turn, so the model
+    named under „noch nicht abfragbar" answers a later question and not this
+    one.
     """
     text = _unresolved_message(result, fallback)
-    if result.get("reason") in _NOTHING_TO_READ:
-        return f"{text} {NO_MODEL_TEXT}"
-    return text
+    advice = _NOTHING_TO_READ.get(str(result.get("reason")))
+    return f"{text} {advice}" if advice else text
 
 
 def _unresolved_message(result: dict[str, Any], fallback: str) -> str:

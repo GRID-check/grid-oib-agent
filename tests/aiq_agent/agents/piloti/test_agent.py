@@ -3667,15 +3667,17 @@ class TestTheDraftingRulesLiveInTheTools:
         assert "`edit_file` das Werkzeug" in verbs["write_file"]
         assert "`write_file` verwenden" in verbs["edit_file"]
 
-    def test_ls_says_the_working_directory_is_not_a_source(self):
+    def test_read_file_says_the_working_directory_is_not_a_source(self):
         """The one thing that must not blur: a draft cannot ground an answer.
 
-        It sits on `ls` because that is the verb that shows the model what the
-        working directory holds, which is the moment the confusion starts.
+        It sits on `read_file` because that is the verb whose output is text a
+        model would otherwise cite. `ls` returns filenames, which nobody
+        quotes.
         """
-        description = self._draft_verbs()["ls"]
-        assert "keine Fundstelle" in description
-        assert "belegt" in description
+        verbs = self._draft_verbs()
+        assert "hat die Antwort selbst geschrieben" in verbs["read_file"]
+        assert "Quellen-Werkzeugen" in verbs["read_file"]
+        assert "selbst geschrieben" not in verbs["ls"]
 
     def test_file_draft_says_filing_happens_on_request(self):
         from aiq_agent.tools.documents.register import _FILE_DRAFT_DESCRIPTION

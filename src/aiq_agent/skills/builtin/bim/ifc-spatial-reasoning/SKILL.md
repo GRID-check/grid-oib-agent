@@ -31,9 +31,9 @@ ihr stehen:
   `survey` allein.
 - Ein Aufruf mit null Treffern kostet dasselbe wie einer, der antwortet, und
   eine Runde aus lauter abgelehnten Aufrufen kostet ihren einen ebenso.
-- Zwölf Aufrufe einer Runde laufen; was darüber hinaus in derselben Runde steht,
-  kommt mit dem Hinweis zurück, dass es in der nächsten Runde erneut gestellt
-  werden kann.
+- Eine Runde läuft bis zur eingestellten Rundenbreite; was darüber hinaus in
+  derselben Runde steht, kommt mit dem Hinweis zurück, dass es in der nächsten
+  Runde erneut gestellt werden kann.
 - Diesen Skill zu laden war eine Runde.
 
 Eine Antwort, die vor der Messung abgeschnitten wird, fällt auf die deklarierten
@@ -47,11 +47,13 @@ kommentarlos an die Stelle der gemessenen zu setzen, ist die teuerste Art, das
 Budget zu überziehen — von außen ist sie von einer Messung nicht zu
 unterscheiden.
 
-Die Werkzeugbeschreibung sagt „briefing zuerst", und weil die Runde zählt,
-kostet das nichts: `briefing` steht neben der Messung in derselben Runde, nicht
-in einer eigenen davor. Steht die Auswahl ohnehin fest — ein Typ, ein
-Namensteil, ein ganzes Gebäude —, dann trägt es nur die Namen bei, mit denen ein
-ins Leere gelaufener Geschoß- oder Merkmalsname in der nächsten Runde trifft.
+Die Werkzeugbeschreibung sagt „briefing zuerst". Das gilt, solange die Auswahl
+offen ist: Dann steht `briefing` in einer eigenen Runde davor und liefert die
+Geschoß- und Merkmalsnamen, aus denen die Argumente der Messung gebaut werden.
+Steht die Auswahl schon fest, etwa ein Typ, ein Namensteil oder ein ganzes
+Gebäude, dann fährt `briefing` in derselben Runde neben der Messung mit und
+kostet dort nichts; seine Namen sind das Material, mit dem ein ins Leere
+gelaufener Geschoß- oder Merkmalsname in der nächsten Runde trifft.
 
 ## 2. Eine Frage in der Mehrzahl ist eine Frage über viele Bauteile
 

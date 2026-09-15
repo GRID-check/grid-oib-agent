@@ -44,6 +44,19 @@ NO_MODEL_TEXT = (
     "Another call with different arguments returns this same result."
 )
 
+#: A model IS stored and its index is not ready (``not_ready``): usually still
+#: being extracted, and the route sends the same reason for one whose
+#: extraction failed. Either state outlives the turn, so the retry the listing
+#: invites (a filename under „noch nicht abfragbar") returns this same result.
+#: The route's own sentence says WHICH state it is; this one says what to do
+#: with it, the way ``NO_MODEL_TEXT`` does.
+NOT_READY_TEXT = (
+    "This one call is the answer for this turn: tell the user (in German) that this model is not ready "
+    "to be queried yet, in the words of the sentence above, and answer the rest of their question "
+    "without any claim about the building. Readiness does not change inside this turn, so another call "
+    "returns this same result."
+)
+
 #: Nothing was looked at. "Could not look" is not "looked and found nothing".
 UNAVAILABLE_TEXT = (
     "Error: das Modell konnte gerade nicht gelesen werden (der Modelldienst ist nicht erreichbar). "

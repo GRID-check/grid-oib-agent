@@ -154,16 +154,19 @@ class TestRender:
         assert _render({"resolved": False, "message": "Kein Modell hinterlegt."}) == "Kein Modell hinterlegt."
 
 
-class TestTheFourWaysAModelIsNotResolved:
+class TestTheFiveWaysAModelIsNotResolved:
     """Which reasons are worth a second call, and which the reply closes.
 
     `no_models` and `extraction_failed` are facts about the PROJECT: no
     argument to this tool changes them, and the route's own sentence („Für
     dieses Projekt ist kein IFC-Modell hinterlegt.") reads like one operation's
     miss, so the agent used to spend its remaining rounds on `overview`,
-    `types`, `elements` and `health` in turn. `ambiguous` and `no_match` are
-    the opposite: a second call with a different `model_name` is the right
-    move, and the listed alternatives are what it is made from.
+    `types`, `elements` and `health` in turn. `not_ready` is a fact about the
+    TURN: the model exists and its extraction finishes later, and the render
+    names it under „noch nicht abfragbar", which is an invitation to retry with
+    that name. `ambiguous` and `no_match` are the opposite: a second call with
+    a different `model_name` is the right move, and the listed alternatives are
+    what it is made from.
     """
 
     NO_MODELS = {
@@ -177,6 +180,12 @@ class TestTheFourWaysAModelIsNotResolved:
         "reason": "extraction_failed",
         "message": "Dieses IFC-Modell konnte nicht gelesen werden.",
         "models": [{"filename": "haus-a.ifc", "status": "failed", "elements": 0}],
+    }
+    NOT_READY = {
+        "resolved": False,
+        "reason": "not_ready",
+        "message": "Dieses IFC-Modell wird derzeit verarbeitet. Es steht noch nicht zur Abfrage bereit.",
+        "models": [{"filename": "haus-a.ifc", "status": "extracting", "elements": 0}],
     }
     AMBIGUOUS = {
         "resolved": False,
@@ -206,6 +215,39 @@ class TestTheFourWaysAModelIsNotResolved:
 
         assert "haus-a.ifc (failed, 0 Bauteile)" in rendered
         assert "This one call is the answer" in rendered
+
+    def test_not_ready_closes_the_turn_and_still_names_the_model(self):
+        """The listing says „noch nicht abfragbar" beside a filename, which
+        reads as an invitation to call again with that name. Extraction does
+        not finish inside one turn, so the reply says what this turn can do."""
+        rendered = _render(self.NOT_READY)
+
+        assert "haus-a.ifc (extracting, 0 Bauteile)" in rendered
+        assert "noch nicht abfragbar" in rendered
+        assert "This one call is the answer for this turn" in rendered
+        assert "not ready to be queried yet" in rendered
+        assert "without any claim about the building" in rendered
+
+    def test_not_ready_also_covers_the_model_whose_extraction_failed(self):
+        """The route sends `not_ready` for both states (`internal-access.ts`),
+        so the sentence says what to do and leaves WHICH state to the route's
+        own message."""
+        failed = {
+            **self.NOT_READY,
+            "message": "Dieses IFC-Modell konnte nicht gelesen werden.",
+            "models": [{"filename": "haus-a.ifc", "status": "failed", "elements": 0}],
+        }
+        rendered = _render(failed)
+
+        assert "Dieses IFC-Modell konnte nicht gelesen werden." in rendered
+        assert "not ready to be queried yet" in rendered
+
+    def test_not_ready_is_not_told_that_no_model_is_stored(self):
+        """A model IS stored. Saying otherwise sends the user looking for an
+        upload that already happened."""
+        from aiq_agent.tools.bim.failures import NO_MODEL_TEXT
+
+        assert NO_MODEL_TEXT not in _render(self.NOT_READY)
 
     def test_ambiguous_keeps_the_alternatives_and_invites_the_retry(self):
         rendered = _render(self.AMBIGUOUS)

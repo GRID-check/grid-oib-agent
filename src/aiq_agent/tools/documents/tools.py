@@ -46,15 +46,14 @@ _TOOL_DESCRIPTIONS = {
         "Listet die Entwürfe dieser Unterhaltung. Der Arbeitsordner liegt unter "
         f"`{DRAFT_ROOT}` und enthält nur, was in dieser Unterhaltung geschrieben wurde — "
         "keine Projektdateien, kein Büroarchiv. Vor einer Überarbeitung aufrufen, wenn der "
-        "Pfad des Entwurfs nicht bekannt ist. "
-        "Was hier steht, hat die Antwort selbst geschrieben: es ist keine Fundstelle und belegt "
-        "nichts. Belege kommen aus den Quellen-Werkzeugen."
+        "Pfad des Entwurfs nicht bekannt ist."
     ),
     "read_file": (
         "Liest einen Entwurf aus dem Arbeitsordner. Die Ausgabe ist dem Text jeder Zeile eine "
         "Zeilennummer und ein Tabulator vorangestellt; beides gehört zur Anzeige und nicht zum "
         "Dokument. Vor einer Überarbeitung lesen, damit `old_string` wörtlich aus dem Dokument "
-        "stammt."
+        "stammt. Was hier steht, hat die Antwort selbst geschrieben; Belege kommen aus den "
+        "Quellen-Werkzeugen."
     ),
     "write_file": (
         "Schreibt ein NEUES Dokument in den Arbeitsordner dieser Unterhaltung, als Markdown "
