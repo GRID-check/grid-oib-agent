@@ -31,6 +31,15 @@ export function toTaskWireRow(task: TaskRun, requesterName: string | null): Task
     reviewReason: task.reviewReason,
     filedDocumentId: task.filedDocumentId,
     conversationId: task.conversationId,
+    // The handle on the run's own report. Added so a finished task that filed
+    // no document and minted no conversation still has somewhere to go — the
+    // dead end the Tasks list used to leave. Opaque, and already public in the
+    // URLs the run history builds, so it widens nothing this tier was keeping.
+    backendJobId: task.backendJobId,
+    // How it started, so the drawer offers „als Zeitplan speichern" only on
+    // work that is not already recurring. The trigger rather than the
+    // definition id: since 0086 a delegated task has a definition too.
+    trigger: task.trigger,
     requesterUserId: task.requesterUserId,
     // The DISPLAY NAME, resolved server-side through the directory every
     // collaboration surface in this tier resolves through. Not left to the

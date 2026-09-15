@@ -27,12 +27,15 @@ import {
  *
  * Ask Piloti is the primary job-to-be-done and leads; Files is the other work
  * surface. History has no rail entry any more — the chat toolbar's history
- * sheet is the record of the project's past. Automation is setup you rarely
- * open — the merged home of Jobs (prompts this project runs on a timer) and
- * Skills (the org toolbox), which ship together behind one flag and now live
- * as tabs inside one section. Archiv then Inbox are cross-project doorways;
- * Inbox is last because the badge already draws the eye. Settings stays
- * pinned at the bottom.
+ * sheet is the record of the project's past. Automation is the THIRD work
+ * surface and sits in the same group as the other two: Tasks (what Piloti did
+ * while you were away), Zeitplan (what it will do, and when) and Skills (the
+ * org toolbox). It used to stand alone under an "Automatisieren" heading, which
+ * made a place people work every day read as a settings drawer — a group label
+ * over a single item is a category of one, and it cost the section a rail
+ * position it had earned. Archiv then Inbox are cross-project doorways; Inbox
+ * is last because the badge already draws the eye. Settings stays pinned at the
+ * bottom.
  *
  * There is deliberately no Model entry: an IFC is a file, it opens
  * from the Files grid, and a second rail item for one file type was a
@@ -51,8 +54,16 @@ export type ProjectSectionKey =
   | 'intake'
   | 'settings'
 
-/** How the rail groups consecutive visible items. Palette-only destinations omit this. */
-export type ProjectNavGroup = 'work' | 'automate' | 'org'
+/**
+ * How the rail groups consecutive visible items. Palette-only destinations omit
+ * this.
+ *
+ * Two groups, not three: `work` is everything you do inside one project and
+ * `org` the doorways out of it. There was an `automate` group holding exactly
+ * one item — a heading whose only job was to separate Automation from the work
+ * it automates.
+ */
+export type ProjectNavGroup = 'work' | 'org'
 
 /** The feature flags that gate individual project sections. */
 export interface ProjectSectionFlags {
@@ -154,10 +165,12 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     shortcutKey: 'k',
   },
   {
-    // The merged automation home: Jobs (prompts this project runs on a timer)
-    // and Skills (the org toolbox) as tabs inside one section. Same
-    // `showSkills` gate as before — the two ship together, and a job builder
-    // whose skill picker resolves nothing is not worth having on its own.
+    // Automation: Tasks, Zeitplan and Skills as tabs inside one section, in
+    // the `work` group beside Ask Piloti and Dateien because that is what it
+    // is — the surface where a project's delegated work is read and where the
+    // next week of it is set. Same `showSkills` gate as before: the three
+    // surfaces ship together, and a schedule wizard whose skill picker
+    // resolves nothing is not worth having on its own.
     key: 'automation',
     segment: 'automation',
     icon: Zap,
@@ -166,7 +179,7 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     inRail: true,
     inPalette: true,
     shortcutKey: 'j',
-    group: 'automate',
+    group: 'work',
   },
   {
     // The org-wide Archiv (ADR-0024) keeps its org-scoped route; the entry is a

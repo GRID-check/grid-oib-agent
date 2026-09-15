@@ -1,18 +1,20 @@
 /**
- * The Aufgaben panel: fetched on mount, re-asked while visible.
+ * The Tasks panel: fetched on mount, re-asked while visible.
  *
  * A task moves with no socket open in this tab — its worker finishes it, a
- * colleague reviews it — so a fetch-once list would wear a stale "Läuft"
- * until someone reloaded. The panel therefore polls the tasks on the
- * job-history cadence while visible, parks while hidden, and re-asks on
- * focus. Polls are quiet: no skeleton, no error state over a list the reader
- * already has. Schedules ride along (loaded on mount, refreshed on focus, on
- * every poll tick and after every save), because the templates group is jobs
- * with a timer.
+ * colleague reviews it — so a fetch-once list would wear a stale "Läuft" until
+ * somebody reloaded. The panel polls while visible, parks while hidden, and
+ * re-asks on focus. Polls are QUIET: no skeleton and no error state over a list
+ * the reader already has.
+ *
+ * Since the split it loads one thing. The schedules it used to fetch alongside
+ * — with their own loading state, their own failure state and a cross-list
+ * deep-link settlement — moved to the Zeitplan tab, and the machinery went with
+ * them.
  */
 
 import type { ReactNode } from 'react'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { TASKS_POLL_MS, TasksPanel } from './tasks-panel'
 import type { TaskWireRow } from '../lib/task-view'
@@ -20,21 +22,6 @@ import type { TaskWireRow } from '../lib/task-view'
 // The header slot belongs to the section frame; unit tests have none.
 vi.mock('@/components/shell/project-section-frame', () => ({
   ProjectSectionActions: ({ children }: { children: ReactNode }) => <>{children}</>,
-}))
-
-// The schedule flow re-homes the real builder; the panel's half is the mode
-// switch and the reload after a save — not the builder's own form.
-vi.mock('@/features/jobs/components/job-builder', () => ({
-  JobBuilder: ({ onSaved, onCancel }: { onSaved: () => void; onCancel: () => void }) => (
-    <div data-testid="job-builder-stub">
-      <button type="button" onClick={onSaved}>
-        save-stub
-      </button>
-      <button type="button" onClick={onCancel}>
-        cancel-stub
-      </button>
-    </div>
-  ),
 }))
 
 const row = (overrides: Partial<TaskWireRow> = {}): TaskWireRow => ({
@@ -47,606 +34,179 @@ const row = (overrides: Partial<TaskWireRow> = {}): TaskWireRow => ({
   reviewReason: null,
   filedDocumentId: null,
   conversationId: null,
+  backendJobId: null,
+  trigger: 'delegated',
   requesterUserId: 'user_anna',
   requesterName: 'Anna Berger',
-  createdAt: '2026-09-01T10:00:00.000Z',
+  createdAt: new Date().toISOString(),
   finishedAt: null,
   error: null,
   ...overrides,
 })
 
-const recurringJob = {
-  id: 'job-1',
-  projectId: 'proj-1',
-  name: 'Wöchentlicher OIB-Check',
-  prompt: 'Prüfe die Brandschutzpunkte.',
-  skillName: null,
-  skillSnapshot: null,
-  output: 'deep-research',
-  dataSources: null,
-  enabled: true,
-  scheduleCron: '0 6 * * 1',
-  scheduleTimezone: 'Europe/Vienna',
-  nextRunAt: '2026-09-14T06:00:00.000Z',
-  lastRunAt: null,
-  createdBy: 'user_anna',
-  createdByEmail: null,
-  createdAt: '2026-09-01T00:00:00.000Z',
-  updatedAt: '2026-09-01T00:00:00.000Z',
-}
+let tasks: TaskWireRow[] = []
+let taskCalls = 0
+let failNext = false
 
-const manualJob = { ...recurringJob, id: 'job-man', name: 'Einmal prüfen', scheduleCron: null }
-
-let tasksPayload: { tasks: TaskWireRow[] } = { tasks: [row()] }
-let jobsPayload: { jobs: unknown[] } = { jobs: [] }
-
-const fetchMock = vi.fn((url: unknown): Promise<{ ok: boolean; json: () => Promise<unknown> }> => {
-  if (typeof url === 'string' && url.endsWith('/jobs')) {
-    return Promise.resolve({ ok: true, json: async () => jobsPayload })
-  }
-  return Promise.resolve({ ok: true, json: async () => tasksPayload })
+beforeEach(() => {
+  tasks = [row()]
+  taskCalls = 0
+  failNext = false
+  window.history.replaceState(null, '', '/')
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      if (url.includes('/tasks')) {
+        taskCalls += 1
+        if (failNext) return new Response('nope', { status: 500 })
+        return Response.json({ tasks })
+      }
+      return Response.json({})
+    })
+  )
 })
 
-const flush = async (): Promise<void> => {
-  await act(async () => {})
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
+/** Let the mount fetch land before asserting on what it produced. */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
 }
 
-const tasksCalls = (): string[] =>
-  fetchMock.mock.calls
-    .map(([url]) => url)
-    .filter((url): url is string => typeof url === 'string' && !url.endsWith('/jobs'))
-
-const jobsCalls = (): string[] =>
-  fetchMock.mock.calls
-    .map(([url]) => url)
-    .filter((url): url is string => typeof url === 'string' && url.endsWith('/jobs'))
-
-let visibility = 'visible'
-
-const renderPanel = (
-  props: {
-    canManageJobs?: boolean
-    canChatInProject?: boolean
-    onDeepLinkSettled?: (resolved: boolean) => void
-  } = {}
-) =>
-  render(
-    <TasksPanel
-      projectId="proj-1"
-      projectCollection="col-1"
-      canManageJobs={props.canManageJobs ?? true}
-      canChatInProject={props.canChatInProject ?? true}
-      onDeepLinkSettled={props.onDeepLinkSettled}
-    />
+function renderPanel(props: Partial<React.ComponentProps<typeof TasksPanel>> = {}) {
+  const onPromoteToSchedule = vi.fn()
+  const utils = render(
+    <TasksPanel projectId="proj-1" canManageJobs onPromoteToSchedule={onPromoteToSchedule} {...props} />
   )
+  return { ...utils, onPromoteToSchedule }
+}
 
-describe('TasksPanel', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-    visibility = 'visible'
-    Object.defineProperty(document, 'visibilityState', {
-      configurable: true,
-      get: () => visibility,
-    })
-    tasksPayload = { tasks: [row()] }
-    jobsPayload = { jobs: [] }
-    fetchMock.mockClear()
-    fetchMock.mockImplementation((url: unknown): Promise<{ ok: boolean; json: () => Promise<unknown> }> => {
-      if (typeof url === 'string' && url.endsWith('/jobs')) {
-        return Promise.resolve({ ok: true, json: async () => jobsPayload })
-      }
-      return Promise.resolve({ ok: true, json: async () => tasksPayload })
-    })
-    vi.stubGlobal('fetch', fetchMock)
-    window.history.replaceState(null, '', '/')
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    vi.useRealTimers()
-    window.history.replaceState(null, '', '/')
-    // @ts-expect-error restoring the prototype's own getter
-    delete document.visibilityState
-  })
-
-  test('fetches tasks and schedules on mount and lists the work', async () => {
+describe('loading the list', () => {
+  test('asks once on mount and shows what came back', async () => {
     renderPanel()
-    await flush()
-
-    expect(tasksCalls()).toEqual(['/api/projects/proj-1/tasks'])
-    expect(jobsCalls()).toEqual(['/api/projects/proj-1/jobs'])
+    await settle()
+    expect(taskCalls).toBe(1)
     expect(screen.getByText('Aktenvermerk Fluchtwege')).toBeInTheDocument()
   })
 
-  test('folds submission words to the planner word instead of rendering them raw', async () => {
-    tasksPayload = {
-      tasks: [
-        row({ id: 't-sub', title: 'Eingereichte Arbeit', status: 'submitted' as TaskWireRow['status'] }),
-        row({ id: 't-pen', title: 'Ausstehende Arbeit', status: 'pending' as TaskWireRow['status'] }),
-      ],
-    }
+  test('re-asks on the poll cadence while the tab is visible', async () => {
     renderPanel()
-    await flush()
-
-    expect(screen.getAllByTestId('task-status').map((chip) => chip.textContent)).toEqual([
-      'Queued',
-      'Queued',
-    ])
-    expect(screen.queryByText('Submitted')).not.toBeInTheDocument()
-    expect(screen.queryByText('Pending')).not.toBeInTheDocument()
-  })
-
-  test('schedules AND manual-only definitions render as templates, each labelled', async () => {
-    jobsPayload = { jobs: [recurringJob, manualJob] }
-    renderPanel()
-    await flush()
-
-    const rows = screen.getAllByTestId('template-row')
-    expect(rows).toHaveLength(2)
-    expect(screen.getByText('Wöchentlicher OIB-Check')).toBeInTheDocument()
-    // The manual definition has no home elsewhere since the Jobs tab retired;
-    // its row says what it is instead of disappearing.
-    expect(screen.getByText('Einmal prüfen')).toBeInTheDocument()
-    expect(screen.getByText('Manual only')).toBeInTheDocument()
-  })
-
-  test('re-asks on the poll cadence while visible', async () => {
-    renderPanel()
-    await flush()
-    expect(tasksCalls()).toHaveLength(1)
-
+    await settle()
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(TASKS_POLL_MS)
+      vi.advanceTimersByTime(TASKS_POLL_MS + 10)
+      await Promise.resolve()
     })
-    expect(tasksCalls()).toHaveLength(2)
+    expect(taskCalls).toBe(2)
   })
 
-  test('the poll cadence re-asks schedules alongside tasks', async () => {
+  test('a quiet poll that fails keeps the list the reader already has', async () => {
     renderPanel()
-    await flush()
-    expect(tasksCalls()).toHaveLength(1)
-    expect(jobsCalls()).toHaveLength(1)
-
+    await settle()
+    failNext = true
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(TASKS_POLL_MS)
+      vi.advanceTimersByTime(TASKS_POLL_MS + 10)
+      await Promise.resolve()
+      await Promise.resolve()
     })
-    expect(tasksCalls()).toHaveLength(2)
-    expect(jobsCalls()).toHaveLength(2)
+    expect(screen.getByText('Aktenvermerk Fluchtwege')).toBeInTheDocument()
+    expect(screen.queryByText('The task list could not be loaded')).not.toBeInTheDocument()
   })
 
-  test('the visibility resume refreshes schedules too, not just tasks', async () => {
+  test('a FIRST load that fails reports, because there is nothing else to show', async () => {
+    failNext = true
     renderPanel()
-    await flush()
-    expect(tasksCalls()).toHaveLength(1)
-    expect(jobsCalls()).toHaveLength(1)
-
-    visibility = 'hidden'
-    document.dispatchEvent(new Event('visibilitychange'))
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(TASKS_POLL_MS * 3)
-    })
-    expect(tasksCalls()).toHaveLength(1)
-    expect(jobsCalls()).toHaveLength(1)
-
-    visibility = 'visible'
-    document.dispatchEvent(new Event('visibilitychange'))
-    await flush()
-    // The resume refreshes immediately rather than waiting for the interval.
-    expect(tasksCalls()).toHaveLength(2)
-    expect(jobsCalls()).toHaveLength(2)
-  })
-
-  test('parks while hidden and resumes with a refresh when visible again', async () => {
-    renderPanel()
-    await flush()
-    expect(tasksCalls()).toHaveLength(1)
-
-    visibility = 'hidden'
-    document.dispatchEvent(new Event('visibilitychange'))
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(TASKS_POLL_MS * 3)
-    })
-    expect(tasksCalls()).toHaveLength(1)
-
-    visibility = 'visible'
-    document.dispatchEvent(new Event('visibilitychange'))
-    await flush()
-    // The resume refreshes immediately rather than waiting for the interval.
-    expect(tasksCalls()).toHaveLength(2)
+    await settle()
+    expect(screen.getByText('The task list could not be loaded')).toBeInTheDocument()
   })
 
   test('re-asks when the window regains focus', async () => {
     renderPanel()
-    await flush()
-    expect(tasksCalls()).toHaveLength(1)
-
-    window.dispatchEvent(new Event('focus'))
-    await flush()
-    expect(tasksCalls()).toHaveLength(2)
+    await settle()
+    await act(async () => {
+      fireEvent.focus(window)
+      await Promise.resolve()
+    })
+    expect(taskCalls).toBe(2)
   })
+})
 
-  test('a focus refresh landing mid-poll stays single-flight — no second load, no reorder', async () => {
-    const pending: Array<(value: { ok: true; json: () => Promise<unknown> }) => void> = []
-    fetchMock.mockImplementationOnce(
-      (url: unknown) =>
-        new Promise<{ ok: true; json: () => Promise<unknown> }>((resolve) => {
-          // Only the tasks request parks; the schedules request resolves.
-          if (typeof url === 'string' && url.endsWith('/jobs')) {
-            resolve({ ok: true, json: async () => jobsPayload })
-          } else {
-            pending.push(resolve)
-          }
-        })
-    )
+describe('the drawer and its deep link', () => {
+  test('a `?task=` on the URL opens that task', async () => {
+    window.history.replaceState(null, '', '/?task=task-1')
     renderPanel()
-    await flush()
-    expect(tasksCalls()).toHaveLength(1)
-
-    // Focus fires outside the chained poll while the mount load is still in
-    // flight: without the guard this would start load #2, free to settle
-    // before #1 and reorder the list.
-    window.dispatchEvent(new Event('focus'))
-    await flush()
-    expect(tasksCalls()).toHaveLength(1)
-
-    await act(async () => {
-      pending[0]?.({ ok: true, json: async () => ({ tasks: [row()] }) })
-    })
-    expect(screen.getByText('Aktenvermerk Fluchtwege')).toBeInTheDocument()
-    expect(tasksCalls()).toHaveLength(1)
+    await settle()
+    const detail = screen.getByTestId('task-detail')
+    expect(detail).toBeInTheDocument()
+    // The drawer resolves the id against the live list rather than holding a
+    // copy, so the title inside it is the list's row.
+    expect(within(detail).getByText('Aktenvermerk Fluchtwege')).toBeInTheDocument()
   })
 
-  test('a visibility resume landing mid-poll does not double-chain the timer', async () => {
-    const pending: Array<(value: { ok: true; json: () => Promise<unknown> }) => void> = []
-    fetchMock.mockImplementationOnce(
-      (url: unknown) =>
-        new Promise<{ ok: true; json: () => Promise<unknown> }>((resolve) => {
-          if (typeof url === 'string' && url.endsWith('/jobs')) {
-            resolve({ ok: true, json: async () => jobsPayload })
-          } else {
-            pending.push(resolve)
-          }
-        })
-    )
+  test('opening a card puts it on the URL, so the view is shareable', async () => {
     renderPanel()
-    await flush()
-    expect(tasksCalls()).toHaveLength(1)
-
-    // The mount load is still in flight when the tab becomes visible again:
-    // the resume must not start a second load nor arm a second timer — the
-    // in-flight load's own `finally` reschedules the one chain.
-    visibility = 'visible'
-    document.dispatchEvent(new Event('visibilitychange'))
-    await flush()
-    expect(tasksCalls()).toHaveLength(1)
-
+    await settle()
     await act(async () => {
-      pending[0]?.({ ok: true, json: async () => ({ tasks: [row()] }) })
+      fireEvent.click(screen.getByTestId('task-card'))
     })
-    expect(tasksCalls()).toHaveLength(1)
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(TASKS_POLL_MS)
-    })
-    // Exactly one chained poll — two timers would have asked twice.
-    expect(tasksCalls()).toHaveLength(2)
+    expect(new URL(window.location.href).searchParams.get('task')).toBe('task-1')
   })
 
-  test('a post-save schedules reload is queued while a jobs fetch is in flight', async () => {
-    const pendingJobs: Array<(value: { ok: true; json: () => Promise<unknown> }) => void> = []
-    fetchMock.mockImplementation(
-      (url: unknown): Promise<{ ok: boolean; json: () => Promise<unknown> }> => {
-        if (typeof url === 'string' && url.endsWith('/jobs')) {
-          return new Promise<{ ok: true; json: () => Promise<unknown> }>((resolve) => {
-            pendingJobs.push(resolve)
-          })
-        }
-        return Promise.resolve({ ok: true, json: async () => tasksPayload })
-      }
-    )
-    renderPanel({ canManageJobs: true })
-    await flush()
-    expect(jobsCalls()).toHaveLength(1)
-
-    fireEvent.click(screen.getByTestId('tasks-new-schedule'))
-    fireEvent.click(screen.getByText('save-stub'))
-    await flush()
-    // The save asked while the mount fetch was still in flight: queued, not lost.
-    expect(jobsCalls()).toHaveLength(1)
-
-    await act(async () => {
-      pendingJobs[0]?.({ ok: true, json: async () => jobsPayload })
-    })
-    // The queued reload fires once the in-flight fetch lands.
-    expect(jobsCalls()).toHaveLength(2)
-  })
-
-  test('switching project drops a stale schedules response', async () => {
-    const pendingJobs: Array<(value: { ok: true; json: () => Promise<unknown> }) => void> = []
-    fetchMock.mockImplementation(
-      (url: unknown): Promise<{ ok: boolean; json: () => Promise<unknown> }> => {
-        // Only proj-1's schedules park; everything else resolves.
-        if (typeof url === 'string' && url === '/api/projects/proj-1/jobs') {
-          return new Promise<{ ok: true; json: () => Promise<unknown> }>((resolve) => {
-            pendingJobs.push(resolve)
-          })
-        }
-        if (typeof url === 'string' && url.endsWith('/jobs')) {
-          return Promise.resolve({ ok: true, json: async () => ({ jobs: [recurringJob] }) })
-        }
-        return Promise.resolve({ ok: true, json: async () => tasksPayload })
-      }
-    )
-    const { rerender } = render(
-      <TasksPanel projectId="proj-1" projectCollection="col-1" canManageJobs />
-    )
-    await flush()
-    expect(jobsCalls()).toHaveLength(1)
-
-    rerender(<TasksPanel projectId="proj-2" projectCollection="col-1" canManageJobs />)
-    await flush()
-    expect(screen.getByTestId('template-row')).toBeInTheDocument()
-
-    // The stale proj-1 schedules response must not wipe proj-2's list.
-    await act(async () => {
-      pendingJobs[0]?.({ ok: true, json: async () => ({ jobs: [] }) })
-    })
-    expect(screen.getByTestId('template-row')).toBeInTheDocument()
-  })
-
-  test('a failed poll keeps the stale list instead of erroring', async () => {
+  test('closing takes it back off', async () => {
+    window.history.replaceState(null, '', '/?task=task-1')
     renderPanel()
-    await flush()
-    expect(screen.getByText('Aktenvermerk Fluchtwege')).toBeInTheDocument()
-
-    fetchMock.mockRejectedValueOnce(new Error('offline'))
+    await settle()
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(TASKS_POLL_MS)
+      fireEvent.click(screen.getByRole('button', { name: 'Close details' }))
     })
-
-    expect(screen.getByText('Aktenvermerk Fluchtwege')).toBeInTheDocument()
-    expect(screen.queryByText('The task list could not be loaded')).not.toBeInTheDocument()
+    expect(new URL(window.location.href).searchParams.get('task')).toBeNull()
   })
 
-  test('create is split by capability: chat delegation for all, schedules gated', async () => {
-    renderPanel({ canManageJobs: true })
-    await flush()
+  test('a link naming no row here says "not here", not "deleted"', async () => {
+    window.history.replaceState(null, '', '/?task=elsewhere')
+    renderPanel()
+    await settle()
+    expect(screen.getByText(/could not be found here/i)).toBeInTheDocument()
+  })
+})
 
-    const delegate = screen.getByTestId('tasks-delegate')
-    expect(delegate).toHaveAttribute('href', '/app/projects/proj-1/chat')
-    expect(delegate).toHaveTextContent('Delegate')
-    expect(screen.getByTestId('tasks-new-schedule')).toBeInTheDocument()
+describe('delegating', () => {
+  test('links into the project chat, where one-shot delegation happens', async () => {
+    renderPanel()
+    await settle()
+    expect(screen.getByTestId('tasks-delegate').closest('a')).toHaveAttribute(
+      'href',
+      '/app/projects/proj-1/chat'
+    )
   })
 
-  test('without project:chat Delegieren is disabled with the locked-composer reason', async () => {
+  test('is disabled — with the composer’s own reason — without `project:chat`', async () => {
     renderPanel({ canChatInProject: false })
-    await flush()
-
-    // No link into a dead end: a viewer would land in a locked composer, so
-    // the gesture is disabled and says why — reusing the locked composer's
-    // own copy, not a rewording. The title rides the wrapping span because a
-    // disabled button takes no pointer events.
-    const delegate = screen.getByTestId('tasks-delegate')
-    expect(delegate.tagName).toBe('BUTTON')
-    expect(delegate).toBeDisabled()
-    expect(delegate.parentElement).toHaveAttribute(
-      'title',
-      'Piloti is unavailable in this project for you right now. If you have read-only access, a project admin can grant you the Contributor role.'
-    )
+    await settle()
+    expect(screen.getByTestId('tasks-delegate')).toBeDisabled()
   })
+})
 
-  test('without project:skills:manage the schedule flow is hidden, not disabled', async () => {
-    renderPanel({ canManageJobs: false })
-    await flush()
-
-    // Delegating stays — it happens in chat under its own permission.
-    expect(screen.getByTestId('tasks-delegate')).toBeInTheDocument()
-    expect(screen.queryByTestId('tasks-new-schedule')).toBeNull()
-    expect(screen.queryByTestId('job-builder-stub')).toBeNull()
-  })
-
-  test('“New schedule” opens the re-homed builder; saving reloads the schedules', async () => {
-    renderPanel({ canManageJobs: true })
-    await flush()
-    expect(jobsCalls()).toHaveLength(1)
-
-    fireEvent.click(screen.getByTestId('tasks-new-schedule'))
-    expect(screen.getByTestId('job-builder-stub')).toBeInTheDocument()
-    expect(screen.queryByTestId('task-row')).toBeNull()
-
-    fireEvent.click(screen.getByText('save-stub'))
-    await flush()
-    expect(screen.getByTestId('task-row')).toBeInTheDocument()
-    expect(jobsCalls()).toHaveLength(2)
-  })
-
-  test('cancelling the builder returns to the list without reloading', async () => {
-    renderPanel({ canManageJobs: true })
-    await flush()
-
-    fireEvent.click(screen.getByTestId('tasks-new-schedule'))
-    fireEvent.click(screen.getByText('cancel-stub'))
-    expect(screen.getByTestId('task-row')).toBeInTheDocument()
-    expect(jobsCalls()).toHaveLength(1)
-  })
-
-  test('selecting a run opens its detail with the result links', async () => {
-    tasksPayload = {
-      tasks: [row({ filedDocumentId: 'doc-9', conversationId: 'conv-3' })],
-    }
-    renderPanel()
-    await flush()
-
-    fireEvent.click(screen.getByTestId('task-title'))
-    expect(screen.getByTestId('task-detail')).toBeInTheDocument()
-    expect(screen.getByTestId('task-detail-result-doc')).toHaveAttribute(
-      'href',
-      '/app/projects/proj-1/files?doc=doc-9',
-    )
-    expect(screen.getByTestId('task-detail-continue-chat')).toHaveAttribute(
-      'href',
-      '/app/projects/proj-1/chat?session=conv-3',
-    )
-    // The deep link rides the URL so an inbox knock can land here.
-    expect(window.location.search).toContain('task=task-1')
-  })
-
-  test('a ?task= deep link opens the detail on mount; closing drops it', async () => {
-    tasksPayload = {
-      tasks: [row({ filedDocumentId: 'doc-9', conversationId: 'conv-3' })],
-    }
-    window.history.replaceState(null, '', '/app/projects/proj-1/automation?tab=tasks&task=task-1')
-    renderPanel()
-    await flush()
-
-    expect(screen.getByTestId('task-detail')).toBeInTheDocument()
-    expect(screen.getByTestId('task-detail-continue-chat')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Close details' }))
-    expect(window.location.search).not.toContain('task=')
-  })
-
-  test('switching project closes an open drawer and drops its deep link', async () => {
-    tasksPayload = {
-      tasks: [row({ filedDocumentId: 'doc-9', conversationId: 'conv-3' })],
-    }
-    const { rerender } = render(
-      <TasksPanel projectId="proj-1" projectCollection="col-1" canManageJobs />,
-    )
-    await flush()
-
-    fireEvent.click(screen.getByTestId('task-title'))
-    expect(screen.getByTestId('task-detail')).toBeInTheDocument()
-    expect(window.location.search).toContain('task=task-1')
-
-    // The drawer belonged to proj-1: shut, with no stale ?task= left behind
-    // to read the new project's lists as gone.
-    rerender(<TasksPanel projectId="proj-2" projectCollection="col-1" canManageJobs />)
-    await flush()
-
-    expect(screen.queryByTestId('task-detail')).toBeNull()
-    expect(window.location.search).not.toContain('task=')
-  })
-
-  test('a mount deep link waits for the first load instead of reading as gone', async () => {
-    tasksPayload = { tasks: [row({ filedDocumentId: 'doc-9' })] }
-    const pending: Array<(value: { ok: true; json: () => Promise<unknown> }) => void> = []
-    fetchMock.mockImplementationOnce(
-      (url: unknown) =>
-        new Promise<{ ok: true; json: () => Promise<unknown> }>((resolve) => {
-          if (typeof url === 'string' && url.endsWith('/jobs')) {
-            resolve({ ok: true, json: async () => jobsPayload })
-          } else {
-            pending.push(resolve)
-          }
-        })
-    )
-    window.history.replaceState(null, '', '/app/projects/proj-1/automation?tab=tasks&task=task-1')
-    renderPanel()
-    await flush()
-
-    // The drawer is open on the link, but neither list has answered: neither
-    // gone claim is earned yet.
-    expect(screen.getByTestId('task-detail')).toBeInTheDocument()
-    expect(screen.getByText('Loading…')).toBeInTheDocument()
-    expect(screen.queryByText(/This no longer exists/)).toBeNull()
-    expect(screen.queryByText(/could not be found here/)).toBeNull()
-
+describe('promoting a task to a schedule', () => {
+  test('hands the draft up to the section, which owns the tab switch', async () => {
+    window.history.replaceState(null, '', '/?task=task-1')
+    tasks = [row({ goal: 'Prüfe die Fluchtwege jede Woche' })]
+    const { onPromoteToSchedule } = renderPanel()
+    await settle()
     await act(async () => {
-      pending[0]?.({ ok: true, json: async () => tasksPayload })
+      fireEvent.click(screen.getByTestId('task-detail-promote'))
     })
-    expect(screen.getByTestId('task-detail-result-doc')).toBeInTheDocument()
-  })
-
-  test('a mount deep link that matches reports settled-resolved', async () => {
-    const settled = vi.fn()
-    window.history.replaceState(null, '', '/app/projects/proj-1/automation?tab=tasks&task=task-1')
-    renderPanel({ onDeepLinkSettled: settled })
-    await flush()
-
-    expect(settled).toHaveBeenCalledWith(true)
-    expect(window.location.search).toContain('task=task-1')
-  })
-
-  test('a mount deep link that never matches reports settled-unresolved and drops its params', async () => {
-    const settled = vi.fn()
-    window.history.replaceState(null, '', '/app/projects/proj-1/automation?tab=tasks&task=nope')
-    renderPanel({ onDeepLinkSettled: settled })
-    await flush()
-
-    expect(settled).toHaveBeenCalledWith(false)
-    // Dead params dropped so a copied link or a refresh cannot resurrect the
-    // drawer — but the drawer itself stays open on the honest copy.
-    expect(window.location.search).not.toContain('task=')
-    expect(screen.getByTestId('task-detail')).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        'This could not be found here. The link may point to another project, or the item was deleted.',
-      ),
-    ).toBeInTheDocument()
-  })
-
-  test('a row that a poll drops reads as deleted', async () => {
-    renderPanel()
-    await flush()
-
-    fireEvent.click(screen.getByTestId('task-title'))
-    expect(screen.queryByText(/This no longer exists/)).toBeNull()
-
-    // The drawer saw this row resolve; the next poll no longer carries it.
-    tasksPayload = { tasks: [] }
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(TASKS_POLL_MS)
+    expect(onPromoteToSchedule).toHaveBeenCalledWith({
+      name: 'Aktenvermerk Fluchtwege',
+      prompt: 'Prüfe die Fluchtwege jede Woche',
     })
-
-    expect(screen.getByTestId('task-detail')).toBeInTheDocument()
-    expect(screen.getByText('This no longer exists. It may have been deleted.')).toBeInTheDocument()
-  })
-
-  test('a successful poll recovers from a failed first load', async () => {
-    fetchMock.mockRejectedValueOnce(new Error('offline'))
-    renderPanel()
-    await flush()
-    expect(screen.getByText('The task list could not be loaded')).toBeInTheDocument()
-
-    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ tasks: [row()] }) })
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(TASKS_POLL_MS)
-    })
-
-    expect(screen.queryByText('The task list could not be loaded')).not.toBeInTheDocument()
-    expect(screen.getByText('Aktenvermerk Fluchtwege')).toBeInTheDocument()
-  })
-
-  test('switching project drops the previous list and fetches the new one', async () => {
-    const pending: Array<(value: { ok: true; json: () => Promise<{ tasks: TaskWireRow[] }> }) => void> =
-      []
-    fetchMock.mockImplementationOnce(
-      () =>
-        new Promise<{ ok: true; json: () => Promise<{ tasks: TaskWireRow[] }> }>((resolve) => {
-          pending.push(resolve)
-        })
-    )
-    const { rerender } = render(
-      <TasksPanel projectId="proj-1" projectCollection="col-1" canManageJobs />,
-    )
-    await flush()
-    expect(fetchMock).toHaveBeenCalledWith('/api/projects/proj-1/tasks')
-
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ tasks: [row({ id: 'task-2', title: 'Prüfung Brandschutz' })] }),
-    })
-    rerender(<TasksPanel projectId="proj-2" projectCollection="col-1" canManageJobs />)
-    await flush()
-    expect(fetchMock).toHaveBeenCalledWith('/api/projects/proj-2/tasks')
-    expect(screen.getByText('Prüfung Brandschutz')).toBeInTheDocument()
-
-    // The in-flight fetch for proj-1 must not overwrite proj-2's list.
-    await act(async () => {
-      pending[0]?.({ ok: true, json: async () => ({ tasks: [row()] }) })
-    })
-    expect(screen.getByText('Prüfung Brandschutz')).toBeInTheDocument()
-    expect(screen.queryByText('Aktenvermerk Fluchtwege')).not.toBeInTheDocument()
   })
 })

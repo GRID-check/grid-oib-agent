@@ -160,7 +160,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/automation',
     description:
-      'The merged Automation section — Aufgaben and Skills behind one slim tab bar under the section frame (its title and subtitle ARE the header; the panel adds no second description strip). Only the active tab is mounted; the shot shows Aufgaben leading with Skills beside it, and the schedules group carrying its own create action so a reader does not have to hunt the section header for it. An empty list is the subject, not a bug: the preview serves empty sets so the chrome is what the image is evidence of.',
+      'The Automation section \u2014 Tasks, Zeitplan and Skills behind one slim tab bar under the section frame (its title and subtitle ARE the header; the panel adds no second description strip). Three tabs because a person arrives with one of three questions and they are not the same shape: what happened while I was away, what will happen next, and what instructions the organization keeps. They were two, with the schedules squeezed in as a group above the results \u2014 which put a list of cron strings in front of the thing most people came for and asked one surface to answer two unrelated questions. Tasks leads and is the default. Only the active tab is mounted, which is load-bearing rather than an optimization: the panels portal their primary action into ONE header slot. An empty list is the subject, not a bug \u2014 the preview serves empty sets so the chrome is what the image is evidence of.',
     waitFor: '[data-slot="tabs-trigger"]',
   },
   {
@@ -732,7 +732,7 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/task-list',
     description:
-      "The Aufgaben list \u2014 a project's delegated work (ADR-0051), which had a durable row, an inbox item and a review verb and no surface at all until now. Three panels. (1) A MIXED list, which is what a project looks like after a fortnight of using Piloti: something running, something accepted, something sent back with the reviewer's own words under it, and one failure carrying the worker's sanitized error. Judge that the kind chip, the title, the status and the review stay on one line as the title grows, that the review reason reads as belonging to the row above it, and that the two links at the foot (\u201eDokument\u201c, \u201eChat\u201c) read as places to go rather than as decoration \u2014 they are the one thing a list of finished work has to answer. (2) The empty state, which must read as an invitation rather than as a list that failed to load. (3) The failure state, which is that same distinction from the other side: \u201eNoch nichts \u00fcbergeben\u201c over a failed request is the one lie this surface could tell that somebody would act on.",
+      "The Tasks list \u2014 a project's delegated work (ADR-0051) as the product's own card, which is what the rewrite is for: the row it replaced offered a 200px hover-underlined title as its only click target, in a line of chips and links that looked exactly as clickable. Three panels. (1) A MIXED list, which is what a project looks like after a fortnight of using Piloti: something running, a scheduled run, something accepted, something sent back with the reviewer's own words under it, and one failure carrying the worker's sanitized error. Judge the STATUS RAIL down each card's left edge (one sweep down one column finds the red one), the dot marking finished work nobody has judged, the recency headings that turn a list into a timeline, the filter row whose counts say what is behind each chip before it is pressed \u2014 `Ungepr\u00fcft` is the number a person should want at zero \u2014 and the single result link on the tray, the one thing inside the card that is not the card's own target. (2) The empty state, which must read as an invitation rather than as a list that failed to load. (3) The failure state, which is that same distinction from the other side: \u201eNoch nichts \u00fcbergeben\u201c over a failed request is the one lie this surface could tell that somebody would act on.",
     waitFor: '[data-testid="task-list-preview"]',
   },
   {
@@ -781,11 +781,27 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="skills-panel-preview"]',
   },
   {
-    id: 'job-builder',
-    path: '/dev/job-builder',
+    id: 'schedule-panel',
+    mobile: true,
+    path: '/dev/schedule-panel',
     description:
-      'The definition builder editing a fully populated schedule, reached the way a user reaches it — the preview opens the fixture’s template row in the Aufgaben list and presses Bearbeiten in the drawer, so the shot carries the panel shell the builder shares with the list (same bar, same body, only the title and the action change). Its point is the right-hand pane: "Was der Agent erhält" shows the COMPOSED fire prompt — the job prompt, then the attached skill block, closing fence included — which is byte-identical to what the server submits when the definition fires. The left column runs in the order the decisions happen (name → prompt → output → skill → sources → schedule) with deep-research selected, so the picker below it is the one that output can actually run.',
-    waitFor: '[data-testid="job-prompt-preview"]',
+      'The Zeitplan tab \u2014 the STUNDENPLAN over the schedule cards, which is the answer to a question a list of cron strings cannot give: what does this project\u2019s week look like. The fixture is built for exactly that. Two schedules fire at Monday 06:00, so the collision renders as two equal blocks side by side in one column \u2014 one notification storm and one load spike, seen rather than deduced. Tuesday and Thursday carry an afternoon block, so the band has to CROP to roughly 05:00\u201317:30 instead of painting sixteen empty hours and squeezing the morning cluster into a sliver; the offer to un-crop sits in the header. One schedule is paused and one is manual-only, so both are absent from the grid and present in the cards below \u2014 the pairing a reader has to make sense of unaided, which is why every block carries its name and every card carries the swatch its blocks wear. Colour groups and never carries meaning alone: the palette is the validated categorical one the spend charts use, tinted so the label keeps `--foreground` ink. Below `md` the same week renders as an agenda, because seven columns cannot hold a name at phone width.',
+    waitFor: '[data-testid="timetable-block"]',
+  },
+  {
+    id: 'schedule-wizard',
+    mobile: true,
+    path: '/dev/schedule-wizard?step=1',
+    description:
+      'The schedule wizard on its first step. What it replaced was one page of six stacked cards \u2014 name, prompt, output, skill, sources, cron, timezone, two switches and a live preview pane \u2014 sixteen controls with no stated order, and the first thing most people did with it was leave. Step 1 asks ONE thing: what should Piloti do. The name below it is pre-answered rather than requested, its placeholder showing live what the schedule will be called, because asking for a name first asks somebody to summarise something they have not written yet. Judge the stepper: numbered circles with the step labels visible ahead of time (so the reader can see the last step is a review and not another form), the count stated for screen readers, and every visited step a button so correcting costs nothing.',
+    waitFor: '[data-testid="wizard-step-task"]',
+  },
+  {
+    id: 'schedule-wizard-timing',
+    path: '/dev/schedule-wizard?step=3',
+    description:
+      'The wizard\u2019s third step, and the one that earns the split. A schedule is the only thing in this product a person cannot check by looking at it \u2014 \u201eMonatlich am 1. um 06:00\u201c is true until the month it is not, and `0 6 1 * *` is true to nobody \u2014 so the step ends in three REAL fire times, computed by the same library the scheduler advances rows with. Above them: four cadence chips (compared side by side rather than behind a dropdown, so the choice stays visible while the time under it is set) and only the fields that cadence actually reads. The timezone and the raw cron field are behind the one \u201eErweitert\u201c disclosure every step gets, shut, with a summary on the trigger so nothing can hide in there unannounced.',
+    waitFor: '[data-testid="wizard-upcoming"]',
   },
   {
     id: 'job-run-history',

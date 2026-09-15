@@ -1,468 +1,173 @@
 'use client'
 
 /**
- * The project's delegated work as ONE list with two shapes (ADR-0051).
+ * The project's delegated work — one column of cards, grouped by when it was
+ * asked for, with a filter row above it.
  *
- * Templates are the STANDING DEFINITIONS - scheduled ones and manual-only ones
- * alike - and instances are single runs, each of which happened once. The two
- * are deliberately NOT one row shape: a template answers "when does this fire
- * next, and is it paused" (cadence chip + next fire + enable switch inline), an
- * instance answers "where did this one get to, how was it judged, where is its
- * result" (planner status + review + result link). A shared row would average
- * both questions into neither.
+ * This list used to be two: the standing SCHEDULES on top and the runs below.
+ * That put a list of cron strings in front of the results most people opened
+ * the section for, and asked one surface to answer two unrelated questions —
+ * "what happened" and "what will happen". The schedules moved to their own tab
+ * (`features/jobs/schedule-panel`), and what is left here is a timeline.
  *
- * Read-only except the template's pause switch. Reviewing happens in the
- * inbox, where the person was told about the result; opening a template (or
- * creating one) is the row's and the group's own action.
+ * ONE COLUMN, not a grid. A grid is right for things that are peers in space —
+ * files, projects, schedules — and wrong for things that are peers in TIME: a
+ * reader scanning for "the one from this morning" reads a column down, and a
+ * two-up grid makes them read in a boustrophedon. The recency headings are the
+ * other half of that: they turn "47 rows" into "3 today, 2 yesterday, the
+ * rest", which is a shape a person can hold.
  *
- * A failed tasks load errors INLINE in the instances group — a task-fail never
- * hides healthy schedules. Only the templates group answers to the jobs load
- * (`jobsLoading` / `jobsFailed`); the two fetches fail independently, so the
- * two groups report independently.
+ * The filter row is not a convenience. `unreviewed` is the surface's real job —
+ * a finished task nobody judged is an open loop, and an invisible open loop
+ * never closes — and its count is the number a person should want at zero.
  */
 
-import { CalendarClock, CheckCircle2, CircleDashed, FileText, MessageSquare, Plus, XCircle } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
-import { toast } from 'sonner'
-import { useState } from 'react'
+import { CircleDashed, Inbox } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { Chip } from '@/components/ui/chip'
+import { CountPill } from '@/components/ui/count-pill'
 import { EmptyState } from '@/components/ui/empty-state'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Spinner } from '@/components/ui/spinner'
-import { Switch } from '@/components/ui/switch'
-import { useLocale, useTranslations } from '@/i18n'
-import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
-import type { TaskRunStatus } from '@/lib/tasks/task-vocabulary'
-import { updateJob, type Job } from '@/adapters/api/jobs-client'
-import { scheduleSummary } from '@/features/jobs/components/job-list'
-import type { TaskWireRow } from '../lib/task-view'
-
-/**
- * The chip tone per status — a `Record`, so a status added to the tuple has to
- * be given a colour before this compiles.
- *
- * `interrupted` is a warning and not an error on purpose: the run was stopped,
- * which is a thing a person did or a budget did, and painting it red would put
- * it beside the failures a person has to look into.
- *
- * `skipped` is muted for the same reason at a lower volume: the fire never
- * reached the agent (an org cap, a switched-off feature), so there is nothing
- * broken to look into. `error` IS destructive — the submission broke — which is
- * why a fire that never reached the agent now appears here at all.
- */
-const STATUS_TONE: Record<TaskRunStatus, 'muted' | 'info' | 'success' | 'destructive' | 'warning'> = {
-  queued: 'muted',
-  running: 'info',
-  succeeded: 'success',
-  failed: 'destructive',
-  interrupted: 'warning',
-  skipped: 'muted',
-  error: 'destructive',
-}
-
-const REVIEW_ICON: Record<'accepted' | 'rejected', LucideIcon> = {
-  accepted: CheckCircle2,
-  rejected: XCircle,
-}
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { useTranslations } from '@/i18n'
+import {
+  TASK_FILTERS,
+  filterCounts,
+  groupByRecency,
+  matchesFilter,
+  type TaskFilter,
+  type TaskWireRow,
+} from '../lib/task-view'
+import { TaskCard } from './task-card'
 
 export interface TaskListProps {
   projectId: string
   tasks: readonly TaskWireRow[]
-  /** All of the project's jobs; the recurring ones render as the templates group. */
-  jobs: readonly Job[]
-  jobsLoading?: boolean
-  jobsFailed?: boolean
-  onRetryJobs?: () => void
   loading?: boolean
   failed?: boolean
-  /** Whether this member may pause/resume schedules (`project:skills:manage`). */
-  canManageJobs?: boolean
-  onJobChanged?: (job: Job) => void
-  onSelectTask?: (task: TaskWireRow) => void
-  onSelectJob?: (job: Job) => void
-  /**
-   * Opens the schedule builder. The section header carries the same action for
-   * a manage-capable reader; this is the one INSIDE the schedules group, where
-   * a person looks when the group is empty or when they want another timer.
-   */
-  onCreateSchedule?: () => void
-}
-
-/**
- * The standing definitions the project lists: every job the API returns —
- * scheduled ones with a cadence and manual-only ones ("Nur manuell") alike.
- *
- * The old Jobs tab was the only home of a manual-only job; when it retired
- * into Aufgaben, filtering them out here would have made such a job invisible
- * and uneditable. They are templates too: a standing instruction with no timer
- * is still a standing instruction, and the row says so in its cadence chip.
- */
-export function templateJobs(jobs: readonly Job[]): Job[] {
-  return [...jobs]
+  filter: TaskFilter
+  onFilterChange: (filter: TaskFilter) => void
+  onSelectTask: (task: TaskWireRow) => void
+  /** Retries the tasks load after a failure. */
+  onRetry?: () => void
 }
 
 export function TaskList({
   projectId,
   tasks,
-  jobs,
-  jobsLoading,
-  jobsFailed,
-  onRetryJobs,
   loading,
   failed,
-  canManageJobs,
-  onJobChanged,
+  filter,
+  onFilterChange,
   onSelectTask,
-  onSelectJob,
-  onCreateSchedule,
+  onRetry,
 }: TaskListProps): JSX.Element {
   const t = useTranslations('tasks')
-  const tj = useTranslations('jobs')
-  const { locale } = useLocale()
-  const templates = templateJobs(jobs)
+  const counts = filterCounts(tasks)
+  const visible = tasks.filter((task) => matchesFilter(task, filter))
+  const groups = groupByRecency(visible)
 
-  return (
-    <div className="flex flex-col gap-6 p-4 md:p-6" data-testid="task-list">
-      <section aria-label={t('groups.templates')} data-testid="task-templates">
-        <div className="flex items-center justify-between gap-2">
-          <SectionLabel as="h2">{t('groups.templates')}</SectionLabel>
-          {canManageJobs && onCreateSchedule && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onCreateSchedule}
-              data-testid="task-templates-new"
-            >
-              <Plus className="size-4" aria-hidden />
-              {t('create.schedule')}
-            </Button>
-          )}
+  if (loading) {
+    return (
+      <div className="mx-auto w-full max-w-3xl p-4 md:p-6" data-testid="task-list-loading">
+        <div className="flex flex-col gap-3" aria-hidden="true">
+          {[0, 1, 2, 3].map((row) => (
+            <div key={row} className="bg-muted/50 rounded-lg border p-3">
+              <Skeleton className="h-4 w-2/5" />
+              <Skeleton className="mt-2.5 h-3.5 w-full" />
+              <Skeleton className="mt-1.5 h-3.5 w-3/5" />
+            </div>
+          ))}
         </div>
-        {jobsLoading ? (
-          <div className="mt-2 flex flex-col gap-2" data-testid="template-list-loading" aria-hidden="true">
-            {[0, 1].map((row) => (
-              <div key={row} className="rounded-lg border p-3">
-                <Skeleton className="h-4 w-2/5" />
-                <Skeleton className="mt-2 h-3.5 w-3/5" />
-              </div>
-            ))}
-          </div>
-        ) : jobsFailed ? (
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <p className="text-muted-foreground text-sm">{t('groups.templatesError')}</p>
-            {onRetryJobs && (
-              <button
-                type="button"
-                onClick={onRetryJobs}
-                className="text-primary text-sm font-medium hover:underline"
-              >
-                {tj('tryAgain')}
-              </button>
-            )}
-          </div>
-        ) : templates.length === 0 ? (
-          <p className="text-muted-foreground mt-2 text-sm">{t('groups.templatesEmpty')}</p>
-        ) : (
-          <ul className="mt-2 flex flex-col gap-2">
-            {templates.map((job) => (
-              <TemplateRow
-                key={job.id}
-                job={job}
-                canManage={canManageJobs ?? false}
-                onChanged={onJobChanged}
-                onSelect={onSelectJob}
-                tj={tj}
-                locale={locale}
-              />
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section aria-label={t('groups.instances')}>
-        <SectionLabel as="h2">{t('groups.instances')}</SectionLabel>
-        {loading ? (
-          // Inline, like the error below: the schedules above load independently
-          // and a task skeleton must not take healthy templates down with it.
-          <div className="mt-2 flex flex-col gap-2" data-testid="task-list-loading">
-            {[0, 1, 2].map((row) => (
-              <div key={row} className="rounded-lg border p-3">
-                <Skeleton className="h-4 w-2/5" />
-                <Skeleton className="mt-2 h-3.5 w-full" />
-              </div>
-            ))}
-          </div>
-        ) : failed ? (
-          // Inline, never whole-list: the schedules above are healthy — their
-          // load already answered — and hiding them behind a task failure
-          // would report on work this error says nothing about.
-          <div className="mt-2">
-            <EmptyState
-              icon={CircleDashed}
-              tone="destructive"
-              title={t('list.errorTitle')}
-              description={t('list.errorDescription')}
-            />
-          </div>
-        ) : tasks.length === 0 ? (
-          <div className="mt-2">
-            <EmptyState
-              icon={CircleDashed}
-              title={t('list.emptyTitle')}
-              description={t('list.emptyDescription')}
-            />
-          </div>
-        ) : (
-          <ul className="mt-2 flex flex-col gap-2" data-testid="task-instances">
-            {tasks.map((task) => (
-              <InstanceRow
-                key={task.id}
-                projectId={projectId}
-                task={task}
-                onSelect={onSelectTask}
-                t={t}
-                locale={locale}
-              />
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
-  )
-}
-
-type Translate = ReturnType<typeof useTranslations>
-
-/**
- * One standing definition — a recurring schedule or a manual-only one.
- * Cadence chip + next fire + the pause switch inline. No planner status: a
- * definition is not work, so it has no lifecycle to report.
- */
-function TemplateRow({
-  job,
-  canManage,
-  onChanged,
-  onSelect,
-  tj,
-  locale,
-}: {
-  job: Job
-  canManage: boolean
-  onChanged: ((job: Job) => void) | undefined
-  onSelect: ((job: Job) => void) | undefined
-  tj: Translate
-  locale: string
-}): JSX.Element {
-  const nextRun = job.nextRunAt
-    ? tj('list.nextRun', { time: formatRelativeTime(job.nextRunAt, locale) })
-    : null
-  const lastRun = job.lastRunAt
-    ? tj('list.lastRun', { time: formatRelativeTime(job.lastRunAt, locale) })
-    : tj('list.neverRun')
-
-  return (
-    <li className="rounded-lg border bg-card p-3" data-testid="template-row">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => onSelect?.(job)}
-              className="text-foreground min-w-0 truncate text-sm font-semibold hover:underline"
-              title={job.name}
-              data-testid="template-title"
-            >
-              {job.name}
-            </button>
-            {!job.enabled && (
-              <Chip size="sm" variant="outline" data-testid="template-disabled">
-                {tj('list.disabled')}
-              </Chip>
-            )}
-          </div>
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-            <Chip
-              size="sm"
-              variant={job.scheduleCron ? 'info' : 'outline'}
-              data-testid="template-cadence"
-            >
-              <CalendarClock aria-hidden className="size-3.5" />
-              {scheduleSummary(tj, job.scheduleCron, job.scheduleTimezone)}
-            </Chip>
-            <span
-              className="card-caption text-muted-foreground"
-              data-testid="template-next"
-              title={job.nextRunAt ? formatAbsoluteTime(job.nextRunAt, locale) : undefined}
-            >
-              {nextRun ? `${nextRun} · ${lastRun}` : lastRun}
-            </span>
-          </div>
-        </div>
-        {canManage && (
-          <div className="flex shrink-0 items-center pt-0.5">
-            <ScheduleEnableSwitch job={job} onChanged={onChanged} tj={tj} />
-          </div>
-        )}
       </div>
-    </li>
-  )
-}
+    )
+  }
 
-/**
- * The pause switch a template row and the template detail share. Optimistic —
- * reverts on failure — exactly like the Jobs tab's own switch, because it IS
- * the same decision about the same schedule.
- */
-export function ScheduleEnableSwitch({
-  job,
-  onChanged,
-  tj,
-}: {
-  job: Job
-  onChanged: ((job: Job) => void) | undefined
-  tj: Translate
-}): JSX.Element {
-  const [toggling, setToggling] = useState(false)
-
-  const toggleEnabled = async (enabled: boolean) => {
-    setToggling(true)
-    onChanged?.({ ...job, enabled })
-    try {
-      const updated = await updateJob(job.projectId, job.id, { enabled })
-      onChanged?.(updated)
-    } catch {
-      onChanged?.({ ...job, enabled: !enabled })
-      toast.error(tj('list.toggleError'))
-    } finally {
-      setToggling(false)
-    }
+  if (failed) {
+    return (
+      <div className="mx-auto w-full max-w-3xl p-4 md:p-6">
+        <EmptyState
+          icon={CircleDashed}
+          tone="destructive"
+          title={t('list.errorTitle')}
+          description={t('list.errorDescription')}
+          action={
+            onRetry ? (
+              <Button variant="outline" size="sm" onClick={onRetry}>
+                {t('list.retry')}
+              </Button>
+            ) : undefined
+          }
+        />
+      </div>
+    )
   }
 
   return (
-    <>
-      {toggling && <Spinner size="sm" />}
-      <Switch
-        checked={job.enabled}
-        disabled={toggling}
-        onCheckedChange={(checked) => void toggleEnabled(checked)}
-        aria-label={
-          job.enabled
-            ? tj('list.disableAria', { name: job.name })
-            : tj('list.enableAria', { name: job.name })
-        }
-      />
-    </>
-  )
-}
+    <div className="mx-auto w-full max-w-3xl p-4 md:p-6" data-testid="task-list">
+      {/* Counts on the chips, not only in the list: the number is the point of
+          `unreviewed`, and a filter a reader has to click to discover is empty
+          costs them a click to learn nothing. A zero count still renders — an
+          absent number reads as "unknown", which is a different claim. */}
+      <ToggleGroup
+        type="single"
+        value={filter}
+        onValueChange={(value) => {
+          if ((TASK_FILTERS as readonly string[]).includes(value)) onFilterChange(value as TaskFilter)
+        }}
+        segmented
+        size="sm"
+        aria-label={t('filters.label')}
+        className="mb-4"
+        data-testid="task-filters"
+      >
+        {TASK_FILTERS.map((option) => (
+          <ToggleGroupItem key={option} value={option} data-testid={`task-filter-${option}`}>
+            {t(`filters.${option}`)}
+            <CountPill
+              tone={option === 'unreviewed' && counts.unreviewed > 0 ? 'attention' : 'muted'}
+            >
+              {counts[option]}
+            </CountPill>
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
 
-function InstanceRow({
-  projectId,
-  task,
-  onSelect,
-  t,
-  locale,
-}: {
-  projectId: string
-  task: TaskWireRow
-  onSelect: ((task: TaskWireRow) => void) | undefined
-  t: Translate
-  locale: string
-}): JSX.Element {
-  const requester = task.requesterName
-  const ReviewIcon = task.review ? REVIEW_ICON[task.review] : null
-  // Canonical homes, not history: a filed result lives in the project's files,
-  // a chat run is continued in the project's chat. The old `/documents/…` and
-  // `/chat/…` hrefs named routes that do not exist.
-  const documentHref = task.filedDocumentId
-    ? `/app/projects/${encodeURIComponent(projectId)}/files?doc=${encodeURIComponent(task.filedDocumentId)}`
-    : null
-  const conversationHref = task.conversationId
-    ? `/app/projects/${encodeURIComponent(projectId)}/chat?session=${encodeURIComponent(task.conversationId)}`
-    : null
-
-  return (
-    <li className="rounded-lg border p-3" data-testid="task-row">
-      <div className="flex flex-wrap items-center gap-2">
-        <Chip size="sm" variant="outline" data-testid="task-kind">
-          {t(`kind.${task.kind}`)}
-        </Chip>
-        <button
-          type="button"
-          onClick={() => onSelect?.(task)}
-          className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline"
-          title={task.title}
-          data-testid="task-title"
-        >
-          {task.title}
-        </button>
-        <Chip size="sm" variant={STATUS_TONE[task.status]} data-testid="task-status">
-          {t(`status.${task.status}`)}
-        </Chip>
-        {ReviewIcon && task.review && (
-          <Chip
-            size="sm"
-            variant={task.review === 'accepted' ? 'success' : 'destructive'}
-            data-testid="task-review"
-          >
-            <ReviewIcon aria-hidden />
-            {t(`review.${task.review}`)}
-          </Chip>
-        )}
-      </div>
-
-      {/* The requester's own sentence. A job-fired run has none — its title IS
-          the job's name — and an empty line is better than the prompt. */}
-      {task.goal && <p className="card-caption mt-1.5 text-muted-foreground">{task.goal}</p>}
-
-      {/* What a reviewer said when they sent it back. The words are theirs and
-          are never paraphrased: the next run reads exactly this string. */}
-      {task.review === 'rejected' && task.reviewReason && (
-        <p className="card-caption mt-1.5 text-muted-foreground" data-testid="task-review-reason">
-          {task.reviewReason}
-        </p>
+      {visible.length === 0 ? (
+        <EmptyState
+          icon={Inbox}
+          title={filter === 'all' ? t('list.emptyTitle') : t(`list.emptyFiltered.${filter}`)}
+          description={filter === 'all' ? t('list.emptyDescription') : undefined}
+          action={
+            filter === 'all' ? undefined : (
+              <Button variant="outline" size="sm" onClick={() => onFilterChange('all')}>
+                {t('filters.showAll')}
+              </Button>
+            )
+          }
+        />
+      ) : (
+        <div className="flex flex-col gap-6" data-testid="task-groups">
+          {groups.map((group) => (
+            <section key={group.bucket} aria-label={t(`buckets.${group.bucket}`)}>
+              <SectionLabel as="h2" className="mb-2">
+                {t(`buckets.${group.bucket}`)}
+              </SectionLabel>
+              <div className="flex flex-col gap-3">
+                {group.tasks.map((task) => (
+                  <TaskCard
+                    key={task.id}
+                    projectId={projectId}
+                    task={task}
+                    onSelect={onSelectTask}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
       )}
-
-      {/* The sanitized reason on a failure. `error` is a submission that never
-          reached the agent, `failed` one that did and came back broken; both
-          are red rows and both owe the reader the why. */}
-      {(task.status === 'failed' || task.status === 'error') && task.error && (
-        <p className="card-caption mt-1.5 text-error" data-testid="task-error">
-          {task.error}
-        </p>
-      )}
-
-      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="card-caption text-muted-foreground">
-          {requester
-            ? t('meta.byOn', { name: requester, when: formatRelativeTime(task.createdAt, locale) })
-            : t('meta.on', { when: formatRelativeTime(task.createdAt, locale) })}
-        </span>
-        {/* Where the result IS. The one thing a list of finished work has to
-            answer, and the reason the row does not try to summarise it. */}
-        {documentHref && (
-          <a
-            className="card-caption text-primary inline-flex items-center gap-1 hover:underline"
-            href={documentHref}
-            data-testid="task-document-link"
-          >
-            <FileText aria-hidden className="size-3.5" />
-            {t('meta.document')}
-          </a>
-        )}
-        {conversationHref && (
-          <a
-            className="card-caption text-primary inline-flex items-center gap-1 hover:underline"
-            href={conversationHref}
-            data-testid="task-conversation-link"
-          >
-            <MessageSquare aria-hidden className="size-3.5" />
-            {t('detail.continueChat')}
-          </a>
-        )}
-      </div>
-    </li>
+    </div>
   )
 }

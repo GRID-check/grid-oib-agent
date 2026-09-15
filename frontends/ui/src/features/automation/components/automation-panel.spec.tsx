@@ -1,43 +1,66 @@
-import { act, render, screen } from '@/test-utils'
+/**
+ * The Automation section's tabs — which panel is mounted, when.
+ *
+ * The join is all this file pins; the three panels have specs of their own. Two
+ * properties carry it:
+ *
+ *   - **Only the active tab mounts.** Load-bearing rather than an optimization:
+ *     the panels portal their primary action into ONE header slot, so two
+ *     mounted panels would fight over it — and the timetable's cron expansion
+ *     would load for readers who never open Zeitplan.
+ *   - **A drawer deep link picks its own tab.** `?task=` lives on Tasks and
+ *     `?schedule=` on Zeitplan, one each, which is what replaced the
+ *     force-a-tab-then-restore-it dance the merged list needed.
+ */
+
+import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { AutomationPanel } from './automation-panel'
-import { parseAutomationTab } from '../lib/automation-tab'
+import { parseAutomationTab, tabForDeepLink } from '../lib/automation-tab'
 
-// The tabs' JOIN is what this file pins: which panel is mounted, when. The
-// panels themselves have their own specs.
 vi.mock('@/features/skills/components/skills-panel', () => ({
   SkillsPanel: ({ canManageOrgSkills }: { canManageOrgSkills: boolean }) => (
     <div data-testid="skills-panel" data-can-manage={canManageOrgSkills} />
   ),
-}))
-// Set before the mock below runs (hoisted), written by the stub on render.
-const tasksPanelHarness = vi.hoisted(() => ({
-  onDeepLinkSettled: null as ((resolved: boolean) => void) | null,
 }))
 
 vi.mock('@/features/tasks/components/tasks-panel', () => ({
   TasksPanel: ({
     canManageJobs,
     canChatInProject = true,
-    onDeepLinkSettled,
+    onPromoteToSchedule,
   }: {
     canManageJobs: boolean
     canChatInProject?: boolean
-    onDeepLinkSettled?: (resolved: boolean) => void
-  }) => {
-    // The settle callback is the deep-link contract under test: the stub
-    // holds it where a test can fire it, standing in for the real panel's
-    // first-load resolution.
-    tasksPanelHarness.onDeepLinkSettled = onDeepLinkSettled ?? null
-    return (
-      <div
-        data-testid="tasks-panel"
-        data-can-manage={canManageJobs}
-        data-can-chat={canChatInProject}
-      />
-    )
-  },
+    onPromoteToSchedule?: (draft: { name: string; prompt: string }) => void
+  }) => (
+    <div data-testid="tasks-panel" data-can-manage={canManageJobs} data-can-chat={canChatInProject}>
+      <button
+        type="button"
+        data-testid="stub-promote"
+        onClick={() => onPromoteToSchedule?.({ name: 'Aktenvermerk', prompt: 'Prüfe das wöchentlich' })}
+      >
+        promote
+      </button>
+    </div>
+  ),
+}))
+
+vi.mock('@/features/jobs/components/schedule-panel', () => ({
+  SchedulePanel: ({
+    canManageJobs,
+    draft,
+  }: {
+    canManageJobs: boolean
+    draft?: { name: string; prompt: string } | null
+  }) => (
+    <div
+      data-testid="schedule-panel"
+      data-can-manage={canManageJobs}
+      data-draft={draft ? draft.prompt : ''}
+    />
+  ),
 }))
 
 const baseProps = {
@@ -49,152 +72,88 @@ const baseProps = {
 
 beforeEach(() => {
   window.history.replaceState(null, '', '/')
-  tasksPanelHarness.onDeepLinkSettled = null
 })
 
 describe('parseAutomationTab', () => {
   test('tasks is the default for anything that is not a tab', () => {
     expect(parseAutomationTab(undefined)).toBe('tasks')
     expect(parseAutomationTab('nonsense')).toBe('tasks')
+  })
+
+  test('names the three tabs', () => {
+    expect(parseAutomationTab('tasks')).toBe('tasks')
+    expect(parseAutomationTab('schedule')).toBe('schedule')
     expect(parseAutomationTab('skills')).toBe('skills')
   })
 
-  test('?tab=jobs keeps landing on the schedules view, which is now Aufgaben', () => {
-    // The Jobs tab retired INTO Aufgaben — schedules are the group on top of
-    // that list — so every bookmark, inbox row and old link must still land
-    // there instead of 404ing or falling on an empty tab.
-    expect(parseAutomationTab('jobs')).toBe('tasks')
+  test('the retired Jobs tab now lands on Zeitplan, which is what it always showed', () => {
+    expect(parseAutomationTab('jobs')).toBe('schedule')
   })
 })
 
-describe('AutomationPanel — one mounted tab at a time', () => {
-  test('Aufgaben leads: the default tab is mounted without a ?tab=', () => {
-    render(<AutomationPanel {...baseProps} initialTab={parseAutomationTab(undefined)} />)
+describe('tabForDeepLink', () => {
+  test('each drawer param has exactly one home tab', () => {
+    expect(tabForDeepLink(new URLSearchParams('task=t1'))).toBe('tasks')
+    expect(tabForDeepLink(new URLSearchParams('schedule=j1'))).toBe('schedule')
+    expect(tabForDeepLink(new URLSearchParams('tab=skills'))).toBeNull()
+  })
+})
+
+describe('which panel is mounted', () => {
+  test('Tasks leads, and nothing else is mounted beside it', () => {
+    render(<AutomationPanel {...baseProps} initialTab="tasks" />)
     expect(screen.getByTestId('tasks-panel')).toBeInTheDocument()
+    expect(screen.queryByTestId('schedule-panel')).not.toBeInTheDocument()
     expect(screen.queryByTestId('skills-panel')).not.toBeInTheDocument()
   })
 
-  test('mounts ONLY the active tab', () => {
-    // Load-bearing, not an optimization: both panels portal their primary
-    // action into the section header's single slot — two mounted panels would
-    // fight over it.
-    render(<AutomationPanel {...baseProps} initialTab="skills" />)
-    expect(screen.getByTestId('skills-panel')).toBeInTheDocument()
+  test('switching a tab mounts one panel and unmounts the other', async () => {
+    const user = userEvent.setup()
+    render(<AutomationPanel {...baseProps} initialTab="tasks" />)
+    await user.click(screen.getByRole('tab', { name: /schedule/i }))
+    expect(screen.getByTestId('schedule-panel')).toBeInTheDocument()
     expect(screen.queryByTestId('tasks-panel')).not.toBeInTheDocument()
   })
 
-  test('switching swaps the mounted panel and writes ?tab= for sharing', async () => {
+  test('the tab rides the URL, so the view is shareable without a round trip', async () => {
     const user = userEvent.setup()
     render(<AutomationPanel {...baseProps} initialTab="tasks" />)
-
-    await user.click(screen.getByRole('tab', { name: 'Skills' }))
-
-    expect(screen.getByTestId('skills-panel')).toBeInTheDocument()
-    expect(screen.queryByTestId('tasks-panel')).not.toBeInTheDocument()
-    expect(window.location.search).toBe('?tab=skills')
-  })
-
-  test('switching tabs preserves drawer deep links instead of wiping them', async () => {
-    const user = userEvent.setup()
-    window.history.replaceState(null, '', '/app/projects/p1/automation?tab=tasks&task=task-1')
-    render(<AutomationPanel {...baseProps} initialTab="tasks" />)
-
-    await user.click(screen.getByRole('tab', { name: 'Skills' }))
-
-    expect(screen.getByTestId('skills-panel')).toBeInTheDocument()
-    const params = new URL(window.location.href).searchParams
-    expect(params.get('tab')).toBe('skills')
-    expect(params.get('task')).toBe('task-1')
-  })
-
-  test('a ?tab=jobs&task= knock opens the task on Aufgaben and corrects ?tab=', () => {
-    // The drawer lives on Aufgaben: the retired tab's deep link wins over the
-    // tab, and the URL is corrected so closing the drawer (or copying the link)
-    // stays on the tab that is showing.
-    window.history.replaceState(null, '', '/app/projects/p1/automation?tab=jobs&task=task-1')
-    render(<AutomationPanel {...baseProps} initialTab={parseAutomationTab('jobs')} />)
-
-    expect(screen.getByTestId('tasks-panel')).toBeInTheDocument()
-    const params = new URL(window.location.href).searchParams
-    // `jobs` parsed to tasks, so no rewrite is needed — and none happens.
-    expect(params.get('tab')).toBe('jobs')
-    expect(params.get('task')).toBe('task-1')
-    expect(screen.queryByTestId('skills-panel')).not.toBeInTheDocument()
-  })
-
-  test('a ?tab=skills&schedule= knock opens the schedule on Aufgaben', () => {
-    window.history.replaceState(null, '', '/app/projects/p1/automation?tab=skills&schedule=job-1')
-    render(<AutomationPanel {...baseProps} initialTab="skills" />)
-
-    expect(screen.getByTestId('tasks-panel')).toBeInTheDocument()
-    const params = new URL(window.location.href).searchParams
-    expect(params.get('tab')).toBe('tasks')
-    expect(params.get('schedule')).toBe('job-1')
-  })
-
-  test('an unmatched drawer deep link restores the requested tab instead of stranding', async () => {
-    window.history.replaceState(null, '', '/app/projects/p1/automation?tab=skills&schedule=nope')
-    render(<AutomationPanel {...baseProps} initialTab="skills" />)
-
-    // Forced onto Aufgaben for the drawer, URL corrected like every knock.
-    expect(screen.getByTestId('tasks-panel')).toBeInTheDocument()
-    expect(new URL(window.location.href).searchParams.get('tab')).toBe('tasks')
-
-    // The link never matches a row here: the requested tab comes back, so the
-    // reader is not stranded on the rewrite. The drawer itself stays open on
-    // the unresolved copy — only the tab moves back.
-    await act(async () => {
-      tasksPanelHarness.onDeepLinkSettled?.(false)
-    })
-    expect(screen.getByTestId('skills-panel')).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: /skills/i }))
     expect(new URL(window.location.href).searchParams.get('tab')).toBe('skills')
   })
 
-  test('a matched drawer deep link keeps the corrected tab', async () => {
-    window.history.replaceState(null, '', '/app/projects/p1/automation?tab=skills&task=task-1')
-    render(<AutomationPanel {...baseProps} initialTab="skills" />)
-    expect(screen.getByTestId('tasks-panel')).toBeInTheDocument()
-
-    await act(async () => {
-      tasksPanelHarness.onDeepLinkSettled?.(true)
-    })
-    expect(screen.getByTestId('tasks-panel')).toBeInTheDocument()
-    expect(new URL(window.location.href).searchParams.get('tab')).toBe('tasks')
-  })
-
-  test('a manual tab switch wins over a later unsettled link', async () => {
+  test('both permissions reach their own panel, separately', async () => {
     const user = userEvent.setup()
-    window.history.replaceState(null, '', '/app/projects/p1/automation?tab=skills&schedule=nope')
+    render(<AutomationPanel {...baseProps} canManageJobs canManageOrgSkills={false} initialTab="tasks" />)
+    expect(screen.getByTestId('tasks-panel')).toHaveAttribute('data-can-manage', 'true')
+    await user.click(screen.getByRole('tab', { name: /skills/i }))
+    expect(screen.getByTestId('skills-panel')).toHaveAttribute('data-can-manage', 'false')
+  })
+})
+
+describe('a drawer deep link', () => {
+  test('`?schedule=` opens Zeitplan even when `?tab=` said otherwise', () => {
+    window.history.replaceState(null, '', '/?tab=skills&schedule=j1')
     render(<AutomationPanel {...baseProps} initialTab="skills" />)
-    expect(screen.getByTestId('tasks-panel')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('tab', { name: 'Skills' }))
-    expect(screen.getByTestId('skills-panel')).toBeInTheDocument()
-
-    await act(async () => {
-      tasksPanelHarness.onDeepLinkSettled?.(false)
-    })
-    // Untouched would have restored skills; the reader chose it anyway.
-    expect(screen.getByTestId('skills-panel')).toBeInTheDocument()
-    expect(new URL(window.location.href).searchParams.get('tab')).toBe('skills')
+    expect(screen.getByTestId('schedule-panel')).toBeInTheDocument()
   })
 
-  test('hands each panel its own authorization, not a shared one', () => {
+  test('…and corrects `?tab=` so a copied link reopens the same view', () => {
+    window.history.replaceState(null, '', '/?tab=skills&task=t1')
     render(<AutomationPanel {...baseProps} initialTab="skills" />)
-    // Org-skills manage and project-schedule manage are different permissions;
-    // the panel must not collapse them into one flag.
-    expect(screen.getByTestId('skills-panel')).toHaveAttribute('data-can-manage', 'true')
+    expect(new URL(window.location.href).searchParams.get('tab')).toBe('tasks')
+    // The drawer param survives the correction — it is the whole point of it.
+    expect(new URL(window.location.href).searchParams.get('task')).toBe('t1')
   })
+})
 
-  test('forwards the schedule gate to the Aufgaben panel for its schedule flow', () => {
-    render(<AutomationPanel {...baseProps} initialTab="tasks" />)
-    expect(screen.getByTestId('tasks-panel')).toHaveAttribute('data-can-manage', 'false')
-  })
-
-  test('forwards the chat gate so viewers get no live Delegieren link', () => {
-    render(<AutomationPanel {...baseProps} canChatInProject={false} initialTab="tasks" />)
-    // Without `project:chat` the composer is locked — the panel must say so
-    // instead of linking into a dead end.
-    expect(screen.getByTestId('tasks-panel')).toHaveAttribute('data-can-chat', 'false')
+describe('turning a task into a schedule', () => {
+  test('switches to Zeitplan and hands the draft over', async () => {
+    const user = userEvent.setup()
+    render(<AutomationPanel {...baseProps} canManageJobs initialTab="tasks" />)
+    await user.click(screen.getByTestId('stub-promote'))
+    const panel = screen.getByTestId('schedule-panel')
+    expect(panel).toBeInTheDocument()
+    expect(panel).toHaveAttribute('data-draft', 'Prüfe das wöchentlich')
   })
 })
