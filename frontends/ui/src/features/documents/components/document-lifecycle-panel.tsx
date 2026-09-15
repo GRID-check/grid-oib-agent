@@ -22,10 +22,31 @@
  * honest response is to say the stand has moved and show what it moved to, so
  * the panel re-reads the list rather than leaving a stale one on screen with a
  * red line under it.
+ *
+ * ## Shut by default, and it opens itself when it is your turn
+ *
+ * This section used to stand open at the top of the rail on every document:
+ * a heading, a strip of review verbs, and the full version history, above the
+ * summary and the facts. On the overwhelming majority of files that is noise —
+ * a person's upload is born `published`, there is no decision left to take, and
+ * the one control the strip could offer was the unexplained „Archivieren".
+ *
+ * So the panel is a disclosure, and at rest it says exactly two things: the
+ * word for where the document stands, and the track that gives that word its
+ * place ({@link DocumentLifecycleStand}). Versions, decisions and the archive
+ * act are behind it.
+ *
+ * It opens ITSELF when {@link lifecycleNeedsReader} holds — something is
+ * expected of this reader on this version — which is the only reading of "need
+ * to know" that does not push the work of noticing onto the reader. Once they
+ * close it, it stays closed: the effect fires on the ATTENTION edge, not on
+ * every render, so the panel never fights the person using it.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslations } from '@/i18n'
@@ -42,17 +63,23 @@ import type {
 } from '@/lib/documents/lifecycle-types'
 import type { DocumentAuthor } from '@/lib/db/schema'
 import {
+  canArchiveDocument,
+  lifecycleNeedsReader,
   lifecycleRequestFor,
   type DocumentLifecycleAction,
   type DocumentLifecycleGesture,
   type DocumentLifecycleViewer,
 } from '../lib/document-lifecycle'
+import { DocumentArchiveAction } from './document-archive-action'
+import { DocumentLifecycleStand } from './document-lifecycle-stand'
 import { DocumentReviewControls, type ReviewerOption } from './document-review-controls'
 import { DocumentVersionList } from './document-version-list'
 import { DocumentVersionStateBadge } from './document-version-badge'
 
 export interface DocumentLifecyclePanelProps {
   documentId: string
+  /** The file's own name, so „archivieren?" can name what it is about. */
+  filename?: string | null
   viewer: DocumentLifecycleViewer
   authoredBy?: DocumentAuthor | null
   /** Names the pane already knows (the document's assignees), by user id. */
@@ -108,6 +135,7 @@ const OPTIMISTIC_STATE: Record<
 
 export function DocumentLifecyclePanel({
   documentId,
+  filename,
   viewer,
   authoredBy,
   names,
@@ -244,6 +272,35 @@ export function DocumentLifecyclePanel({
     [announce, client, documentId, listing, load, t],
   )
 
+  // What the section says at rest, and whether it says more without being asked.
+  const newest = listing ? newestVersion(listing.versions) : null
+  const attention = listing ? lifecycleNeedsReader(newest, listing.lifecycle, viewer) : false
+
+  const [open, setOpen] = useState(false)
+  // Opens on the attention EDGE, once. Re-asserting `open` on every render
+  // would make the disclosure un-closable while a decision is outstanding, and
+  // a reader who has read the round and wants the rail back is entitled to it.
+  const openedForAttention = useRef(false)
+  useEffect(() => {
+    if (!attention || openedForAttention.current) return
+    openedForAttention.current = true
+    setOpen(true)
+  }, [attention])
+
+  /**
+   * A user id as a word: „Sie" for the reader, a resolved name where the pane
+   * knows one (the document's assignees), „Jemand" otherwise — never the raw
+   * id, which is an identifier leaking into copy.
+   */
+  const nameOf = useCallback(
+    (userId: string | null): string => {
+      if (!userId) return t('lifecycle.versions.someone')
+      if (userId === viewer.userId) return t('lifecycle.versions.you')
+      return names?.[userId] ?? t('lifecycle.versions.someone')
+    },
+    [names, t, viewer.userId],
+  )
+
   if (loading && !listing) {
     return <Skeleton className={cn('h-16 w-full rounded-lg', className)} />
   }
@@ -255,50 +312,99 @@ export function DocumentLifecyclePanel({
     )
   }
 
-  const version = newestVersion(listing.versions)
+  const version = newest
 
   return (
-    <section className={cn('space-y-3', className)} data-testid="document-lifecycle-panel">
-      <div className="flex min-w-0 items-center justify-between gap-2">
-        <SectionLabel as="h3">{t('lifecycle.title')}</SectionLabel>
-        {/* The badge, on the pane's own terms: here the state IS the subject, so
-            it shows for every document — including the plain upload whose card
-            deliberately carries none. */}
-        <DocumentVersionStateBadge
-          versionState={version?.state ?? null}
-          versionCount={listing.versions.length}
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className={cn('space-y-2', className)}
+      data-testid="document-lifecycle-panel"
+      data-attention={attention || undefined}
+      asChild
+    >
+      <section>
+        {/* The heading IS the trigger: a disclosure whose label is not the thing
+            you press has a second target for the same job. The `h3` keeps the
+            section addressable; the button inside it is what takes the click. */}
+        <SectionLabel as="h3">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="touch-target duration-snap hover:text-foreground focus-visible:ring-ring flex w-full items-center gap-2 text-left transition-colors ease-out outline-none focus-visible:ring-2 focus-visible:ring-offset-1 motion-reduce:transition-none"
+              data-testid="document-lifecycle-toggle"
+            >
+              <span className="min-w-0 truncate">{t('lifecycle.title')}</span>
+              <span className="flex-1" />
+              {/* The badge, on the pane's own terms: here the state IS the
+                  subject, so it shows for every document — including the plain
+                  upload whose card deliberately carries none. It stays on the
+                  CLOSED row, because it is half of what the section says at
+                  rest. */}
+              <DocumentVersionStateBadge
+                versionState={version?.state ?? null}
+                versionCount={listing.versions.length}
+                lifecycle={listing.lifecycle}
+                authoredBy={authoredBy}
+                always
+                testId="document-lifecycle-state"
+              />
+              <ChevronDown
+                aria-hidden
+                className={cn(
+                  'duration-quick size-3.5 shrink-0 transition-transform ease-out motion-reduce:transition-none',
+                  open && 'rotate-180',
+                )}
+              />
+            </button>
+          </CollapsibleTrigger>
+        </SectionLabel>
+
+        {/* Outside the content, on purpose: the stand is what the section says
+            when it is shut, and it is the reason somebody opens it. */}
+        <DocumentLifecycleStand
+          version={version}
           lifecycle={listing.lifecycle}
-          authoredBy={authoredBy}
-          always
-          testId="document-lifecycle-state"
+          nameOf={nameOf}
         />
-      </div>
 
-      <DocumentReviewControls
-        version={version}
-        lifecycle={listing.lifecycle}
-        viewer={viewer}
-        pending={pending}
-        onAct={(gesture, options) => void act(gesture, options)}
-        reviewers={reviewers}
-        // The signature line of the approve confirm: the viewer's own name
-        // where the surface already knows one (its assignees), else the
-        // control states the moment alone rather than a raw user id.
-        actingName={viewer.userId ? (names?.[viewer.userId] ?? null) : null}
-        names={names}
-      />
+        <CollapsibleContent className="space-y-3 pt-1">
+          <DocumentReviewControls
+            version={version}
+            lifecycle={listing.lifecycle}
+            viewer={viewer}
+            pending={pending}
+            onAct={(gesture, options) => void act(gesture, options)}
+            reviewers={reviewers}
+            // The signature line of the approve confirm: the viewer's own name
+            // where the surface already knows one (its assignees), else the
+            // control states the moment alone rather than a raw user id.
+            actingName={viewer.userId ? (names?.[viewer.userId] ?? null) : null}
+          />
 
-      {showVersions && (
-      <DocumentVersionList
-        documentId={documentId}
-        versions={listing.versions}
-        publishedVersionId={listing.publishedVersionId}
-        viewerUserId={viewer.userId}
-        names={names}
-        onCompare={(from, to) => client.diff(documentId, from, to)}
-      />
-      )}
-    </section>
+          {showVersions && (
+            <DocumentVersionList
+              documentId={documentId}
+              versions={listing.versions}
+              publishedVersionId={listing.publishedVersionId}
+              viewerUserId={viewer.userId}
+              names={names}
+              onCompare={(from, to) => client.diff(documentId, from, to)}
+            />
+          )}
+
+          {/* Last, and set apart: the item-level one-way door. Never a sibling
+              of the review verbs, and never fired without saying what it does. */}
+          {canArchiveDocument(listing.lifecycle, viewer) && (
+            <DocumentArchiveAction
+              filename={filename}
+              pending={pending === 'archive'}
+              onArchive={() => void act('archive')}
+            />
+          )}
+        </CollapsibleContent>
+      </section>
+    </Collapsible>
   )
 }
 

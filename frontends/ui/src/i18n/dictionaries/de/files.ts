@@ -487,9 +487,9 @@ export const files: typeof en.files = {
     title: 'Freigabe und Fassungen',
     badgeTitle: 'Stand der Fassung: {state}',
     filter: 'Freigabe ausstehend',
-    // Der einzige Filter, der ERWEITERT: Archivierte Dateien stehen gar nicht
+    // Der einzige Filter, der ERWEITERT: Stillgelegte Dateien stehen gar nicht
     // erst in der Liste. Deshalb „auch“ und nicht „nur“.
-    archivedFilter: 'Archivierte auch zeigen',
+    archivedFilter: 'Stillgelegte auch zeigen',
     states: {
       draft: 'Entwurf',
       inReview: 'In Prüfung',
@@ -498,7 +498,14 @@ export const files: typeof en.files = {
       published: 'Veröffentlicht',
       rejected: 'Abgelehnt',
       superseded: 'Ersetzt',
-      archived: 'Archiviert',
+      // NICHT „Archiviert“. Das Archiv dieses Produkts ist das Büroarchiv, in
+      // das man eine Datei legt, DAMIT sie projektübergreifendes Bürowissen
+      // wird. Dieser Zustand ist das Gegenteil: Die Datei verlässt den
+      // Arbeitsstand, und ihre Einträge in der Wissensbasis werden gelöscht.
+      // Ein Wort für beides hieße, dasselbe Verb für eine Sache und ihr
+      // Gegenteil zu verwenden. Der Spaltenwert heißt weiter `archived` —
+      // das ist Draht und Datenbank, nicht Sprache der Leserin.
+      archived: 'Stillgelegt',
     },
     actions: {
       submit: 'Zur Freigabe einreichen',
@@ -510,7 +517,7 @@ export const files: typeof en.files = {
       delegateRevision: 'Piloti überarbeiten lassen',
       reject: 'Ablehnen',
       publish: 'Veröffentlichen',
-      archive: 'Archivieren',
+      archive: 'Stilllegen',
     },
     // Wer die Fassung freigeben soll. „Alle Bearbeiter“ ist der Normalfall und
     // deshalb die Vorauswahl: Eine unvergebene Fassung geht an alle, die sie
@@ -551,6 +558,26 @@ export const files: typeof en.files = {
       heading: 'Veröffentlichung',
       blurb: 'Ziel: Einreichmappe/Behörde — Fassung {number} wird herausgegeben.',
     },
+    // Archivieren ist der einzige Akt in diesem Abschnitt, der sich im Haus
+    // nicht zurücknehmen lässt: Die Einträge in der Wissensbasis werden
+    // gelöscht, und es gibt keine Route, die sie zurückholt. Deshalb steht er
+    // abgesetzt und nennt seine Folgen, bevor er ausgeführt wird — nie als
+    // fünfter Knopf in einer Reihe von Prüfentscheidungen.
+    archiveSection: {
+      heading: 'Aus dem Arbeitsstand nehmen',
+      blurb:
+        'Stilllegen nimmt die Datei aus der Dateiliste und aus der Wissensbasis. Gelöscht wird nichts.',
+      confirmTitle: 'Diese Datei stilllegen?',
+      confirmTitleNamed: '„{filename}“ stilllegen?',
+      consequences: {
+        listing:
+          'Die Datei verschwindet aus der Dateiliste. Über den Filter „Stillgelegte auch zeigen“ finden Sie sie wieder.',
+        knowledge:
+          'Piloti zitiert sie nicht mehr: Die Einträge in der Wissensbasis werden entfernt.',
+        kept: 'Die Datei und alle Fassungen bleiben erhalten — das ist kein Löschen.',
+        permanent: 'Rückgängig machen lässt sich das hier nicht.',
+      },
+    },
     // Ein Knopf, der nicht angeboten wird, ist eine gedeckte Zeile, nie
     // nichts: Die Leserin sieht, worauf die Fassung wartet, und — wo das eine
     // bekannte Tatsache ist — wer sie eingereicht hat. Wer GEBETEN wurde, löst
@@ -564,7 +591,7 @@ export const files: typeof en.files = {
       published: 'Veröffentlicht — kein weiterer Schritt.',
       rejected: 'Abgelehnt — kein weiterer Schritt.',
       superseded: 'Durch neuere Fassung ersetzt.',
-      archived: 'Archiviert.',
+      archived: 'Stillgelegt — nicht mehr im Arbeitsstand.',
       none: 'Noch keine Fassung.',
     },
     comment: {

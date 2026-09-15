@@ -195,6 +195,39 @@ describe('FilePreviewPane', () => {
     expect(screen.queryByRole('button', { name: /open large preview/i })).toBeNull()
   })
 
+  describe('where the document stands, in the header', () => {
+    it('says the state beside the name once the document has a history', () => {
+      render(<FilePreviewPane file={{ ...mockFile, versionState: 'in_review', versionCount: 2 }} />)
+
+      // „Freigabe und Fassungen" is last in the rail and shut; the one WORD
+      // belongs with the name, so nobody scrolls a rail to its end to learn
+      // whether the office stands behind the document in front of them.
+      expect(screen.getByTestId('file-preview-lifecycle-badge')).toHaveTextContent('In review')
+    })
+
+    it('stays silent on an ordinary upload', () => {
+      // One version, born published, a person put it there. A chip here would
+      // appear on every document in the library and distinguish nothing —
+      // `showsVersionStateBadge`, the same rule the file card obeys.
+      render(<FilePreviewPane file={{ ...mockFile, versionState: 'published', versionCount: 1 }} />)
+
+      expect(screen.queryByTestId('file-preview-lifecycle-badge')).not.toBeInTheDocument()
+    })
+
+    it('says so when the file has been taken out of the working set', () => {
+      render(
+        <FilePreviewPane
+          file={{ ...mockFile, versionState: 'published', versionCount: 1, lifecycle: 'archived' }}
+        />,
+      )
+
+      // The item-level fact wins over the version's, and it is „Retired" rather
+      // than „Archived": the Archiv is what a document is put INTO to become
+      // office knowledge, which is the opposite of this.
+      expect(screen.getByTestId('file-preview-lifecycle-badge')).toHaveTextContent('Retired')
+    })
+  })
+
   describe('"Indexed by Piloti" panel', () => {
     it('renders the AI summary, page and chunk counts inside the panel when present', () => {
       render(
