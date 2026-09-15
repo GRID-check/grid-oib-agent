@@ -1,24 +1,33 @@
 'use client'
 
 /**
- * One Aufgabe in detail, as a drawer over the list.
+ * One task in detail, as a drawer over the list.
  *
- * Two shapes, like the list: an INSTANCE shows where its single run got to and
- * where its result IS (the filed document first, the conversation to continue
- * second), a TEMPLATE shows its schedule, the frozen prompt it fires, and the
- * run history with a retry-with-the-same-plan. The history is the existing
- * `JobRunHistory`, moved here and not rewritten: the drawer is a new home, not
- * a new history.
+ * It holds no copy of its own — the panel resolves the selection against the
+ * live list on every render, so a poll landing while the drawer is open moves
+ * the drawer, and a row deleted elsewhere reads as gone rather than as a stale
+ * snapshot.
  *
- * The drawer holds no copy of its own — the panel resolves the selection
- * against the live lists on every render, so a poll landing while the drawer
- * is open moves the drawer, and a row deleted elsewhere reads as gone rather
- * than as a stale snapshot.
+ * Two affordances, in this order and no others:
+ *
+ *   1. **The result.** One primary button to the one place the result lives
+ *      (`taskResultTarget` decides which). This is what the reader opened the
+ *      drawer for, so it is the first thing under the title and the only
+ *      primary-weight control on the surface.
+ *   2. **„Als Zeitplan speichern".** The moment a person has just read a result
+ *      they liked is the moment they are most willing to commit to getting it
+ *      every week — and it used to cost them a walk to another tab and a
+ *      retyped prompt. Offered only on work that is not already on a schedule:
+ *      on a scheduled run it would propose duplicating the thing that produced
+ *      it.
+ *
+ * The template half of this drawer moved to `features/jobs/schedule-detail`
+ * with the schedules themselves.
  */
 
-import { useState } from 'react'
 import Link from 'next/link'
-import { FileText, MessageSquare, Pencil, Play, Sparkles } from 'lucide-react'
+import { ArrowRight, CalendarPlus, FileText, MessageSquare, ScrollText } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
@@ -33,81 +42,75 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
-import { runJob, JobApiError, type Job } from '@/adapters/api/jobs-client'
-import { JobRunHistory } from '@/features/jobs/components/job-run-history'
-import { scheduleSummary } from '@/features/jobs/components/job-list'
-import { ScheduleEnableSwitch } from './task-list'
-import type { TaskWireRow } from '../lib/task-view'
-import { toast } from 'sonner'
+import type { ScheduleDraft } from '@/features/jobs/lib/schedule-draft'
+import { taskResultTarget, type TaskWireRow } from '../lib/task-view'
 
-export type TaskSelection = { kind: 'task'; id: string } | { kind: 'job'; id: string }
+const RESULT_ICON: Record<'document' | 'conversation' | 'report' | 'thinking', LucideIcon> = {
+  document: FileText,
+  conversation: MessageSquare,
+  report: ScrollText,
+  thinking: ScrollText,
+}
 
 interface TaskDetailProps {
   projectId: string
-  projectCollection: string | null
-  selection: TaskSelection | null
-  /** Resolved live by the caller — null when the row is gone. */
+  /** The task the drawer is showing, or null when it is shut. */
   task: TaskWireRow | null
-  job: Job | null
-  /** Whether this member may pause/resume/retry schedules (`project:skills:manage`). */
-  canManageJobs: boolean
+  /** True while the drawer is open — a selection may be open and unresolved. */
+  open: boolean
   /**
    * Why the selection resolves to nothing. `deleted` is a row the drawer saw
-   * and that left — the existing gone copy, which is exactly that claim.
-   * `unresolved` is a deep link that never matched a row in this project: the
-   * drawer cannot say it left, only that it is not here. Defaults to
-   * `deleted`, which is the only way a row-clicked selection can read.
+   * and that left. `unresolved` is a deep link that never matched a row in this
+   * project: the drawer cannot say it left, only that it is not here.
    */
   goneReason?: 'deleted' | 'unresolved'
   /**
-   * The deep link has not been checked against a loaded list yet. Neither
-   * gone claim is earned while the first load is pending, so the drawer waits
+   * The deep link has not been checked against a loaded list yet. Neither gone
+   * claim is earned while the first load is pending, so the drawer waits
    * instead of flashing "not found" at a row that is still arriving.
    */
   resolving?: boolean
-  onJobChanged?: (job: Job) => void
-  /**
-   * Opens the builder on this definition. The row used to have an edit button
-   * of its own in the retired Jobs panel; without it, a schedule could be
-   * created and never changed.
-   */
-  onEditJob?: (job: Job) => void
+  /** Whether this member may create schedules (`project:skills:manage`). */
+  canManageJobs: boolean
+  /** Hands a pre-filled schedule to the Zeitplan tab. Omit to hide the action. */
+  onPromoteToSchedule?: (draft: ScheduleDraft) => void
   onClose: () => void
 }
 
-type Translate = ReturnType<typeof useTranslations>
-
 export function TaskDetail({
   projectId,
-  projectCollection,
-  selection,
   task,
-  job,
-  canManageJobs,
+  open,
   goneReason = 'deleted',
   resolving = false,
-  onJobChanged,
-  onEditJob,
+  canManageJobs,
+  onPromoteToSchedule,
   onClose,
 }: TaskDetailProps): JSX.Element {
   const t = useTranslations('tasks')
   const tCommon = useTranslations('common')
-  const gone = selection === null || (selection.kind === 'task' ? !task : !job)
 
   return (
-    <Sheet open={selection !== null} onOpenChange={(open) => !open && onClose()}>
+    <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
       <SheetContent
         side="right"
         closeLabel={t('detail.close')}
         data-testid="task-detail"
         className="flex flex-col"
       >
-        {gone ? (
+        {task ? (
+          <TaskDetailBody
+            projectId={projectId}
+            task={task}
+            canManageJobs={canManageJobs}
+            onPromoteToSchedule={onPromoteToSchedule}
+          />
+        ) : (
           <div className="py-8">
             <SheetHeader>
-              {/* While the deep link is still being checked, the heading says so:
-                  „Nicht gefunden" over a pending read is a finding before there
-                  is anything to find, and the body underneath already waits. */}
+              {/* While the deep link is still being checked, the heading says
+                  so: „Nicht gefunden" over a pending read is a finding before
+                  there is anything to find. */}
               <SheetTitle>{resolving ? t('detail.loadingTitle') : t('detail.goneTitle')}</SheetTitle>
             </SheetHeader>
             {resolving ? (
@@ -121,42 +124,32 @@ export function TaskDetail({
               </p>
             )}
           </div>
-        ) : selection.kind === 'task' && task ? (
-          <InstanceDetail projectId={projectId} task={task} t={t} />
-        ) : job ? (
-          <TemplateDetail
-            projectId={projectId}
-            projectCollection={projectCollection}
-            job={job}
-            canManageJobs={canManageJobs}
-            onJobChanged={onJobChanged}
-            onEditJob={onEditJob}
-          />
-        ) : null}
+        )}
       </SheetContent>
     </Sheet>
   )
 }
 
-/** Where one run got to, and where its result IS. */
-function InstanceDetail({
+function TaskDetailBody({
   projectId,
   task,
-  t,
+  canManageJobs,
+  onPromoteToSchedule,
 }: {
   projectId: string
   task: TaskWireRow
-  t: Translate
+  canManageJobs: boolean
+  onPromoteToSchedule: ((draft: ScheduleDraft) => void) | undefined
 }): JSX.Element {
+  const t = useTranslations('tasks')
   const { locale } = useLocale()
-  // Canonical homes, not history: the filed result lives in the project's
-  // files, a chat run is continued in the project's chat.
-  const documentHref = task.filedDocumentId
-    ? `/app/projects/${encodeURIComponent(projectId)}/files?doc=${encodeURIComponent(task.filedDocumentId)}`
-    : null
-  const conversationHref = task.conversationId
-    ? `/app/projects/${encodeURIComponent(projectId)}/chat?session=${encodeURIComponent(task.conversationId)}`
-    : null
+  const result = taskResultTarget(projectId, task)
+  const ResultIcon = result ? RESULT_ICON[result.kind] : null
+  // Only work a person WROTE, and only work that is not already recurring.
+  // A scheduled run's prompt is the schedule's, and promoting it would offer
+  // to duplicate the schedule that fired it.
+  const promotable =
+    canManageJobs && onPromoteToSchedule && task.trigger !== 'schedule' && Boolean(task.goal)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto py-2 pr-1">
@@ -176,27 +169,37 @@ function InstanceDetail({
         </SheetDescription>
       </SheetHeader>
 
-      {(documentHref || conversationHref) && (
+      {(result || promotable) && (
         <section aria-label={t('detail.result')}>
           <SectionLabel as="h2">{t('detail.result')}</SectionLabel>
-          <div className="mt-2 flex flex-col items-start gap-2">
-            {documentHref && (
-              <Button asChild size="sm" data-testid="task-detail-result-doc">
-                <Link href={documentHref}>
-                  <FileText aria-hidden />
-                  {t('detail.openDocument')}
+          <div className="mt-2 flex flex-col items-stretch gap-2">
+            {result && ResultIcon && (
+              <Button asChild data-testid="task-detail-result">
+                <Link href={result.href}>
+                  <ResultIcon aria-hidden />
+                  {t(`result.${result.kind}`)}
+                  <ArrowRight aria-hidden className="ml-auto size-4" />
                 </Link>
               </Button>
             )}
-            {conversationHref && (
-              <Button asChild size="sm" variant="outline" data-testid="task-detail-continue-chat">
-                <Link href={conversationHref}>
-                  <MessageSquare aria-hidden />
-                  {t('detail.continueChat')}
-                </Link>
+            {promotable && (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  onPromoteToSchedule?.({ name: task.title, prompt: task.goal ?? '' })
+                }
+                data-testid="task-detail-promote"
+              >
+                <CalendarPlus aria-hidden />
+                {t('detail.promote')}
               </Button>
             )}
           </div>
+          {promotable && (
+            <p className="text-muted-foreground mt-2 text-xs leading-relaxed">
+              {t('detail.promoteHint')}
+            </p>
+          )}
         </section>
       )}
 
@@ -210,18 +213,24 @@ function InstanceDetail({
       )}
 
       {task.review === 'rejected' && task.reviewReason && (
-        <p className="text-muted-foreground text-sm leading-relaxed" data-testid="task-detail-review-reason">
+        <p
+          className="text-muted-foreground text-sm leading-relaxed"
+          data-testid="task-detail-review-reason"
+        >
           {task.reviewReason}
         </p>
       )}
 
-      {task.status === 'failed' && task.error && (
+      {(task.status === 'failed' || task.status === 'error') && task.error && (
         <p className="text-error text-sm leading-relaxed" data-testid="task-detail-error">
           {task.error}
         </p>
       )}
 
-      <p className="card-caption text-muted-foreground mt-auto">
+      <p
+        className="card-caption text-muted-foreground mt-auto"
+        title={formatAbsoluteTime(task.createdAt, locale)}
+      >
         {task.requesterName
           ? t('meta.byOn', {
               name: task.requesterName,
@@ -229,167 +238,6 @@ function InstanceDetail({
             })
           : t('meta.on', { when: formatRelativeTime(task.createdAt, locale) })}
       </p>
-    </div>
-  )
-}
-
-/** The schedule, the prompt it fires, and every run it made. */
-function TemplateDetail({
-  projectId,
-  projectCollection,
-  job,
-  canManageJobs,
-  onJobChanged,
-  onEditJob,
-}: {
-  projectId: string
-  projectCollection: string | null
-  job: Job
-  canManageJobs: boolean
-  onJobChanged: ((job: Job) => void) | undefined
-  onEditJob: ((job: Job) => void) | undefined
-}): JSX.Element {
-  const t = useTranslations('tasks')
-  const tj = useTranslations('jobs')
-  const { locale } = useLocale()
-  const [running, setRunning] = useState(false)
-  // Remounts the run history so a just-started run shows up immediately.
-  const [historyToken, setHistoryToken] = useState(0)
-
-  const runNow = async () => {
-    setRunning(true)
-    try {
-      const result = await runJob(projectId, job.id)
-      if (result.status === 'submitted') {
-        // Retry with the same plan: the schedule, prompt and skill are
-        // untouched, only a new run is fired — it appears in the history below.
-        toast.success(tj('run.submitted'), { description: tj('run.submittedDetail') })
-        setHistoryToken((token) => token + 1)
-        onJobChanged?.({ ...job, lastRunAt: new Date().toISOString() })
-      } else if (result.status === 'skipped') {
-        toast.warning(tj('run.skipped'), { description: result.detail ?? undefined })
-      } else {
-        toast.error(tj('run.error'), { description: result.detail ?? undefined })
-      }
-    } catch (err) {
-      if (err instanceof JobApiError && err.status === 409) {
-        // The row was stale-enabled: the schedule is paused server-side, so
-        // the row moves now rather than on the next poll — the paused chip,
-        // the switch and the disabled retry all render from this one object.
-        onJobChanged?.({ ...job, enabled: false })
-        toast.error(tj('run.disabled'))
-      } else {
-        toast.error(tj('run.error'))
-      }
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  const nextRun = job.nextRunAt
-    ? tj('list.nextRun', { time: formatRelativeTime(job.nextRunAt, locale) })
-    : null
-  const lastRun = job.lastRunAt
-    ? tj('list.lastRun', { time: formatRelativeTime(job.lastRunAt, locale) })
-    : tj('list.neverRun')
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto py-2 pr-1">
-      <SheetHeader>
-        <div className="flex flex-wrap items-center gap-2">
-          <Chip size="sm" variant="outline">
-            {tj(`list.output.${job.output}`)}
-          </Chip>
-          {!job.enabled && <Chip size="sm" variant="outline">{tj('list.disabled')}</Chip>}
-        </div>
-        <SheetTitle className="mt-2 text-left">{job.name}</SheetTitle>
-        <SheetDescription className="text-left" data-testid="task-detail-schedule">
-          {job.scheduleCron
-            ? scheduleSummary(tj, job.scheduleCron, job.scheduleTimezone)
-            : tj('list.manualOnly')}
-          {' · '}
-          {nextRun ?? lastRun}
-        </SheetDescription>
-      </SheetHeader>
-
-      <section aria-label={t('detail.schedule')}>
-        <SectionLabel as="h2">{t('detail.schedule')}</SectionLabel>
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <span
-            className="text-muted-foreground text-xs"
-            title={
-              job.nextRunAt
-                ? formatAbsoluteTime(job.nextRunAt, locale)
-                : job.lastRunAt
-                  ? formatAbsoluteTime(job.lastRunAt, locale)
-                  : undefined
-            }
-          >
-            {nextRun ? `${nextRun} · ${lastRun}` : lastRun}
-          </span>
-          <div className="flex shrink-0 items-center gap-2">
-            {canManageJobs && onEditJob && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onEditJob(job)}
-                data-testid="task-detail-edit"
-              >
-                <Pencil className="size-3.5" aria-hidden />
-                {t('detail.edit')}
-              </Button>
-            )}
-            {canManageJobs && <ScheduleEnableSwitch job={job} onChanged={onJobChanged} tj={tj} />}
-          </div>
-        </div>
-        <p className="text-muted-foreground mt-2 flex min-w-0 items-center gap-1.5 text-xs">
-          <Sparkles className="size-3.5 shrink-0" aria-hidden />
-          <span className="truncate">
-            {job.skillName ? tj('list.withSkill', { name: job.skillName }) : tj('list.noSkill')}
-          </span>
-        </p>
-      </section>
-
-      <section aria-label={t('detail.prompt')}>
-        <SectionLabel as="h2">{t('detail.prompt')}</SectionLabel>
-        <p
-          className="bg-muted mt-2 whitespace-pre-wrap rounded-lg p-3 font-mono text-xs leading-relaxed"
-          data-testid="task-detail-prompt"
-        >
-          {job.prompt}
-        </p>
-      </section>
-
-      <section aria-label={t('detail.runs')}>
-        <div className="flex items-center justify-between gap-2">
-          <SectionLabel as="h2">{t('detail.runs')}</SectionLabel>
-          {canManageJobs && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void runNow()}
-              disabled={running || !job.enabled}
-              aria-busy={running}
-              data-testid="task-detail-run-now"
-            >
-              {running ? (
-                <Spinner size="sm" aria-hidden />
-              ) : (
-                <Play className="size-3.5" aria-hidden />
-              )}
-              {tj('actions.runNow')}
-            </Button>
-          )}
-        </div>
-        <div className="mt-2" data-testid="task-detail-runs">
-          <JobRunHistory
-            key={historyToken}
-            projectId={projectId}
-            projectCollection={projectCollection}
-            jobId={job.id}
-          />
-        </div>
-      </section>
     </div>
   )
 }

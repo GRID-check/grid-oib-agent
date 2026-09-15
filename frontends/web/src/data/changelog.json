@@ -39,8 +39,69 @@
       "summary": null,
       "sections": [
         {
+          "key": "features",
+          "notes": [
+            {
+              "en": "Die Automatisierung hat jetzt einen Zeitplan-Tab mit einem echten Stundenplan: eine Woche als Raster, jeder geplante Lauf als Block an seinem Platz. So sieht man auf einen Blick, was sich überschneidet, an welchen Tagen nichts läuft und wie dicht die Woche ist — bisher musste man das aus einer Liste im Kopf zusammenrechnen.",
+              "de": "Die Automatisierung hat jetzt einen Zeitplan-Tab mit einem echten Stundenplan: eine Woche als Raster, jeder geplante Lauf als Block an seinem Platz. So sieht man auf einen Blick, was sich überschneidet, an welchen Tagen nichts läuft und wie dicht die Woche ist — bisher musste man das aus einer Liste im Kopf zusammenrechnen."
+            },
+            {
+              "en": "Lange leere Stunden fasst der Stundenplan als markierte Pause zusammen, damit Vormittag und Nachmittag beide lesbar bleiben. Die ganzen 24 Stunden sind einen Klick entfernt.",
+              "de": "Lange leere Stunden fasst der Stundenplan als markierte Pause zusammen, damit Vormittag und Nachmittag beide lesbar bleiben. Die ganzen 24 Stunden sind einen Klick entfernt."
+            },
+            {
+              "en": "Neue Zeitpläne entstehen jetzt in vier Schritten statt auf einer Seite mit sechzehn Feldern: Auftrag, Ergebnis, Rhythmus, Prüfen. Pro Schritt ist genau eine Angabe nötig; Skill, Datenquellen, Zeitzone und Cron-Ausdruck liegen zusammengeklappt darunter, weil die meisten Zeitpläne sie nicht brauchen. Der Name schlägt sich aus der ersten Zeile des Auftrags selbst vor.",
+              "de": "Neue Zeitpläne entstehen jetzt in vier Schritten statt auf einer Seite mit sechzehn Feldern: Auftrag, Ergebnis, Rhythmus, Prüfen. Pro Schritt ist genau eine Angabe nötig; Skill, Datenquellen, Zeitzone und Cron-Ausdruck liegen zusammengeklappt darunter, weil die meisten Zeitpläne sie nicht brauchen. Der Name schlägt sich aus der ersten Zeile des Auftrags selbst vor."
+            },
+            {
+              "en": "Im Schritt „Rhythmus\" stehen die nächsten drei echten Termine. Ob „Monatlich am 1. um 06:00\" stimmt, ließ sich vorher nicht nachsehen — man hat es beim ersten Lauf erfahren.",
+              "de": "Im Schritt „Rhythmus\" stehen die nächsten drei echten Termine. Ob „Monatlich am 1. um 06:00\" stimmt, ließ sich vorher nicht nachsehen — man hat es beim ersten Lauf erfahren."
+            },
+            {
+              "en": "Ein Rhythmus lässt sich jetzt über mehrere Wochentage legen: „Montag, Mittwoch und Freitag\" oder „werktags\" ist eine Auswahl von Tagen statt eines Cron-Ausdrucks. Die Uhrzeit ist frei wählbar — bisher liefen alle Vorlagen um 06:00.",
+              "de": "Ein Rhythmus lässt sich jetzt über mehrere Wochentage legen: „Montag, Mittwoch und Freitag\" oder „werktags\" ist eine Auswahl von Tagen statt eines Cron-Ausdrucks. Die Uhrzeit ist frei wählbar — bisher liefen alle Vorlagen um 06:00."
+            },
+            {
+              "en": "Aus einer erledigten Aufgabe wird mit einem Klick ein Zeitplan: „Als Zeitplan speichern\" öffnet den Assistenten, der Auftrag steht schon darin.",
+              "de": "Aus einer erledigten Aufgabe wird mit einem Klick ein Zeitplan: „Als Zeitplan speichern\" öffnet den Assistenten, der Auftrag steht schon darin."
+            }
+          ]
+        },
+        {
           "key": "improvements",
           "notes": [
+            {
+              "en": "Die Automatisierung steht in der Seitenleiste jetzt bei den Hauptbereichen, neben „Frag Piloti\" und „Dateien\", statt unter einer eigenen Überschrift darunter.",
+              "de": "Die Automatisierung steht in der Seitenleiste jetzt bei den Hauptbereichen, neben „Frag Piloti\" und „Dateien\", statt unter einer eigenen Überschrift darunter."
+            },
+            {
+              "en": "Jeder Task ist eine Karte, und die ganze Karte öffnet die Details — nicht mehr nur der Titel. Ein Farbquadrat vor dem Titel zeigt den Status beim Überfliegen, die Liste ist nach „Heute\", „Gestern\", „Diese Woche\" gruppiert, und eine Filterzeile mit Zählern trennt Laufendes, Ungeprüftes und Fehlgeschlagenes.",
+              "de": "Jeder Task ist eine Karte, und die ganze Karte öffnet die Details — nicht mehr nur der Titel. Ein Farbquadrat vor dem Titel zeigt den Status beim Überfliegen, die Liste ist nach „Heute\", „Gestern\", „Diese Woche\" gruppiert, und eine Filterzeile mit Zählern trennt Laufendes, Ungeprüftes und Fehlgeschlagenes."
+            },
+            {
+              "en": "„Ungeprüft\" zeigt fertige Arbeit, die noch niemand beurteilt hat, und markiert sie auch auf der Karte. Das war bisher nirgends abfragbar.",
+              "de": "„Ungeprüft\" zeigt fertige Arbeit, die noch niemand beurteilt hat, und markiert sie auch auf der Karte. Das war bisher nirgends abfragbar."
+            },
+            {
+              "en": "Die Zeitplan-Karten sagen jetzt, was der Zeitplan tut — der Auftrag im Wortlaut — statt welchen Skill er benutzt. Der Skill steht weiterhin in den Details.",
+              "de": "Die Zeitplan-Karten sagen jetzt, was der Zeitplan tut — der Auftrag im Wortlaut — statt welchen Skill er benutzt. Der Skill steht weiterhin in den Details."
+            },
+            {
+              "en": "Ein Zeitplan lässt sich wieder löschen; die Aktion war beim Zusammenlegen der Bereiche verloren gegangen.",
+              "de": "Ein Zeitplan lässt sich wieder löschen; die Aktion war beim Zusammenlegen der Bereiche verloren gegangen."
+            },
+            {
+              "en": "„Freigabe und Fassungen\" steht jetzt am Ende der Dateiinfo und ist zugeklappt. Zugeklappt sagt der Abschnitt nur, wo das Dokument steht: den Stand, eine Strecke von Entwurf über In Prüfung und Freigegeben bis Veröffentlicht, und einen Satz dazu, worauf es wartet.",
+              "de": "„Freigabe und Fassungen\" steht jetzt am Ende der Dateiinfo und ist zugeklappt. Zugeklappt sagt der Abschnitt nur, wo das Dokument steht: den Stand, eine Strecke von Entwurf über In Prüfung und Freigegeben bis Veröffentlicht, und einen Satz dazu, worauf es wartet."
+            },
+            {
+              "en": "Wartet eine Fassung auf Sie, klappt der Abschnitt von selbst auf. Sie müssen also nichts aufklappen, um zu merken, dass Sie an der Reihe sind.",
+              "de": "Wartet eine Fassung auf Sie, klappt der Abschnitt von selbst auf. Sie müssen also nichts aufklappen, um zu merken, dass Sie an der Reihe sind."
+            },
+            {
+              "en": "Die Strecke zeigt auch, wenn es nicht weitergeht: Bei „Änderungen erbeten\" und „Abgelehnt\" ist der nächste Abschnitt gestrichelt statt offen.",
+              "de": "Die Strecke zeigt auch, wenn es nicht weitergeht: Bei „Änderungen erbeten\" und „Abgelehnt\" ist der nächste Abschnitt gestrichelt statt offen."
+            },
             {
               "en": "Die Statuszeile über der Herleitung sagt jetzt auch während des Formulierens, was gerade geschieht: Sobald die Recherche abgeschlossen ist und die Antwort geschrieben wird, steht dort, dass die Antwort formuliert wird, statt weiter die letzte Suche zu melden.",
               "de": "Die Statuszeile über der Herleitung sagt jetzt auch während des Formulierens, was gerade geschieht: Sobald die Recherche abgeschlossen ist und die Antwort geschrieben wird, steht dort, dass die Antwort formuliert wird, statt weiter die letzte Suche zu melden."
@@ -48,6 +109,49 @@
             {
               "en": "Die Statusmeldungen beim Suchen sind ruhiger geworden: Die Zeile meldet, wonach gerade gesucht wird, statt mit einer Fehlermeldung zu eröffnen, wenn die erste Trefferliste nicht gereicht hat.",
               "de": "Die Statusmeldungen beim Suchen sind ruhiger geworden: Die Zeile meldet, wonach gerade gesucht wird, statt mit einer Fehlermeldung zu eröffnen, wenn die erste Trefferliste nicht gereicht hat."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Ein fertiger Task, der kein Dokument abgelegt und keinen Chat eröffnet hat, führte nirgendwohin: Die Zeile sagte „Fertig\" und bot keinen Weg zum Ergebnis. Jetzt öffnet sie den Bericht des Laufs, und ein fehlgeschlagener Task den Gedankengang.",
+              "de": "Ein fertiger Task, der kein Dokument abgelegt und keinen Chat eröffnet hat, führte nirgendwohin: Die Zeile sagte „Fertig\" und bot keinen Weg zum Ergebnis. Jetzt öffnet sie den Bericht des Laufs, und ein fehlgeschlagener Task den Gedankengang."
+            },
+            {
+              "en": "„Archivieren\" heißt jetzt „Stilllegen\". Der alte Name war das Gegenteil dessen, was passiert: Ins Archiv legt man ein Dokument, damit es zu Bürowissen wird — stillgelegt wird es herausgenommen.",
+              "de": "„Archivieren\" heißt jetzt „Stilllegen\". Der alte Name war das Gegenteil dessen, was passiert: Ins Archiv legt man ein Dokument, damit es zu Bürowissen wird — stillgelegt wird es herausgenommen."
+            },
+            {
+              "en": "Stilllegen fragt jetzt nach und sagt vorher, was es tut: dass die Datei aus der Dateiliste verschwindet, dass Piloti sie nicht mehr zitiert, dass nichts gelöscht wird — und dass es sich hier nicht rückgängig machen lässt.",
+              "de": "Stilllegen fragt jetzt nach und sagt vorher, was es tut: dass die Datei aus der Dateiliste verschwindet, dass Piloti sie nicht mehr zitiert, dass nichts gelöscht wird — und dass es sich hier nicht rückgängig machen lässt."
+            },
+            {
+              "en": "Bei einer veröffentlichten Datei zeigte der Abschnitt eine einzelne Schaltfläche und sonst nichts: Der Satz, der den Stand erklärt, fehlte genau dann. Er steht jetzt immer da.",
+              "de": "Bei einer veröffentlichten Datei zeigte der Abschnitt eine einzelne Schaltfläche und sonst nichts: Der Satz, der den Stand erklärt, fehlte genau dann. Er steht jetzt immer da."
+            },
+            {
+              "en": "Downloading an answer as PDF no longer fails on certain reports. Exports that previously ended in an error now produce the document.",
+              "de": "Downloading an answer as PDF no longer fails on certain reports. Exports that previously ended in an error now produce the document."
+            }
+          ]
+        },
+        {
+          "key": "upgrade",
+          "notes": [
+            {
+              "en": "„Läufe\" heißen jetzt Tasks — dieselben Zeilen, das Wort, das im Rest des Produkts für übergebene Arbeit steht.",
+              "de": "„Läufe\" heißen jetzt Tasks — dieselben Zeilen, das Wort, das im Rest des Produkts für übergebene Arbeit steht."
+            }
+          ]
+        },
+        {
+          "key": "upgrade",
+          "notes": [
+            {
+              "en": "„Läufe\" heißen jetzt Tasks — dieselben Zeilen, das Wort, das im Rest des Produkts für übergebene Arbeit steht.",
+              "de": "„Läufe\" heißen jetzt Tasks — dieselben Zeilen, das Wort, das im Rest des Produkts für übergebene Arbeit steht."
             }
           ]
         }

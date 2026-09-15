@@ -253,3 +253,148 @@ export function documentBadgeState(
   if (subject.lifecycle === 'archived') return 'archived'
   return subject.versionState ?? null
 }
+
+/**
+ * The stages a version walks, as a progress track.
+ *
+ * The whole reason this exists: „Entwurf", „In Prüfung", „Freigegeben" and
+ * „Veröffentlicht" are four words a reader has to have been TOLD the order of.
+ * A track shows the order, so the badge stops being trivia and becomes a
+ * position. Four segments, no chroma — ink for what is behind the document,
+ * paper for what is ahead, which is the same vocabulary the diff uses and for
+ * the same reason (`docs/design/grid-design-language.md`: colour is provenance).
+ *
+ * Off-track states map ONTO the track rather than adding segments to it:
+ * „Änderungen erbeten" is a draft that has been round once, „Abgelehnt" is a
+ * review that ended. Both carry {@link LifecycleProgress.halted}, which is what
+ * the rendering turns into a stopped segment — a fifth and sixth segment would
+ * say the document has further to walk, and it does not.
+ */
+export const LIFECYCLE_STAGES = ['draft', 'in_review', 'approved', 'published'] as const
+
+export type LifecycleStage = (typeof LIFECYCLE_STAGES)[number]
+
+/**
+ * What the walked part of the track is coloured by.
+ *
+ * Not one value per state: three, because the reader is being told one thing —
+ * has anything happened to this document yet, and was it good or a stop.
+ * `moving` is neutral ink and the common case; a version in flight has asserted
+ * nothing, and a colour on it would be decoration rather than signal.
+ */
+export type LifecycleTone = 'moving' | 'settled' | 'stopped' | 'retired'
+
+export interface LifecycleProgress {
+  /** Segments behind the document, `0`–`4`. */
+  reached: number
+  /** The track stopped here: the version was sent back or refused. */
+  halted: boolean
+  /** The item left the working set, so the track is history whatever it says. */
+  archived: boolean
+  /** The walked segments' register. `retired` outranks every version-level one. */
+  tone: LifecycleTone
+}
+
+/**
+ * Where each state stands on the track. A map over the state union, so a new
+ * state does not compile until somebody has placed it.
+ */
+const STAGE_PROGRESS: Record<
+  DocumentVersionState,
+  { reached: number; halted: boolean; tone: LifecycleTone }
+> = {
+  draft: { reached: 1, halted: false, tone: 'moving' },
+  in_review: { reached: 2, halted: false, tone: 'moving' },
+  // Back at the draft it came from, and stopped: the next move is a new version.
+  changes_requested: { reached: 1, halted: true, tone: 'stopped' },
+  // The office has asserted the content — the first state that has earned a
+  // colour, and it keeps it through publication.
+  approved: { reached: 3, halted: false, tone: 'settled' },
+  published: { reached: 4, halted: false, tone: 'settled' },
+  // The review ran and ended. Two segments behind it, nothing ahead.
+  rejected: { reached: 2, halted: true, tone: 'stopped' },
+  // It was live once; a newer version took its place. The walk was completed.
+  superseded: { reached: 4, halted: false, tone: 'settled' },
+}
+
+export function lifecycleProgress(
+  version: Pick<DocumentVersionView, 'state'> | null,
+  lifecycle: 'active' | 'archived',
+): LifecycleProgress {
+  const archived = lifecycle === 'archived'
+  if (!version) return { reached: 0, halted: false, archived, tone: 'moving' }
+  const stage = STAGE_PROGRESS[version.state]
+  // The item-level fact outranks the version-level one, the same way the badge
+  // and the waiting line let „Stillgelegt" win: a file that has left the
+  // working set is not green, whatever its last version achieved.
+  return { ...stage, archived, tone: archived ? 'retired' : stage.tone }
+}
+
+/**
+ * What this version is waiting for, as an i18n leaf plus the one id the wording
+ * may need.
+ *
+ * Extracted from the control strip because the STAND is now said in two places
+ * — on the collapsed panel, where it is the only thing said, and under the
+ * controls when the panel is open — and a second `switch` over the state union
+ * is exactly the drift this module's header refuses for the transition table.
+ *
+ * Who was ASKED stays absent on purpose: the reviewer chain is resolved
+ * server-side (`lib/documents/reviewers.ts`), so no name is invented for them.
+ */
+export interface LifecycleWaiting {
+  /** Leaf under `files.lifecycle.waiting`. */
+  key: string
+  /** The submitter, when the wording names them. */
+  submitterUserId?: string | null
+}
+
+export function lifecycleWaiting(
+  version: Pick<DocumentVersionView, 'state' | 'submittedBy'> | null,
+  lifecycle: 'active' | 'archived',
+): LifecycleWaiting {
+  if (lifecycle === 'archived') return { key: 'archived' }
+  if (!version) return { key: 'none' }
+  switch (version.state) {
+    case 'draft':
+      return { key: 'draft' }
+    case 'in_review':
+      return version.submittedBy
+        ? { key: 'inReviewBy', submitterUserId: version.submittedBy }
+        : { key: 'inReview' }
+    case 'changes_requested':
+      return { key: 'changesRequested' }
+    case 'approved':
+      return { key: 'approved' }
+    case 'published':
+      return { key: 'published' }
+    case 'rejected':
+      return { key: 'rejected' }
+    case 'superseded':
+      return { key: 'superseded' }
+  }
+}
+
+/**
+ * Whether the panel opens itself.
+ *
+ * „Need to know" is the whole point of the disclosure: a version list and a set
+ * of review controls are not what a reader came to a file for, and on the great
+ * majority of files (a person's upload, born published) there is nothing to
+ * decide at all. So the section stays shut — UNLESS something is expected of
+ * THIS reader, which is precisely „a gesture that moves the version is
+ * available to them".
+ *
+ * `archive` is excluded, and that exclusion is the rule rather than a tweak: it
+ * is offered on every active document to anybody who may write, so counting it
+ * would open the panel on every file in the project and mean nothing.
+ */
+export function lifecycleNeedsReader(
+  version: Pick<DocumentVersionView, 'state' | 'submittedBy'> | null,
+  lifecycle: 'active' | 'archived',
+  viewer: DocumentLifecycleViewer,
+): boolean {
+  return availableLifecycleGestures(version, lifecycle, viewer).some(
+    (gesture) => gesture !== 'archive',
+  )
+}

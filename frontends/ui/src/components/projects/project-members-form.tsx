@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useTranslations } from '@/i18n'
+import { capturePosthog } from '@/lib/analytics/posthog'
 
 type ProjectRole = 'project-viewer' | 'project-contributor' | 'project-editor' | 'project-admin'
 
@@ -409,6 +410,10 @@ export function ProjectMembersForm({
               : member
           )
         )
+        capturePosthog('project_member_access_changed', {
+          change: roleSlug ? 'granted_or_updated' : 'removed',
+          role: roleSlug || undefined,
+        })
         return true
       } catch (err) {
         const message = err instanceof Error ? err.message : t('errors.updateFailed')

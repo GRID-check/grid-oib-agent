@@ -190,7 +190,7 @@ does not outlive the passages it described.
 
 ### Corrections after review
 
-The build was reviewed against the code and eight things in this record were
+The build was reviewed against the code and nine things in this record were
 either wrong or not true of what shipped. They are listed here rather than
 silently edited above, because a record that quietly agrees with itself teaches
 nobody what it cost to find them.
@@ -225,8 +225,8 @@ nobody what it cost to find them.
 4. **Archiving did not leave the listings.** „Archiviert" purged the chunks and
    wrote `documents.lifecycle`, and no listing read that column, so the file
    stayed exactly where it was in the Files pane. The default listings carry
-   `lifecycle = 'active'` now, with an explicit „Archivierte auch zeigen" filter
-   as the way back.
+   `lifecycle = 'active'` now, with an explicit filter as the way back (worded
+   „Stillgelegte auch zeigen" since item 9 below).
 
 5. **The three review decisions were reachable with the wrong permission.**
    `approve`, `request_changes` and `reject` listed `project:documents:write`
@@ -252,6 +252,40 @@ nobody what it cost to find them.
    agent-authored document said nothing about its own authorship, which is the
    one failure `markingIsInBytes` exists to make impossible. The update renders
    through the producer's renderer and re-checks the bytes.
+
+9. **„Archivieren" named the opposite of what it did, and the whole section
+   shouted.** Two faults, reported together by a reader in one sentence: no idea
+   what archiving a document does, and the versioning UI does not make sense.
+
+   The word first. This product has an Archiv — the office archive of ADR-0024,
+   whose own empty state says „Hier abgelegte Dokumente werden zu Bürowissen und
+   stehen jedem Projekt Ihrer Organisation zur Verfügung." A document is put
+   INTO it to become cross-project knowledge. The item-level act described in
+   this record does the inverse: the file leaves the working set and
+   `purgeIngestedChunks` removes it from the retrieval corpus, so Piloti stops
+   citing it. One verb was doing a thing and its opposite. The reader-facing
+   copy is now „Stilllegen" / „Stillgelegt" (EN: retire / retired), and the act
+   carries no archive-box glyph either, because that icon is the Büroarchiv's
+   own provenance signal. The wire is unchanged — `POST …/archive`, the client
+   method, and `documents.lifecycle = 'archived'` — because the collision was in
+   the language, not in the data, and renaming an enum value nobody reads would
+   be churn with a migration attached.
+
+   The shape second. The section stood open at the TOP of the file rail on every
+   document, above the summary and the facts, carrying a strip of review verbs
+   and the full version history. On a person's upload — born `published`, with
+   no decision left to take — the only control that strip could draw was that
+   one unexplained verb, which is how an ordinary file came to offer a one-way
+   door under a heading about approvals. It is now last in the rail and shut,
+   stating only where the document stands: the word, a four-segment track that
+   gives the word its order (Entwurf → In Prüfung → Freigegeben →
+   Veröffentlicht, ink for walked and a dashed outline where a refusal stopped
+   the walk), and the one sentence saying what it is waiting for. It opens
+   itself when a gesture other than the item-level one is available to this
+   reader — „need to know" cannot mean „notice it yourself" — and „Stilllegen"
+   sits at the bottom of the opened body, set apart, behind a confirm that
+   states all four of its consequences including the two nobody guesses: that
+   Piloti stops citing the file, and that nothing in the product brings it back.
 
 ### What this amends in ADR-0047
 

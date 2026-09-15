@@ -27,7 +27,7 @@ import type { DocBlock } from '@/lib/answer-export/blocks'
 import { cardsBlocks } from '@/lib/answer-export/cards'
 import { getDictionary } from '@/i18n/dictionaries'
 import { createTranslator } from '@/i18n/translate'
-import { BlocksDocument, blockNodes } from './blocks-to-pdf'
+import { BlocksDocument, blockNodes, pdfText } from './blocks-to-pdf'
 
 const t = createTranslator(getDictionary('en'), 'answerExport')
 
@@ -253,5 +253,34 @@ describe('the shapes the renderer reads off a block', () => {
     expect(blockNodes(EVERY_BLOCK)).toHaveLength(EVERY_BLOCK.length)
     // Nothing silently dropped: a kind with no branch would be `undefined`.
     expect(blockNodes(EVERY_BLOCK).every((node) => node !== undefined)).toBe(true)
+  })
+})
+
+describe('pdfText coercion (#611, #589, #580)', () => {
+  it('passes strings through', () => {
+    expect(pdfText('Fluchtweg')).toBe('Fluchtweg')
+  })
+
+  it('stringifies numbers and booleans', () => {
+    expect(pdfText(18.2)).toBe('18.2')
+    expect(pdfText(true)).toBe('true')
+  })
+
+  it('drops null, undefined and objects rather than throwing React #31', () => {
+    expect(pdfText(null)).toBe('')
+    expect(pdfText(undefined)).toBe('')
+    expect(pdfText({ $$typeof: 'react.element', type: 'span' })).toBe('')
+    expect(pdfText(['a', 'b'])).toBe('')
+  })
+
+  it('renders blocks carrying runtime non-string values instead of throwing', async () => {
+    const dirty = [
+      { kind: 'heading', level: 1, text: { label: 'x' } },
+      { kind: 'paragraph', runs: [{ text: { value: 1 } }] },
+      { kind: 'table', head: [{ label: 'H' }], rows: [[[{ text: 42 }]]] },
+    ] as unknown as DocBlock[]
+
+    const buffer = await renderToBuffer(<BlocksDocument cover={COVER} blocks={dirty} />)
+    expect(buffer.subarray(0, 5).toString('latin1')).toBe('%PDF-')
   })
 })

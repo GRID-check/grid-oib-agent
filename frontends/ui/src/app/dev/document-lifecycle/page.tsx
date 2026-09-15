@@ -3,23 +3,37 @@
 /**
  * Dev preview for the document lifecycle — the CMS-like half of Dateien.
  *
- * Four blocks, in the order a document walks them:
+ * Blocks, in the order a document walks them:
  *
  *  1. The badge set: every state, in the two neutral registers. No chroma at
  *     all, on purpose — colour belongs to provenance, and an editorial state is
  *     not provenance.
- *  2. `Entwurf`: what Piloti's freshly filed report looks like, with the one
- *     control that state allows (Zur Freigabe einreichen).
- *  3. `In Prüfung` with the four decisions, and the reviewer's comment box
+ *  2. AT REST. A person's upload, which is the great majority of every project:
+ *     the section is SHUT, and what it says shut is the word, the track and one
+ *     sentence. This block is the whole redesign in one shot — the same document
+ *     used to draw an open heading, a version list and a single unexplained
+ *     „Archivieren" at the top of the rail.
+ *  3. `Entwurf`: what Piloti's freshly filed report looks like, with the one
+ *     control that state allows (Zur Freigabe einreichen). It is OPEN without
+ *     anybody having clicked, because a decision is outstanding for this reader
+ *     — the auto-open rule is the half of „need to know" that the shut block
+ *     above cannot show.
+ *  4. `In Prüfung` with the decisions, and the reviewer's comment box
  *     opened — the state the screenshot exists for, because „Änderungen
  *     anfordern" without words is the flow that must not be possible.
- *  4. The same state with „Piloti überarbeiten lassen" pressed instead: the
+ *  5. The same state with „Piloti überarbeiten lassen" pressed instead: the
  *     same box, the same comment requirement, plus the line saying what the
  *     third control does beyond sending the version back. It is here as its own
  *     block because the two boxes differ by exactly that one line, and a shot
  *     of only one of them cannot show it.
- *  5. `Veröffentlicht` with a version list: three versions, who submitted,
- *     approved and published each, and the comment that sent version 2 back.
+ *  6. `Veröffentlicht` OPENED: three versions, who submitted, approved and
+ *     published each, the comment that sent version 2 back, and — last and set
+ *     apart — the archive block with its own explanation.
+ *
+ * `?variant=archive` is a page of its own for the archive confirm, because a
+ * dialog is a portal over the whole document and would cover every block above
+ * it. It is the shot that answers the report this redesign came from: „no idea
+ * what archiving does".
  *
  * The panel takes its client as a PROP, so this page hands each block a
  * different fixture client and needs no backend and no fetch shim. Pinned to
@@ -27,10 +41,11 @@
  * 404s outside development.
  */
 
-import { useEffect, useRef } from 'react'
+import { use, useEffect, useRef } from 'react'
 import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { DocumentLifecyclePanel } from '@/features/documents/components/document-lifecycle-panel'
+import { DocumentLifecycleStand } from '@/features/documents/components/document-lifecycle-stand'
 import { DocumentVersionStateBadge } from '@/features/documents/components/document-version-badge'
 import type { DocumentLifecycleClient } from '@/lib/documents/lifecycle-client'
 import type {
@@ -90,6 +105,14 @@ function fixtureClient(listing: DocumentVersionListResponse): DocumentLifecycleC
   } as DocumentLifecycleClient
 }
 
+/** The ordinary case: a person's upload, born published, nothing to decide. */
+const UPLOADED = fixtureClient({
+  documentId: 'doc_0',
+  lifecycle: 'active',
+  publishedVersionId: 'ver_1',
+  versions: [version(1, 'published', { createdBy: REVIEWER })],
+})
+
 const DRAFT = fixtureClient({
   documentId: 'doc_1',
   lifecycle: 'active',
@@ -148,21 +171,75 @@ const PUBLISHED = fixtureClient({
   ],
 })
 
-const NAMES = { [AUTHOR]: 'Anna Berger', [REVIEWER]: 'Markus Feld' }
+const NAMES: Record<string, string> = { [AUTHOR]: 'Anna Berger', [REVIEWER]: 'Markus Feld' }
+
+/** Every state on the same track, so the two that HALT are visible as halts. */
+const TRACK_STATES: readonly { state: DocumentVersionState; submittedBy?: string }[] = [
+  { state: 'draft' },
+  { state: 'in_review', submittedBy: AUTHOR },
+  { state: 'changes_requested' },
+  { state: 'approved' },
+  { state: 'published' },
+  { state: 'rejected' },
+  { state: 'superseded' },
+]
 
 const REVIEWER_VIEWER = {
   permissions: ['project:view', 'project:edit', 'project:documents:write'] as const,
   userId: REVIEWER,
 }
 
-export default function DocumentLifecycleDevPage(): JSX.Element {
+/**
+ * `?variant=archive` gives the archive confirm a page to itself. A dialog is a
+ * portal over the whole document, so photographing it beside the gallery would
+ * photograph one grey sheet and the blocks dimmed behind it.
+ *
+ * Read off the `searchParams` prop like `/dev/file-preview` does, rather than
+ * through `useSearchParams`: the hook bails the whole route out to client
+ * rendering, and these pages are already the one place where that difference is
+ * load-bearing for the screenshot harness.
+ */
+export default function DocumentLifecycleDevPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}): JSX.Element {
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }
+  const variant = use(searchParams).variant
   return (
     <I18nProvider initialLocale="de" fixedLocale>
-      <DocumentLifecycleFixtures />
+      {variant === 'archive' ? <ArchiveFixture /> : <DocumentLifecycleFixtures />}
     </I18nProvider>
+  )
+}
+
+function ArchiveFixture(): JSX.Element {
+  useDrivenBlocks()
+  return (
+    <main
+      className="mx-auto flex max-w-3xl flex-col gap-6 p-6"
+      data-testid="document-lifecycle-archive-preview"
+    >
+      <div>
+        <h1 className="text-lg font-semibold">Stilllegen</h1>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Der einzige Akt in diesem Abschnitt, der sich im Haus nicht zurücknehmen lässt — und
+          deshalb der einzige, der vorher sagt, was er tut.
+        </p>
+      </div>
+      <div className="rounded-xl border p-4" data-preview-block="archive">
+        <DocumentLifecyclePanel
+          documentId="doc_0"
+          filename="Aktenvermerk Fluchtwege.pdf"
+          authoredBy="user"
+          viewer={REVIEWER_VIEWER}
+          names={NAMES}
+          client={UPLOADED}
+        />
+      </div>
+    </main>
   )
 }
 
@@ -183,25 +260,69 @@ export default function DocumentLifecycleDevPage(): JSX.Element {
  */
 const opened = new Set<string>()
 
-/** Which control each block presses, by the block's own `data-preview-block`. */
-const DRIVEN_BLOCKS: readonly (readonly [block: string, testId: string])[] = [
-  ['in-review', 'document-lifecycle-request_changes'],
-  ['delegate', 'document-lifecycle-delegate_revision'],
+/**
+ * What each block presses, and the DOM it presses until.
+ *
+ * A step at a time: the panel is a disclosure now, so two of these have to open
+ * the section before the control they want exists. Each step is „click this
+ * until that appears", and a block is done when its last step has settled —
+ * which is also what keeps this honest, because a step whose control never
+ * renders stops the block instead of silently photographing it at rest.
+ */
+type DriveStep = {
+  click: string
+  settled: string
+  /** The result is a portal (a dialog), so it lands outside the block. */
+  portal?: true
+}
+
+const DRIVEN_BLOCKS: readonly (readonly [block: string, steps: readonly DriveStep[]])[] = [
+  // Already open — the round wants something from this reader — so one step.
+  [
+    'in-review',
+    [{ click: 'document-lifecycle-request_changes', settled: 'document-review-comment' }],
+  ],
+  [
+    'delegate',
+    [{ click: 'document-lifecycle-delegate_revision', settled: 'document-review-comment' }],
+  ],
+  // Nothing outstanding here, so the section is shut and the shot has to open
+  // it. That IS the behaviour under review: the history is behind one click.
+  ['published', [{ click: 'document-lifecycle-toggle', settled: 'document-version-row' }]],
+  [
+    'archive',
+    [
+      { click: 'document-lifecycle-toggle', settled: 'document-lifecycle-archive' },
+      {
+        click: 'document-lifecycle-archive',
+        settled: 'document-archive-consequences',
+        portal: true,
+      },
+    ],
+  ],
 ]
 
-function useOpenCommentBoxes(): void {
+function useDrivenBlocks(): void {
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
   useEffect(() => {
     timer.current = setInterval(() => {
-      for (const [block, testId] of DRIVEN_BLOCKS) {
+      for (const [block, steps] of DRIVEN_BLOCKS) {
         if (opened.has(block)) continue
         const scope = document.querySelector(`[data-preview-block="${block}"]`)
         if (!scope) continue
-        if (scope.querySelector('[data-testid="document-review-comment"]')) {
+        // The first step whose result is not on screen yet is the one to press.
+        // Scoped to the BLOCK, because two panels on this page are in review
+        // and a document-wide lookup would settle one block on the other's DOM.
+        // A dialog is the exception: it is a portal, so it lands at body level.
+        const pending = steps.find(
+          (step) =>
+            !(step.portal ? document : scope).querySelector(`[data-testid="${step.settled}"]`),
+        )
+        if (!pending) {
           opened.add(block)
           continue
         }
-        scope.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)?.click()
+        scope.querySelector<HTMLButtonElement>(`[data-testid="${pending.click}"]`)?.click()
       }
       if (opened.size === DRIVEN_BLOCKS.length && timer.current) {
         clearInterval(timer.current)
@@ -214,7 +335,7 @@ function useOpenCommentBoxes(): void {
 }
 
 function DocumentLifecycleFixtures(): JSX.Element {
-  useOpenCommentBoxes()
+  useDrivenBlocks()
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-10 p-6" data-testid="document-lifecycle-preview">
@@ -233,6 +354,53 @@ function DocumentLifecycleFixtures(): JSX.Element {
             <DocumentVersionStateBadge key={state} versionState={state} always />
           ))}
           <DocumentVersionStateBadge lifecycle="archived" versionState="published" always />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-muted-foreground text-sm font-medium">Strecke</h2>
+        <p className="text-muted-foreground max-w-prose text-xs">
+          Jeder Zustand auf derselben Strecke. Farbe bekommt sie erst, wenn etwas geschehen ist:
+          Ein Entwurf und eine laufende Prüfung bleiben Tinte, ab „Freigegeben“ wird die Strecke
+          grün, und die beiden, die anhalten — „Änderungen erbeten“ steht wieder beim Entwurf,
+          „Abgelehnt“ nach der Prüfung —, sind rot und zusätzlich gestrichelt.
+        </p>
+        <div className="grid gap-4 rounded-xl border p-4 sm:grid-cols-2">
+          {TRACK_STATES.map(({ state, submittedBy }) => (
+            <DocumentLifecycleStand
+              key={state}
+              version={{ state, submittedBy: submittedBy ?? null }}
+              lifecycle="active"
+              nameOf={(userId) => (userId ? (NAMES[userId] ?? 'Jemand') : 'Jemand')}
+            />
+          ))}
+          {/* Item-level, so it is not a stage: the whole track reads as history. */}
+          <DocumentLifecycleStand
+            version={{ state: 'published', submittedBy: null }}
+            lifecycle="archived"
+            nameOf={() => 'Jemand'}
+          />
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-muted-foreground text-sm font-medium">
+          In Ruhe — eine hochgeladene Datei
+        </h2>
+        <p className="text-muted-foreground max-w-prose text-xs">
+          Der Normalfall: Jemand hat die Datei hochgelegt, damit ist sie behauptet, und es steht
+          nichts zur Entscheidung. Zugeklappt sagt der Abschnitt das Wort, die Strecke und einen
+          Satz — Fassungen, Entscheidungen und das Stilllegen liegen dahinter.
+        </p>
+        <div className="rounded-xl border p-4">
+          <DocumentLifecyclePanel
+            documentId="doc_0"
+            filename="Aktenvermerk Fluchtwege.pdf"
+            authoredBy="user"
+            viewer={REVIEWER_VIEWER}
+            names={NAMES}
+            client={UPLOADED}
+          />
         </div>
       </section>
 
@@ -278,8 +446,10 @@ function DocumentLifecycleFixtures(): JSX.Element {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-muted-foreground text-sm font-medium">Veröffentlicht</h2>
-        <div className="rounded-xl border p-4">
+        <h2 className="text-muted-foreground text-sm font-medium">
+          Veröffentlicht — aufgeklappt
+        </h2>
+        <div className="rounded-xl border p-4" data-preview-block="published">
           <DocumentLifecyclePanel
             documentId="doc_3"
             authoredBy="user"

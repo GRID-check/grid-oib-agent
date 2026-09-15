@@ -233,6 +233,31 @@ async def _resolve_targets(entries: list[Any], document: str) -> list[PassageTar
     return targets
 
 
+def _coerce_page(page: Any) -> int | None:
+    """Coerce a model-supplied page number to int; ``''`` means omitted (#656).
+
+    The tool schema types ``page`` as int, but providers send ``''`` for
+    "no page" and occasionally numeric strings. Pydantic rejects ``''`` with
+    ``int_parsing`` before the function runs; accepting ``int | str | None``
+    here and normalising keeps that miss a refusal, not a tool error.
+    """
+    if page is None:
+        return None
+    if isinstance(page, int):
+        return page
+    if isinstance(page, float):
+        return int(page)
+    if isinstance(page, str):
+        stripped = page.strip()
+        if not stripped:
+            return None
+        try:
+            return int(float(stripped))
+        except ValueError:
+            return None
+    return None
+
+
 def _passage_filters(file_name: str, punkt: str | None, page: int | None) -> dict[str, Any]:
     """The metadata filter that admits exactly the requested chunks.
 
@@ -670,7 +695,12 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
         # how many more clear the bar, so truncating never hides the count.
         return [], _unknown_document_message(document, known, _suggestion_names(document, scoped, limit=1000))
 
-    async def _read(document: str, punkt: str | None = None, page: int | None = None, conclusion: str = "") -> str:
+    async def _read(
+        document: str,
+        punkt: str | None = None,
+        page: int | str | None = None,
+        conclusion: str = "",
+    ) -> str:
         """Open a document you can name: one Punkt or page of it, or its outline.
 
         With neither `punkt` nor `page`, the document's OUTLINE is returned: its
@@ -684,9 +714,10 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
                 invented, never a fragment.
             punkt (str | None): Optional. The Punkt number alone, e.g. "3.5.2" —
                 no "Pkt.", no title. Omit it, and `page`, for the outline.
-            page (int | None): Optional. The page number, 1-based. May be
-                combined with `punkt` to read that Punkt on that page. Omit it,
-                and `punkt`, for the outline.
+            page (int | str | None): Optional. The page number, 1-based. May be
+                combined with `punkt` to read that Punkt on that page. ``''`` is
+                treated as omitted (#656: providers send empty string for "no
+                page"). Omit it, and `punkt`, for the outline.
             conclusion (str): ONE sentence: what you now know and what you
                 still need, which is why you are opening this passage. It is
                 the Herleitung checkpoint the reader sees above this fetch; it
@@ -703,6 +734,7 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
         # never an input to what gets opened.
         document = (document or "").strip()
         punkt = (punkt or "").strip().strip(".") or None
+        page = _coerce_page(page)
         if not document:
             return (
                 "Provide `document=` the exact name or display title of the document to open "

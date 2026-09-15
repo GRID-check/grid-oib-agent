@@ -7,6 +7,11 @@
  * those controls, that a refusal cannot be sent without words, that a lost race
  * says so and re-reads, that the history is legible — and that a lone version
  * collapses to its stand rather than a one-row list.
+ *
+ * The panel is a DISCLOSURE, shut at rest, so a test about the body opens it
+ * first ({@link openPanel}). The exception is a version that wants something
+ * from this reader: those tests never call it, because the panel opening itself
+ * is the behaviour they are standing on.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -20,6 +25,11 @@ import type {
   DocumentVersionView,
 } from '@/lib/documents/lifecycle-types'
 import { DocumentLifecyclePanel } from './document-lifecycle-panel'
+
+/** Open the section. Shut at rest is the point; the body is behind one click. */
+async function openPanel(): Promise<void> {
+  await userEvent.click(await screen.findByTestId('document-lifecycle-toggle'))
+}
 
 const toastError = vi.fn()
 vi.mock('sonner', () => ({
@@ -125,9 +135,12 @@ describe('DocumentLifecyclePanel — what the state allows', () => {
     )
 
     expect(await screen.findByTestId('document-lifecycle-panel')).toBeInTheDocument()
-    expect(screen.queryByRole('button')).not.toBeInTheDocument()
-    // No gesture for this reader is a muted line, never nothing: what the
-    // version waits for, and who submitted it.
+    // Nothing is expected of this reader, so the section stays shut — and the
+    // only button on it is the one that opens it.
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+    expect(screen.queryByTestId('document-review-controls')).not.toBeInTheDocument()
+    // The wait is said anyway, WITHOUT opening anything: what the version waits
+    // for, and who submitted it. That is the whole of „need to know".
     const waiting = screen.getByTestId('document-review-waiting')
     expect(waiting).toHaveTextContent('In review')
     expect(waiting).toHaveTextContent('Anna Berger')
@@ -386,6 +399,7 @@ describe('DocumentLifecyclePanel — the version list', () => {
         Promise.resolve(listing([makeVersion(1, 'superseded'), makeVersion(2, 'published')])),
     })
     render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
+    await openPanel()
 
     // Newest first, so the published row stands above the superseded one.
     const opens = await screen.findAllByTestId('document-version-open')
@@ -405,6 +419,7 @@ describe('DocumentLifecyclePanel — the version list', () => {
       diff,
     })
     render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
+    await openPanel()
 
     await userEvent.click((await screen.findAllByTestId('document-version-compare'))[0])
 
@@ -429,6 +444,7 @@ describe('DocumentLifecyclePanel — the version list', () => {
       diff: () => Promise.reject(new Error('nope')),
     })
     render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
+    await openPanel()
 
     await userEvent.click((await screen.findAllByTestId('document-version-compare'))[0])
 
@@ -463,9 +479,10 @@ describe('DocumentLifecyclePanel — a lone version is a state line, not a list'
     // No „Versionen" header and no one-row list around it.
     expect(screen.queryByText('Versions')).not.toBeInTheDocument()
     expect(screen.queryByTestId('document-version-row')).not.toBeInTheDocument()
-    // The stand: the state, who moved it and when — never a „Version 1".
+    // Who moved it and when — never a „Version 1", and never the state again:
+    // the stand above this line carries that, as a badge and as a sentence.
     const line = screen.getByTestId('document-version-state-line')
-    expect(line).toHaveTextContent('In review')
+    expect(line).toHaveTextContent('Submitted')
     expect(line).toHaveTextContent('Anna Berger')
     expect(line).not.toHaveTextContent('Version 1')
     // Nothing to compare against and nowhere to open from: the document the
@@ -474,15 +491,18 @@ describe('DocumentLifecyclePanel — a lone version is a state line, not a list'
     expect(screen.queryByTestId('document-version-compare')).not.toBeInTheDocument()
   })
 
-  it('marks the lone version current when it is the published one', async () => {
+  it('says nothing at all about a lone version nothing has happened to', async () => {
+    // A person's upload with no acts stamped and no review comment: the stand
+    // is the whole truth, so the list renders no line rather than an empty one.
     const client = fakeClient({
       listVersions: () => Promise.resolve(listing([makeVersion(1, 'published')])),
     })
     render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
+    await openPanel()
 
-    const line = await screen.findByTestId('document-version-state-line')
-    expect(line).toHaveTextContent('Published')
-    expect(line).toHaveTextContent('Current')
+    expect(await screen.findByTestId('document-lifecycle-state')).toHaveTextContent('Published')
+    expect(screen.queryByTestId('document-version-state-line')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('document-version-list')).not.toBeInTheDocument()
   })
 
   it('keeps the reviewer’s words on the lone version they are about', async () => {
@@ -524,7 +544,10 @@ describe('DocumentLifecyclePanel — archive', () => {
       />,
     )
 
+    await openPanel()
     await userEvent.click(await screen.findByTestId('document-lifecycle-archive'))
+    // A one-way door asks first — the consequences, then the confirm.
+    await userEvent.click(await screen.findByTestId('document-archive-confirm'))
 
     await waitFor(() => expect(archive).toHaveBeenCalledWith('doc_1'))
     await waitFor(() =>

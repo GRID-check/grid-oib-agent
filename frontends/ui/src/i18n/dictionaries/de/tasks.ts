@@ -1,48 +1,66 @@
 import type { en } from '../en'
 
 /**
- * Aufgaben — die delegierte Arbeit eines Projekts (ADR-0051).
+ * Tasks — die delegierte Arbeit eines Projekts (ADR-0051).
  *
  * Eine Aufgabe ist Arbeit, die jemand an Piloti übergeben und dann losgelassen
  * hat: eine Übergabe im Chat, ein „Piloti überarbeiten lassen“ aus einer
- * Freigabe, oder ein Job nach Zeitplan. Die Wörter hier handeln von ARBEIT,
- * nicht von einem Lauf — „läuft“ und „fehlgeschlagen“ ist, was man über die
- * Sache fragt, um die man gebeten hat.
+ * Freigabe, oder ein Zeitplan nach Timer. Die Wörter hier handeln von ARBEIT,
+ * nicht von einem Lauf — deshalb heißen die Zeilen jetzt in beiden Sprachen
+ * „Tasks“. „Läufe“ stand für genau dieselben Zeilen, und wer um etwas gebeten
+ * hat, denkt über das Ergebnis nicht als Lauf von irgendetwas nach.
  */
 export const tasks: typeof en.tasks = {
-  groups: {
-    templates: 'Zeitpläne',
-    templatesEmpty: 'Noch keine Zeitpläne. Legen Sie einen an — Piloti arbeitet dann nach Timer.',
-    templatesError: 'Die Zeitpläne konnten nicht geladen werden.',
-    instances: 'Läufe',
-  },
   cadence: {
     once: 'Einmalig',
   },
   create: {
     delegate: 'Delegieren',
     delegateHint: 'Übergeben wird im Chat: Bitten Sie Piloti, etwas zu übernehmen.',
-    schedule: 'Neuer Zeitplan',
-    back: 'Zurück zu den Aufgaben',
+  },
+  filters: {
+    label: 'Tasks filtern',
+    all: 'Alle',
+    active: 'Läuft',
+    /** Fertig, und niemand hat gesagt, ob es taugt. Eine offene Schleife. */
+    unreviewed: 'Ungeprüft',
+    failed: 'Fehlgeschlagen',
+    showAll: 'Alle Tasks zeigen',
+  },
+  buckets: {
+    today: 'Heute',
+    yesterday: 'Gestern',
+    week: 'Diese Woche',
+    earlier: 'Früher',
+  },
+  card: {
+    openAria: '„{title}“ öffnen',
+    unreviewed: 'Noch nicht geprüft',
+  },
+  result: {
+    document: 'Dokument öffnen',
+    conversation: 'Im Chat fortsetzen',
+    report: 'Bericht öffnen',
+    /** Ein Fehlschlag hat keinen Bericht; gefragt ist, was er versucht hat. */
+    thinking: 'Gedankengang ansehen',
   },
   detail: {
     close: 'Details schließen',
-    // Öffnet den Bearbeiter für diesen Zeitplan; der frühere Jobs-Tab hatte ihn.
     edit: 'Bearbeiten',
     result: 'Ergebnis',
-    openDocument: 'Dokument öffnen',
-    continueChat: 'Im Chat fortsetzen',
     request: 'Auftrag',
     schedule: 'Zeitplan',
     prompt: 'Prompt',
-    runs: 'Läufe',
+    /** Die Läufe eines Zeitplans — jeder davon ein Task, also heißt es so. */
+    runs: 'Tasks',
+    promote: 'Als Zeitplan speichern',
+    promoteHint: 'Öffnet den Zeitplan-Assistenten, dieser Auftrag ist schon eingetragen.',
     gone: 'Das gibt es nicht mehr — möglicherweise wurde es gelöscht.',
     /**
-     * Ein Deep Link, der in diesem Projekt auf keine Zeile passt — weder auf
-     * einen Lauf noch auf einen Zeitplan. Der Link zeigt möglicherweise auf ein
-     * anderes Projekt, oder der Eintrag wurde gelöscht, bevor diese Liste lud.
-     * „Nicht hier" statt „weg": Die Detailansicht hat ihn nie gesehen, also
-     * kann sie nicht behaupten, er sei gegangen.
+     * Ein Deep Link, der in diesem Projekt auf keine Zeile passt. Der Link zeigt
+     * möglicherweise auf ein anderes Projekt, oder der Eintrag wurde gelöscht,
+     * bevor diese Liste lud. „Nicht hier" statt „weg": Die Detailansicht hat ihn
+     * nie gesehen, also kann sie nicht behaupten, er sei gegangen.
      */
     goneUnresolved:
       'Das wurde hier nicht gefunden. Der Link zeigt möglicherweise auf ein anderes Projekt, oder der Eintrag wurde gelöscht.',
@@ -54,8 +72,14 @@ export const tasks: typeof en.tasks = {
     emptyTitle: 'Noch nichts übergeben',
     emptyDescription:
       'Bitten Sie Piloti im Chat, etwas zu übernehmen, oder schicken Sie einen Entwurf zur Überarbeitung zurück — dann steht es hier.',
-    errorTitle: 'Die Aufgaben konnten nicht geladen werden',
+    emptyFiltered: {
+      active: 'Gerade läuft nichts',
+      unreviewed: 'Alles Fertige ist geprüft',
+      failed: 'Nichts ist fehlgeschlagen',
+    },
+    errorTitle: 'Die Tasks konnten nicht geladen werden',
     errorDescription: 'Der Rest des Projekts ist davon nicht betroffen. Versuchen Sie es gleich noch einmal.',
+    retry: 'Erneut versuchen',
   },
   kind: {
     'deep-research': 'Recherche',
@@ -75,8 +99,7 @@ export const tasks: typeof en.tasks = {
     interrupted: 'Angehalten',
     // Ein Start, der den Agenten nie erreicht hat (Obergrenze, Feature aus).
     skipped: 'Übersprungen',
-    // Ein Start, dessen Übermittlung gebrochen ist — der sichtbare Fehler, den
-    // die Zusammenführung nach Aufgaben bringt.
+    // Ein Start, dessen Übermittlung gebrochen ist.
     error: 'Übermittlung fehlgeschlagen',
   },
   review: {
@@ -86,7 +109,5 @@ export const tasks: typeof en.tasks = {
   meta: {
     byOn: '{name} · {when}',
     on: '{when}',
-    document: 'Dokument',
-    conversation: 'Chat',
   },
 }

@@ -79,11 +79,17 @@ function ItemActions({ className, ...props }: React.ComponentProps<'div'>): Reac
   )
 }
 
+/**
+ * `ol` is here because a version history is an ordered list and the list is the
+ * order: the document-lifecycle panel renders its versions newest-first, and
+ * rendering that as a `ul` would drop the ordinality from the accessibility
+ * tree while the eye still reads it off the page.
+ */
 function ItemList({
   className,
   as: Comp = 'div',
   ...props
-}: React.HTMLAttributes<HTMLElement> & { as?: 'div' | 'ul' }): React.JSX.Element {
+}: React.HTMLAttributes<HTMLElement> & { as?: 'div' | 'ul' | 'ol' }): React.JSX.Element {
   return (
     <Comp
       data-slot="item-list"

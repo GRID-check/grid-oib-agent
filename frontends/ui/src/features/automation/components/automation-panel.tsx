@@ -1,32 +1,33 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { ListChecks, Sparkles } from 'lucide-react'
+import { CalendarRange, ListChecks, Sparkles } from 'lucide-react'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SkillsPanel } from '@/features/skills/components/skills-panel'
+import { SchedulePanel } from '@/features/jobs/components/schedule-panel'
+import type { ScheduleDraft } from '@/features/jobs/lib/schedule-draft'
 import { TasksPanel } from '@/features/tasks/components/tasks-panel'
 import { useTranslations } from '@/i18n'
-import { parseAutomationTab, type AutomationTab } from '../lib/automation-tab'
+import { parseAutomationTab, tabForDeepLink, type AutomationTab } from '../lib/automation-tab'
 
 /**
- * Automation — Aufgaben and Skills as tabs inside ONE project section.
+ * Automation — Tasks, Zeitplan and Skills as tabs inside ONE project section.
  *
- * The two answer two different questions: a TASK is work somebody handed over —
- * a one-off handover or the recurring schedule that fires it, which migration
- * 0086 collapsed into one row — and a SKILL is a reusable instruction the
- * ORGANIZATION owns. Aufgaben leads because it is the question a person asks
- * first; schedules are the group at the top of that same list, not a tab.
+ * The three answer three different questions; `lib/automation-tab.ts` is where
+ * that split is argued. Tasks leads because it is the one asked most often.
  *
  * Only the ACTIVE tab is mounted. That is load-bearing, not an optimization:
  * panels portal their primary action (delegating, a new schedule, a new skill)
- * into the shared section header via `ProjectSectionActions`, which is a
- * single slot — two mounted panels would fight over it.
+ * into the shared section header via `ProjectSectionActions`, which is a single
+ * slot — two mounted panels would fight over it. It is also what keeps the
+ * timetable's `cron-parser` load off the readers who never open Zeitplan.
  *
- * The tab rides `?tab=` via `history.replaceState`, so a deep link lands on
- * the right tab and switching costs no server round-trip. Aufgaben is the
- * default; `?tab=jobs` parses to Aufgaben, so the retired tab's bookmarks and
- * inbox deep links keep answering.
+ * The tab rides `?tab=` via `history.replaceState`, so a deep link lands on the
+ * right tab and switching costs no server round-trip. A DRAWER deep link
+ * (`?task=` for a run, `?schedule=` for a schedule) wins over `?tab=`, because
+ * since the split each of those params has exactly one home tab — the panel
+ * simply opens it, with no settle-and-restore dance to run afterwards.
  */
 
 interface AutomationPanelProps {
@@ -38,21 +39,20 @@ interface AutomationPanelProps {
   canManageJobs: boolean
   /**
    * Whether this member may use the agent in this project (`project:chat`).
-   * Resolved server-side beside the schedule gate and forwarded into Aufgaben:
+   * Resolved server-side beside the schedule gate and forwarded into Tasks:
    * without it Delegieren would link a reader into a locked composer.
    */
   canChatInProject?: boolean
   initialTab: AutomationTab
 }
 
-/** A drawer deep link off the URL — `?task=` for a run, `?schedule=` for one. */
-function hasDrawerSelection(): boolean {
+/** The tab a `?task=` / `?schedule=` on the URL belongs to, if there is one. */
+function deepLinkTab(): AutomationTab | null {
   try {
-    if (typeof window === 'undefined') return false
-    const params = new URL(window.location.href).searchParams
-    return params.has('task') || params.has('schedule')
+    if (typeof window === 'undefined') return null
+    return tabForDeepLink(new URL(window.location.href).searchParams)
   } catch {
-    return false
+    return null
   }
 }
 
@@ -72,53 +72,34 @@ export function AutomationPanel({
   initialTab,
 }: AutomationPanelProps): JSX.Element {
   const t = useTranslations('nav')
-  // A drawer deep link wins over the tab: `?tab=skills&task=` opens the task,
-  // because the drawer lives on Aufgaben. (Same window-guarded initializer
-  // shape TasksPanel uses for `?task=` itself.)
-  const [tab, setTab] = useState<AutomationTab>(() =>
-    hasDrawerSelection() ? 'tasks' : initialTab
-  )
-  // Corrects `?tab=` once so the address bar matches the tab above: without
-  // it closing the drawer would leave `?tab=skills` over the Aufgaben list, and
-  // a copied link would reopen the wrong tab.
-  const correctedTabRef = useRef(false)
-  // The tab the URL asked for, and whether the reader has picked one since.
-  // A drawer deep link that never matches a row must not strand them on the
-  // rewritten `?tab=tasks`: untouched since mount, they go back to this.
-  const initialTabRef = useRef(initialTab)
-  const tabTouchedRef = useRef(false)
+  const [tab, setTab] = useState<AutomationTab>(() => deepLinkTab() ?? initialTab)
+  /**
+   * A task the reader asked to turn into a schedule, held here while the tabs
+   * swap. It lives in the SECTION rather than on the URL because it is a draft,
+   * not a destination: a link that re-opens somebody else's half-written
+   * schedule is not a link anyone means to send.
+   */
+  const [draft, setDraft] = useState<ScheduleDraft | null>(null)
+  // Corrects `?tab=` once so the address bar matches the tab above: without it,
+  // closing a drawer opened from `?tab=skills&task=…` would leave `?tab=skills`
+  // over the Tasks list, and a copied link would reopen the wrong tab.
+  const correctedRef = useRef(false)
 
   useEffect(() => {
-    if (correctedTabRef.current || !hasDrawerSelection() || initialTab === 'tasks') return
-    correctedTabRef.current = true
-    setTab('tasks')
+    if (correctedRef.current) return
+    const forced = deepLinkTab()
+    if (!forced || forced === initialTab) return
+    correctedRef.current = true
+    setTab(forced)
     try {
-      window.history.replaceState(null, '', tabHref('tasks'))
+      window.history.replaceState(null, '', tabHref(forced))
     } catch {
       // History unavailable (embedded preview) — the tab still switches.
     }
   }, [initialTab])
 
-  // A mount deep link that never matched a row here restores the requested
-  // tab — but only when the reader has not picked one since: their explicit
-  // switch wins over the link's failure. The drawer stays open on the
-  // unresolved copy either way; the TasksPanel already dropped the dead
-  // `?task=` / `?schedule=` params, so this only moves `?tab=` back.
-  const handleDeepLinkSettled = (resolved: boolean): void => {
-    if (resolved) return
-    if (tabTouchedRef.current) return
-    if (initialTabRef.current === 'tasks') return
-    setTab(initialTabRef.current)
-    try {
-      window.history.replaceState(null, '', tabHref(initialTabRef.current))
-    } catch {
-      // History unavailable (embedded preview) — the tab still switches.
-    }
-  }
-
   const selectTab = (value: string): void => {
     const next = parseAutomationTab(value)
-    tabTouchedRef.current = true
     setTab(next)
     try {
       // Shareable without a server round-trip; replace (not push) so the back
@@ -142,6 +123,10 @@ export function AutomationPanel({
             <ListChecks aria-hidden />
             {t('sections.tasks')}
           </TabsTrigger>
+          <TabsTrigger value="schedule">
+            <CalendarRange aria-hidden />
+            {t('sections.schedule')}
+          </TabsTrigger>
           <TabsTrigger value="skills">
             <Sparkles aria-hidden />
             {t('sections.skills')}
@@ -151,10 +136,21 @@ export function AutomationPanel({
       <TabsContent value="tasks" className="min-h-0 overflow-hidden">
         <TasksPanel
           projectId={projectId}
-          projectCollection={projectCollection}
           canManageJobs={canManageJobs}
           canChatInProject={canChatInProject}
-          onDeepLinkSettled={handleDeepLinkSettled}
+          onPromoteToSchedule={(next) => {
+            setDraft(next)
+            selectTab('schedule')
+          }}
+        />
+      </TabsContent>
+      <TabsContent value="schedule" className="min-h-0 overflow-hidden">
+        <SchedulePanel
+          projectId={projectId}
+          projectCollection={projectCollection}
+          canManageJobs={canManageJobs}
+          draft={draft}
+          onDraftConsumed={() => setDraft(null)}
         />
       </TabsContent>
       <TabsContent value="skills" className="min-h-0 overflow-y-auto">

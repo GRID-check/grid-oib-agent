@@ -52,6 +52,7 @@ import { hasStructuredDetail, type DrawingStructured } from '@/lib/documents/dra
 import { AssignmentFaces } from './assignment-faces'
 import { AuthorshipLine } from './authorship-line'
 import { DocumentLifecyclePanel } from './document-lifecycle-panel'
+import { DocumentVersionStateBadge } from './document-version-badge'
 import type {
   DocumentLifecyclePermission,
   DocumentVersionState,
@@ -498,6 +499,34 @@ export function FilePreviewPane({
               {!isCitable(file) && (
                 <DocumentStatusBadge status={file.status} className="shrink-0" />
               )}
+              {/* WHERE THE DOCUMENT STANDS, at the top with its name.
+
+                „Freigabe und Fassungen" is last in the rail now, which is right
+                for the machinery and wrong for the one word: whether the office
+                stands behind this document is a fact about the document, in the
+                class of its name and its type, and a reader should not have to
+                scroll a rail to the bottom to learn it.
+
+                It obeys `showsVersionStateBadge` rather than `always`, so it is
+                silent on the ordinary upload — one version, born published, a
+                person put it there — exactly like the file card's. A chip that
+                appeared on every document in the library would distinguish
+                nothing, which is the same argument the „Zitierbar" chip lost
+                two paragraphs up.
+
+                Restating it on the section's own row at the far end of the rail
+                is not the „same fact twice" the Properties rows were: those sat
+                in the reader's eyeful directly under this header. These two are
+                never on screen together — one names the document, the other
+                labels the section you have just opened. */}
+              <DocumentVersionStateBadge
+                versionState={file.versionState}
+                versionCount={file.versionCount}
+                lifecycle={file.lifecycle ?? undefined}
+                authoredBy={file.authoredBy}
+                className="shrink-0"
+                testId="file-preview-lifecycle-badge"
+              />
               {showMetadataPanel && detectedType && (
                 <Badge variant="secondary" className="min-w-0 max-w-full shrink font-normal">
                   <span className="truncate">{detectedType}</span>
@@ -942,38 +971,6 @@ export function FilePreviewPane({
                 <AskColleagueButton projectId={projectId} file={file} documentId={file.id} />
               )}
             </div>
-            {/* FREIGABE UND FASSUNGEN — a section of its own, under the identity
-              block and above everything ingestion derived.
-
-              Under it, and never inside it: the block above says who wrote the
-              file and who is on the hook for it, and this says whether the
-              office stands behind what it says. ADR-0047's addendum and ADR-0054
-              both turn on those being three sentences rather than one.
-
-              Only for a project document, and only where the surface resolved
-              this reader's permissions — the Archiv and the chat peek pass
-              neither, and a review control they cannot honour is worse than no
-              section. */}
-            {projectId && lifecyclePermissions && (
-              <DocumentLifecyclePanel
-                key={file.id}
-                documentId={file.id}
-                authoredBy={file.authoredBy}
-                viewer={{ permissions: lifecyclePermissions, userId: viewerUserId }}
-                names={Object.fromEntries(
-                  (file.assignees ?? []).flatMap((person) =>
-                    person.name ? [[person.userId, person.name] as const] : [],
-                  ),
-                )}
-                onChanged={(summary) =>
-                  onLifecycleChanged?.(file.id, {
-                    versionState: summary.state,
-                    versionCount: summary.versionCount,
-                  })
-                }
-                className="mb-4 border-b pb-4"
-              />
-            )}
             {/* The building's own numbers lead the rail: they are what the file
               IS. Ungated by the metadata flag, which covers what INGESTION
               derived — these come out of the IFC itself. Renders nothing until
@@ -1165,6 +1162,49 @@ export function FilePreviewPane({
                   </div>
                 )}
               </>
+            )}
+
+            {/* FREIGABE UND FASSUNGEN — last in the rail, and shut.
+
+              It used to lead the rail, open, directly under the identity block.
+              That put a review apparatus — a strip of verbs and the full version
+              history — above the summary and the facts on every file, including
+              the great majority where there is nothing to decide at all: a
+              person's upload is born `published`, so the only control the strip
+              could draw was an unexplained „Archivieren". Ranked by what a
+              reader opens a file FOR, approval and versions come after what the
+              document is and what Piloti made of it, which is where they now
+              are.
+
+              Shut is not hidden. The section still states the stand — the word
+              and the track — without being opened, and it OPENS ITSELF when
+              something is expected of this reader (`lifecycleNeedsReader`), so
+              the one case where this matters does not depend on curiosity.
+
+              Only for a project document, and only where the surface resolved
+              this reader's permissions — the Archiv and the chat peek pass
+              neither, and a review control they cannot honour is worse than no
+              section. */}
+            {projectId && lifecyclePermissions && (
+              <DocumentLifecyclePanel
+                key={file.id}
+                documentId={file.id}
+                filename={file.filename}
+                authoredBy={file.authoredBy}
+                viewer={{ permissions: lifecyclePermissions, userId: viewerUserId }}
+                names={Object.fromEntries(
+                  (file.assignees ?? []).flatMap((person) =>
+                    person.name ? [[person.userId, person.name] as const] : [],
+                  ),
+                )}
+                onChanged={(summary) =>
+                  onLifecycleChanged?.(file.id, {
+                    versionState: summary.state,
+                    versionCount: summary.versionCount,
+                  })
+                }
+                className="mt-4 border-t pt-4"
+              />
             )}
 
             {/* Failure reason + re-ingestion affordance (re-ingest is a mutation,

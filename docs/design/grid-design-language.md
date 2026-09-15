@@ -235,6 +235,23 @@ Never hand-roll a lookalike — two of them drift on the first token retune. The
 inventory, the honesty constraints on status and timestamps, and the decision
 procedure are in **`docs/design/project-surfaces.md`**.
 
+**Status on a card is a SWATCH — a 10px rounded square on the title line.**
+Never a coloured rail down the card's edge, and never a tint across the whole
+sheet. Both were tried on the task card and both fail the same way, by making
+the status the loudest thing on a card whose subject is its title: a rail is a
+third material on an anatomy that has two (a white sheet laid into a tray), and
+a tint shouts — a red card is a red card even when the failure it names is four
+days old and already understood.
+
+The swatch is the quiet version of the same signal, and it is a shape this
+product already uses to mean "this colour stands for this row": the timetable's
+legend and the schedule cards pair exactly this square with a name. Reusing it
+costs nothing to learn. `features/tasks/components/task-card.tsx`
+(`STATUS_SWATCH`) is the reference.
+
+Colour is never the only carrier. The swatch is a scan anchor; the status is
+always also stated in words, in the chip under the title.
+
 **Page header** — every content page opens with `PageHeader`
 (`frontends/ui/src/components/ui/page-header.tsx`), so the title stays on-spec
 (`text-xl`) instead of drifting:
@@ -478,5 +495,6 @@ More than one ambient loop on screen. `ease-linear`. `transition-all`.
 - No emojis anywhere in UI. Icons are lucide-react only.
 - No hardcoded colors — tokens only, so dark mode is free.
 - No nested cards (card-inside-card). Flatten with borders/dividers/spacing.
+- No status stripe down a card's edge, and no status tint across a whole card. Status is a 10px rounded swatch on the title line — see **Component patterns**.
 - No purple/generic-AI aesthetic. **Provenance signals are the only chroma** — no blue active states (actions and focus are ink app-wide), and a source color is never used outside its meaning or without its icon + label. No general accent token: one existed briefly and was withdrawn (see §"Accent pop" above). A control that wants to stand out wants contrast, not chroma.
 - No touch size on a `md:` breakpoint, no reveal that only hover can open, no `touch-action` that takes the page scroll from a surface that does not own the gesture. See [Touch](#touch).

@@ -5,8 +5,14 @@
  * silent — and Freigabe and Veröffentlichung are two separate acts. What is
  * asserted here is the ceremony itself: that submitting names a reviewer and
  * states its order before the button opens, that approving signs its stand
- * with a checkbox, that publishing stands apart, and that a state with no
- * gesture for this reader says who is waited on instead of rendering nothing.
+ * with a checkbox, and that publishing stands apart.
+ *
+ * Two things this strip used to do are now somebody else's, and the last block
+ * pins that it really stopped doing them: the WAITING LINE belongs to
+ * `DocumentLifecycleStand` (it has to be said whether or not there are controls,
+ * and it used to be said only when there were none), and „Archivieren" belongs
+ * to `DocumentArchiveAction` (it is item-level, it is a one-way door, and as a
+ * fifth button in this row it was the whole of what a published upload offered).
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -220,57 +226,51 @@ describe('DocumentReviewControls — publishing is its own act', () => {
     expect(section).toHaveTextContent('version 2')
     // Its own section, visually cut off from the row above it.
     expect(section.className).toContain('border-t')
-    // …and never a button in the row beside the other gestures.
-    const row = container.querySelector(
-      '[data-testid="document-review-controls"] > div.flex',
-    )
-    expect(row?.textContent).not.toContain('Publish')
+    // …and never a button in the row beside the other gestures. On `approved`
+    // there is now no row at all: publish owns its section, and „Archivieren"
+    // — which used to be the row's sole occupant here — has its own block.
+    const row = container.querySelector('[data-testid="document-review-controls"] > div.flex')
+    expect(row).toBeNull()
   })
 })
 
-describe('DocumentReviewControls — no gesture is a waiting line, not nothing', () => {
+describe('DocumentReviewControls — it draws review decisions and nothing else', () => {
   const viewOnly = { permissions: ['project:view'] as const, userId: 'user_me' }
+  const writer = {
+    permissions: ['project:view', 'project:documents:write'] as const,
+    userId: 'user_me',
+  }
 
-  it('names the submitter the approval is waited on', () => {
-    render(
+  it('renders nothing where the reader has no decision to take', () => {
+    const { container } = render(
       <DocumentReviewControls
         version={version('in_review', { submittedBy: 'user_anna' })}
         lifecycle="active"
         viewer={viewOnly}
         onAct={() => undefined}
-        names={{ user_anna: 'Anna Berger' }}
       />,
     )
 
-    expect(screen.queryByRole('button')).not.toBeInTheDocument()
-    const waiting = screen.getByTestId('document-review-waiting')
-    expect(waiting).toHaveTextContent('In review')
-    expect(waiting).toHaveTextContent('Anna Berger')
+    // Not an empty bordered strip and not a waiting line: the stand one tier up
+    // says what the version waits for, and saying it twice reads as two facts.
+    expect(container).toBeEmptyDOMElement()
+    expect(screen.queryByTestId('document-review-waiting')).not.toBeInTheDocument()
   })
 
-  it('states the wait without a name where none is known', () => {
-    render(
-      <DocumentReviewControls
-        version={version('draft')}
-        lifecycle="active"
-        viewer={viewOnly}
-        onAct={() => undefined}
-      />,
-    )
-
-    expect(screen.getByTestId('document-review-waiting')).toHaveTextContent('Draft')
-  })
-
-  it('states finality on a state nothing leaves', () => {
-    render(
+  it('does not draw Archivieren in the decision row', () => {
+    // The reported case: a published upload. The only gesture the old row could
+    // offer was „Archivieren", so every ordinary file in the project showed one
+    // unexplained verb under a heading about approvals.
+    const { container } = render(
       <DocumentReviewControls
         version={version('published')}
         lifecycle="active"
-        viewer={viewOnly}
+        viewer={writer}
         onAct={() => undefined}
       />,
     )
 
-    expect(screen.getByTestId('document-review-waiting')).toHaveTextContent('Published')
+    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument()
+    expect(container).toBeEmptyDOMElement()
   })
 })

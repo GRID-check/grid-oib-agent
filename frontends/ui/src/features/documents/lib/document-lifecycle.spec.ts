@@ -18,9 +18,13 @@ import {
   availableLifecycleActions,
   availableLifecycleGestures,
   availableReviewOps,
+  LIFECYCLE_STAGES,
   canArchiveDocument,
   documentBadgeState,
+  lifecycleNeedsReader,
+  lifecycleProgress,
   lifecycleRequestFor,
+  lifecycleWaiting,
   reviewOpRequiresComment,
   showsVersionStateBadge,
 } from './document-lifecycle'
@@ -218,5 +222,112 @@ describe('the table is the only table', () => {
       ).map((row) => row.op)
       expect(availableReviewOps(version(state), omnipotent)).toEqual([...new Set(fromTable)])
     }
+  })
+})
+
+describe('lifecycleProgress — the track', () => {
+  it('walks one segment per stage, ending full on a published version', () => {
+    expect(lifecycleProgress(version('draft'), 'active').reached).toBe(1)
+    expect(lifecycleProgress(version('in_review'), 'active').reached).toBe(2)
+    expect(lifecycleProgress(version('approved'), 'active').reached).toBe(3)
+    expect(lifecycleProgress(version('published'), 'active').reached).toBe(LIFECYCLE_STAGES.length)
+  })
+
+  it('puts a sent-back version where it actually is: at the draft, stopped', () => {
+    // Not a fifth stage. „Änderungen erbeten" is a draft that has been round
+    // once, and the next move is a new version rather than a step forward.
+    expect(lifecycleProgress(version('changes_requested'), 'active')).toMatchObject({
+      reached: 1,
+      halted: true,
+    })
+  })
+
+  it('stops a refused version after its review rather than before it', () => {
+    expect(lifecycleProgress(version('rejected'), 'active')).toMatchObject({
+      reached: 2,
+      halted: true,
+    })
+  })
+
+  it('counts a superseded version as having completed the walk', () => {
+    // It was live once; a newer version took its place. Nothing was halted.
+    expect(lifecycleProgress(version('superseded'), 'active')).toMatchObject({
+      reached: 4,
+      halted: false,
+    })
+  })
+
+  it('carries the item-level fact separately from the version-level one', () => {
+    const progress = lifecycleProgress(version('published'), 'archived')
+    expect(progress.archived).toBe(true)
+    expect(progress.reached).toBe(4)
+  })
+
+  it('starts at nothing where there is no version yet', () => {
+    expect(lifecycleProgress(null, 'active').reached).toBe(0)
+  })
+})
+
+describe('lifecycleWaiting — one place decides what a state waits for', () => {
+  it('names the submitter only where the row records one', () => {
+    expect(lifecycleWaiting(version('in_review', 'user_anna'), 'active')).toEqual({
+      key: 'inReviewBy',
+      submitterUserId: 'user_anna',
+    })
+    expect(lifecycleWaiting(version('in_review'), 'active')).toEqual({ key: 'inReview' })
+  })
+
+  it('lets the item win once it is archived, whatever the version says', () => {
+    expect(lifecycleWaiting(version('published'), 'archived')).toEqual({ key: 'archived' })
+  })
+
+  it('has a leaf for every state, and one for no version at all', () => {
+    for (const state of [
+      'draft',
+      'in_review',
+      'changes_requested',
+      'approved',
+      'published',
+      'rejected',
+      'superseded',
+    ] as const) {
+      expect(lifecycleWaiting(version(state), 'active').key).toBeTruthy()
+    }
+    expect(lifecycleWaiting(null, 'active')).toEqual({ key: 'none' })
+  })
+})
+
+describe('lifecycleNeedsReader — what opens the panel by itself', () => {
+  it('holds when a decision is this reader\u2019s to take', () => {
+    expect(lifecycleNeedsReader(version('in_review', 'user_anna'), 'active', editor)).toBe(true)
+    expect(lifecycleNeedsReader(version('draft'), 'active', editor)).toBe(true)
+  })
+
+  it('does not hold on Archivieren alone', () => {
+    // The rule, not a tweak: `archive` is offered on every active document to
+    // anybody who may write, so counting it would open the panel on every file
+    // in the project and would therefore mean nothing.
+    expect(canArchiveDocument('active', writer)).toBe(true)
+    expect(lifecycleNeedsReader(version('published'), 'active', writer)).toBe(false)
+  })
+
+  it('does not hold for a reader who can only look', () => {
+    expect(lifecycleNeedsReader(version('in_review', 'user_anna'), 'active', viewer)).toBe(false)
+  })
+
+  it('still holds for the submitter, because the table still offers them a move', () => {
+    // Approval is withheld from them (`notSubmitter`) — but „Änderungen
+    // anfordern" and „Ablehnen" are not, so somebody who submitted their own
+    // version can still pull it back, and that IS a decision of theirs.
+    //
+    // Asserted rather than assumed: this function reads the transition table
+    // and nothing else, which is the whole invariant of this module. A rule
+    // that said „not for the submitter" here would be a second table — the one
+    // the file header refuses — and it would have to be kept in step with the
+    // first by hand.
+    expect(availableLifecycleGestures(version('in_review', 'user_me'), 'active', editor)).not.toContain(
+      'approve',
+    )
+    expect(lifecycleNeedsReader(version('in_review', 'user_me'), 'active', editor)).toBe(true)
   })
 })

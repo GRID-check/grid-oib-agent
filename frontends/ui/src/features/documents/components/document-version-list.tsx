@@ -17,6 +17,22 @@
  * marked. `document-version-diff.tsx` owns everything about how a changed line
  * looks; this file owns which two versions are compared.
  *
+ * ## The lone version says only what the stand does not
+ *
+ * With one version there is no list, and since the panel's stand now carries
+ * the state (a badge on the section row, a sentence under the track) this file
+ * carries only what the stand cannot: the acts and their timestamps, and the
+ * reviewer's words. It renders nothing at all when there are neither.
+ *
+ * ## The rows are `ItemList`, not three bordered boxes
+ *
+ * They used to be a hand-rolled `rounded-lg border px-2.5 py-2` per `li` — the
+ * shape `components/ui/item.tsx` exists to stop being written again, and three
+ * of them stacked read as three cards rather than as one history. `ItemList` is
+ * one block with hairlines between its rows, which is what a list of versions
+ * is; `job-run-history.tsx` composes the same three atoms for the same reason.
+ * The padding is tightened for a 280px rail and nothing else is overridden.
+ *
  * ## Names
  *
  * A version row carries WorkOS user ids. The reader gets „Sie" for themselves, a
@@ -28,6 +44,7 @@
 import { useState } from 'react'
 import { ExternalLink, GitCompare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Item, ItemActions, ItemContent, ItemList } from '@/components/ui/item'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Spinner } from '@/components/ui/spinner'
 import { useLocale, useTranslations } from '@/i18n'
@@ -137,8 +154,14 @@ export function DocumentVersionList({
     const only = versions[0]
     if (!only) return null
     // A single version has no history to list: no „Versionen" header, no
-    // one-row table, no comparison. The stand — the state, who moved it and
-    // when — is one line, and the reviewer's words stay quoted under it.
+    // one-row table, no comparison. What is left is the ACTS — who moved it and
+    // when — and the reviewer's words under them.
+    //
+    // NOT the state, and not „Aktuell". The panel's stand says the state twice
+    // already (the badge on the section's own row, and the sentence under the
+    // track), and „Aktuell" distinguishes nothing where there is one version to
+    // be current. Said a third time it stopped reading as the same fact and
+    // started reading as a third one.
     const acts = actsOf(only).map(
       ({ key, actor, when }) =>
         `${t(`lifecycle.versions.${key}`)} ${t('lifecycle.versions.byAt', {
@@ -146,25 +169,26 @@ export function DocumentVersionList({
           time: formatAbsoluteTime(when, locale),
         })}`,
     )
+    // Nothing has happened to it yet and nobody has said anything about it: a
+    // fresh draft, where the stand above is the whole truth.
+    if (acts.length === 0 && !only.reviewComment) return null
     return (
       <div className={cn('space-y-1.5', className)} data-testid="document-version-list">
-        <p
-          data-testid="document-version-state-line"
-          data-state={only.state}
-          data-version={only.versionNumber}
-          className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]"
-        >
-          <DocumentVersionStateBadge versionState={only.state} always />
-          {only.id === publishedVersionId && (
-            <span className="text-muted-foreground shrink-0">{t('lifecycle.versions.live')}</span>
-          )}
-          {acts.length > 0 && <span className="text-muted-foreground">{acts.join(' · ')}</span>}
-        </p>
+        {acts.length > 0 && (
+          <p
+            data-testid="document-version-state-line"
+            data-state={only.state}
+            data-version={only.versionNumber}
+            className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]"
+          >
+            {acts.join(' · ')}
+          </p>
+        )}
         {only.reviewComment && (
           /* The reviewer's words, quoted on the version they are about — the
              same adjunct the full list renders under its row. */
           <p
-            className="text-foreground mt-1.5 border-l-2 pl-2 text-[11px] leading-[1.5]"
+            className="text-foreground border-l-2 pl-2 text-[11px] leading-[1.5]"
             data-testid="document-version-comment"
           >
             {only.reviewComment}
@@ -196,13 +220,14 @@ export function DocumentVersionList({
   return (
     <section className={cn('space-y-2', className)} data-testid="document-version-list">
       <SectionLabel as="h3">{t('lifecycle.versions.title')}</SectionLabel>
-      <ol className="space-y-1.5">
+      <ItemList as="ol">
         {ordered.map((version, index) => {
           const previous = ordered[index + 1]
           return (
-            <li
+            <Item
+              as="li"
               key={version.id}
-              className="rounded-lg border px-2.5 py-2"
+              className="flex-col items-stretch gap-1.5 px-2.5 py-2 hover:bg-transparent"
               data-testid="document-version-row"
               data-version={version.versionNumber}
               data-state={version.state}
@@ -213,16 +238,19 @@ export function DocumentVersionList({
                   horizontal scrollbar. Wrapping puts the pair on their own line
                   there and changes nothing where the row already fits. */}
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <span className="text-foreground shrink-0 text-xs font-medium tabular-nums">
-                  {t('lifecycle.versions.number', { number: version.versionNumber })}
-                </span>
-                <DocumentVersionStateBadge versionState={version.state} always />
-                {version.id === publishedVersionId && (
-                  <span className="text-muted-foreground shrink-0 text-[11px]">
-                    {t('lifecycle.versions.live')}
+                <ItemContent className="flex min-w-0 flex-none flex-row items-center gap-2">
+                  <span className="text-foreground shrink-0 text-xs font-medium tabular-nums">
+                    {t('lifecycle.versions.number', { number: version.versionNumber })}
                   </span>
-                )}
+                  <DocumentVersionStateBadge versionState={version.state} always />
+                  {version.id === publishedVersionId && (
+                    <span className="text-muted-foreground shrink-0 text-[11px]">
+                      {t('lifecycle.versions.live')}
+                    </span>
+                  )}
+                </ItemContent>
                 <span className="flex-1" />
+                <ItemActions className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
                   variant="ghost"
@@ -262,9 +290,10 @@ export function DocumentVersionList({
                     {t('lifecycle.versions.compare', { number: previous.versionNumber })}
                   </Button>
                 )}
+                </ItemActions>
               </div>
 
-              <dl className="mt-1 space-y-0.5">
+              <dl className="space-y-0.5">
                 {actsOf(version).map(({ key, actor, when }) => (
                   <div key={key} className="text-muted-foreground flex gap-1.5 text-[11px]">
                     <dt className="shrink-0">{t(`lifecycle.versions.${key}`)}</dt>
@@ -283,16 +312,16 @@ export function DocumentVersionList({
                    which is what makes „was ist noch offen" answerable by reading
                    the row rather than by a state that has to be cleared. */
                 <p
-                  className="text-foreground mt-1.5 border-l-2 pl-2 text-[11px] leading-[1.5]"
+                  className="text-foreground border-l-2 pl-2 text-[11px] leading-[1.5]"
                   data-testid="document-version-comment"
                 >
                   {version.reviewComment}
                 </p>
               )}
-            </li>
+            </Item>
           )
         })}
-      </ol>
+      </ItemList>
 
       {comparing && (
         <p className="text-muted-foreground flex items-center gap-2 text-xs">

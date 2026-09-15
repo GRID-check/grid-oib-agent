@@ -79,9 +79,14 @@ describe('DocumentVersionList — a lone version is a stand line, not a list', (
     expect(screen.queryByText('Versions')).not.toBeInTheDocument()
     expect(screen.queryByTestId('document-version-row')).not.toBeInTheDocument()
     const line = screen.getByTestId('document-version-state-line')
-    expect(line).toHaveTextContent('In review')
+    // The acts, and only the acts. Not „Fassung 1", and not the STATE either:
+    // the panel's stand says that twice already — once as the badge on the
+    // section's row, once as the sentence under the track — and a third copy
+    // stops reading as the same fact.
+    expect(line).toHaveTextContent('Submitted')
     expect(line).toHaveTextContent('Anna Berger')
     expect(line).not.toHaveTextContent('Version 1')
+    expect(line).not.toHaveTextContent('In review')
   })
 
   it('names the refusal on a lone version sent back, with who and when', () => {
