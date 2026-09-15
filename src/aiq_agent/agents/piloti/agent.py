@@ -1241,6 +1241,9 @@ class PilotiAgent:
         """
         shape = _tool_call_shape(state.messages)
         input_tokens = _turn_input_tokens()
+        # The rule is a keyword match on "token" in a logged string; these are
+        # counts of input tokens against the turn's budget, not a credential.
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         logger.warning(
             "Forcing synthesis (%s): ceiling=%d rounds_spent=%d input_tokens=%d/%d skill_calls=%d shape=%s",
             cutoff,

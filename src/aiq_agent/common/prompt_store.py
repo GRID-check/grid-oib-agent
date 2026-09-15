@@ -172,6 +172,9 @@ def git_blob_version(path: Path) -> str:
     shelling out: this runs in a container that has no git and no ``.git``.
     """
     data = path.read_bytes()
+    # SHA-1 is what a git blob id IS; a different algorithm would compute a
+    # hash `git cat-file` cannot find. It identifies a text, it signs nothing.
+    # nosemgrep: python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1
     digest = hashlib.sha1(b"blob %d\0" % len(data) + data, usedforsecurity=False)
     return digest.hexdigest()[:7]
 
