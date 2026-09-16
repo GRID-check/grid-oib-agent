@@ -1,0 +1,938 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Grid run ledger wire contract",
+  "description": "Generated from frontends/ui/src/lib/runs/run-ledger-types.ts. Do not edit by hand: run-ledger-schema.spec.ts rewrites this file and fails when it is stale.",
+  "$defs": {
+    "runLedger": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "angelegt",
+            "laeuft",
+            "wartet",
+            "fertig",
+            "fehlgeschlagen",
+            "abgebrochen",
+            "unterbrochen"
+          ]
+        },
+        "phases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "phase": {
+                "type": "string",
+                "enum": [
+                  "planen",
+                  "recherchieren",
+                  "pruefen",
+                  "schreiben",
+                  "abgelegt"
+                ]
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "endedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "phase",
+              "startedAt"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 5
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "phase": {
+                "type": "string",
+                "enum": [
+                  "planen",
+                  "recherchieren",
+                  "pruefen",
+                  "schreiben",
+                  "abgelegt"
+                ]
+              },
+              "intent": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "docs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "title": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "shelf": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "loci": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 128
+                      },
+                      "maxItems": 20
+                    },
+                    "repeat": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "loci"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 100
+              },
+              "openPoints": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "maxItems": 20
+              }
+            },
+            "required": [
+              "id",
+              "phase",
+              "intent",
+              "startedAt",
+              "docs"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 50
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "fileId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "reportMessageId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "filedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "filedAt"
+          ],
+          "additionalProperties": false
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 400
+            },
+            "completedBefore": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "planen",
+                  "recherchieren",
+                  "pruefen",
+                  "schreiben",
+                  "abgelegt"
+                ]
+              },
+              "maxItems": 5
+            }
+          },
+          "required": [
+            "reason",
+            "completedBefore"
+          ],
+          "additionalProperties": false
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "finishedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "runId",
+        "status",
+        "phases",
+        "steps",
+        "startedAt",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "runLedgerRequest": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "const": "append"
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "phase": {
+                    "type": "string",
+                    "enum": [
+                      "planen",
+                      "recherchieren",
+                      "pruefen",
+                      "schreiben",
+                      "abgelegt"
+                    ]
+                  },
+                  "intent": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "startedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "docs": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "shelf": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
+                        },
+                        "loci": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "maxItems": 20
+                        },
+                        "repeat": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "loci"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 100
+                  },
+                  "openPoints": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "maxItems": 20
+                  }
+                },
+                "required": [
+                  "id",
+                  "phase",
+                  "intent",
+                  "startedAt",
+                  "docs"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 50
+            },
+            "phases": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "phase": {
+                    "type": "string",
+                    "enum": [
+                      "planen",
+                      "recherchieren",
+                      "pruefen",
+                      "schreiben",
+                      "abgelegt"
+                    ]
+                  },
+                  "startedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "endedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "phase",
+                  "startedAt"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 5
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "angelegt",
+                "laeuft",
+                "wartet",
+                "fertig",
+                "fehlgeschlagen",
+                "abgebrochen",
+                "unterbrochen"
+              ]
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "const": "finish"
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "fileId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "reportMessageId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "filedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "filedAt"
+              ],
+              "additionalProperties": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 400
+                }
+              },
+              "required": [
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "discriminator": {
+        "propertyName": "op"
+      }
+    },
+    "runLedgerResponse": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "ledger": {
+          "type": "object",
+          "properties": {
+            "runId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "angelegt",
+                "laeuft",
+                "wartet",
+                "fertig",
+                "fehlgeschlagen",
+                "abgebrochen",
+                "unterbrochen"
+              ]
+            },
+            "phases": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "phase": {
+                    "type": "string",
+                    "enum": [
+                      "planen",
+                      "recherchieren",
+                      "pruefen",
+                      "schreiben",
+                      "abgelegt"
+                    ]
+                  },
+                  "startedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "endedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "phase",
+                  "startedAt"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 5
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "phase": {
+                    "type": "string",
+                    "enum": [
+                      "planen",
+                      "recherchieren",
+                      "pruefen",
+                      "schreiben",
+                      "abgelegt"
+                    ]
+                  },
+                  "intent": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "startedAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "docs": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "title": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "shelf": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
+                        },
+                        "loci": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128
+                          },
+                          "maxItems": 20
+                        },
+                        "repeat": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "loci"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 100
+                  },
+                  "openPoints": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "maxItems": 20
+                  }
+                },
+                "required": [
+                  "id",
+                  "phase",
+                  "intent",
+                  "startedAt",
+                  "docs"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 50
+            },
+            "result": {
+              "type": "object",
+              "properties": {
+                "fileId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "reportMessageId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "filedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "filedAt"
+              ],
+              "additionalProperties": false
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 400
+                },
+                "completedBefore": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "planen",
+                      "recherchieren",
+                      "pruefen",
+                      "schreiben",
+                      "abgelegt"
+                    ]
+                  },
+                  "maxItems": 5
+                }
+              },
+              "required": [
+                "reason",
+                "completedBefore"
+              ],
+              "additionalProperties": false
+            },
+            "startedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "updatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "finishedAt": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "required": [
+            "runId",
+            "status",
+            "phases",
+            "steps",
+            "startedAt",
+            "updatedAt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "runId",
+        "ledger"
+      ],
+      "additionalProperties": false
+    },
+    "runView": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "backendJobId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "conversationId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "messageId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "type": "string"
+        },
+        "ledger": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "runId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "angelegt",
+                    "laeuft",
+                    "wartet",
+                    "fertig",
+                    "fehlgeschlagen",
+                    "abgebrochen",
+                    "unterbrochen"
+                  ]
+                },
+                "phases": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "phase": {
+                        "type": "string",
+                        "enum": [
+                          "planen",
+                          "recherchieren",
+                          "pruefen",
+                          "schreiben",
+                          "abgelegt"
+                        ]
+                      },
+                      "startedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "endedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "phase",
+                      "startedAt"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 5
+                },
+                "steps": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                      },
+                      "phase": {
+                        "type": "string",
+                        "enum": [
+                          "planen",
+                          "recherchieren",
+                          "pruefen",
+                          "schreiben",
+                          "abgelegt"
+                        ]
+                      },
+                      "intent": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 160
+                      },
+                      "startedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "docs": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
+                            },
+                            "title": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
+                            },
+                            "shelf": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 64
+                            },
+                            "loci": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 128
+                              },
+                              "maxItems": 20
+                            },
+                            "repeat": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "loci"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 100
+                      },
+                      "openPoints": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 200
+                        },
+                        "maxItems": 20
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "phase",
+                      "intent",
+                      "startedAt",
+                      "docs"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "maxItems": 50
+                },
+                "result": {
+                  "type": "object",
+                  "properties": {
+                    "fileId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "reportMessageId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "filedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "filedAt"
+                  ],
+                  "additionalProperties": false
+                },
+                "error": {
+                  "type": "object",
+                  "properties": {
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 400
+                    },
+                    "completedBefore": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "planen",
+                          "recherchieren",
+                          "pruefen",
+                          "schreiben",
+                          "abgelegt"
+                        ]
+                      },
+                      "maxItems": 5
+                    }
+                  },
+                  "required": [
+                    "reason",
+                    "completedBefore"
+                  ],
+                  "additionalProperties": false
+                },
+                "startedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "finishedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "runId",
+                "status",
+                "phases",
+                "steps",
+                "startedAt",
+                "updatedAt"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "runId",
+        "backendJobId",
+        "conversationId",
+        "messageId",
+        "status",
+        "ledger"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
