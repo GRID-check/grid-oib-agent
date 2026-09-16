@@ -56,8 +56,8 @@ describe('claimDue', () => {
   // nothing and go quiet, which is the worst way for a timer to break.
   it('claims due rows and advances each next_run_at to the computed future time', async () => {
     const rows = [
-      { id: 's1', schedule_cron: '0 9 * * *', schedule_timezone: 'UTC' },
-      { id: 's2', schedule_cron: '*/15 * * * *', schedule_timezone: 'Europe/Vienna' },
+      { id: 's1', trigger: 'schedule', schedule_cron: '0 9 * * *', schedule_timezone: 'UTC' },
+      { id: 's2', trigger: 'schedule', schedule_cron: '*/15 * * * *', schedule_timezone: 'Europe/Vienna' },
     ]
     const { sql, executed } = makeClaimSql(rows)
     const nextDate = new Date('2026-07-17T09:00:00Z')
@@ -68,8 +68,12 @@ describe('claimDue', () => {
     expect(claimed).toEqual(rows)
 
     const select = queries(executed)[0]
-    expect(select.text).toMatch(/^SELECT id, schedule_cron, schedule_timezone FROM task_definitions/)
-    expect(select.text).toContain("WHERE trigger = 'schedule' AND enabled AND schedule_cron IS NOT NULL AND next_run_at <= now()")
+    expect(select.text).toMatch(
+      /^SELECT id, trigger, schedule_cron, schedule_timezone FROM task_definitions/
+    )
+    // The predicate must keep matching `idx_task_definitions_due` (0090) or the
+    // due scan silently degrades to a sequential scan over every definition.
+    expect(select.text).toContain('WHERE enabled AND next_run_at IS NOT NULL AND next_run_at <= now()')
     expect(select.text).toContain('ORDER BY next_run_at')
     expect(select.text).toContain('LIMIT $')
     expect(select.text).toContain('FOR UPDATE SKIP LOCKED')
@@ -88,8 +92,8 @@ describe('claimDue', () => {
 
   it('disables a row whose cron is unparseable and excludes it from the claim, still advancing the rest', async () => {
     const rows = [
-      { id: 'bad', schedule_cron: 'garbage', schedule_timezone: 'UTC' },
-      { id: 'good', schedule_cron: '0 9 * * *', schedule_timezone: 'UTC' },
+      { id: 'bad', trigger: 'schedule', schedule_cron: 'garbage', schedule_timezone: 'UTC' },
+      { id: 'good', trigger: 'schedule', schedule_cron: '0 9 * * *', schedule_timezone: 'UTC' },
     ]
     const { sql, executed } = makeClaimSql(rows)
     const nextDate = new Date('2026-07-17T09:00:00Z')
@@ -112,6 +116,44 @@ describe('claimDue', () => {
     // the good row is advanced normally
     const advance = executed.find((q) => q.text.startsWith('UPDATE task_definitions SET next_run_at'))
     expect(advance.values).toEqual([nextDate, 'good'])
+  })
+
+  it('retires a one-shot by nulling next_run_at instead of advancing it', async () => {
+    // At-most-once for a `once` definition comes from the SAME mechanism the
+    // cron path uses — the claim transaction moves the row out of the due scan
+    // before anything fires — so a crash between claim and fire misses the run
+    // rather than repeating an expensive one.
+    const rows = [{ id: 'one', trigger: 'once', schedule_cron: null, schedule_timezone: 'UTC' }]
+    const { sql, executed } = makeClaimSql(rows)
+    const computeNext = vi.fn()
+
+    const claimed = await claimDue(sql, 20, computeNext)
+
+    expect(claimed).toEqual(rows)
+    // No cron to consult, and consulting one would throw on the null.
+    expect(computeNext).not.toHaveBeenCalled()
+
+    const retire = executed.find((q) => q.text.startsWith('UPDATE task_definitions SET next_run_at'))
+    expect(retire.text).toContain('next_run_at = NULL')
+    expect(retire.values).toEqual(['one'])
+    // `enabled` is the person's pause switch. A finished task is not a paused
+    // one, so firing must never touch it.
+    expect(executed.some((q) => q.text.includes('SET enabled'))).toBe(false)
+  })
+
+  it('clears a stale due time on a manual row without firing it', async () => {
+    // Unreachable through the write boundary, which is why it is worth pinning:
+    // if it ever happens, the row must leave the index WITHOUT spending
+    // somebody's budget on a run they never scheduled.
+    const rows = [{ id: 'manual', trigger: 'manual', schedule_cron: null, schedule_timezone: 'UTC' }]
+    const { sql, executed } = makeClaimSql(rows)
+
+    const claimed = await claimDue(sql, 20, vi.fn())
+
+    expect(claimed).toEqual([])
+    const cleared = executed.find((q) => q.text.startsWith('UPDATE task_definitions SET next_run_at'))
+    expect(cleared.text).toContain('next_run_at = NULL')
+    expect(cleared.values).toEqual(['manual'])
   })
 
   it('passes the batch size through as the LIMIT binding', async () => {

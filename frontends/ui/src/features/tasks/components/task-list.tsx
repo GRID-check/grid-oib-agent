@@ -4,11 +4,11 @@
  * The project's delegated work — one column of cards, grouped by when it was
  * asked for, with a filter row above it.
  *
- * This list used to be two: the standing SCHEDULES on top and the runs below.
- * That put a list of cron strings in front of the results most people opened
- * the section for, and asked one surface to answer two unrelated questions —
- * "what happened" and "what will happen". The schedules moved to their own tab
- * (`features/jobs/schedule-panel`), and what is left here is a timeline.
+ * This list is the runs half of the Tasks tab: things that HAPPENED, read
+ * newest-first. The standing tasks behind them — scheduled or manual — render
+ * below it as their own section, and the timetable VIEW reads the same set as
+ * a week. One set of tasks, three readings; the view toggle above them is a
+ * preference, not a destination.
  *
  * ONE COLUMN, not a grid. A grid is right for things that are peers in space —
  * files, projects, schedules — and wrong for things that are peers in TIME: a

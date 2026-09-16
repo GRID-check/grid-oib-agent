@@ -624,6 +624,20 @@
       "when": 1789948800006,
       "tag": "0088_platform_skills_drop_standard_delivery",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1790035200006,
+      "tag": "0089_skill_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1790121600006,
+      "tag": "0090_one_shot_due_scan",
+      "breakpoints": true
     }
   ]
 }

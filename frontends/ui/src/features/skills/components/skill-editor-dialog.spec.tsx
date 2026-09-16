@@ -39,6 +39,7 @@ const orgSkill: client.SkillListItem = {
   origin: 'org',
   enabled: true,
   clonedFrom: null,
+  categoryId: null,
   createdAt: '2026-07-16T00:00:00Z',
   updatedAt: '2026-07-16T00:00:00Z',
 }
@@ -354,6 +355,52 @@ describe('SkillEditorDialog — edit', () => {
       'grid-agents': 'voice-ana',
     })
     expect(toast.success).toHaveBeenCalledWith('Skill saved.')
+  })
+
+  test('offers the categories in a picker and saves the pick', async () => {
+    updateSkillMock.mockResolvedValue(orgSkill)
+    const user = (await import('@testing-library/user-event')).default.setup()
+    render(
+      <SkillEditorDialog
+        {...dialogProps}
+        skill={orgSkill}
+        categories={[
+          { id: 'cat-1', name: 'Recherche', description: null, slug: 'research', sortOrder: 0, scope: 'platform' },
+        ]}
+      />,
+    )
+
+    // Unsorted until picked.
+    expect(screen.getByRole('combobox', { name: 'Category' })).toHaveTextContent('Unsorted')
+    await user.click(screen.getByRole('combobox', { name: 'Category' }))
+    await user.click(screen.getByRole('option', { name: 'Recherche' }))
+
+    const saveButton = screen.getByRole('button', { name: 'Save skill' })
+    await waitFor(() => expect(saveButton).toBeEnabled())
+    fireEvent.click(saveButton)
+
+    await waitFor(() => expect(updateSkillMock).toHaveBeenCalledTimes(1))
+    expect(updateSkillMock.mock.calls[0][1]).toHaveProperty('categoryId', 'cat-1')
+  })
+
+  test('creating without a pick omits the category', async () => {
+    createSkillMock.mockResolvedValue(orgSkill)
+    render(<SkillEditorDialog {...dialogProps} skill={null} />)
+
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: 'oib-fire-check' } })
+    fireEvent.change(screen.getByLabelText(/^Description/), {
+      target: { value: 'Checks fire-safety guidelines.' },
+    })
+    fireEvent.change(screen.getByLabelText(/^Instruction/), {
+      target: { value: 'Act as a fire-safety reviewer.' },
+    })
+
+    const saveButton = screen.getByRole('button', { name: 'Save skill' })
+    await waitFor(() => expect(saveButton).toBeEnabled())
+    fireEvent.click(saveButton)
+
+    await waitFor(() => expect(createSkillMock).toHaveBeenCalledTimes(1))
+    expect(createSkillMock.mock.calls[0][0]).not.toHaveProperty('categoryId')
   })
 
   test('prefills auto-invoke off and hidden on from reserved metadata', async () => {

@@ -83,7 +83,7 @@ export async function insertPlatformSkillRow(
 export type PlatformSkillUpdate = Partial<
   Pick<
     PlatformSkillRow,
-    'name' | 'description' | 'body' | 'metadata' | 'published' | 'delivery' | 'updatedAt'
+    'name' | 'description' | 'body' | 'metadata' | 'published' | 'delivery' | 'categoryId' | 'updatedAt'
   >
 >
 

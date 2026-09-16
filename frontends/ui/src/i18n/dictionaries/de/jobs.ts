@@ -1,42 +1,46 @@
 import type { en } from '../en'
 
 /**
- * Zeitplan — ein Prompt auf einem Timer, und die Woche, die daraus wird.
+ * Aufgaben mit Rhythmus — ein Auftrag auf Wunsch mit Timer, und die Woche, die
+ * daraus wird.
  *
- * Ein Zeitplan feuert seinen Prompt in einen frischen Lauf, so wie jemand einen
- * neuen Chat öffnet und tippt. Ein Skill KANN obendrauf hängen, genau wie ein
- * vorangestelltes „/name“ — der Normalfall ist kein Skill, und die Texte unten
- * sagen das. Die Skill-Werkstatt selbst liegt im Namensraum `skills`.
+ * Eine Aufgabe feuert ihren Prompt in einen frischen Lauf, so wie jemand einen
+ * neuen Chat öffnet und tippt — einmalig, oder nach dem Rhythmus aus Schritt 3.
+ * Ein Skill KANN obendrauf hängen, genau wie ein vorangestelltes „/name“ — der
+ * Normalfall ist kein Skill, und die Texte unten sagen das. Die
+ * Skill-Werkstatt selbst liegt im Namensraum `skills`.
  *
  * Zwei Dinge gehören diesem Namensraum neu: die Texte des STUNDENPLANS und die
- * des vierteiligen ASSISTENTEN. Beide gibt es, weil ein Zeitplan das Einzige im
+ * des vierteiligen ASSISTENTEN. Beide gibt es, weil ein Rhythmus das Einzige im
  * Produkt ist, das man nicht durch Hinsehen prüfen kann — also gehen die Wörter
  * dorthin, wo die Festlegung lesbar wird („Jeden Montag um 06:00“, die nächsten
  * drei echten Termine), statt in die Namen von Cron-Feldern.
  */
 export const jobs: typeof en.jobs = {
-  title: 'Zeitplan',
-  backToList: 'Zurück zu den Zeitplänen',
-  loadError: 'Die Zeitpläne konnten nicht geladen werden.',
+  title: 'Aufgaben',
+  backToList: 'Zurück zur Liste',
+  loadError: 'Die Aufgaben konnten nicht geladen werden.',
   tryAgain: 'Erneut versuchen',
 
   list: {
-    heading: 'Zeitpläne',
+    heading: 'Aufgaben',
     empty: {
-      title: 'Noch keine Zeitpläne',
+      title: 'Noch keine Aufgaben',
       description:
-        'Ein Zeitplan ist ein Auftrag auf einem Timer. Einmal schreiben, festlegen, ob ein Chat oder ein Bericht herauskommt — und Piloti arbeitet, während Sie woanders sind.',
-      action: 'Neuer Zeitplan',
+        'Eine Aufgabe ist ein Auftrag mit oder ohne Rhythmus. Einmal schreiben, festlegen, ob ein Chat oder ein Bericht herauskommt — und Piloti arbeitet, während Sie woanders sind.',
+      action: 'Neue Aufgabe',
     },
     manualOnly: 'Nur manuell',
+    onceOn: 'Einmal am {time}',
+    onceDone: 'Erledigt',
     // Bewusst knapp: beide stehen auf EINER Fußzeile einer Karte.
     nextRun: 'Nächster {time}',
     lastRun: 'Letzter {time}',
     neverRun: 'Noch nie gelaufen',
     disabled: 'Pausiert',
-    enableAria: 'Zeitplan „{name}“ fortsetzen',
-    disableAria: 'Zeitplan „{name}“ pausieren',
-    toggleError: 'Der Zeitplan konnte nicht geändert werden.',
+    enableAria: 'Aufgabe „{name}“ fortsetzen',
+    disableAria: 'Aufgabe „{name}“ pausieren',
+    toggleError: 'Die Aufgabe konnte nicht geändert werden.',
     withSkill: 'Skill: {name}',
     noSkill: 'Kein Skill',
     output: {
@@ -46,7 +50,7 @@ export const jobs: typeof en.jobs = {
   },
 
   card: {
-    openAria: 'Zeitplan „{name}“ öffnen',
+    openAria: 'Aufgabe „{name}“ öffnen',
   },
 
   actions: {
@@ -57,7 +61,7 @@ export const jobs: typeof en.jobs = {
 
   timetable: {
     title: 'Die Woche',
-    legend: 'Zeitpläne in diesem Raster',
+    legend: 'Aufgaben in diesem Raster',
     thisWeek: 'Diese Woche',
     today: 'Heute',
     previousWeek: 'Vorige Woche',
@@ -69,7 +73,7 @@ export const jobs: typeof en.jobs = {
     /** Ein Cron, den der Parser nicht lesen konnte — benannt, nie verschwiegen. */
     unplaceable: 'Nicht im Raster: {names}',
     emptyNoSchedules: 'Noch nichts geplant',
-    emptyNoSchedulesHint: 'Legen Sie einen Zeitplan an — dann füllt sich diese Woche.',
+    emptyNoSchedulesHint: 'Legen Sie eine Aufgabe mit Rhythmus an — dann füllt sich diese Woche.',
     emptyThisWeek: 'Diese Woche läuft nichts',
   },
 
@@ -91,18 +95,18 @@ export const jobs: typeof en.jobs = {
 
   run: {
     submitted: 'Gestartet.',
-    submittedDetail: 'Er läuft jetzt — verfolgen Sie ihn in der Task-Liste des Zeitplans.',
+    submittedDetail: 'Er läuft jetzt — verfolgen Sie ihn unter Tasks.',
     skipped: 'Übersprungen',
     error: 'Das konnte nicht gestartet werden.',
-    disabled: 'Setzen Sie den Zeitplan fort, bevor Sie ihn ausführen.',
+    disabled: 'Setzen Sie die Aufgabe fort, bevor Sie sie ausführen.',
   },
 
   deleteDialog: {
-    title: 'Zeitplan löschen',
-    description: 'Löscht „{name}“ und seinen Verlauf dauerhaft. Das lässt sich nicht rückgängig machen.',
-    confirm: 'Zeitplan löschen',
+    title: 'Aufgabe löschen',
+    description: 'Löscht „{name}“ und ihren Verlauf dauerhaft. Das lässt sich nicht rückgängig machen.',
+    confirm: 'Aufgabe löschen',
     cancel: 'Abbrechen',
-    error: 'Der Zeitplan konnte nicht gelöscht werden.',
+    error: 'Die Aufgabe konnte nicht gelöscht werden.',
   },
 
   builder: {
@@ -111,24 +115,24 @@ export const jobs: typeof en.jobs = {
     steps: {
       task: 'Auftrag',
       output: 'Ergebnis',
-      schedule: 'Rhythmus',
+      schedule: 'Wann',
       review: 'Prüfen',
       taskTitle: 'Was soll Piloti tun?',
       taskHint:
         'Schreiben Sie es genau so, wie Sie es in einen neuen Chat tippen würden. Piloti startet ohne weiteren Kontext.',
       outputTitle: 'Was soll dabei herauskommen?',
-      outputHint: 'Das entscheidet auch, welche Skills der Zeitplan nutzen kann.',
+      outputHint: 'Das entscheidet auch, welche Skills die Aufgabe nutzen kann.',
       scheduleTitle: 'Wann soll es laufen?',
       scheduleHint:
-        'Wählen Sie einen Rhythmus — die nächsten Termine stehen darunter, zum Prüfen vor der Festlegung.',
+        'Einmal, wiederkehrend oder nur auf Zuruf — die nächsten Termine stehen darunter, zum Prüfen vor der Festlegung.',
       reviewTitle: 'Fertig',
       reviewHint: 'Das wird passieren. Gespeichert ist noch nichts.',
     },
     next: 'Weiter',
     back: 'Zurück',
     cancel: 'Abbrechen',
-    create: 'Zeitplan anlegen',
-    save: 'Zeitplan speichern',
+    create: 'Aufgabe anlegen',
+    save: 'Aufgabe speichern',
     saving: 'Wird gespeichert…',
 
     nameLabel: 'Name',
@@ -162,10 +166,10 @@ export const jobs: typeof en.jobs = {
     skillLabel: 'Angehängter Skill',
     skillSummary: 'Skill: {name}',
     skillNone: 'Kein Skill',
-    skillNoneHint: 'Der Auftrag läuft für sich. Die meisten Zeitpläne brauchen keinen Skill.',
+    skillNoneHint: 'Der Auftrag läuft für sich. Die meisten Aufgaben brauchen keinen Skill.',
     skillPlaceholder: 'Kein Skill',
     skillsLoading: 'Skills werden geladen…',
-    skillsError: 'Die Skills konnten nicht geladen werden — der Zeitplan lässt sich trotzdem speichern.',
+    skillsError: 'Die Skills konnten nicht geladen werden — die Aufgabe lässt sich trotzdem speichern.',
     skillsEmpty: 'Zu dieser Ergebnisart passt kein Skill.',
     skillDetached: '„{name}“ kann nicht als {output} laufen und wurde abgehängt.',
 
@@ -177,11 +181,20 @@ export const jobs: typeof en.jobs = {
       'Quellen über die Wissensbasis hinaus. Nichts angehakt heißt: alle verfügbaren Quellen sind erlaubt.',
     sourcesAll: 'Alle verfügbaren Quellen',
     sourcesLoading: 'Quellen werden geladen…',
-    sourcesError: 'Quellen konnten nicht geladen werden — der Zeitplan nutzt alle verfügbaren.',
+    sourcesError: 'Quellen konnten nicht geladen werden — die Aufgabe nutzt alle verfügbaren.',
 
-    scheduleSection: 'Rhythmus',
-    enableScheduleLabel: 'Nach Zeitplan ausführen',
-    enableScheduleHint: 'Ist das aus, läuft er nur auf „Jetzt ausführen“.',
+    scheduleSection: 'Wann',
+    cadence: {
+      label: 'Wann soll die Aufgabe laufen',
+      once: 'Einmal',
+      onceHint: 'An einem Datum, das Sie festlegen. Danach ist sie erledigt.',
+      recurring: 'Wiederkehrend',
+      recurringHint: 'Nach einem Rhythmus, immer wieder.',
+      manual: 'Nur manuell',
+      manualHint: 'Läuft nur, wenn Sie „Jetzt ausführen“ drücken.',
+    },
+    dueAtLabel: 'Fälligkeitstermin',
+    dueAtHint: 'Nach Ihrer Ortszeit. Die Aufgabe läuft genau einmal.',
     presetLabel: 'Wie oft',
     timeLabel: 'Um',
     minuteLabel: 'Zur Minute',
@@ -203,14 +216,19 @@ export const jobs: typeof en.jobs = {
     timezoneHint: 'Der Zeitplan feuert nach der Uhr dieser Zone, Sommerzeit inklusive.',
 
     enabledLabel: 'Aktiv',
-    enabledHint: 'Ein pausierter Zeitplan feuert nie und lässt sich nicht von Hand starten.',
+    enabledHint: 'Eine pausierte Aufgabe feuert nie und lässt sich nicht von Hand starten.',
 
     reviewSentence: 'Piloti erstellt {cadence} {output}.',
+    reviewSentenceOnce: 'Piloti erstellt {output} — einmal, am {dueAt}.',
     reviewSentenceManual: 'Piloti erstellt {output}, jedes Mal wenn Sie es von Hand starten.',
 
-    createSuccess: 'Zeitplan angelegt.',
-    updateSuccess: 'Zeitplan gespeichert.',
-    saveError: 'Der Zeitplan konnte nicht gespeichert werden.',
+    createAndRun: 'Anlegen und jetzt ausführen',
+    saveAndRun: 'Speichern und jetzt ausführen',
+    runNowFailed: 'Die Aufgabe ist gespeichert, der erste Lauf konnte nicht gestartet werden.',
+
+    createSuccess: 'Aufgabe angelegt.',
+    updateSuccess: 'Aufgabe gespeichert.',
+    saveError: 'Die Aufgabe konnte nicht gespeichert werden.',
 
     preview: {
       title: 'Was der Agent erhält',
@@ -223,7 +241,7 @@ export const jobs: typeof en.jobs = {
     title: 'Verlauf',
     loading: 'Tasks werden geladen…',
     loadError: 'Der Verlauf konnte nicht geladen werden.',
-    empty: 'Dieser Zeitplan ist noch nie gelaufen.',
+    empty: 'Diese Aufgabe ist noch nie gelaufen.',
     viewReport: 'Bericht ansehen',
     openChat: 'Chat öffnen',
     viewProgress: 'Fortschritt ansehen',

@@ -28,6 +28,7 @@ import {
   deletePlatformSkill,
   updatePlatformSkill,
   type PlatformSkillItem,
+  type SkillCategoryListItem,
   type SkillListItem,
 } from '@/adapters/api/skills-client'
 
@@ -36,6 +37,8 @@ interface PlatformSkillEditorDialogProps {
   onOpenChange: (open: boolean) => void
   /** The curated skill being edited, or null when adding one. */
   skill: PlatformSkillItem | null
+  /** The platform categories on offer in the pickers. */
+  categories?: SkillCategoryListItem[]
   onSaved: () => void
 }
 
@@ -58,6 +61,7 @@ function toEditorSkill(skill: PlatformSkillItem): SkillListItem {
     origin: 'platform',
     enabled: skill.published,
     clonedFrom: null,
+    categoryId: skill.categoryId,
     createdAt: skill.createdAt,
     updatedAt: skill.updatedAt,
   }
@@ -67,6 +71,7 @@ export function PlatformSkillEditorDialog({
   open,
   onOpenChange,
   skill,
+  categories = [],
   onSaved,
 }: PlatformSkillEditorDialogProps): JSX.Element {
   const t = useTranslations('platform')
@@ -74,15 +79,23 @@ export function PlatformSkillEditorDialog({
   const persistence = useMemo<SkillPersistence>(
     () => ({
       save: async (input, published) => {
-        const payload = {
+        // The picker reads null as unsorted. The create schema takes no null
+        // (omitted means unsorted there); the patch schema takes an explicit
+        // null to unassign.
+        const base = {
           name: input.name,
           description: input.description,
           body: input.body,
           metadata: input.metadata,
           published,
         }
-        if (skill) await updatePlatformSkill(skill.id, payload)
-        else await createPlatformSkill(payload)
+        if (skill) {
+          await updatePlatformSkill(skill.id, { ...base, categoryId: input.categoryId ?? null })
+        } else if (input.categoryId) {
+          await createPlatformSkill({ ...base, categoryId: input.categoryId })
+        } else {
+          await createPlatformSkill(base)
+        }
       },
       remove: skill ? async () => void (await deletePlatformSkill(skill.id)) : undefined,
       switchLabels: {
@@ -117,6 +130,7 @@ export function PlatformSkillEditorDialog({
       onOpenChange={onOpenChange}
       skill={skill ? toEditorSkill(skill) : null}
       persistence={persistence}
+      categories={categories}
       onSaved={onSaved}
     />
   )

@@ -54,6 +54,7 @@ import {
   FileText,
   Lock,
   MessageSquare,
+  Play,
   ScrollText,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -84,6 +85,7 @@ import { createDataSourcesClient, type DataSourceFromAPI } from '@/adapters/api/
 import {
   createJob,
   listAttachableSkills,
+  runJob,
   updateJob,
   JobApiError,
   type AttachableSkill,
@@ -108,6 +110,11 @@ import {
   timeValueToParts,
   weekdayName,
   type CronParts,
+  CADENCES,
+  type Cadence,
+  cadenceOf,
+  toDateTimeLocal,
+  defaultDueAt,
 } from '../lib/schedule'
 import type { ScheduleDraft } from '../lib/schedule-draft'
 
@@ -217,8 +224,22 @@ export function ScheduleWizard({
 
   // --- When -----------------------------------------------------------------
   const [enabled, setEnabled] = useState<boolean>(job?.enabled ?? true)
-  const [scheduleEnabled, setScheduleEnabled] = useState<boolean>(
-    job ? Boolean(job.scheduleCron) : true,
+  /**
+   * Which of the three shapes this task has. One question with three answers,
+   * not two switches: "run on a schedule" on/off could not express "once, on
+   * Friday" at all, and a second boolean for it would have made four states of
+   * which one is nonsense. See `cadenceOf`.
+   */
+  const [cadence, setCadence] = useState<Cadence>(() =>
+    job ? cadenceOf(job) : 'recurring',
+  )
+  /**
+   * A one-shot's due date, held as the `datetime-local` string the input reads
+   * and writes — i.e. in the VIEWER's timezone. It becomes an instant once, at
+   * submit, so no intermediate keystroke has to be a valid date.
+   */
+  const [dueAtLocal, setDueAtLocal] = useState<string>(() =>
+    toDateTimeLocal(job?.dueAt ? new Date(job.dueAt) : defaultDueAt()),
   )
   /**
    * Whether the schedule is being written as a raw cron expression.
@@ -240,7 +261,60 @@ export function ScheduleWizard({
   const [formError, setFormError] = useState<string | null>(null)
 
   /** The expression the schedule will actually be saved with. */
-  const effectiveCron = scheduleEnabled ? (customCron ? cron.trim() : buildCron(parts)) : null
+  const effectiveCron =
+    cadence === 'recurring' ? (customCron ? cron.trim() : buildCron(parts)) : null
+  /**
+   * The instant a one-shot will be saved with, or null.
+   *
+   * `datetime-local` gives no timezone, so `new Date(value)` reads it in the
+   * viewer's — which is exactly right: the reader picked a wall-clock time
+   * where they are sitting. An unparseable half-typed value is null, and the
+   * WHEN step refuses to leave rather than posting it.
+   */
+  /**
+   * The earliest the date picker offers, computed ONCE per mount rather than
+   * per render: a `min` that tracks the clock would re-render the input every
+   * time anything else in the wizard changed, and a reader mid-keystroke would
+   * see the calendar's floor move under them.
+   */
+  const minDueAtLocal = useMemo(() => toDateTimeLocal(new Date()), [])
+
+  /**
+   * Whether this submit should also fire the task once, immediately.
+   *
+   * A ref and not state: it is read inside `onSubmit` and setting state would
+   * re-render the form between the click and the submit, which TanStack Form
+   * treats as a change mid-flight. Reset in `finally` so a failed save does not
+   * leave the next attempt silently armed to run.
+   */
+  const runAfterSaveRef = useRef(false)
+
+  /**
+   * Fire the task once, right after it was saved.
+   *
+   * Deliberately swallows its own failure. The save already SUCCEEDED by the
+   * time this runs, so letting the run's error reach the form's catch would
+   * show "could not be saved" over a task that is sitting in the list — the
+   * single most confusing thing this flow could tell somebody. A warning toast
+   * says what actually happened, and the task's own run list is where the
+   * outcome belongs anyway.
+   */
+  const runOnce = useCallback(
+    async (jobId: string): Promise<void> => {
+      try {
+        await runJob(projectId, jobId)
+      } catch {
+        toast.warning(t('builder.runNowFailed'))
+      }
+    },
+    [projectId, t],
+  )
+
+  const effectiveDueAt = useMemo(() => {
+    if (cadence !== 'once' || !dueAtLocal) return null
+    const parsed = new Date(dueAtLocal)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }, [cadence, dueAtLocal])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -330,6 +404,10 @@ export function ScheduleWizard({
         enabled,
         scheduleCron: effectiveCron,
         scheduleTimezone: timezone,
+        // Explicit null, not omitted, for the same reason `skillName` is: on
+        // PATCH that is what CLEARS a due date, and omitting it would leave a
+        // one-shot's date in place after somebody moved it to a cron.
+        dueAt: effectiveDueAt ? effectiveDueAt.toISOString() : null,
       }
 
       try {
@@ -341,15 +419,21 @@ export function ScheduleWizard({
           output,
           has_skill: skill !== null,
           additional_source_count: selectedSources.size,
-          schedule_enabled: scheduleEnabled,
+          // Kept as it was named when the step was a switch, so the series
+          // does not break at the rewrite: "is this task on a timer at all".
+          schedule_enabled: cadence !== 'manual',
+          cadence,
           enabled,
         }
+        const runNow = runAfterSaveRef.current
         if (job) {
           await updateJob(projectId, job.id, payload)
           capturePosthog('job_updated', analytics)
+          if (runNow) await runOnce(job.id)
           toast.success(t('builder.updateSuccess'))
         } else {
-          await createJob(projectId, payload)
+          const created = await createJob(projectId, payload)
+          if (runNow) await runOnce(created.id)
           capturePosthog('job_created', analytics)
           toast.success(t('builder.createSuccess'))
         }
@@ -361,7 +445,7 @@ export function ScheduleWizard({
         // to it. An error a reader cannot see is an error they cannot fix.
         if (err instanceof JobApiError && (err.status === 400 || err.status === 422)) {
           const message = err.serverMessage ?? t('builder.saveError')
-          if (scheduleEnabled) {
+          if (cadence !== 'manual') {
             setScheduleError(message)
             setStepIndex(2)
           } else {
@@ -371,6 +455,10 @@ export function ScheduleWizard({
           setFormError(t('builder.saveError'))
         }
         toast.error(t('builder.saveError'))
+      } finally {
+        // Always, so a failed save cannot leave the next attempt armed to fire
+        // a run the reader did not ask for a second time.
+        runAfterSaveRef.current = false
       }
     },
   })
@@ -503,11 +591,18 @@ export function ScheduleWizard({
 
         {step === 'schedule' && (
           <ScheduleStep
-            scheduleEnabled={scheduleEnabled}
-            onScheduleEnabledChange={(next) => {
-              setScheduleEnabled(next)
+            cadence={cadence}
+            onCadenceChange={(next) => {
+              setCadence(next)
               setScheduleError(null)
             }}
+            dueAtLocal={dueAtLocal}
+            onDueAtLocalChange={(next) => {
+              setDueAtLocal(next)
+              setScheduleError(null)
+            }}
+            minDueAtLocal={minDueAtLocal}
+            dueAt={effectiveDueAt}
             customCron={customCron}
             onCustomCronChange={(next) => {
               setCustomCron(next)
@@ -543,7 +638,9 @@ export function ScheduleWizard({
                 output={output}
                 skill={skill}
                 sourceCount={selectedSources.size}
+                cadence={cadence}
                 effectiveCron={effectiveCron}
+                effectiveDueAt={effectiveDueAt}
                 timezone={timezone}
                 enabled={enabled}
                 onEnabledChange={setEnabled}
@@ -580,6 +677,9 @@ export function ScheduleWizard({
             onBack={() => (stepIndex === 0 ? onCancel() : goTo(stepIndex - 1))}
             onNext={() => goTo(stepIndex + 1)}
             editing={job !== null}
+            onRunAfterSave={() => {
+              runAfterSaveRef.current = true
+            }}
           />
         )}
       </form.Subscribe>
@@ -591,6 +691,16 @@ export function ScheduleWizard({
 /**
  * The footer. Back is always available and never destructive — on the first
  * step it is Cancel, which is the only place leaving loses anything.
+ *
+ * The last step offers TWO ways to finish, and the extra one is the point: a
+ * task saved against a weekly cron gives its author no evidence it works until
+ * the following Monday, which is the worst possible feedback loop for a prompt
+ * written once, in a box, with no conversation to correct it. "Save and run
+ * now" makes the first run the proof — and it is where somebody finds out the
+ * prompt says the wrong thing while they still remember what they meant.
+ *
+ * It leads on CREATE and is secondary when editing: a new task has nothing to
+ * show yet, an edited one already has a run history.
  */
 function WizardNav({
   step,
@@ -601,6 +711,7 @@ function WizardNav({
   onBack,
   onNext,
   editing,
+  onRunAfterSave,
 }: {
   step: StepKey
   stepIndex: number
@@ -610,6 +721,7 @@ function WizardNav({
   onBack: () => void
   onNext: () => void
   editing: boolean
+  onRunAfterSave: () => void
 }): JSX.Element {
   const t = useTranslations('jobs')
   const last = step === 'review'
@@ -621,32 +733,47 @@ function WizardNav({
         {stepIndex === 0 ? t('builder.cancel') : t('builder.back')}
       </Button>
       {last ? (
-        <Button type="submit" disabled={!canSubmit || isSubmitting} aria-busy={isSubmitting}>
-          {/* Both labels stay mounted so the button width does not jump when
-              "Speichern" becomes "Wird gespeichert…". */}
-          <span className="inline-grid justify-items-start">
-            <span
-              className={cn(
-                'col-start-1 row-start-1 inline-flex items-center gap-2',
-                isSubmitting && 'invisible',
-              )}
-              aria-hidden={isSubmitting}
-            >
-              <Check className="size-4" aria-hidden />
-              {editing ? t('builder.save') : t('builder.create')}
+        <div className="flex items-center gap-2">
+          {/* Secondary, and never the busy one: exactly one control shows the
+              spinner so a reader is never asked which of two buttons is the
+              one that is working. Both are disabled while it saves. */}
+          <Button
+            type="submit"
+            variant="outline"
+            disabled={!canSubmit || isSubmitting}
+            onClick={onRunAfterSave}
+            data-testid="wizard-save-and-run"
+          >
+            <Play className="size-4" aria-hidden />
+            {editing ? t('builder.saveAndRun') : t('builder.createAndRun')}
+          </Button>
+          <Button type="submit" disabled={!canSubmit || isSubmitting} aria-busy={isSubmitting}>
+            {/* Both labels stay mounted so the button width does not jump when
+                "Speichern" becomes "Wird gespeichert…". */}
+            <span className="inline-grid justify-items-start">
+              <span
+                className={cn(
+                  'col-start-1 row-start-1 inline-flex items-center gap-2',
+                  isSubmitting && 'invisible',
+                )}
+                aria-hidden={isSubmitting}
+              >
+                <Check className="size-4" aria-hidden />
+                {editing ? t('builder.save') : t('builder.create')}
+              </span>
+              <span
+                className={cn(
+                  'col-start-1 row-start-1 inline-flex items-center gap-2',
+                  !isSubmitting && 'invisible',
+                )}
+                aria-hidden={!isSubmitting}
+              >
+                <Spinner size="sm" aria-hidden />
+                {t('builder.saving')}
+              </span>
             </span>
-            <span
-              className={cn(
-                'col-start-1 row-start-1 inline-flex items-center gap-2',
-                !isSubmitting && 'invisible',
-              )}
-              aria-hidden={!isSubmitting}
-            >
-              <Spinner size="sm" aria-hidden />
-              {t('builder.saving')}
-            </span>
-          </span>
-        </Button>
+          </Button>
+        </div>
       ) : (
         <Button type="button" onClick={onNext} disabled={blocked} data-testid="wizard-next">
           {t('builder.next')}
@@ -919,18 +1046,28 @@ function OutputStep({
 }
 
 /**
- * Step 3 — when. Four cadences, a time, and the next three real fire times.
+ * Step 3 — when. One choice of three, then whatever that choice needs.
+ *
+ * The three are asked as chips rather than a switch because they are not two
+ * things and an absence: "once, on Friday" is the shape a planning office asks
+ * for most often, and while the question was "run on a schedule: yes/no" it was
+ * the one shape that could not be said. Recurring leads because it is what this
+ * section is mostly for.
  *
  * The preview underneath is the reason this step is worth a page of its own. A
  * schedule is the one thing in the section a person cannot check by looking at
  * it: „Monatlich am 1. um 06:00" is true until the month it is not, and
- * `0 6 1 * *` is true to nobody. Three dates, from the library the scheduler
+ * `0 6 1 * *` is true to nobody. Real dates, from the library the scheduler
  * itself advances rows with, turn the setting into something a reader can
  * confirm before they commit to it.
  */
 function ScheduleStep({
-  scheduleEnabled,
-  onScheduleEnabledChange,
+  cadence,
+  onCadenceChange,
+  dueAtLocal,
+  onDueAtLocalChange,
+  minDueAtLocal,
+  dueAt,
   customCron,
   onCustomCronChange,
   parts,
@@ -943,8 +1080,13 @@ function ScheduleStep({
   error,
   locale,
 }: {
-  scheduleEnabled: boolean
-  onScheduleEnabledChange: (next: boolean) => void
+  cadence: Cadence
+  onCadenceChange: (next: Cadence) => void
+  dueAtLocal: string
+  onDueAtLocalChange: (next: string) => void
+  minDueAtLocal: string
+  /** The parsed instant, or null while the field is half-typed. */
+  dueAt: Date | null
   customCron: boolean
   onCustomCronChange: (next: boolean) => void
   parts: CronParts
@@ -964,19 +1106,69 @@ function ScheduleStep({
     <section data-testid="wizard-step-schedule">
       <StepHeading title={t('builder.steps.scheduleTitle')} hint={t('builder.steps.scheduleHint')} />
 
-      <Field orientation="horizontal" className="border-border rounded-lg border px-3 py-2.5">
-        <div className="flex flex-col gap-0.5">
-          <FieldLabel htmlFor="schedule-on">{t('builder.enableScheduleLabel')}</FieldLabel>
-          <FieldDescription>{t('builder.enableScheduleHint')}</FieldDescription>
-        </div>
-        <Switch
-          id="schedule-on"
-          checked={scheduleEnabled}
-          onCheckedChange={onScheduleEnabledChange}
-        />
-      </Field>
+      {/* Cards, not chips, because each answer needs a sentence: "once" and
+          "recurring" are indistinguishable from their one-word labels alone,
+          and a reader choosing between them is choosing between behaviours. */}
+      <div
+        role="radiogroup"
+        aria-labelledby="cadence-label"
+        className="grid gap-2 sm:grid-cols-3"
+        data-testid="cadence-choice"
+      >
+        <span id="cadence-label" className="sr-only">
+          {t('builder.cadence.label')}
+        </span>
+        {CADENCES.map((option) => (
+          <button
+            key={option}
+            type="button"
+            role="radio"
+            aria-checked={cadence === option}
+            onClick={() => onCadenceChange(option)}
+            data-testid={`cadence-${option}`}
+            className={cn(
+              'border-border rounded-lg border px-3 py-2.5 text-left transition-colors duration-fast',
+              'focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none',
+              cadence === option
+                ? 'border-primary bg-primary-subtle'
+                : 'hover:border-muted-foreground/40',
+            )}
+          >
+            <span className="text-foreground block text-sm font-medium">
+              {t(`builder.cadence.${option}`)}
+            </span>
+            <span className="text-muted-foreground mt-0.5 block text-xs leading-relaxed">
+              {t(`builder.cadence.${option}Hint`)}
+            </span>
+          </button>
+        ))}
+      </div>
 
-      {scheduleEnabled && (
+      {cadence === 'once' && (
+        <div className="animate-in fade-in-0 mt-5 space-y-5 duration-base ease-out motion-reduce:animate-none">
+          <Field>
+            <FieldLabel htmlFor="due-at">{t('builder.dueAtLabel')}</FieldLabel>
+            <FieldDescription>{t('builder.dueAtHint')}</FieldDescription>
+            {/* `min` is advisory — the browser will not stop a typed past date
+                and the server is the real check — but it makes the calendar
+                open on the right side of today. */}
+            <Input
+              id="due-at"
+              type="datetime-local"
+              value={dueAtLocal}
+              min={minDueAtLocal}
+              onChange={(event) => onDueAtLocalChange(event.target.value)}
+              aria-invalid={error ? true : undefined}
+            />
+          </Field>
+
+          <UpcomingRuns cron={null} dueAt={dueAt} timezone={timezone} locale={locale} />
+
+          {error && <FieldError>{error}</FieldError>}
+        </div>
+      )}
+
+      {cadence === 'recurring' && (
         <div className="animate-in fade-in-0 mt-5 space-y-5 duration-base ease-out motion-reduce:animate-none">
           {!customCron && (
             <>
@@ -1193,17 +1385,27 @@ function toggleDay(weekdays: readonly number[], weekday: number): number[] {
 }
 
 /**
- * The next few fire times of the expression as it currently stands.
+ * When this task will actually run, as dates rather than as a setting.
  *
- * Debounced, because it recomputes on every keystroke in the cron field and a
- * list that flickers under a typing hand is noise rather than feedback.
+ * Both cadences that fire on their own share this box, because both need the
+ * same reassurance and a one-shot needs it MORE: a cron at least repeats, so a
+ * wrong one is visibly wrong next week, while a date typed into a
+ * `datetime-local` is read back exactly once and by then it has happened.
+ * Showing the chosen instant in the same words as a schedule's occurrences is
+ * what makes "Freitag, 2. Oktober 2026, 07:00" checkable at all.
+ *
+ * The cron path is debounced, because it recomputes on every keystroke in the
+ * cron field and a list that flickers under a typing hand is noise rather than
+ * feedback. A due date needs no library and no wait — it IS the answer.
  */
 function UpcomingRuns({
   cron,
+  dueAt = null,
   timezone,
   locale,
 }: {
   cron: string | null
+  dueAt?: Date | null
   timezone: string
   locale: string
 }): JSX.Element {
@@ -1211,6 +1413,10 @@ function UpcomingRuns({
   const [upcoming, setUpcoming] = useState<Date[] | null>(null)
 
   useEffect(() => {
+    if (dueAt) {
+      setUpcoming([dueAt])
+      return
+    }
     if (!cron) {
       setUpcoming([])
       return
@@ -1226,7 +1432,7 @@ function UpcomingRuns({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [cron, timezone])
+  }, [cron, dueAt, timezone])
 
   return (
     <div className="bg-muted rounded-lg p-3" data-testid="wizard-upcoming">
@@ -1271,7 +1477,9 @@ function ReviewStep({
   output,
   skill,
   sourceCount,
+  cadence,
   effectiveCron,
+  effectiveDueAt,
   timezone,
   enabled,
   onEnabledChange,
@@ -1281,7 +1489,9 @@ function ReviewStep({
   output: JobOutput
   skill: SkillSnapshot | null
   sourceCount: number
+  cadence: Cadence
   effectiveCron: string | null
+  effectiveDueAt: Date | null
   timezone: string
   enabled: boolean
   onEnabledChange: (next: boolean) => void
@@ -1291,15 +1501,29 @@ function ReviewStep({
   const [promptOpen, setPromptOpen] = useState(false)
   const compiled = buildFirePromptPreview({ prompt: values.prompt, skill })
 
-  const cadence = scheduleSummary(t, effectiveCron, timezone, locale, { withTimezone: false })
-  const summary = effectiveCron
-    ? t('builder.reviewSentence', {
-        cadence: cadence.toLocaleLowerCase(locale),
-        output: t(`builder.output.${output === 'chat' ? 'chatNoun' : 'deepResearchNoun'}`),
-      })
-    : t('builder.reviewSentenceManual', {
-        output: t(`builder.output.${output === 'chat' ? 'chatNoun' : 'deepResearchNoun'}`),
-      })
+  const outputNoun = t(`builder.output.${output === 'chat' ? 'chatNoun' : 'deepResearchNoun'}`)
+  const rhythm = scheduleSummary(t, effectiveCron, timezone, locale, { withTimezone: false })
+  const dueAtText = effectiveDueAt ? formatAbsoluteTime(effectiveDueAt.toISOString(), locale) : ''
+
+  // One sentence per cadence rather than one with a hole in it: "läuft einmal
+  // am …" and "läuft jeden Montag …" are different sentences in German, and
+  // interpolating a cadence into a single frame produces neither.
+  const summary =
+    cadence === 'recurring'
+      ? t('builder.reviewSentence', {
+          cadence: rhythm.toLocaleLowerCase(locale),
+          output: outputNoun,
+        })
+      : cadence === 'once'
+        ? t('builder.reviewSentenceOnce', { dueAt: dueAtText, output: outputNoun })
+        : t('builder.reviewSentenceManual', { output: outputNoun })
+
+  const whenValue =
+    cadence === 'recurring'
+      ? `${rhythm} · ${timezone}`
+      : cadence === 'once'
+        ? `${dueAtText} · ${timezone}`
+        : t('list.manualOnly')
 
   return (
     <section data-testid="wizard-step-review">
@@ -1311,10 +1535,7 @@ function ReviewStep({
 
       <dl className="border-border mt-4 divide-y rounded-lg border">
         <ReviewRow label={t('builder.nameLabel')} value={values.name.trim()} />
-        <ReviewRow
-          label={t('builder.scheduleSection')}
-          value={effectiveCron ? `${cadence} · ${timezone}` : t('list.manualOnly')}
-        />
+        <ReviewRow label={t('builder.scheduleSection')} value={whenValue} />
         <ReviewRow label={t('builder.outputSection')} value={t(`list.output.${output}`)} />
         <ReviewRow
           label={t('builder.skillSection')}
@@ -1360,16 +1581,25 @@ function ReviewStep({
         </CollapsibleContent>
       </Collapsible>
 
-      {/* The last switch, and the only one on this step: a schedule can be
-          saved switched OFF, which is how somebody sets one up before the site
-          work starts. Default on — the reader came here to make it happen. */}
-      <Field orientation="horizontal" className="border-border mt-5 rounded-lg border px-3 py-2.5">
-        <div className="flex flex-col gap-0.5">
-          <FieldLabel htmlFor="schedule-enabled">{t('builder.enabledLabel')}</FieldLabel>
-          <FieldDescription>{t('builder.enabledHint')}</FieldDescription>
-        </div>
-        <Switch id="schedule-enabled" checked={enabled} onCheckedChange={onEnabledChange} />
-      </Field>
+      {/* The only switch left in the wizard, and only where "paused" says
+          something: a task that fires on its own can be saved switched OFF,
+          which is how somebody sets one up before the site work starts.
+          A manual task has nothing to pause — it runs when a person presses
+          the button — so offering it there produced a task that could not run
+          at all and did not say why. It still appears on a manual task that is
+          ALREADY paused, or there would be no way back. */}
+      {(cadence !== 'manual' || !enabled) && (
+        <Field
+          orientation="horizontal"
+          className="border-border mt-5 rounded-lg border px-3 py-2.5"
+        >
+          <div className="flex flex-col gap-0.5">
+            <FieldLabel htmlFor="schedule-enabled">{t('builder.enabledLabel')}</FieldLabel>
+            <FieldDescription>{t('builder.enabledHint')}</FieldDescription>
+          </div>
+          <Switch id="schedule-enabled" checked={enabled} onCheckedChange={onEnabledChange} />
+        </Field>
+      )}
     </section>
   )
 }

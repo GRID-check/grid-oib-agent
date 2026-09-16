@@ -104,3 +104,31 @@ describe('withAlwaysOnKnowledge', () => {
     expect(result).not.toBe(input)
   })
 })
+
+describe('when a job runs', () => {
+  it('accepts a due date and hands the service a Date, not a string', () => {
+    const parsed = createJobSchema.parse({ ...base, dueAt: '2026-10-02T07:00:00.000Z' })
+    expect(parsed.dueAt).toBeInstanceOf(Date)
+    expect(parsed.dueAt?.toISOString()).toBe('2026-10-02T07:00:00.000Z')
+  })
+
+  it('treats an absent due date and an explicit null differently on a patch', () => {
+    // Absent keeps what the row has; null clears it. The same contract
+    // `skillName` and `scheduleCron` follow, and what stops an unrelated edit
+    // from silently demoting a one-shot to a manual task.
+    expect('dueAt' in patchJobSchema.parse({ prompt: 'x' })).toBe(false)
+    expect(patchJobSchema.parse({ prompt: 'x', dueAt: null }).dueAt).toBeNull()
+  })
+
+  it('refuses a cron and a due date together, naming the field', () => {
+    // Otherwise `task_definitions_due_only_when_once` rejects it in the
+    // database and the reader gets a 500 with nothing to act on.
+    const result = createJobSchema.safeParse({
+      ...base,
+      scheduleCron: '0 8 * * 1',
+      dueAt: '2026-10-02T07:00:00.000Z',
+    })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0].path).toEqual(['dueAt'])
+  })
+})

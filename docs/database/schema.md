@@ -437,8 +437,11 @@ trigger (`once`, no due date), which is what lets chat say „jeden Montag".
   `plan` (jsonb: prompt, pinned skill snapshot, data sources, the requester's
   goal/subject), `requester_user_id` + `requester_email`, `trigger`
   (`manual | once | schedule`), `enabled`, `schedule_cron` +
-  `schedule_timezone` + `next_run_at` (live only on `schedule`), `due_at` (live
-  only on `once`), `budget_usd`, `last_run_at`, `created_at`, `updated_at`.
+  `schedule_timezone`, `next_run_at` — *when the due scan should next look at
+  this row*, which is the cron's next occurrence on a `schedule`, the `due_at`
+  on a pending `once`, and NULL on a `manual` one, on anything paused, and on a
+  one-shot that has already fired (0090) — `due_at` (live only on `once`),
+  `budget_usd`, `last_run_at`, `created_at`, `updated_at`.
 - `task_runs`: `id`, `organization_id`, `project_id`, `definition_id`
   (nullable, `ON DELETE SET NULL` via the composite FK below — history outlives
   the arrangement), the frozen `kind` /
@@ -457,8 +460,14 @@ trigger (`once`, no due date), which is what lets chat say „jeden Montag".
   constraints copied from 0075). `kind` has NO check, deliberately, as in 0075.
 - **Indexes:** `idx_task_definitions_project_created`,
   `idx_task_definitions_organization_id`, and the PARTIAL `idx_task_definitions_due`
-  on `(next_run_at) WHERE trigger = 'schedule' AND enabled` — the scheduler's
-  due-scan, the successor of `idx_jobs_due`. On runs:
+  on `(next_run_at) WHERE enabled AND next_run_at IS NOT NULL` — the scheduler's
+  due-scan, the successor of `idx_jobs_due`. 0090 moved that predicate off the
+  trigger and onto `next_run_at` so ONE index and ONE claim query serve both a
+  recurring task and a one-shot; the claim's WHERE clause must keep matching it
+  or the scan degrades to a sequential one over every definition. A claimed
+  one-shot has its `next_run_at` NULLED rather than advanced, which is what
+  makes it at-most-once — and `enabled` is deliberately left alone, because it
+  is the person's pause switch and a finished task is not a paused one. On runs:
   `idx_task_runs_definition_created`, `idx_task_runs_project_created`,
   `idx_task_runs_organization_id`, and the partial unique
   `uniq_task_runs_backend_job_id`.
@@ -848,6 +857,24 @@ one in or out of the boundary. Its `.down.sql` is safe but LOSSY in a way worth
 reading before a rollback — published standard rows become ordinary offers, which
 means they run for nobody until each organization switches them on, and nothing
 records which rows were standard.
+
+## skill_categories (migration 0089)
+
+The skill categories — one table for both curators. `organization_id`
+NULL is a platform skill category (read by every tenant, written through
+**Platform → Skills**); set, it is that org's own category for the skills it
+authors. `skills.category_id` and `platform_skills.category_id` reference it
+`ON DELETE SET NULL`: removing a category never removes the skills on it, they
+fall back to unsorted. Names are unique per owner (two partial unique indexes,
+because Postgres treats NULLs as distinct); the `slug` marks the five seeded
+platform categories (`oib`, `research`, `presentation`, `bim`, `synthesis`)
+that builtin file offers resolve to at read time, so renaming a display name
+never detaches them. Tenant predicate with a NULL arm —
+`organization_id IS NULL OR organization_id = grid_current_org()` — in
+`rls-coverage.spec.ts`'s `BOUNDARY_MIGRATIONS`, plus three RESTRICTIVE
+write-guard policies: the tenant role reads platform rows but writes only its
+own org's (the helper installs one policy per table for every command, so the
+split is stated explicitly).
 
 ---
 

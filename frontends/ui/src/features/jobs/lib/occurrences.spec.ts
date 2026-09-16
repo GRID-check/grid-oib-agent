@@ -42,6 +42,59 @@ describe('expandWindow', () => {
     expect(occurrences.every((occurrence) => occurrence.at < to)).toBe(true)
   })
 
+  test('a one-shot due inside the window is placed, exactly once', async () => {
+    // The week grid answers "what is happening this week". A task due on
+    // Thursday is one of the most important answers it has, and while the
+    // expander keyed on a cron it could not draw one at all.
+    const dueAt = new Date('2026-09-17T09:00:00+02:00')
+    const { occurrences, invalid, truncated } = await expandWindow(
+      [schedule({ id: 'once-1', cron: null, dueAt })],
+      from,
+      to,
+    )
+
+    expect(occurrences).toEqual([{ jobId: 'once-1', at: dueAt }])
+    // There is no expression to be wrong about and no cap to hit.
+    expect(invalid).toEqual([])
+    expect(truncated).toEqual([])
+  })
+
+  test('a one-shot outside the window is not placed in it', async () => {
+    const { occurrences } = await expandWindow(
+      [schedule({ id: 'once-1', cron: null, dueAt: new Date('2026-09-28T09:00:00+02:00') })],
+      from,
+      to,
+    )
+    expect(occurrences).toEqual([])
+  })
+
+  test('a paused one-shot contributes nothing, like a paused schedule', async () => {
+    const { occurrences } = await expandWindow(
+      [
+        schedule({
+          id: 'once-1',
+          cron: null,
+          dueAt: new Date('2026-09-17T09:00:00+02:00'),
+          enabled: false,
+        }),
+      ],
+      from,
+      to,
+    )
+    expect(occurrences).toEqual([])
+  })
+
+  test('a manual task has no time and is simply absent', async () => {
+    const { occurrences, invalid } = await expandWindow(
+      [schedule({ id: 'manual-1', cron: null, dueAt: null })],
+      from,
+      to,
+    )
+    expect(occurrences).toEqual([])
+    // Absent is not broken: a manual task is not an unreadable cron.
+    expect(invalid).toEqual([])
+  })
+
   test('each schedule fires in ITS timezone, onto one absolute grid', async () => {
     const { occurrences } = await expandWindow(
       [

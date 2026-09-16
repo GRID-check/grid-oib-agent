@@ -1,42 +1,45 @@
 /**
- * Zeitplan — a prompt on a timer, and the week it makes.
+ * Tasks with timing — a request, optionally on a timer, and the week it makes.
  *
- * A schedule fires its prompt into a fresh run the way a person opening a new
- * chat and typing would. A skill MAY be attached on top, exactly as typing
- * `/name` before the message would attach it — the empty state (no skill) is
- * the common case, and the copy below says so. The skill toolbox itself lives
- * in the `skills` namespace; nothing here is about authoring skills.
+ * A task fires its prompt into a fresh run the way a person opening a new
+ * chat and typing would — once, or on the rhythm from step 3. A skill MAY be
+ * attached on top, exactly as typing `/name` before the message would attach
+ * it — the empty state (no skill) is the common case, and the copy below says
+ * so. The skill toolbox itself lives in the `skills` namespace; nothing here
+ * is about authoring skills.
  *
  * Two things this namespace now owns that it did not: the TIMETABLE's copy,
- * and a four-step WIZARD's. Both exist because a schedule is the one thing in
+ * and a four-step WIZARD's. Both exist because a rhythm is the one thing in
  * the product a person cannot check by looking at it — so the surface spends
- * its words on making the commitment legible ("Jeden Montag um 06:00", the next
+ * its words on making the commitment legible ("Every Monday at 06:00", the next
  * three real dates) rather than on naming cron fields.
  */
 export const jobs = {
-  title: 'Schedule',
-  backToList: 'Back to schedules',
-  loadError: 'The schedules could not be loaded.',
+  title: 'Tasks',
+  backToList: 'Back to list',
+  loadError: 'The tasks could not be loaded.',
   tryAgain: 'Try again',
 
   list: {
-    heading: 'Schedules',
+    heading: 'Tasks',
     empty: {
-      title: 'No schedules yet',
+      title: 'No tasks yet',
       description:
-        'A schedule is a prompt on a timer. Write it once, choose whether it produces a chat or a report, and let Piloti work while you are somewhere else.',
-      action: 'New schedule',
+        'A task is a request with or without a rhythm. Write it once, choose whether it produces a chat or a report, and let Piloti work while you are somewhere else.',
+      action: 'New task',
     },
     manualOnly: 'Manual only',
+    onceOn: 'Once on {time}',
+    onceDone: 'Done',
     // Terse on purpose: both sit on ONE footer line of a card, and the German
     // equivalents overflow it at grid width.
     nextRun: 'Next {time}',
     lastRun: 'Last {time}',
     neverRun: 'Never run',
     disabled: 'Paused',
-    enableAria: 'Resume schedule “{name}”',
-    disableAria: 'Pause schedule “{name}”',
-    toggleError: 'The schedule could not be updated.',
+    enableAria: 'Resume task “{name}”',
+    disableAria: 'Pause task “{name}”',
+    toggleError: 'The task could not be updated.',
     withSkill: 'Skill: {name}',
     noSkill: 'No skill',
     output: {
@@ -46,7 +49,7 @@ export const jobs = {
   },
 
   card: {
-    openAria: 'Open schedule “{name}”',
+    openAria: 'Open task “{name}”',
   },
 
   actions: {
@@ -58,7 +61,7 @@ export const jobs = {
   /** The week grid. See `schedule-timetable.tsx` for why it exists at all. */
   timetable: {
     title: 'The week',
-    legend: 'Schedules on this grid',
+    legend: 'Tasks on this grid',
     thisWeek: 'This week',
     today: 'Today',
     previousWeek: 'Previous week',
@@ -72,7 +75,7 @@ export const jobs = {
     /** A cron the parser could not read — named, never silently left off. */
     unplaceable: 'Not shown on the grid: {names}',
     emptyNoSchedules: 'Nothing scheduled yet',
-    emptyNoSchedulesHint: 'Create a schedule and this week fills in.',
+    emptyNoSchedulesHint: 'Create a task with a rhythm and this week fills in.',
     emptyThisWeek: 'Nothing fires this week',
   },
 
@@ -98,18 +101,18 @@ export const jobs = {
 
   run: {
     submitted: 'Started.',
-    submittedDetail: 'It is running now — follow it in the schedule’s task list.',
+    submittedDetail: 'It is running now — follow it under Tasks.',
     skipped: 'Skipped',
     error: 'That could not be started.',
-    disabled: 'Resume the schedule before running it.',
+    disabled: 'Resume the task before running it.',
   },
 
   deleteDialog: {
-    title: 'Delete schedule',
+    title: 'Delete task',
     description: 'This permanently deletes “{name}” and its history. This cannot be undone.',
-    confirm: 'Delete schedule',
+    confirm: 'Delete task',
     cancel: 'Cancel',
-    error: 'The schedule could not be deleted.',
+    error: 'The task could not be deleted.',
   },
 
   builder: {
@@ -119,24 +122,24 @@ export const jobs = {
     steps: {
       task: 'Task',
       output: 'Result',
-      schedule: 'Timing',
+      schedule: 'When',
       review: 'Review',
       taskTitle: 'What should Piloti do?',
       taskHint:
         'Write it exactly as you would type it into a new chat. Piloti starts with no other context.',
       outputTitle: 'What should come out of it?',
-      outputHint: 'This also decides which skills the schedule can use.',
+      outputHint: 'This also decides which skills the task can use.',
       scheduleTitle: 'When should it run?',
       scheduleHint:
-        'Pick a rhythm — the next times are shown underneath, to check before you commit.',
+        'Once, recurring or on request — the next times are shown underneath, to check before you commit.',
       reviewTitle: 'Ready',
       reviewHint: 'This is what will happen. Nothing has been saved yet.',
     },
     next: 'Continue',
     back: 'Back',
     cancel: 'Cancel',
-    create: 'Create schedule',
-    save: 'Save schedule',
+    create: 'Create task',
+    save: 'Save task',
     saving: 'Saving…',
 
     nameLabel: 'Name',
@@ -171,10 +174,10 @@ export const jobs = {
     skillLabel: 'Attached skill',
     skillSummary: 'Skill: {name}',
     skillNone: 'No skill',
-    skillNoneHint: 'The request runs on its own. Most schedules need no skill.',
+    skillNoneHint: 'The request runs on its own. Most tasks need no skill.',
     skillPlaceholder: 'No skill',
     skillsLoading: 'Loading skills…',
-    skillsError: 'The skills could not be loaded — the schedule can still be saved without one.',
+    skillsError: 'The skills could not be loaded — the task can still be saved without one.',
     skillsEmpty: 'No skill can run with this result kind.',
     // Shown inline when switching the result kind drops the attached skill.
     skillDetached: '“{name}” cannot run as {output}, so it was detached.',
@@ -187,11 +190,20 @@ export const jobs = {
       'Add sources beyond the knowledge base. Leave all unchecked to allow every available source.',
     sourcesAll: 'All available sources',
     sourcesLoading: 'Loading sources…',
-    sourcesError: 'Sources could not be loaded — the schedule will use all available sources.',
+    sourcesError: 'Sources could not be loaded — the task will use all available sources.',
 
-    scheduleSection: 'Timing',
-    enableScheduleLabel: 'Run on a schedule',
-    enableScheduleHint: 'When off, it only runs when you press “Run now”.',
+    scheduleSection: 'When',
+    cadence: {
+      label: 'When should this task run',
+      once: 'Once',
+      onceHint: 'On a date you choose. After that it is done.',
+      recurring: 'Recurring',
+      recurringHint: 'On a rhythm, again and again.',
+      manual: 'Manual only',
+      manualHint: 'Runs only when you press “Run now”.',
+    },
+    dueAtLabel: 'Due date',
+    dueAtHint: 'In your local time. The task runs exactly once.',
     presetLabel: 'How often',
     timeLabel: 'At',
     minuteLabel: 'At minute',
@@ -217,18 +229,23 @@ export const jobs = {
     cronHint: 'Five fields: minute hour day-of-month month day-of-week.',
     cronInvalid: 'Enter a valid 5-field cron expression.',
     timezoneLabel: 'Timezone',
-    timezoneHint: 'The schedule fires by the clock in this zone, daylight saving included.',
+    timezoneHint: 'The task fires by the clock in this zone, daylight saving included.',
 
     enabledLabel: 'Active',
-    enabledHint: 'A paused schedule never fires and cannot be run by hand.',
+    enabledHint: 'A paused task never fires and cannot be run by hand.',
 
     /** The review step's one sentence. */
     reviewSentence: 'Piloti produces {output} {cadence}.',
+    reviewSentenceOnce: 'Piloti produces {output} — once, on {dueAt}.',
     reviewSentenceManual: 'Piloti produces {output}, each time you start it by hand.',
 
-    createSuccess: 'Schedule created.',
-    updateSuccess: 'Schedule saved.',
-    saveError: 'The schedule could not be saved.',
+    createAndRun: 'Create and run now',
+    saveAndRun: 'Save and run now',
+    runNowFailed: 'The task is saved; the first run could not be started.',
+
+    createSuccess: 'Task created.',
+    updateSuccess: 'Task saved.',
+    saveError: 'The task could not be saved.',
 
     preview: {
       title: 'What the agent receives',
@@ -241,7 +258,7 @@ export const jobs = {
     title: 'Task history',
     loading: 'Loading tasks…',
     loadError: 'The history could not be loaded.',
-    empty: 'This schedule has not run yet.',
+    empty: 'This task has not run yet.',
     viewReport: 'View report',
     /** A `chat` run landed in a conversation — the run's output IS that chat. */
     openChat: 'Open chat',

@@ -27,6 +27,7 @@ const job = (overrides: Partial<Job> = {}): Job => ({
   enabled: true,
   scheduleCron: '0 6 * * *',
   scheduleTimezone: 'Europe/Vienna',
+  dueAt: null,
   nextRunAt: null,
   lastRunAt: null,
   createdBy: 'u',
@@ -105,7 +106,7 @@ describe('what the grid shows', () => {
 describe('the legend', () => {
   test('pairs every placeable schedule with its swatch', async () => {
     render(<ScheduleTimetable schedules={[job({ name: 'Scan A' })]} />)
-    const legend = await screen.findByRole('list', { name: /Schedules on this grid/i })
+    const legend = await screen.findByRole('list', { name: /Tasks on this grid/i })
     expect(within(legend).getByText('Scan A')).toBeInTheDocument()
   })
 
@@ -113,7 +114,7 @@ describe('the legend', () => {
     const user = userEvent.setup()
     const onSelect = vi.fn()
     render(<ScheduleTimetable schedules={[job({ name: 'Scan A' })]} onSelect={onSelect} />)
-    const legend = await screen.findByRole('list', { name: /Schedules on this grid/i })
+    const legend = await screen.findByRole('list', { name: /Tasks on this grid/i })
     await user.click(within(legend).getByText('Scan A'))
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'j1' }))
   })

@@ -37,7 +37,7 @@ const task = (overrides: Partial<TaskWireRow> = {}): TaskWireRow => ({
 })
 
 function drawer(props: Partial<React.ComponentProps<typeof TaskDetail>> = {}) {
-  const onPromoteToSchedule = vi.fn()
+  const onPromoteToTask = vi.fn()
   const onClose = vi.fn()
   const utils = render(
     <TaskDetail
@@ -45,12 +45,12 @@ function drawer(props: Partial<React.ComponentProps<typeof TaskDetail>> = {}) {
       task={task()}
       open
       canManageJobs
-      onPromoteToSchedule={onPromoteToSchedule}
+      onPromoteToTask={onPromoteToTask}
       onClose={onClose}
       {...props}
     />,
   )
-  return { ...utils, onPromoteToSchedule, onClose }
+  return { ...utils, onPromoteToTask, onClose }
 }
 
 describe('what the drawer says a task became', () => {
@@ -85,9 +85,9 @@ describe('what the drawer says a task became', () => {
 describe('turning a task into a schedule', () => {
   test('hands over the title and the request, and nothing else', async () => {
     const user = userEvent.setup()
-    const { onPromoteToSchedule } = drawer()
+    const { onPromoteToTask } = drawer()
     await user.click(screen.getByTestId('task-detail-promote'))
-    expect(onPromoteToSchedule).toHaveBeenCalledWith({
+    expect(onPromoteToTask).toHaveBeenCalledWith({
       name: 'Aktenvermerk Fluchtwege',
       prompt: 'Fasse die Fluchtweglängen für die Einreichung zusammen',
     })

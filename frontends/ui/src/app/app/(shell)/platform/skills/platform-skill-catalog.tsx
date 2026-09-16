@@ -26,7 +26,7 @@
  * decides.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertCircle, Plus, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -40,22 +40,33 @@ import { Switch } from '@/components/ui/switch'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
+  createPlatformSkillCategory,
+  deletePlatformSkillCategory,
   deletePlatformSkill,
+  listPlatformSkillCategories,
   listPlatformSkills,
+  updatePlatformSkillCategory,
   updatePlatformSkill,
   type PlatformSkillItem,
+  type SkillCategoryListItem,
 } from '@/adapters/api/skills-client'
 import { PlatformSkillEditorDialog } from './platform-skill-editor-dialog'
+import { SkillCategoryManager } from '@/features/skills/components/skill-category-manager'
 
 export function PlatformSkillCatalog(): JSX.Element {
   const t = useTranslations('platform')
+  const tSkills = useTranslations('skills')
   const [skills, setSkills] = useState<PlatformSkillItem[] | null>(null)
+  const [categories, setCategories] = useState<SkillCategoryListItem[]>([])
+  /** A failed category read degrades the catalogue rather than failing it (see load). */
+  const [categoriesFailed, setCategoriesFailed] = useState(false)
   const [error, setError] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<PlatformSkillItem | null>(null)
   /** Fresh mount per open — the editor seeds its fields in state initialisers. */
   const [editorKey, setEditorKey] = useState(0)
   const [pending, setPending] = useState<string[]>([])
+  const [categoriesOpen, setCategoriesOpen] = useState(false)
   /**
    * The row a deletion is pending on.
    *
@@ -68,9 +79,19 @@ export function PlatformSkillCatalog(): JSX.Element {
 
   const load = useCallback(() => {
     setSkills(null)
+    setCategoriesFailed(false)
     setError(false)
+    // The categories are arrangement, not the catalogue: a category read that
+    // fails must not hide skills that loaded fine. Skills stay fatal; without
+    // categories the badges and the picker simply read unsorted, and the manager
+    // button hides itself rather than opening onto an error.
     listPlatformSkills()
-      .then(setSkills)
+      .then((rows) => {
+        setSkills(rows)
+        listPlatformSkillCategories()
+          .then(setCategories)
+          .catch(() => setCategoriesFailed(true))
+      })
       .catch(() => setError(true))
   }, [])
 
@@ -119,14 +140,35 @@ export function PlatformSkillCatalog(): JSX.Element {
     }
   }
 
+  const categoryName = useCallback(
+    (id: string | null): string | null =>
+      id ? (categories.find((category) => category.id === id)?.name ?? null) : null,
+    [categories],
+  )
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const skill of skills ?? []) {
+      if (skill.categoryId) counts[skill.categoryId] = (counts[skill.categoryId] ?? 0) + 1
+    }
+    return counts
+  }, [skills])
+
   return (
     <section className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-muted-foreground max-w-3xl text-sm">{t('skills.hint')}</p>
-        <Button size="sm" onClick={() => openEditor(null)}>
-          <Plus className="size-4" aria-hidden />
-          {t('skills.new')}
-        </Button>
+        <div className="flex items-center gap-2">
+          {!categoriesFailed && (
+            <Button size="sm" variant="outline" onClick={() => setCategoriesOpen(true)}>
+              {tSkills('toolbox.categories.button')}
+            </Button>
+          )}
+          <Button size="sm" onClick={() => openEditor(null)}>
+            <Plus className="size-4" aria-hidden />
+            {t('skills.new')}
+          </Button>
+        </div>
       </div>
 
       {skills === null && !error && (
@@ -191,6 +233,12 @@ export function PlatformSkillCatalog(): JSX.Element {
                           draft is the state worth naming, because it is the one
                           where nobody else can see what you are looking at. */}
                       {!skill.published && <Badge variant="outline">{t('skills.draft')}</Badge>}
+                      {/* The category, and only when there is one: most rows
+                          start unsorted, and a badge every row carries tells
+                          you nothing anyway. */}
+                      {categoryName(skill.categoryId) && (
+                        <Badge variant="outline">{categoryName(skill.categoryId)}</Badge>
+                      )}
                       <Switch
                         checked={skill.published}
                         disabled={pending.includes(skill.id)}
@@ -239,10 +287,22 @@ export function PlatformSkillCatalog(): JSX.Element {
         open={editorOpen}
         onOpenChange={setEditorOpen}
         skill={editing}
+        categories={categories}
         onSaved={() => {
           setEditorOpen(false)
           load()
         }}
+      />
+
+      <SkillCategoryManager
+        open={categoriesOpen}
+        onOpenChange={setCategoriesOpen}
+        categories={categories}
+        counts={categoryCounts}
+        onCreate={async (input) => createPlatformSkillCategory(input)}
+        onRename={async (id, name) => updatePlatformSkillCategory(id, { name })}
+        onDelete={async (id) => deletePlatformSkillCategory(id)}
+        onChanged={load}
       />
     </section>
   )

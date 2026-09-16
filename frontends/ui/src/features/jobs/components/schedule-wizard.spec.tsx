@@ -20,6 +20,7 @@ import { ScheduleWizard, suggestName } from './schedule-wizard'
 
 const createJob = vi.fn()
 const updateJob = vi.fn()
+const runJob = vi.fn()
 
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
@@ -31,9 +32,12 @@ vi.mock('@/adapters/api/jobs-client', async (importOriginal) => {
     ...actual,
     createJob: (...args: unknown[]) => createJob(...args),
     updateJob: (...args: unknown[]) => updateJob(...args),
+    runJob: (...args: unknown[]) => runJob(...args),
     listAttachableSkills: async () => [],
   }
 })
+
+import { toast } from 'sonner'
 
 vi.mock('@/adapters/api/data-sources-client', () => ({
   createDataSourcesClient: () => ({
@@ -44,8 +48,9 @@ vi.mock('@/adapters/api/data-sources-client', () => ({
 }))
 
 beforeEach(() => {
-  createJob.mockReset().mockResolvedValue({})
-  updateJob.mockReset().mockResolvedValue({})
+  createJob.mockReset().mockResolvedValue({ id: 'job-new' })
+  updateJob.mockReset().mockResolvedValue({ id: 'job-new' })
+  runJob.mockReset().mockResolvedValue({})
 })
 
 afterEach(() => {
@@ -168,10 +173,33 @@ describe('step 3 — the cadence, made checkable', () => {
     })
   })
 
-  test('switching off the schedule says plainly that nothing will fire', async () => {
+  test('a manual task shows no fire times, because there are none', async () => {
     const { user } = await toSchedule()
-    await user.click(screen.getByLabelText(/Run on a schedule/))
+    await user.click(screen.getByTestId('cadence-manual'))
     expect(screen.queryByTestId('wizard-upcoming')).not.toBeInTheDocument()
+  })
+
+  test('offers once, recurring and manual as one choice of three', async () => {
+    // The question used to be a switch, which made "once, on Friday" — the
+    // shape a planning office asks for most — impossible to express.
+    await toSchedule()
+    const group = screen.getByTestId('cadence-choice')
+    expect(within(group).getAllByRole('radio')).toHaveLength(3)
+    expect(screen.getByTestId('cadence-recurring')).toHaveAttribute('aria-checked', 'true')
+  })
+
+  test('a one-shot asks for a date and previews the single run it will do', async () => {
+    const { user } = await toSchedule()
+    await user.click(screen.getByTestId('cadence-once'))
+
+    // The cron composer is gone — there is no rhythm to pick — and the date
+    // field has taken its place, pre-filled so the step is never empty.
+    expect(screen.queryByTestId('wizard-frequency-daily')).not.toBeInTheDocument()
+    const due = screen.getByLabelText(/Due date/)
+    expect(due).toHaveValue()
+
+    const panel = screen.getByTestId('wizard-upcoming')
+    await waitFor(() => expect(within(panel).getAllByRole('listitem')).toHaveLength(1))
   })
 })
 
@@ -193,7 +221,7 @@ describe('step 4 — what will happen, then one button', () => {
   test('composes the payload from the four answers, once', async () => {
     const { user, onSaved } = wizard()
     await toReview(user)
-    await user.click(screen.getByRole('button', { name: /Create schedule/ }))
+    await user.click(screen.getByRole('button', { name: /Create task/ }))
     await waitFor(() => expect(createJob).toHaveBeenCalledTimes(1))
     expect(createJob).toHaveBeenCalledWith(
       'p1',
@@ -209,6 +237,58 @@ describe('step 4 — what will happen, then one button', () => {
       }),
     )
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
+  })
+
+  test('sends the due date and no cron when the task runs once', async () => {
+    const { user } = wizard()
+    await user.type(screen.getByLabelText(/The request/), 'Brandschutz prüfen')
+    await user.click(next())
+    await user.click(next())
+    await user.click(screen.getByTestId('cadence-once'))
+    await user.click(next())
+    await user.click(screen.getByRole('button', { name: /^Create task$/ }))
+
+    await waitFor(() => expect(createJob).toHaveBeenCalledTimes(1))
+    const payload = createJob.mock.calls[0][1]
+    // The two are mutually exclusive, and BOTH are sent explicitly: on a PATCH
+    // an omitted field keeps whatever the row had.
+    expect(payload.scheduleCron).toBeNull()
+    expect(typeof payload.dueAt).toBe('string')
+    expect(new Date(payload.dueAt).getTime()).toBeGreaterThan(Date.now())
+  })
+
+  test('save and run now fires the task once, after it exists', async () => {
+    // The gap this closes: a weekly task saved on Monday afternoon offers its
+    // author no evidence it works until the following Monday.
+    const { user } = wizard()
+    await toReview(user)
+    await user.click(screen.getByTestId('wizard-save-and-run'))
+
+    await waitFor(() => expect(runJob).toHaveBeenCalledWith('p1', 'job-new'))
+    expect(createJob).toHaveBeenCalledTimes(1)
+  })
+
+  test('plain save does not fire anything', async () => {
+    const { user } = wizard()
+    await toReview(user)
+    await user.click(screen.getByRole('button', { name: /^Create task$/ }))
+
+    await waitFor(() => expect(createJob).toHaveBeenCalledTimes(1))
+    expect(runJob).not.toHaveBeenCalled()
+  })
+
+  test('a failed first run leaves the save reported as the success it was', async () => {
+    // The task IS in the list by then. Reporting "could not be saved" over a
+    // task somebody can see would be the most confusing thing this flow could
+    // say, so the run's failure gets its own, narrower message.
+    runJob.mockRejectedValueOnce(new Error('backend down'))
+    const { user, onSaved } = wizard()
+    await toReview(user)
+    await user.click(screen.getByTestId('wizard-save-and-run'))
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(toast.warning).toHaveBeenCalled()
   })
 })
 

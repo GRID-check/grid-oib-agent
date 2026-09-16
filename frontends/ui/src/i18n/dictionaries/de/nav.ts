@@ -17,14 +17,12 @@ export const nav: typeof en.nav = {
     files: 'Dateien',
     knowledge: 'Wissen',
     research: 'Recherche',
-    /** Automatisierung — Tasks, Zeitplan und Skills als Tabs in einem Bereich. */
+    /** Automatisierung — Tasks und Skills als Tabs in einem Bereich. */
     automation: 'Automatisierung',
     skills: 'Skills',
     jobs: 'Jobs',
     // Der führende Tab: an Piloti übergebene Arbeit, eine Karte je Task (ADR-0051).
     tasks: 'Tasks',
-    // Die Woche, auf die Piloti festgelegt ist — der Stundenplan und seine Zeitpläne.
-    schedule: 'Zeitplan',
     archiv: 'Archiv',
     settings: 'Einstellungen',
     // Der Intake-Assistent, im Produkt „Einrichtung" (nur ⌘K-Palette).

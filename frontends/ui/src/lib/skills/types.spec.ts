@@ -3,6 +3,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  createCategorySchema,
   createSkillSchema,
   isAutoInvokeSkill,
   isHiddenSkill,
@@ -160,5 +161,31 @@ describe('isAutoInvokeSkill (grid-auto-invoke)', () => {
     for (const token of ['false', '0', 'no', 'FALSE', '  No  ']) {
       expect(isAutoInvokeSkill({ [METADATA_AUTO_INVOKE]: token })).toBe(false)
     }
+  })
+})
+
+describe('createCategorySchema', () => {
+  it('accepts a name with an optional description and sort order', () => {
+    expect(createCategorySchema.parse({ name: 'OIB' })).toMatchObject({ name: 'OIB' })
+    expect(
+      createCategorySchema.parse({ name: 'Eigene Prüfungen', description: 'd', sortOrder: 5 })
+        .sortOrder,
+    ).toBe(5)
+  })
+
+  it('rejects blank and over-long names', () => {
+    expect(() => createCategorySchema.parse({ name: '   ' })).toThrow()
+    expect(() => createCategorySchema.parse({ name: 'x'.repeat(61) })).toThrow()
+  })
+
+  it('constrains sortOrder to the Postgres 32-bit integer range', () => {
+    expect(createCategorySchema.parse({ name: 'a', sortOrder: 2147483647 }).sortOrder).toBe(
+      2147483647,
+    )
+    expect(createCategorySchema.parse({ name: 'a', sortOrder: -2147483648 }).sortOrder).toBe(
+      -2147483648,
+    )
+    expect(() => createCategorySchema.parse({ name: 'a', sortOrder: 2147483648 })).toThrow()
+    expect(() => createCategorySchema.parse({ name: 'a', sortOrder: 1.5 })).toThrow()
   })
 })

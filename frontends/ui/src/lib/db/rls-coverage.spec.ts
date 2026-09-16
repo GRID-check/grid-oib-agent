@@ -76,6 +76,11 @@ const BOUNDARY_MIGRATIONS = [
   // sent to the agent on every turn. Keyed directly by the organization, so it
   // is secured exactly as `organizations` and `curated_skill_activations` are.
   '0087_organization_instructions.sql',
+  // Adds skill_categories — the shelves skills stand on. Mixed ownership:
+  // NULL organization_id is a platform shelf (readable by every tenant),
+  // a set one is that org's own, so the predicate carries a NULL arm.
+  // Renumbered from 0087: develop took 0087 and 0088 first.
+  '0089_skill_categories.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

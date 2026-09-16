@@ -11,6 +11,10 @@
 
 import { describe, expect, test } from 'vitest'
 import {
+  cadenceOf,
+  whenSummary,
+  defaultDueAt,
+  toDateTimeLocal,
   buildCron,
   DEFAULT_CRON_PARTS,
   isPlausibleCron,
@@ -186,5 +190,82 @@ describe('scheduleSummary', () => {
     expect(scheduleSummary(t, '0 6 * * *', 'Europe/Vienna', 'de-AT')).toContain(
       'schedule.inTimezone',
     )
+  })
+})
+
+describe('cadenceOf', () => {
+  test('reads the three shapes off the two mutually exclusive wire fields', () => {
+    expect(cadenceOf({ scheduleCron: '0 6 * * 1', dueAt: null })).toBe('recurring')
+    expect(cadenceOf({ scheduleCron: null, dueAt: '2026-10-02T07:00:00Z' })).toBe('once')
+    expect(cadenceOf({ scheduleCron: null, dueAt: null })).toBe('manual')
+  })
+
+  test('a cron wins, so a row that somehow has both still reads as one thing', () => {
+    // The write boundary refuses both, and the CHECK constraint refuses both.
+    // If one ever arrives anyway, the UI must still pick a single reading
+    // rather than rendering a task that is two cadences at once.
+    expect(cadenceOf({ scheduleCron: '0 6 * * 1', dueAt: '2026-10-02T07:00:00Z' })).toBe('recurring')
+  })
+})
+
+describe('whenSummary', () => {
+  const t = (key: string, values: Record<string, string | number> = {}): string =>
+    `${key}(${Object.entries(values)
+      .map(([name, value]) => `${name}=${value}`)
+      .join(',')})`
+
+  test('a one-shot reads as its date, not as "manual only"', () => {
+    // The bug this exists to prevent: `scheduleSummary` answers "manual only"
+    // for anything without a cron, which would describe a task due on Friday
+    // as one that never fires by itself.
+    const summary = whenSummary(
+      t,
+      { scheduleCron: null, dueAt: '2026-10-02T07:00:00Z', scheduleTimezone: 'Europe/Vienna' },
+      'de-AT',
+      { withTimezone: false },
+    )
+    expect(summary).toContain('list.onceOn')
+    expect(summary).not.toContain('manualOnly')
+  })
+
+  test('still defers to the cron summary for a recurring task', () => {
+    const summary = whenSummary(
+      t,
+      { scheduleCron: '0 6 * * *', dueAt: null, scheduleTimezone: 'UTC' },
+      'de-AT',
+      { withTimezone: false },
+    )
+    expect(summary).toContain('schedule.summaryDaily')
+  })
+
+  test('and to manual when there is neither', () => {
+    expect(
+      whenSummary(t, { scheduleCron: null, dueAt: null, scheduleTimezone: 'UTC' }, 'de-AT')
+    ).toBe('list.manualOnly()')
+  })
+})
+
+describe('defaultDueAt', () => {
+  test('is tomorrow at 09:00, never now', () => {
+    // "Now" is already in the past by the time the form is submitted, so the
+    // first thing a reader would see is a validation error they did not cause.
+    const due = defaultDueAt(new Date('2026-09-16T14:37:12'))
+    expect(due.getDate()).toBe(17)
+    expect(due.getHours()).toBe(9)
+    expect(due.getMinutes()).toBe(0)
+  })
+})
+
+describe('toDateTimeLocal', () => {
+  test('formats in local parts, so the input shows the time the reader picked', () => {
+    // Slicing toISOString() here would show a reader in Vienna 07:00 for a
+    // task they scheduled at 09:00, and saving the form back would walk the
+    // task two hours earlier every time somebody opened it.
+    const local = new Date(2026, 9, 2, 9, 5)
+    expect(toDateTimeLocal(local)).toBe('2026-10-02T09:05')
+  })
+
+  test('an invalid date is empty rather than "NaN-NaN-NaN"', () => {
+    expect(toDateTimeLocal(new Date('nonsense'))).toBe('')
   })
 })

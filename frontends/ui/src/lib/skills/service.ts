@@ -18,7 +18,9 @@ import { requireSkillsEnabled } from '@/lib/authz/feature-flags'
 import { ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Skill, SkillOrigin } from '@/lib/db/schema'
+import type { SkillCategoryRow } from '@/lib/db/schema'
 import * as repository from './repository'
+import * as categoryRepository from './skill-category-repository'
 import * as platformRepository from './platform-repository'
 import {
   CHAT_SKILL_AGENT,
@@ -26,8 +28,11 @@ import {
   METADATA_AGENTS,
   canonicalSkillAgent,
   isCuratedPlatformSkill,
+  type CreateCategoryInput,
   type CreateSkillInput,
+  type PatchCategoryInput,
   type PatchSkillInput,
+  type SkillCategoryListItem,
   type SkillSnapshot,
 } from './types'
 import { findPlatformSkill, listPlatformSkills, type PlatformSkill } from './platform-skills'
@@ -61,12 +66,19 @@ export type SkillListItem = {
   origin: SkillOrigin | 'platform'
   enabled: boolean
   clonedFrom: string | null
+  /** The category this skill stands on, or null when unsorted. */
+  categoryId: string | null
   createdAt: Date | null
   updatedAt: Date | null
 }
 
 /** A skill the platform publishes to organizations, whichever tier it came from. */
-type CuratedSkill = Pick<PlatformSkill, 'name' | 'description' | 'body' | 'metadata'>
+type CuratedSkill = Pick<PlatformSkill, 'name' | 'description' | 'body' | 'metadata'> & {
+  /** A dashboard row's stored category; null for rows and as the file default. */
+  categoryId: string | null
+  /** Builtin collection for file offers — resolved to a category by name. */
+  collection?: string
+}
 
 /**
  * The live platform catalogue: everything published TO organizations.
@@ -86,12 +98,14 @@ function toCurated(row: {
   description: string
   body: string
   metadata: Record<string, string>
+  categoryId?: string | null
 }): CuratedSkill {
   return {
     name: row.name,
     description: row.description,
     body: row.body,
     metadata: { ...row.metadata },
+    categoryId: row.categoryId ?? null,
   }
 }
 
@@ -122,7 +136,8 @@ async function livePlatformSkills(): Promise<LivePlatformSkills> {
   const offerRows = await platformRepository.listPublishedOfferRows()
   const offers = new Map<string, CuratedSkill>()
   for (const file of listPlatformSkills()) {
-    if (isCuratedPlatformSkill(file.metadata)) offers.set(file.name, file)
+    if (isCuratedPlatformSkill(file.metadata))
+      offers.set(file.name, { ...toCurated(file), collection: file.collection })
   }
   // A dashboard row never replaces a shipped FILE of the same name. The write
   // boundary refuses that create, but the other direction is a deploy: a new
@@ -149,7 +164,11 @@ async function curatedOffers(): Promise<CuratedSkill[]> {
  * offer by NAME instead. `enabled` is the org's own decision. File playbooks
  * a chat turn can run start on; dashboard offers start off.
  */
-function platformToListItem(platform: CuratedSkill, enabled: boolean): SkillListItem {
+function platformToListItem(
+  platform: CuratedSkill,
+  enabled: boolean,
+  categoryId: string | null,
+): SkillListItem {
   return {
     id: null,
     name: platform.name,
@@ -162,6 +181,7 @@ function platformToListItem(platform: CuratedSkill, enabled: boolean): SkillList
     origin: 'platform',
     enabled,
     clonedFrom: null,
+    categoryId,
     createdAt: null,
     updatedAt: null,
   }
@@ -203,9 +223,42 @@ function orgToListItem(skill: Skill): SkillListItem {
     origin: skill.origin,
     enabled: skill.enabled,
     clonedFrom: skill.clonedFrom,
+    categoryId: skill.categoryId,
     createdAt: skill.createdAt,
     updatedAt: skill.updatedAt,
   }
+}
+
+function toCategoryListItem(row: SkillCategoryRow): SkillCategoryListItem {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    slug: row.slug,
+    sortOrder: row.sortOrder,
+    scope: row.organizationId === null ? 'platform' : 'org',
+  }
+}
+
+/**
+ * The category a builtin file offer stands on.
+ *
+ * Files have no row to store a category on — their category is derived, by matching
+ * the builtin collection against the platform categories' slugs. The match runs
+ * on the slug and never the display name, so a name the owner renames can
+ * never detach them.
+ */
+function fileOfferCategoryId(
+  collection: string | undefined,
+  platformCategories: SkillCategoryListItem[],
+): string | null {
+  if (!collection) return null
+  const folded = collection.trim().toLowerCase()
+  return (
+    platformCategories.find(
+      (category) => category.slug !== null && category.slug.toLowerCase() === folded,
+    )?.id ?? null
+  )
 }
 
 /**
@@ -233,22 +286,31 @@ function orgToListItem(skill: Skill): SkillListItem {
  * control they do not have. They are the platform's own instruction, and the
  * platform is where they are read, written and withdrawn.
  */
-export async function listSkills(session: AuthorizedSession): Promise<{ skills: SkillListItem[] }> {
+export async function listSkills(
+  session: AuthorizedSession,
+): Promise<{ skills: SkillListItem[]; categories: SkillCategoryListItem[] }> {
   assertSkillsFeatureOn(session)
-  const [rows, activations, offers] = await Promise.all([
+  const [rows, activations, offers, categoryRows] = await Promise.all([
     repository.listSkillsInOrg(session.organizationId),
     repository.listCuratedSkillActivations(session.organizationId),
     curatedOffers(),
+    categoryRepository.listCategoriesForOrg(session.organizationId),
   ])
+  const categories = categoryRows.map(toCategoryListItem)
+  const platformCategories = categories.filter((category) => category.scope === 'platform')
   const byName = new Map<string, SkillListItem>()
   for (const offer of offers) {
-    byName.set(offer.name, platformToListItem(offer, isActivated(activations, offer.name)))
+    // A dashboard row carries its stored category; a builtin file resolves its
+    // collection against the live platform categories by slug.
+    const categoryId =
+      offer.categoryId ?? fileOfferCategoryId(offer.collection, platformCategories)
+    byName.set(offer.name, platformToListItem(offer, isActivated(activations, offer.name), categoryId))
   }
   // An org row of the same name still shadows the offer, as it always has.
   for (const row of rows) {
     byName.set(row.name, orgToListItem(row))
   }
-  return { skills: [...byName.values()] }
+  return { skills: [...byName.values()], categories }
 }
 
 /**
@@ -285,7 +347,14 @@ export async function setCuratedSkillEnabled(
     updatedBy: session.userId,
     updatedByEmail: session.email,
   })
-  return { skill: platformToListItem(offer, enabled) }
+  // The switch answers with the offer as listed — same category the toolbox shows.
+  const platformCategories = (
+    await categoryRepository.listCategoriesForOrg(session.organizationId)
+  )
+    .map(toCategoryListItem)
+    .filter((category) => category.scope === 'platform')
+  const categoryId = offer.categoryId ?? fileOfferCategoryId(offer.collection, platformCategories)
+  return { skill: platformToListItem(offer, enabled, categoryId) }
 }
 
 /** One entry of the composer's `/` menu — progressive disclosure level 1. */
@@ -356,6 +425,24 @@ export async function listInvocableSkills(
  * `piloti-voice` is the organization's own skill and it is the one that runs.
  */
 
+/**
+ * The category a skill write names, resolved or refused.
+ *
+ * An org skill may stand on the org's own category or a platform one; anything
+ * else — another org's category, or nothing at all — is a 404 either way, so a
+ * caller cannot probe which categories exist outside its scope. Undefined means
+ * "don't touch" and passes through as null only where the column wants it.
+ */
+async function assertCategoryInScope(
+  organizationId: string,
+  categoryId: string | null | undefined,
+): Promise<string | null> {
+  if (categoryId === undefined || categoryId === null) return null
+  const category = await categoryRepository.findCategoryInScope(categoryId, organizationId)
+  if (!category) throw new NotFoundError('Skill category not found.')
+  return category.id
+}
+
 export async function createSkill(
   session: AuthorizedSession,
   input: CreateSkillInput,
@@ -367,6 +454,8 @@ export async function createSkill(
   if (existing) {
     throw new ConflictError(`A skill named "${input.name}" already exists in this organization.`)
   }
+  const categoryId = await assertCategoryInScope(session.organizationId, input.categoryId)
+
   const skill = await repository.insertSkill({
     organizationId: session.organizationId,
     name: input.name,
@@ -375,6 +464,7 @@ export async function createSkill(
     metadata: input.metadata ?? {},
     origin: input.clonedFrom ? 'platform-clone' : 'org',
     clonedFrom: input.clonedFrom ?? null,
+    categoryId,
     enabled: input.enabled ?? true,
     createdBy: session.userId,
     createdByEmail: session.email,
@@ -398,8 +488,15 @@ export async function updateSkill(
     if (other) throw new ConflictError(`A skill named "${patch.name}" already exists in this organization.`)
   }
 
+  // A named category is resolved or refused; an explicit null removes it; an
+  // omitted key leaves the skill where it stands. Spread directly it would do
+  // the same, but only by accident of what drizzle ignores — said aloud here.
+  const { categoryId, ...rest } = patch
   const skill = await repository.updateSkill(skillId, session.organizationId, {
-    ...patch,
+    ...rest,
+    ...(categoryId !== undefined
+      ? { categoryId: await assertCategoryInScope(session.organizationId, categoryId) }
+      : {}),
     updatedAt: new Date(),
   })
   if (!skill) throw new NotFoundError('Skill not found.')
@@ -416,6 +513,117 @@ export async function deleteSkill(
   const existing = await repository.findSkill(skillId, session.organizationId)
   if (!existing) throw new NotFoundError('Skill not found.')
   await repository.deleteSkill(skillId, session.organizationId)
+  return { deleted: true }
+}
+
+// ---------------------------------------------------------------------------
+// Skill categories — the org's own arrangement
+// ---------------------------------------------------------------------------
+
+/**
+ * Every category this organization sees: the platform's, then its own.
+ *
+ * Any member may read — arranging is administration, looking at the categories
+ * is using the product.
+ */
+export async function listSkillCategories(
+  session: AuthorizedSession,
+): Promise<{ categories: SkillCategoryListItem[] }> {
+  assertSkillsFeatureOn(session)
+  const rows = await categoryRepository.listCategoriesForOrg(session.organizationId)
+  return { categories: rows.map(toCategoryListItem) }
+}
+
+/**
+ * Add a category to this organization. `org:skills:manage` required.
+ *
+ * Names are unique within the org (the partial index is the backstop; the
+ * pre-check turns it into a 409 with a message rather than a 500). The count
+ * is capped at the list limit: past it, categories would silently fall off the
+ * toolbox read, so the overflowing create is refused instead.
+ */
+export async function createSkillCategory(
+  session: AuthorizedSession,
+  input: CreateCategoryInput,
+): Promise<{ category: SkillCategoryListItem }> {
+  assertSkillsFeatureOn(session)
+  if (!canManageSkills(session)) throw new ForbiddenError('You need org skills management rights.')
+
+  const existing = await categoryRepository.findOrgCategoryByName(input.name, session.organizationId)
+  if (existing) {
+    throw new ConflictError(`A category named "${input.name}" already exists in this organization.`)
+  }
+  // The organization's OWN shelves are what its quota counts. Counting the
+  // platform's against it would let fleet curation spend a tenant's allowance —
+  // and, once the platform reached the cap, refuse every org category forever.
+  // `>=` and not `>`: at exactly the limit the next insert is the one over it.
+  const own = await categoryRepository.listOrgCategories(
+    session.organizationId,
+    categoryRepository.CATEGORIES_LIST_LIMIT + 1,
+  )
+  if (own.length >= categoryRepository.CATEGORIES_LIST_LIMIT) {
+    throw new ConflictError(
+      `Category limit reached (${categoryRepository.CATEGORIES_LIST_LIMIT}). Remove an unused category before adding another.`
+    )
+  }
+  const row = await categoryRepository.insertCategory(
+    categoryRepository.orgCategoryValues(session.organizationId, {
+      name: input.name,
+      description: input.description ?? null,
+      sortOrder: input.sortOrder ?? 0,
+      createdBy: session.userId,
+      createdByEmail: session.email,
+    }),
+  )
+  return { category: toCategoryListItem(row) }
+}
+
+/**
+ * Rename, re-describe or re-order an org category. Platform categories are never
+ * addressable here — renaming the fleet's category from a tenant is a 404, the
+ * same shape as a category that never existed.
+ */
+export async function updateSkillCategory(
+  session: AuthorizedSession,
+  categoryId: string,
+  patch: PatchCategoryInput,
+): Promise<{ category: SkillCategoryListItem }> {
+  assertSkillsFeatureOn(session)
+  if (!canManageSkills(session)) throw new ForbiddenError('You need org skills management rights.')
+
+  const existing = await categoryRepository.findOrgCategory(categoryId, session.organizationId)
+  if (!existing) throw new NotFoundError('Skill category not found.')
+
+  if (patch.name !== undefined && patch.name !== existing.name) {
+    const other = await categoryRepository.findOrgCategoryByName(patch.name, session.organizationId)
+    if (other) {
+      throw new ConflictError(`A category named "${patch.name}" already exists in this organization.`)
+    }
+  }
+  const row = await categoryRepository.updateCategory(categoryId, {
+    ...(patch.name !== undefined ? { name: patch.name } : {}),
+    ...(patch.description !== undefined ? { description: patch.description } : {}),
+    ...(patch.sortOrder !== undefined ? { sortOrder: patch.sortOrder } : {}),
+    updatedAt: new Date(),
+  })
+  if (!row) throw new NotFoundError('Skill category not found.')
+  return { category: toCategoryListItem(row) }
+}
+
+/**
+ * Remove an org category. Skills standing on it are NOT removed — the FK is
+ * ON DELETE SET NULL, so they fall back to unsorted.
+ */
+export async function deleteSkillCategory(
+  session: AuthorizedSession,
+  categoryId: string,
+): Promise<{ deleted: true }> {
+  assertSkillsFeatureOn(session)
+  if (!canManageSkills(session)) throw new ForbiddenError('You need org skills management rights.')
+
+  const existing = await categoryRepository.findOrgCategory(categoryId, session.organizationId)
+  if (!existing) throw new NotFoundError('Skill category not found.')
+  await categoryRepository.deleteCategory(categoryId)
   return { deleted: true }
 }
 
@@ -548,7 +756,15 @@ async function resolveAll(
   // research writes its report. Nothing is merged after the org's rows any
   // more: the one thing that used to be (a `delivery: 'standard'` row, which
   // had to outrank them) is gone with the tier.
-  const machinery = listPlatformSkills().filter((skill) => !isCuratedPlatformSkill(skill.metadata))
+  //
+  // Machinery is uncategorized BY CONSTRUCTION: a category is something a
+  // person files a curated offer under, and this is the pipeline's own
+  // instructions — nobody browses it. `toCurated` is what states that, by
+  // defaulting `categoryId` to null, rather than the union being widened to
+  // let a file skill through without one.
+  const machinery = listPlatformSkills()
+    .filter((skill) => !isCuratedPlatformSkill(skill.metadata))
+    .map(toCurated)
   const taken = live.offers.filter((offer) => isActivated(activations, offer.name))
   for (const platform of [...taken, ...machinery]) put(platform, 'platform')
 

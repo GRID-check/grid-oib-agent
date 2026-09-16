@@ -17,6 +17,21 @@ export const tasks = {
     /** One-shot delegation happens in chat — this only links there. */
     delegate: 'Delegate',
     delegateHint: 'Delegation happens in chat: ask Piloti to take something on.',
+    /** The one create gesture: a task, whose wizard asks WHEN as one of its steps. */
+    task: 'New task',
+  },
+  /** List and timetable read the same tasks — the toggle is a preference, never a destination. */
+  view: {
+    label: 'View',
+    list: 'List',
+    timetable: 'Timetable',
+  },
+  /** The standing arrangements behind the runs — scheduled or manual. */
+  standing: {
+    heading: 'Standing tasks',
+    emptyTitle: 'No standing tasks yet',
+    emptyDescription:
+      'Create a task — with a rhythm it runs on its own, without one it waits for you.',
   },
   /** The filter row above the list. `unreviewed` is the one that matters. */
   filters: {
@@ -58,9 +73,9 @@ export const tasks = {
     prompt: 'Prompt',
     /** The schedule's own runs — each of which is a task, so it says so. */
     runs: 'Tasks',
-    /** Turns a one-off into a standing instruction, pre-filled. */
-    promote: 'Save as a schedule',
-    promoteHint: 'Opens the schedule wizard with this request already written in.',
+    /** Turns a one-off into a standing task, pre-filled. */
+    promote: 'Save as a standing task',
+    promoteHint: 'Opens the task wizard with this request already written in.',
     /** A deep link whose row is gone — deleted, or never visible to this reader. */
     gone: 'This no longer exists. It may have been deleted.',
     /**

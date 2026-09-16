@@ -43,7 +43,7 @@ import { capturePosthog } from '@/lib/analytics/posthog'
 import { JobRunHistory } from './job-run-history'
 import { ScheduleEnableSwitch } from './schedule-card'
 import { nextOccurrences } from '../lib/occurrences'
-import { scheduleSummary } from '../lib/schedule'
+import { whenSummary } from '../lib/schedule'
 
 /** How many upcoming fire times the drawer proves the schedule with. */
 const PREVIEW_COUNT = 3
@@ -219,7 +219,7 @@ function ScheduleDetailBody({
         </div>
         <SheetTitle className="mt-2 text-left">{job.name}</SheetTitle>
         <SheetDescription className="text-left" data-testid="schedule-detail-cadence">
-          {scheduleSummary(tj, job.scheduleCron, job.scheduleTimezone, locale)}
+          {whenSummary(tj, job, locale)}
         </SheetDescription>
       </SheetHeader>
 

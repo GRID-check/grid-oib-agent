@@ -54,6 +54,14 @@ export interface Job {
   enabled: boolean
   scheduleCron: string | null
   scheduleTimezone: string
+  /**
+   * When a one-off task is due, ISO-8601. Null on a recurring or manual one.
+   *
+   * With `scheduleCron` this is what says WHICH of the three shapes a task is,
+   * and the two are mutually exclusive: a cron means recurring, a due date
+   * means once, neither means it only runs when somebody presses Run now.
+   */
+  dueAt: string | null
   nextRunAt: string | null
   lastRunAt: string | null
   createdBy: string
@@ -98,6 +106,8 @@ export interface CreateJobInput {
   enabled?: boolean
   scheduleCron?: string | null
   scheduleTimezone?: string
+  /** ISO-8601 instant for a one-off task. Mutually exclusive with a cron. */
+  dueAt?: string | null
 }
 
 /**
