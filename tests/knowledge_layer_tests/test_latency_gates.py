@@ -289,8 +289,10 @@ def loop_harness(monkeypatch):
         monkeypatch.setattr("knowledge_layer.register._initialize_ingestor", lambda config, llm: None)
         monkeypatch.setattr(
             "knowledge_layer.register._format_results",
-            # The real renderer carries the requery notice inside its bytes; the fake does too.
-            lambda merged, query, notice="": notice + ("|".join(c.chunk_id for c in merged.chunks) or "no results"),
+            # The real renderer carries every decoration inside its bytes; the fake does too.
+            lambda merged, query, notice="", trailer="", preamble_note="": (
+                notice + preamble_note + ("|".join(c.chunk_id for c in merged.chunks) or "no results") + trailer
+            ),
         )
         monkeypatch.setattr("aiq_agent.knowledge.factory.configure_summary_db", lambda url: None)
         monkeypatch.setattr("aiq_agent.knowledge.norm_store.configure_norm_store", lambda url: None)

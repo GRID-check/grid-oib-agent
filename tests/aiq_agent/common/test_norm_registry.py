@@ -839,3 +839,90 @@ class TestOibFamilies:
 
         assert [f.key for f in families] == ["2", "10"]
         assert families[0].members == ("2", "2.2", "2.9", "2.10")
+
+
+class TestFamilyQueryNumber:
+    """Which questions ask about a whole Richtlinie.
+
+    "Was weißt du über die OIB 2?" is a question about four documents, and
+    ranked passages answer it with the two that scored best. Detected here, the
+    retrieval layer answers it with every part the corpus holds in one round.
+    The detection has to be tight in one direction: a topic question that
+    happens to name the Richtlinie ("OIB 2 Fluchtweglänge GK 4") is an ordinary
+    search, and turning it into an overview would cost the reader the passage
+    they asked for.
+    """
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "was weißt du über die oib 2",
+            "OIB 2",
+            "OIB-Richtlinie 2.1",
+            "worum geht es in der richtlinie 2",
+            "OIB 2 Ausgabe Mai 2023",
+            "Was weißt du über die OIB 2?",
+            "welche Punkte hat die OIB 2",
+            "OIB-RL 2 Überblick",
+            "gib mir eine Zusammenfassung der OIB 2",
+        ],
+    )
+    def test_a_question_about_the_richtlinie_itself_names_its_family(self, query):
+        from aiq_agent.common.norm_registry import family_query_number
+
+        assert family_query_number(query) == "2"
+
+    def test_a_part_number_resolves_to_its_family(self):
+        """A reader asking about 2.1 is inside a Richtlinie whose other parts
+        they are unlikely to know exist."""
+        from aiq_agent.common.norm_registry import family_query_number
+
+        assert family_query_number("OIB-Richtlinie 2.3") == "2"
+
+    def test_every_spelling_of_the_anchor_is_read(self):
+        from aiq_agent.common.norm_registry import family_query_number
+
+        assert family_query_number("oib rl 4 überblick") == "4"
+        assert family_query_number("OIB-RL 4") == "4"
+        assert family_query_number("richtlinie 4") == "4"
+        assert family_query_number("was regelt die RL 4") == "4"
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "OIB 2 Fluchtweglänge GK 4",
+            "was sagt die OIB 2 zum Brandschutz",
+            "Fluchtwege im Wohnbau",
+            "OIB-RL 2 Pkt. 5.1",
+            "OIB 2 Punkt 3.5.2",
+            "OIB 2 Seite 12",
+            "§ 12 OIB 2",
+            "Tabelle 1b der OIB 2",
+            "oib-rl_2_ausgabe_mai_2023.pdf",
+            "OIB-Richtlinie 2 Anhang",
+            "",
+            "   ",
+        ],
+    )
+    def test_everything_else_stays_an_ordinary_search(self, query):
+        from aiq_agent.common.norm_registry import family_query_number
+
+        assert family_query_number(query) is None
+
+    def test_two_families_named_at_once_are_not_one_overview(self):
+        """ "Unterschied OIB 2 und OIB 3" is a comparison; a single family
+        overview cannot be both, and answering with one of them would be the
+        wrong document stated confidently."""
+        from aiq_agent.common.norm_registry import family_query_number
+
+        assert family_query_number("OIB 2 und OIB 3") is None
+
+    def test_the_detected_number_is_the_key_oib_families_groups_by(self):
+        """The contract between detection and resolution: what this returns is
+        what `oib_families` keys a family by, or the branch resolves nothing."""
+        from aiq_agent.common.norm_registry import family_query_number
+        from aiq_agent.common.norm_registry import oib_families
+
+        families = oib_families(["oib-rl_2_ausgabe_mai_2023.pdf", "oib-rl_2.3_ausgabe_mai_2023.pdf"])
+
+        assert [family.key for family in families] == [family_query_number("was weißt du über die OIB 2")]

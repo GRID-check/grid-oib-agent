@@ -458,9 +458,14 @@ def _scope_chunks(chunks: Sequence[Any]) -> list[Any]:
     return [chunk for chunk in top if _punkt_of(chunk) == first]
 
 
-def _outline_lines(entries: Sequence[OutlineEntry]) -> list[str]:
-    """The Gliederung itself: one line per Punkt, depth 2 indented under depth 1."""
-    shown = list(entries)[:_MAX_OUTLINE_LINES]
+def _outline_lines(entries: Sequence[OutlineEntry], limit: int = _MAX_OUTLINE_LINES) -> list[str]:
+    """The Gliederung itself: one line per Punkt, depth 2 indented under depth 1.
+
+    ``limit`` is the line budget. It is a parameter because a family overview
+    prints one Gliederung per member and divides the budget between them
+    (:data:`_MAX_FAMILY_OUTLINE_LINES`).
+    """
+    shown = list(entries)[:limit]
     lines = []
     for entry in shown:
         indent = "  " if entry.depth == 2 else ""
@@ -491,6 +496,188 @@ _NO_PUNKTE_LINE = (
 def _gliederung_block(entries: Sequence[OutlineEntry]) -> str:
     """The ``## Gliederung`` index appended under the outline's passage."""
     return "\n".join(["## Gliederung", *_outline_lines(entries), "", _OUTLINE_INSTRUCTION, ""])
+
+
+# ---------------------------------------------------------------------------
+# A whole Richtlinien-Familie at once
+#
+# "Was weißt du über die OIB 2?" is a question about four documents. Search
+# ranks passages, so it answered with the two that scored best and the model
+# opened the rest one round at a time, when it knew they existed at all.
+# `knowledge_search` detects the question (`norm_registry.family_query_number`)
+# and asks for this: every member's scope passage and every member's
+# Gliederung, in the block it was going to render anyway. One round, then one
+# round of Punkt opens.
+#
+# Membership is DERIVED from what is indexed, never listed (`oib_families`): a
+# deployment whose corpus holds no 2.3 must not be told it has one.
+# ---------------------------------------------------------------------------
+
+#: How many scope passages ONE member contributes. The scope of a Richtlinie is
+#: its Punkt 0, which arrives as one chunk in the corpus and as a handful when
+#: ``SentenceSplitter`` cut it; two is the opening of the longest of them.
+_MAX_FAMILY_SCOPE_CHUNKS = 2
+
+
+@dataclass(frozen=True)
+class FamilyMember:
+    """One part of a Richtlinie, read: its scope passage and its Gliederung."""
+
+    number: str
+    title: str
+    chunks: tuple[Any, ...]
+    entries: tuple[OutlineEntry, ...]
+
+
+@dataclass(frozen=True)
+class FamilyOverview:
+    """Every part of one Richtlinie the corpus holds, ready to be rendered.
+
+    ``chunks`` are the scope passages in member order, which the search puts
+    ahead of its own hits so a citation resolves to each part; ``trailer`` is
+    the one block of Gliederungen that follows the fan-out (ADR-0061: a
+    decoration travels inside the block or the reader loses the records).
+    """
+
+    label: str
+    members: tuple[FamilyMember, ...]
+    chunks: tuple[Any, ...]
+    trailer: str
+
+    @property
+    def preamble(self) -> str:
+        """What the family IS, above the results: the parts, and where they are."""
+        numbers = ", ".join(member.number for member in self.members)
+        count = f"{len(self.members)} Teil" if len(self.members) == 1 else f"{len(self.members)} Teile"
+        span = "Treffer 1" if len(self.chunks) == 1 else f"Treffer 1 bis {len(self.chunks)}"
+        return (
+            f"{self.label}: {count} im Bestand ({numbers}).\n"
+            f"{span} sind der Geltungsbereich dieser Teile, ihre Gliederungen stehen unten; "
+            "danach folgen die Treffer zur Suchanfrage."
+        )
+
+
+def _family_trailer(members: Sequence[FamilyMember]) -> str:
+    """One ``## Gliederung`` section per member, and the instruction once.
+
+    The instruction says what a Gliederung is and is not, and that holds for
+    all of them, so it is stated once at the end rather than after each.
+
+    The single-document line budget is SPLIT across the members: four of them
+    at 80 lines each is 4 to 6k tokens of index framing far less evidence.
+    With the depth-2 headings already dropped (:func:`_read_member`), a member
+    of a four-part family prints its 20 top-level Punkte.
+    """
+    budget = max(1, _MAX_OUTLINE_LINES // max(1, len(members)))
+    lines: list[str] = []
+    for member in members:
+        lines += [f"## Gliederung {member.title}", *_outline_lines(member.entries, budget), ""]
+    return "\n".join([*lines, _OUTLINE_INSTRUCTION, ""])
+
+
+def _member_title(file_name: str) -> str:
+    """What a member is called in its Gliederung heading.
+
+    The derived OIB title, which is what a citation chip prints and what
+    :func:`_matches` accepts back as ``document=``, so the heading doubles as
+    the argument for opening one of its Punkte.
+    """
+    from aiq_agent.common.norm_registry import guess_display_title
+
+    try:
+        return guess_display_title(file_name) or file_name
+    except Exception:  # noqa: BLE001 — a missing title helper must not hide the file
+        return file_name
+
+
+async def _corpus_families(base: Any) -> list[Any]:
+    """The Richtlinien-Familien the BASE shelf holds, from whichever source knows.
+
+    Three sources, cheapest first. The turn's own family list is derived from
+    the base shelf before the inventory cap can drop a member, so it is the one
+    that is always complete. The inventory rows answer a turn that bound no
+    list, and the collection's registered documents answer a run with no turn
+    around it at all.
+    """
+    from aiq_agent.common.norm_registry import oib_families
+    from aiq_agent.common.source_kinds import Shelf
+
+    try:
+        from aiq_agent.knowledge.inventory import get_norm_families
+        from aiq_agent.knowledge.inventory import get_turn_documents
+
+        families = list(get_norm_families())
+        if families:
+            return families
+        rows = [
+            str(getattr(row, "file_name", "") or "")
+            for row in get_turn_documents()
+            if str(getattr(row, "shelf", "") or "") == str(Shelf.BASE)
+        ]
+        if rows:
+            return oib_families(rows)
+    except Exception:  # noqa: BLE001 — no turn bound is a valid standalone run
+        logger.debug("No turn inventory for the family lookup", exc_info=True)
+    documents = await _documents_in(base.collection)
+    return oib_families(str(getattr(document, "file_name", "") or "") for document in documents)
+
+
+async def _read_member(target: PassageTarget, number: str) -> FamilyMember | None:
+    """One member, read as an outline. ``None`` when the store holds none of it.
+
+    That miss is how a family stays honest about the corpus: a member the
+    deployment does not carry contributes no passage, no Gliederung and no
+    line in the preamble.
+    """
+    chunks, entries, failures = await outline_for([target], _fetch_query(target.file_name, None, None))
+    if not chunks:
+        if failures:
+            logger.warning("Family member %s could not be read", target.file_name, exc_info=failures[0])
+        return None
+    return FamilyMember(
+        number=number,
+        title=_member_title(target.file_name),
+        chunks=tuple(_scope_chunks(chunks)[:_MAX_FAMILY_SCOPE_CHUNKS]),
+        entries=tuple(entry for entry in entries if entry.depth == 1),
+    )
+
+
+async def family_overview(entries: Sequence[Any], family_key: str) -> FamilyOverview | None:
+    """Every part of Richtlinie ``family_key`` the corpus holds, in one object.
+
+    ``entries`` is the turn's collection scope; the corpus is the base shelf,
+    so a turn that may not read it gets ``None`` rather than an overview of
+    somebody's own copy of a Richtlinie. ``None`` also when the corpus holds no
+    such family, and when no member of it could be read.
+    """
+    from aiq_agent.common.source_kinds import Shelf
+
+    base = next((entry for entry in entries if getattr(entry, "shelf", None) is Shelf.BASE), None)
+    if base is None:
+        return None
+    family = next((item for item in await _corpus_families(base) if item.key == family_key), None)
+    if family is None:
+        return None
+    read = await asyncio.gather(
+        *(
+            _read_member(PassageTarget(base.collection, file_name, str(base.shelf)), number)
+            for number, file_name in zip(family.members, family.files, strict=True)
+        ),
+        return_exceptions=True,
+    )
+    for failure in (item for item in read if isinstance(item, BaseException)):
+        logger.warning("Family member skipped", exc_info=failure)
+    members = tuple(item for item in read if isinstance(item, FamilyMember))
+    if not members:
+        return None
+    chunks = tuple(chunk for member in members for chunk in member.chunks)
+    logger.info("Family overview: %s read %d member(s)", family.label, len(members))
+    return FamilyOverview(
+        label=family.label,
+        members=members,
+        chunks=chunks,
+        trailer=_family_trailer(members),
+    )
 
 
 def _locus_label(document: str, punkt: str | None, page: int | None) -> str:
@@ -639,6 +826,62 @@ def _fetch_query(document: str, punkt: str | None, page: int | None) -> str:
     return _locus_label(document, punkt, page)
 
 
+async def _fetch(target: PassageTarget, filters: dict[str, Any], query: str, top_k: int) -> list[Any]:
+    """One filtered fetch against one collection, stamped with where it came from."""
+    from aiq_agent.knowledge.factory import get_active_retriever
+
+    retriever = get_active_retriever()
+    result = await retriever.retrieve(
+        query=query,
+        collection_name=target.collection,
+        top_k=top_k,
+        filters=filters,
+    )
+    chunks = list(getattr(result, "chunks", None) or [])
+    # Same stamping the search's per-collection fan-out does: this is the
+    # last point at which the stratum is known for free, and nothing
+    # downstream may recover a shelf from a collection id (ADR-0047).
+    for chunk in chunks:
+        chunk.metadata.setdefault("collection", target.collection)
+        if target.shelf:
+            chunk.metadata.setdefault("shelf", target.shelf)
+    return chunks
+
+
+async def _fetch_all(
+    targets: list[PassageTarget], filters_for, query: str, top_k: int
+) -> tuple[list[Any], list[BaseException]]:
+    """One filtered fetch per target, gathered. Failures are returned, not raised:
+    one unreachable collection must not refuse the document that did answer."""
+    fetched = await asyncio.gather(
+        *(_fetch(target, filters_for(target.file_name), query, top_k) for target in targets),
+        return_exceptions=True,
+    )
+    chunks = [chunk for group in fetched if not isinstance(group, BaseException) for chunk in group]
+    return chunks, [group for group in fetched if isinstance(group, BaseException)]
+
+
+async def outline_for(
+    targets: list[PassageTarget], query: str
+) -> tuple[list[Any], list[OutlineEntry], list[BaseException]]:
+    """One document's top structure: its outline chunks, its Gliederung, what broke.
+
+    The middle of an outline, shared by the two callers that need it: this
+    tool's ``document=`` mode and :func:`family_overview`, which runs it once
+    per member of a Richtlinien-Familie. Both then take the scope passage with
+    :func:`_scope_chunks` and render the entries, so the family branch cannot
+    drift into a second definition of what an outline IS.
+
+    ``query`` is the probe text (:func:`_fetch_query`), which orders a set the
+    filter has already chosen. The failures travel out rather than being logged
+    here, because only the caller knows what to do with them: one document
+    falls back to its opening pages, a family member contributes nothing.
+    """
+    fetched, failures = await _fetch_all(targets, _outline_filters, query, _MAX_OUTLINE_CHUNKS)
+    chunks = [chunk for chunk in fetched if _is_outline_chunk(chunk)]
+    return chunks, _outline_entries(chunks), failures
+
+
 @register_function(config_type=ReadPassageConfig)
 async def read_passage(config: ReadPassageConfig, _builder: Builder):
     """Open a named passage of a named document, or its outline. Deterministic; no LLM."""
@@ -647,38 +890,6 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
     from .register import _restrict_scope_to_turn
 
     search_config = _builder.get_function_config(config.knowledge_search)
-
-    async def _fetch(target: PassageTarget, filters: dict[str, Any], query: str, top_k: int) -> list[Any]:
-        from aiq_agent.knowledge.factory import get_active_retriever
-
-        retriever = get_active_retriever()
-        result = await retriever.retrieve(
-            query=query,
-            collection_name=target.collection,
-            top_k=top_k,
-            filters=filters,
-        )
-        chunks = list(getattr(result, "chunks", None) or [])
-        # Same stamping the search's per-collection fan-out does: this is the
-        # last point at which the stratum is known for free, and nothing
-        # downstream may recover a shelf from a collection id (ADR-0047).
-        for chunk in chunks:
-            chunk.metadata.setdefault("collection", target.collection)
-            if target.shelf:
-                chunk.metadata.setdefault("shelf", target.shelf)
-        return chunks
-
-    async def _fetch_all(
-        targets: list[PassageTarget], filters_for, query: str, top_k: int
-    ) -> tuple[list[Any], list[BaseException]]:
-        """One filtered fetch per target, gathered. Failures are returned, not raised:
-        one unreachable collection must not refuse the document that did answer."""
-        fetched = await asyncio.gather(
-            *(_fetch(target, filters_for(target.file_name), query, top_k) for target in targets),
-            return_exceptions=True,
-        )
-        chunks = [chunk for group in fetched if not isinstance(group, BaseException) for chunk in group]
-        return chunks, [group for group in fetched if isinstance(group, BaseException)]
 
     async def _resolve_or_refuse(document: str) -> tuple[list[PassageTarget], str]:
         """The (collection, file) targets this name resolves to, or the refusal."""
@@ -780,12 +991,10 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
             return refusal
 
         query = _fetch_query(document, None, None)
-        fetched, failures = await _fetch_all(targets, _outline_filters, query, _MAX_OUTLINE_CHUNKS)
-        chunks = [chunk for chunk in fetched if _is_outline_chunk(chunk)]
+        chunks, entries, failures = await outline_for(targets, query)
         if not chunks:
             return await _opening_passages(document, targets, query, failures)
 
-        entries = _outline_entries(chunks)
         passages = _scope_chunks(chunks)[:_MAX_PASSAGE_CHUNKS]
         # The Gliederung travels as the block's trailer rather than being glued
         # on here: the renderer files the records under the hash of the bytes it

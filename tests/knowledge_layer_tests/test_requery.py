@@ -160,9 +160,9 @@ class _FakeRetriever:
         return _FakeResult(list(self.answers.get(query, [])))
 
 
-def _grounding(merged, query, notice=""):
-    """Stands in for the renderer, which carries the requery notice inside its bytes."""
-    return notice + ("|".join(chunk.chunk_id for chunk in merged.chunks) or "no results")
+def _grounding(merged, query, notice="", trailer="", preamble_note=""):
+    """Stands in for the renderer, which carries every decoration inside its bytes."""
+    return notice + preamble_note + ("|".join(chunk.chunk_id for chunk in merged.chunks) or "no results") + trailer
 
 
 _NOTICE_MARK = "Hinweis: die Suche wurde um"

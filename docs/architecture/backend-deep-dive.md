@@ -1026,6 +1026,21 @@ the passages carry a Citation, and a listed Punkt is read by calling again with
 `punkt=`. A document with no Punkte at all — most project uploads — returns its
 opening passages instead: the first chunks in document order, because `page_label` is not always a page number.
 
+The same lookup one granularity up is a whole Richtlinie, and it is reached
+from the search rather than from here. "Was weißt du über die OIB 2?" names
+four documents (2, 2.1, 2.2, 2.3); ranked passages answer it with the two that
+scored best, and the model then opens the rest one round at a time, when it
+knows they exist at all. `knowledge_search` recognises the shape
+(`norm_registry.family_query_number`: a family anchor with nothing but question
+words, overview nouns and edition words around it), asks
+`read_passage.family_overview` for every member the corpus holds, and renders
+those members' scope passages ahead of its own hits in ONE grounding block,
+with one `## Gliederung` per member as the trailer. One search round, then one
+round of Punkt opens. Membership is derived from what is indexed
+(`oib_families`), so a deployment without 2.3 is never told it has one, and a
+query that also names a topic, a Punkt, a page, a table or a file is an
+ordinary search, as is one that passes `file_name=` or `folder=`.
+
 It is deterministic — one filtered fetch per collection the named document
 lives in, no reranker, no requery, no LLM anywhere — and it re-checks the
 Punkt/page in Python after the store's metadata filter, because "the store

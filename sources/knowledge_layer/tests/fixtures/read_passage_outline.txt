@@ -25,7 +25,7 @@ Relevance Score: 0.71
 … und ist so zu lesen.
 
 ## Trace-Lanes
-{"lanes": [{"key": "baurecht_oib", "label": "OIB-Richtlinie", "kind": "baurecht", "hitCount": 2, "sources": [{"name": "oib-rl_2_ausgabe_mai_2023.pdf", "title": "OIB-Richtlinie 2, Ausgabe Mai 2023", "detail": "p.3", "shelf": "base"}]}]}
+{"lanes": [{"key": "baurecht_oib", "label": "OIB-Richtlinie", "kind": "baurecht", "hitCount": 2, "sources": [{"name": "oib-rl_2_ausgabe_mai_2023.pdf", "title": "OIB-Richtlinie 2, Ausgabe Mai 2023", "detail": "Pkt. 0 p.3", "shelf": "base"}]}]}
 
 ## Gliederung
 - Punkt 0: Vorbemerkungen (S. 3)
