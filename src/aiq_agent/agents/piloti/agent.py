@@ -1214,11 +1214,17 @@ class PilotiAgent:
         is safe here unconditionally.
         """
         self._record_cutoff(state, binding, cutoff)
+        # This call IS the synthesis, by construction (tool-free, anchored on
+        # the answer), so the status goes out before it rather than after: the
+        # final generation is the longest call of the turn, and the live line
+        # would otherwise show the last retrieval event through all of it.
+        # The one gate `_starts_synthesis` keeps applies here too: a turn that
+        # never researched has no synthesis phase to narrate.
+        if state.tool_iterations > 0:
+            emit_synthesis()
         # Anchored at the end to combat "Loss in the Middle".
         messages = [SystemMessage(content=system_prompt), *state.messages, HumanMessage(content=_SYNTHESIS_ANCHOR)]
         response = await ainvoke_with_envelope_json_mode(binding.llm, messages)
-        if _starts_synthesis(response, state):
-            emit_synthesis()
         return {
             "messages": [response],
             "tool_iterations": state.tool_iterations,
