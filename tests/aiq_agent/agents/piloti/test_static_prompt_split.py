@@ -18,6 +18,8 @@ fails a test instead of shipping. Regenerate with:
 
 from __future__ import annotations
 
+import asyncio
+import contextvars
 from pathlib import Path
 
 import pytest
@@ -67,7 +69,6 @@ def _forget_what_resolving_recorded() -> None:
     """The prompt link and the fallback identity are PROCESS state; contributions are the turn's."""
     lta.reset_prompt_link()
     lta.reset_contributions()
-    prompt_module._FALLBACK_IDENTITY.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -245,6 +246,32 @@ class TestPromptLink:
 
         assert lta.current_prompt_attributes() == {}
         assert lta.snapshot_contributions()["metadata"]["prompt_name"] == "git:prompts/piloti_static.md"
+
+    async def test_another_turn_s_transition_does_not_rename_this_turn_s_fallback(self, monkeypatch):
+        """
+        The fallback identity rides the same per-turn record as the link, so
+        a served version resolved in another turn between this turn's resolve
+        and its stamp neither erases this turn's fallback nor replaces it.
+        """
+        token = lta.begin_turn_prompt_link()
+        try:
+            monkeypatch.setattr(prompt_module, "prompt_store", lambda: PromptStore(enabled=False))
+            await asyncio.to_thread(resolve_static_block)
+
+            def _other_turn() -> None:
+                other = lta.begin_turn_prompt_link()
+                served = _FakeStore(ResolvedPrompt(text="MANAGED", name=STATIC_PROMPT_NAME, version="12"))
+                monkeypatch.setattr(prompt_module, "prompt_store", lambda: served)
+                resolve_static_block()
+                lta.end_turn_prompt_link(other)
+
+            contextvars.copy_context().run(_other_turn)
+            record_static_prompt_metadata()
+
+            assert lta.current_prompt_attributes() == {}
+            assert lta.snapshot_contributions()["metadata"]["prompt_name"] == "git:prompts/piloti_static.md"
+        finally:
+            lta.end_turn_prompt_link(token)
 
     def test_falling_back_stops_the_process_naming_the_version_it_served(self, monkeypatch):
         """

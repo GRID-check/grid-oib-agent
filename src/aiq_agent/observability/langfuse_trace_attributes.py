@@ -304,13 +304,16 @@ def _link_targets() -> list[dict[str, Any]]:
     return [_PROMPT_LINK] if box is None else [_PROMPT_LINK, box]
 
 
-def record_prompt_link(*, name: str, version: str) -> None:
-    """Remember which prompt version this process renders with.
+def record_prompt_link(*, name: str, version: str, is_fallback: bool = False) -> None:
+    """Remember which prompt this process, and the current turn, renders with.
 
-    Called by the prompt store's caller every time a LANGFUSE version is served
-    as the static half — at boot, and then on every refresh. A fallback render
-    records nothing here: it names no prompt Langfuse holds, so there is no
-    link to make.
+    Called by the prompt store's caller on every resolution — at boot, on every
+    refresh, and on a fallback. A fallback names no prompt Langfuse holds, so
+    it becomes no LINK (:func:`current_prompt_attributes` yields ``{}``) and is
+    read back by :func:`current_fallback_identity` for the trace metadata
+    instead. Recording it, rather than clearing, is what keeps both facts on
+    the same per-turn record: a transition in another turn cannot swap this
+    turn's fallback for a served version, or the reverse.
 
     The version is stored as it arrived, so that
     :func:`prompt_observation_attributes` is the one place deciding what a
@@ -323,8 +326,15 @@ def record_prompt_link(*, name: str, version: str) -> None:
         for target in _link_targets():
             target["name"] = str(name)
             target["version"] = version
+            target["is_fallback"] = bool(is_fallback)
     except Exception:
         logger.debug("Failed to record the Langfuse prompt link", exc_info=True)
+
+
+def _current_link() -> dict[str, Any]:
+    """This turn's record when a turn bound one, else the process's."""
+    link = _TURN_PROMPT_LINK.get()
+    return _PROMPT_LINK if link is None else link
 
 
 def prompt_observation_attributes(*, name: str | None, version: str | None) -> dict[str, Any]:
@@ -350,21 +360,26 @@ def prompt_observation_attributes(*, name: str | None, version: str | None) -> d
 
 
 def current_prompt_attributes() -> dict[str, Any]:
-    """The prompt link for THIS turn's render when a turn bound a box, else the process's."""
-    link = _TURN_PROMPT_LINK.get()
-    if link is None:
-        link = _PROMPT_LINK
+    """The prompt link for THIS turn's render when a turn bound a box, else the process's.
+
+    A fallback render is no link at all, whichever record holds it.
+    """
+    link = _current_link()
+    if link.get("is_fallback"):
+        return {}
     return prompt_observation_attributes(name=link.get("name"), version=link.get("version"))
 
 
-def reset_prompt_link() -> None:
-    """Forget the recorded prompt link.
+def current_fallback_identity() -> tuple[str, Any] | None:
+    """The bundled fallback's ``(name, version)`` when that is what renders, else ``None``."""
+    link = _current_link()
+    if not link.get("is_fallback"):
+        return None
+    return str(link.get("name")), link.get("version")
 
-    Also how a process that served a Langfuse version and then fell back to its
-    bundled prompt stops claiming that version: a link left behind would name a
-    version on generations the version never produced, which is a wrong number
-    rather than a missing one.
-    """
+
+def reset_prompt_link() -> None:
+    """Forget the recorded prompt identity, in the process record and the turn's box."""
     for target in _link_targets():
         target.clear()
 

@@ -44,9 +44,9 @@ from aiq_agent.common.prompt_utils import PromptError
 from aiq_agent.common.source_kinds import SHELF_QUALIFIERS
 from aiq_agent.common.source_kinds import parse_shelf
 from aiq_agent.knowledge.already_read import render_already_read_block
+from aiq_agent.observability.langfuse_trace_attributes import current_fallback_identity
 from aiq_agent.observability.langfuse_trace_attributes import record_prompt_link
 from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
-from aiq_agent.observability.langfuse_trace_attributes import reset_prompt_link
 
 from .models import ResearchAgentState
 
@@ -62,13 +62,6 @@ STATIC_PROMPT_FILE = "piloti_static.md"
 #: store and ``scripts/prompts_pull.py`` are keyed on it, so it moves only with
 #: a rename in Langfuse itself.
 STATIC_PROMPT_NAME = "piloti-system-static"
-
-#: The bundled fallback's identity while the fallback is what this process
-#: renders, and empty while a Langfuse version serves. Process state for the
-#: same reason the prompt link is (see ``langfuse_trace_attributes``): one
-#: platform prompt per process. It cannot be a ContextVar either — the render
-#: runs in a worker thread, whose copied context discards what it writes.
-_FALLBACK_IDENTITY: dict[str, str] = {}
 
 
 @functools.cache
@@ -119,8 +112,8 @@ def resolve_static_block() -> ResolvedPrompt:
     Only a Langfuse version becomes a prompt LINK. The bundled fallback names
     no prompt Langfuse holds and is versioned by a git blob hash where the
     ingestion schema wants an int, and a generation carrying that is dropped
-    whole. It is remembered here instead and reaches the trace as free-form
-    metadata through :func:`record_static_prompt_metadata`.
+    whole. It is recorded as a fallback instead and reaches the trace as
+    free-form metadata through :func:`record_static_prompt_metadata`.
     """
     resolved = prompt_store().get(STATIC_PROMPT_NAME, fallback=bundled_static_block())
     if not resolved.is_fallback and not _renders(resolved.text):
@@ -130,14 +123,11 @@ def resolve_static_block() -> ResolvedPrompt:
         # would otherwise fail every turn on every replica for as long as the
         # version is published. The bundled file is the floor here too.
         resolved = bundled_static_block()
-    if resolved.is_fallback:
-        _FALLBACK_IDENTITY.update(name=resolved.name, version=resolved.version)
-        # Clearing matters as much as not linking: a process that served a
-        # version and then fell back must stop naming it on its generations.
-        reset_prompt_link()
-        return resolved
-    _FALLBACK_IDENTITY.clear()
-    record_prompt_link(name=resolved.name, version=resolved.version)
+    # One record for both outcomes: a fallback is recorded AS a fallback, which
+    # is no link and is what the trace metadata names; a served version is the
+    # link. Recording the fallback rather than clearing is what stops a process
+    # that served a version and then fell back from naming it on generations.
+    record_prompt_link(name=resolved.name, version=resolved.version, is_fallback=resolved.is_fallback)
     return resolved
 
 
@@ -157,13 +147,16 @@ async def stamp_static_prompt_for_turn() -> None:
 
 
 def record_static_prompt_metadata() -> None:
-    """Name a bundled-fallback render in this turn's trace metadata, on the loop."""
-    if not _FALLBACK_IDENTITY:
+    """Name a bundled-fallback render in this turn's trace metadata, on the loop.
+
+    Reads the turn's own record, so a transition another turn makes between
+    this turn's resolve and its stamp names nothing here.
+    """
+    fallback = current_fallback_identity()
+    if fallback is None:
         return
-    record_trace_metadata(
-        prompt_name=_FALLBACK_IDENTITY.get("name"),
-        prompt_version=_FALLBACK_IDENTITY.get("version"),
-    )
+    name, version = fallback
+    record_trace_metadata(prompt_name=name, prompt_version=version)
 
 
 @functools.lru_cache(maxsize=4)
