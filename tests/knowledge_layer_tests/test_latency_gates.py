@@ -290,7 +290,7 @@ def loop_harness(monkeypatch):
         monkeypatch.setattr(
             "knowledge_layer.register._format_results",
             # The real renderer carries every decoration inside its bytes; the fake does too.
-            lambda merged, query, notice="", trailer="", preamble_note="": (
+            lambda merged, query, notice="", trailer="", preamble_note="", opened_files=frozenset(): (
                 notice + preamble_note + ("|".join(c.chunk_id for c in merged.chunks) or "no results") + trailer
             ),
         )

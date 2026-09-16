@@ -1285,8 +1285,12 @@ def _trace_lanes_json(
     return _trace_lanes_for_hits(hits)
 
 
-def _trace_lanes_for_hits(hits) -> str:
+def _trace_lanes_for_hits(hits, opened_files: frozenset[str] = frozenset()) -> str:
     """The ``## Trace-Lanes`` fan-out for records that are already built.
+
+    ``opened_files`` names the documents this result set OPENED rather than
+    ranked (the members of a family overview); their hits are stamped as
+    locator reads on the turn's ledger.
 
     Fail-open: never break tool output for the LLM. See :func:`_trace_lanes_json`
     for what the payload means and why each field is on it.
@@ -1312,7 +1316,7 @@ def _trace_lanes_for_hits(hits) -> str:
                 {"key": key, "label": label, "kind": kind_for_lane(key), "hitCount": 0, "sources": []},
             )
             bucket["hitCount"] += 1
-            _append_lane_source(bucket, hit)
+            _append_lane_source(bucket, hit, opened_files)
         return json.dumps({"lanes": list(lanes.values())}, ensure_ascii=False)
     except Exception:
         logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
@@ -1337,8 +1341,14 @@ def _lane_detail(hit) -> str | None:
     return f"Pkt. {hit.punkt} {page}".strip()
 
 
-def _append_lane_source(bucket: dict, hit) -> None:
-    """Add one hit to its lane's source list, unless the lane already names it."""
+def _append_lane_source(bucket: dict, hit, opened_files: frozenset[str] = frozenset()) -> None:
+    """Add one hit to its lane's source list, unless the lane already names it.
+
+    A hit from a document in ``opened_files`` is stamped as a locator read,
+    whatever tool rendered it: the family branch fetches each member the way
+    ``read_passage(document=…)`` does, so the ledger must credit those
+    documents as opened, or a later read of one of them is not a repeat.
+    """
     from aiq_agent.common.provenance import provenance_metadata
 
     name = hit.file_name or ""
@@ -1360,11 +1370,11 @@ def _append_lane_source(bucket: dict, hit) -> None:
         # reader's own locale from the approver and the ISO date rather than
         # parse it back out of prose.
         entry["provenance"] = provenance_metadata(hit.provenance)
-    _stamp_and_capture_lane_source(entry)
+    _stamp_and_capture_lane_source(entry, opened=name in opened_files)
     bucket["sources"].append(entry)
 
 
-def _stamp_and_capture_lane_source(entry: dict) -> None:
+def _stamp_and_capture_lane_source(entry: dict, *, opened: bool = False) -> None:
     """Stamp the entry with its retrieval round and note it on the turn's ledger.
 
     The per-round ledger reads this, never the prose: the capture keeps every
@@ -1378,18 +1388,25 @@ def _stamp_and_capture_lane_source(entry: dict) -> None:
     either of them is shown.
     """
     try:
+        from contextlib import nullcontext
+
+        from aiq_agent.common.turn_status import READ_PASSAGE_TOOL
         from aiq_agent.common.turn_status import current_retrieval_round
+        from aiq_agent.common.turn_status import lane_tool_scope
         from aiq_agent.common.turn_status import record_lane_hit
 
         round_index = current_retrieval_round()
         if round_index is not None:
             entry["round"] = round_index
-        record_lane_hit(
-            entry["name"],
-            title=entry.get("title"),
-            detail=entry.get("detail"),
-            shelf=entry.get("shelf"),
-        )
+        # The producing tool is read off its scope, never passed (the rule in
+        # ``record_lane_hit``); an opened document gets the locator's scope.
+        with lane_tool_scope(READ_PASSAGE_TOOL) if opened else nullcontext():
+            record_lane_hit(
+                entry["name"],
+                title=entry.get("title"),
+                detail=entry.get("detail"),
+                shelf=entry.get("shelf"),
+            )
     except Exception:  # noqa: BLE001 (the fan-out survives a missing status module)
         logger.debug("Turn status unavailable; lane hit goes unstamped", exc_info=True)
 
@@ -1547,7 +1564,14 @@ def _grounding_hits(chunks) -> tuple:
     )
 
 
-def _format_results(retrieval_result, query: str, notice: str = "", trailer: str = "", preamble_note: str = "") -> str:
+def _format_results(
+    retrieval_result,
+    query: str,
+    notice: str = "",
+    trailer: str = "",
+    preamble_note: str = "",
+    opened_files: frozenset[str] = frozenset(),
+) -> str:
     """Build this result set's grounding hits and render them for the LLM.
 
     The layout itself lives in
@@ -1600,7 +1624,7 @@ def _format_results(retrieval_result, query: str, notice: str = "", trailer: str
             hits=hits,
             # Fan-out summary for the Herleitung UI, from the same records the
             # header lines state.
-            lanes=_trace_lanes_for_hits(hits),
+            lanes=_trace_lanes_for_hits(hits, opened_files),
             trailer=trailer,
         )
     )
@@ -2421,6 +2445,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     notice,
                     overview.trailer if overview is not None else "",
                     family_note,
+                    overview.opened_files if overview is not None else frozenset(),
                 )
             logger.info(f"Knowledge search returned {len(merged.chunks)} chunks")
             logger.debug(f"Formatted result for LLM:\n{formatted[:500]}...")

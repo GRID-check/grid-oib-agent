@@ -462,32 +462,50 @@ def _normalize_langchain_usage(usage: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _find_provider_usage(node: Any, depth: int = 0) -> dict[str, Any] | None:
-    """The best usage object under ``node``, or None.
+#: The one key in NAT's ``TraceMetadata`` holding THIS call's output. Both the
+#: chat-completions and the Responses-API path reach it through the same
+#: ``on_llm_end`` (``nat/plugins/langchain/callback_handler.py:318``, and :249
+#: for a streamed chunk); every other usage-bearing key on the span
+#: (``chat_inputs``, ``tool_inputs``, ``span_inputs``) is input.
+RESPONSE_METADATA_KEY = "chat_responses"
 
-    Prefers OpenRouter's own object — it alone carries ``cost`` — and falls
-    back to LangChain's normalized one, which is all a Responses-API call
-    leaves behind. ``depth`` is accepted for the recursive-scan callers that
-    predate the split.
+
+def _find_provider_usage(node: Any, depth: int = 0) -> dict[str, Any] | None:
+    """The best usage object on ``node``'s RESPONSE side, or None.
+
+    Only ``chat_responses`` is scanned, because the input side of the same
+    span replays earlier AIMessages whose usage belongs to the call that
+    produced them. Within that side, OpenRouter's own object wins — it alone
+    carries ``cost`` — and LangChain's normalized one is the fallback, all a
+    Responses-API call leaves behind.
     """
-    provider = _find_usage(node, _is_provider_usage, depth)
+    if not isinstance(node, dict):
+        return None
+    responses = node.get(RESPONSE_METADATA_KEY)
+    if responses is None:
+        return None
+    provider = _find_usage(responses, _is_provider_usage, depth)
     if provider is not None:
         return provider
-    normalized = _find_usage(node, _is_langchain_usage, depth)
+    normalized = _find_usage(responses, _is_langchain_usage, depth)
     return _normalize_langchain_usage(normalized) if normalized is not None else None
 
 
 def extract_provider_usage(metadata_json: Any) -> dict[str, int | float] | None:
     """Provider token counts (+cost) out of a span's serialized metadata.
 
-    Reads the OpenRouter ``usage`` object NAT keeps inside ``nat.metadata``
-    (``chat_responses[].message.response_metadata.token_usage``): the only
-    span-side carrier of ``cost`` and of cached/reasoning detail. Falls back to
-    LangChain's normalized ``usage_metadata`` on the same span, which is all a
+    Reads the response side of ``nat.metadata`` and nothing else — the input
+    side (``chat_inputs`` and friends) replays earlier messages whose usage is
+    the previous call's, so reading it makes every generation after the first
+    repeat that answer's numbers. Within ``chat_responses`` it prefers the
+    OpenRouter ``usage`` object (``[].message.response_metadata.token_usage``),
+    the only span-side carrier of ``cost`` and of cached/reasoning detail, and
+    falls back to LangChain's normalized ``usage_metadata``, which is all a
     Responses-API call leaves behind — counts including the cache bucket, no
     cost. Returns the counts with ``cost_usd`` (or None when the provider
-    reported no cost), or None when no usage object is present. Pure, so tests
-    pin it without a span.
+    reported no cost), or None when the response side carries no usage, which
+    sends the caller to ``llm.token_count.*``. Pure, so tests pin it without a
+    span.
 
     ``cache_discount`` is deliberately NOT returned: OpenRouter's ``cost`` is
     already net of it ("The ``cache_discount`` field in the response body will

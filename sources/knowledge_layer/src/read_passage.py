@@ -545,15 +545,22 @@ class FamilyOverview:
     trailer: str
 
     @property
+    def opened_files(self) -> frozenset[str]:
+        """The documents this overview OPENED: every member's file, read as ``read_passage`` reads it."""
+        return frozenset(chunk.file_name for chunk in self.chunks if getattr(chunk, "file_name", None))
+
+    @property
     def preamble(self) -> str:
-        """What the family IS, above the results: the parts, and where they are."""
+        """What the family IS, above the results: the parts, where they are, and that they are open."""
         numbers = ", ".join(member.number for member in self.members)
         count = f"{len(self.members)} Teil" if len(self.members) == 1 else f"{len(self.members)} Teile"
         span = "Treffer 1" if len(self.chunks) == 1 else f"Treffer 1 bis {len(self.chunks)}"
         return (
             f"{self.label}: {count} im Bestand ({numbers}).\n"
             f"{span} sind der Geltungsbereich dieser Teile, ihre Gliederungen stehen unten; "
-            "danach folgen die Treffer zur Suchanfrage."
+            "danach folgen die Treffer zur Suchanfrage.\n"
+            "Damit sind diese Teile geöffnet, auf der Ebene von `read_passage(document=…)`; "
+            "tiefer führt nur ein einzelner Punkt aus einer Gliederung, wie unten beschrieben."
         )
 
 

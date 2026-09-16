@@ -343,7 +343,20 @@ class TestTheRoundCostIsStatedAsAFact:
         rendered = FIXTURE.read_text(encoding="utf-8")
 
         assert "a round costs one however many calls it holds" in rendered
-        assert "was opened, in one round" in rendered
+
+    def test_the_family_search_is_stated_as_the_members_opened(self):
+        """
+        The family branch returns each member's scope passage AND its
+        Gliederung, which is what `read_passage(document=…)` returns for one of
+        them. Told only that an overview needs every member opened, the model
+        spent the round after the family result re-opening the same three
+        documents and read back what it was already holding.
+        """
+        rendered = FIXTURE.read_text(encoding="utf-8")
+
+        assert "every member the corpus holds, each with that same scope passage and Gliederung" in rendered
+        assert "what is left to open is a Punkt by number" in rendered
+        assert "was opened, in one round" not in rendered
 
 
 class _FakeStore:

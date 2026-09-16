@@ -79,6 +79,29 @@ def test_a_search_that_ranked_a_doc_does_not_make_the_later_open_a_repeat():
     assert ledger[0]["query"] == "OIB 2"
 
 
+def test_a_family_search_opens_its_members_so_the_later_outline_read_is_a_repeat():
+    """The family branch of ``knowledge_search`` fetches each member the way
+    ``read_passage(document=…)`` does and stamps those hits as the locator's,
+    so a member re-opened in the next round is a repeat, not new work."""
+    announcements = [
+        _announcement(0, ["knowledge_search"], ["knowledge"], query="oib 2"),
+        _announcement(1, ["read_passage"], ["knowledge"]),
+    ]
+    hits = [
+        _hit(0, "oib-rl_2.pdf", "p.4", tool="read_passage"),
+        _hit(0, "oib-rl_2.1.pdf", "p.4", tool="read_passage"),
+        _hit(0, "oib-rl_2.pdf", "Pkt. 3.1 p.12", tool="knowledge_search"),
+        _hit(1, "oib-rl_2.pdf", "p.4", tool="read_passage"),
+        _hit(1, "oib-rl_2.1.pdf", "p.4", tool="read_passage"),
+    ]
+
+    ledger = build_retrieval_ledger(announcements, hits)
+
+    assert [doc["repeat"] for doc in ledger[0]["docs"]] == [False, False, False]
+    assert [doc["repeat"] for doc in ledger[1]["docs"]] == [True, True]
+    assert ledger[1]["new_docs"] == []
+
+
 def test_one_document_opened_at_five_punkte_is_one_new_document():
     """Five loci of one file are five hits and ONE document the round did work on."""
     announcements = [

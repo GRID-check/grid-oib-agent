@@ -33,7 +33,7 @@ def harness(monkeypatch):
     monkeypatch.setattr("knowledge_layer.register._initialize_ingestor", lambda config, llm: None)
     monkeypatch.setattr(
         "knowledge_layer.register._format_results",
-        lambda merged, query, notice="": notice + "no results",
+        lambda merged, query, notice="", *_rest: notice + "no results",
     )
     monkeypatch.setattr("aiq_agent.knowledge.factory.configure_summary_db", lambda url: None)
     monkeypatch.setattr("aiq_agent.knowledge.norm_store.configure_norm_store", lambda url: None)

@@ -198,6 +198,23 @@ class TestTheFamilyIsTheAnswer:
         assert "OIB-Richtlinie 2: 4 Teile im Bestand (2, 2.1, 2.2, 2.3)." in out
         assert "Treffer 1 bis 4 sind der Geltungsbereich dieser Teile" in out
 
+    async def test_the_preamble_says_the_parts_are_open(self, corpus):
+        """The fact that stops the second round.
+
+        The block already carried each part's scope passage and Gliederung,
+        which is what `read_passage(document=…)` returns for one of them, and
+        said nothing about that: the model read the preamble as a search
+        result, announced it would now open the Richtlinie properly, and spent
+        a whole round re-reading the passages it was holding. The Punkt is
+        where the next open pays, and `_OUTLINE_INSTRUCTION` below says how.
+        """
+        corpus(MEMBERS)
+
+        out = await _search()
+
+        assert "Damit sind diese Teile geöffnet, auf der Ebene von `read_passage(document=…)`" in out
+        assert "tiefer führt nur ein einzelner Punkt aus einer Gliederung" in out
+
     async def test_a_part_the_corpus_lacks_is_never_claimed(self, corpus):
         """Membership is derived from what is indexed. A deployment without 2.3
         must not be told it has one, which is the failure the whole branch
@@ -220,6 +237,41 @@ class TestTheFamilyIsTheAnswer:
 
         assert "OIB-Richtlinie 2: 3 Teile im Bestand (2, 2.1, 2.3)." in out
         assert MEMBERS["2.2"] not in out
+
+
+class TestTheMembersAreOpened:
+    """What the family branch returns is credited as OPENED on the turn's ledger,
+    the way a ``read_passage(document=…)`` read is: a member re-read in a later
+    round is then a repeat, not a new document."""
+
+    @staticmethod
+    async def _captured(query: str) -> list[dict]:
+        from aiq_agent.common.turn_status import begin_lane_capture
+        from aiq_agent.common.turn_status import end_lane_capture
+        from aiq_agent.common.turn_status import get_lane_captures
+
+        token = begin_lane_capture()
+        try:
+            await _search(query)
+            return get_lane_captures()
+        finally:
+            end_lane_capture(token)
+
+    async def test_a_member_s_hits_carry_the_locator_stamp(self, corpus):
+        corpus(MEMBERS)
+
+        hits = await self._captured(FAMILY_QUERY)
+
+        members = {name for name in MEMBERS.values()}
+        stamped = {hit["name"]: hit.get("tool") for hit in hits if hit["name"] in members}
+        assert stamped and set(stamped.values()) == {"read_passage"}
+
+    async def test_an_ordinary_search_stamps_nothing_as_opened(self, corpus):
+        corpus(MEMBERS)
+
+        hits = await self._captured(TOPIC_QUERY)
+
+        assert hits and {hit.get("tool") for hit in hits} == {"knowledge_search"}
 
 
 class TestWhereMembershipComesFrom:
