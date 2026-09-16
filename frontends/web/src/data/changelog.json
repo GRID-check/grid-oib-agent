@@ -55,6 +55,14 @@
           "key": "improvements",
           "notes": [
             {
+              "en": "Eine Frage nach einer ganzen Richtlinie („Was weißt du über die OIB 2?“) ist einen Schritt früher beantwortet: Die Teile, die der Suchlauf mit Geltungsbereich und Gliederung zurückgibt, gelten als aufgeschlagen, und Piloti schlägt sie nicht noch einmal einzeln auf. Aufgeschlagen wird von dort aus nur noch ein einzelner Punkt, wenn die Antwort ihn braucht.",
+              "de": "Eine Frage nach einer ganzen Richtlinie („Was weißt du über die OIB 2?“) ist einen Schritt früher beantwortet: Die Teile, die der Suchlauf mit Geltungsbereich und Gliederung zurückgibt, gelten als aufgeschlagen, und Piloti schlägt sie nicht noch einmal einzeln auf. Aufgeschlagen wird von dort aus nur noch ein einzelner Punkt, wenn die Antwort ihn braucht."
+            },
+            {
+              "en": "Gehören zu einer Antwort mehrere Karten, kommen sie zusammen in einem Schritt statt nacheinander.",
+              "de": "Gehören zu einer Antwort mehrere Karten, kommen sie zusammen in einem Schritt statt nacheinander."
+            },
+            {
               "en": "Die Herleitung zeigt pro Schritt zuerst, was Piloti vorhatte, und darunter jedes Dokument einmal, mit den Punkten oder Seiten, die dieser Schritt darin gelesen hat. Fünf geöffnete Punkte einer Richtlinie sind jetzt eine Karte mit fünf Adressen statt fünf gleich aussehender Karten.",
               "de": "Die Herleitung zeigt pro Schritt zuerst, was Piloti vorhatte, und darunter jedes Dokument einmal, mit den Punkten oder Seiten, die dieser Schritt darin gelesen hat. Fünf geöffnete Punkte einer Richtlinie sind jetzt eine Karte mit fünf Adressen statt fünf gleich aussehender Karten."
             },
