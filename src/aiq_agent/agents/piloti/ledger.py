@@ -22,6 +22,7 @@ from aiq_agent.common.citation_verification import read_source_to_wire
 from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.citation_verification import source_label
 from aiq_agent.common.citation_verification import source_origin_token
+from aiq_agent.common.turn_status import LOCATOR_TOOL_BASENAMES
 from aiq_agent.tools.bim.measurement_sources import MeasurementSource
 from aiq_agent.tools.bim.measurement_sources import measurement_sources_to_wire
 
@@ -213,23 +214,91 @@ def _docs_for_round(hits: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     return docs
 
 
+def _locus_key(doc: dict[str, Any]) -> tuple[str, str]:
+    """Which passage of which file — the pair a repeat is measured against.
+
+    A document with no detail has one locus, the whole file, which is what a
+    search hit without a page amounts to.
+    """
+    return (_lane_doc_key(doc["name"]), str(doc.get("detail") or "").strip().casefold())
+
+
+def _opened_documents(announced: dict[str, Any], docs: Sequence[dict[str, Any]]) -> set[str]:
+    """The document keys this round OPENED, as opposed to merely ranked.
+
+    A round that called a locator tool read into the files it returned; a
+    search round only listed them. The distinction is the whole repeat rule:
+    ranking a file the reader has never seen opened is not work anybody has
+    done yet.
+    """
+    tools = {str(tool) for tool in (announced.get("tools") or [])}
+    if tools.isdisjoint(LOCATOR_TOOL_BASENAMES):
+        return set()
+    return {_lane_doc_key(doc["name"]) for doc in docs}
+
+
+def _with_repeat_marks(
+    docs: Sequence[dict[str, Any]],
+    seen_loci: set[tuple[str, str]],
+    opened_docs: set[str],
+) -> list[dict[str, Any]]:
+    """The same docs, each stamped with whether the round re-fetched it.
+
+    One locus — one (document, page/Punkt) pair — is a REPEAT when an earlier
+    round already returned that exact pair, or when an earlier round OPENED
+    that document at all: going back into a file somebody already read into is
+    a re-fetch wherever it lands. A search that merely RANKED a document makes
+    nothing a repeat, which is the distinction the reader was losing.
+
+    The mark rides on the doc because the reader sees it per passage: a round
+    that re-lists p.12 while newly reading p.60 is one card with one marked
+    line, and no document-level verdict can say that.
+    """
+    return [
+        {
+            **doc,
+            "repeat": _lane_doc_key(doc["name"]) in opened_docs or _locus_key(doc) in seen_loci,
+        }
+        for doc in docs
+    ]
+
+
+def _new_documents(docs: Sequence[dict[str, Any]]) -> list[str]:
+    """The documents this round did work on, in first-seen order.
+
+    A document is new when at least one of its loci is not a repeat: a round
+    that reached a passage nobody had reached did work, whatever else it
+    re-listed alongside it. Reads the marks :func:`_with_repeat_marks` set, so
+    the document verdict and the passage verdicts cannot disagree.
+    """
+    fresh: dict[str, str] = {}
+    for doc in docs:
+        if doc["repeat"]:
+            continue
+        fresh.setdefault(_lane_doc_key(doc["name"]), doc["name"])
+    return list(fresh.values())
+
+
 def _round_entry(
     announced: dict[str, Any],
     docs: list[dict[str, Any]],
-    seen_before: set[str],
+    seen_loci: set[tuple[str, str]],
+    opened_docs: set[str],
 ) -> dict[str, Any]:
     """One ledger entry: what the round was, what it returned, what was new."""
-    new_docs = [doc["name"] for doc in docs if _lane_doc_key(doc["name"]) not in seen_before]
-    seen_before.update(_lane_doc_key(doc["name"]) for doc in docs)
+    marked = _with_repeat_marks(docs, seen_loci, opened_docs)
+    new_docs = _new_documents(marked)
+    opened_docs.update(_opened_documents(announced, docs))
+    seen_loci.update(_locus_key(doc) for doc in docs)
     entry: dict[str, Any] = {
         "index": announced.get("index"),
         "key": announced.get("key"),
         "tools": list(announced.get("tools") or []),
         "corpora": list(announced.get("corpora") or []),
-        "docs": docs,
+        "docs": marked,
         "new_docs": new_docs,
-        "hits": len(docs),
-        "documents": len({_lane_doc_key(doc["name"]) for doc in docs}),
+        "hits": len(marked),
+        "documents": len({_lane_doc_key(doc["name"]) for doc in marked}),
     }
     if announced.get("query"):
         entry["query"] = announced["query"]
@@ -245,11 +314,13 @@ def build_retrieval_ledger(
     """Join announced rounds with captured lane hits: the backend's own account.
 
     Per round: what it was asked (query, tools), what it returned (docs with
-    title/detail/shelf), and what was NEW (``new_docs``: names no earlier round
-    showed). ``hits``/``documents`` are tallies over the same docs, so a
-    renderer never counts a second time. Returns None when no round was
-    announced — a direct reply has no retrieval to account for, and the wire
-    field stays absent rather than null.
+    title/detail/shelf and a per-passage ``repeat`` mark — see
+    :func:`_with_repeat_marks`), and what was NEW (``new_docs``: the documents
+    with at least one passage that was not a repeat).
+    ``hits``/``documents`` are tallies over the same docs, so a renderer never
+    counts a second time. Returns None when no round was announced — a direct
+    reply has no retrieval to account for, and the wire field stays absent
+    rather than null.
 
     Known exclusion: the answer-repair pass retrieves outside the graph's tool
     node, after this capture has closed, and announces no round — its findings
@@ -260,9 +331,15 @@ def build_retrieval_ledger(
     if not rounds:
         return None
     hits_by_round = _hits_by_round(lane_hits or [])
-    seen_before: set[str] = set()
+    seen_loci: set[tuple[str, str]] = set()
+    opened_docs: set[str] = set()
     return [
-        _round_entry(announced, _docs_for_round(hits_by_round.get(announced.get("index"), [])), seen_before)
+        _round_entry(
+            announced,
+            _docs_for_round(hits_by_round.get(announced.get("index"), [])),
+            seen_loci,
+            opened_docs,
+        )
         for announced in rounds
     ]
 

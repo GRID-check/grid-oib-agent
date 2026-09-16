@@ -4,8 +4,9 @@ The Herleitung will read what happened (phase b — no renderer yet) instead of
 reconstructing it from step names: per round what it was asked (query, tools),
 what it returned (docs with title/detail/shelf), and what was NEW. These tests
 pin that join — announcements recorded beside ``emit_retrieval`` plus captured
-lane hits — through the three shapes that matter: same docs re-opened (fold),
-new docs (new layer), and nothing announced (absent, not null).
+lane hits — and, above all, what counts as a REPEAT: the same passage fetched
+twice, or a file an earlier round already opened. A search that merely ranked a
+document is not work anybody has done yet.
 """
 
 import json
@@ -44,8 +45,13 @@ def _hit(round_index, name, detail=None):
     return hit
 
 
-def test_same_docs_reopened_carry_no_new_docs():
-    """The reference shape: search finds 4 docs, reads open the same 4."""
+def test_a_search_that_ranked_a_doc_does_not_make_the_later_open_a_repeat():
+    """The reference shape: a search lists 2 docs, a later round opens them.
+
+    Listing a file is not reading it. Marking the open as „bereits abgerufen"
+    is what made five opens of one Richtlinie after one search read as five
+    re-fetches of the same document.
+    """
     announcements = [
         _announcement(0, ["knowledge_search"], ["knowledge"], query="OIB 2"),
         _announcement(1, ["read_passage"], ["knowledge"]),
@@ -53,16 +59,94 @@ def test_same_docs_reopened_carry_no_new_docs():
     hits = [
         _hit(0, "oib-rl_2.pdf"),
         _hit(0, "oib-rl_2.1.pdf"),
-        _hit(1, "oib-rl_2.pdf", "p.12"),
+        _hit(1, "oib-rl_2.pdf", "Pkt. 3.1"),
         _hit(1, "oib-rl_2.1.pdf", "p.3"),
     ]
     ledger = build_retrieval_ledger(announcements, hits)
     assert ledger is not None
     assert [entry["index"] for entry in ledger] == [0, 1]
     assert ledger[0]["new_docs"] == ["oib-rl_2.pdf", "oib-rl_2.1.pdf"]
-    assert ledger[1]["new_docs"] == []
+    assert ledger[1]["new_docs"] == ["oib-rl_2.pdf", "oib-rl_2.1.pdf"]
+    assert [doc["repeat"] for doc in ledger[1]["docs"]] == [False, False]
     assert ledger[1]["documents"] == 2
     assert ledger[0]["query"] == "OIB 2"
+
+
+def test_one_document_opened_at_five_punkte_is_one_new_document():
+    """Five loci of one file are five hits and ONE document the round did work on."""
+    announcements = [
+        _announcement(0, ["knowledge_search"], ["knowledge"], query="Fluchtweg"),
+        _announcement(1, ["read_passage"], ["knowledge"]),
+    ]
+    punkte = [f"Pkt. 3.{n}" for n in range(1, 6)]
+    hits = [_hit(0, "oib-rl_2.pdf"), *(_hit(1, "oib-rl_2.pdf", punkt) for punkt in punkte)]
+    ledger = build_retrieval_ledger(announcements, hits)
+    assert ledger is not None
+    assert [doc["detail"] for doc in ledger[1]["docs"]] == punkte
+    assert ledger[1]["hits"] == 5
+    assert ledger[1]["documents"] == 1
+    assert ledger[1]["new_docs"] == ["oib-rl_2.pdf"]
+
+
+def test_a_round_that_re_lists_one_passage_and_finds_another_marks_only_the_first():
+    """The case a document-level verdict cannot state.
+
+    Round 0 ranked the file at p.12. Round 1 ranks it there again and reaches
+    p.60 for the first time: the round did work, so the document is new, and
+    the marker belongs on p.12 alone.
+    """
+    announcements = [
+        _announcement(0, ["knowledge_search"], ["knowledge"], query="Fluchtweg"),
+        _announcement(1, ["knowledge_search"], ["knowledge"], query="Treppenraum"),
+    ]
+    hits = [
+        _hit(0, "oib-rl_2.pdf", "p.12"),
+        _hit(1, "oib-rl_2.pdf", "p.12"),
+        _hit(1, "oib-rl_2.pdf", "p.60"),
+    ]
+    ledger = build_retrieval_ledger(announcements, hits)
+    assert ledger is not None
+    assert [(doc["detail"], doc["repeat"]) for doc in ledger[1]["docs"]] == [
+        ("p.12", True),
+        ("p.60", False),
+    ]
+    assert ledger[1]["new_docs"] == ["oib-rl_2.pdf"]
+
+
+def test_the_same_passage_opened_twice_is_a_repeat():
+    """Round 1 opens p.12, round 2 opens p.12: the second did no new work."""
+    announcements = [
+        _announcement(0, ["read_passage"], ["knowledge"]),
+        _announcement(1, ["read_passage"], ["knowledge"]),
+    ]
+    hits = [_hit(0, "oib-rl_2.pdf", "p.12"), _hit(1, "oib-rl_2.pdf", "p.12")]
+    ledger = build_retrieval_ledger(announcements, hits)
+    assert ledger is not None
+    assert ledger[0]["new_docs"] == ["oib-rl_2.pdf"]
+    assert ledger[1]["new_docs"] == []
+    assert [doc["repeat"] for doc in ledger[1]["docs"]] == [True]
+
+
+def test_reopening_a_document_at_another_punkt_is_a_repeat():
+    """An earlier round OPENED the file; reading further into it is a re-fetch.
+
+    The reader has the document open already — the distinction the marker
+    carries is "we went back to this file", not "we read this exact page".
+    """
+    announcements = [
+        _announcement(0, ["read_passage"], ["knowledge"]),
+        _announcement(1, ["knowledge_search"], ["knowledge"], query="Treppenraum"),
+        _announcement(2, ["read_passage"], ["knowledge"]),
+    ]
+    hits = [
+        _hit(0, "oib-rl_2.pdf", "Pkt. 3.1"),
+        _hit(1, "brandschutz.pdf"),
+        _hit(2, "oib-rl_2.pdf", "Pkt. 4.2"),
+    ]
+    ledger = build_retrieval_ledger(announcements, hits)
+    assert ledger is not None
+    assert ledger[2]["new_docs"] == []
+    assert [doc["repeat"] for doc in ledger[2]["docs"]] == [True]
 
 
 def test_new_docs_are_listed_per_round_case_insensitively():
@@ -205,6 +289,13 @@ def test_builder_output_matches_the_wire_fixture():
             reason="Die Grundregel steht.",
             key="status.retrieval.punkt",
         ),
+        _announcement(
+            2,
+            ["read_passage"],
+            ["knowledge"],
+            reason="Die Fluchtweglänge hängt an drei Punkten.",
+            key="status.retrieval.punkt",
+        ),
     ]
     hits = [
         {"round": 0, "name": "OIB-RL_2.pdf", "title": "OIB-Richtlinie 2, Ausgabe Mai 2023"},
@@ -216,5 +307,14 @@ def test_builder_output_matches_the_wire_fixture():
             "detail": "p.12",
         },
         {"round": 1, "name": "Brandschutzkonzept.pdf", "detail": "p.3"},
+        *(
+            {
+                "round": 2,
+                "name": "OIB-RL_2.pdf",
+                "title": "OIB-Richtlinie 2, Ausgabe Mai 2023",
+                "detail": punkt,
+            }
+            for punkt in ("Pkt. 3.1", "Pkt. 3.2", "Pkt. 3.3")
+        ),
     ]
     assert build_retrieval_ledger(announcements, hits) == fixture

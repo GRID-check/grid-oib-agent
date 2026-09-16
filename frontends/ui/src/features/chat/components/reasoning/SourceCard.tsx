@@ -19,7 +19,7 @@
  * seated on the top-left of a card holding name · detail · "N Treffer".
  */
 
-import type { FC } from 'react'
+import { Fragment, type FC } from 'react'
 import { Scale, FileText, Archive, Globe, type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
@@ -51,6 +51,41 @@ const SIGNAL_ICON: Record<SourceSignal, LucideIcon> = {
   model: Ruler,
 }
 
+/**
+ * The pages and Punkte one round read of one document, in the order the round
+ * returned them, printed exactly as the backend stated them (`p.12`,
+ * `Pkt. 3.1` — rendered, never parsed).
+ *
+ * `marked` is off when EVERY locus was a re-fetch: the pill above already says
+ * so once, and repeating it beside each line would bury the one thing the
+ * reader came for. It is on for a mixed round, where the distinction between
+ * "read three more Punkte" and "read them all again" lives per locus.
+ */
+const RoundLoci: FC<{ loci: RoundLocus[]; marked: boolean; repeatLabel: string }> = ({
+  loci,
+  marked,
+  repeatLabel,
+}) => {
+  const named = loci.filter((locus) => locus.detail)
+  if (named.length === 0) return null
+  return (
+    <span className="text-xs tabular-nums text-muted-foreground">
+      {named.map((locus, i) => (
+        // A Fragment, not a wrapper span: the separators and the loci stay
+        // direct text of one element, so the line reads as one string to a
+        // screen reader and to a test rather than as a row of chips.
+        <Fragment key={`${locus.detail}-${i}`}>
+          {i > 0 && ', '}
+          {locus.detail}
+          {marked && locus.repeat && (
+            <span className="italic text-muted-foreground/80"> ({repeatLabel})</span>
+          )}
+        </Fragment>
+      ))}
+    </span>
+  )
+}
+
 export const SourceCard: FC<{
   document: CitedDocument
   hitLabel: string
@@ -58,16 +93,17 @@ export const SourceCard: FC<{
   /** The turn is still running — see the `live` note on the verdict below. */
   live?: boolean
   /**
-   * What THIS round did with the document, when a ledger round built the fan.
+   * Every passage THIS round read of the document, when a ledger round built
+   * the fan.
    *
    * The card is the same card — same chip, same preview, same markers — but a
    * fan slot under a round is a claim about that round, so the locus line
-   * states the round's own page/Punkt and a file an earlier round already
-   * showed says so instead of repeating the turn's hit count. Absent on the
-   * turn-level fan, where the aggregate IS the claim.
+   * states the round's own pages/Punkte, in its own order, and a passage the
+   * round fetched a second time says so instead of repeating the turn's hit
+   * count. Absent on the turn-level fan, where the aggregate IS the claim.
    */
-  round?: RoundLocus
-}> = ({ document: doc, hitLabel, gapLabel, live = false, round }) => {
+  loci?: RoundLocus[]
+}> = ({ document: doc, hitLabel, gapLabel, live = false, loci }) => {
   const t = useTranslations('chat')
   // The tab states the document's provenance: its fine lane, else the SHELF the
   // wire carried (ADR-0047 — read as data, never prefix-matched off a collection
@@ -87,6 +123,11 @@ export const SourceCard: FC<{
   // retrieval actually read from the one surface whose job is to show them.
   const pages = documentPages(doc)
   const hitsText = doc.loci.length > 0 ? hitLabel : gapLabel
+  // Every passage this round read was one it had already fetched, so the round
+  // did no new work on this document and one pill says it once. A round that
+  // reached even one new passage keeps its tally and marks the repeats where
+  // they happened — see {@link RoundLoci}.
+  const allRepeat = !!loci && loci.length > 0 && loci.every((locus) => locus.repeat)
   // The badge earns its space only when it names a tier the label does not
   // already say: "OIB · OIB-Richtlinie" repeated itself and pushed the label
   // into an ellipsis, while "RIS · Bundesrecht" names the register behind it.
@@ -157,30 +198,29 @@ export const SourceCard: FC<{
         />
 
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {/* A file an earlier round already showed states THAT, muted, where
-              the count would be: the turn aggregate ("4 Treffer") is identical
-              on every repeat of the same file, which is exactly what made a
-              re-read indistinguishable from a new fetch. */}
+          {/* A round that only re-fetched what it already had states THAT,
+              muted, where the count would be: the turn aggregate ("4 Treffer")
+              is identical on every repeat of the same file, which is exactly
+              what made a re-read indistinguishable from a new fetch. */}
           <span
             className={cn(
               'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
-              round?.repeat
+              allRepeat
                 ? 'bg-muted italic text-muted-foreground/80'
                 : used
                   ? 'bg-secondary tabular-nums text-muted-foreground'
                   : 'bg-muted text-muted-foreground'
             )}
           >
-            {round?.repeat ? t('thinking.node.roundDocRepeat') : hitsText}
+            {allRepeat ? t('thinking.node.roundDocRepeat') : hitsText}
           </span>
-          {/* The locus. Under a ledger round it is THAT round's page/Punkt, as
-              the backend stated it — and nothing at all when the round named
-              none, because the turn aggregate would be a claim about other
-              rounds. Everywhere else it stays the aggregate it always was. */}
-          {round
-            ? round.detail && (
-                <span className="text-xs tabular-nums text-muted-foreground">{round.detail}</span>
-              )
+          {/* The loci. Under a ledger round they are THAT round's pages and
+              Punkte, as the backend stated them — and nothing at all when the
+              round named none, because the turn aggregate would be a claim
+              about other rounds. Everywhere else it stays the aggregate it
+              always was. */}
+          {loci
+            ? <RoundLoci loci={loci} marked={!allRepeat} repeatLabel={t('thinking.node.roundDocRepeat')} />
             : pages.length > 0 && (
                 <span className="text-xs tabular-nums text-muted-foreground">
                   {/* Singular and plural are two keys, as every other page line in

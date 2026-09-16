@@ -466,7 +466,7 @@ _SEARCH_CORPORA: tuple[tuple[str, str], ...] = (
     # The locator reads the same corpus through the same scope, so it is the
     # same corpus to the reader and the same layer of the spine to the
     # Herleitung. What differs is only how the line READS — see
-    # :data:`_LOCATOR_TOOL_BASENAMES`.
+    # :data:`LOCATOR_TOOL_BASENAMES`.
     ("read_passage", "knowledge"),
     ("ris_", "ris"),
     ("advanced_web_search", "web"),
@@ -521,7 +521,12 @@ CHECKPOINT_FROM_NONE = "none"
 #: Their arguments are an address, not a question, so they are kept out of
 #: :func:`_query_text` — a document name quoted as if it were the reader's
 #: search string is a sentence nobody typed.
-_LOCATOR_TOOL_BASENAMES = frozenset({"read_passage"})
+#:
+#: Public because the retrieval ledger reads it too: "did an earlier round
+#: OPEN this document, or merely rank it" is the difference between a re-fetch
+#: and reading further into a file, and two lists of locator tools would
+#: eventually disagree about which round was which.
+LOCATOR_TOOL_BASENAMES = frozenset({"read_passage"})
 
 #: Room for the document name on a locator line, after the label and the Punkt
 #: or page that follows it. Same budget as the quoted query and for the same
@@ -919,7 +924,7 @@ def _describe_calls(calls: list[dict[str, Any]]) -> dict[str, Any]:
         if corpus is not None:
             if corpus not in corpora:
                 corpora.append(corpus)
-            if base in _LOCATOR_TOOL_BASENAMES:
+            if base in LOCATOR_TOOL_BASENAMES:
                 locator = locator or _locator_line(call.get("args"))
             else:
                 query = query or _query_text(call.get("args"))

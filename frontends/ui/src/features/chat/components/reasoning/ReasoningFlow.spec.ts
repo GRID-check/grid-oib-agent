@@ -1092,11 +1092,12 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
  * pages drew four identical cards a second time — the same aggregate count, the
  * same cited page — and a genuine re-fetch was indistinguishable from a new
  * page of a file already read. The backend's `retrieval_ledger` states what
- * each round returned and at which locus; these assert the spine draws THAT
- * when it has it, and today's filename match when it does not.
+ * each round returned and at which passages; these assert the spine draws THAT
+ * when it has it — one slot per DOCUMENT, carrying every locus that round read
+ * of it — and today's filename match when it does not.
  */
 describe('a ledger round draws its own fan', () => {
-  /** Two rounds: a fetch, then a pass that only re-opens what the fetch found. */
+  /** Three rounds: a search, the opens it led to, then a pass back over one file. */
   const steps: ThinkingStep[] = [
     retrievalStep(0, 'Fluchtweglänge GK4'),
     toolHit('a0', 'a', 0),
@@ -1104,8 +1105,16 @@ describe('a ledger round draws its own fan', () => {
     retrievalStep(1, 'Treppenraum', 'Die Grundregel steht.', ['read_passage']),
     toolHit('a1', 'a', 1),
     toolHit('b1', 'b', 1),
+    retrievalStep(2, 'Treppenraum', 'Ich lese die Punkte selbst.', ['read_passage']),
+    toolHit('a2', 'a', 2),
   ]
 
+  /**
+   * A ledger entry whose docs carry no per-passage `repeat` — the shape of a
+   * turn stored before the backend stamped it, which Postgres still replays.
+   * The fan then reads the document-level `newDocs`, and these tests pin that
+   * fallback. The stamped path is pinned in `retrieval-rounds.spec.ts`.
+   */
   const entry = (
     index: number,
     docs: RetrievalLedger[number]['docs'],
@@ -1124,11 +1133,23 @@ describe('a ledger round draws its own fan', () => {
 
   const ledger: RetrievalLedger = [
     entry(0, [{ name: 'a.pdf' }, { name: 'b.pdf' }], ['a.pdf', 'b.pdf'], ['knowledge_search']),
+    // The search only RANKED both files; this round is the first to read into
+    // them, so both are work — the backend says so with `newDocs`.
     entry(
       1,
       [
         { name: 'a.pdf', detail: 'S. 12' },
         { name: 'b.pdf', detail: 'S. 3' },
+      ],
+      ['a.pdf', 'b.pdf'],
+      ['read_passage']
+    ),
+    // Back over a file round 1 already opened: two more Punkte, both repeats.
+    entry(
+      2,
+      [
+        { name: 'a.pdf', detail: 'Pkt. 3.1' },
+        { name: 'a.pdf', detail: 'Pkt. 3.2' },
       ],
       [],
       ['read_passage']
@@ -1143,19 +1164,27 @@ describe('a ledger round draws its own fan', () => {
       [card('a'), card('b')]
     )
 
-  test('each slot is the same turn-level card, at the locus THAT round read', () => {
+  test('each slot is the same turn-level card, at the loci THAT round read', () => {
     const g = build(ledger)
     // Same cards, so the chip, the preview and the markers are untouched…
     expect(fanSlots(g, 1).map((s) => s.card?.id)).toEqual(['a', 'b'])
-    // …but the locus is the round's own, not the turn aggregate.
-    expect(fanSlots(g, 1).map((s) => s.round?.detail)).toEqual(['S. 12', 'S. 3'])
-    expect(fanSlots(g, 0).map((s) => s.round?.detail)).toEqual([undefined, undefined])
+    // …but the loci are the round's own, not the turn aggregate.
+    expect(fanSlots(g, 1).map((s) => s.loci?.map((l) => l.detail))).toEqual([['S. 12'], ['S. 3']])
+    expect(fanSlots(g, 0).map((s) => s.loci?.map((l) => l.detail))).toEqual([[undefined], [undefined]])
   })
 
-  test('a file an earlier round already showed is marked, and a first showing is not', () => {
+  test('one document opened at two Punkte is ONE slot carrying both', () => {
     const g = build(ledger)
-    expect(fanSlots(g, 0).map((s) => s.round?.repeat)).toEqual([false, false])
-    expect(fanSlots(g, 1).map((s) => s.round?.repeat)).toEqual([true, true])
+    const slots = fanSlots(g, 2)
+    expect(slots.map((s) => s.card?.id)).toEqual(['a'])
+    expect(slots[0]!.loci?.map((l) => l.detail)).toEqual(['Pkt. 3.1', 'Pkt. 3.2'])
+  })
+
+  test('a file an earlier round OPENED is marked; one a search only ranked is not', () => {
+    const g = build(ledger)
+    expect(fanSlots(g, 0).map((s) => s.loci?.map((l) => l.repeat))).toEqual([[false], [false]])
+    expect(fanSlots(g, 1).map((s) => s.loci?.map((l) => l.repeat))).toEqual([[false], [false]])
+    expect(fanSlots(g, 2).map((s) => s.loci?.map((l) => l.repeat))).toEqual([[true, true]])
   })
 
   test('a ledger doc the card model has no card for keeps its slot, bare', () => {
@@ -1170,23 +1199,23 @@ describe('a ledger round draws its own fan', () => {
     const slots = fanSlots(g, 1)
     expect(slots.map((s) => s.card?.id)).toEqual(['a', undefined])
     expect(slots[1]!.name).toBe('Reparatur.pdf')
-    expect(slots[1]!.round?.detail).toBe('S. 1')
+    expect(slots[1]!.loci?.map((l) => l.detail)).toEqual(['S. 1'])
   })
 
   test('no ledger: the fan is the filename match, exactly as before', () => {
     const g = build()
-    expect(columnCards(g)).toEqual([['a'], ['b'], ['a'], ['b']])
+    expect(columnCards(g)).toEqual([['a'], ['b'], ['a'], ['b'], ['a']])
     // No round speaks for a slot, so every card keeps its turn aggregate.
-    for (const i of [0, 1]) expect(fanSlots(g, i).map((s) => s.round)).toEqual([undefined, undefined])
+    for (const i of [0, 1]) expect(fanSlots(g, i).map((s) => s.loci)).toEqual([undefined, undefined])
   })
 
   test('a round the ledger does not have falls back on its own', () => {
     // One bad round must not blank the turn: round 0 is accounted for, round 1
     // is not, and the spine draws each the only way it can.
     const g = build([ledger[0]!])
-    expect(fanSlots(g, 0).map((s) => s.round?.repeat)).toEqual([false, false])
-    expect(fanSlots(g, 1).map((s) => s.round)).toEqual([undefined, undefined])
-    expect(columnCards(g)).toEqual([['a'], ['b'], ['a'], ['b']])
+    expect(fanSlots(g, 0).map((s) => s.loci?.map((l) => l.repeat))).toEqual([[false], [false]])
+    expect(fanSlots(g, 1).map((s) => s.loci)).toEqual([undefined, undefined])
+    expect(columnCards(g)).toEqual([['a'], ['b'], ['a'], ['b'], ['a']])
   })
 
   test('a round that only opened passages is an Öffnen layer, not a search', () => {

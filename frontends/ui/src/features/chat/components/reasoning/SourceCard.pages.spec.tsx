@@ -54,7 +54,8 @@ describe('SourceCard — pages', () => {
 })
 
 /**
- * Under a round the ledger accounts for, the card speaks for THAT round.
+ * Under a round the ledger accounts for, the card speaks for THAT round: one
+ * card per document, listing every passage the round read of it.
  *
  * The turn aggregate — "2 Treffer", the cited page — is identical on every
  * repeat of the same file, which is what made a round that re-opened four
@@ -72,7 +73,7 @@ describe('SourceCard — a ledger round speaks for its own slot', () => {
         document={document(loci)}
         hitLabel="2 hits"
         gapLabel="Nothing found"
-        round={{ detail: 'p. 12', repeat: true }}
+        loci={[{ detail: 'p. 12', repeat: true }]}
       />
     )
 
@@ -84,13 +85,52 @@ describe('SourceCard — a ledger round speaks for its own slot', () => {
     expect(screen.queryByText('pp. 4, 9')).not.toBeInTheDocument()
   })
 
+  test('five Punkte of one document are one card listing all five', () => {
+    // The whole point of the fold: five opens used to be five identical cards.
+    const punkte = ['Pkt. 3.1', 'Pkt. 3.2', 'Pkt. 3.3', 'Pkt. 3.4', 'Pkt. 3.5']
+    const { container } = render(
+      <SourceCard
+        document={document(loci)}
+        hitLabel="2 hits"
+        gapLabel="Nothing found"
+        loci={punkte.map((detail) => ({ detail, repeat: false }))}
+      />
+    )
+
+    expect(container.querySelectorAll('[data-source-card]')).toHaveLength(1)
+    expect(screen.getByText(punkte.join(', '))).toBeInTheDocument()
+    // The round reached five new passages, so it did work: no repeat marker.
+    expect(screen.queryByText(/already retrieved/)).not.toBeInTheDocument()
+    expect(screen.getByText('2 hits')).toBeInTheDocument()
+  })
+
+  test('a round that re-fetched only one of its passages marks that one', () => {
+    render(
+      <SourceCard
+        document={document(loci)}
+        hitLabel="2 hits"
+        gapLabel="Nothing found"
+        loci={[
+          { detail: 'Pkt. 3.1', repeat: true },
+          { detail: 'Pkt. 4.2', repeat: false },
+        ]}
+      />
+    )
+
+    // The round did new work, so the pill stays the tally and the marker sits
+    // on the passage that was fetched twice — not on the whole document.
+    expect(screen.getByText('2 hits')).toBeInTheDocument()
+    expect(screen.getByText('(already retrieved)')).toBeInTheDocument()
+    expect(screen.getByText('Pkt. 3.1, Pkt. 4.2')).toBeInTheDocument()
+  })
+
   test('a round showing a file for the first time keeps the count, and names no locus it did not read', () => {
     render(
       <SourceCard
         document={document(loci)}
         hitLabel="2 hits"
         gapLabel="Nothing found"
-        round={{ repeat: false }}
+        loci={[{ repeat: false }]}
       />
     )
 

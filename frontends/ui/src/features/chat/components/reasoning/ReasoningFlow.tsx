@@ -447,6 +447,12 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
         // once; a bare ledger slot has no card identity and never animates.
         const card = fanCard.card
         const slot = card ? data.enterOrder.get(card.id) : undefined
+        // A bare slot has no card to print loci per line, so its loci become
+        // one line, in the round's own order.
+        const bareDetail = fanCard.loci
+          ?.map((locus) => locus.detail)
+          .filter(Boolean)
+          .join(', ')
         const entering = slot !== undefined
         return (
           <div key={fanCard.key} className="flex flex-col">
@@ -481,12 +487,12 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
                   hitLabel={data.hitLabel(card.loci.length)}
                   gapLabel={data.gapLabel}
                   live={data.live}
-                  {...(fanCard.round ? { round: fanCard.round } : {})}
+                  {...(fanCard.loci ? { loci: fanCard.loci } : {})}
                 />
               ) : (
                 <BareSourceCard
                   name={documentShortName(fanCard.name, fanCard.title)}
-                  {...(fanCard.round?.detail ? { detail: fanCard.round.detail } : {})}
+                  {...(bareDetail ? { detail: bareDetail } : {})}
                 />
               )}
             </div>
@@ -925,11 +931,11 @@ const onlyOpened = (tools: string[]): boolean =>
  * a finding; a bare fetch that returned nothing is a search. The NUMBER on the
  * layer (`Schritt N`) is the execution order; this is the type.
  */
-function roundKind(hasThought: boolean, fileCount: number, tools: string[], t: Translator): string {
-  if (fileCount > 0 && onlyOpened(tools)) return t('thinking.node.stepKindOpen')
-  if (hasThought && fileCount > 0) return t('thinking.node.stepKindFinding')
+function roundKind(hasThought: boolean, documentCount: number, tools: string[], t: Translator): string {
+  if (documentCount > 0 && onlyOpened(tools)) return t('thinking.node.stepKindOpen')
+  if (hasThought && documentCount > 0) return t('thinking.node.stepKindFinding')
   if (hasThought) return t('thinking.node.stepKindConclusion')
-  if (fileCount > 0) return t('thinking.node.stepKindRead')
+  if (documentCount > 0) return t('thinking.node.stepKindRead')
   return t('thinking.node.stepKindSearch')
 }
 
@@ -968,13 +974,14 @@ const foldName = (slot: FanCard): string =>
     : documentShortName(slot.name, slot.title)
 
 /**
- * The locus beside a folded single file: THAT round's own, when the ledger
- * accounted for the round. The fan under it says the same thing, and a fold
- * that fell back to the turn aggregate would name a page a different round
- * read. Without a ledger it stays the cited passage (see `foldLocusOf`).
+ * The locus beside a folded single file: the FIRST passage that round read,
+ * when the ledger accounted for the round. The fan under it lists them all,
+ * and a fold that fell back to the turn aggregate would name a page a
+ * different round read. Without a ledger it stays the cited passage (see
+ * `foldLocusOf`).
  */
 const foldLocus = (slot: FanCard, t: Translator): string | undefined => {
-  if (slot.round) return slot.round.detail
+  if (slot.loci) return slot.loci[0]?.detail
   return slot.card ? foldLocusLabel(slot.card, t) : undefined
 }
 
@@ -1248,15 +1255,18 @@ export function buildGraph(
     rounds.forEach((round, i) => {
       const text = round.reason?.trim() ?? ''
       const fan = fans[i]!
-      const fileCount = fan.roundCards.length
+      // DOCUMENTS, not hits: a slot is one file with every passage this round
+      // read of it, so a round that opened five Punkte of one Richtlinie is
+      // one document — which is what „3 Dateien" has always claimed to count.
+      const documentCount = fan.roundCards.length
       const roundData: RoundData = {
         label: t('thinking.node.stepTab', { n: i + 1 }),
-        sub: roundKind(text.length > 0, fileCount, round.tools, t),
+        sub: roundKind(text.length > 0, documentCount, round.tools, t),
         text,
         actions: actionLabels(round.tools),
         targets: [CENTRE_TOP],
         sources: [CENTRE_BOTTOM],
-        foldable: fileCount > 0,
+        foldable: documentCount > 0,
         folded: fan.folded,
         foldSummary: foldSummary(fan.roundCards, t),
         toggleLabel: t(fan.folded ? 'thinking.node.roundUnfold' : 'thinking.node.roundFold', {

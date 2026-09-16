@@ -3,11 +3,13 @@
  * made durable.
  *
  * One entry per announced round: what the round was asked (query, tools),
- * what it returned (docs with title/detail/shelf), and what was NEW
- * (`newDocs`: names no earlier round showed). The Herleitung spine draws each
- * round's fan from it (`features/chat/lib/retrieval-rounds.ts` — `roundFan`),
- * and it is stored so a reload draws the same one: the backend states what the
- * turn did, once, and every surface reads that same record.
+ * what it returned (one entry per PASSAGE, with title/detail/shelf and the
+ * backend's `repeat` verdict), and which documents it did WORK on (`newDocs`:
+ * the ones with at least one passage that was not a repeat). The
+ * Herleitung spine draws each round's fan from it
+ * (`features/chat/lib/retrieval-rounds.ts` — `roundFan`, one card per
+ * document), and it is stored so a reload draws the same one: the backend
+ * states what the turn did, once, and every surface reads that same record.
  *
  * **The client is not trusted with the bound**, exactly as `sanitizeAnswerMeta`
  * is not. This lands in message metadata/provenance — jsonb fed from a
@@ -25,12 +27,22 @@
  * each side, so a renamed key cannot ship green.
  */
 
-/** One document a round returned. `name` is filename or URL — never empty. */
+/**
+ * One PASSAGE a round returned: a document plus the page or Punkt it was
+ * reached at. `name` is filename or URL — never empty.
+ */
 export interface RetrievalLedgerDoc {
   name: string
   title?: string
   detail?: string
   shelf?: string
+  /**
+   * The round fetched this passage a second time — the backend's own verdict,
+   * which is the only side that can reach it (it needs every earlier round).
+   * Absent on a turn stored before the backend stamped it; the renderer then
+   * falls back to the document-level `newDocs`.
+   */
+  repeat?: boolean
 }
 
 /** One announced retrieval round. `newDocs` is a subset of `docs`. */
@@ -43,7 +55,11 @@ export interface RetrievalLedgerEntry {
   /** The round's own words, verbatim — narration, never a verdict. */
   reason?: string
   docs: RetrievalLedgerDoc[]
-  /** Names no earlier round showed. Derived, never trusted from the wire. */
+  /**
+   * The documents this round did work no earlier round had done: a passage
+   * nobody had fetched, in a file nobody had opened. A search that merely
+   * ranked a document does not make the later open of it a repeat.
+   */
   newDocs: string[]
   /** Document entries in `docs` (the same file at two pages counts twice). */
   hits: number
@@ -110,6 +126,11 @@ function sanitizeDoc(input: unknown): RetrievalLedgerDoc | undefined {
   if (detail !== undefined) doc.detail = detail
   const shelf = cap(input.shelf, MAX_SHELF_CHARS)
   if (shelf !== undefined) doc.shelf = shelf
+  // Copied, not derived: "was this passage fetched before" is a fact about
+  // every EARLIER round, which this payload does not carry. A boolean is
+  // self-bounding, and the worst a tampered one can do is mute or unmute one
+  // pill — unlike a tally, which could render "999 Treffer" over one file.
+  if (typeof input.repeat === 'boolean') doc.repeat = input.repeat
   return doc
 }
 
