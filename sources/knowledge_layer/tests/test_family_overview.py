@@ -198,6 +198,23 @@ class TestTheFamilyIsTheAnswer:
         assert "OIB-Richtlinie 2: 4 Teile im Bestand (2, 2.1, 2.2, 2.3)." in out
         assert "Treffer 1 bis 4 sind der Geltungsbereich dieser Teile" in out
 
+    async def test_the_preamble_says_the_parts_are_open(self, corpus):
+        """The fact that stops the second round.
+
+        The block already carried each part's scope passage and Gliederung,
+        which is what `read_passage(document=…)` returns for one of them, and
+        said nothing about that: the model read the preamble as a search
+        result, announced it would now open the Richtlinie properly, and spent
+        a whole round re-reading the passages it was holding. The Punkt is
+        where the next open pays, and `_OUTLINE_INSTRUCTION` below says how.
+        """
+        corpus(MEMBERS)
+
+        out = await _search()
+
+        assert "Damit sind diese Teile geöffnet, auf der Ebene von `read_passage(document=…)`" in out
+        assert "tiefer führt nur ein einzelner Punkt aus einer Gliederung" in out
+
     async def test_a_part_the_corpus_lacks_is_never_claimed(self, corpus):
         """Membership is derived from what is indexed. A deployment without 2.3
         must not be told it has one, which is the failure the whole branch

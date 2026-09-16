@@ -2644,7 +2644,11 @@ class TestADirectReplyMayStillEmitACard:
         assert "`conclusion` argument" in rules
         assert "empty on your first call" in rules.lower()
         assert "not run a second time" in rules
-        assert "complete only when every member" in rules
+        # The family search RETURNS the members opened; the only open left is a
+        # Punkt. Told instead that an overview needs every member opened, the
+        # model re-opened the three it had just been handed.
+        assert "every member the corpus holds" in rules
+        assert "what is left to open is a Punkt by number" in rules
         assert "`read_passage(document=…)`" in rules
         procedures = (
             "at most two searches",
@@ -2655,7 +2659,7 @@ class TestADirectReplyMayStillEmitACard:
         )
         for procedure in procedures:
             assert procedure not in rendered, procedure
-        assert "every member the knowledge-base inventory lists" in rules
+        assert "every member the knowledge-base inventory lists" not in rules
         assert "nicht gelesen" in rules
         stimme = rendered.split("<stimme>")[1].split("</stimme>")[0]
         assert "Folgerung der Herleitung" in stimme

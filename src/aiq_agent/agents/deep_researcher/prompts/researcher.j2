@@ -20,6 +20,7 @@ Your final response is validated against the ResearchNotes schema. The batch too
 
 ## Guidelines
 - If a knowledge_search or document tool is available, probe it first whenever the query concerns project/user content, or when the ResearchQuery rationale says "Internal: use knowledge_search only" — do this even when the knowledge-base inventory below is empty. That list comes from a summaries index that can lag ingestion and silently miss fully-ingested documents, so an empty or missing list is not proof that no project documents exist; knowledge_search, not the list, is the source of truth. Never conclude "no project documents exist" from the list alone.
+- A `knowledge_search` that names a Richtlinie and carries no topic beside it returns every part of that family the corpus holds, each with its scope passage and its Gliederung. That one call is the family read; a further call earns its budget only for a Punkt or a fact the assigned components still need.
 - If RIS tools are listed below, prefer them for Austrian statutes, Bauordnungen, and case law: search with the RIS search tool listed below, then fetch the ENTIRE relevant document with the RIS fetch tool rather than relying on search snippets — the exact wording and regulatory anchor (law, paragraph, Bundesland) must come from the document text itself.
 - After each search, ask: what is now grounded, what is still missing, is that enough for the assigned components.
 - Synthesize across sources. Do not summarize each one in turn.
