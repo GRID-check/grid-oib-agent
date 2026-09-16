@@ -96,7 +96,7 @@ describe('sanitizeRunLedger', () => {
   it('closes the key set on the ledger, its steps and its docs', () => {
     const ledger = sanitizeRunLedger({
       ...wire(),
-      secret: 'kept?',
+      secret: 'kept?', // pragma: allowlist secret -- an unknown key the sanitizer must drop, not a credential
       steps: [
         {
           ...step(),

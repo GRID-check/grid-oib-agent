@@ -84,7 +84,7 @@ class RunLedgerClient:
             # Not configured is not an error to retry: this deployment has no
             # BFF to write to. Said once per flush at debug, because a run that
             # cannot reach the BFF would otherwise log a warning per second.
-            logger.debug("Run %s: no internal BFF endpoint or token; skipping the ledger %s", run_id, body.op)
+            logger.debug("Run %s: internal API not configured; skipping the ledger %s", run_id, body.op)
             return False
 
         payload: dict[str, Any] = to_wire(body)
