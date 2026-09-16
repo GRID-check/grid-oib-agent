@@ -32,7 +32,11 @@ export type TaskStatus = (typeof TASK_STATUSES)[number]
  *   - `manual`   — never on its own; a person presses "Run now".
  *   - `once`     — fires exactly once. A delegated task is this with no
  *                  `due_at` (it is dispatched on creation); a due date makes it
- *                  a one-shot schedule.
+ *                  a one-shot schedule, which the task wizard creates and the
+ *                  scheduler claims like any other due row (0090). The due
+ *                  date is therefore what tells the two apart, and what the
+ *                  standing-task list filters on — filtering on the TRIGGER
+ *                  would hide a one-shot from the list that created it.
  *   - `schedule` — a cron fires it again and again; `next_run_at` is live.
  */
 export const DEFINITION_TRIGGERS = ['manual', 'once', 'schedule'] as const

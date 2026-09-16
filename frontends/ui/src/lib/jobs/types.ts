@@ -111,11 +111,33 @@ const attachedSkillNameSchema = skillNameSchema.nullish()
 
 const dataSourcesSchema = z.array(z.string().trim().min(1)).max(MAX_DATA_SOURCES)
 
+/**
+ * When a one-shot is wanted, as an ISO instant.
+ *
+ * `nullish` for the same reason `skillName` is: absent on create means no due
+ * date, an explicit `null` on patch means "this is not a one-shot any more".
+ * The value is coerced to a `Date` here so every reader downstream — the
+ * service, the CHECK constraint, the scheduler's scan — sees an instant rather
+ * than a string somebody still has to parse.
+ */
+const dueAtSchema = z.coerce.date().nullish()
+
 /** Cron/timezone shape check shared by create + patch of a job. */
 function refineSchedule(
-  value: { scheduleCron?: string | null; scheduleTimezone?: string },
+  value: { scheduleCron?: string | null; scheduleTimezone?: string; dueAt?: Date | null },
   ctx: z.RefinementCtx
 ): void {
+  // A definition fires on a cron, once at a due time, or only by hand. Letting
+  // both through would hit `task_definitions_due_only_when_once` as a 500 from
+  // the database instead of a 422 naming the field, because the trigger a row
+  // gets is derived from these two and cannot be both.
+  if (value.scheduleCron != null && value.dueAt != null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['dueAt'],
+      message: 'A task runs on a schedule or once at a due time, not both.',
+    })
+  }
   const tz = value.scheduleTimezone ?? 'UTC'
   if (value.scheduleTimezone != null && !isValidTimezone(value.scheduleTimezone)) {
     ctx.addIssue({
@@ -143,6 +165,7 @@ export const createJobSchema = z
     enabled: z.boolean().optional(),
     scheduleCron: z.string().trim().min(1).nullish(),
     scheduleTimezone: z.string().trim().min(1).optional(),
+    dueAt: dueAtSchema,
   })
   .superRefine(refineSchedule)
 
@@ -158,6 +181,7 @@ export const patchJobSchema = z
     enabled: z.boolean().optional(),
     scheduleCron: z.string().trim().min(1).nullish(),
     scheduleTimezone: z.string().trim().min(1).optional(),
+    dueAt: dueAtSchema,
   })
   .superRefine(refineSchedule)
 

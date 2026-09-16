@@ -97,14 +97,22 @@ export function ScheduleTimetable({
   )
 
   /**
-   * The schedules that can be PLACED, in a stable order.
+   * The tasks that can be PLACED, in a stable order.
+   *
+   * A task has a time if it recurs or if it is due once — both land in the
+   * week. Only a manual task has nowhere to go, because there is no time to
+   * draw it at.
    *
    * Sorted by id rather than by whatever order the list arrived in: the colour
-   * a schedule gets is its index here, and a colour that changes when an
-   * unrelated schedule is renamed is a colour nobody can learn.
+   * a task gets is its index here, and a colour that changes when an unrelated
+   * task is renamed is a colour nobody can learn.
    */
   const placeable = useMemo(
-    () => schedules.filter((job) => job.scheduleCron && job.enabled).slice().sort(byId),
+    () =>
+      schedules
+        .filter((job) => (job.scheduleCron || job.dueAt) && job.enabled)
+        .slice()
+        .sort(byId),
     [schedules],
   )
 
@@ -134,6 +142,7 @@ export function ScheduleTimetable({
       placeable.map((job) => ({
         id: job.id,
         cron: job.scheduleCron,
+        dueAt: job.dueAt ? new Date(job.dueAt) : null,
         timezone: job.scheduleTimezone,
         enabled: job.enabled,
       })),

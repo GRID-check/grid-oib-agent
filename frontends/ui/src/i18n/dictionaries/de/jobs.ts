@@ -31,6 +31,8 @@ export const jobs: typeof en.jobs = {
       action: 'Neue Aufgabe',
     },
     manualOnly: 'Nur manuell',
+    onceOn: 'Einmal am {time}',
+    onceDone: 'Erledigt',
     // Bewusst knapp: beide stehen auf EINER Fußzeile einer Karte.
     nextRun: 'Nächster {time}',
     lastRun: 'Letzter {time}',
@@ -113,7 +115,7 @@ export const jobs: typeof en.jobs = {
     steps: {
       task: 'Auftrag',
       output: 'Ergebnis',
-      schedule: 'Rhythmus',
+      schedule: 'Wann',
       review: 'Prüfen',
       taskTitle: 'Was soll Piloti tun?',
       taskHint:
@@ -122,7 +124,7 @@ export const jobs: typeof en.jobs = {
       outputHint: 'Das entscheidet auch, welche Skills die Aufgabe nutzen kann.',
       scheduleTitle: 'Wann soll es laufen?',
       scheduleHint:
-        'Wählen Sie einen Rhythmus — die nächsten Termine stehen darunter, zum Prüfen vor der Festlegung.',
+        'Einmal, wiederkehrend oder nur auf Zuruf — die nächsten Termine stehen darunter, zum Prüfen vor der Festlegung.',
       reviewTitle: 'Fertig',
       reviewHint: 'Das wird passieren. Gespeichert ist noch nichts.',
     },
@@ -181,9 +183,18 @@ export const jobs: typeof en.jobs = {
     sourcesLoading: 'Quellen werden geladen…',
     sourcesError: 'Quellen konnten nicht geladen werden — die Aufgabe nutzt alle verfügbaren.',
 
-    scheduleSection: 'Rhythmus',
-    enableScheduleLabel: 'Nach Zeitplan ausführen',
-    enableScheduleHint: 'Ist das aus, läuft er nur auf „Jetzt ausführen“.',
+    scheduleSection: 'Wann',
+    cadence: {
+      label: 'Wann soll die Aufgabe laufen',
+      once: 'Einmal',
+      onceHint: 'An einem Datum, das Sie festlegen. Danach ist sie erledigt.',
+      recurring: 'Wiederkehrend',
+      recurringHint: 'Nach einem Rhythmus, immer wieder.',
+      manual: 'Nur manuell',
+      manualHint: 'Läuft nur, wenn Sie „Jetzt ausführen“ drücken.',
+    },
+    dueAtLabel: 'Fälligkeitstermin',
+    dueAtHint: 'Nach Ihrer Ortszeit. Die Aufgabe läuft genau einmal.',
     presetLabel: 'Wie oft',
     timeLabel: 'Um',
     minuteLabel: 'Zur Minute',
@@ -208,7 +219,12 @@ export const jobs: typeof en.jobs = {
     enabledHint: 'Eine pausierte Aufgabe feuert nie und lässt sich nicht von Hand starten.',
 
     reviewSentence: 'Piloti erstellt {cadence} {output}.',
+    reviewSentenceOnce: 'Piloti erstellt {output} — einmal, am {dueAt}.',
     reviewSentenceManual: 'Piloti erstellt {output}, jedes Mal wenn Sie es von Hand starten.',
+
+    createAndRun: 'Anlegen und jetzt ausführen',
+    saveAndRun: 'Speichern und jetzt ausführen',
+    runNowFailed: 'Die Aufgabe ist gespeichert, der erste Lauf konnte nicht gestartet werden.',
 
     createSuccess: 'Aufgabe angelegt.',
     updateSuccess: 'Aufgabe gespeichert.',

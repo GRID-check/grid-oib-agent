@@ -52,12 +52,19 @@ function loadCronParser(): Promise<CronModule> {
  */
 const PER_SCHEDULE_CAP = 96
 
-/** A parsed schedule as the expander needs it. */
+/** A parsed task as the expander needs it. */
 export interface ScheduleSpec {
   id: string
   cron: string | null
   timezone: string
-  /** A paused schedule contributes nothing: it is not going to happen. */
+  /**
+   * When a one-shot is due. A task has a cron or a due date, never both, and
+   * the week grid places either — the timetable answers "what is happening
+   * this week", and a task due on Thursday is one of the most important
+   * answers it has. Null on a recurring or manual task.
+   */
+  dueAt?: Date | null
+  /** A paused task contributes nothing: it is not going to happen. */
   enabled: boolean
 }
 
@@ -87,7 +94,16 @@ export async function expandWindow(
   const invalid: string[] = []
 
   for (const schedule of schedules) {
-    if (!schedule.cron || !schedule.enabled) continue
+    if (!schedule.enabled) continue
+
+    // A one-shot is its own occurrence list, of length one. No parser, no cap,
+    // and no `invalid` — there is no expression to be wrong about.
+    if (!schedule.cron) {
+      if (schedule.dueAt && schedule.dueAt >= from && schedule.dueAt < to) {
+        occurrences.push({ jobId: schedule.id, at: schedule.dueAt })
+      }
+      continue
+    }
     let interval: ReturnType<typeof CronExpressionParser.parse>
     try {
       interval = CronExpressionParser.parse(schedule.cron, {

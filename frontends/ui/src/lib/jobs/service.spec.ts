@@ -247,6 +247,61 @@ describe('createJob', () => {
     expect(insert.nextRunAt).toBeInstanceOf(Date)
   })
 
+  it('makes a one-shot out of a due date, and asks for no extra permission', async () => {
+    const dueAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+
+    await createJob(session, PROJECT, {
+      name: 'Vor der Abgabe',
+      prompt: 'Prüf die Einreichplanung.',
+      output: 'chat',
+      dueAt,
+    })
+
+    // A one-shot spends once, exactly as pressing "Run now" would, so it is
+    // NOT gated like a recurring trigger. Scheduling the safer thing must not
+    // be the option that needs more rights.
+    expect(requireProjectAccess).toHaveBeenCalledTimes(1)
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, PROJECT, 'project:edit')
+
+    const insert = vi.mocked(repository.insertDefinition).mock.calls[0][0]
+    expect(insert.trigger).toBe('once')
+    expect(insert.scheduleCron).toBeNull()
+    expect(insert.dueAt).toEqual(dueAt)
+    // `next_run_at` IS the due date: one column, one index, one claim query for
+    // both shapes (migration 0090).
+    expect(insert.nextRunAt).toEqual(dueAt)
+  })
+
+  it('refuses a due date in the past rather than scheduling a run that already missed', async () => {
+    await expect(
+      createJob(session, PROJECT, {
+        name: 'Zu spät',
+        prompt: 'Prüf das',
+        output: 'chat',
+        dueAt: new Date(Date.now() - 60_000),
+      })
+    ).rejects.toThrow(/future/i)
+    expect(repository.insertDefinition).not.toHaveBeenCalled()
+  })
+
+  it('leaves a paused one-shot out of the due scan', async () => {
+    const dueAt = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+
+    await createJob(session, PROJECT, {
+      name: 'Vorbereitet, noch nicht scharf',
+      prompt: 'Prüf das',
+      output: 'chat',
+      dueAt,
+      enabled: false,
+    })
+
+    const insert = vi.mocked(repository.insertDefinition).mock.calls[0][0]
+    // The due date is kept — it is what the person chose — but nothing scans a
+    // NULL next_run_at, so pausing needs no second mechanism.
+    expect(insert.dueAt).toEqual(dueAt)
+    expect(insert.nextRunAt).toBeNull()
+  })
+
   it('pins the attached skill and always-on knowledge into the frozen plan', async () => {
     vi.mocked(resolveSkillSnapshot).mockResolvedValue(skillSnapshot)
 
@@ -288,6 +343,49 @@ describe('updateJob', () => {
     })
   })
 
+  it('keeps a one-shot due date through an unrelated patch', async () => {
+    const dueAt = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
+    vi.mocked(repository.findDefinition).mockResolvedValue(
+      definitionRow({ trigger: 'once', dueAt, nextRunAt: dueAt })
+    )
+
+    await updateJob(session, PROJECT, DEFINITION, { prompt: 'Prüf das nochmal' })
+
+    // Editing the prompt must not quietly demote the task to a manual one.
+    expect(vi.mocked(repository.updateDefinition).mock.calls[0][2]).toMatchObject({
+      trigger: 'once',
+      dueAt,
+    })
+  })
+
+  it('clears the due date when a patch pins a cron instead', async () => {
+    vi.mocked(repository.findDefinition).mockResolvedValue(
+      definitionRow({ trigger: 'once', dueAt: new Date(Date.now() + 86_400_000) })
+    )
+
+    await updateJob(session, PROJECT, DEFINITION, { scheduleCron: '0 8 * * 1' })
+
+    // Leaving both set would hit `task_definitions_due_only_when_once` as a 500
+    // from the database rather than resolving here.
+    const patch = vi.mocked(repository.updateDefinition).mock.calls[0][2]
+    expect(patch.trigger).toBe('schedule')
+    expect(patch.dueAt).toBeNull()
+  })
+
+  it('turns a one-shot back into a manual task on an explicit null', async () => {
+    vi.mocked(repository.findDefinition).mockResolvedValue(
+      definitionRow({ trigger: 'once', dueAt: new Date(Date.now() + 86_400_000) })
+    )
+
+    await updateJob(session, PROJECT, DEFINITION, { dueAt: null })
+
+    expect(vi.mocked(repository.updateDefinition).mock.calls[0][2]).toMatchObject({
+      trigger: 'manual',
+      dueAt: null,
+      nextRunAt: null,
+    })
+  })
+
   it('detaches a skill on an explicit null without re-resolving a name', async () => {
     vi.mocked(repository.findDefinition).mockResolvedValue(
       definitionRow({ plan: { prompt: 'x', skill: skillSnapshot, dataSources: null } })
@@ -319,16 +417,32 @@ describe('deleteJob', () => {
 })
 
 describe('listJobs', () => {
-  it('lists templates only — a once definition is a run, not a standing intent', async () => {
+  it('drops a delegation — a dateless once definition is a run, not a standing intent', async () => {
     vi.mocked(repository.listDefinitionsInProject).mockResolvedValue([
       definitionRow(),
-      definitionRow({ id: 'delegated-1', trigger: 'once' }),
+      definitionRow({ id: 'delegated-1', trigger: 'once', dueAt: null }),
     ])
 
     const { jobs } = await listJobs(session, PROJECT)
 
     expect(jobs).toHaveLength(1)
     expect(jobs[0]).toMatchObject({ id: DEFINITION, name: 'Wochencheck', prompt: 'Prüf das' })
+  })
+
+  it('keeps a one-shot somebody scheduled, which shares the delegation trigger', async () => {
+    // The whole reason the filter is on the DUE DATE and not on the trigger: a
+    // task created from the wizard for a Friday is `once` too, and dropping it
+    // would make it vanish from the list it was created in.
+    const dueAt = new Date('2026-10-02T07:00:00.000Z')
+    vi.mocked(repository.listDefinitionsInProject).mockResolvedValue([
+      definitionRow({ id: 'one-shot-1', trigger: 'once', dueAt, nextRunAt: dueAt }),
+      definitionRow({ id: 'delegated-1', trigger: 'once', dueAt: null }),
+    ])
+
+    const { jobs } = await listJobs(session, PROJECT)
+
+    expect(jobs.map((job) => job.id)).toEqual(['one-shot-1'])
+    expect(jobs[0].dueAt).toEqual(dueAt)
   })
 })
 

@@ -20,6 +20,7 @@ const base = {
   skillSnapshot: null,
   dataSources: null,
   scheduleTimezone: 'Europe/Vienna',
+  dueAt: null,
   lastRunAt: null,
   createdBy: 'user_1',
   createdByEmail: 'anna@example.com',
@@ -114,6 +115,36 @@ export const SCHEDULES: Job[] = [
     enabled: true,
     scheduleCron: null,
     nextRunAt: null,
+  },
+  // A one-shot still pending: the shape the section could not express until
+  // migration 0090, and the one a planning office asks for most — run this
+  // once, the day before the Abgabe. It lands in the week grid like any
+  // recurring task, which is the point of putting it in the fixture.
+  {
+    ...base,
+    id: 'j7',
+    name: 'Einreichprüfung vor der Abgabe',
+    prompt: 'Prüfe die Einreichplanung auf Vollständigkeit vor der Abgabe am Freitag.',
+    output: 'chat',
+    enabled: true,
+    scheduleCron: null,
+    dueAt: '2026-09-17T13:00:00Z',
+    nextRunAt: '2026-09-17T13:00:00Z',
+  },
+  // The same shape after it has fired: the scheduler cleared `next_run_at`
+  // when it claimed the row, so a due date with nothing pending reads as
+  // finished — deliberately NOT as paused, which is a different thing.
+  {
+    ...base,
+    id: 'j8',
+    name: 'Fristencheck Bauverhandlung',
+    prompt: 'Prüfe die Fristen für die Bauverhandlung und fasse sie zusammen.',
+    output: 'chat',
+    enabled: true,
+    scheduleCron: null,
+    dueAt: '2026-09-15T07:00:00Z',
+    nextRunAt: null,
+    lastRunAt: '2026-09-15T07:00:04Z',
   },
 ]
 

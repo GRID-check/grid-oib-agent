@@ -112,7 +112,13 @@ export const taskDefinitions = pgTable(
     /** 5-field cron; live only when the trigger is `schedule`. */
     scheduleCron: text('schedule_cron'),
     scheduleTimezone: text('schedule_timezone').notNull().default('UTC'),
-    /** Computed at save time; NULL when no cron, disabled, or not scheduled. */
+    /**
+     * When the due scan should next look at this row — the one column the
+     * scheduler's claim reads, for every trigger (`idx_task_definitions_due`,
+     * migration 0090). The cron's next occurrence on a `schedule`, the `due_at`
+     * on a pending `once`, and NULL on a `manual` one, on anything paused, and
+     * on a one-shot the scheduler has already claimed.
+     */
     nextRunAt: timestamp('next_run_at', { withTimezone: true }),
     /** When a `once` definition is wanted. NULL = immediately (a delegation). */
     dueAt: timestamp('due_at', { withTimezone: true }),
@@ -143,9 +149,10 @@ export const taskDefinitions = pgTable(
       table.projectId
     ),
     // NOTE: the partial due-scan index `idx_task_definitions_due` on
-    // (next_run_at) WHERE trigger = 'schedule' AND enabled is a PARTIAL index
-    // the drizzle builder cannot express; it lives in migration 0086, the way
-    // `idx_jobs_due` lives in 0043. It backs the scheduler's claim.
+    // (next_run_at) WHERE enabled AND next_run_at IS NOT NULL is a PARTIAL
+    // index the drizzle builder cannot express; it lives in migration 0086 and
+    // was widened in 0090, the way `idx_jobs_due` lives in 0043. It backs the
+    // scheduler's claim, for recurring tasks and one-shots alike.
     triggerKnown: check(
       'task_definitions_trigger_known',
       sql`${table.trigger} IN ('manual', 'once', 'schedule')`

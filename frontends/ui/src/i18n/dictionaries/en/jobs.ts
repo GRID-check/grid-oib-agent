@@ -29,6 +29,8 @@ export const jobs = {
       action: 'New task',
     },
     manualOnly: 'Manual only',
+    onceOn: 'Once on {time}',
+    onceDone: 'Done',
     // Terse on purpose: both sit on ONE footer line of a card, and the German
     // equivalents overflow it at grid width.
     nextRun: 'Next {time}',
@@ -120,7 +122,7 @@ export const jobs = {
     steps: {
       task: 'Task',
       output: 'Result',
-      schedule: 'Timing',
+      schedule: 'When',
       review: 'Review',
       taskTitle: 'What should Piloti do?',
       taskHint:
@@ -129,7 +131,7 @@ export const jobs = {
       outputHint: 'This also decides which skills the task can use.',
       scheduleTitle: 'When should it run?',
       scheduleHint:
-        'Pick a rhythm — the next times are shown underneath, to check before you commit.',
+        'Once, recurring or on request — the next times are shown underneath, to check before you commit.',
       reviewTitle: 'Ready',
       reviewHint: 'This is what will happen. Nothing has been saved yet.',
     },
@@ -190,9 +192,18 @@ export const jobs = {
     sourcesLoading: 'Loading sources…',
     sourcesError: 'Sources could not be loaded — the task will use all available sources.',
 
-    scheduleSection: 'Timing',
-    enableScheduleLabel: 'Run on a schedule',
-    enableScheduleHint: 'When off, it only runs when you press “Run now”.',
+    scheduleSection: 'When',
+    cadence: {
+      label: 'When should this task run',
+      once: 'Once',
+      onceHint: 'On a date you choose. After that it is done.',
+      recurring: 'Recurring',
+      recurringHint: 'On a rhythm, again and again.',
+      manual: 'Manual only',
+      manualHint: 'Runs only when you press “Run now”.',
+    },
+    dueAtLabel: 'Due date',
+    dueAtHint: 'In your local time. The task runs exactly once.',
     presetLabel: 'How often',
     timeLabel: 'At',
     minuteLabel: 'At minute',
@@ -225,7 +236,12 @@ export const jobs = {
 
     /** The review step's one sentence. */
     reviewSentence: 'Piloti produces {output} {cadence}.',
+    reviewSentenceOnce: 'Piloti produces {output} — once, on {dueAt}.',
     reviewSentenceManual: 'Piloti produces {output}, each time you start it by hand.',
+
+    createAndRun: 'Create and run now',
+    saveAndRun: 'Save and run now',
+    runNowFailed: 'The task is saved; the first run could not be started.',
 
     createSuccess: 'Task created.',
     updateSuccess: 'Task saved.',

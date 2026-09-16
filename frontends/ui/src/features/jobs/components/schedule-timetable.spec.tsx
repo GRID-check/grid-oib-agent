@@ -27,6 +27,7 @@ const job = (overrides: Partial<Job> = {}): Job => ({
   enabled: true,
   scheduleCron: '0 6 * * *',
   scheduleTimezone: 'Europe/Vienna',
+  dueAt: null,
   nextRunAt: null,
   lastRunAt: null,
   createdBy: 'u',

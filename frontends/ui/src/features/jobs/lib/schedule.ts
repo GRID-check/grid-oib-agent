@@ -16,6 +16,8 @@
  * reading it, and nobody should have to.
  */
 
+import { formatAbsoluteTime } from '@/lib/format'
+
 /** How often a schedule fires, in the words the form asks the question in. */
 export type ScheduleFrequency = 'hourly' | 'daily' | 'weekly' | 'monthly'
 
@@ -227,6 +229,34 @@ export function scheduleSummary(
     : t('schedule.inTimezone', { summary, timezone })
 }
 
+/**
+ * How a SAVED task answers "when does this run", across all three cadences.
+ *
+ * `scheduleSummary` above only ever knew two: a cron, or "manual only" for
+ * anything without one. That reading was complete while a task could only be
+ * recurring or manual, and became wrong the moment a one-shot could exist — it
+ * would have described a task due on Friday as one that never fires by itself.
+ *
+ * Kept as a sibling rather than folded into `scheduleSummary` because the
+ * wizard's review step legitimately summarises a cron it has not saved yet,
+ * where there is no due date to consider.
+ */
+export function whenSummary(
+  t: Translate,
+  job: { scheduleCron: string | null; dueAt: string | null; scheduleTimezone: string },
+  locale: string,
+  options: { withTimezone?: boolean } = {},
+): string {
+  if (!job.scheduleCron && job.dueAt) {
+    const at = formatAbsoluteTime(job.dueAt, locale)
+    const summary = t('list.onceOn', { time: at })
+    return options.withTimezone === false
+      ? summary
+      : t('schedule.inTimezone', { summary, timezone: job.scheduleTimezone })
+  }
+  return scheduleSummary(t, job.scheduleCron, job.scheduleTimezone, locale, options)
+}
+
 function describeParts(t: Translate, parts: CronParts, locale: string): string {
   const time = formatTimeOfDay(parts.hour, parts.minute, locale)
   switch (parts.frequency) {
@@ -293,4 +323,70 @@ function clamp(value: number, min: number, max: number): number {
 
 function pad(value: number): string {
   return String(value).padStart(2, '0')
+}
+
+// ---------------------------------------------------------------------------
+// Cadence — the question the wizard's WHEN step actually asks
+// ---------------------------------------------------------------------------
+
+/**
+ * The three shapes a task can have, in the words a person chooses between.
+ *
+ * This is the client's name for the storage trigger (`manual | once |
+ * schedule`), and it exists because the wizard used to ask the question as one
+ * switch: "run on a schedule", on or off. That made "recurring" and "only when
+ * I press the button" the entire vocabulary, and left the shape people ask for
+ * most — run this once, the day before the Abgabe — unreachable. They built a
+ * weekly schedule and remembered to delete it.
+ *
+ * A cadence maps onto exactly one pair of wire fields, and the pair is
+ * mutually exclusive, which is what keeps the three readings from overlapping:
+ *
+ *   recurring → `scheduleCron` set, `dueAt` null
+ *   once      → `dueAt` set,        `scheduleCron` null
+ *   manual    → both null
+ */
+export const CADENCES = ['once', 'recurring', 'manual'] as const
+export type Cadence = (typeof CADENCES)[number]
+
+/**
+ * Which cadence a saved task has.
+ *
+ * Reads the two wire fields rather than the trigger, because the wire has
+ * always described a task by them and a `once` trigger alone cannot tell a
+ * scheduled one-shot from a chat delegation.
+ */
+export function cadenceOf(job: { scheduleCron: string | null; dueAt: string | null }): Cadence {
+  if (job.scheduleCron) return 'recurring'
+  if (job.dueAt) return 'once'
+  return 'manual'
+}
+
+/**
+ * A `datetime-local` value (`YYYY-MM-DDTHH:mm`) for an instant, in the
+ * VIEWER's timezone — which is what that input reads and writes.
+ *
+ * Built by hand from the local parts rather than by slicing `toISOString()`:
+ * that string is UTC, so slicing it shows a reader in Vienna 07:00 for a task
+ * they scheduled at 09:00, and saving the form back would move the task two
+ * hours earlier every time somebody opened it.
+ */
+export function toDateTimeLocal(instant: Date): string {
+  if (Number.isNaN(instant.getTime())) return ''
+  const date = `${instant.getFullYear()}-${pad(instant.getMonth() + 1)}-${pad(instant.getDate())}`
+  return `${date}T${pad(instant.getHours())}:${pad(instant.getMinutes())}`
+}
+
+/**
+ * The default a one-shot opens on: tomorrow at 09:00 local.
+ *
+ * Never "now", which is already in the past by the time the form is submitted
+ * and would be refused by the server — the first thing a reader saw would be
+ * an error they did not cause.
+ */
+export function defaultDueAt(now: Date = new Date()): Date {
+  const due = new Date(now)
+  due.setDate(due.getDate() + 1)
+  due.setHours(9, 0, 0, 0)
+  return due
 }

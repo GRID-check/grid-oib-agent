@@ -16,13 +16,16 @@ import { GET, POST } from '@/app/api/projects/[id]/jobs/route'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { listJobs, createJob } from '@/lib/jobs/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import type { Job } from '@/lib/db/schema'
+// The type the MOCKED service returns, not the legacy `jobs` table row: this
+// helper stands in for `listJobs`/`createJob` output, and pointing it at the
+// table row only ever compiled because the two shapes happened to overlap.
+import type { JobView } from '@/lib/jobs/service'
 
 const mockSession = vi.mocked(requireAuthorizedSession)
 const mockList = vi.mocked(listJobs)
 const mockCreate = vi.mocked(createJob)
 
-const asJob = (row: Pick<Job, 'id' | 'name'>): Job => row as unknown as Job
+const asJob = (row: Pick<JobView, 'id' | 'name'>): JobView => row as unknown as JobView
 
 const session: Omit<AuthorizedSession, 'featureFlags'> & { featureFlags: null } = {
   userId: 'user_1',

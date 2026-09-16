@@ -130,6 +130,7 @@ const jobFixture = (overrides: Partial<Job> = {}): Job => ({
   enabled: true,
   scheduleCron: '0 6 * * 1',
   scheduleTimezone: 'Europe/Vienna',
+  dueAt: null,
   nextRunAt: null,
   lastRunAt: null,
   createdBy: 'user_anna',

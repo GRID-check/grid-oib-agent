@@ -38,10 +38,16 @@ import {
 } from '@/lib/request-context'
 import { isMemoryReflectionEnabled, isOrgFeatureEnabled, SKILLS_FLAG } from '@/lib/workos/feature-flags'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import type { JobOutput, TaskDefinition, TaskRun, TaskRunTrigger } from '@/lib/db/schema'
+import type {
+  DefinitionTrigger,
+  JobOutput,
+  TaskDefinition,
+  TaskRun,
+  TaskRunTrigger,
+} from '@/lib/db/schema'
 import { resolveSelectableSkills, resolveSkillSnapshot } from '@/lib/skills/service'
 import { snapshotOf, type SkillSnapshot } from '@/lib/skills/types'
-import { nextOccurrence, validateCron, minIntervalMinutesFromEnv } from './schedule'
+import { nextOccurrence, validateCron, validateDueAt, minIntervalMinutesFromEnv } from './schedule'
 import {
   submitJob,
   JobSubmitError,
@@ -95,6 +101,8 @@ export interface JobView {
   enabled: boolean
   scheduleCron: string | null
   scheduleTimezone: string
+  /** When a one-shot is due; null on a recurring or manual task. */
+  dueAt: Date | null
   nextRunAt: Date | null
   lastRunAt: Date | null
   createdBy: string
@@ -134,6 +142,7 @@ function toJobView(definition: TaskDefinition): JobView {
     enabled: definition.enabled,
     scheduleCron: definition.scheduleCron,
     scheduleTimezone: definition.scheduleTimezone,
+    dueAt: definition.dueAt,
     nextRunAt: definition.nextRunAt,
     lastRunAt: definition.lastRunAt,
     createdBy: definition.requesterUserId,
@@ -188,32 +197,74 @@ function computeNextRunAt(
 }
 
 /**
- * Validate the cron (shape, timezone, minimum interval) and compute the
- * definition's next occurrence. There is no veto from the attached skill:
- * whether something may run on a timer is a property of the work.
+ * Validate when this should run and compute the one column the scheduler scans.
+ *
+ * `next_run_at` means the same thing for all three triggers — "when the due
+ * scan should next look at this row" — which is what lets ONE partial index and
+ * ONE claim query serve both a cron and a one-shot (migration 0090):
+ *
+ *   - a cron gets its next occurrence, after the shape/timezone/min-interval
+ *     check. There is no veto from the attached skill: whether something may
+ *     run on a timer is a property of the work.
+ *   - a one-shot gets its own due date, after the future/horizon check.
+ *   - a manual definition gets NULL, and is never scanned.
+ *
+ * Paused is NULL in every case: an unscanned row cannot fire, so pausing needs
+ * no second mechanism.
  */
 function resolveScheduleInputs(
   scheduleCron: string | null,
   scheduleTimezone: string,
+  dueAt: Date | null,
   enabled: boolean,
 ): { nextRunAt: Date | null } {
   if (scheduleCron) {
     validateCron(scheduleCron, scheduleTimezone, minIntervalMinutesFromEnv())
+    return { nextRunAt: computeNextRunAt(scheduleCron, scheduleTimezone, enabled) }
   }
-  return { nextRunAt: computeNextRunAt(scheduleCron, scheduleTimezone, enabled) }
+  if (dueAt) {
+    validateDueAt(dueAt)
+    return { nextRunAt: enabled ? dueAt : null }
+  }
+  return { nextRunAt: null }
 }
 
-/** The trigger a definition has once its schedule columns are known. */
-function triggerFor(scheduleCron: string | null): 'manual' | 'schedule' {
-  return scheduleCron ? 'schedule' : 'manual'
+/**
+ * The trigger a definition has once its schedule columns are known.
+ *
+ * A cron wins over a due date — the write boundary already refuses both, so
+ * reaching here with both is an invariant break, and picking the recurring
+ * reading keeps it away from `task_definitions_due_only_when_once`.
+ */
+function triggerFor(scheduleCron: string | null, dueAt: Date | null): DefinitionTrigger {
+  if (scheduleCron) return 'schedule'
+  if (dueAt) return 'once'
+  return 'manual'
+}
+
+/**
+ * Whether a `once` definition is a DELEGATION rather than a one-shot somebody
+ * scheduled. Both are `trigger = 'once'`; the due date is the whole difference.
+ * A delegation is dispatched the moment it is created and belongs to the run
+ * list, so the standing-task list filters it out — by this, not by the trigger,
+ * or a scheduled one-shot would be invisible in the list that created it.
+ */
+function isDelegation(definition: TaskDefinition): boolean {
+  return definition.trigger === 'once' && definition.dueAt === null
 }
 
 /**
  * Permissions attach to the TRIGGER (the decision in the follow-up plan):
  * creating or editing work is `project:edit`; giving it a recurring trigger —
- * unattended, repeated spend against somebody's budget — additionally needs
+ * unattended, REPEATED spend against somebody's budget — additionally needs
  * `project:skills:manage`. Two calls, not one array, because the two checks
  * have different subjects and this reads as what it is.
+ *
+ * A one-shot is deliberately NOT recurring here. It spends exactly once, and
+ * anybody who may edit the task can already press "Run now" and spend that same
+ * once; dating it for Friday moves when, not how much or how often. Gating it
+ * like a cron would make the safer choice — schedule it instead of remembering
+ * to press the button — the one that needs more rights.
  */
 async function requireDefinitionAccess(
   session: AuthorizedSession,
@@ -231,9 +282,12 @@ async function requireDefinitionAccess(
 // ---------------------------------------------------------------------------
 
 /**
- * A project's definitions as templates: `manual` and `schedule` only. A `once`
- * definition is a delegation and belongs to the run list, not to the recurring
- * picker.
+ * A project's standing tasks — everything except a delegation.
+ *
+ * The filter is `isDelegation`, not `trigger !== 'once'`: since 0090 a `once`
+ * definition may be a one-shot somebody scheduled for a date, and that belongs
+ * in the list it was created from. Only the dateless kind — dispatched at
+ * creation from a chat — belongs to the run list instead.
  */
 export async function listJobs(
   session: AuthorizedSession,
@@ -242,7 +296,7 @@ export async function listJobs(
   assertJobsFeatureOn(session)
   await requireProjectAccess(session, projectId, 'project:view')
   const rows = await repository.listDefinitionsInProject(projectId, session.organizationId)
-  return { jobs: rows.filter((row) => row.trigger !== 'once').map(toJobView) }
+  return { jobs: rows.filter((row) => !isDelegation(row)).map(toJobView) }
 }
 
 export async function getJob(
@@ -264,12 +318,13 @@ export async function createJob(
 ): Promise<JobView> {
   assertJobsFeatureOn(session)
   const scheduleCron = input.scheduleCron ?? null
+  const dueAt = input.dueAt ?? null
   await requireDefinitionAccess(session, projectId, scheduleCron !== null)
 
   const scheduleTimezone = input.scheduleTimezone ?? 'UTC'
   const enabled = input.enabled ?? true
   const attached = await resolveAttachedSkill(input.skillName, session.organizationId)
-  const { nextRunAt } = resolveScheduleInputs(scheduleCron, scheduleTimezone, enabled)
+  const { nextRunAt } = resolveScheduleInputs(scheduleCron, scheduleTimezone, dueAt, enabled)
 
   const definition = await repository.insertDefinition({
     projectId,
@@ -284,10 +339,11 @@ export async function createJob(
     },
     requesterUserId: session.userId,
     requesterEmail: session.email,
-    trigger: triggerFor(scheduleCron),
+    trigger: triggerFor(scheduleCron, dueAt),
     enabled,
     scheduleCron,
     scheduleTimezone,
+    dueAt,
     nextRunAt,
   })
   return toJobView(definition)
@@ -304,6 +360,11 @@ export async function updateJob(
   if (!existing || existing.projectId !== projectId) throw new NotFoundError('Job not found.')
 
   const scheduleCron = patch.scheduleCron !== undefined ? patch.scheduleCron : existing.scheduleCron
+  // `undefined` keeps what the row has, an explicit `null` clears it — the same
+  // absent-vs-null contract `scheduleCron` above and `skillName` below follow.
+  // Without it, editing a one-shot's prompt would silently drop its due date
+  // and turn the task into a manual one.
+  const dueAt = patch.dueAt !== undefined ? patch.dueAt : existing.dueAt
   // Turning a definition INTO a recurring one is the permissioned act; editing
   // an existing schedule's prompt is not. A patch that pins a cron (or keeps
   // one) therefore asks for the stricter permission exactly when the RESULT is
@@ -312,7 +373,16 @@ export async function updateJob(
 
   const scheduleTimezone = patch.scheduleTimezone ?? existing.scheduleTimezone
   const enabled = patch.enabled ?? existing.enabled
-  const { nextRunAt } = resolveScheduleInputs(scheduleCron, scheduleTimezone, enabled)
+  // A cron and a due date cannot coexist (the write boundary refuses both), so
+  // pinning one clears the other here rather than leaving a stale value for the
+  // CHECK constraint to reject as a 500.
+  const effectiveDueAt = scheduleCron ? null : dueAt
+  const { nextRunAt } = resolveScheduleInputs(
+    scheduleCron,
+    scheduleTimezone,
+    effectiveDueAt,
+    enabled,
+  )
 
   let plan = existing.plan
   if (patch.name !== undefined || patch.prompt !== undefined || patch.skillName !== undefined || patch.dataSources !== undefined) {
@@ -334,10 +404,11 @@ export async function updateJob(
   const definition = await repository.updateDefinition(jobId, session.organizationId, {
     title: patch.name,
     plan,
-    trigger: triggerFor(scheduleCron),
+    trigger: triggerFor(scheduleCron, effectiveDueAt),
     enabled,
     scheduleCron,
     scheduleTimezone,
+    dueAt: effectiveDueAt,
     nextRunAt,
     updatedAt: new Date(),
   })

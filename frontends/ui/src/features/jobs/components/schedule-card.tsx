@@ -33,7 +33,7 @@ import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { updateJob, type Job } from '@/adapters/api/jobs-client'
 import { capturePosthog } from '@/lib/analytics/posthog'
-import { scheduleSummary } from '../lib/schedule'
+import { cadenceOf, whenSummary } from '../lib/schedule'
 
 type Translate = ReturnType<typeof useTranslations>
 
@@ -60,6 +60,15 @@ export function ScheduleCard({
 }: ScheduleCardProps): JSX.Element {
   const t = useTranslations('jobs')
   const { locale } = useLocale()
+
+  const cadence = cadenceOf(job)
+  /**
+   * A one-shot that has already fired. The scheduler clears `next_run_at` when
+   * it claims one (migration 0090), so a due date with nothing pending is the
+   * honest reading of "finished" — and it is NOT the same as paused, which is
+   * why this gets its own chip rather than reusing the pause one.
+   */
+  const spent = cadence === 'once' && job.nextRunAt === null
 
   const nextRun = job.nextRunAt
     ? t('list.nextRun', { time: formatRelativeTime(job.nextRunAt, locale) })
@@ -109,14 +118,17 @@ export function ScheduleCard({
               <div className="flex flex-wrap items-center gap-1.5">
                 <Chip
                   size="sm"
-                  variant={job.scheduleCron ? 'info' : 'outline'}
+                  variant={cadence === 'manual' ? 'outline' : 'info'}
                   data-testid="schedule-cadence"
                 >
                   <CalendarClock aria-hidden />
-                  {scheduleSummary(t, job.scheduleCron, job.scheduleTimezone, locale, {
-                    withTimezone: false,
-                  })}
+                  {whenSummary(t, job, locale, { withTimezone: false })}
                 </Chip>
+                {spent && (
+                  <Chip size="sm" variant="secondary" data-testid="schedule-spent">
+                    {t('list.onceDone')}
+                  </Chip>
+                )}
                 <Chip size="sm" variant="secondary">
                   {t(`list.output.${job.output}`)}
                 </Chip>
