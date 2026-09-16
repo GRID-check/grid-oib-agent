@@ -106,13 +106,15 @@ class TestToolDescription:
     def test_returns_string(self):
         assert isinstance(_build_tool_description(), str)
 
-    def test_several_cards_are_one_round(self):
+    def test_several_cards_are_one_call(self):
         # Two cards used to arrive as two emit_card rounds, each a full pass over
-        # the turn's context. The width rule is stated here and nowhere else:
-        # the doctrine owns the ceiling, this owns how the cards are issued.
+        # the turn's context. Told they were one call each in one round, the
+        # fleet still spent a round per card; the array is the form that cannot
+        # be issued serially. Stated here and nowhere else: the doctrine owns
+        # the ceiling, this owns how the cards are issued.
         desc = _build_tool_description()
-        assert "Several cards are one call each, issued in the same round" in desc
-        assert "a round costs one however many calls it holds" in desc
+        assert "Several cards are one call: pass a JSON array of card objects." in desc
+        assert "one call each" not in desc
         assert "several times" not in desc
         assert "same round" not in render_card_doctrine()
 
