@@ -707,6 +707,8 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
         opening passage plus a `## Gliederung` of its top-level Punkte with
         their pages. That is what to call when you know the document but not yet
         which Punkt holds the answer — never guess a Punkt number.
+        Several documents or several Punkte are one call each, issued in the
+        same round: a round costs one however many calls it holds.
 
         Args:
             document (str): The document's exact indexed file name or display

@@ -245,6 +245,21 @@ class TestServedTextThatDoesNotRender:
         assert resolved.version == "13"
 
 
+class TestTheRoundCostIsStatedAsAFact:
+    """
+    The budget counts rounds, and a round costs one however many calls it holds.
+    Nothing but the prompt can tell the model that, and a rewrite once cut it as
+    procedure: the model then opened one document per round and ran the budget
+    out before the family was read.
+    """
+
+    def test_the_prompt_says_a_round_costs_one_whatever_it_holds(self):
+        rendered = FIXTURE.read_text(encoding="utf-8")
+
+        assert "a round costs one however many calls it holds" in rendered
+        assert "was opened, in one round" in rendered
+
+
 class _FakeStore:
     """A store that serves one answer and records what it was asked for."""
 
