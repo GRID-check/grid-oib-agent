@@ -160,7 +160,7 @@ class _FakeRetriever:
         return _FakeResult(list(self.answers.get(query, [])))
 
 
-def _grounding(merged, query, notice="", trailer="", preamble_note=""):
+def _grounding(merged, query, notice="", trailer="", preamble_note="", opened_files=frozenset()):
     """Stands in for the renderer, which carries every decoration inside its bytes."""
     return notice + preamble_note + ("|".join(chunk.chunk_id for chunk in merged.chunks) or "no results") + trailer
 
@@ -361,9 +361,9 @@ class TestLaneToolScope:
 
         seen: list[str | None] = []
 
-        def _spy(merged, query, notice="", trailer="", preamble_note=""):
+        def _spy(merged, query, notice="", trailer="", preamble_note="", opened_files=frozenset()):
             seen.append(current_lane_tool())
-            return _grounding(merged, query, notice, trailer, preamble_note)
+            return _grounding(merged, query, notice, trailer, preamble_note, opened_files)
 
         retriever = _FakeRetriever({"Fluchtweg GK4": [_chunk("a", "a")]})
         loop_harness(retriever, None)

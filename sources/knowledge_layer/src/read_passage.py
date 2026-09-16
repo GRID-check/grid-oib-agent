@@ -545,6 +545,11 @@ class FamilyOverview:
     trailer: str
 
     @property
+    def opened_files(self) -> frozenset[str]:
+        """The documents this overview OPENED: every member's file, read as ``read_passage`` reads it."""
+        return frozenset(chunk.file_name for chunk in self.chunks if getattr(chunk, "file_name", None))
+
+    @property
     def preamble(self) -> str:
         """What the family IS, above the results: the parts, where they are, and that they are open."""
         numbers = ", ".join(member.number for member in self.members)

@@ -239,6 +239,41 @@ class TestTheFamilyIsTheAnswer:
         assert MEMBERS["2.2"] not in out
 
 
+class TestTheMembersAreOpened:
+    """What the family branch returns is credited as OPENED on the turn's ledger,
+    the way a ``read_passage(document=…)`` read is: a member re-read in a later
+    round is then a repeat, not a new document."""
+
+    @staticmethod
+    async def _captured(query: str) -> list[dict]:
+        from aiq_agent.common.turn_status import begin_lane_capture
+        from aiq_agent.common.turn_status import end_lane_capture
+        from aiq_agent.common.turn_status import get_lane_captures
+
+        token = begin_lane_capture()
+        try:
+            await _search(query)
+            return get_lane_captures()
+        finally:
+            end_lane_capture(token)
+
+    async def test_a_member_s_hits_carry_the_locator_stamp(self, corpus):
+        corpus(MEMBERS)
+
+        hits = await self._captured(FAMILY_QUERY)
+
+        members = {name for name in MEMBERS.values()}
+        stamped = {hit["name"]: hit.get("tool") for hit in hits if hit["name"] in members}
+        assert stamped and set(stamped.values()) == {"read_passage"}
+
+    async def test_an_ordinary_search_stamps_nothing_as_opened(self, corpus):
+        corpus(MEMBERS)
+
+        hits = await self._captured(TOPIC_QUERY)
+
+        assert hits and {hit.get("tool") for hit in hits} == {"knowledge_search"}
+
+
 class TestWhereMembershipComesFrom:
     """Three sources, cheapest first, and never a literal list of parts."""
 
