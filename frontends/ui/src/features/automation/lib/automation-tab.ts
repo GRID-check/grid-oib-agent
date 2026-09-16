@@ -51,10 +51,12 @@ export function parseAutomationTab(value: string | undefined): AutomationTab {
  *
  * `?task=` names a run and `?schedule=` names a standing task, and both live
  * on the Tasks tab: a task drawer and a schedule drawer are two drawers over
- * one list, not two destinations.
+ * one list, not two destinations. `?skill=` is the toolbox's own drawer and
+ * belongs to Skills — without it that link landed on Tasks and never opened.
  */
 export function tabForDeepLink(params: URLSearchParams): AutomationTab | null {
   if (params.has('task')) return 'tasks'
   if (params.has('schedule')) return 'tasks'
+  if (params.has('skill')) return 'skills'
   return null
 }

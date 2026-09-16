@@ -161,6 +161,8 @@ export function TasksPanel({
   // the two could settle out of order. A skipped refresh is delayed, never
   // lost — the chain re-asks on its cadence anyway.
   const inFlightRef = useRef(false)
+  /** A reload asked for mid-flight, replayed once the current one lands. */
+  const pendingRef = useRef(false)
   // Project generation: a slow response for the previous project must not
   // overwrite the new project's lists after a project switch.
   const generationRef = useRef(0)
@@ -211,7 +213,17 @@ export function TasksPanel({
 
   const load = useCallback(
     async (quiet: boolean): Promise<void> => {
-      if (inFlightRef.current) return
+      // A reload asked for while one is in flight is QUEUED, never dropped.
+      // The in-flight read was issued before whatever just happened, so it
+      // resolves with stale data by construction: dropping the second read
+      // leaves a just-saved task out of the list until the next poll — up to
+      // the full cadence, and indefinitely if the tab loses focus first. The
+      // retired schedule panel carried this guard; the merge into one cadence
+      // is where it went missing.
+      if (inFlightRef.current) {
+        pendingRef.current = true
+        return
+      }
       inFlightRef.current = true
       const startedFor = generationRef.current
       try {
@@ -223,6 +235,10 @@ export function TasksPanel({
           if (firstLoadRef.current) {
             firstLoadRef.current = false
             setLoading(false)
+          }
+          if (pendingRef.current) {
+            pendingRef.current = false
+            void load(true)
           }
         }
       }

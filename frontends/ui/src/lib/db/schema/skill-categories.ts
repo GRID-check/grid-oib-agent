@@ -11,7 +11,7 @@ import { sql } from 'drizzle-orm'
  * because the UI reads them as one list (platform skill categories first, then
  * the org's own), and two tables would need every read, write and validation
  * to exist twice for no additional safety — the tenant boundary already
- * distinguishes them (see 0087's predicate: platform rows are readable by all,
+ * distinguishes them (see 0089's predicate: platform rows are readable by all,
  * writable through the platform role's service checks).
  *
  * Names are unique per category owner: platform names among platform rows, org

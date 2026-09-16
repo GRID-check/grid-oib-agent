@@ -849,7 +849,7 @@ reading before a rollback — published standard rows become ordinary offers, wh
 means they run for nobody until each organization switches them on, and nothing
 records which rows were standard.
 
-## skill_categories (migration 0087)
+## skill_categories (migration 0089)
 
 The skill categories — one table for both curators. `organization_id`
 NULL is a platform skill category (read by every tenant, written through

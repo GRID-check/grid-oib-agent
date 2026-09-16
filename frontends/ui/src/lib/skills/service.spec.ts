@@ -34,6 +34,7 @@ vi.mock('./platform-repository', () => ({
 vi.mock('./skill-category-repository', () => ({
   CATEGORIES_LIST_LIMIT: 100,
   listCategoriesForOrg: vi.fn(),
+  listOrgCategories: vi.fn(),
   findCategoryInScope: vi.fn(),
   findPlatformSkillCategory: vi.fn(),
   findOrgCategoryByName: vi.fn(),
@@ -229,6 +230,7 @@ beforeEach(() => {
   vi.mocked(repository.findSkillByName).mockResolvedValue(null)
   // No categories unless a test stands some up.
   vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue([])
+  vi.mocked(categoryRepository.listOrgCategories).mockResolvedValue([])
   vi.mocked(categoryRepository.findCategoryInScope).mockResolvedValue(null)
   vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(null)
   vi.mocked(categoryRepository.findOrgCategory).mockResolvedValue(null)
@@ -912,9 +914,11 @@ describe('skill category CRUD', () => {
 
   it('refuses a create past the list limit instead of silently dropping rows', async () => {
     vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(null)
-    vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue(
-      Array.from({ length: 101 }, (_, index) =>
-        makeCategory({ id: `cat-${index}`, name: `Kat ${index}` })
+    // Exactly at the cap, not past it: the row this call would insert is the
+    // one that falls off the bounded read, so the cap has to bite at `>=`.
+    vi.mocked(categoryRepository.listOrgCategories).mockResolvedValue(
+      Array.from({ length: 100 }, (_, index) =>
+        makeCategory({ id: `cat-${index}`, organizationId: 'org_1', name: `Kat ${index}` })
       )
     )
     vi.mocked(categoryRepository.insertCategory).mockImplementation(async (values) => ({
@@ -925,5 +929,23 @@ describe('skill category CRUD', () => {
       ConflictError
     )
     expect(categoryRepository.insertCategory).not.toHaveBeenCalled()
+  })
+
+  it('does not spend an org quota on the platform\u2019s categories', async () => {
+    // The regression this guards: counting the combined list meant a busy
+    // platform curation locked every tenant out of its own shelves forever.
+    vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(null)
+    vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue(
+      Array.from({ length: 100 }, (_, index) =>
+        makeCategory({ id: `plat-${index}`, name: `Plattform ${index}` })
+      )
+    )
+    vi.mocked(categoryRepository.listOrgCategories).mockResolvedValue([])
+    vi.mocked(categoryRepository.insertCategory).mockImplementation(async (values) => ({
+      ...makeCategory({ organizationId: 'org_1' }),
+      ...values,
+    }))
+    const { category } = await createSkillCategory(session, { name: 'Eigene' })
+    expect(category).toMatchObject({ name: 'Eigene', scope: 'org' })
   })
 })

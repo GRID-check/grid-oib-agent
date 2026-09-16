@@ -217,13 +217,24 @@ export function SkillToolbox({
     () => categories.filter((category) => category.scope === 'org'),
     [categories],
   )
+  /**
+   * How many skills stand on each category — counted over EVERY org skill, not
+   * the search-filtered view.
+   *
+   * These counts feed the category manager, whose delete confirmation says how
+   * many skills fall back to unsorted. Derived from the filtered list, a search
+   * narrowing the page to one skill would promise that deleting a category
+   * touches one skill while it silently unsorts thirty. A destructive action
+   * states its real blast radius or it is not a confirmation.
+   */
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = {}
-    for (const skill of orgSkills) {
+    for (const skill of skills ?? []) {
+      if (skill.origin === 'platform') continue
       if (skill.categoryId) counts[skill.categoryId] = (counts[skill.categoryId] ?? 0) + 1
     }
     return counts
-  }, [orgSkills])
+  }, [skills])
 
   const openDetail = useCallback((skill: SkillListItem) => {
     const key = selectionKey(skill)
@@ -305,6 +316,25 @@ export function SkillToolbox({
           featured section is there to be distinguished from. On a page with
           nothing curated yet, a lone "Your skills" heading over the only list
           on the page is a label for the page, which the page already has. */}
+      {/* The heading is conditional; the way into the category manager is not.
+          It used to ride inside this block, so an org with no curated offers —
+          or a search matching only its own skills — lost the only door to the
+          manager. A control that vanishes with an unrelated list is a control
+          nobody can find twice. */}
+      {skills !== null && !error && curated.length === 0 && canManage && (
+        <div className="mt-8 flex items-center">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-muted-foreground ml-auto"
+            onClick={() => setCategoriesOpen(true)}
+            data-testid="categories-manage-bare"
+          >
+            {t('toolbox.categories.button')}
+          </Button>
+        </div>
+      )}
+
       {skills !== null && !error && curated.length > 0 && (!searching || orgGroups.length > 0) && (
         <div className="mt-8 flex items-center gap-2">
           <h2 className="text-foreground text-sm font-semibold tracking-[-0.01em]">

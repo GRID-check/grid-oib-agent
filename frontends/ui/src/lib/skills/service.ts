@@ -553,11 +553,15 @@ export async function createSkillCategory(
   if (existing) {
     throw new ConflictError(`A category named "${input.name}" already exists in this organization.`)
   }
-  const visible = await categoryRepository.listCategoriesForOrg(
+  // The organization's OWN shelves are what its quota counts. Counting the
+  // platform's against it would let fleet curation spend a tenant's allowance —
+  // and, once the platform reached the cap, refuse every org category forever.
+  // `>=` and not `>`: at exactly the limit the next insert is the one over it.
+  const own = await categoryRepository.listOrgCategories(
     session.organizationId,
     categoryRepository.CATEGORIES_LIST_LIMIT + 1,
   )
-  if (visible.length > categoryRepository.CATEGORIES_LIST_LIMIT) {
+  if (own.length >= categoryRepository.CATEGORIES_LIST_LIMIT) {
     throw new ConflictError(
       `Category limit reached (${categoryRepository.CATEGORIES_LIST_LIMIT}). Remove an unused category before adding another.`
     )

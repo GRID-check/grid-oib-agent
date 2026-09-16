@@ -13,7 +13,7 @@
  */
 
 import 'server-only'
-import { and, asc, eq, isNull, or, sql } from 'drizzle-orm'
+import { and, asc, eq, isNull, or } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   skillCategories,
@@ -27,10 +27,31 @@ export const CATEGORIES_LIST_LIMIT = 100
 /**
  * Every category an organization sees: the platform's, then its own.
  *
- * Ordered the way the toolbox reads them — platform categories first (NULLS
- * FIRST), then by sort order, ties by name. Bounded, like every list.
+ * Ordered the way the toolbox reads them — platform categories first, then by
+ * sort order, ties by name. Bounded, like every list — but bounded PER HALF,
+ * which is the whole reason this is two reads and not one.
+ *
+ * One query with a shared LIMIT and `NULLS FIRST` starves the tenant: once
+ * platform curation reaches the cap, an organization's own categories fall off
+ * the end of the only read the toolbox and the picker use. Its skills would
+ * render as "unsorted" against categories that exist, and `createSkillCategory`
+ * would refuse every new one — a tenant locked out of its own shelves by how
+ * busy the platform's curation happens to be. Each half gets its own headroom
+ * instead, so neither can crowd the other out.
  */
 export async function listCategoriesForOrg(
+  organizationId: string,
+  limit = CATEGORIES_LIST_LIMIT,
+): Promise<SkillCategoryRow[]> {
+  const [platform, own] = await Promise.all([
+    listPlatformSkillCategories(limit),
+    listOrgCategories(organizationId, limit),
+  ])
+  return [...platform, ...own]
+}
+
+/** One organization's own categories, bounded on their own. */
+export async function listOrgCategories(
   organizationId: string,
   limit = CATEGORIES_LIST_LIMIT,
 ): Promise<SkillCategoryRow[]> {
@@ -38,12 +59,8 @@ export async function listCategoriesForOrg(
   return db
     .select()
     .from(skillCategories)
-    .where(or(isNull(skillCategories.organizationId), eq(skillCategories.organizationId, organizationId)))
-    .orderBy(
-      sql`${skillCategories.organizationId} NULLS FIRST`,
-      asc(skillCategories.sortOrder),
-      asc(skillCategories.name),
-    )
+    .where(eq(skillCategories.organizationId, organizationId))
+    .orderBy(asc(skillCategories.sortOrder), asc(skillCategories.name))
     .limit(limit)
 }
 

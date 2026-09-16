@@ -215,7 +215,9 @@ export async function createPlatformSkillCategory(
   const visible = await categoryRepository.listPlatformSkillCategories(
     categoryRepository.CATEGORIES_LIST_LIMIT + 1,
   )
-  if (visible.length > categoryRepository.CATEGORIES_LIST_LIMIT) {
+  // `>=` and not `>`: at exactly the limit the next insert is the one over it,
+  // and the reads that render these are bounded at the same number.
+  if (visible.length >= categoryRepository.CATEGORIES_LIST_LIMIT) {
     throw new ConflictError(
       `Category limit reached (${categoryRepository.CATEGORIES_LIST_LIMIT}). Remove an unused category before adding another.`
     )
