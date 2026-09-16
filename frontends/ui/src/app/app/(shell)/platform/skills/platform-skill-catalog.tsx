@@ -53,12 +53,12 @@ import { Switch } from '@/components/ui/switch'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
-  createPlatformCategory,
-  deletePlatformCategory,
+  createPlatformSkillCategory,
+  deletePlatformSkillCategory,
   deletePlatformSkill,
-  listPlatformCategories,
+  listPlatformSkillCategories,
   listPlatformSkills,
-  updatePlatformCategory,
+  updatePlatformSkillCategory,
   updatePlatformSkill,
   type PlatformSkillDelivery,
   type PlatformSkillItem,
@@ -102,7 +102,7 @@ export function PlatformSkillCatalog(): JSX.Element {
     listPlatformSkills()
       .then((rows) => {
         setSkills(rows)
-        listPlatformCategories()
+        listPlatformSkillCategories()
           .then(setCategories)
           .catch(() => setCategoriesFailed(true))
       })
@@ -369,9 +369,9 @@ export function PlatformSkillCatalog(): JSX.Element {
         onOpenChange={setCategoriesOpen}
         categories={categories}
         counts={categoryCounts}
-        onCreate={async (input) => createPlatformCategory(input)}
-        onRename={async (id, name) => updatePlatformCategory(id, { name })}
-        onDelete={async (id) => deletePlatformCategory(id)}
+        onCreate={async (input) => createPlatformSkillCategory(input)}
+        onRename={async (id, name) => updatePlatformSkillCategory(id, { name })}
+        onDelete={async (id) => deletePlatformSkillCategory(id)}
         onChanged={load}
       />
     </section>

@@ -1,5 +1,7 @@
 'use client'
 
+import type { SkillCategoryListItem } from '@/adapters/api/skills-client'
+
 /**
  * Dev preview for the Agent Skills tab. Renders the REAL SkillsPanel — the org's
  * skills and nothing else, since everything schedule-shaped lives in the Tasks
@@ -17,7 +19,7 @@
 import { I18nProvider } from '@/i18n'
 import { SkillsPanel } from '@/features/skills/components/skills-panel'
 
-const CATEGORIES = [
+const CATEGORIES: SkillCategoryListItem[] = [
   {
     id: 'cat-oib',
     name: 'OIB',
@@ -101,7 +103,11 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     w.__skillsPanelShim = true
     // Mutable working copies: the manager's create/rename/remove run against
     // these, so the preview shows the interaction rather than an error toast.
-    const categories = [...CATEGORIES]
+    // Annotated rather than inferred from the seed: the shim CREATES
+    // categories too, and a created one has no slug (only the seeded
+    // platform ones do). Inference from `CATEGORIES` alone narrows `slug`
+    // to `string` and rejects the very rows this shim exists to make.
+    const categories: SkillCategoryListItem[] = [...CATEGORIES]
 
     /** The JSON body the BFF clients send — unparseable means no fields. */
     const parseJsonBody = (body: BodyInit | null | undefined): { name?: unknown } => {
@@ -130,7 +136,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
           description: null,
           slug: null,
           sortOrder: 0,
-          scope: 'org',
+          scope: 'org' as const,
         }
         categories.push(created)
         return Response.json({ category: created }, { status: 201 })

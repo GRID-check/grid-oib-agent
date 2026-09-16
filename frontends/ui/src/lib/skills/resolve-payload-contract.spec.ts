@@ -87,6 +87,9 @@ const ORG = 'org_1'
  */
 const STANDARD_ROW: PlatformSkillRow = {
   id: 'ps-std',
+  // Uncategorized: what this file pins is the RESOLVE payload, and a category
+  // is a browsing affordance that never crosses to the agent.
+  categoryId: null,
   name: 'piloti-voice',
   description: 'Schreibt jede Antwort in der Hausstimme.',
   body: 'Kein Vorbehalt vor der Aussage.',
@@ -127,6 +130,7 @@ const MACHINERY = {
 /** The tenant's own skill, scoped to the chat agent. */
 const ORG_ROW: Skill = {
   id: 'skill-1',
+  categoryId: null,
   organizationId: ORG,
   name: 'buero-detailpruefung',
   description: 'Prüft ein Detail gegen die Büroregeln.',

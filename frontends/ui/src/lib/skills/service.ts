@@ -838,7 +838,14 @@ async function resolveAll(
   // deployment default"), and standard has to outrank org rows, so standard
   // necessarily outranks machinery too. That collision is prevented by name
   // instead — `livePlatformSkills` drops any standard row a builtin has named.
-  const machinery = listPlatformSkills().filter((skill) => !isCuratedPlatformSkill(skill.metadata))
+  // Machinery is uncategorized BY CONSTRUCTION: a category is something a
+  // person files a curated offer under, and this is the pipeline's own
+  // instructions — nobody browses it. `toCurated` is what states that, by
+  // defaulting `categoryId` to null, rather than the union being widened to
+  // let a file skill through without one.
+  const machinery = listPlatformSkills()
+    .filter((skill) => !isCuratedPlatformSkill(skill.metadata))
+    .map(toCurated)
   const taken = live.offers.filter((offer) => isActivated(activations, offer.name))
   for (const platform of [...taken, ...machinery]) put(platform, 'platform')
 

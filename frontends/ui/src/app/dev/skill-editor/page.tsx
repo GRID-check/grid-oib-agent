@@ -124,6 +124,9 @@ export default function SkillEditorPreviewPage(): JSX.Element {
             id: 'skill-preview',
             origin: 'org',
             enabled: true,
+            // Unsorted, which is what a skill written straight into the editor
+            // is until somebody files it.
+            categoryId: null,
             clonedFrom: null,
             createdAt: null,
             updatedAt: null,

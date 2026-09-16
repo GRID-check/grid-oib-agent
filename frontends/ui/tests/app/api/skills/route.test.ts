@@ -63,10 +63,22 @@ describe('GET /api/skills', () => {
 
   it('lists the merged toolbox when the env gate is on', async () => {
     process.env.GRID_SKILLS_ENABLED = 'true'
-    mockList.mockResolvedValue({ skills: [asSkill({ id: 'skill-1', name: 'a' })] })
+    // The route is a pass-through, so the toolbox's two halves — the skills and
+    // the categories they are filed under — both have to reach the client.
+    mockList.mockResolvedValue({
+      skills: [asSkill({ id: 'skill-1', name: 'a' })],
+      categories: [
+        { id: 'cat-1', name: 'Brandschutz', description: null, slug: null, sortOrder: 0, scope: 'org' as const },
+      ],
+    })
     const res = await GET(req())
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ skills: [{ id: 'skill-1', name: 'a' }] })
+    expect(await res.json()).toEqual({
+      skills: [{ id: 'skill-1', name: 'a' }],
+      categories: [
+        { id: 'cat-1', name: 'Brandschutz', description: null, slug: null, sortOrder: 0, scope: 'org' },
+      ],
+    })
     expect(mockList).toHaveBeenCalledWith(session)
   })
 })

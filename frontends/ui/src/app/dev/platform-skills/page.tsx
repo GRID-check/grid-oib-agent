@@ -1,5 +1,7 @@
 'use client'
 
+import type { SkillCategoryListItem } from '@/adapters/api/skills-client'
+
 /**
  * Dev preview for Platform → Skills: the catalogue Piloti writes for every
  * organization. Renders the REAL `PlatformSkillCatalog` with a fetch shim
@@ -16,7 +18,7 @@
 import { I18nProvider } from '@/i18n'
 import { PlatformSkillCatalog } from '@/app/app/(shell)/platform/skills/platform-skill-catalog'
 
-const CATEGORIES = [
+const CATEGORIES: SkillCategoryListItem[] = [
   {
     id: 'cat-oib',
     name: 'OIB',
@@ -75,7 +77,11 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     w.__platformSkillsShim = true
     // Mutable working copy: the category manager's create/rename/remove runs
     // against this, so the preview shows the interaction rather than an error.
-    const categories = [...CATEGORIES]
+    // Annotated rather than inferred from the seed: the shim CREATES
+    // categories too, and a created one has no slug (only the seeded
+    // platform ones do). Inference from `CATEGORIES` alone narrows `slug`
+    // to `string` and rejects the very rows this shim exists to make.
+    const categories: SkillCategoryListItem[] = [...CATEGORIES]
 
     /** The JSON body the BFF clients send — unparseable means no fields. */
     const parseJsonBody = (body: BodyInit | null | undefined): { name?: unknown } => {
@@ -106,7 +112,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
           description: null,
           slug: null,
           sortOrder: 0,
-          scope: 'platform',
+          scope: 'platform' as const,
         }
         categories.push(created)
         return Response.json({ category: created }, { status: 201 })

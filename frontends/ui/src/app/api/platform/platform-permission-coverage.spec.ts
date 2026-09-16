@@ -70,6 +70,15 @@ const EXPECTED: Record<string, string> = {
   'reasoning-efforts/route.ts PUT': 'settingsManage',
   'retrieval-settings/route.ts GET': 'settingsView',
   'retrieval-settings/route.ts PUT': 'settingsManage',
+  // Platform skill categories: the shelves the curated catalogue is filed on,
+  // so platform-owned configuration like the skills themselves, and gated the
+  // same way. Reading the shelves is `settingsView`; creating, renaming and
+  // deleting one is `settingsManage` — a Platform Support reader can see how
+  // the catalogue is organized and cannot reorganize it.
+  'skill-categories/[categoryId]/route.ts PATCH': 'settingsManage',
+  'skill-categories/[categoryId]/route.ts DELETE': 'settingsManage',
+  'skill-categories/route.ts GET': 'settingsView',
+  'skill-categories/route.ts POST': 'settingsManage',
   'skills/[skillId]/route.ts PATCH': 'settingsManage',
   'skills/[skillId]/route.ts DELETE': 'settingsManage',
   'skills/route.ts GET': 'settingsView',
