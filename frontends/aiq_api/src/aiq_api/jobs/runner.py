@@ -1025,6 +1025,19 @@ async def run_agent_job(
                     if llm is not None:
                         llm = provider.get(LLMRole.ORCHESTRATOR)
 
+            # The platform owner's thinking level per group (Platform → Models).
+            # Platform-wide, so nothing is captured at submit time: the worker
+            # resolves the same map the chat replicas do, off the loop because
+            # a cold cache is one BFF round-trip.
+            from aiq_agent.common import LLMRole
+            from aiq_agent.common import get_reasoning_efforts
+
+            with_efforts = provider.with_reasoning_efforts(await asyncio.to_thread(get_reasoning_efforts))
+            if with_efforts is not provider:
+                provider = with_efforts
+                if llm is not None:
+                    llm = provider.get(LLMRole.ORCHESTRATOR)
+
             # The tenant this job belongs to, captured at submit time inside
             # usage_context because a Dask worker has no request headers to read
             # it from. Two things need it: BYOK below, and the agent state

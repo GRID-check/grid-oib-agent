@@ -27,6 +27,7 @@ from aiq_agent.common import get_checkpointer
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_model_overrides_from_context
 from aiq_agent.common import get_org_llm_credential_from_context
+from aiq_agent.common import get_reasoning_efforts
 from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common import validate_tool_availability
@@ -355,6 +356,7 @@ def _agent_for_request(
     """
     provider = (
         blueprint.provider.with_model_overrides(get_model_overrides_from_context())
+        .with_reasoning_efforts(get_reasoning_efforts())
         .with_credential(get_org_llm_credential_from_context())
         .with_zdr(get_zdr_only_from_context())
     )

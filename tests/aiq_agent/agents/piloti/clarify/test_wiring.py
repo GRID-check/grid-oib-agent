@@ -238,7 +238,8 @@ def provider_varying(varies: bool) -> MagicMock:
     """A provider double whose override chain returns itself, or a new one."""
     provider = MagicMock(spec=LLMProvider)
     chained = MagicMock(spec=LLMProvider) if varies else provider
-    provider.with_model_overrides.return_value.with_credential.return_value.with_zdr.return_value = chained
+    chain = provider.with_model_overrides.return_value.with_reasoning_efforts.return_value
+    chain.with_credential.return_value.with_zdr.return_value = chained
     return provider
 
 
