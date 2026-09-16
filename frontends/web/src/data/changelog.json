@@ -63,6 +63,14 @@
               "de": "„bereits abgerufen\" steht dort, wo dieselbe Stelle noch einmal geholt wurde oder wo Piloti in eine schon aufgeschlagene Datei zurückgegangen ist. Dass eine Suche ein Dokument nur gelistet hat, macht das spätere Aufschlagen nicht mehr zur Wiederholung."
             },
             {
+              "en": "Antworten mit mehreren Karten sind schneller da: Piloti erzeugt die Karten einer Antwort jetzt zusammen statt eine nach der anderen. Bei zwei Karten spart das einen kompletten Durchlauf über die Antwort.",
+              "de": "Antworten mit mehreren Karten sind schneller da: Piloti erzeugt die Karten einer Antwort jetzt zusammen statt eine nach der anderen. Bei zwei Karten spart das einen kompletten Durchlauf über die Antwort."
+            },
+            {
+              "en": "Lässt sich der Überblick über eine Richtlinien-Familie einmal nicht erstellen, sagt Piloti das in der Herleitung und schlägt die Teile stattdessen einzeln auf. Bisher kamen kommentarlos weniger Dokumente zurück, und die Antwort sah aus wie eine gewöhnliche Suche.",
+              "de": "Lässt sich der Überblick über eine Richtlinien-Familie einmal nicht erstellen, sagt Piloti das in der Herleitung und schlägt die Teile stattdessen einzeln auf. Bisher kamen kommentarlos weniger Dokumente zurück, und die Antwort sah aus wie eine gewöhnliche Suche."
+            },
+            {
               "en": "Skills can now be arranged into categories, curated by Piloti or by your own organization. The Skills tab groups both halves onto them, with search, counts and a detail view for every skill.",
               "de": "Skills can now be arranged into categories, curated by Piloti or by your own organization. The Skills tab groups both halves onto them, with search, counts and a detail view for every skill."
             },
@@ -77,6 +85,15 @@
             {
               "en": "In der Herleitung steht bei einer punktgenau gelesenen Stelle jetzt der Punkt („Pkt. 3.5.2“) vor der Seite. In einer Richtlinie ist die Nummer die Fundstelle, nach der gesucht wird.",
               "de": "In der Herleitung steht bei einer punktgenau gelesenen Stelle jetzt der Punkt („Pkt. 3.5.2“) vor der Seite. In einer Richtlinie ist die Nummer die Fundstelle, nach der gesucht wird."
+            }
+          ]
+        },
+        {
+          "key": "fixes",
+          "notes": [
+            {
+              "en": "Ein Werkzeugaufruf, der fehlschlägt, taucht nicht mehr als Quelle in der Herleitung auf. Bisher landete die Fehlermeldung selbst in der Quellenliste, samt der Adresse, auf die sie verwies, und Piloti las den Fehlschlag als Fließtext statt als kurzen Hinweis, mit dem es den Aufruf korrigieren kann.",
+              "de": "Ein Werkzeugaufruf, der fehlschlägt, taucht nicht mehr als Quelle in der Herleitung auf. Bisher landete die Fehlermeldung selbst in der Quellenliste, samt der Adresse, auf die sie verwies, und Piloti las den Fehlschlag als Fließtext statt als kurzen Hinweis, mit dem es den Aufruf korrigieren kann."
             }
           ]
         }
