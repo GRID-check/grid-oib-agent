@@ -1608,7 +1608,7 @@
     },
     "task-list": {
       "route": "src/app/dev/task-list/page.tsx",
-      "routeHash": "c4b8aa0b50a5162337b1ffd885998e29ba064db62296cc72d1f4dcb7bac4d64f",
+      "routeHash": "b93fc1851cc0d0fad2eb381261be258114062653b4568aaaf6ee7fa73a1141ea",
       "shots": [
         "task-list.light.png",
         "task-list.dark.png",
