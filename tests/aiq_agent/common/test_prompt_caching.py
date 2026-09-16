@@ -12,6 +12,8 @@ from langchain_core.messages import SystemMessage
 
 from aiq_agent.common.prompt_caching import PROMPT_CACHE_KEY_FIELD
 from aiq_agent.common.prompt_caching import SESSION_ID_FIELD
+from aiq_agent.common.prompt_caching import begin_stable_prefix
+from aiq_agent.common.prompt_caching import end_stable_prefix
 from aiq_agent.common.prompt_caching import prompt_cache_extra_body
 from aiq_agent.common.prompt_caching import prompt_cache_key
 from aiq_agent.common.prompt_caching import with_prompt_cache_routing
@@ -115,3 +117,50 @@ def test_the_envelope_response_format_is_part_of_the_key():
     strict = prompt_cache_extra_body(messages, {"response_format": {"type": "json_schema"}})
     loose = prompt_cache_extra_body(messages, {"response_format": {"type": "json_object"}})
     assert strict[SESSION_ID_FIELD] != loose[SESSION_ID_FIELD]
+
+
+class TestAStablePrefixKeepsTheShard:
+    """An agent whose system prompt has a stable head and a per-turn tail names the head.
+
+    Piloti's dynamic half changes every turn of one conversation (the
+    already-read digest), so keying on the whole message gave each turn a new
+    key and a cold static prefix. Named, the prefix is the key; unnamed, or not
+    matching, the whole message still is.
+    """
+
+    STATIC = "You are Piloti. [rules, tools, schema]"
+
+    def _body(self, tail: str):
+        messages = [SystemMessage(content=self.STATIC + tail), HumanMessage(content="q")]
+        return prompt_cache_extra_body(messages, {"tools": TOOLS}, organization_id="org_1")
+
+    def test_turns_that_share_the_prefix_share_the_key(self):
+        token = begin_stable_prefix(self.STATIC)
+        try:
+            first = self._body("\n## Context\nCurrent date: 2026-09-15\nread: nothing")
+            second = self._body("\n## Context\nCurrent date: 2026-09-16\nread: OIB-2 4.1")
+        finally:
+            end_stable_prefix(token)
+        assert first[SESSION_ID_FIELD] == second[SESSION_ID_FIELD]
+
+    def test_unnamed_the_whole_message_is_the_key(self):
+        first = self._body("\nread: nothing")
+        second = self._body("\nread: OIB-2 4.1")
+        assert first[SESSION_ID_FIELD] != second[SESSION_ID_FIELD]
+
+    def test_a_prompt_that_does_not_open_with_the_prefix_is_keyed_whole(self):
+        token = begin_stable_prefix("Another agent's prefix")
+        try:
+            named = self._body("\nread: nothing")
+        finally:
+            end_stable_prefix(token)
+        assert named[SESSION_ID_FIELD] == self._body("\nread: nothing")[SESSION_ID_FIELD]
+
+    def test_the_named_prefix_is_the_key_itself(self):
+        token = begin_stable_prefix(self.STATIC)
+        try:
+            named = self._body("\nanything")
+        finally:
+            end_stable_prefix(token)
+        bare = prompt_cache_key(system_prompt=self.STATIC, tools=(TOOLS, None), organization_id="org_1", model=None)
+        assert named[PROMPT_CACHE_KEY_FIELD] == bare

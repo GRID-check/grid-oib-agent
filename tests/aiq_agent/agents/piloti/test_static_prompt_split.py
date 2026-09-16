@@ -230,6 +230,20 @@ class TestPromptLink:
             "prompt_version": bundled_static_block().version,
         }
 
+    async def test_the_stamp_returns_the_bytes_the_prompt_opens_with(self, monkeypatch):
+        """
+        The stamp's return names the provider cache's stable prefix, so it
+        must be exactly what the rendered system prompt STARTS with: the
+        template's first line is `{{ static_block }}`, and a byte of drift
+        between the two would key every turn on the whole prompt again.
+        """
+        monkeypatch.setattr(prompt_module, "prompt_store", lambda: PromptStore(enabled=False))
+
+        static = await stamp_static_prompt_for_turn()
+        rendered = render_prompt_template(system_prompt_template(), static_block=static, **PINNED)
+
+        assert static and rendered.startswith(static)
+
     async def test_the_turn_stamp_names_what_this_turn_resolved(self, monkeypatch):
         """
         The identity is process state and the stamp is per turn, so the stamp

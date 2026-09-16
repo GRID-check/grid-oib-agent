@@ -65,6 +65,8 @@ from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.grounding_block import begin_grounding_capture
 from aiq_agent.common.grounding_block import end_grounding_capture
+from aiq_agent.common.prompt_caching import begin_stable_prefix
+from aiq_agent.common.prompt_caching import end_stable_prefix
 from aiq_agent.common.retrieval_rounds import assistant_checkpoint
 from aiq_agent.common.retrieval_rounds import failed_call_ids
 from aiq_agent.common.retrieval_rounds import ran_signatures
@@ -1380,7 +1382,11 @@ class PilotiAgent:
         # with, including the render thread's own resolution, lands in it and
         # is what this turn's generation spans name.
         prompt_link = begin_turn_prompt_link()
-        await stamp_static_prompt_for_turn()
+        # The static half is what every call of every turn of this tenant
+        # shares; naming it keeps the provider's cache key, and so its shard,
+        # stable across turns while the dynamic half moves (already-read
+        # digest, date, inventory).
+        stable_prefix = begin_stable_prefix(await stamp_static_prompt_for_turn())
         registry, registry_token = _bind_registry()
         turn_capture = begin_turn_capture()
         measurement_capture = begin_measurement_capture()
@@ -1399,6 +1405,7 @@ class PilotiAgent:
             end_lane_capture(lane_capture)
             end_measurement_capture(measurement_capture)
             end_turn_capture(turn_capture)
+            end_stable_prefix(stable_prefix)
             end_turn_prompt_link(prompt_link)
             if registry_token is not None:
                 reset_session_registry(registry_token)
