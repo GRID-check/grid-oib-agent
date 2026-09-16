@@ -1,0 +1,214 @@
+/**
+ * The run's message and its ledger — the service behind the run primitive
+ * (ADR-0055, ADR-0062).
+ *
+ * A run is ONE assistant message in the conversation it was commissioned in.
+ * This module owns three moves on that message and nothing else:
+ *
+ *   `createRunMessage`  — mint it, empty, at submit time;
+ *   `applyRunLedgerOp`  — fold one op into `metadata.run_ledger`;
+ *   `getRunView`        — read it back for a person, project-scoped.
+ *
+ * ## Identity comes from the row, never from the body
+ *
+ * The ledger arrives from a worker that holds one id: the run's. So
+ * `applyRunLedgerOp` resolves that id under platform access — there is genuinely
+ * no tenant yet — and then does EVERYTHING else inside the run's own
+ * organization, so row-level security applies to the write exactly as it would
+ * to a person's. The organization, the project and the requester are read off
+ * the `task_runs` row; the request body names none of them and could not be
+ * believed if it did (ADR-0041, and the shape `POST /api/internal/jobs/[jobId]/outcome`
+ * already uses).
+ *
+ * ## This route owns `run_ledger` and no other metadata key
+ *
+ * The finished report, its sources and the transparency keys
+ * (`_TRANSPARENCY_METADATA_KEYS` in `frontends/aiq_api/.../conversation_output.py`)
+ * are written by the path that produces them, into the same message. The merge
+ * below is per top-level key, so a ledger flush never touches them and a report
+ * write never touches the ledger — two writers, one message, no lost update
+ * (`mergeMessageMetadata` takes the row lock).
+ */
+
+import 'server-only'
+import { v5 as uuidv5 } from 'uuid'
+import { BadRequestError, NotFoundError } from '@/lib/api/errors'
+import type { AuthorizedSession } from '@/lib/auth/types'
+import { requireProjectAccess } from '@/lib/authz/projects'
+import {
+  findMessageInConversation,
+  insertMessages,
+  mergeMessageMetadata,
+} from '@/lib/conversations/repository'
+import type { Message } from '@/lib/db/schema'
+import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
+import * as taskRepository from '@/lib/tasks/repository'
+import {
+  applyRunLedgerAppend,
+  applyRunLedgerFinish,
+  emptyRunLedger,
+  sanitizeRunLedger,
+} from './run-ledger'
+import type { RunLedger, RunLedgerRequest, RunLedgerResponse, RunView } from './run-ledger-types'
+
+/** Where the ledger lives on the message. Wire spelling, like `retrieval_ledger`. */
+export const RUN_LEDGER_METADATA_KEY = 'run_ledger'
+
+/**
+ * The id of the message a run writes into, derived from the run id.
+ *
+ * Deterministic on purpose, exactly as `conversation_output._message_id` is on
+ * the Python side: `insertMessages` upserts with `onConflictDoNothing`, so a
+ * retried submit — a worker that lost its claim, a user who pressed the button
+ * twice — lands on the same row instead of leaving two half-written runs in the
+ * thread. uuid5 over `NAMESPACE_URL`, which is the namespace the Python half
+ * uses, so both tiers compute the same uuid for the same run.
+ */
+export function runMessageId(runId: string): string {
+  return uuidv5(`grid:run:${runId}`, uuidv5.URL)
+}
+
+/**
+ * Mint the run's message: an empty assistant turn carrying an empty ledger.
+ *
+ * Empty content, deliberately. The message is the run's PLACE in the thread from
+ * the moment it is submitted — „angelegt" is a state the reader should see —
+ * and its prose arrives when the run has some. A reader of an older build sees
+ * an assistant message with nothing in it, which is what it is.
+ *
+ * Runs inside the caller's tenant scope: the organization is defaulted from
+ * `grid.organization_id` in SQL, so a call outside a scope fails closed rather
+ * than writing into whatever tenant the socket last served.
+ */
+export async function createRunMessage(
+  conversationId: string,
+  runId: string,
+  at: Date = new Date(),
+): Promise<Message> {
+  const id = runMessageId(runId)
+  const [inserted] = await insertMessages([
+    {
+      id,
+      conversationId,
+      role: 'assistant',
+      runId,
+      content: '',
+      metadata: {
+        messageType: 'agent_response',
+        [RUN_LEDGER_METADATA_KEY]: emptyRunLedger(runId, at),
+      },
+      createdAt: at,
+    },
+  ])
+  if (inserted) return inserted
+  // The insert no-opped, so the message is already there — a retry, which is
+  // the whole point of the deterministic id. Read it back rather than reporting
+  // a failure: the caller wanted a message to exist, and one does.
+  const existing = await findMessageInConversation(conversationId, id)
+  if (!existing) throw new NotFoundError('The run message could not be created')
+  return existing
+}
+
+/** The run a ledger op is about, or a 404. Platform-scope lookup; see the header. */
+async function loadRunForLedger(runId: string) {
+  return withPlatformAccess(
+    'run ledger: the worker names a run by id, before any organization is known',
+    () => taskRepository.findRunById(runId),
+  )
+}
+
+/** The ledger stored on a message, sanitised, or null when it carries none. */
+function storedLedger(message: Message): RunLedger | null {
+  const metadata = (message.metadata ?? {}) as Record<string, unknown>
+  return sanitizeRunLedger(metadata[RUN_LEDGER_METADATA_KEY])
+}
+
+/** The op as the fold takes it — exactly one of a result or an error on `finish`. */
+function finishOutcome(op: Extract<RunLedgerRequest, { op: 'finish' }>) {
+  if (op.result && op.error) {
+    throw new BadRequestError('A finished run has a result or an error, never both')
+  }
+  if (op.result) return { result: op.result }
+  if (op.error) return { error: op.error }
+  throw new BadRequestError('A finished run must say what it produced or why it stopped')
+}
+
+/**
+ * Fold one op into the run's ledger and store the result.
+ *
+ * Read-modify-write under the row lock `mergeMessageMetadata` takes, because
+ * two flushes of the same run can be in flight: the debounced one and the
+ * terminal one. The fold itself is the pure one from `./run-ledger`, so the
+ * BFF, the Python tier and the UI all grow a ledger the same way.
+ */
+export async function applyRunLedgerOp(
+  runId: string,
+  op: RunLedgerRequest,
+  at: Date = new Date(),
+): Promise<RunLedgerResponse> {
+  const run = await loadRunForLedger(runId)
+  if (!run) throw new NotFoundError('Unknown run')
+  // A run submitted before this tier minted run messages has nowhere to put a
+  // ledger. A 404 rather than an invented message: the fold treats it as
+  // „nothing to write", and inventing a message would put an empty assistant
+  // turn into a thread nobody asked to have narrated.
+  if (!run.conversationId || !run.runMessageId) {
+    throw new NotFoundError('This run has no message to write a ledger into')
+  }
+  const conversationId = run.conversationId
+  const messageId = run.runMessageId
+
+  return withTenant({ organizationId: run.organizationId }, async () => {
+    const message = await findMessageInConversation(conversationId, messageId)
+    if (!message) throw new NotFoundError('This run has no message to write a ledger into')
+
+    // A message with no ledger yet — one minted before this column existed, or
+    // one whose payload did not survive the sanitiser — starts from an empty
+    // ledger dated to the run, never to now: a week-old run must not be dated
+    // to the moment a flush arrived.
+    const current = storedLedger(message) ?? emptyRunLedger(runId, run.createdAt)
+    const next =
+      op.op === 'append'
+        ? applyRunLedgerAppend(current, op, at)
+        : applyRunLedgerFinish(current, finishOutcome(op), at)
+
+    // Sanitised once more on the way to the column: the moves already bound
+    // their output, and this is the line that makes „sanitised on write" true
+    // of the STORAGE rather than of the caller's good behaviour.
+    const ledger = sanitizeRunLedger(next) ?? current
+    await mergeMessageMetadata(conversationId, messageId, { [RUN_LEDGER_METADATA_KEY]: ledger })
+    return { runId, ledger }
+  })
+}
+
+/**
+ * One run as a person reads it: where its message is, and what the ledger says.
+ *
+ * Project-scoped and session-authorized — `project:view`, the same gate the
+ * task list uses — so this is the surface a browser reads a live run from. The
+ * internal route above is the write door and holds no session at all.
+ */
+export async function getRunView(
+  session: AuthorizedSession,
+  projectId: string,
+  runId: string,
+): Promise<RunView> {
+  await requireProjectAccess(session, projectId, 'project:view')
+  const run = await taskRepository.findRunInProject(runId, projectId, session.organizationId)
+  if (!run) throw new NotFoundError('Unknown run')
+
+  const message =
+    run.conversationId && run.runMessageId
+      ? await findMessageInConversation(run.conversationId, run.runMessageId)
+      : null
+  return {
+    runId: run.id,
+    backendJobId: run.backendJobId,
+    conversationId: run.conversationId,
+    messageId: run.runMessageId,
+    status: run.status,
+    // Re-sanitised on READ as well as on write, like every other stored jsonb
+    // payload a renderer meets: the row may have been written by another build.
+    ledger: message ? storedLedger(message) : null,
+  }
+}

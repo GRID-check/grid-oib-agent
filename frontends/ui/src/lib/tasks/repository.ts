@@ -320,6 +320,19 @@ export async function listRunsInProject(
  * and nothing else, so the caller runs this under platform access and
  * re-enters the run's own tenant for everything after.
  */
+/**
+ * One run by its own id, with no tenant filter — the same bargain
+ * `findRunByBackendJobId` makes, for the same caller shape: the worker flushing
+ * a run ledger holds the run id and nothing else, so the caller runs this under
+ * platform access and re-enters the run's own tenant for everything after
+ * (`lib/runs/service.ts`).
+ */
+export async function findRunById(runId: string): Promise<TaskRun | null> {
+  const db = getDb()
+  const [row] = await db.select().from(taskRuns).where(eq(taskRuns.id, runId)).limit(1)
+  return row ?? null
+}
+
 export async function findRunByBackendJobId(backendJobId: string): Promise<TaskRun | null> {
   const db = getDb()
   const [row] = await db
