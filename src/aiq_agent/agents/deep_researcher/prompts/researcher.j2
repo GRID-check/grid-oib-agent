@@ -40,6 +40,7 @@ Findings are the writer's evidence. Keep the number, the Fundstelle, the edition
 
 ## Tool Use
 - Use the fewest high-signal source-tool calls needed for the assigned query.
+- Where a source tool takes a `conclusion` argument, fill it: ONE sentence on what you now know and what you still need, which is why you are making this call. Leave it empty on your first call. The reader sees it as the checkpoint above the fetch; it does not belong in your findings.
 {% if execution_enabled %}- `execute` runs shell commands in the sandbox only.
 - Never pass agent source tool names to `execute`.
 {% endif %}

@@ -9,6 +9,9 @@ import logging
 import os
 import re
 from collections.abc import Iterator
+from collections.abc import Sequence
+from dataclasses import dataclass
+from dataclasses import field
 from typing import Any
 from typing import cast
 
@@ -21,6 +24,11 @@ from langgraph.errors import GraphRecursionError
 from aiq_agent.common import RunBudgetExceededError
 from aiq_agent.common import extract_json
 from aiq_agent.common.cost_tracking import BudgetExceededError
+from aiq_agent.common.retrieval_rounds import repeat_fetches
+from aiq_agent.common.turn_status import emit_repeat_fetch
+from aiq_agent.common.turn_status import fetch_signature
+from aiq_agent.common.turn_status import record_round_announcement
+from aiq_agent.common.turn_status import retrieval_round_scope
 
 from ..models import ResearchGap
 from ..models import ResearchNotes
@@ -73,6 +81,54 @@ _UNRESEARCHABLE_NARRATIVE = (
 
 class ResearcherExhaustedError(Exception):
     """Terminal per-query worker outcome: the query cannot be researched within its step budget."""
+
+
+@dataclass
+class RetrievalRounds:
+    """One run's retrieval rounds: what each batch announced, and what it returned.
+
+    Built per run and handed to the batch tool (ADR-0018). The agent instance is
+    shared across runs and tenants, so a module-level accumulator would put one
+    tenant's rounds on another tenant's report.
+    """
+
+    #: One entry per announced batch, in dispatch order, as
+    #: ``turn_status.record_round_announcement`` shapes it. Its position is the
+    #: round index the hits of that batch are stamped with.
+    announcements: list[dict[str, Any]] = field(default_factory=list)
+    #: Fetch signature to the note that signature's first execution returned,
+    #: as the wire dict the batch replies with. A query that FAILED is absent,
+    #: so the retry the orchestrator sends runs.
+    results: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+
+def _query_call(query: ResearchQuery, conclusion: str) -> dict[str, Any]:
+    """One planned query as the tool call it stands for.
+
+    The announcement, the round's corpora and the repeat guard all read THIS one
+    derivation, so what a round says it did and what it was allowed to run
+    cannot drift apart. The call is named after the primary preferred tool
+    because that is the tool the worker runs first (researcher.j2, step 8).
+    """
+    return {
+        "name": query.preferred_tools[0],
+        "args": {"query": query.query, "conclusion": conclusion},
+        "id": _query_digest(query),
+    }
+
+
+def _split_batch(calls: list[dict[str, Any]], executed: Sequence[str]) -> tuple[list[int], list[str]]:
+    """The batch positions that RUN, and the signatures an earlier note answers.
+
+    Only the fetches ``fetch_signature`` signs can be withheld at all: a web or
+    catalog query is not the same bytes twice and runs every time it is asked
+    for. Positions on the way out, because the caller pairs them back up with
+    the queries it was handed.
+    """
+    withheld = {id(call) for call in repeat_fetches(calls, executed)}
+    running = [index for index, call in enumerate(calls) if id(call) not in withheld]
+    repeats = [signature for call in calls if id(call) in withheld and (signature := fetch_signature(call)) is not None]
+    return running, repeats
 
 
 def format_research_request(query: ResearchQuery) -> str:
@@ -446,6 +502,68 @@ def _batch_failure_message(
     )
 
 
+def _announce_round(rounds: RetrievalRounds, calls: list[dict[str, Any]]) -> int | None:
+    """Record what this batch is about to fetch, and return the round it is.
+
+    ``None`` when the batch announced nothing: every query it held was withheld,
+    or none of their tools reaches a corpus this module can name. The batch's
+    hits are then stamped with no round, which keeps them off the card of the
+    round before it.
+    """
+    index = len(rounds.announcements)
+    announcement = record_round_announcement(round_index=index, calls=calls, conclusion=None)
+    if announcement is None:
+        return None
+    rounds.announcements.append(announcement)
+    return index
+
+
+def _record_batch_results(
+    rounds: RetrievalRounds,
+    queries: Sequence[ResearchQuery],
+    notes: Sequence[ResearchNotes],
+    conclusion: str,
+) -> None:
+    """Sign each query that RETURNED a note with the note it returned.
+
+    A query whose worker failed is not among ``notes`` and signs nothing, so the
+    retry the orchestrator sends runs. First result wins: a later batch must not
+    overwrite the answer an earlier repeat was already given.
+    """
+    for query, note in zip(queries, notes, strict=False):
+        signature = fetch_signature(_query_call(query, conclusion))
+        if signature is not None:
+            rounds.results.setdefault(signature, note.model_dump(mode="json", exclude_none=True))
+
+
+def _log_withheld(rounds: RetrievalRounds, repeats: Sequence[str], total: int) -> None:
+    """Leave the record a withheld query would otherwise not leave.
+
+    A repeat runs nothing and announces nothing, so without this the run looks
+    like one that was simply asked for less. ``status:repeat:N`` is what makes
+    the rate countable in a trace.
+    """
+    if not repeats:
+        return
+    emit_repeat_fetch(round_index=len(rounds.announcements), withheld=len(repeats))
+    logger.info(
+        "Duplicate research query withheld: %d of %d answered with the note this run already holds",
+        len(repeats),
+        total,
+    )
+
+
+def _withheld_notes(repeats: Sequence[str], results: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """The notes that answer the repeats this batch withheld.
+
+    Withholding a repeat means ANSWERING it with what the run already fetched,
+    never dropping it: the orchestrator resubmits what it did not get back, and
+    a guard that silently shortened the batch would feed the loop it exists to
+    stop.
+    """
+    return [results[signature] for signature in repeats if signature in results]
+
+
 def build_research_batch_tool(
     *,
     researcher_runnable: Any,
@@ -455,39 +573,55 @@ def build_research_batch_tool(
     backend: Any | None = None,
     source_registry_middleware: Any | None = None,
     submission_counts: dict[str, int] | None = None,
+    rounds: RetrievalRounds | None = None,
 ) -> BaseTool:
     """Build an orchestrator-only tool that runs researcher tasks concurrently.
 
     ``submission_counts`` is the run's ledger of submissions per query digest
-    (fresh when omitted; see :func:`_partition_by_submission_budget`). It is
-    an argument so the caller that owns the run owns the ledger.
+    (fresh when omitted; see :func:`_partition_by_submission_budget`).
+    ``rounds`` is the run's retrieval-round ledger, which the caller reads back
+    when the report is assembled. Both are arguments so the caller that owns the
+    run owns the state.
     """
     ledger: dict[str, int] = submission_counts if submission_counts is not None else {}
+    retrieval: RetrievalRounds = rounds if rounds is not None else RetrievalRounds()
 
     @tool
     async def run_research_batch(
         queries: list[ResearchQuery],
+        conclusion: str = "",
         runtime: ToolRuntime = _NO_TOOL_RUNTIME,
     ) -> str:
-        """Run planned research queries in parallel and return ResearchNotes JSON."""
+        """Run planned research queries in parallel and return ResearchNotes JSON.
+
+        Args:
+            queries: The curated ResearchQuery objects to research in this batch.
+            conclusion: ONE sentence: what the batches so far established and
+                what this one still has to close. Empty on the first batch.
+        """
         if not queries:
             return "[]"
         _assert_batch_size(queries, max_research_concurrency)
         _assert_preferred_tools_available(queries, researcher_tool_names)
-        runnable_queries, exhausted_queries = _partition_by_submission_budget(queries, ledger)
-        successful_queries, notes, errors = await _run_research_queries(
-            queries=runnable_queries,
-            researcher_runnable=researcher_runnable,
-            runtime=runtime,
-            callbacks=callbacks,
-            max_concurrency=min(max_research_concurrency, len(runnable_queries) or 1),
-        )
+        calls = [_query_call(query, conclusion) for query in queries]
+        fresh, repeated = _split_batch(calls, list(retrieval.results))
+        _log_withheld(retrieval, repeated, len(queries))
+        runnable_queries, exhausted_queries = _partition_by_submission_budget([queries[i] for i in fresh], ledger)
+        with retrieval_round_scope(_announce_round(retrieval, [calls[i] for i in fresh])):
+            successful_queries, notes, errors = await _run_research_queries(
+                queries=runnable_queries,
+                researcher_runnable=researcher_runnable,
+                runtime=runtime,
+                callbacks=callbacks,
+                max_concurrency=min(max_research_concurrency, len(runnable_queries) or 1),
+            )
         successful_queries.extend(exhausted_queries)
         notes.extend(_terminal_unresearchable_note(query) for query in exhausted_queries)
 
         if source_registry_middleware is not None:
             source_registry_middleware.register_research_note_sources(notes)
         await _persist_research_notes(backend=backend, queries=successful_queries, notes=notes)
+        _record_batch_results(retrieval, successful_queries, notes, conclusion)
 
         if errors:
             raise RuntimeError(
@@ -500,7 +634,8 @@ def build_research_batch_tool(
                 )
             )
         return json.dumps(
-            [note.model_dump(mode="json", exclude_none=True) for note in notes],
+            [note.model_dump(mode="json", exclude_none=True) for note in notes]
+            + _withheld_notes(repeated, retrieval.results),
             indent=2,
             ensure_ascii=False,
         )

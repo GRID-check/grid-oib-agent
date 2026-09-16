@@ -25,6 +25,9 @@ from aiq_agent.common.citation_verification import get_session_registry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
 from aiq_agent.common.turn_status import DEGRADED_NO_REPORT_FILE
+from aiq_agent.common.turn_status import begin_lane_capture
+from aiq_agent.common.turn_status import end_lane_capture
+from aiq_agent.common.turn_status import get_lane_captures
 from aiq_agent.observability.langfuse_trace_attributes import begin_trace_contributions
 from aiq_agent.observability.langfuse_trace_attributes import end_trace_contributions
 from aiq_agent.project_context import get_organization_id_from_context
@@ -58,10 +61,12 @@ from .finalize import extract_final_markdown
 from .finalize import finalize_report
 from .finalize import log_completion
 from .finalize import record_citation_ledger
+from .finalize import record_retrieval_ledger
 from .finalize import replace_last_message_content
 from .finalize import verify_report
 from .models import DeepResearchAgentState
 from .models import last_message_text
+from .tools.research import RetrievalRounds
 from .tools.source_tool_batching import DEFAULT_MAX_CONCURRENT_SOURCE_TOOL_CALLS
 from .tools.source_tool_batching import DEFAULT_MAX_SOURCE_TOOL_BATCH_SIZE
 
@@ -160,6 +165,10 @@ class DeepResearchRunArtifacts:
     tool_set: DeepResearchToolSet
     middleware_set: DeepResearchMiddlewareSet
     callbacks: list[Any]
+    #: What each research batch of this run announced it would fetch, and what
+    #: it already fetched. Read back once the graph has finished, to state the
+    #: run's rounds beside its sources.
+    rounds: RetrievalRounds
     #: This run's resolved skills. The runtime accumulates the activation list
     #: DURING the run and ``_finalize`` reports it — a runtime that went out of
     #: scope at graph-build time is why deep research shipped
@@ -239,6 +248,7 @@ class DeepResearcherAgent:
         if skill_runtime is None:
             skill_runtime = SkillRuntime()
         source_registry_middleware = SourceRegistryMiddleware(source_tool_names=self.source_tool_names)
+        rounds = RetrievalRounds()
         tool_set = build_deep_research_tool_set(
             self.tools,
             source_registry_middleware=source_registry_middleware,
@@ -267,6 +277,7 @@ class DeepResearcherAgent:
             max_research_concurrency=self.max_research_concurrency,
             checkpointer=self.checkpointer,
             skills_block=_skills_block(skill_runtime),
+            rounds=rounds,
         )
         return DeepResearchRunArtifacts(
             graph=graph,
@@ -274,6 +285,7 @@ class DeepResearcherAgent:
             tool_set=tool_set,
             middleware_set=middleware_set,
             callbacks=callbacks,
+            rounds=rounds,
             skill_runtime=skill_runtime,
         )
 
@@ -354,6 +366,11 @@ class DeepResearcherAgent:
         if get_session_registry() is None:
             registry_token = set_session_registry(artifacts.source_registry_middleware.active_registry())
         contributions_token = begin_trace_contributions()
+        # The run's lane hits, recorded per round by the tools the researchers
+        # call. Bound HERE and reset in ``finally`` for the reason the trace
+        # contributions are: a Dask worker is reused across jobs and tenants,
+        # and a capture left open would hang job N+1's hits under job N.
+        lane_token = begin_lane_capture()
         try:
             config, stream_kwargs = self._invocation(artifacts.callbacks)
             outcome = await stream_with_budget(
@@ -380,6 +397,7 @@ class DeepResearcherAgent:
         finally:
             if registry_token is not None:
                 reset_session_registry(registry_token)
+            end_lane_capture(lane_token)
             end_trace_contributions(contributions_token)
 
     # -- post-processing ------------------------------------------------------
@@ -412,6 +430,7 @@ class DeepResearcherAgent:
             cutoff_reason=cutoff_reason,
         )
         annotate_state(result, finalized, artifacts.skill_runtime)
+        record_retrieval_ledger(result, artifacts.rounds.announcements, get_lane_captures())
         emit_final_report(artifacts.callbacks, finalized.report)
         replace_last_message_content(result, finalized.report)
         log_completion(finalized)

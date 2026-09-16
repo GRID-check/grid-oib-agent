@@ -98,6 +98,13 @@ class DeepResearchAgentState(BaseModel):
     # run had resolved every one of those facts and then dropped them.
     # None when the run cited nothing it could resolve to a captured source.
     verified_sources: list[dict[str, Any]] | None = None
+    # This run's own account of its retrieval rounds: one entry per research
+    # batch with the query it was given, the tools it named, the documents it
+    # returned and which of those were new (see
+    # ``common.retrieval_ledger.build_retrieval_ledger`` for the shape). Same
+    # field name and same shape as the chat turn's, because one reader renders
+    # both. None when the run announced no round.
+    retrieval_ledger: list[dict[str, Any]] | None = None
     # Ordered names of the skills whose BODY reached the writer, in the order
     # it opened them. DELIVERED, not merely offered: this is rendered to the
     # reader as "what shaped this answer", and a skill the model never opened

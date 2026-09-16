@@ -43,6 +43,7 @@ from .deepagents_runtime import DeepAgentsRuntime
 from .models import DeepResearchAgentState
 from .models import ResearchNotes
 from .models import ResearchPlan
+from .tools.research import RetrievalRounds
 from .tools.research import _positive_int_env
 from .tools.research import build_research_batch_tool
 from .tools.source_registry import build_get_verified_sources_tool
@@ -519,6 +520,7 @@ def _build_research_batch_tool(
     *,
     callbacks: list[Any],
     source_registry_middleware: SourceRegistryMiddleware,
+    rounds: RetrievalRounds,
 ) -> BaseTool:
     """The orchestrator's ``run_research_batch``, with its researcher runnable inside."""
     researcher_runnable = build_researcher_runnable(
@@ -544,6 +546,9 @@ def _build_research_batch_tool(
         source_registry_middleware=source_registry_middleware,
         # This graph is built per run (ADR-0018), so the ledger is per run too.
         submission_counts={},
+        # Owned by the agent, not built here: the run reads it back after the
+        # graph has finished, to state what each round fetched.
+        rounds=rounds,
     )
 
 
@@ -583,6 +588,7 @@ def build_deep_research_graph(
     enable_source_router: bool = True,
     checkpointer: Checkpointer | None = None,
     skills_block: str | None = None,
+    rounds: RetrievalRounds | None = None,
 ) -> Any:
     """Build the full DeepAgents graph for one deep research run.
 
@@ -612,7 +618,10 @@ def build_deep_research_graph(
         skills_block=skills_block,
     )
     research_batch_tool = _build_research_batch_tool(
-        context, callbacks=callbacks, source_registry_middleware=source_registry_middleware
+        context,
+        callbacks=callbacks,
+        source_registry_middleware=source_registry_middleware,
+        rounds=rounds if rounds is not None else RetrievalRounds(),
     )
     orchestrator_tools = [*context.tool_set.helper_tools, research_batch_tool]
     agent = create_deep_agent(
