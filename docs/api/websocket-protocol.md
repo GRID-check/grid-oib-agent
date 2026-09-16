@@ -649,3 +649,38 @@ POST /chat/stream
 ```
 
 Configured via `apiConfig.chatStreamUrl` pointing to the backend URL. The SSE endpoint provides equivalent functionality for non-streaming or restricted-network scenarios.
+
+### Run event streams
+
+A run — a deep-research run, a task run — streams its own events from
+`job_events` rather than over the socket: `GET /v1/jobs/async/{jobId}/events`
+(`aiq_api.routes.jobs.stream_job_events`), replayable from `last_event_id`. That
+stream carries the `job.*` lifecycle events (`job.phase`, `job.heartbeat`,
+`job.degraded`, `job.error`, `job.cancelled`), the `artifact.update` events the
+agent callbacks emit, and one more:
+
+| Event | Payload | Meaning |
+|---|---|---|
+| `run.ledger` | `{"ledger": RunLedger}` | The run's WHOLE account of itself, as of this moment |
+
+`RunLedger` is the contract in
+[`frontends/ui/src/lib/runs/run-ledger-types.ts`](../../frontends/ui/src/lib/runs/run-ledger-types.ts)
+(`runId`, `status`, `phases[]`, `steps[]` with the intent the runner stated and
+the documents each step reached, `result` or `error`) — the same shape stored on
+the run's message as `metadata.run_ledger`, and the same one the JSON Schema
+fixture `frontends/ui/tests/fixtures/run-ledger.schema.json` pins.
+
+Two properties a client should rely on:
+
+- **It is a snapshot, not a delta.** Replace what you hold with the payload. The
+  ledger is folded in exactly one place (`aiq_api.jobs.run_ledger_fold`), and a
+  client that folded its own from the raw events would be a second account of
+  one run, differing from the stored one precisely when something went wrong.
+- **It is emitted on every flush** — debounced to about a second, and always on
+  a phase transition and at the end — so a late subscriber gets the whole
+  account with the next one, and a replay from `last_event_id` ends on the
+  newest.
+
+`job.phase` keeps its own shape (`{"phase": ..., "batch_index": ...,
+"batch_size": ..., "conclusion": ...}`); the ledger is what those events fold
+into, and the status pill still reads them directly.

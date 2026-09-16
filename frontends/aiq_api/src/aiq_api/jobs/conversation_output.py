@@ -112,6 +112,19 @@ def _message_id(conversation_id: str, job_id: str, role: str) -> str:
     return str(uuid.uuid5(_JOB_MESSAGE_NAMESPACE, f"grid:job:{conversation_id}:{job_id}:{role}"))
 
 
+def report_message_id(conversation_id: str | None, job_id: str) -> str | None:
+    """The id of the row :func:`write_job_turn` writes the report into.
+
+    Public because the run ledger's ``result.reportMessageId`` has to name that
+    same row, and deriving it a second time somewhere else is how two ids for
+    one message start disagreeing after a rename. None when the job was given no
+    conversation, which is also when no report message is written.
+    """
+    if not conversation_id:
+        return None
+    return _message_id(conversation_id, job_id, "assistant")
+
+
 def _organization_id(usage_context: dict | None) -> str | None:
     return ((usage_context or {}).get("identity") or {}).get("organization_id")
 

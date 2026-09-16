@@ -130,9 +130,7 @@ class RunResult(_Wire):
     """What a finished run left behind."""
 
     file_id: str | None = Field(default=None, alias="fileId", max_length=MAX_REFERENCE_ID_CHARS)
-    report_message_id: str | None = Field(
-        default=None, alias="reportMessageId", max_length=MAX_REFERENCE_ID_CHARS
-    )
+    report_message_id: str | None = Field(default=None, alias="reportMessageId", max_length=MAX_REFERENCE_ID_CHARS)
     filed_at: str = Field(alias="filedAt")
 
 
@@ -157,6 +155,51 @@ class RunLedger(_Wire):
     started_at: str = Field(alias="startedAt")
     updated_at: str = Field(alias="updatedAt")
     finished_at: str | None = Field(default=None, alias="finishedAt")
+
+
+class RunFinishError(_Wire):
+    """The error half of a ``finish`` op: the reason, and nothing else.
+
+    No ``completedBefore`` here although :class:`RunError` has one. The BFF
+    derives that list from the phases that actually ended, so a producer that
+    sent its own would be stating a fact the store is about to recompute — and
+    the two would disagree exactly when a run died mid-phase, which is the only
+    time anybody reads it.
+    """
+
+    reason: str = Field(max_length=MAX_ERROR_REASON_CHARS)
+
+
+class RunLedgerAppendRequest(_Wire):
+    """``POST /api/internal/runs/{runId}/ledger`` — more of a running account.
+
+    The run id is in the PATH and never here: it is the route's only identity,
+    and a body that could name a second run would be a body that could write
+    another tenant's ledger.
+
+    Every field is optional because an append is a PATCH in spirit: a flush that
+    only closed a phase says nothing about steps, and a flush that only sealed a
+    step says nothing about the status.
+    """
+
+    op: Literal["append"] = "append"
+    steps: list[RunStep] | None = Field(default=None, max_length=MAX_STEPS)
+    phases: list[RunPhaseEntry] | None = Field(default=None, max_length=len(RUN_PHASES))
+    status: RunStatus | None = None
+
+
+class RunLedgerFinishRequest(_Wire):
+    """The terminal op: exactly one of a result or an error.
+
+    Both or neither is a 400 the route raises rather than the schema, because a
+    discriminated union cannot carry that refinement — so a producer checks it
+    here, one layer earlier, where the failure is a log line instead of a run
+    whose ledger never closed.
+    """
+
+    op: Literal["finish"] = "finish"
+    result: RunResult | None = None
+    error: RunFinishError | None = None
 
 
 def to_wire(model: _Wire) -> dict:

@@ -72,6 +72,7 @@ def _build_run_agent_payload(
     clarifier_result,
     memory_reflection_enabled,
     memory_reflection_llm,
+    run_id,
 ) -> dict:
     """Build the JSON-serializable ``run_agent_job`` kwargs a DB worker replays.
 
@@ -118,6 +119,9 @@ def _build_run_agent_payload(
         "clarifier_result": clarifier_result,
         "memory_reflection_enabled": memory_reflection_enabled,
         "memory_reflection_llm": memory_reflection_llm,
+        # The ``task_runs`` row this job is, when the caller knows it: the only
+        # identity the run-ledger route has, and the worker cannot look it up.
+        "run_id": run_id,
         # No owner at submit time (unclaimed): the DB worker fills in its own
         # worker id at replay for the runner's still-owner publish gate
         # (hardening item 10). Travels inside the encrypted payload like the
@@ -356,6 +360,7 @@ async def submit_agent_job(
     memory_reflection_enabled: bool = False,
     memory_reflection_llm: str | None = None,
     conversation_id: str | None = None,
+    run_id: str | None = None,
 ) -> str:
     """
     Submit an agent job to the Dask cluster.
@@ -393,6 +398,10 @@ async def submit_agent_job(
         memory_reflection_llm: Optional ``llms:`` ref for the reflection pass
             (e.g. ``card_llm``). When set and enabled, the worker records durable
             project findings from the completed report.
+        run_id: Optional id of the ``task_runs`` row this job is. Carried into
+            the worker so the run can flush its ledger to its own message; a
+            job submitted without one still narrates itself on its event
+            stream and writes nothing (``jobs/run_ledger_fold.py``).
 
     Returns:
         The job ID.
@@ -589,6 +598,7 @@ async def submit_agent_job(
                 clarifier_result=clarifier_result,
                 memory_reflection_enabled=memory_reflection_enabled,
                 memory_reflection_llm=memory_reflection_llm,
+                run_id=run_id,
             )
             await job_store._create_job(
                 config_file=config_path or None,
@@ -625,6 +635,7 @@ async def submit_agent_job(
                     memory_reflection_enabled,
                     memory_reflection_llm,
                     None,  # claim_owner: no queue claim on the Dask path (see run_agent_job)
+                    run_id,
                 ],
             )
         await loop.run_in_executor(

@@ -41,9 +41,7 @@ from aiq_agent.common.run_ledger import RunStatus
 from aiq_agent.common.run_ledger import RunStep
 from aiq_agent.common.run_ledger import to_wire
 
-SCHEMA_PATH = (
-    Path(__file__).resolve().parents[3] / "frontends" / "ui" / "tests" / "fixtures" / "run-ledger.schema.json"
-)
+SCHEMA_PATH = Path(__file__).resolve().parents[3] / "frontends" / "ui" / "tests" / "fixtures" / "run-ledger.schema.json"
 
 
 @pytest.fixture(scope="module")
