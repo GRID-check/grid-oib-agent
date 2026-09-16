@@ -258,15 +258,18 @@ OBSERVATION_MODEL_NAME = "langfuse.observation.model.name"
 # in the same `langfuse.observation.*` namespace as the usage keys above, which
 # "always take precedence over the generic OpenTelemetry conventions".
 #
-# WHY A PROCESS GLOBAL AND NOT A ContextVar. What is being named here is the
+# PROCESS STATE, WITH A PER-TURN BOX ON TOP. What is being named here is the
 # PLATFORM prompt: one static text per process, identical for every tenant and
 # every turn, changing only when `common/prompt_store.py` refreshes it from
-# Langfuse. That makes it process state, not turn state — and a ContextVar
-# would be actively worse here: LangGraph runs each node in a context built
-# with `copy_context()`, so a value set where the prompt is rendered (the agent
-# node, and only on the first iteration, since later iterations reuse
-# `cached_system_prompt`) is written to a copy that dies at the node boundary.
-# The link would reach the first generation of a turn and no other.
+# Langfuse. So the identity lives in a process global. What a TURN's spans
+# carry is the identity that turn rendered with, which a refresh between the
+# render and the span export could otherwise misname: `begin_turn_prompt_link`
+# binds a mutable box in the turn's own context, every resolution writes into
+# it IN PLACE, and the span processor reads the box first. In place matters:
+# `asyncio.to_thread` copies the context, so a `.set()` from the render thread
+# would die with it, while a mutation of the shared dict is what the loop sees.
+# LangGraph nodes copy the context too, which is why the box is bound in
+# `PilotiAgent.run` and not where the prompt is rendered.
 #
 # THE KNOWN OVER-BROADNESS: a generation from another agent in this process —
 # the clarifier, deep research — renders its own prompt, which nothing manages,
@@ -278,6 +281,27 @@ OBSERVATION_PROMPT_VERSION = "langfuse.observation.prompt.version"
 
 #: The prompt identity this process is currently serving; see the note above.
 _PROMPT_LINK: dict[str, Any] = {}
+
+#: The identity THIS turn rendered with, when a turn bound one; see the note.
+_TURN_PROMPT_LINK: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "grid_turn_prompt_link", default=None
+)
+
+
+def begin_turn_prompt_link() -> contextvars.Token[dict[str, Any] | None]:
+    """Bind a fresh per-turn box; the turn's resolutions fill it, its spans read it."""
+    return _TURN_PROMPT_LINK.set({})
+
+
+def end_turn_prompt_link(token: contextvars.Token[dict[str, Any] | None]) -> None:
+    """Unbind the turn's box, restoring whatever was bound before."""
+    _TURN_PROMPT_LINK.reset(token)
+
+
+def _link_targets() -> list[dict[str, Any]]:
+    """The process global, plus the turn's box when one is bound."""
+    box = _TURN_PROMPT_LINK.get()
+    return [_PROMPT_LINK] if box is None else [_PROMPT_LINK, box]
 
 
 def record_prompt_link(*, name: str, version: str) -> None:
@@ -296,8 +320,9 @@ def record_prompt_link(*, name: str, version: str) -> None:
     try:
         if not name or not version:
             return
-        _PROMPT_LINK["name"] = str(name)
-        _PROMPT_LINK["version"] = version
+        for target in _link_targets():
+            target["name"] = str(name)
+            target["version"] = version
     except Exception:
         logger.debug("Failed to record the Langfuse prompt link", exc_info=True)
 
@@ -325,8 +350,11 @@ def prompt_observation_attributes(*, name: str | None, version: str | None) -> d
 
 
 def current_prompt_attributes() -> dict[str, Any]:
-    """The prompt link for the version this process is serving, or ``{}``."""
-    return prompt_observation_attributes(name=_PROMPT_LINK.get("name"), version=_PROMPT_LINK.get("version"))
+    """The prompt link for THIS turn's render when a turn bound a box, else the process's."""
+    link = _TURN_PROMPT_LINK.get()
+    if link is None:
+        link = _PROMPT_LINK
+    return prompt_observation_attributes(name=link.get("name"), version=link.get("version"))
 
 
 def reset_prompt_link() -> None:
@@ -337,7 +365,8 @@ def reset_prompt_link() -> None:
     version on generations the version never produced, which is a wrong number
     rather than a missing one.
     """
-    _PROMPT_LINK.clear()
+    for target in _link_targets():
+        target.clear()
 
 
 def identity_attributes_enabled() -> bool:

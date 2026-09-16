@@ -83,6 +83,8 @@ from aiq_agent.common.turn_status import is_retrieval_round
 from aiq_agent.common.turn_status import record_round_announcement
 from aiq_agent.common.turn_status import retrieval_round_scope
 from aiq_agent.knowledge.already_read import merge_digest
+from aiq_agent.observability.langfuse_trace_attributes import begin_turn_prompt_link
+from aiq_agent.observability.langfuse_trace_attributes import end_turn_prompt_link
 from aiq_agent.tools.bim.measurement_sources import begin_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import end_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import get_measurement_captures
@@ -1452,6 +1454,10 @@ class PilotiAgent:
         # the trace metadata is where an operator sees it. Resolved and stamped
         # here, in the turn's own context, because the render itself runs in a
         # worker thread whose copied context discards every ContextVar write.
+        # The box is bound BEFORE the resolve, so the identity this turn renders
+        # with, including the render thread's own resolution, lands in it and
+        # is what this turn's generation spans name.
+        prompt_link = begin_turn_prompt_link()
         await stamp_static_prompt_for_turn()
         registry, registry_token = _bind_registry()
         turn_capture = begin_turn_capture()
@@ -1471,6 +1477,7 @@ class PilotiAgent:
             end_lane_capture(lane_capture)
             end_measurement_capture(measurement_capture)
             end_turn_capture(turn_capture)
+            end_turn_prompt_link(prompt_link)
             if registry_token is not None:
                 reset_session_registry(registry_token)
 

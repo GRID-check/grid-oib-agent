@@ -9,12 +9,17 @@ span that never used the prompt.
 
 from __future__ import annotations
 
+import asyncio
+import contextvars
+
 import pytest
 
 from aiq_agent.observability.langfuse_trace_attributes import OBSERVATION_PROMPT_NAME
 from aiq_agent.observability.langfuse_trace_attributes import OBSERVATION_PROMPT_VERSION
 from aiq_agent.observability.langfuse_trace_attributes import PromptLinkProcessor
+from aiq_agent.observability.langfuse_trace_attributes import begin_turn_prompt_link
 from aiq_agent.observability.langfuse_trace_attributes import current_prompt_attributes
+from aiq_agent.observability.langfuse_trace_attributes import end_turn_prompt_link
 from aiq_agent.observability.langfuse_trace_attributes import is_generation_span
 from aiq_agent.observability.langfuse_trace_attributes import prompt_observation_attributes
 from aiq_agent.observability.langfuse_trace_attributes import record_prompt_link
@@ -120,6 +125,54 @@ class TestRecording:
         record_prompt_link(name=Hostile(), version="12")
 
         assert current_prompt_attributes() == {}
+
+
+class TestATurnNamesWhatItRenderedWith:
+    """The link on a turn's generations is the turn's own, not the process's
+    latest: a refresh landing between this turn's render and its span export
+    would otherwise name a version the bytes never came from."""
+
+    def test_a_refresh_in_another_turn_does_not_reach_this_turn(self):
+        token = begin_turn_prompt_link()
+        try:
+            record_prompt_link(name="p", version="12")
+
+            def _other_turn() -> None:
+                other = begin_turn_prompt_link()
+                record_prompt_link(name="p", version="13")
+                end_turn_prompt_link(other)
+
+            contextvars.copy_context().run(_other_turn)
+
+            assert current_prompt_attributes()[OBSERVATION_PROMPT_VERSION] == 12
+        finally:
+            end_turn_prompt_link(token)
+
+    async def test_the_render_thread_s_resolution_is_the_turn_s(self):
+        """``asyncio.to_thread`` copies the context, so only an in-place write
+        to the shared box survives the thread; that is the write the render makes."""
+        token = begin_turn_prompt_link()
+        try:
+            await asyncio.to_thread(record_prompt_link, name="p", version="12")
+
+            assert current_prompt_attributes()[OBSERVATION_PROMPT_VERSION] == 12
+        finally:
+            end_turn_prompt_link(token)
+
+    def test_without_a_turn_the_process_link_answers(self):
+        record_prompt_link(name="p", version="12")
+
+        assert current_prompt_attributes()[OBSERVATION_PROMPT_VERSION] == 12
+
+    def test_a_fallback_clears_the_turn_s_box_too(self):
+        token = begin_turn_prompt_link()
+        try:
+            record_prompt_link(name="p", version="12")
+            reset_prompt_link()
+
+            assert current_prompt_attributes() == {}
+        finally:
+            end_turn_prompt_link(token)
 
 
 class TestGenerationDetection:
