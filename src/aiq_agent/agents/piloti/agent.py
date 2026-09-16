@@ -95,6 +95,7 @@ from .grounding import tool_result_is_measurement
 from .ledger import assemble_result
 from .models import ResearchAgentState
 from .prompt import build_tools_info
+from .prompt import record_static_prompt_metadata
 from .prompt import render_system_prompt
 from .prompt import shelf_label
 from .prompt import system_prompt_template
@@ -1446,6 +1447,13 @@ class PilotiAgent:
         next to it (see ``bim.measurement_sources``).
         """
         binding = self._resolve_turn(turn)
+        # Which static half this process renders, when it is the bundled
+        # fallback: that is no prompt link, because it names no prompt Langfuse
+        # holds, so the trace metadata is where an operator sees it. Recorded
+        # HERE, in the turn's own context, and not where it is resolved: that
+        # render runs inside ``asyncio.to_thread``, whose copied context
+        # discards every ContextVar write when the thread ends.
+        record_static_prompt_metadata()
         registry, registry_token = _bind_registry()
         turn_capture = begin_turn_capture()
         measurement_capture = begin_measurement_capture()

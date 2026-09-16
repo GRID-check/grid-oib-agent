@@ -37,7 +37,7 @@ class TestAttributeMapping:
         """
         assert prompt_observation_attributes(name="piloti-system-static", version="12") == {
             "langfuse.observation.prompt.name": "piloti-system-static",
-            "langfuse.observation.prompt.version": "12",
+            "langfuse.observation.prompt.version": 12,
         }
 
     def test_half_a_link_is_no_link(self):
@@ -50,9 +50,42 @@ class TestAttributeMapping:
         assert prompt_observation_attributes(name=None, version="12") == {}
         assert prompt_observation_attributes(name="", version="") == {}
 
-    def test_a_non_string_version_is_still_written_as_one(self):
-        """Langfuse numbers versions from 1 as ints; the attribute is a string."""
-        assert prompt_observation_attributes(name="p", version=12)[OBSERVATION_PROMPT_VERSION] == "12"
+    def test_the_version_is_an_int_whichever_way_it_arrives(self):
+        """
+        Langfuse numbers versions from 1 as ints and its ingestion declares
+        `promptVersion` as one. A string is not coerced server-side: the
+        generation event is rejected whole, which erased every GENERATION
+        observation from production while CHAIN and TOOL kept arriving.
+        """
+        assert prompt_observation_attributes(name="p", version=12)[OBSERVATION_PROMPT_VERSION] == 12
+        assert prompt_observation_attributes(name="p", version="12")[OBSERVATION_PROMPT_VERSION] == 12
+
+    def test_the_type_is_read_off_the_installed_langfuse_rather_than_copied(self):
+        """
+        The ratchet. The schema is the oracle, so a Langfuse release that moves
+        `promptVersion` to another type fails this suite instead of the fleet —
+        which is the only way this fault announces itself, the spans being
+        dropped silently and the trace otherwise complete.
+        """
+        import typing
+
+        from langfuse.api.ingestion.types.create_generation_body import CreateGenerationBody
+
+        declared = CreateGenerationBody.model_fields["prompt_version"].annotation
+        emitted = prompt_observation_attributes(name="p", version="12")[OBSERVATION_PROMPT_VERSION]
+
+        assert typing.get_args(declared) == (int, type(None))
+        assert CreateGenerationBody(prompt_version=emitted).prompt_version == emitted
+
+    def test_a_git_blob_version_is_no_link_at_all(self):
+        """
+        The bundled fallback is versioned by the git blob hash of the committed
+        file, and named `git:...` — a prompt Langfuse does not hold. There is
+        no int to emit and nothing to link to, so the generation carries
+        neither attribute rather than one the schema rejects. Langfuse's own
+        SDK links no fallback either (`_client/attributes.py`).
+        """
+        assert prompt_observation_attributes(name="git:prompts/piloti_static.md", version="3f2a9c1") == {}
 
 
 class TestRecording:
@@ -65,14 +98,14 @@ class TestRecording:
 
         assert current_prompt_attributes() == {
             OBSERVATION_PROMPT_NAME: "piloti-system-static",
-            OBSERVATION_PROMPT_VERSION: "12",
+            OBSERVATION_PROMPT_VERSION: 12,
         }
 
     def test_an_incomplete_record_leaves_the_last_good_one_alone(self):
         record_prompt_link(name="piloti-system-static", version="12")
         record_prompt_link(name="piloti-system-static", version="")
 
-        assert current_prompt_attributes()[OBSERVATION_PROMPT_VERSION] == "12"
+        assert current_prompt_attributes()[OBSERVATION_PROMPT_VERSION] == 12
 
     def test_recording_never_raises_into_the_render_that_called_it(self):
         """
@@ -110,7 +143,7 @@ class TestProcessor:
         result = await PromptLinkProcessor().process(span)
 
         assert result.attributes[OBSERVATION_PROMPT_NAME] == "piloti-system-static"
-        assert result.attributes[OBSERVATION_PROMPT_VERSION] == "12"
+        assert result.attributes[OBSERVATION_PROMPT_VERSION] == 12
 
     async def test_a_tool_span_is_left_alone(self):
         """

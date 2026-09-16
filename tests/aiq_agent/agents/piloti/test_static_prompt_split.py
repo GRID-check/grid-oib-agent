@@ -20,19 +20,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from aiq_agent.agents.piloti import prompt as prompt_module
 from aiq_agent.agents.piloti.prompt import PROMPTS_DIR
 from aiq_agent.agents.piloti.prompt import STATIC_PROMPT_FILE
 from aiq_agent.agents.piloti.prompt import STATIC_PROMPT_NAME
 from aiq_agent.agents.piloti.prompt import bundled_static_block
+from aiq_agent.agents.piloti.prompt import record_static_prompt_metadata
 from aiq_agent.agents.piloti.prompt import render_static_block
 from aiq_agent.agents.piloti.prompt import resolve_static_block
 from aiq_agent.agents.piloti.prompt import system_prompt_template
 from aiq_agent.common.prompt_store import PromptStore
 from aiq_agent.common.prompt_store import ResolvedPrompt
 from aiq_agent.common.prompt_utils import render_prompt_template
+from aiq_agent.observability import langfuse_trace_attributes as lta
 
 FIXTURE = Path(__file__).parent / "fixtures" / "piloti_prompt_rendered.txt"
+
 
 #: The render inputs the fixture was produced with. `answer_envelope_schema`
 #: and `document_inventory` are pinned to placeholders on purpose: this test is
@@ -55,6 +60,21 @@ PINNED = dict(
     project_context={"name": "Testprojekt"},
     skills_block="<<SKILLS>>",
 )
+
+
+def _forget_what_resolving_recorded() -> None:
+    """The prompt link and the fallback identity are PROCESS state; contributions are the turn's."""
+    lta.reset_prompt_link()
+    lta.reset_contributions()
+    prompt_module._FALLBACK_IDENTITY.clear()
+
+
+@pytest.fixture(autouse=True)
+def _clean_trace_state():
+    """Resolving writes both; neither may leak into the next test."""
+    _forget_what_resolving_recorded()
+    yield
+    _forget_what_resolving_recorded()
 
 
 def _render(static_text: str) -> str:
@@ -170,10 +190,16 @@ class TestStoreSeam:
 
 
 class TestPromptLink:
-    def test_resolving_records_the_version_the_traces_will_name(self, monkeypatch):
-        from aiq_agent.observability import langfuse_trace_attributes as lta
+    """
+    A prompt LINK names a prompt Langfuse holds, and nothing else may wear it.
+    Langfuse's ingestion declares `promptVersion` an int and rejects the whole
+    generation event that carries anything else, so the bundled fallback's
+    `git:` name and blob hash cost every GENERATION observation in the trace
+    while the rest of it arrives looking healthy. The fallback is named in the
+    trace METADATA instead, where free-form values are safe.
+    """
 
-        lta.reset_prompt_link()
+    def test_resolving_records_the_version_the_traces_will_name(self, monkeypatch):
         served = _FakeStore(ResolvedPrompt(text="MANAGED", name=STATIC_PROMPT_NAME, version="12"))
         monkeypatch.setattr(prompt_module, "prompt_store", lambda: served)
 
@@ -181,25 +207,42 @@ class TestPromptLink:
 
         assert lta.current_prompt_attributes() == {
             lta.OBSERVATION_PROMPT_NAME: STATIC_PROMPT_NAME,
-            lta.OBSERVATION_PROMPT_VERSION: "12",
+            lta.OBSERVATION_PROMPT_VERSION: 12,
         }
-        lta.reset_prompt_link()
 
-    def test_a_fallback_render_is_labelled_as_the_git_file(self, monkeypatch):
+    def test_a_fallback_render_is_no_link_and_is_named_in_the_trace_metadata(self, monkeypatch):
         """
-        A fleet running on its bundled prompt must be visible in the trace
-        list rather than indistinguishable from one serving the live version —
-        otherwise a Langfuse outage reads as "the new version did nothing".
+        A fleet running on its bundled prompt must still be visible in the
+        trace list rather than indistinguishable from one serving the live
+        version — otherwise a Langfuse outage reads as "the new version did
+        nothing". The metadata is what carries that now.
         """
-        from aiq_agent.observability import langfuse_trace_attributes as lta
-
-        lta.reset_prompt_link()
         monkeypatch.setattr(prompt_module, "prompt_store", lambda: PromptStore(enabled=False))
 
         resolve_static_block()
+        record_static_prompt_metadata()
 
-        assert lta.current_prompt_attributes()[lta.OBSERVATION_PROMPT_NAME] == "git:prompts/piloti_static.md"
-        lta.reset_prompt_link()
+        assert lta.current_prompt_attributes() == {}
+        assert lta.snapshot_contributions()["metadata"] == {
+            "prompt_name": "git:prompts/piloti_static.md",
+            "prompt_version": bundled_static_block().version,
+        }
+
+    def test_falling_back_stops_the_process_naming_the_version_it_served(self, monkeypatch):
+        """
+        Langfuse goes down mid-life and the store mutes it for the TTL window.
+        A link left behind from the version that was serving would name it on
+        generations it never produced, which is a wrong number rather than a
+        missing one.
+        """
+        served = _FakeStore(ResolvedPrompt(text="MANAGED", name=STATIC_PROMPT_NAME, version="12"))
+        monkeypatch.setattr(prompt_module, "prompt_store", lambda: served)
+        resolve_static_block()
+
+        monkeypatch.setattr(prompt_module, "prompt_store", lambda: PromptStore(enabled=False))
+        resolve_static_block()
+
+        assert lta.current_prompt_attributes() == {}
 
 
 class TestServedTextThatDoesNotRender:
@@ -226,15 +269,13 @@ class TestServedTextThatDoesNotRender:
         assert resolve_static_block() == bundled_static_block()
 
     def test_the_trace_names_the_git_file_when_the_served_text_did_not_render(self, monkeypatch):
-        from aiq_agent.observability import langfuse_trace_attributes as lta
-
-        lta.reset_prompt_link()
         self._serve(monkeypatch, "Hallo {{ buero_name }}")
 
         resolve_static_block()
+        record_static_prompt_metadata()
 
-        assert lta.current_prompt_attributes()[lta.OBSERVATION_PROMPT_NAME] == "git:prompts/piloti_static.md"
-        lta.reset_prompt_link()
+        assert lta.current_prompt_attributes() == {}
+        assert lta.snapshot_contributions()["metadata"]["prompt_name"] == "git:prompts/piloti_static.md"
 
     def test_a_served_text_that_renders_is_still_served(self, monkeypatch):
         self._serve(monkeypatch, "MANAGED {{ answer_envelope_schema }}")

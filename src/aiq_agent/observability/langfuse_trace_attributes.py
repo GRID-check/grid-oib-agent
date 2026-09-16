@@ -277,22 +277,27 @@ OBSERVATION_PROMPT_NAME = "langfuse.observation.prompt.name"
 OBSERVATION_PROMPT_VERSION = "langfuse.observation.prompt.version"
 
 #: The prompt identity this process is currently serving; see the note above.
-_PROMPT_LINK: dict[str, str] = {}
+_PROMPT_LINK: dict[str, Any] = {}
 
 
 def record_prompt_link(*, name: str, version: str) -> None:
     """Remember which prompt version this process renders with.
 
-    Called by the prompt store's caller every time the static half is
-    resolved, which is at boot and then whenever a refreshed version is served.
-    Best-effort like everything else here: telemetry bookkeeping must never
-    fail the render that was producing it.
+    Called by the prompt store's caller every time a LANGFUSE version is served
+    as the static half — at boot, and then on every refresh. A fallback render
+    records nothing here: it names no prompt Langfuse holds, so there is no
+    link to make.
+
+    The version is stored as it arrived, so that
+    :func:`prompt_observation_attributes` is the one place deciding what a
+    version becomes on a span. Best-effort like everything else here:
+    telemetry bookkeeping must never fail the render that was producing it.
     """
     try:
         if not name or not version:
             return
         _PROMPT_LINK["name"] = str(name)
-        _PROMPT_LINK["version"] = str(version)
+        _PROMPT_LINK["version"] = version
     except Exception:
         logger.debug("Failed to record the Langfuse prompt link", exc_info=True)
 
@@ -303,10 +308,20 @@ def prompt_observation_attributes(*, name: str | None, version: str | None) -> d
     Pure, so the mapping is testable without a span. Both or neither: a name
     with no version renders as a prompt Langfuse cannot resolve to a text, and
     a version with no name belongs to nothing.
+
+    The version is an INT because Langfuse's ingestion schema declares
+    ``promptVersion`` as one. While a string went out here, no GENERATION
+    observation reached production and the rest of every trace arrived intact. A version that is not a number is the
+    bundled fallback's git blob hash, which names no prompt Langfuse holds, so
+    it yields no link at all; Langfuse's own SDK links no fallback either.
     """
-    if not name or not version:
+    if not name or not version or not isinstance(version, int | str):
         return {}
-    return {OBSERVATION_PROMPT_NAME: str(name), OBSERVATION_PROMPT_VERSION: str(version)}
+    try:
+        numeric = int(version)
+    except ValueError:
+        return {}
+    return {OBSERVATION_PROMPT_NAME: str(name), OBSERVATION_PROMPT_VERSION: numeric}
 
 
 def current_prompt_attributes() -> dict[str, Any]:
@@ -315,7 +330,13 @@ def current_prompt_attributes() -> dict[str, Any]:
 
 
 def reset_prompt_link() -> None:
-    """Forget the recorded prompt link. Test-only."""
+    """Forget the recorded prompt link.
+
+    Also how a process that served a Langfuse version and then fell back to its
+    bundled prompt stops claiming that version: a link left behind would name a
+    version on generations the version never produced, which is a wrong number
+    rather than a missing one.
+    """
     _PROMPT_LINK.clear()
 
 

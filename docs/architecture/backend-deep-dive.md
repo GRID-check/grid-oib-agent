@@ -1739,13 +1739,16 @@ from the envelope models. Any other `{{ … }}` in a Langfuse version is a
 render error, and so is a JSON example that opens with `{{`. That error does
 not reach a turn: a version that does not render is logged once and the
 bundled file serves until the published version is fixed
-(`prompt.py:resolve_static_block`). The trace then names the git file, which
-is how an author finds out their version is not the one answering.
+(`prompt.py:resolve_static_block`). The trace's metadata then names the git
+file, which is how an author finds out their version is not the one answering.
 
-Every generation span carries `langfuse.observation.prompt.name` and
-`.version`, so a trace says which version produced an answer — including when
-the bundled fallback served, where the name is the file path and the version is
-its git blob hash. Env vars:
+A generation span carries `langfuse.observation.prompt.name` and `.version`
+when a Langfuse version served, so a trace says which version produced an
+answer. A fallback render carries no such link: the link names a prompt
+Langfuse HOLDS, and its ingestion declares `promptVersion` an int, so a file
+path and a git blob hash there cost the whole generation observation. The
+fallback is in the trace METADATA instead, as `prompt_name` and
+`prompt_version`. Env vars:
 [`environment-variables.md`](../deployment/environment-variables.md)
 §Prompt management.
 

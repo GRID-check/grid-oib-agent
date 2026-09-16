@@ -44,6 +44,8 @@ from aiq_agent.common.source_kinds import SHELF_QUALIFIERS
 from aiq_agent.common.source_kinds import parse_shelf
 from aiq_agent.knowledge.already_read import render_already_read_block
 from aiq_agent.observability.langfuse_trace_attributes import record_prompt_link
+from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
+from aiq_agent.observability.langfuse_trace_attributes import reset_prompt_link
 
 from .models import ResearchAgentState
 
@@ -60,6 +62,13 @@ STATIC_PROMPT_FILE = "piloti_static.md"
 #: a rename in Langfuse itself.
 STATIC_PROMPT_NAME = "piloti-system-static"
 
+#: The bundled fallback's identity while the fallback is what this process
+#: renders, and empty while a Langfuse version serves. Process state for the
+#: same reason the prompt link is (see ``langfuse_trace_attributes``): one
+#: platform prompt per process. It cannot be a ContextVar either — the render
+#: runs in a worker thread, whose copied context discards what it writes.
+_FALLBACK_IDENTITY: dict[str, str] = {}
+
 
 @functools.cache
 def system_prompt_template() -> str:
@@ -72,8 +81,8 @@ def system_prompt_template() -> str:
     The static half is resolved here too, although the return value does not
     carry it. That is deliberate: this function is called once, at boot, so the
     store's first fetch — the only one that can block on the network — is paid
-    where nobody is waiting on a turn, and the process starts with its prompt
-    link already recorded for the traces.
+    where nobody is waiting on a turn, and the process starts with the identity
+    its traces will name already resolved.
     """
     resolve_static_block()
     return load_prompt(PROMPTS_DIR, PROMPT_NAME)
@@ -105,6 +114,12 @@ def resolve_static_block() -> ResolvedPrompt:
     credentials are present, and Langfuse answered — see
     ``common/prompt_store.py`` for the budget that guarantees a turn never
     waits on it twice.
+
+    Only a Langfuse version becomes a prompt LINK. The bundled fallback names
+    no prompt Langfuse holds and is versioned by a git blob hash where the
+    ingestion schema wants an int, and a generation carrying that is dropped
+    whole. It is remembered here instead and reaches the trace as free-form
+    metadata through :func:`record_static_prompt_metadata`.
     """
     resolved = prompt_store().get(STATIC_PROMPT_NAME, fallback=bundled_static_block())
     if not resolved.is_fallback and not _renders(resolved.text):
@@ -114,8 +129,31 @@ def resolve_static_block() -> ResolvedPrompt:
         # would otherwise fail every turn on every replica for as long as the
         # version is published. The bundled file is the floor here too.
         resolved = bundled_static_block()
+    if resolved.is_fallback:
+        _FALLBACK_IDENTITY.update(name=resolved.name, version=resolved.version)
+        # Clearing matters as much as not linking: a process that served a
+        # version and then fell back must stop naming it on its generations.
+        reset_prompt_link()
+        return resolved
+    _FALLBACK_IDENTITY.clear()
     record_prompt_link(name=resolved.name, version=resolved.version)
     return resolved
+
+
+def record_static_prompt_metadata() -> None:
+    """Name a bundled-fallback render in this turn's trace metadata.
+
+    Call it on the event LOOP. :func:`resolve_static_block` runs inside
+    ``asyncio.to_thread``, which copies the context, so a ContextVar written
+    there dies with the thread and never reaches the span export. Never raises:
+    ``record_trace_metadata`` absorbs its own failures.
+    """
+    if not _FALLBACK_IDENTITY:
+        return
+    record_trace_metadata(
+        prompt_name=_FALLBACK_IDENTITY.get("name"),
+        prompt_version=_FALLBACK_IDENTITY.get("version"),
+    )
 
 
 @functools.lru_cache(maxsize=4)
