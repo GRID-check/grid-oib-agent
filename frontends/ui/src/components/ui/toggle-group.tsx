@@ -14,6 +14,21 @@ type ToggleGroupContextValue = VariantProps<typeof toggleVariants> & {
    * when nothing is selected — so a segmented item can tell whether IT is the
    * active one and mount the shared-layout pill. */
   groupValue: string | string[] | undefined
+  /**
+   * This group's shared-layout identity, one per mounted ToggleGroup.
+   *
+   * A `layoutId` names ONE travelling element across the whole tree, so a
+   * constant here made every segmented group on screen the same element. Two
+   * are mounted together on the Tasks tab — the Liste/Zeitplan view switcher
+   * and the status filter row below it — and the pill flew between the two
+   * controls instead of sliding inside the one that was clicked.
+   *
+   * `useId` per instance is what makes the glide local. The sidebar rail hit
+   * this first and keys its own pill by rail width
+   * (`railActivePillId`); this is the same rule applied where the kit, rather
+   * than one consumer, is the thing that has to hold it.
+   */
+  pillId: string
 }
 
 const ToggleGroupContext = React.createContext<ToggleGroupContextValue>({
@@ -21,6 +36,7 @@ const ToggleGroupContext = React.createContext<ToggleGroupContextValue>({
   variant: 'default',
   segmented: false,
   groupValue: undefined,
+  pillId: 'toggle-pill',
 })
 
 const ToggleGroup = React.forwardRef<
@@ -51,6 +67,7 @@ const ToggleGroup = React.forwardRef<
     // today, but the context carries the array form anyway so the check below
     // stays total.
     type Value = string | string[] | undefined
+    const pillId = React.useId()
     const [uncontrolled, setUncontrolled] = React.useState<Value>(defaultValue)
     const resolved: Value = value !== undefined ? value : uncontrolled
     const handleValueChange = React.useCallback(
@@ -75,14 +92,29 @@ const ToggleGroup = React.forwardRef<
         className={cn(
           'flex items-center',
           segmented
-            ? 'gap-0 rounded-lg border border-border bg-card p-0.5 shadow-2xs'
+            ? // A segment cluster HUGS its segments. `flex` alone is
+              // block-level, so the tray stretched to whatever box it was
+              // dropped in and every one of these read as a control with a
+              // dead zone bolted to its right — most of the width of a
+              // max-w-3xl column, in the case of the Tasks filter row.
+              //
+              // `max-w-full` + `overflow-x-auto` is the other half, and it is
+              // the part that was a defect rather than a blemish: four German
+              // filter labels do not fit 390px, and with no scroll container
+              // the cluster simply ran off the card. „Fehlgeschlagen" was cut
+              // in half and unreachable — a filter a phone could see and not
+              // press. The scrollbar is hidden because the cluster is short
+              // and a 15px bar under a 32px control is louder than the thing
+              // it describes; the row still scrolls by drag, wheel and
+              // keyboard, and focusing a segment scrolls it into view.
+              'w-fit max-w-full gap-0 overflow-x-auto rounded-lg border border-border bg-card p-0.5 shadow-2xs scrollbar-hide'
             : 'flex-wrap gap-1.5',
           className
         )}
         {...rootProps}
       >
         <ToggleGroupContext.Provider
-          value={{ variant, size, segmented, groupValue: resolved }}
+          value={{ variant, size, segmented, groupValue: resolved, pillId }}
         >
           {children}
         </ToggleGroupContext.Provider>
@@ -139,9 +171,14 @@ const ToggleGroupItem = React.forwardRef<
     >
       {isActive && (
         <motion.span
-          layoutId="toggle-pill"
+          layoutId={context.pillId}
           aria-hidden
           data-slot="toggle-pill"
+          // `layoutId` is motion state and never reaches the DOM, so the one
+          // thing a reader (or a test) cannot otherwise see is whether two
+          // groups are sharing an identity. Mirroring it here makes the
+          // collision visible in devtools instead of only in the animation.
+          data-pill-id={context.pillId}
           className={cn(
             'absolute inset-0 -z-10 rounded-[inherit] shadow-2xs',
             SEGMENTED_PILL_BG[resolvedVariant] ?? SEGMENTED_PILL_BG.default
