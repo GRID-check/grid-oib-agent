@@ -2586,14 +2586,14 @@ wheels = [
 
 [[package]]
 name = "llama-index-embeddings-nvidia"
-version = "0.5.1"
+version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "llama-index-core" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d8/8c/a15b90fd688bf20296731130910a03479a4bb6b8ed22f023dd631181ddc4/llama_index_embeddings_nvidia-0.5.1.tar.gz", hash = "sha256:3a45af84a49b75721f33c05394a81b15def9850d062e5c46320a81632972c2d2", size = 8370, upload-time = "2026-04-08T04:10:33.309Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cc/0a/3902c42044e28e814ab89f3451910a12fcc972cab862d20fae24e566f74d/llama_index_embeddings_nvidia-0.6.0.tar.gz", hash = "sha256:6ed14ae5ed43f0025bad1c829dceb172a51178873f98293d18f266a3bfe8b73e", size = 8361, upload-time = "2026-08-31T15:52:57.348Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/3f/7a73cbf25d6d64d073fa93bd55110f798603d4967e9c7e91b918074afd16/llama_index_embeddings_nvidia-0.5.1-py3-none-any.whl", hash = "sha256:ab6b1e8369f46ef73709354235fc5e5b976136be2e2c08b20e1b457544271742", size = 8425, upload-time = "2026-04-08T04:10:34.234Z" },
+    { url = "https://files.pythonhosted.org/packages/37/2c/f731f940c8faf898f984ed341fe8b900a96d8b04f8b4e1ef2192c306e705/llama_index_embeddings_nvidia-0.6.0-py3-none-any.whl", hash = "sha256:4f600ef3bf75767edbe940c4837b4c5b32c299b2ae04e237719c903e13ca515b", size = 8424, upload-time = "2026-08-31T15:52:56.572Z" },
 ]
 
 [[package]]
