@@ -367,6 +367,48 @@ class TestTheOrdinarySearchIsUntouched:
         assert [call for call in store.calls if _outline_file(call["filters"])] == []
 
 
+class TestAnOverviewThatFailsSaysSo:
+    """Fail-open kept the answer and lost the fact that the family branch ran.
+
+    A production trace showed a family question coming back as two ranked
+    documents with nothing marking the overview as attempted and lost, so the
+    turn read exactly like an ordinary search and could not be explained.
+    """
+
+    @staticmethod
+    def _broken(monkeypatch) -> None:
+        async def _raise(entries, family_key):
+            raise RuntimeError("outline store down")
+
+        monkeypatch.setattr(rp, "family_overview", _raise)
+
+    async def test_the_ranked_passages_still_answer(self, corpus, monkeypatch):
+        corpus(MEMBERS)
+        self._broken(monkeypatch)
+
+        out = await _search()
+
+        assert _citations(out) == [f"{MEMBERS['2']}, p.12", f"{MEMBERS['2.3']}, p.5"]
+        assert "im Bestand" not in out
+        assert "## Gliederung" not in out
+
+    async def test_the_notice_says_the_overview_was_lost(self, corpus, monkeypatch):
+        corpus(MEMBERS)
+        self._broken(monkeypatch)
+
+        out = await _search()
+
+        assert out.startswith("Hinweis: der Überblick über die Teile der OIB-Richtlinie 2 konnte nicht erstellt")
+        assert "`read_passage(document=…)`" in out
+
+    async def test_a_search_that_names_no_family_carries_no_notice(self, corpus):
+        corpus(MEMBERS)
+
+        out = await _search(TOPIC_QUERY)
+
+        assert "Hinweis:" not in out
+
+
 class TestOneRoundNotFive:
     async def test_the_members_are_read_in_one_gathered_round(self, corpus):
         """One filtered fetch per member, plus the search itself."""
