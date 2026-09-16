@@ -18,7 +18,7 @@
     "@keystatic/core": "^0.6.7",
     "astro": "^7.2.4",
     "gsap": "^3.15.0",
-    "react": "^19.2.8",
+    "react": "^19.3.0",
     "react-dom": "^19.2.8",
     "sharp": "^0.35.3",
     "typescript": "^5.9.2"
@@ -26,7 +26,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.12",
     "@types/node": "^22.20.1",
-    "@types/react": "^19.2.18",
+    "@types/react": "^19.3.0",
     "@types/react-dom": "^19.2.4",
     "tailwindcss": "^4.1.12"
   }
