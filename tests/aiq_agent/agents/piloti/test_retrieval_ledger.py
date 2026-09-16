@@ -4,8 +4,9 @@ The Herleitung will read what happened (phase b — no renderer yet) instead of
 reconstructing it from step names: per round what it was asked (query, tools),
 what it returned (docs with title/detail/shelf), and what was NEW. These tests
 pin that join — announcements recorded beside ``emit_retrieval`` plus captured
-lane hits — through the three shapes that matter: same docs re-opened (fold),
-new docs (new layer), and nothing announced (absent, not null).
+lane hits — and, above all, what counts as a REPEAT: the same passage fetched
+twice, or a file an earlier round already opened. A search that merely ranked a
+document is not work anybody has done yet.
 """
 
 import json
@@ -36,16 +37,28 @@ def _announcement(index, tools, corpora, query=None, reason=None, key="status.re
     return record
 
 
-def _hit(round_index, name, detail=None):
-    """A captured lane hit shaped like the emitter records it."""
+def _hit(round_index, name, detail=None, tool=None):
+    """A captured lane hit shaped like the emitter records it.
+
+    ``tool`` is the stamp ``lane_tool_scope`` puts on a hit. Left off, the hit
+    is the shape a tool that never enters the scope records — which is what
+    the ledger's coarse fallback is for.
+    """
     hit = {"round": round_index, "name": name}
     if detail is not None:
         hit["detail"] = detail
+    if tool is not None:
+        hit["tool"] = tool
     return hit
 
 
-def test_same_docs_reopened_carry_no_new_docs():
-    """The reference shape: search finds 4 docs, reads open the same 4."""
+def test_a_search_that_ranked_a_doc_does_not_make_the_later_open_a_repeat():
+    """The reference shape: a search lists 2 docs, a later round opens them.
+
+    Listing a file is not reading it. Marking the open as „bereits abgerufen"
+    is what made five opens of one Richtlinie after one search read as five
+    re-fetches of the same document.
+    """
     announcements = [
         _announcement(0, ["knowledge_search"], ["knowledge"], query="OIB 2"),
         _announcement(1, ["read_passage"], ["knowledge"]),
@@ -53,16 +66,159 @@ def test_same_docs_reopened_carry_no_new_docs():
     hits = [
         _hit(0, "oib-rl_2.pdf"),
         _hit(0, "oib-rl_2.1.pdf"),
-        _hit(1, "oib-rl_2.pdf", "p.12"),
+        _hit(1, "oib-rl_2.pdf", "Pkt. 3.1"),
         _hit(1, "oib-rl_2.1.pdf", "p.3"),
     ]
     ledger = build_retrieval_ledger(announcements, hits)
     assert ledger is not None
     assert [entry["index"] for entry in ledger] == [0, 1]
     assert ledger[0]["new_docs"] == ["oib-rl_2.pdf", "oib-rl_2.1.pdf"]
-    assert ledger[1]["new_docs"] == []
+    assert ledger[1]["new_docs"] == ["oib-rl_2.pdf", "oib-rl_2.1.pdf"]
+    assert [doc["repeat"] for doc in ledger[1]["docs"]] == [False, False]
     assert ledger[1]["documents"] == 2
     assert ledger[0]["query"] == "OIB 2"
+
+
+def test_one_document_opened_at_five_punkte_is_one_new_document():
+    """Five loci of one file are five hits and ONE document the round did work on."""
+    announcements = [
+        _announcement(0, ["knowledge_search"], ["knowledge"], query="Fluchtweg"),
+        _announcement(1, ["read_passage"], ["knowledge"]),
+    ]
+    punkte = [f"Pkt. 3.{n}" for n in range(1, 6)]
+    hits = [_hit(0, "oib-rl_2.pdf"), *(_hit(1, "oib-rl_2.pdf", punkt) for punkt in punkte)]
+    ledger = build_retrieval_ledger(announcements, hits)
+    assert ledger is not None
+    assert [doc["detail"] for doc in ledger[1]["docs"]] == punkte
+    assert ledger[1]["hits"] == 5
+    assert ledger[1]["documents"] == 1
+    assert ledger[1]["new_docs"] == ["oib-rl_2.pdf"]
+
+
+def test_a_round_that_re_lists_one_passage_and_finds_another_marks_only_the_first():
+    """The case a document-level verdict cannot state.
+
+    Round 0 ranked the file at p.12. Round 1 ranks it there again and reaches
+    p.60 for the first time: the round did work, so the document is new, and
+    the marker belongs on p.12 alone.
+    """
+    announcements = [
+        _announcement(0, ["knowledge_search"], ["knowledge"], query="Fluchtweg"),
+        _announcement(1, ["knowledge_search"], ["knowledge"], query="Treppenraum"),
+    ]
+    hits = [
+        _hit(0, "oib-rl_2.pdf", "p.12"),
+        _hit(1, "oib-rl_2.pdf", "p.12"),
+        _hit(1, "oib-rl_2.pdf", "p.60"),
+    ]
+    ledger = build_retrieval_ledger(announcements, hits)
+    assert ledger is not None
+    assert [(doc["detail"], doc["repeat"]) for doc in ledger[1]["docs"]] == [
+        ("p.12", True),
+        ("p.60", False),
+    ]
+    assert ledger[1]["new_docs"] == ["oib-rl_2.pdf"]
+
+
+def test_a_mixed_round_opens_only_what_its_locator_call_returned():
+    """The case the tool stamp exists for.
+
+    Round 0 searched up A and B and opened A in the same batch. Each hit says
+    which tool produced it, so A is opened and B is only ranked: reopening A at
+    a NEW Punkt in round 1 is a re-fetch, and the first open of B is not.
+    Crediting the whole round — all this ledger could do before the stamp —
+    marked B as already retrieved on the first time anybody read it.
+    """
+    announcements = [
+        _announcement(0, ["knowledge_search", "read_passage"], ["knowledge"], query="Fluchtweg"),
+        _announcement(1, ["read_passage"], ["knowledge"]),
+    ]
+    hits = [
+        _hit(0, "a.pdf", tool="knowledge_search"),
+        _hit(0, "b.pdf", tool="knowledge_search"),
+        _hit(0, "a.pdf", "Pkt. 1", tool="read_passage"),
+        _hit(1, "b.pdf", "Pkt. 2", tool="read_passage"),
+        _hit(1, "a.pdf", "Pkt. 2", tool="read_passage"),
+    ]
+    ledger = build_retrieval_ledger(announcements, hits)
+    assert ledger is not None
+    assert [(doc["name"], doc["detail"], doc["repeat"]) for doc in ledger[1]["docs"]] == [
+        ("b.pdf", "Pkt. 2", False),
+        ("a.pdf", "Pkt. 2", True),
+    ]
+    assert ledger[1]["new_docs"] == ["b.pdf"]
+
+
+def test_the_tool_stamp_never_reaches_the_wire():
+    """``tool`` is how the verdict is derived, not something the reader is shown."""
+    announcements = [_announcement(0, ["knowledge_search"], ["knowledge"], query="Fluchtweg")]
+    ledger = build_retrieval_ledger(announcements, [_hit(0, "a.pdf", "p.1", tool="knowledge_search")])
+    assert ledger is not None
+    assert ledger[0]["docs"] == [{"name": "a.pdf", "detail": "p.1", "repeat": False}]
+
+
+def test_hits_with_no_tool_stamp_fall_back_to_the_coarse_rule():
+    """A tool that never enters the scope still gets an honest verdict.
+
+    Nothing here says which call returned what, so a round that both searched
+    and opened credits nothing — under-marking, which is the safe direction.
+    """
+    announcements = [
+        _announcement(0, ["knowledge_search", "read_passage"], ["knowledge"], query="Fluchtweg"),
+        _announcement(1, ["read_passage"], ["knowledge"]),
+    ]
+    hits = [_hit(0, "a.pdf"), _hit(0, "b.pdf"), _hit(1, "b.pdf", "Pkt. 2"), _hit(1, "a.pdf", "Pkt. 2")]
+    ledger = build_retrieval_ledger(announcements, hits)
+    assert ledger is not None
+    assert [doc["repeat"] for doc in ledger[1]["docs"]] == [False, False]
+
+
+def test_an_action_tool_beside_a_locator_still_counts_as_opening():
+    """``emit_card`` returns no hits, so it cannot confuse the attribution."""
+    announcements = [
+        _announcement(0, ["read_passage", "emit_card"], ["knowledge"]),
+        _announcement(1, ["read_passage"], ["knowledge"]),
+    ]
+    hits = [_hit(0, "a.pdf", "Pkt. 1"), _hit(1, "a.pdf", "Pkt. 9")]
+    ledger = build_retrieval_ledger(announcements, hits)
+    assert ledger is not None
+    assert [doc["repeat"] for doc in ledger[1]["docs"]] == [True]
+
+
+def test_the_same_passage_opened_twice_is_a_repeat():
+    """Round 1 opens p.12, round 2 opens p.12: the second did no new work."""
+    announcements = [
+        _announcement(0, ["read_passage"], ["knowledge"]),
+        _announcement(1, ["read_passage"], ["knowledge"]),
+    ]
+    hits = [_hit(0, "oib-rl_2.pdf", "p.12"), _hit(1, "oib-rl_2.pdf", "p.12")]
+    ledger = build_retrieval_ledger(announcements, hits)
+    assert ledger is not None
+    assert ledger[0]["new_docs"] == ["oib-rl_2.pdf"]
+    assert ledger[1]["new_docs"] == []
+    assert [doc["repeat"] for doc in ledger[1]["docs"]] == [True]
+
+
+def test_reopening_a_document_at_another_punkt_is_a_repeat():
+    """An earlier round OPENED the file; reading further into it is a re-fetch.
+
+    The reader has the document open already — the distinction the marker
+    carries is "we went back to this file", not "we read this exact page".
+    """
+    announcements = [
+        _announcement(0, ["read_passage"], ["knowledge"]),
+        _announcement(1, ["knowledge_search"], ["knowledge"], query="Treppenraum"),
+        _announcement(2, ["read_passage"], ["knowledge"]),
+    ]
+    hits = [
+        _hit(0, "oib-rl_2.pdf", "Pkt. 3.1"),
+        _hit(1, "brandschutz.pdf"),
+        _hit(2, "oib-rl_2.pdf", "Pkt. 4.2"),
+    ]
+    ledger = build_retrieval_ledger(announcements, hits)
+    assert ledger is not None
+    assert ledger[2]["new_docs"] == []
+    assert [doc["repeat"] for doc in ledger[2]["docs"]] == [True]
 
 
 def test_new_docs_are_listed_per_round_case_insensitively():
@@ -205,6 +361,13 @@ def test_builder_output_matches_the_wire_fixture():
             reason="Die Grundregel steht.",
             key="status.retrieval.punkt",
         ),
+        _announcement(
+            2,
+            ["read_passage"],
+            ["knowledge"],
+            reason="Die Fluchtweglänge hängt an drei Punkten.",
+            key="status.retrieval.punkt",
+        ),
     ]
     hits = [
         {"round": 0, "name": "OIB-RL_2.pdf", "title": "OIB-Richtlinie 2, Ausgabe Mai 2023"},
@@ -216,5 +379,14 @@ def test_builder_output_matches_the_wire_fixture():
             "detail": "p.12",
         },
         {"round": 1, "name": "Brandschutzkonzept.pdf", "detail": "p.3"},
+        *(
+            {
+                "round": 2,
+                "name": "OIB-RL_2.pdf",
+                "title": "OIB-Richtlinie 2, Ausgabe Mai 2023",
+                "detail": punkt,
+            }
+            for punkt in ("Pkt. 3.1", "Pkt. 3.2", "Pkt. 3.3")
+        ),
     ]
     assert build_retrieval_ledger(announcements, hits) == fixture

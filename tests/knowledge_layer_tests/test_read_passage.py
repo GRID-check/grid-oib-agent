@@ -248,6 +248,48 @@ class TestFormatParity:
         assert "Punkt: 3.5.2" in out
         assert "## Trace-Lanes" in out
 
+
+class TestLaneToolStamp:
+    """The hit says WHICH tool fetched it, and only the capture hears it.
+
+    The block is byte-identical to a search's (see :class:`TestFormatParity`),
+    so the renderer cannot tell the two tools apart — which is exactly why the
+    stamp exists. Without it the retrieval ledger cannot say whether an earlier
+    round OPENED a document or merely ranked it, and a first read of a
+    search-listed file renders as „bereits abgerufen".
+    """
+
+    async def test_the_captured_hit_names_read_passage_as_its_tool(self, store):
+        from aiq_agent.common import turn_status
+
+        token = turn_status.begin_lane_capture()
+        try:
+            await _read(document=OIB, punkt="3.5.2")
+            captured = turn_status.get_lane_captures()
+        finally:
+            turn_status.end_lane_capture(token)
+
+        assert captured, "the read recorded no lane hit at all"
+        # Every hit, not merely the first: the scope has to survive the
+        # `asyncio.to_thread` hop that renders the block, and a scope entered
+        # inside the thread would be a context copy nobody reads back.
+        assert {hit.get("tool") for hit in captured} == {"read_passage"}
+
+    async def test_the_stamp_stays_out_of_the_block_the_model_reads(self, store):
+        out = await _read(document=OIB, punkt="3.5.2")
+
+        # The Trace-Lanes payload is the frontend's and the model's; which tool
+        # fetched a passage is how a repeat is derived, not something either is
+        # shown. `record_lane_hit` builds its own record for that reason.
+        assert '"tool"' not in out
+
+    async def test_the_scope_does_not_outlive_the_call(self, store):
+        from aiq_agent.common import turn_status
+
+        await _read(document=OIB, punkt="3.5.2")
+
+        assert turn_status.current_lane_tool() is None
+
     async def test_only_the_addressed_punkt_is_returned(self, store):
         """The stub store ignores filters, so the tool must not.
 

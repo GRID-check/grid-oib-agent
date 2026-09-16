@@ -287,9 +287,9 @@ describe('the backend fixture, read by the round walker', () => {
  * `documentsForRound` matches filenames, so every round that touched a file
  * drew the same turn-level card: the same aggregate count, the same cited
  * page. A second round re-opening four files at new pages was four identical
- * cards a second time. The ledger says which docs a round returned and at what
- * locus; `roundFan` prefers it and falls back to the filename match for any
- * round it does not cover.
+ * cards a second time. The ledger says which documents a round returned and at
+ * which passages; `roundFan` folds them to ONE slot per document carrying its
+ * loci, and falls back to the filename match for any round it does not cover.
  */
 describe('roundFan', () => {
   const doc = (id: string, fileName: string): CitedDocument => ({
@@ -330,44 +330,114 @@ describe('roundFan', () => {
     )
   )!
 
-  const rounds = [round(0, ['OIB-RL_2.pdf']), round(1, ['OIB-RL_2.pdf'])]
+  const rounds = [
+    round(0, ['OIB-RL_2.pdf']),
+    round(1, ['OIB-RL_2.pdf']),
+    round(2, ['OIB-RL_2.pdf']),
+  ]
 
-  test('a ledger round draws ITS docs, at the locus IT read', () => {
+  const details = (fan: ReturnType<typeof roundFan>) =>
+    fan.map((slot) => slot.loci?.map((locus) => locus.detail))
+
+  test('a ledger round draws ITS docs, at the loci IT read', () => {
     const fan = roundFan(rounds[1]!, [oib, konzept], ledger)
     expect(fan.map((slot) => slot.card?.id)).toEqual(['oib', 'konzept'])
-    expect(fan.map((slot) => slot.round?.detail)).toEqual(['p.12', 'p.3'])
+    expect(details(fan)).toEqual([['p.12'], ['p.3']])
   })
 
-  test('a doc no earlier round showed is new; the second round re-opening it is not', () => {
-    expect(roundFan(rounds[0]!, [oib, konzept], ledger).map((s) => s.round?.repeat)).toEqual([
-      false,
-      false,
+  test('five opens of one document are ONE card listing its five loci', () => {
+    // The shape this fold exists for: five Punkte of one Richtlinie used to be
+    // five identical cards, which reads as five fetches of the same file.
+    const punkte = ['Pkt. 3.1', 'Pkt. 3.2', 'Pkt. 3.3', 'Pkt. 3.4', 'Pkt. 3.5']
+    const entry = {
+      ...ledger[2]!,
+      docs: punkte.map((detail) => ({ name: 'OIB-RL_2.pdf', detail, repeat: false })),
+      newDocs: ['OIB-RL_2.pdf'],
+    }
+    const fan = roundFan(rounds[2]!, [oib, konzept], [ledger[0]!, ledger[1]!, entry])
+    expect(fan).toHaveLength(1)
+    expect(fan[0]?.card?.id).toBe('oib')
+    expect(details(fan)).toEqual([punkte])
+  })
+
+  test('a search that only ranked a file does not make the later open a repeat', () => {
+    // Round 0 listed both files; round 1 is the first to read into them.
+    expect(roundFan(rounds[0]!, [oib, konzept], ledger).map((s) => s.loci)).toEqual([
+      [{ repeat: false }],
+      [{ repeat: false }],
     ])
-    expect(roundFan(rounds[1]!, [oib, konzept], ledger).map((s) => s.round?.repeat)).toEqual([
-      true,
-      true,
+    expect(roundFan(rounds[1]!, [oib, konzept], ledger).map((s) => s.loci)).toEqual([
+      [{ detail: 'p.12', repeat: false }],
+      [{ detail: 'p.3', repeat: false }],
     ])
   })
 
-  test('a ledger doc with no card keeps its slot and its locus', () => {
+  test('a document an earlier round OPENED is marked on every locus it is read at again', () => {
+    const fan = roundFan(rounds[2]!, [oib, konzept], ledger)
+    expect(fan).toHaveLength(1)
+    expect(fan[0]?.loci?.every((locus) => locus.repeat)).toBe(true)
+  })
+
+  test('a round that re-lists one passage and finds another marks only the first', () => {
+    // Round 0 ranked the file at p.12; this round ranks it there again and
+    // reaches p.60 for the first time. One card, two loci, one marker — the
+    // claim a document-level verdict cannot make.
+    const entry = {
+      ...ledger[2]!,
+      docs: [
+        { name: 'OIB-RL_2.pdf', detail: 'p.12', repeat: true },
+        { name: 'OIB-RL_2.pdf', detail: 'p.60', repeat: false },
+      ],
+      newDocs: ['OIB-RL_2.pdf'],
+    }
+    const fan = roundFan(rounds[2]!, [oib, konzept], [ledger[0]!, ledger[1]!, entry])
+    expect(fan).toHaveLength(1)
+    expect(fan[0]?.loci).toEqual([
+      { detail: 'p.12', repeat: true },
+      { detail: 'p.60', repeat: false },
+    ])
+  })
+
+  test('a turn stored before the backend stamped passages falls back to newDocs', () => {
+    // Old rows are replayed from Postgres and must still say something true:
+    // the document-level verdict, applied to every locus of that document.
+    const entry = {
+      ...ledger[1]!,
+      docs: [
+        { name: 'OIB-RL_2.pdf', detail: 'p.12' },
+        { name: 'Brandschutzkonzept.pdf', detail: 'p.3' },
+      ],
+      newDocs: ['OIB-RL_2.pdf'],
+    }
+    const fan = roundFan(rounds[1]!, [oib, konzept], [ledger[0]!, entry])
+    expect(fan.map((slot) => slot.loci)).toEqual([
+      [{ detail: 'p.12', repeat: false }],
+      [{ detail: 'p.3', repeat: true }],
+    ])
+  })
+
+  test('a ledger doc with no card keeps its slot and its loci', () => {
     // The answer-repair pass reads after the cards are built; a slot dropped
     // here would have the round claim it read one file when it read two.
     const fan = roundFan(rounds[1]!, [oib], ledger)
     expect(fan.map((slot) => slot.card?.id)).toEqual(['oib', undefined])
-    expect(fan[1]).toMatchObject({ name: 'Brandschutzkonzept.pdf', round: { detail: 'p.3' } })
+    expect(fan[1]).toMatchObject({
+      name: 'Brandschutzkonzept.pdf',
+      loci: [{ detail: 'p.3', repeat: false }],
+    })
   })
 
   test('without a ledger the fan is the filename match, and no round speaks for a slot', () => {
     const fan = roundFan(rounds[1]!, [oib, konzept])
     expect(fan.map((slot) => slot.card?.id)).toEqual(['oib'])
-    expect(fan[0]?.round).toBeUndefined()
+    expect(fan[0]?.loci).toBeUndefined()
   })
 
   test('a round the ledger does not have falls back on its own', () => {
     const missing = round(7, ['Brandschutzkonzept.pdf'])
     const fan = roundFan(missing, [oib, konzept], ledger)
     expect(fan.map((slot) => slot.card?.id)).toEqual(['konzept'])
-    expect(fan[0]?.round).toBeUndefined()
+    expect(fan[0]?.loci).toBeUndefined()
   })
 
 })

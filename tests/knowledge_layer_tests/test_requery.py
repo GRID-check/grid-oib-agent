@@ -160,9 +160,9 @@ class _FakeRetriever:
         return _FakeResult(list(self.answers.get(query, [])))
 
 
-def _grounding(merged, query, notice=""):
-    """Stands in for the renderer, which carries the requery notice inside its bytes."""
-    return notice + ("|".join(chunk.chunk_id for chunk in merged.chunks) or "no results")
+def _grounding(merged, query, notice="", trailer="", preamble_note=""):
+    """Stands in for the renderer, which carries every decoration inside its bytes."""
+    return notice + preamble_note + ("|".join(chunk.chunk_id for chunk in merged.chunks) or "no results") + trailer
 
 
 _NOTICE_MARK = "Hinweis: die Suche wurde um"
@@ -342,3 +342,42 @@ class TestTheNoticeTheModelReads:
         out = await _search(_config(requery_llm="judge"), file_name="oib-rl_4.pdf")
 
         assert _NOTICE_MARK not in out
+
+
+class TestLaneToolScope:
+    """The renderer runs with ``knowledge_search`` declared as the lane tool.
+
+    It rides this harness because this is where a real ``search()`` is driven
+    against a fake store. What it pins is placement, not plumbing: the scope
+    has to be open when ``_format_results`` runs, and that render happens in
+    ``asyncio.to_thread``, which copies the context AT CALL TIME. A scope
+    entered inside the thread, or after the await, is a copy nobody reads back
+    and every hit of every search would reach the ledger unstamped — where it
+    cannot be told from a passage somebody opened.
+    """
+
+    async def test_the_renderer_sees_the_tool_that_called_it(self, loop_harness, monkeypatch):
+        from aiq_agent.common.turn_status import current_lane_tool
+
+        seen: list[str | None] = []
+
+        def _spy(merged, query, notice="", trailer="", preamble_note=""):
+            seen.append(current_lane_tool())
+            return _grounding(merged, query, notice, trailer, preamble_note)
+
+        retriever = _FakeRetriever({"Fluchtweg GK4": [_chunk("a", "a")]})
+        loop_harness(retriever, None)
+        monkeypatch.setattr("knowledge_layer.register._format_results", _spy)
+
+        await _search(_config())
+
+        assert seen == ["knowledge_search"]
+
+    async def test_the_scope_does_not_outlive_the_search(self, loop_harness):
+        from aiq_agent.common.turn_status import current_lane_tool
+
+        loop_harness(_FakeRetriever({"Fluchtweg GK4": [_chunk("a", "a")]}), None)
+
+        await _search(_config())
+
+        assert current_lane_tool() is None

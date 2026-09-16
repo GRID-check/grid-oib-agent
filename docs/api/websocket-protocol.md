@@ -396,8 +396,15 @@ interface RetrievalLedgerEntry {
   query?: string
   /** The round's own words, verbatim — narration, never a verdict. */
   reason?: string
-  docs: { name: string; title?: string; detail?: string; shelf?: string }[]
-  /** Names no earlier round showed. Empty means the round added no files. */
+  /**
+   * One entry per PASSAGE. `repeat` is the backend's verdict on that passage;
+   * it is absent on turns stored before the backend stamped it.
+   */
+  docs: { name: string; title?: string; detail?: string; shelf?: string; repeat?: boolean }[]
+  /**
+   * The documents with at least one passage that was not a repeat. Empty
+   * means the round re-fetched everything it returned.
+   */
   new_docs: string[]
   /** Entries in `docs` (one file at two pages counts twice). */
   hits: number
@@ -426,7 +433,7 @@ The client extracts content in priority order: `output` → `text` → raw strin
 | `job_admission_rejected` | `true` | Marks the answer text as a queue-rejection notice (NOT a research answer). The client renders a warning banner (error code `research.queue_full`) and leaves the composer unlocked. |
 | `retry_after_seconds` | `number` | Only alongside `job_admission_rejected` — retry hint (seconds). |
 | `skills_activated` | `string[]` | Agent Skills whose full instructions were LOADED this turn — the ones the model pulled in with `use_skill`, in call order, deduped. Absent/empty on a turn that activated none. Rendered as a quiet "Skills used" disclosure under the answer; the reconnect path persists it into assistant-message metadata. Availability is the constant, activation is the event — see `docs/architecture/agent-skills.md`. |
-| `retrieval_ledger` | `RetrievalLedgerEntry[]` | The backend's own account of this turn's retrieval rounds: per announced round what it was asked (query, tools), what it returned (docs with title/detail/shelf), and what was new (`new_docs`); `hits`/`documents` are tallies over `docs`. Absent when no round was announced. The Herleitung spine draws each round's fan from it: the page or Punkt each round reached, „bereits abgerufen" on a file an earlier round already returned, and an „Öffnen" step kind for a round that only opened passages with `read_passage`. Persisted into message metadata/provenance so reloads read the same account. Known exclusion: the answer-repair pass retrieves outside the tool node and announces no round, so its findings are absent by design. |
+| `retrieval_ledger` | `RetrievalLedgerEntry[]` | The backend's own account of this turn's retrieval rounds: per announced round what it was asked (query, tools), what it returned, and which documents it did work on (`new_docs`); `hits`/`documents` are tallies over `docs`. Absent when no round was announced. One `docs` entry is one PASSAGE — a document (`name`, `title`, `shelf`) at a page or Punkt (`detail`) — carrying `repeat: boolean`: true when an earlier round already returned that exact (document, `detail`) pair, or when an earlier round OPENED that document with a locator tool (`read_passage`). A search that merely ranked a document does not make the later open of it a repeat. `new_docs` is the document-level derivation of the same marks: a document is listed when at least one of its passages here is not a repeat. `repeat` is absent on turns stored before the backend stamped it, and the renderer then falls back to `new_docs`. The Herleitung spine draws each round's fan from it, one card per document: the pages or Punkte that round reached, listed under the card, „bereits abgerufen" on the passages it fetched a second time, and an „Öffnen" step kind for a round that only opened passages. Persisted into message metadata/provenance so reloads read the same account. Known exclusion: the answer-repair pass retrieves outside the tool node and announces no round, so its findings are absent by design. |
 
 #### system_intermediate_message
 

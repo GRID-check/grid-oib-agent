@@ -22,8 +22,8 @@ const ROUND_0 = {
   corpora: ['knowledge'],
   query: 'Fluchtweglänge GK4',
   docs: [
-    { name: 'OIB-RL_2.pdf', title: 'OIB-Richtlinie 2, Ausgabe Mai 2023' },
-    { name: 'Brandschutzkonzept.pdf' },
+    { name: 'OIB-RL_2.pdf', title: 'OIB-Richtlinie 2, Ausgabe Mai 2023', repeat: false },
+    { name: 'Brandschutzkonzept.pdf', repeat: false },
   ],
   newDocs: ['OIB-RL_2.pdf', 'Brandschutzkonzept.pdf'],
   hits: 2,
@@ -41,17 +41,36 @@ const ROUND_1 = {
       name: 'OIB-RL_2.pdf',
       title: 'OIB-Richtlinie 2, Ausgabe Mai 2023',
       detail: 'p.12',
+      repeat: false,
     },
-    { name: 'Brandschutzkonzept.pdf', detail: 'p.3' },
+    { name: 'Brandschutzkonzept.pdf', detail: 'p.3', repeat: false },
   ],
-  newDocs: [],
+  newDocs: ['OIB-RL_2.pdf', 'Brandschutzkonzept.pdf'],
   hits: 2,
   documents: 2,
 }
 
+/** One file, three Punkte — the round the fan folds to a single card. */
+const ROUND_2 = {
+  index: 2,
+  key: 'status.retrieval.punkt',
+  tools: ['read_passage'],
+  corpora: ['knowledge'],
+  reason: 'Die Fluchtweglänge hängt an drei Punkten.',
+  docs: ['Pkt. 3.1', 'Pkt. 3.2', 'Pkt. 3.3'].map((detail) => ({
+    name: 'OIB-RL_2.pdf',
+    title: 'OIB-Richtlinie 2, Ausgabe Mai 2023',
+    detail,
+    repeat: true,
+  })),
+  newDocs: [],
+  hits: 3,
+  documents: 1,
+}
+
 describe('sanitizeRetrievalLedger', () => {
   test('the backend-built wire payload survives shape-shifted', () => {
-    expect(sanitizeRetrievalLedger(fixture)).toEqual([ROUND_0, ROUND_1])
+    expect(sanitizeRetrievalLedger(fixture)).toEqual([ROUND_0, ROUND_1, ROUND_2])
   })
 
   test('nothing usable yields null, never an empty array', () => {
@@ -63,7 +82,7 @@ describe('sanitizeRetrievalLedger', () => {
 
   test('an entry without an index is corrupt and skipped, the rest survives', () => {
     const ledger = sanitizeRetrievalLedger([{ key: 'status.retrieval.plain' }, ...(fixture as unknown[])])
-    expect(ledger).toHaveLength(2)
+    expect(ledger).toHaveLength(3)
     expect(ledger?.[0]?.index).toBe(0)
   })
 
@@ -94,6 +113,24 @@ describe('sanitizeRetrievalLedger', () => {
     ])
     expect(ledger?.[0]?.hits).toBe(3)
     expect(ledger?.[0]?.documents).toBe(2)
+  })
+
+  test('a passage carries the backend’s repeat verdict, and only a real boolean', () => {
+    const ledger = sanitizeRetrievalLedger([
+      {
+        index: 0,
+        key: 'k',
+        docs: [
+          { name: 'a.pdf', detail: 'p.12', repeat: true },
+          { name: 'a.pdf', detail: 'p.60', repeat: false },
+          // A stored turn from before the backend stamped it, and a payload
+          // that made the field up: both render off `newDocs` instead.
+          { name: 'b.pdf' },
+          { name: 'c.pdf', repeat: 'ja' },
+        ],
+      },
+    ])
+    expect(ledger?.[0]?.docs.map((doc) => doc.repeat)).toEqual([true, false, undefined, undefined])
   })
 
   test('newDocs is filtered to names that are actually in docs', () => {

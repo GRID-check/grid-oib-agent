@@ -272,10 +272,12 @@ class TestTheLaneCaptureReachesTheLedger:
         assert [entry["index"] for entry in ledger] == [0, 1]
         # Round 0 found the document; round 1 opened the same file at a Punkt.
         assert ledger[0]["docs"][0]["name"] == "OIB 2.pdf"
-        assert ledger[1]["docs"] == [{"name": "OIB 2.pdf", "detail": "p.3.5.2"}]
-        # Same name, so the open round added no NEW document — the reference
-        # shape the fair frontend will fold rather than draw twice.
-        assert ledger[1]["new_docs"] == []
+        assert ledger[1]["docs"] == [{"name": "OIB 2.pdf", "detail": "p.3.5.2", "repeat": False}]
+        # Round 0 only RANKED the file; round 1 is the first to read into it,
+        # so the open is work, not a re-fetch. The frontend folds the two
+        # rounds' hits onto one card per document; „bereits abgerufen" is
+        # reserved for the round that fetches a passage a second time.
+        assert ledger[1]["new_docs"] == ["OIB 2.pdf"]
 
     @pytest.mark.asyncio
     async def test_the_capture_does_not_outlive_the_turn(self, scripted_agent):

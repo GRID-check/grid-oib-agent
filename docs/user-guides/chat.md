@@ -202,6 +202,15 @@ conclusion that caused each fetch, the files *that* fetch returned, then the
 next conclusion. A step's body is always the model's own sentence, never the
 search query.
 
+**A step says what Piloti set out to do, then what it read.** The sentence under
+the step number is Piloti's own: why this fetch happened. Under it stands one
+card per document, listing the Punkte or pages that step read in it. Five
+Punkte of the OIB-Richtlinie 2 are one card with five addresses, not five cards.
+„bereits abgerufen" marks a passage the step fetched again: either that exact
+page or Punkt had already come back, or the step went back into a file an
+earlier step had opened. A file an earlier search merely *listed* does not
+count. Opening it is new work, and carries no marker.
+
 **Every step folds.** Clicking a step (or reaching it with Tab and pressing
 Enter — it is a real button and reports its state through `aria-expanded`)
 replaces its fan of file cards with the count of what that fetch returned,

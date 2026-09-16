@@ -96,7 +96,11 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "OIB base corpus "
     "is not enumerated there — reach it by `doc_class` (e.g. `oib_richtlinie`) "
     "or by plain semantic search, never a guessed name. Do not pass a raw "
-    "`filters` object unless you need `content_type`.\n"
+    "`filters` object unless you need `content_type`. "
+    "A query that names a Richtlinie and nothing else ('OIB 2', "
+    "'OIB-Richtlinie 2.1') returns every part of that Richtlinie the corpus "
+    "holds, each with its Geltungsbereich and its Gliederung, so ask it that "
+    "way when you want the whole Richtlinie.\n"
     "ALWAYS pass `conclusion=` — one sentence saying what you now know and what "
     "you still need, which is why you are making THIS call. Empty on your first "
     "call of the turn. It is the Herleitung checkpoint the reader sees above the "
@@ -1314,12 +1318,30 @@ def _trace_lanes_for_hits(hits) -> str:
         return '{"lanes":[]}'
 
 
+def _lane_detail(hit) -> str | None:
+    """Where in the document this hit sits, as the Herleitung names it.
+
+    The Punkt leads when the hit states one: a normative document is read by
+    its numbering, and "Pkt. 3.5.2" is the locus the reader can act on, where
+    "p.12" is where the printer happened to break the page. The page follows on
+    the same line because the frontend takes the preview's page out of this
+    string (``features/chat/lib/citations/build.ts``), and an entry that lost
+    it would open the document at page 1. The two are separated by a SPACE:
+    the Herleitung card joins several loci of one document with ", ", and a
+    comma inside one locus would read as two.
+    """
+    page = f"p.{hit.page}" if hit.page is not None else ""
+    if not hit.punkt:
+        return page or None
+    return f"Pkt. {hit.punkt} {page}".strip()
+
+
 def _append_lane_source(bucket: dict, hit) -> None:
     """Add one hit to its lane's source list, unless the lane already names it."""
     from aiq_agent.common.provenance import provenance_metadata
 
     name = hit.file_name or ""
-    detail = f"p.{hit.page}" if hit.page is not None else None
+    detail = _lane_detail(hit)
     # Deduplicate identical name+detail pairs inside a lane.
     existing = {(source.get("name"), source.get("detail") or "") for source in bucket["sources"]}
     if not name or (name, detail or "") in existing:
@@ -1347,6 +1369,12 @@ def _stamp_and_capture_lane_source(entry: dict) -> None:
     The per-round ledger reads this, never the prose: the capture keeps every
     round's hits apart, while the turn_sources log dedups documents across
     rounds. A missing round stamp must not drop the hit.
+
+    ``record_lane_hit`` builds its OWN record and stamps the producing tool on
+    it from the scope the tool opened. That stamp stays in the capture: the
+    ``entry`` below is the Trace-Lanes payload the model and the frontend read,
+    and which tool fetched a passage is how a repeat is DERIVED, not something
+    either of them is shown.
     """
     try:
         from aiq_agent.common.turn_status import current_retrieval_round
@@ -1518,7 +1546,7 @@ def _grounding_hits(chunks) -> tuple:
     )
 
 
-def _format_results(retrieval_result, query: str, notice: str = "", trailer: str = "") -> str:
+def _format_results(retrieval_result, query: str, notice: str = "", trailer: str = "", preamble_note: str = "") -> str:
     """Build this result set's grounding hits and render them for the LLM.
 
     The layout itself lives in
@@ -1530,6 +1558,11 @@ def _format_results(retrieval_result, query: str, notice: str = "", trailer: str
     fall back to parsing the text. ``notice`` is the requery notice and goes
     ahead of everything; ``trailer`` is ``read_passage``'s ``## Gliederung``
     index and follows the fan-out.
+
+    ``preamble_note`` is what the CALL was, when that is more than a count: the
+    family a family-shaped query resolved to, and where its parts sit in the
+    results. It is a second preamble line, so a result set without one renders
+    byte-for-byte as before.
     """
     # The two answers below carry no block, so they carry no hash to protect
     # either; there the trailer is simply appended, which keeps it stated
@@ -1557,9 +1590,10 @@ def _format_results(retrieval_result, query: str, notice: str = "", trailer: str
     from aiq_agent.common.grounding_block import render_grounding_block
 
     hits = _grounding_hits(retrieval_result.chunks)
+    preamble = f"Found {len(hits)} relevant document(s):"
     return render_grounding_block(
         GroundingBlock(
-            preamble=f"Found {len(hits)} relevant document(s):",
+            preamble=f"{preamble}\n{preamble_note}" if preamble_note else preamble,
             degraded_banner=degraded_banner,
             hits=hits,
             # Fan-out summary for the Herleitung UI, from the same records the
@@ -1568,6 +1602,34 @@ def _format_results(retrieval_result, query: str, notice: str = "", trailer: str
             trailer=trailer,
         )
     )
+
+
+async def _family_overview_or_none(entries, family_key: str):
+    """The family branch, fail-open: a broken overview keeps the ordinary search.
+
+    Imported here rather than at module scope because ``read_passage`` imports
+    this module back; both directions are function-scoped, so neither package
+    can be half-initialised by the other.
+    """
+    try:
+        from .read_passage import family_overview
+
+        return await family_overview(entries, family_key)
+    except Exception:  # noqa: BLE001 — the ranked passages are always a valid answer
+        logger.warning("Family overview skipped for Richtlinie %s", family_key, exc_info=True)
+        return None
+
+
+def _without_chunks(chunks, exclude) -> list:
+    """``chunks`` minus every chunk ``exclude`` already carries, by chunk id.
+
+    A scope passage the search ALSO ranked is one passage, and rendering it
+    twice would spend a result slot on a repeat and offer the model two
+    citation keys for one text.
+    """
+    taken = {getattr(chunk, "chunk_id", None) for chunk in exclude}
+    taken.discard(None)
+    return [chunk for chunk in chunks if getattr(chunk, "chunk_id", None) not in taken]
 
 
 def _normalized_query_for_span(text: str) -> str:
@@ -1847,6 +1909,20 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             "Knowledge search: query='%s...' collections=%s",
             query[:100],
             [(entry.collection, entry.shelf) for entry in target_collections],
+        )
+
+        # A query that names a Richtlinie and nothing else asks about the whole
+        # FAMILY, and OIB 2 is four documents. Ranked passages answer that with
+        # whichever two scored best, and the model cannot ask for the parts it
+        # does not know exist, so this reads every member's scope and
+        # Gliederung BESIDE the search and renders both in one block.
+        # `file_name=` and `folder=` are the caller narrowing to one document,
+        # which is the opposite request.
+        from aiq_agent.common.norm_registry import family_query_number
+
+        family_key = None if (file_name or folder) else family_query_number(query)
+        family_task = (
+            asyncio.create_task(_family_overview_or_none(target_collections, family_key)) if family_key else None
         )
 
         # Per-turn requery budget: one firing per turn. Reset per turn id when
@@ -2167,6 +2243,22 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     dropped_by_floor = before_floor - len(kept)
                 merged = merged.model_copy(update={"chunks": kept})
 
+            # The family's members go in FRONT of the ranked passages, and after
+            # the cap and the floor: they are addressed, not ranked, so neither
+            # budget decides whether a part of the Richtlinie is shown. A
+            # passage the search also found is one passage, not two.
+            overview = await family_task if family_task is not None else None
+            if not merged.success:
+                # A fan-out that FAILED is reported as a failure. Decorating it
+                # with an overview would render a complete-looking block over a
+                # corpus that answered nothing.
+                overview = None
+            family_note = overview.preamble if overview is not None else ""
+            if overview is not None:
+                merged = merged.model_copy(
+                    update={"chunks": [*overview.chunks, *_without_chunks(merged.chunks, overview.chunks)]}
+                )
+
             # The picking, as a first-class observation (ADR-0044): one
             # `retrieve.knowledge_search` span carrying query, collections,
             # budgets and the picked chunk ids/files/scores — metadata only,
@@ -2257,9 +2349,13 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # back as success=False, partial loss as error_message set — both must
             # reach `_format_results`, which renders the failure/warning, rather
             # than the retry-hint below, which would read as "nothing matched".
+            from aiq_agent.common.turn_status import KNOWLEDGE_SEARCH_TOOL
+            from aiq_agent.common.turn_status import lane_tool_scope
+
             if not merged.chunks:
                 if not merged.success or getattr(merged, "error_message", None):
-                    return notice + _format_results(merged, query)
+                    with lane_tool_scope(KNOWLEDGE_SEARCH_TOOL):
+                        return notice + _format_results(merged, query)
                 return notice + _empty_search_message(
                     query,
                     file_name=file_name,
@@ -2272,7 +2368,21 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # doc_class resolution plus pure-CPU string building; run it off the
             # event loop so the synchronous DB round-trips never block the loop
             # (and stall other concurrent turns).
-            formatted = await asyncio.to_thread(_format_results, merged, query, notice)
+            #
+            # The lane-tool scope is entered HERE, outside the await, not inside
+            # `_format_results`: `asyncio.to_thread` copies the context when the
+            # call is made, so a scope opened in the worker thread would be a
+            # copy nobody reads back. The family branch renders through this
+            # same call, so it is stamped with it.
+            with lane_tool_scope(KNOWLEDGE_SEARCH_TOOL):
+                formatted = await asyncio.to_thread(
+                    _format_results,
+                    merged,
+                    query,
+                    notice,
+                    overview.trailer if overview is not None else "",
+                    family_note,
+                )
             logger.info(f"Knowledge search returned {len(merged.chunks)} chunks")
             logger.debug(f"Formatted result for LLM:\n{formatted[:500]}...")
             return formatted
@@ -2291,6 +2401,12 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 "could not search the knowledge base and do not invent a citation. "
                 f"Technical detail: {e}"
             )
+        finally:
+            # An answer that returned before the family read was awaited leaves
+            # a task holding a store fetch. Cancelling it here is what keeps the
+            # concurrency free: nothing outlives the call it was started for.
+            if family_task is not None and not family_task.done():
+                family_task.cancel()
 
     # Yield the function info for NAT registration
     if max_per_document > 0:

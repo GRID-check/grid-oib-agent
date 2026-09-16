@@ -38,6 +38,12 @@ changed, and they stayed green through every gate because nothing ran them.
 
 ## Reference
 
+- `knowledge_search` has two answer shapes. A query that names a Richtlinie and
+  nothing else returns the whole family: `norm_registry.family_query_number`
+  detects it, `read_passage.family_overview` reads every member the corpus
+  holds, and `register.search` renders their scope passages ahead of the ranked
+  hits with one `## Gliederung` per member as the block's trailer. Membership
+  is derived from what is indexed, never listed.
 - [`aiq-add-data-source`](../skills/aiq-add-data-source/SKILL.md) is the
   step-by-step; [`aiq-add-tool`](../skills/aiq-add-tool/SKILL.md) covers a
   non-retrieval tool.

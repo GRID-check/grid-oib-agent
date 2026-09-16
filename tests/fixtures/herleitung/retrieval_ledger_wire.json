@@ -8,10 +8,12 @@
     "docs": [
       {
         "name": "OIB-RL_2.pdf",
-        "title": "OIB-Richtlinie 2, Ausgabe Mai 2023"
+        "title": "OIB-Richtlinie 2, Ausgabe Mai 2023",
+        "repeat": false
       },
       {
-        "name": "Brandschutzkonzept.pdf"
+        "name": "Brandschutzkonzept.pdf",
+        "repeat": false
       }
     ],
     "new_docs": ["OIB-RL_2.pdf", "Brandschutzkonzept.pdf"],
@@ -28,15 +30,47 @@
       {
         "name": "OIB-RL_2.pdf",
         "title": "OIB-Richtlinie 2, Ausgabe Mai 2023",
-        "detail": "p.12"
+        "detail": "p.12",
+        "repeat": false
       },
       {
         "name": "Brandschutzkonzept.pdf",
-        "detail": "p.3"
+        "detail": "p.3",
+        "repeat": false
+      }
+    ],
+    "new_docs": ["OIB-RL_2.pdf", "Brandschutzkonzept.pdf"],
+    "hits": 2,
+    "documents": 2
+  },
+  {
+    "index": 2,
+    "key": "status.retrieval.punkt",
+    "tools": ["read_passage"],
+    "corpora": ["knowledge"],
+    "reason": "Die Fluchtweglänge hängt an drei Punkten.",
+    "docs": [
+      {
+        "name": "OIB-RL_2.pdf",
+        "title": "OIB-Richtlinie 2, Ausgabe Mai 2023",
+        "detail": "Pkt. 3.1",
+        "repeat": true
+      },
+      {
+        "name": "OIB-RL_2.pdf",
+        "title": "OIB-Richtlinie 2, Ausgabe Mai 2023",
+        "detail": "Pkt. 3.2",
+        "repeat": true
+      },
+      {
+        "name": "OIB-RL_2.pdf",
+        "title": "OIB-Richtlinie 2, Ausgabe Mai 2023",
+        "detail": "Pkt. 3.3",
+        "repeat": true
       }
     ],
     "new_docs": [],
-    "hits": 2,
-    "documents": 2
+    "hits": 3,
+    "documents": 1
   }
 ]

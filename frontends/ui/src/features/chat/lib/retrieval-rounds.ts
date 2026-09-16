@@ -160,29 +160,35 @@ const cardsByName = (cards: CitedDocument[]): Map<string, CitedDocument> => {
   return index
 }
 
-/** What ONE round did with one document, when the ledger accounts for the round. */
+/** One passage THIS round read of one document, when the ledger accounts for the round. */
 export interface RoundLocus {
   /**
-   * The page / Punkt THIS round read, as the backend stated it. Absent when
-   * the round named none — the turn aggregate is never borrowed in its place,
-   * because that is the very conflation the ledger exists to end.
+   * The page / Punkt THIS round read, as the backend stated it — `p.12` or
+   * `Pkt. 3.1`, rendered verbatim and never parsed. Absent when the round
+   * named none: the turn aggregate is never borrowed in its place, because
+   * that is the very conflation the ledger exists to end.
    */
   detail?: string
-  /** An earlier round already showed this file — it is not among `newDocs`. */
+  /** The round fetched this passage a second time, as the backend stated it. */
   repeat: boolean
 }
 
 /**
- * One slot in the fan under a round.
+ * One slot in the fan under a round: one DOCUMENT, with every passage that
+ * round read of it.
  *
  * Without a ledger a slot is just a card, exactly as before. With one, the slot
- * is the LEDGER's doc: the same turn-level card (so the chip, the preview and
- * the citation markers behave identically) plus what that round did with it.
- * A ledger doc the card model has no card for — the answer-repair pass, or a
- * name the model dropped — keeps its slot and renders bare.
+ * is the LEDGER's document: the same turn-level card (so the chip, the preview
+ * and the citation markers behave identically) plus the loci that round reached
+ * in it. A ledger doc the card model has no card for — the answer-repair pass,
+ * or a name the model dropped — keeps its slot and renders bare.
+ *
+ * Folding by document is the point. One slot per (document, Punkt) drew five
+ * opens of one Richtlinie as five identical cards, which is the shape a reader
+ * cannot tell from five re-fetches.
  */
 export interface FanCard {
-  /** Unique within the fan. One round may read the same file at two pages. */
+  /** Unique within the fan — one per document the round returned. */
   key: string
   /** The turn-level card this slot stands for, when there is one. */
   card?: CitedDocument
@@ -190,27 +196,56 @@ export interface FanCard {
   name: string
   /** The ledger's display title, when it carried one. */
   title?: string
-  /** Present only for a ledger-backed slot — see {@link RoundLocus}. */
-  round?: RoundLocus
+  /**
+   * Present only for a ledger-backed slot: every passage THIS round read of
+   * this document, in the order the round returned them. Never empty.
+   */
+  loci?: RoundLocus[]
 }
 
-/** The fan of a ledger round: one slot per doc THAT round returned, in its order. */
+/** A slot under construction — `loci` is the array the fold pushes onto. */
+type LedgerSlot = FanCard & { loci: RoundLocus[] }
+
+/** The fold key for "same document": the card key, else the bare name. */
+const foldKey = (name: string): string => normalizeFileName(name) || name.trim().toLowerCase()
+
+/**
+ * The fan of a ledger round: one slot per DOCUMENT that round returned, in
+ * first-seen order, carrying the loci it read in each.
+ *
+ * The `repeat` verdict is the backend's, per passage: only that side sees
+ * every earlier round. A turn stored before the backend stamped it falls back
+ * to `newDocs`, which is the same verdict at document granularity — every
+ * locus of a document agrees, because that is all the older wire could say.
+ */
 export const ledgerFan = (entry: RetrievalLedgerEntry, cards: CitedDocument[]): FanCard[] => {
   const index = cardsByName(cards)
   const fresh = new Set(entry.newDocs.map((name) => normalizeFileName(name)).filter(Boolean))
-  return entry.docs.map((doc, i) => {
-    const key = normalizeFileName(doc.name)
-    const card = key ? index.get(key) : undefined
-    return {
+  const slots = new Map<string, LedgerSlot>()
+  for (const doc of entry.docs) {
+    const cardKey = normalizeFileName(doc.name)
+    const fold = foldKey(doc.name)
+    const locus: RoundLocus = {
+      ...(doc.detail ? { detail: doc.detail } : {}),
+      repeat: doc.repeat ?? !fresh.has(cardKey),
+    }
+    const existing = slots.get(fold)
+    if (existing) {
+      existing.loci.push(locus)
+      continue
+    }
+    const card = cardKey ? index.get(cardKey) : undefined
+    slots.set(fold, {
       // The name is in the key so a re-ordered ledger does not reuse a slot
-      // identity, and the ordinal so the same file at two pages is two slots.
-      key: `r${entry.index}-${i}-${doc.name}`,
+      // identity. No ordinal: the same file at two pages is now ONE slot.
+      key: `r${entry.index}-${doc.name}`,
       ...(card ? { card } : {}),
       name: doc.name,
       ...(doc.title ? { title: doc.title } : {}),
-      round: { ...(doc.detail ? { detail: doc.detail } : {}), repeat: !fresh.has(key) },
-    }
-  })
+      loci: [locus],
+    })
+  }
+  return [...slots.values()]
 }
 
 /**

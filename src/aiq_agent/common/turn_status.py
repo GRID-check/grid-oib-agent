@@ -156,10 +156,57 @@ def retrieval_round_scope(round_index: int | None) -> Iterator[None]:
         _retrieval_round.reset(token)
 
 
+#: Which tool's results are being turned into lane hits RIGHT NOW.
+#:
+#: The round stamp says WHEN a hit was fetched; this says by WHAT. The
+#: retrieval ledger needs both: "did an earlier round OPEN this document, or
+#: merely rank it" decides whether reading it again is a re-fetch, and a round
+#: that searched and opened in one batch returns hits from both calls with
+#: nothing on the hit to tell them apart.
+#:
+#: Set by the producing TOOL around the call that renders its fan-out, for the
+#: same reason the round is set in the tools node: the value has to be live in
+#: the context the emitter runs in. ``asyncio.to_thread`` copies the context
+#: when the call is made, so a tool that formats off the loop enters the scope
+#: BEFORE that await, never inside the thread.
+#:
+#: Unset is a real state, not a defect: a tool that never enters the scope
+#: (RIS, web, the surfacing tools) records unstamped hits, and the ledger has
+#: a coarser fallback for a round whose hits carry no stamp.
+_lane_tool: ContextVar[str | None] = ContextVar("grid_lane_tool", default=None)
+
+
+def current_lane_tool() -> str | None:
+    """The tool whose results are being recorded as lane hits, or ``None``."""
+    return _lane_tool.get()
+
+
+@contextmanager
+def lane_tool_scope(tool: str | None) -> Iterator[None]:
+    """Stamp every lane hit recorded inside this block with ``tool``.
+
+    The basename, as :data:`LOCATOR_TOOL_BASENAMES` and the ledger spell it —
+    ``knowledge_search``, ``read_passage`` — not a display name. Resets on
+    exit, so one tool's scope never colours the next one's hits.
+    """
+    token = _lane_tool.set((tool or "").strip() or None)
+    try:
+        yield
+    finally:
+        _lane_tool.reset(token)
+
+
 #: Lane hits this turn's tools returned, as the emitters stated them: one
-#: entry per hit with the round stamp, name, title, detail and shelf the
-#: Trace-Lanes block carries. The round is read HERE, off the same ContextVar
-#: the stamp reads, so a captured hit and its stamped twin can never disagree.
+#: entry per hit with the round stamp, the producing tool, name, title, detail
+#: and shelf the Trace-Lanes block carries. The round is read HERE, off the same
+#: ContextVar the stamp reads, so a captured hit and its stamped twin can never
+#: disagree.
+#:
+#: ``tool`` is IN-PROCESS only. It travels from this capture to
+#: :func:`~aiq_agent.agents.piloti.ledger.build_retrieval_ledger` and stops
+#: there: the ledger's wire docs carry name/title/detail/shelf and nothing
+#: else, because which tool fetched a passage is how the repeat verdict is
+#: DERIVED, not something a reader is shown.
 #:
 #: Why a SECOND capture beside the turn_sources log: that log dedups
 #: documents across rounds (right for citation-health denominators, wrong for
@@ -189,6 +236,10 @@ def record_lane_hit(
     Best-effort by contract (module rule above): emitters call this beside
     the Trace-Lanes entry they build, and a capture must never break a tool
     result. Only JSON primitives are stored, so the capture is wire-ready.
+
+    The round and the producing tool are read off their ContextVars rather
+    than passed, so an emitter cannot state one and be running under the
+    other. Both are absent when nothing set them.
     """
     try:
         log = _lane_captured_hits.get()
@@ -196,6 +247,9 @@ def record_lane_hit(
         if log is None or not clean:
             return
         entry: dict[str, Any] = {"round": current_retrieval_round(), "name": clean}
+        tool = current_lane_tool()
+        if tool:
+            entry["tool"] = tool
         if title and title.strip():
             entry["title"] = title.strip()
         if detail and detail.strip():
@@ -461,13 +515,20 @@ def emit_status(
 #: Deliberately the corpus and not a specific Richtlinie: the retrieval tools
 #: take a query and nothing else, so naming "OIB-Richtlinie 2" here would be
 #: claiming a narrowing the system did not perform.
+#: The two knowledge-layer tool basenames, spelled once. Both producers stamp
+#: their hits with these (see :func:`lane_tool_scope`), the table below reads
+#: them as corpora, and :data:`LOCATOR_TOOL_BASENAMES` picks the opener out of
+#: them — three readers, one spelling.
+KNOWLEDGE_SEARCH_TOOL = "knowledge_search"
+READ_PASSAGE_TOOL = "read_passage"
+
 _SEARCH_CORPORA: tuple[tuple[str, str], ...] = (
-    ("knowledge_search", "knowledge"),
+    (KNOWLEDGE_SEARCH_TOOL, "knowledge"),
     # The locator reads the same corpus through the same scope, so it is the
     # same corpus to the reader and the same layer of the spine to the
     # Herleitung. What differs is only how the line READS — see
-    # :data:`_LOCATOR_TOOL_BASENAMES`.
-    ("read_passage", "knowledge"),
+    # :data:`LOCATOR_TOOL_BASENAMES`.
+    (READ_PASSAGE_TOOL, "knowledge"),
     ("ris_", "ris"),
     ("advanced_web_search", "web"),
     ("web_search", "web"),
@@ -521,7 +582,16 @@ CHECKPOINT_FROM_NONE = "none"
 #: Their arguments are an address, not a question, so they are kept out of
 #: :func:`_query_text` — a document name quoted as if it were the reader's
 #: search string is a sentence nobody typed.
-_LOCATOR_TOOL_BASENAMES = frozenset({"read_passage"})
+#:
+#: Public because the retrieval ledger reads it too: "did an earlier round
+#: OPEN this document, or merely rank it" is the difference between a re-fetch
+#: and reading further into a file, and two lists of locator tools would
+#: eventually disagree about which round was which.
+#:
+#: The tool itself stamps :data:`READ_PASSAGE_TOOL` on its hits
+#: (:func:`lane_tool_scope`), so the name is spelled once and the producer and
+#: the matcher cannot drift.
+LOCATOR_TOOL_BASENAMES = frozenset({READ_PASSAGE_TOOL})
 
 #: Room for the document name on a locator line, after the label and the Punkt
 #: or page that follows it. Same budget as the quoted query and for the same
@@ -549,6 +619,17 @@ def _search_corpus(base: str) -> str | None:
     return None
 
 
+def tool_fetches_evidence(base: str) -> bool:
+    """Does a tool with this BASENAME return hits of its own?
+
+    The same question :func:`is_search_call` answers, asked of a name rather
+    than of a call, because a stored round announcement keeps basenames and
+    not the calls they came from. The retrieval ledger reads it to tell which
+    of a round's tools could have produced the documents it returned.
+    """
+    return bool(base) and base != "use_skill" and _search_corpus(base) is not None
+
+
 def is_search_call(call: Any) -> bool:
     """Does this ONE tool call fetch evidence from a corpus?
 
@@ -558,8 +639,7 @@ def is_search_call(call: Any) -> bool:
     """
     if not isinstance(call, dict):
         return False
-    base = tool_basename(str(call.get("name") or ""))
-    return bool(base) and base != "use_skill" and _search_corpus(base) is not None
+    return tool_fetches_evidence(tool_basename(str(call.get("name") or "")))
 
 
 def is_retrieval_round(tool_calls: list[dict[str, Any]] | None) -> bool:
@@ -919,7 +999,7 @@ def _describe_calls(calls: list[dict[str, Any]]) -> dict[str, Any]:
         if corpus is not None:
             if corpus not in corpora:
                 corpora.append(corpus)
-            if base in _LOCATOR_TOOL_BASENAMES:
+            if base in LOCATOR_TOOL_BASENAMES:
                 locator = locator or _locator_line(call.get("args"))
             else:
                 query = query or _query_text(call.get("args"))
