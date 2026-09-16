@@ -1018,6 +1018,13 @@ not read it" — had to ask the corpus to find that passage again by similarity,
 paying a full fan-out, a reranker pass and possibly the requery judge for a
 lookup it could already address.
 
+Both answering surfaces bind it. Deep research had only the search for a
+release, on the reading that a run planning retrieval across six researchers
+does not run against a chat turn's tool ceiling — true, and beside the point: a
+worker that has read a Gliederung and knows the Punkt it needs was still asking
+the corpus to find that passage by similarity, and every batch spent that way is
+a round the run does not get back.
+
 `read_passage` (`sources/knowledge_layer/src/read_passage.py`) is that lookup:
 `document` (exact indexed name, stored display title, or the derived OIB title)
 plus `punkt` (the `punkt_id` the Punkt chunker verified against the corpus's own
