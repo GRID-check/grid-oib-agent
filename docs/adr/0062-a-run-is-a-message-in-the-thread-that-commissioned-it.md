@@ -52,11 +52,18 @@ already is.
 
 What it consists of:
 
-- **The run message.** Created at submit, in the conversation the work was
-  commissioned from, with `run_id` set and `metadata.run_ledger` at
-  `angelegt`. Its id is uuid5 of the run id (`lib/runs/service.ts`,
-  `createRunMessage`), so a retried submit is a no-op. The report is written
-  into that same message when the run finishes; there is no second message.
+- **The run message.** Minted once the backend has accepted the work, in the
+  conversation the work was commissioned from, with `run_id` set and
+  `metadata.run_ledger` at `angelegt`, and recorded on
+  `task_runs.run_message_id`. Its id is uuid5 of the run id
+  (`lib/runs/service.ts`, `runMessageId`), so a retried submit is a no-op and
+  a refused fire leaves nothing behind. The report is written into that same
+  message when the run finishes: the worker, which holds only the backend job
+  id, posts it to `/api/internal/runs/by-job/[backendJobId]/report` and the
+  BFF resolves the pair; a 404 there means "this run has no message" and the
+  worker writes the question-and-answer pair the old way, so the two services
+  deploy in either order. The writer returns the id the report landed in, and
+  that is what the ledger's `result.reportMessageId` names.
 - **The ledger.** One contract, `RunLedger` (`lib/runs/run-ledger-types.ts`,
   zod), mirrored in Python (`common/run_ledger.py`, pydantic) and pinned by a
   committed JSON Schema (`tests/fixtures/run-ledger.schema.json`). Phases are
@@ -75,11 +82,19 @@ What it consists of:
   fails a run.
 - **One stream per run.** The run id is the public key; the existing job
   event stream is reached through it, replayable from `last_event_id`, and a
-  late subscriber gets the whole ledger with the next snapshot.
-- **A standing task owns a thread.** A scheduled definition gets one
-  conversation, created lazily on its first fire and named by it; each fire
-  appends a run message there. One-off and delegated work runs in the thread
-  that asked for it.
+  late subscriber gets the whole ledger with the next snapshot. A deep link is
+  `?session=<conversation>&run=<runId>#message-<messageId>`, reusing the
+  message anchor the sharing registry already emits; `?run=` alone resolves
+  through `GET /api/projects/[id]/runs/[runId]`.
+- **A definition owns a thread.** A task definition that fires gets one
+  conversation, "Aufgabe: <title>", whose id is derived from the definition's
+  (uuid5, `lib/tasks/task-thread.ts`), so "ensure the thread" is the primary
+  key plus `ON CONFLICT DO NOTHING` and no unique index on
+  `conversations.job_id` is needed (one could not be created on live data, where
+  every earlier fire stamped its own conversation with that value). Every fire
+  appends a run message there. Delegated work runs in the thread that asked
+  for it, taken from the signed envelope, and falls back to the definition's
+  thread when nobody typed.
 - **The deep researcher speaks the same language as chat.** It opens the same
   lane-capture and retrieval-round scopes, states a conclusion per research
   batch, keeps the repeat-fetch guard, and records a retrieval ledger on the

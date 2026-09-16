@@ -37,6 +37,13 @@ export interface TaskWireRow {
   /** The conversation an `output: 'chat'` task wrote into. */
   conversationId: string | null
   /**
+   * The message this run narrates itself in, inside that conversation
+   * (ADR-0062). Null for every run submitted before run messages existed, and
+   * for one whose message could not be minted — those rows still open their
+   * thread, they just land at the bottom of it rather than at the run.
+   */
+  runMessageId: string | null
+  /**
    * The backend async-job id — the handle on the run's own report and its
    * thinking. Null for a task whose submission never reached the agent.
    *
@@ -101,7 +108,8 @@ export function isActiveTask(task: TaskWireRow): boolean {
  *
  *   1. the **document** it was filed as, which is the durable artefact and the
  *      thing the rest of the product treats as real;
- *   2. the **conversation** a `chat` run wrote into, which can be continued;
+ *   2. the **conversation** the run was commissioned in, opened at the run's own
+ *      message, which can be read and continued;
  *   3. the run's own **report**, reached by backend job id.
  *
  * (3) is the one the surface used to be missing, and its absence is why a
@@ -117,6 +125,24 @@ export type TaskResultTarget =
   | { kind: 'document' | 'conversation' | 'report' | 'thinking'; href: string }
   | null
 
+/**
+ * The query (and anchor) that opens a task's thread AT its run.
+ *
+ * `?session=` selects the conversation and `#message-<id>` scrolls to the
+ * message and marks it — the shape the inbox links already use
+ * (`lib/sharing/registry.ts`, `useMessageAnchor`), reused rather than reinvented
+ * so one mechanism carries every deep link into a thread. `?run=` rides along
+ * because the run id is the public key of a run: a surface that has only that
+ * resolves the rest itself (`GET /api/projects/[id]/runs/[runId]`).
+ *
+ * A row with no run message gets the plain `?session=` it always got.
+ */
+function conversationQuery(task: TaskWireRow): string {
+  const session = `session=${encodeURIComponent(task.conversationId ?? '')}`
+  if (!task.runMessageId) return session
+  return `${session}&run=${encodeURIComponent(task.id)}#message-${encodeURIComponent(task.runMessageId)}`
+}
+
 export function taskResultTarget(projectId: string, task: TaskWireRow): TaskResultTarget {
   const project = encodeURIComponent(projectId)
   if (task.filedDocumentId) {
@@ -128,7 +154,7 @@ export function taskResultTarget(projectId: string, task: TaskWireRow): TaskResu
   if (task.conversationId) {
     return {
       kind: 'conversation',
-      href: `/app/projects/${project}/chat?session=${encodeURIComponent(task.conversationId)}`,
+      href: `/app/projects/${project}/chat?${conversationQuery(task)}`,
     }
   }
   if (!task.backendJobId) return null

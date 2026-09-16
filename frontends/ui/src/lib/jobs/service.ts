@@ -56,6 +56,8 @@ import {
 } from './backend-client'
 import * as repository from '@/lib/tasks/repository'
 import { previousDecisionsBlock } from '@/lib/tasks/service'
+import { taskThreadConversationId } from '@/lib/tasks/task-thread'
+import { createRunMessage } from '@/lib/runs/service'
 import {
   AGENT_FOR_OUTPUT,
   emptySkillSnapshot,
@@ -543,26 +545,41 @@ export interface AgentRunSpec {
   output: JobOutput
   dataSources: string[] | null
   /**
-   * The title of the conversation an `output: 'chat'` run writes into. Null
-   * means "no conversation": a deep-research run produces a report.
+   * The `task_runs` row this submission is for, minted by the caller BEFORE the
+   * submission because the run's message id is derived from it.
    */
-  conversationTitle: string | null
-  /** Stamped on the conversation when the run belongs to a definition. */
-  jobId?: string | null
-}
-
-/** What the submission produced: the backend's id and where the answer lands. */
-export interface SubmittedAgentRun {
-  backendJobId: string
+  runId: string
+  /**
+   * The thread the work was commissioned in — the conversation a person was
+   * typing in, or the standing task's own thread — and the place this run's
+   * message goes. Null when there is nowhere to write: the run still runs, it
+   * just has no account of itself in any thread (ADR-0062).
+   */
   conversationId: string | null
 }
 
 /**
- * Build one run's context, create its conversation and submit it to the
- * backend. Throws what `submitJob` throws (`JobSubmitError`,
+ * What the submission produced: the backend's id, where the answer lands, and
+ * the message the run writes into.
+ */
+export interface SubmittedAgentRun {
+  backendJobId: string
+  conversationId: string | null
+  /** Null when the thread is unknown or the message could not be minted. */
+  runMessageId: string | null
+}
+
+/**
+ * Build one run's context, submit it to the backend, and give the run its place
+ * in the thread. Throws what `submitJob` throws (`JobSubmitError`,
  * `JobSubmitSkippedError`) and whatever a context lookup throws; every caller
  * records that on a run row, because a fire that never reached the agent is
  * still an attempt a person can see.
+ *
+ * The run's message is minted AFTER the backend accepted the submission, and
+ * that order is the point: a fire the agent refused (an org cap, an unreachable
+ * queue) leaves no empty assistant bubble in somebody's thread. Before this, the
+ * same fire left a whole empty conversation behind.
  */
 export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgentRun> {
   const { organizationId, projectId, userId } = spec
@@ -590,17 +607,7 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
     resolveOrgInstructions(organizationId),
   ])
   const budgetHeader = budgetSnapshot ? encodeGridBudgetHeader(budgetSnapshot) : null
-
-  const conversationId =
-    spec.output === 'chat' && spec.conversationTitle
-      ? await createRunConversation({
-          organizationId,
-          projectId,
-          createdBy: userId,
-          title: spec.conversationTitle,
-          jobId: spec.jobId ?? null,
-        })
-      : null
+  const conversationId = spec.conversationId
 
   const payload: JobSubmitPayload = {
     input: spec.prompt,
@@ -638,7 +645,27 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
   )
 
   const { jobId } = await submitJob(payload, contextHeaders)
-  return { backendJobId: jobId, conversationId }
+  const runMessageId = conversationId ? await mintRunMessage(conversationId, spec.runId) : null
+  return { backendJobId: jobId, conversationId, runMessageId }
+}
+
+/**
+ * The run's place in the thread, or null.
+ *
+ * Swallowed like the thread creation below it, and for the same reason: a run
+ * whose narration could not be minted is a run that still ran. The worker falls
+ * back to writing its report as an ordinary turn when the run has no message
+ * (`jobs/conversation_output.py`), so the answer reaches the reader either way —
+ * what is lost is the live ledger, not the work.
+ */
+async function mintRunMessage(conversationId: string, runId: string): Promise<string | null> {
+  try {
+    const message = await createRunMessage(conversationId, runId)
+    return message.id
+  } catch (err) {
+    console.warn('[runs] could not create the run message for run', runId, err)
+    return null
+  }
 }
 
 /**
@@ -655,6 +682,11 @@ export async function fireJob(
   actor: string,
 ): Promise<TaskRun> {
   const { organizationId, projectId } = definition
+  // Minted HERE, before anything is submitted, because the run's message id is
+  // derived from it (`runMessageId`) and the message is written while the run
+  // row is still being assembled. Every outcome below — running, skipped,
+  // errored — records this same id, so one fire is one id from end to end.
+  const runId = randomUUID()
 
   try {
     // What earlier runs of this definition were told "no" about, in the
@@ -667,7 +699,12 @@ export async function fireJob(
     ]
       .filter(Boolean)
       .join('\n\n')
-    const { backendJobId, conversationId } = await submitAgentRun({
+    // The definition's own thread, created on the first fire and found by id on
+    // every later one. A definition fired from here is a STANDING intent — a
+    // schedule, or a „Jetzt ausführen" somebody can press again — and its runs
+    // belong together in one place rather than in a new conversation per fire.
+    const thread = await createTaskThread(definition)
+    const { backendJobId, conversationId, runMessageId } = await submitAgentRun({
       organizationId,
       projectId,
       userId: definition.requesterUserId,
@@ -676,24 +713,55 @@ export async function fireJob(
       skillSnapshot: skill,
       output: definition.kind === 'deep-research' ? 'deep-research' : 'chat',
       dataSources: definition.plan.dataSources ?? null,
-      conversationTitle: definition.title,
-      jobId: definition.id,
+      runId,
+      conversationId: thread,
     })
-    return recordRun(definition, trigger, actor, 'running', backendJobId, null, conversationId, firePrompt)
+    return recordRun(definition, trigger, actor, runId, {
+      status: 'running',
+      backendJobId,
+      error: null,
+      conversationId,
+      runMessageId,
+      firePrompt,
+    })
   } catch (err) {
     if (err instanceof JobSubmitSkippedError) {
       const detail =
         err.retryAfterSeconds != null
           ? `${err.message} (retry after ${err.retryAfterSeconds}s)`
           : err.message
-      return recordRun(definition, trigger, actor, 'skipped', null, detail, null)
+      return recordRun(definition, trigger, actor, runId, {
+        status: 'skipped',
+        backendJobId: null,
+        error: detail,
+        conversationId: null,
+      })
     }
-    if (err instanceof JobSubmitError) {
-      return recordRun(definition, trigger, actor, 'error', null, err.message, null)
-    }
-    const detail = err instanceof Error ? err.message : 'Unexpected error while preparing the run'
-    return recordRun(definition, trigger, actor, 'error', null, detail, null)
+    const detail =
+      err instanceof JobSubmitError
+        ? err.message
+        : err instanceof Error
+          ? err.message
+          : 'Unexpected error while preparing the run'
+    return recordRun(definition, trigger, actor, runId, {
+      status: 'error',
+      backendJobId: null,
+      error: detail,
+      conversationId: null,
+    })
   }
+}
+
+/** What one fire produced, as the row-writer below needs it. */
+interface FireOutcome {
+  status: 'running' | 'skipped' | 'error'
+  backendJobId: string | null
+  error: string | null
+  conversationId: string | null
+  /** The message the run narrates itself in; absent when nothing was submitted. */
+  runMessageId?: string | null
+  /** Frozen into the run's plan when the submission succeeded. */
+  firePrompt?: string
 }
 
 /**
@@ -701,18 +769,20 @@ export async function fireJob(
  * id the worker will report through. `firePrompt` is frozen into the run's plan
  * when submission succeeded; a skipped/error fire records the definition's plan
  * unchanged, because nothing was sent.
+ *
+ * The id is the caller's, not the column default: the run's message was derived
+ * from it before this row existed.
  */
 async function recordRun(
   definition: TaskDefinition,
   trigger: TaskRunTrigger,
   actor: string,
-  status: 'running' | 'skipped' | 'error',
-  backendJobId: string | null,
-  error: string | null,
-  conversationId: string | null,
-  firePrompt?: string,
+  runId: string,
+  { status, backendJobId, error, conversationId, runMessageId, firePrompt }: FireOutcome,
 ): Promise<TaskRun> {
   const run = await repository.insertRun({
+    id: runId,
+    runMessageId: runMessageId ?? null,
     organizationId: definition.organizationId,
     projectId: definition.projectId,
     definitionId: definition.id,
@@ -737,12 +807,22 @@ async function recordRun(
 }
 
 /**
- * The conversation an `output: 'chat'` run writes into — a real thread the team
- * opens, reads and keeps typing into, not a rendering of a report.
+ * The ONE thread a standing task owns — a real conversation the team opens,
+ * reads and keeps typing into, not a rendering of a report (ADR-0062).
  *
- * Returns the new conversation's id, or null when the insert failed. Whether a
- * run HAS a conversation is the caller's decision, because a delegated task
- * decides it from its kind rather than from a definition row.
+ * Idempotent: the id is derived from the definition's id
+ * (`lib/tasks/task-thread.ts`), so the first fire creates the row and every
+ * later one finds it. There is no „does it exist" query and no unique index to
+ * add — `conversations`' primary key plus `ON CONFLICT DO NOTHING` is the whole
+ * mechanism, and two concurrent fires converge on one row.
+ *
+ * Returns the thread's id, or null when the insert threw. A delegation calls
+ * this only when the person was NOT typing in a thread: work asked for in a
+ * conversation belongs in that conversation.
+ *
+ * The title is the definition's at first fire and is not chased afterwards.
+ * Renaming a schedule renames the schedule; the thread keeps the name the team
+ * has been reading it under.
  *
  * **`createdBy` is the definition's requester — a real user id, never
  * 'scheduler' and never a synthetic one.** Four separate mechanisms read
@@ -757,39 +837,32 @@ async function recordRun(
  * Two people following the run-history link would otherwise get a 404.
  *
  * **`jobId` stamps the provenance** — it is what lets the UI render the
- * definition's name and glyph instead of the owner's face, and what keeps
- * these threads out of the owner's personal chat history.
+ * definition's name and glyph instead of the owner's face, and what keeps the
+ * OLD per-fire threads out of the owner's personal chat history. The standing
+ * thread carries it too and is shown anyway: `isTaskThread` tells the two apart
+ * from the id alone, and a task's one thread is a place the team goes back to.
  *
  * A failure here is logged and swallowed: a scheduled run must still run.
  */
-async function createRunConversation(run: {
-  organizationId: string
-  projectId: string
-  createdBy: string
-  title: string
-  /** Null for a delegated task, which still stamps the once definition's id. */
-  jobId: string | null
-}): Promise<string | null> {
-  // The app's conversation id shape: `s_` + a uuid with hyphens as underscores.
-  // It doubles as this session's Qdrant collection name, so a definition
-  // conversation must be minted exactly the way an interactive one is.
-  const id = `s_${randomUUID().replace(/-/g, '_')}`
+export async function createTaskThread(definition: TaskDefinition): Promise<string | null> {
+  const id = taskThreadConversationId(definition.id)
 
   try {
-    const inserted = await insertConversation({
+    // `insertConversation` answers null on an id conflict, which here means the
+    // thread is already there — the ordinary case from the second fire onwards.
+    // Either way the id is the answer.
+    await insertConversation({
       id,
-      organizationId: run.organizationId,
-      createdBy: run.createdBy,
-      title: run.title,
-      projectId: run.projectId,
+      organizationId: definition.organizationId,
+      createdBy: definition.requesterUserId,
+      title: `Aufgabe: ${definition.title}`,
+      projectId: definition.projectId,
       visibility: 'project',
-      jobId: run.jobId,
+      jobId: definition.id,
     })
-    if (inserted) return inserted.id
-    console.warn('[definitions] conversation id collision while firing run', run.jobId ?? run.title)
-    return null
+    return id
   } catch (err) {
-    console.warn('[definitions] failed to create the conversation for run', run.jobId ?? run.title, err)
+    console.warn('[definitions] failed to create the thread for definition', definition.id, err)
     return null
   }
 }
@@ -819,15 +892,12 @@ export async function fireScheduledJob(
       flagOn = false
     }
     if (!flagOn) {
-      await recordRun(
-        definition,
-        'schedule',
-        'scheduler',
-        'skipped',
-        null,
-        'Skills feature disabled for organization',
-        null,
-      )
+      await recordRun(definition, 'schedule', 'scheduler', randomUUID(), {
+        status: 'skipped',
+        backendJobId: null,
+        error: 'Skills feature disabled for organization',
+        conversationId: null,
+      })
       return { fired: false, reason: 'feature-disabled' }
     }
   }

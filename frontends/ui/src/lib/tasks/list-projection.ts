@@ -31,6 +31,10 @@ export function toTaskWireRow(task: TaskRun, requesterName: string | null): Task
     reviewReason: task.reviewReason,
     filedDocumentId: task.filedDocumentId,
     conversationId: task.conversationId,
+    // Where in that conversation the run is. Sent so the Tasks list can land the
+    // reader ON the run rather than at the bottom of a thread that may hold a
+    // year of them (ADR-0062).
+    runMessageId: task.runMessageId,
     // The handle on the run's own report. Added so a finished task that filed
     // no document and minted no conversation still has somewhere to go — the
     // dead end the Tasks list used to leave. Opaque, and already public in the

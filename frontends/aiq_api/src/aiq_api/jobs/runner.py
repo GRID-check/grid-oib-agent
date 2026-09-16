@@ -37,7 +37,6 @@ from aiq_agent.project_context import compose_project_context
 from .callbacks import AgentEventCallback
 from .conversation_output import FAILURE_NOTICE
 from .conversation_output import INTERRUPTED_NOTICE
-from .conversation_output import report_message_id
 from .conversation_output import write_job_notice
 from .conversation_output import write_job_turn
 from .event_store import BatchingEventStore
@@ -1554,7 +1553,7 @@ async def run_agent_job(
                     # status stays FAILURE — thread, Report and status would
                     # diverge, each telling a different story about the run.
                     if finalized:
-                        await write_job_turn(
+                        report_landed_in = await write_job_turn(
                             conversation_id=parent_conversation_id,
                             job_id=job_id,
                             usage_context=usage_context,
@@ -1573,13 +1572,11 @@ async def run_agent_job(
                             transparency=transparency,
                         )
                         # What the run left behind, for its ledger: the message
-                        # the report was just written into, named by the same
-                        # derivation that wrote it. No file id yet — this tier
-                        # does not file the report itself.
+                        # the report was just written into, as the writer names
+                        # it (the run's own message, or the fallback turn). No
+                        # file id yet — this tier does not file the report.
                         if run_ledger_fold is not None:
-                            run_ledger_fold.note_result(
-                                report_message_id=report_message_id(parent_conversation_id, job_id)
-                            )
+                            run_ledger_fold.note_result(report_message_id=report_landed_in or None)
                     else:
                         logger.info(
                             "Job %s finished without a thread turn (%s); the standing verdict owns the thread",

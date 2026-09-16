@@ -762,6 +762,65 @@ async def post_internal_conversation_message(
         return False
 
 
+async def post_internal_run_report(
+    *,
+    job_id: str,
+    text: str,
+    metadata: dict[str, Any] | None = None,
+) -> str | None:
+    """Write a finished run's answer INTO the run's own message. Fail-soft.
+
+    Returns the id of the message the report landed in, so the run's ledger can
+    name the same row (``result.reportMessageId``) without deriving it a second
+    time. ``""`` when the BFF accepted the write but named no message (an older
+    build); ``None`` for every reason to fall back, below.
+
+    A run is one message in the thread that commissioned it (ADR-0062): the BFF
+    mints that message when the run is submitted, and this fills it in. Keyed on
+    the BACKEND job id because that is the only id a worker holds — the message
+    id is derived from the ``task_runs`` id, which this service never sees.
+
+    Returns ``None`` for every reason a caller should fall back to writing an
+    ordinary turn instead, and they are not all failures: **404 is the answer for
+    a run that has no message** (an interactive deep-research job has no task row
+    at all; a run submitted before this shipped has no message). The caller's
+    fallback is today's question-and-answer pair, so a deploy in either order
+    still lands the report in front of the reader.
+
+    The write goes over the internal HTTP API with the service token, like every
+    other backend→BFF write: ``grid_app`` is single-writer and Python never
+    touches the database.
+    """
+    base_url = _internal_base_url()
+    headers = _internal_persist_headers()
+    if not base_url or headers is None:
+        logger.warning("Cannot write the run report for job %s: internal API not configured", job_id)
+        return None
+
+    url = f"{base_url.rstrip('/')}/api/internal/runs/by-job/{job_id}/report"
+    payload: dict[str, Any] = {"content": text, "metadata": metadata or {}}
+
+    try:
+        async with httpx.AsyncClient(timeout=_PERSIST_TIMEOUT_SECONDS) as client:
+            response = await client.post(url, json=payload, headers=headers)
+    except Exception:  # noqa: BLE001 — fail-soft by contract; callers must not break
+        logger.warning("Failed to write the run report for job %s", job_id, exc_info=True)
+        return None
+
+    if response.status_code == 404:
+        logger.debug("Job %s has no run message; the thread turn is written the old way", job_id)
+        return None
+    if response.status_code not in (200, 201):
+        logger.warning("Run report for job %s returned HTTP %s", job_id, response.status_code)
+        return None
+    logger.info("Wrote the report into the run message for job %s", job_id)
+    try:
+        message_id = response.json().get("messageId")
+    except Exception:  # noqa: BLE001 — the write happened; a missing id costs only the ledger's link
+        message_id = None
+    return message_id if isinstance(message_id, str) else ""
+
+
 async def persist_assistant_message(
     *,
     conversation_id: str,

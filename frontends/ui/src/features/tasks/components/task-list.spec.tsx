@@ -25,6 +25,7 @@ const task = (overrides: Partial<TaskWireRow> = {}): TaskWireRow => ({
   reviewReason: null,
   filedDocumentId: null,
   conversationId: null,
+  runMessageId: null,
   backendJobId: null,
   trigger: 'delegated',
   requesterUserId: 'user_anna',

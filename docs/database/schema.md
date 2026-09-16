@@ -94,7 +94,7 @@ export const conversations = pgTable('conversations', {
 | `created_by` | `text` | NOT NULL | WorkOS user ID |
 | `title` | `text` | | Auto-generated or user-set title |
 | `project_id` | `uuid` | FK → `projects.id` ON DELETE SET NULL | Scopes knowledge collection |
-| `job_id` | `uuid` | FK → `task_definitions.id` ON DELETE SET NULL (repointed by migration `0086`; was `jobs.id`, and the definition ids for job-backed rows are the same uuids) | **Provenance, not ownership**: the definition whose `output='chat'` run was materialised into this thread, or NULL when a person started it (every row before 0044, and the great majority after). `created_by` on a job conversation is still the JOB'S OWNER — a real user id, because the sharing roster, the last-owner invariant, `attributeLegacyAuthor` and audit all read that column as a person — so this column is the only thing that says "nobody typed this". Two behaviours hang off it: rendering the thread with the job's name and a job glyph instead of the owner's face, and filtering it out of the owner's personal sessions list (a weekly job is 52 threads a year) while it stays openable by URL and from the job's run history. `SET NULL`, because deleting a definition must never delete its output. |
+| `job_id` | `uuid` | FK → `task_definitions.id` ON DELETE SET NULL (repointed by migration `0086`; was `jobs.id`, and the definition ids for job-backed rows are the same uuids) | **Provenance, not ownership**: the definition whose `output='chat'` run was materialised into this thread, or NULL when a person started it (every row before 0044, and the great majority after). `created_by` on a job conversation is still the JOB'S OWNER — a real user id, because the sharing roster, the last-owner invariant, `attributeLegacyAuthor` and audit all read that column as a person — so this column is the only thing that says "nobody typed this". Two behaviours hang off it: rendering the thread with the job's name and a job glyph instead of the owner's face, and filtering it out of the owner's personal sessions list (a weekly job is 52 threads a year) while it stays openable by URL and from the job's run history. `SET NULL`, because deleting a definition must never delete its output. **From PR 1 (ADR-0062) a standing definition owns exactly ONE thread**, and each fire appends its run message to it rather than minting a conversation per fire. The invariant is held by the thread's ID, which is derived from the definition's (`lib/tasks/task-thread.ts`, uuid5) so the primary key plus `ON CONFLICT DO NOTHING` makes „ensure the thread“ idempotent: **this column is NOT unique and cannot become unique**, because every fire before that change stamped its own conversation with the same value, and clearing the duplicates would delete the provenance the column exists for (migration `0091`'s header carries the record). That derived id is also how a reader tells the two apart: the standing thread is shown in the sessions list, the per-fire conversations stay hidden. |
 | `visibility` | `text` | NOT NULL, default `'private'` | `private` \| `project` \| `organization` (ADR-0032). Read on the hot path with the row, so access resolution costs no join. **Migration 0027 backfilled pre-existing rows with a `project_id` to `'project'`** — conversations used to be resolved org-scoped only, so any org member with an id could read any thread; `'project'` keeps access for everyone inside the project and withdraws the accidental org-wide read. Rows with a NULL `project_id` stayed `'private'` (no project membership could describe their audience). |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | Updated on message activity |
@@ -461,7 +461,15 @@ trigger (`once`, no due date), which is what lets chat say „jeden Montag".
   + `triggered_by`, `status` (`queued | running | succeeded | failed |
   interrupted | skipped | error` — the merge of the worker lifecycle with the
   submission's), `error`, `skill_snapshot`, `backend_job_id` (the one id the
-  worker holds), `conversation_id`, filing (`filed_document_id`, `filing_status`,
+  worker holds), `conversation_id` — *the thread the work was commissioned in:
+  the conversation a person was typing in, or the standing definition's own
+  thread; no longer a conversation minted per fire* — `run_message_id`
+  (migration `0091`, ADR-0062: the ONE assistant message this run writes its
+  ledger and its report into, in that thread; `uuid`, nullable, no foreign key,
+  minted deterministically from the run id so a retried submit is a no-op, and
+  NULL for every run that predates the migration and for one whose message could
+  not be created — a run without one still runs, and its report is written as a
+  question-and-answer pair the old way), filing (`filed_document_id`, `filing_status`,
   `filing_detail`) and review (`review`, `review_reason`, `reviewed_by`,
   `reviewed_at`) columns, `created_at`, `started_at`, `finished_at`,
   `updated_at`.

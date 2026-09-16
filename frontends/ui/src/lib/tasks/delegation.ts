@@ -48,7 +48,7 @@ import type {
   TaskRun,
 } from '@/lib/db/schema'
 import { DELEGATABLE_TASK_KINDS } from '@/lib/db/schema'
-import { submitAgentRun } from '@/lib/jobs/service'
+import { createTaskThread, submitAgentRun } from '@/lib/jobs/service'
 import { JobSubmitError, JobSubmitSkippedError } from '@/lib/jobs/backend-client'
 import { minIntervalMinutesFromEnv, nextOccurrence, validateCron } from '@/lib/jobs/schedule'
 import { resolveSkillSnapshot } from '@/lib/skills/service'
@@ -215,6 +215,16 @@ export interface DelegateTaskInput {
    * is what „@Piloti prüf das" means.
    */
   requester?: { userId: string; email: string | null }
+  /**
+   * The thread the work was commissioned in, when a person was typing in one.
+   *
+   * A run is one message in that thread (ADR-0062), so „@Piloti prüf das bis
+   * Freitag" answers where it was asked instead of in a conversation minted for
+   * it that nobody knows to open. Absent for a delegation nobody typed — a
+   * reviewer's send-back on a version with no origin — and then the definition's
+   * own thread holds the run.
+   */
+  conversationId?: string | null
 }
 
 /**
@@ -365,7 +375,7 @@ export async function delegateTask(
     metadata: { projectId: input.projectId, kind: input.kind, trigger: 'delegated' },
   })
 
-  return { definition, run: await dispatchRun(definition, run) }
+  return { definition, run: await dispatchRun(definition, run, input.conversationId ?? null) }
 }
 
 /**
@@ -377,9 +387,19 @@ export async function delegateTask(
  * running inside a reviewer's request — to invent a second way of saying the
  * same thing.
  */
-async function dispatchRun(definition: TaskDefinition, run: TaskRun): Promise<TaskRun> {
+async function dispatchRun(
+  definition: TaskDefinition,
+  run: TaskRun,
+  originConversationId: string | null,
+): Promise<TaskRun> {
   try {
-    const { backendJobId, conversationId } = await submitAgentRun({
+    // The thread the work was commissioned in. „@Piloti prüf das" belongs in the
+    // conversation it was said in — that is where the person is looking, and
+    // where the follow-up question will be asked. Only a delegation nobody typed
+    // (a reviewer's send-back on a version filed outside any thread) needs a
+    // place of its own, and then the definition's own thread is that place.
+    const conversation = originConversationId ?? (await createTaskThread(definition))
+    const { backendJobId, conversationId, runMessageId } = await submitAgentRun({
       organizationId: run.organizationId,
       projectId: run.projectId,
       userId: run.requesterUserId,
@@ -390,14 +410,15 @@ async function dispatchRun(definition: TaskDefinition, run: TaskRun): Promise<Ta
       // thread, which is where a draft card and a follow-up question can live.
       output: 'chat',
       dataSources: run.plan.dataSources,
-      conversationTitle: definition.title,
-      jobId: null,
+      runId: run.id,
+      conversationId: conversation,
     })
     return (
       (await repository.updateRun(run.id, run.organizationId, {
         status: 'running',
         backendJobId,
         conversationId,
+        runMessageId,
         startedAt: new Date(),
       })) ?? run
     )

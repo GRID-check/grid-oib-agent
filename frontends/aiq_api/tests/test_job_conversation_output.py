@@ -23,6 +23,7 @@ import pytest
 from aiq_api.jobs.conversation_output import _TRANSPARENCY_METADATA_KEYS
 from aiq_api.jobs.conversation_output import FAILURE_NOTICE
 from aiq_api.jobs.conversation_output import _transparency_metadata
+from aiq_api.jobs.conversation_output import report_message_id
 from aiq_api.jobs.conversation_output import write_job_notice
 from aiq_api.jobs.conversation_output import write_job_turn
 
@@ -31,6 +32,23 @@ USAGE = {"identity": {"organization_id": "org_1", "user_id": "u1"}}
 
 def _posts(calls) -> list[dict]:
     return [c.kwargs for c in calls]
+
+
+@pytest.fixture(autouse=True)
+def _no_run_message():
+    """Every test below is about a run that has NO message of its own.
+
+    That is the older shape — an interactive deep-research job, or a run
+    submitted before ADR-0062 — and it is still the contract for those runs, so
+    the whole file keeps testing it. ``None`` is exactly what the BFF's 404
+    means. The run-message path has its own class at the end.
+    """
+    with mock.patch(
+        "aiq_api.jobs.conversation_output.post_internal_run_report",
+        new_callable=mock.AsyncMock,
+        return_value=None,
+    ) as report:
+        yield report
 
 
 @pytest.mark.asyncio
@@ -334,6 +352,162 @@ class TestTransparencyReachesTheThread:
         assert [p["role"] for p in posts] == ["user", "assistant"]
         assert posts[1]["text"] == "a"
         assert "research_truncated" not in posts[1]["metadata"]
+
+
+class TestTheRunWritesIntoItsOwnMessage:
+    """A run is ONE message in the thread that commissioned it (ADR-0062).
+
+    The BFF minted that message when the run was submitted and it has been
+    carrying the run's ledger since; the report belongs IN it. What these pin is
+    the shape of the move and the fork that decides it:
+
+    1. when the run has a message, the report goes there and NO question row is
+       written — nobody typed a question, and inventing one puts words in a
+       person's mouth in their own thread;
+    2. the metadata is the same metadata either way, so the two destinations
+       cannot come to describe one answer differently;
+    3. a failure notice lands in that same message rather than beside it;
+    4. the 404 that says „this run has no message" falls back to the old pair,
+       which is what lets the two services deploy in either order.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_report_fills_in_the_run_message_and_writes_no_question(self, _no_run_message) -> None:
+        _no_run_message.return_value = "msg-run-1"
+        with mock.patch(
+            "aiq_api.jobs.conversation_output.post_internal_conversation_message",
+            new_callable=mock.AsyncMock,
+        ) as post:
+            await write_job_turn(
+                conversation_id="s_abc",
+                job_id="job-1",
+                usage_context=USAGE,
+                prompt="Fasse die Woche zusammen.",
+                answer="Hier ist die Zusammenfassung.",
+                cards=[{"type": "summary"}],
+                skills_activated=["oib-brandschutznachweis"],
+                sources=[{"title": "OIB-2"}],
+                transparency={"research_truncated": True},
+            )
+
+        post.assert_not_awaited()
+        written = _no_run_message.await_args.kwargs
+        assert written["job_id"] == "job-1"
+        assert written["text"] == "Hier ist die Zusammenfassung."
+        # Everything the fallback turn would have carried, carried here.
+        assert written["metadata"]["deep_research_job_id"] == "job-1"
+        assert written["metadata"]["cards"] == [{"type": "summary"}]
+        assert written["metadata"]["skills_activated"] == ["oib-brandschutznachweis"]
+        assert written["metadata"]["sources"] == [{"title": "OIB-2"}]
+        assert written["metadata"]["research_truncated"] is True
+
+    @pytest.mark.asyncio
+    async def test_the_writer_names_the_message_the_report_landed_in(self, _no_run_message) -> None:
+        """The ledger's ``result.reportMessageId`` is whatever the writer returns, never a second derivation."""
+        _no_run_message.return_value = "msg-run-1"
+        with mock.patch(
+            "aiq_api.jobs.conversation_output.post_internal_conversation_message",
+            new_callable=mock.AsyncMock,
+        ):
+            landed = await write_job_turn(
+                conversation_id="s_abc", job_id="job-1", usage_context=USAGE, prompt="q", answer="a"
+            )
+        assert landed == "msg-run-1"
+
+        _no_run_message.return_value = None
+        with mock.patch(
+            "aiq_api.jobs.conversation_output.post_internal_conversation_message",
+            new_callable=mock.AsyncMock,
+        ):
+            fallback = await write_job_turn(
+                conversation_id="s_abc", job_id="job-1", usage_context=USAGE, prompt="q", answer="a"
+            )
+        assert fallback == report_message_id("s_abc", "job-1")
+        nothing = await write_job_turn(
+            conversation_id=None, job_id="job-1", usage_context=USAGE, prompt="q", answer="a"
+        )
+        assert nothing is None
+
+    @pytest.mark.asyncio
+    async def test_a_failure_is_stated_in_the_run_message_too(self, _no_run_message) -> None:
+        _no_run_message.return_value = "msg-run-1"
+        with mock.patch(
+            "aiq_api.jobs.conversation_output.post_internal_conversation_message",
+            new_callable=mock.AsyncMock,
+        ) as post:
+            await write_job_notice(
+                conversation_id="s_abc",
+                job_id="job-1",
+                usage_context=USAGE,
+                notice=FAILURE_NOTICE,
+            )
+
+        post.assert_not_awaited()
+        assert _no_run_message.await_args.kwargs["text"] == FAILURE_NOTICE
+
+    @pytest.mark.asyncio
+    async def test_a_run_without_a_message_still_gets_its_question_and_answer(self) -> None:
+        """The fallback, which is the whole reason the 404 is not an error."""
+        with mock.patch(
+            "aiq_api.jobs.conversation_output.post_internal_conversation_message",
+            new_callable=mock.AsyncMock,
+        ) as post:
+            await write_job_turn(
+                conversation_id="s_abc",
+                job_id="job-1",
+                usage_context=USAGE,
+                prompt="q",
+                answer="a",
+            )
+
+        assert [p["role"] for p in _posts(post.await_args_list)] == ["user", "assistant"]
+
+    @pytest.mark.asyncio
+    async def test_a_run_message_needs_no_conversation_id_of_its_own(self, _no_run_message) -> None:
+        """The BFF knows where the message is; the worker does not have to.
+
+        A deep-research run was submitted with no conversation at all before this
+        design, and its report went into the job store and nowhere else. Now the
+        run's message is found from the job id, so the report reaches the thread
+        even when nothing was passed down to the worker.
+        """
+        _no_run_message.return_value = "msg-run-1"
+        with mock.patch(
+            "aiq_api.jobs.conversation_output.post_internal_conversation_message",
+            new_callable=mock.AsyncMock,
+        ) as post:
+            await write_job_turn(
+                conversation_id=None,
+                job_id="job-1",
+                usage_context=USAGE,
+                prompt="q",
+                answer="Der Bericht",
+            )
+
+        post.assert_not_awaited()
+        assert _no_run_message.await_args.kwargs["text"] == "Der Bericht"
+
+    @pytest.mark.asyncio
+    async def test_a_failing_report_write_never_propagates(self, _no_run_message) -> None:
+        """Nothing here may fail a run — the module's first rule, on the new door.
+
+        And the reader still gets the answer: a surprise on the tidier path costs
+        them the tidier SHAPE, never the report.
+        """
+        _no_run_message.side_effect = RuntimeError("bff down")
+        with mock.patch(
+            "aiq_api.jobs.conversation_output.post_internal_conversation_message",
+            new_callable=mock.AsyncMock,
+        ) as post:
+            await write_job_turn(
+                conversation_id="s_abc",
+                job_id="job-1",
+                usage_context=USAGE,
+                prompt="q",
+                answer="a",
+            )
+
+        assert [p["role"] for p in _posts(post.await_args_list)] == ["user", "assistant"]
 
 
 class TestTransparencyMetadataFilter:

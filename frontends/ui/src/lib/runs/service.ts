@@ -3,10 +3,11 @@
  * (ADR-0055, ADR-0062).
  *
  * A run is ONE assistant message in the conversation it was commissioned in.
- * This module owns three moves on that message and nothing else:
+ * This module owns four moves on that message and nothing else:
  *
  *   `createRunMessage`  — mint it, empty, at submit time;
  *   `applyRunLedgerOp`  — fold one op into `metadata.run_ledger`;
+ *   `writeRunReport`    — fill in the finished answer, found by backend job id;
  *   `getRunView`        — read it back for a person, project-scoped.
  *
  * ## Identity comes from the row, never from the body
@@ -35,10 +36,12 @@ import { v5 as uuidv5 } from 'uuid'
 import { BadRequestError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { normalizeAgentAnswerMetadata } from '@/lib/conversations/agent-answer-metadata'
 import {
   findMessageInConversation,
   insertMessages,
   mergeMessageMetadata,
+  writeMessageContent,
 } from '@/lib/conversations/repository'
 import type { Message } from '@/lib/db/schema'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
@@ -178,6 +181,68 @@ export async function applyRunLedgerOp(
     const ledger = sanitizeRunLedger(next) ?? current
     await mergeMessageMetadata(conversationId, messageId, { [RUN_LEDGER_METADATA_KEY]: ledger })
     return { runId, ledger }
+  })
+}
+
+/**
+ * Where a backend job's run writes — the resolution the worker and the deep
+ * links both need, from the one id the job store holds.
+ *
+ * `backend_job_id` is the worker's only handle on a run: it has no `task_runs`
+ * id, no conversation and no message. Every consumer of that handle goes through
+ * here rather than deriving anything of its own, because the message id is
+ * derived from the RUN id and only this tier knows the pair.
+ *
+ * Null for an interactive deep-research job (no `task_runs` row at all) and for
+ * every run submitted before this tier minted run messages. Both mean the same
+ * thing to a caller — „this run has no message" — and the caller falls back to
+ * writing an ordinary turn.
+ */
+export async function findRunMessageByBackendJobId(
+  backendJobId: string,
+): Promise<{ runId: string; conversationId: string; messageId: string } | null> {
+  const run = await withPlatformAccess(
+    'run message lookup: the worker names a run by its backend job id, before any organization is known',
+    () => taskRepository.findRunByBackendJobId(backendJobId),
+  )
+  if (!run?.conversationId || !run.runMessageId) return null
+  return { runId: run.id, conversationId: run.conversationId, messageId: run.runMessageId }
+}
+
+/**
+ * Write the run's finished answer into the run's own message.
+ *
+ * A run is ONE message in the thread that commissioned it, so its report does
+ * not arrive as a new assistant turn beside a question nobody typed — it fills
+ * in the message the thread has been showing since the run was submitted. The
+ * metadata is merged per top-level key and translated through
+ * `normalizeAgentAnswerMetadata` exactly as the internal messages route does, so
+ * the backend's wire spelling (`sources`, `answer_confidence`, …) reads back as
+ * the stored contract every surface looks for — and `run_ledger`, which another
+ * writer owns, is untouched.
+ *
+ * A 404 is the answer for a run with no message, and it is what tells the worker
+ * to fall back to today's question-and-answer pair.
+ */
+export async function writeRunReport(
+  backendJobId: string,
+  report: { content: string; metadata?: Record<string, unknown> },
+): Promise<{ runId: string; conversationId: string; messageId: string }> {
+  const target = await findRunMessageByBackendJobId(backendJobId)
+  if (!target) throw new NotFoundError('This run has no message to write a report into')
+
+  const run = await loadRunForLedger(target.runId)
+  if (!run) throw new NotFoundError('Unknown run')
+
+  return withTenant({ organizationId: run.organizationId }, async () => {
+    const written = await writeMessageContent(
+      target.conversationId,
+      target.messageId,
+      report.content,
+      normalizeAgentAnswerMetadata(report.metadata ?? {}) ?? {},
+    )
+    if (!written) throw new NotFoundError('This run has no message to write a report into')
+    return target
   })
 }
 

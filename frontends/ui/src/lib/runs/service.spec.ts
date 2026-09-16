@@ -16,11 +16,13 @@ vi.mock('server-only', () => ({}))
 vi.mock('@/lib/tasks/repository', () => ({
   findRunById: vi.fn(),
   findRunInProject: vi.fn(),
+  findRunByBackendJobId: vi.fn(),
 }))
 vi.mock('@/lib/conversations/repository', () => ({
   findMessageInConversation: vi.fn(),
   insertMessages: vi.fn(),
   mergeMessageMetadata: vi.fn(),
+  writeMessageContent: vi.fn(),
 }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 // Partial: the real slot helpers are what a route opens, and replacing the
@@ -38,12 +40,20 @@ import {
   findMessageInConversation,
   insertMessages,
   mergeMessageMetadata,
+  writeMessageContent,
 } from '@/lib/conversations/repository'
 import type { Message, TaskRun } from '@/lib/db/schema'
 import { withTenant } from '@/lib/db/tenant-context'
 import * as taskRepository from '@/lib/tasks/repository'
 import { emptyRunLedger } from './run-ledger'
-import { applyRunLedgerOp, createRunMessage, getRunView, runMessageId } from './service'
+import {
+  applyRunLedgerOp,
+  createRunMessage,
+  findRunMessageByBackendJobId,
+  getRunView,
+  runMessageId,
+  writeRunReport,
+} from './service'
 
 const RUN = '6f1a0f7e-2b1f-4a4e-9a4e-2f0f1a6d9c31'
 const CONVERSATION = 's_conv_1'
@@ -93,6 +103,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(taskRepository.findRunById).mockResolvedValue(run)
   vi.mocked(taskRepository.findRunInProject).mockResolvedValue(run)
+  vi.mocked(taskRepository.findRunByBackendJobId).mockResolvedValue(run)
+  vi.mocked(writeMessageContent).mockResolvedValue(message(null))
   vi.mocked(findMessageInConversation).mockResolvedValue(
     message({ [`run_ledger`]: emptyRunLedger(RUN, T0) }),
   )
@@ -257,5 +269,84 @@ describe('getRunView', () => {
   it('refuses a run that is not in this project', async () => {
     vi.mocked(taskRepository.findRunInProject).mockResolvedValue(null)
     await expect(getRunView(session, 'project-1', RUN)).rejects.toBeInstanceOf(NotFoundError)
+  })
+})
+
+/**
+ * The worker holds one id, the job store's, and the report has to reach the
+ * message the run has been narrating itself in. Three answers matter: it finds
+ * that message, it writes the report into it without touching the ledger, and it
+ * says „no message here" for a run that has none — which is what keeps the old
+ * question-and-answer path alive for the runs that still need it.
+ */
+describe('writeRunReport', () => {
+  it('fills in the run’s own message, inside the run’s organization', async () => {
+    await expect(
+      writeRunReport('job-9', { content: 'Der Bericht', metadata: { job_id: 'job-9' } }),
+    ).resolves.toEqual({
+      runId: RUN,
+      conversationId: CONVERSATION,
+      messageId: runMessageId(RUN),
+    })
+
+    expect(taskRepository.findRunByBackendJobId).toHaveBeenCalledWith('job-9')
+    expect(withTenant).toHaveBeenCalledWith({ organizationId: 'org_1' }, expect.any(Function))
+    expect(writeMessageContent).toHaveBeenCalledWith(
+      CONVERSATION,
+      runMessageId(RUN),
+      'Der Bericht',
+      expect.objectContaining({ job_id: 'job-9' }),
+    )
+  })
+
+  /**
+   * The backend's own spelling arrives and the stored contract leaves. The
+   * translation is the internal messages route's, applied at the one point the
+   * foreign dialect enters — a report whose `sources` stayed under that name is
+   * a message whose citations are silently gone.
+   */
+  it('translates the backend’s answer metadata on the way in', async () => {
+    await writeRunReport('job-9', {
+      content: 'Der Bericht',
+      metadata: { sources: [{ title: 'OIB-2', url: 'https://example.test/oib2' }] },
+    })
+
+    const [, , , metadata] = vi.mocked(writeMessageContent).mock.calls[0]
+    expect(metadata.sources).toBeUndefined()
+    expect(metadata).toHaveProperty('citations')
+  })
+
+  it('refuses a run with no message, which is how the old path stays alive', async () => {
+    vi.mocked(taskRepository.findRunByBackendJobId).mockResolvedValue({
+      ...run,
+      runMessageId: null,
+    } as unknown as TaskRun)
+
+    await expect(writeRunReport('job-9', { content: 'x' })).rejects.toBeInstanceOf(NotFoundError)
+    expect(writeMessageContent).not.toHaveBeenCalled()
+  })
+
+  it('refuses a job that is no run of ours at all', async () => {
+    vi.mocked(taskRepository.findRunByBackendJobId).mockResolvedValue(null)
+    await expect(writeRunReport('job-9', { content: 'x' })).rejects.toBeInstanceOf(NotFoundError)
+  })
+})
+
+describe('findRunMessageByBackendJobId', () => {
+  it('resolves the target from the one id the job store keeps', async () => {
+    await expect(findRunMessageByBackendJobId('job-9')).resolves.toEqual({
+      runId: RUN,
+      conversationId: CONVERSATION,
+      messageId: runMessageId(RUN),
+    })
+  })
+
+  it('is null for a run with no conversation', async () => {
+    vi.mocked(taskRepository.findRunByBackendJobId).mockResolvedValue({
+      ...run,
+      conversationId: null,
+    } as unknown as TaskRun)
+
+    await expect(findRunMessageByBackendJobId('job-9')).resolves.toBeNull()
   })
 })

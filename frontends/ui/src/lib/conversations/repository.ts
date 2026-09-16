@@ -580,6 +580,45 @@ export async function mergeMessageMetadata(
   })
 }
 
+/**
+ * Fill in a message that already exists: its content, and a metadata merge.
+ *
+ * The one writer is a finished run filling in its own message (`lib/runs/
+ * service.ts`). Every other producer of an assistant turn INSERTS it, which is
+ * why `insertMessages` can no-op on conflict and this cannot: the run's message
+ * is minted empty at submit time, so „upsert" would silently discard the report
+ * it exists to hold.
+ *
+ * Same transaction and same row lock as `mergeMessageMetadata`, for the same
+ * reason — a ledger flush and a report write can be in flight at once, and the
+ * merge is per top-level key so neither erases the other's. Scoped to the
+ * conversation, so a caller that has not resolved that conversation org-scoped
+ * cannot patch another tenant's message by guessing an id. Returns null when the
+ * message is not in that conversation.
+ */
+export async function writeMessageContent(
+  conversationId: string,
+  messageId: string,
+  content: string,
+  metadataPatch: Record<string, unknown>,
+): Promise<Message | null> {
+  const db = getDb()
+  const scope = and(eq(messages.id, messageId), eq(messages.conversationId, conversationId))
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(messages).where(scope).limit(1).for('update')
+    if (!existing) return null
+
+    const merged = { ...((existing.metadata ?? {}) as Record<string, unknown>), ...metadataPatch }
+    const [row] = await tx
+      .update(messages)
+      .set({ content, metadata: stripJsonNullBytes(merged) })
+      .where(scope)
+      .returning()
+    return row ?? null
+  })
+}
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 

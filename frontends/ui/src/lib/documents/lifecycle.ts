@@ -522,6 +522,12 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
           comment: input.comment?.trim() ?? '',
         },
         sourceText: source,
+        // A version filed from a live chat that the reviewer ALSO asked Piloti to
+        // revise („Piloti überarbeiten lassen") keeps its thread: the run answers
+        // where the draft was made. The ordinary case here has no origin at all —
+        // that is the condition this effect fires on — and gets the definition's
+        // own thread instead.
+        conversationId: version.originConversationId ?? null,
         // The permissions the RE-FILING has to carry are the ones the original
         // filing carried: whoever wrote this draft. The reviewer authorizes the
         // delegation — it is their decision — and does not lend their own

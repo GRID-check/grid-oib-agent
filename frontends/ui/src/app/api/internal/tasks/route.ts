@@ -65,6 +65,11 @@ export const POST = internalApiRoute(
         cadence: body.cadence
           ? { cron: body.cadence, timezone: body.cadenceTimezone }
           : null,
+        // The thread the person was typing in when they asked, from the SIGNED
+        // envelope and never from the body. A run is one message in the thread
+        // that commissioned it (ADR-0062), and a conversation id a caller could
+        // name would be a message written into a thread nobody asked about.
+        conversationId: context.conversationId,
       })
       const { definition, run } = result
       return {
