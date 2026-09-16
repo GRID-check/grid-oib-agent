@@ -107,6 +107,16 @@ class ConversationState(BaseModel):
     # apply to every turn, project or not, and must not inherit the profile's
     # "confirmed facts bind" framing.
     platform_lessons: str | None = None
+    # The office's standing instructions for this turn, read off
+    # ``X-Grid-Org-Instructions`` and already bounded at the header boundary.
+    # Threaded to Piloti and rendered as its own tenant-varying prompt section,
+    # BELOW the KV-cache boundary. Its own field, not folded into
+    # ``project_context``: that block is the project's confirmed hard facts,
+    # and an office preference about form must never inherit "confirmed facts
+    # bind" framing. None when the office set none.
+    # NOTE: plain types only (str | None) — a new pydantic TYPE would also need
+    # registering in the checkpointer serde allowlist (aiq_agent/common/__init__.py).
+    org_instructions: str | None = None
     # Set when a deep-research run is dispatched as an async job. Carried as a
     # STRUCTURED signal to the frontend (instead of the frontend regex-parsing
     # the "Deep research job submitted. Job ID: ..." prose) so deep-research
@@ -216,17 +226,9 @@ class ConversationState(BaseModel):
     job_admission_rejected: bool | None = None
     # Retry hint in seconds, only alongside ``job_admission_rejected``.
     retry_after_seconds: int | None = None
-    # Skill names the user's request FORCED for this turn (parsed from the WS
-    # content JSON's `skills` array). Threaded into Piloti's
-    # per-run SkillRuntime, which resolves them against the run's skill set;
-    # deep-research jobs ignore them.
-    # NOTE: plain types only (list[str] | None) — a new pydantic TYPE would
-    # also need registering in the checkpointer serde allowlist
-    # (aiq_agent/common/__init__.py).
-    force_skills: list[str] | None = None
     # Ordered names of the skills whose BODY reached the model this turn, in
-    # delivery order (``use_skill``), deduped — never a skill that was merely
-    # forced, which shaped nothing. Set on the success path of
+    # delivery order (``use_skill``), deduped — never a skill the catalog only
+    # offered, which shaped nothing. Set on the success path of
     # ``conversation._answer_update`` and lifted onto the terminal ChatResponse
     # ONLY when present (escaped escalations and generation failures leave it
     # None), the ``skills_activated`` transparency extra.

@@ -81,8 +81,8 @@ class DeepResearchAgentState(BaseModel):
     # the synchronous path). Carried on the STATE rather than read from the
     # request context because deep research runs in a Dask worker, where no
     # request headers exist: the job runner captured the identity at submit time
-    # and injects it here, the same way it injects ``project_context`` and
-    # ``force_skills``. None means anonymous — the run then resolves no
+    # and injects it here, the same way it injects ``project_context``. None
+    # means anonymous — the run then resolves no
     # organization skills and writes its report without them.
     organization_id: str | None = None
     # Structured provenance for the sources this report actually CITED:
@@ -98,16 +98,10 @@ class DeepResearchAgentState(BaseModel):
     # run had resolved every one of those facts and then dropped them.
     # None when the run cited nothing it could resolve to a captured source.
     verified_sources: list[dict[str, Any]] | None = None
-    # Skill names the incoming request FORCED for this run (the user ticked them
-    # in the composer, or a scheduled run named one). The job runner injects
-    # them the same way it injects ``project_context`` — and until this field
-    # existed the injection was guarded out silently, so escalating a turn to
-    # deep research quietly discarded an explicit instruction. None = none forced.
-    force_skills: list[str] | None = None
-    # Ordered names of the skills whose BODY reached the writer, forced ones
-    # first. DELIVERED, not merely forced: this is rendered to the reader as
-    # "what shaped this answer", and a skill the model never opened shaped
-    # nothing. None when the run resolved or activated no skills.
+    # Ordered names of the skills whose BODY reached the writer, in the order
+    # it opened them. DELIVERED, not merely offered: this is rendered to the
+    # reader as "what shaped this answer", and a skill the model never opened
+    # shaped nothing. None when the run resolved or activated no skills.
     skills_activated: list[str] | None = None
     # The writer's own self-assessment of how well the report is grounded in the
     # sources it cited, parsed from the trailing ``[CONFIDENCE:...]`` marker in

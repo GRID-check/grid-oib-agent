@@ -210,8 +210,8 @@ export interface AnswerTransparency {
   answerMeta?: AnswerMeta
   /**
    * The backend's own account of this turn's retrieval rounds — native answer
-   * fields, recorded backend-side and sanitized at the wire boundary. Carried
-   * for the Herleitung (no renderer yet — phase b).
+   * fields, recorded backend-side and sanitized at the wire boundary. The
+   * Herleitung spine draws each round's fan from it (`roundFan`).
    */
   retrievalLedger?: RetrievalLedger
 }
@@ -516,8 +516,8 @@ export interface ChatMessage {
   answerMeta?: AnswerMeta
   /**
    * The backend's own account of this turn's retrieval rounds, same sanitize
-   * contract as `answerMeta`. Carried for the Herleitung (no renderer yet —
-   * phase b); persisted with the message so reloads read it too.
+   * contract as `answerMeta`. The Herleitung spine draws each round's fan from
+   * it; persisted with the message so reloads draw the same one.
    */
   retrievalLedger?: RetrievalLedger
   /**

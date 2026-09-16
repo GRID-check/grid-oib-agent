@@ -103,14 +103,22 @@ class TestBuildSearchParams:
 
 
 class TestFormatHit:
-    def test_contains_citation_and_fetch_hint(self):
+    def test_contains_the_citation_and_the_address_of_the_full_text(self):
+        """A hit states an ADDRESS, never a next call.
+
+        The trailer used to read "Fetch full text: ris_fetch_document with
+        'NOR…'" — one of the four places that taught the search→fetch sequence.
+        The sequence now lives inside `ris_lookup`; these three tools are deep
+        research's, and a deep researcher needs the address, not an imperative.
+        """
         output = _format_hit(1, _sample_hit())
 
         assert "--- Result 1 ---" in output
         assert "Title: Garagengesetz" in output
         assert "Document number: NOR40217157" in output
         assert "Source: https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR40217157/NOR40217157.html" in output
-        assert "ris_fetch_document with 'NOR40217157'" in output
+        assert "Full text at document number: NOR40217157" in output
+        assert "ris_fetch_document" not in output
         assert "Entire consolidated law" in output
         assert "§ 5" in output
 
@@ -206,7 +214,8 @@ class TestRisSearchTool:
 
         assert "Found 42 RIS document(s)" in output
         assert "Garagengesetz" in output
-        assert "ris_fetch_document" in output
+        assert "These are references." in output
+        assert "ris_fetch_document" not in output
         assert fake_client.search_calls[0]["application"] == "BrKons"
         assert fake_client.search_calls[0]["params"] == {"Suchworte": "Garage Stellplatz"}
 
@@ -667,8 +676,9 @@ class TestRisCatalogLookupTool:
         assert "1 verified match(es)" in output
         assert "NOR12345678" in output
         assert "Entire consolidated law" in output
-        assert "ris_fetch_document" in output
-        assert "No ris_search needed" in output
+        assert "an address each, not the text at it" in output
+        assert "ris_fetch_document" not in output
+        assert "no live RIS search is needed" in output
 
     async def test_no_match_guides_to_ris_search(self, fake_catalog):
         async with ris_catalog_lookup(RisCatalogLookupToolConfig(), MagicMock()) as info:
@@ -758,7 +768,8 @@ class TestRisSearchCatalogShortcut:
         assert "Curated RIS catalog match(es)" in output
         assert "no live search performed" in output
         assert "NOR12345678" in output
-        assert "ris_fetch_document" in output
+        assert "an address each, not the text at it" in output
+        assert "ris_fetch_document" not in output
         assert fake_client.search_calls == []
 
     async def test_match_with_matching_explicit_application_shortcuts(self, fake_client, fake_catalog):

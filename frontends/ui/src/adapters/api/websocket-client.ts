@@ -87,7 +87,7 @@ export interface ResponseTransparency {
   /**
    * The backend's own account of this turn's retrieval rounds, sanitized HERE
    * (`sanitizeRetrievalLedger`) so everything downstream sees one bounded
-   * shape. Carried for the Herleitung (no renderer yet — phase b).
+   * shape. The Herleitung spine draws each round's fan from it.
    */
   retrievalLedger?: RetrievalLedger
 }
@@ -110,20 +110,25 @@ export interface ResponseTransparency {
  *     nothing throws, nothing closes the socket, and nothing is lost (the human's
  *     message is persisted by the BFF regardless).
  */
+/**
+ * There is deliberately NO `skills` field here.
+ *
+ * It used to carry the names a `/name` invocation resolved to, and the backend
+ * lifted them onto the agent state as `force_skills` — the turn then HAD to
+ * apply them. That is gone in both of its forms (the other was the platform's
+ * `delivery: 'standard'` tier, migration 0088): a skill is a capability the
+ * model may reach for, and forcing one is an instruction wearing a
+ * capability's clothes. Standing instructions live in the platform prompt and
+ * in the organization's own instruction block
+ * (`X-Grid-Org-Instructions`), and the `/` picker now only writes the skill's
+ * name into the message TEXT, where the model reads it and picks the skill out
+ * of its own catalog like any other mention.
+ */
 export interface SendMessageWireOptions {
   /** Deliver as context for the agent's history; it must generate nothing. */
   contextOnly?: boolean
   /** Display name of the human who wrote it, so the agent can attribute the turn. */
   authorName?: string | null
-  /**
-   * Skill names the user invoked with `/name` in the composer.
-   *
-   * Structured, never re-derived from the message text: the backend lifts this
-   * onto the agent state as `force_skills`, which names the skills that MUST be
-   * applied to this turn. Omitted entirely when nothing was invoked, so an
-   * ordinary message stays byte-for-byte the envelope it always was.
-   */
-  skills?: string[]
   /**
    * Filename of the file this turn is about. Retrieval prefers it; the
    * user does not have to type the name. Omitted when there is no subject.
@@ -494,10 +499,6 @@ export class NATWebSocketClient {
     const textContent = JSON.stringify({
       query: content,
       data_sources: enabledDataSources ?? [],
-      // Only when non-empty: the backend distinguishes "said nothing about
-      // skills" (undefined) from "explicitly no skills" ([]), exactly as it
-      // does for data_sources.
-      ...(options?.skills && options.skills.length > 0 ? { skills: options.skills } : {}),
       ...(options?.focusFileName?.trim() ? { focus_file_name: options.focusFileName.trim() } : {}),
       ...(options?.focusShelf ? { focus_shelf: options.focusShelf } : {}),
       ...(options?.focusDocumentId ? { focus_document_id: options.focusDocumentId } : {}),

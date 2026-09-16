@@ -73,24 +73,19 @@ def _skill(name: str):
     return skill
 
 
-def _skill_runtime(resolved, force_names, *, activated=None, standard_count=0):
+def _skill_runtime(resolved, *, activated=()):
     """A stand-in runtime.
 
-    ``activated`` defaults to the forced names because most of these tests are
-    about the register's wiring rather than about delivery — but it is a
-    SEPARATE argument, because forcing a skill and the model actually reading
-    it are separate facts (``SkillRuntime.forced_not_activated``).
+    ``activated`` is what the model actually opened this run. It defaults to
+    nothing, which is the honest default now that a turn can only be OFFERED a
+    skill: a catalog the model read past activates none of it.
     """
     runtime = MagicMock()
     runtime.prompt_block.return_value = "## Verfügbare Skills"
-    runtime.forced_block.return_value = "## Aktive Skills (vom Nutzer erzwungen)"
     runtime.build_tools.return_value = [MagicMock(name="use_skill")]
-    runtime.activated = list(force_names or []) if activated is None else list(activated)
+    runtime.activated = list(activated)
     runtime.skills = tuple(resolved)
-    runtime.forced = tuple(force_names or ())
-    runtime.forced_not_activated = tuple(n for n in (force_names or ()) if n not in runtime.activated)
     runtime.hidden_activated = ()
-    runtime.standard_count = standard_count
     return runtime
 
 
@@ -109,7 +104,7 @@ async def test_research_turn_resolves_allows_and_folds_skill_tool():
         skills_enabled=True,
     )
     resolved = (_skill("forecast-analysis"), _skill("data-table-analysis"))
-    runtime = _skill_runtime(resolved, ["forecast-analysis"])
+    runtime = _skill_runtime(resolved, activated=["forecast-analysis"])
     stub = _make_agent_stub()
 
     with (
@@ -123,15 +118,13 @@ async def test_research_turn_resolves_allows_and_folds_skill_tool():
 
         run_fn, gen = await _get_run_fn(config, builder)
 
-        state = ResearchAgentState(
-            messages=[HumanMessage(content="run forecast-analysis")],
-            force_skills=["forecast-analysis"],
-        )
+        state = ResearchAgentState(messages=[HumanMessage(content="/forecast-analysis für das Projekt?")])
         result = await run_fn(state)
 
         ResolverCls.assert_called_once_with(agent="researcher")
         resolver.resolve.assert_called_once_with("org-1")
-        RuntimeCls.assert_called_once_with(skills=resolved, force_names=["forecast-analysis"])
+        # The catalog and nothing else: the runtime takes no list of names.
+        RuntimeCls.assert_called_once_with(skills=resolved)
 
         # The turn got both the search tool and use_skill; the agent itself
         # was built once, at boot, with the search tool only.
@@ -139,7 +132,7 @@ async def test_research_turn_resolves_allows_and_folds_skill_tool():
         turn = stub.built[0].run.await_args.kwargs["turn"]
         assert [getattr(t, "name", None) for t in turn.tools][0] == "web_search_tool"
         assert len(turn.tools) == 2
-        assert state.skills_block == "## Verfügbare Skills\n\n## Aktive Skills (vom Nutzer erzwungen)"
+        assert state.skills_block == "## Verfügbare Skills"
         assert result.skills_activated == ["forecast-analysis"]
         await gen.aclose()
 
@@ -160,7 +153,7 @@ async def test_the_catalog_is_announced_before_the_llm_runs():
         skills_enabled=True,
     )
     resolved = (_skill("forecast-analysis"),)
-    runtime = _skill_runtime(resolved, ["forecast-analysis"])
+    runtime = _skill_runtime(resolved, activated=["forecast-analysis"])
     announced = []
 
     with (
@@ -173,11 +166,7 @@ async def test_the_catalog_is_announced_before_the_llm_runs():
         ResolverCls.return_value.resolve.return_value = resolved
 
         run_fn, gen = await _get_run_fn(config, builder)
-        state = ResearchAgentState(
-            messages=[HumanMessage(content="run forecast-analysis")],
-            force_skills=["forecast-analysis"],
-        )
-        await run_fn(state)
+        await run_fn(ResearchAgentState(messages=[HumanMessage(content="run forecast-analysis")]))
 
         assert announced == [runtime]
         await gen.aclose()
@@ -211,11 +200,12 @@ async def test_a_turn_without_skills_announces_nothing():
 
 
 @pytest.mark.asyncio
-async def test_explicit_slash_invocation_loads_the_skill():
-    """The USER forced a skill on a short, imperative turn: it loads.
+async def test_a_mentioned_skill_is_offered_like_any_other():
+    """The `/name` invocation is TEXT, and the runtime is given the catalog.
 
-    `force_skills` is only ever populated by an explicit `/name` invocation in
-    the composer, and it reaches the runtime as the forced name.
+    Nothing on the state says which skill the user typed: the mention is in the
+    message, the model reads it there, and the same `use_skill` tool answers it.
+    So the register's job is the same on this turn as on any other.
     """
     builder = _FakeBuilder({"web_search_tool": web_search_tool})
     config = ResearchAgentConfig(
@@ -224,7 +214,7 @@ async def test_explicit_slash_invocation_loads_the_skill():
         skills_enabled=True,
     )
     resolved = (_skill("forecast-analysis"),)
-    runtime = _skill_runtime(resolved, ["forecast-analysis"])
+    runtime = _skill_runtime(resolved, activated=["forecast-analysis"])
 
     with (
         patch.object(register_module, "PilotiAgent", _make_agent_stub()),
@@ -237,14 +227,11 @@ async def test_explicit_slash_invocation_loads_the_skill():
 
         run_fn, gen = await _get_run_fn(config, builder)
 
-        state = ResearchAgentState(
-            messages=[HumanMessage(content="und jetzt?")],
-            force_skills=["forecast-analysis"],
-        )
+        state = ResearchAgentState(messages=[HumanMessage(content="/forecast-analysis und jetzt?")])
         result = await run_fn(state)
 
         ResolverCls.assert_called_once_with(agent="researcher")
-        RuntimeCls.assert_called_once_with(skills=resolved, force_names=["forecast-analysis"])
+        RuntimeCls.assert_called_once_with(skills=resolved)
         assert result.skills_activated == ["forecast-analysis"]
         await gen.aclose()
 
@@ -283,7 +270,7 @@ async def test_allowlist_narrows_resolved_set():
         skill_allowlist=["forecast-analysis"],
     )
     resolved = (_skill("forecast-analysis"), _skill("data-table-analysis"))
-    runtime = _skill_runtime((resolved[0],), [])
+    runtime = _skill_runtime((resolved[0],))
     runtime.prompt_block.return_value = "## Verfügbare Skills"
 
     with (
@@ -300,22 +287,26 @@ async def test_allowlist_narrows_resolved_set():
         await run_fn(state)
 
         resolver.resolve.assert_called_once_with("org-1")
-        RuntimeCls.assert_called_once_with(skills=(resolved[0],), force_names=None)
+        RuntimeCls.assert_called_once_with(skills=(resolved[0],))
         await gen.aclose()
 
 
 @pytest.mark.asyncio
-async def test_unknown_forced_skill_passes_through_allowlist():
-    """Forced names outside the allowlist are dropped by the runtime, not errors."""
+async def test_a_name_the_allowlist_dropped_is_simply_not_in_the_catalog():
+    """A skill the deployment does not allow never reaches the runtime.
+
+    It is not an error and not a refusal: the model is offered what resolved,
+    and a name it read in the message that is not there comes back from
+    ``use_skill`` as "unknown skill", with the available names listed.
+    """
     builder = _FakeBuilder({"web_search_tool": web_search_tool})
     config = ResearchAgentConfig(
         llm="research_llm",
         tools=["web_search_tool"],
         skill_allowlist=["forecast-analysis"],
     )
-    resolved = (_skill("forecast-analysis"),)
-    runtime = _skill_runtime(resolved, [])
-    runtime.prompt_block.return_value = "## Verfügbare Skills"
+    resolved = (_skill("forecast-analysis"), _skill("mystery-skill"))
+    runtime = _skill_runtime(resolved[:1])
 
     with (
         patch.object(register_module, "PilotiAgent", _make_agent_stub()),
@@ -327,27 +318,20 @@ async def test_unknown_forced_skill_passes_through_allowlist():
         resolver.resolve.return_value = resolved
 
         run_fn, gen = await _get_run_fn(config, builder)
-        state = ResearchAgentState(
-            messages=[HumanMessage(content="run mystery-skill")],
-            force_skills=["mystery-skill"],
-        )
-        await run_fn(state)
+        await run_fn(ResearchAgentState(messages=[HumanMessage(content="/mystery-skill bitte")]))
 
-        # The runtime is asked for a name it does not hold; the runtime's own
-        # contract (test_runtime.py) turns that into "not forced", never an error.
-        RuntimeCls.assert_called_once_with(skills=resolved, force_names=["mystery-skill"])
+        RuntimeCls.assert_called_once_with(skills=(resolved[0],))
         await gen.aclose()
 
 
 @pytest.mark.asyncio
-async def test_the_forced_house_skills_get_their_own_iteration_budget():
-    """A standard skill is deployment overhead, and the research budget is not it.
+async def test_the_turn_config_reserves_nothing_on_top_of_the_budget():
+    """One ceiling, and it is the number the config's traced floors measure.
 
-    ``max_tool_iterations`` is charged per tool CALL, so every skill the fleet
-    forces takes one iteration off every research chain in the product before a
-    single source is read — silently, and worst on the long measurement chains
-    the config's floors were traced against. The register knows how many the
-    deployment forces, so it reserves exactly that many on top.
+    The register used to add one iteration per standard skill, because the
+    deployment forced those skills and the turn had to pay for calls nobody
+    asked for. Nothing is forced now, so there is nothing to compensate: a
+    ``use_skill`` call is the model's own and is charged like a search.
     """
     builder = _FakeBuilder({"web_search_tool": web_search_tool})
     config = ResearchAgentConfig(
@@ -357,7 +341,7 @@ async def test_the_forced_house_skills_get_their_own_iteration_budget():
         max_tool_iterations=7,
     )
     resolved = (_skill("piloti-voice"), _skill("piloti-cards"))
-    runtime = _skill_runtime(resolved, [], activated=[], standard_count=2)
+    runtime = _skill_runtime(resolved)
     stub = _make_agent_stub()
 
     with (
@@ -371,30 +355,27 @@ async def test_the_forced_house_skills_get_their_own_iteration_budget():
         run_fn, gen = await _get_run_fn(config, builder)
         await run_fn(ResearchAgentState(messages=[HumanMessage(content="Wie tief?")]))
 
-        # The research budget is untouched: it is what the traced floors in
-        # config_oib_openrouter.yml measure, and they assume ONE use_skill.
         assert stub.built[-1].init_kwargs["max_tool_iterations"] == 7
-        # The reserve is a property of the TURN (what the org has published),
-        # so it rides on the turn config, not on a rebuilt agent.
+        assert "reserved_tool_iterations" not in stub.built[-1].init_kwargs
         turn = stub.built[-1].run.await_args.kwargs["turn"]
-        assert turn.reserved_tool_iterations == 2
+        assert not hasattr(turn, "reserved_tool_iterations")
         await gen.aclose()
 
 
 @pytest.mark.asyncio
-async def test_a_forced_skill_the_model_never_opened_is_not_reported_as_used(caplog):
+async def test_only_what_was_delivered_is_reported_as_used(caplog):
     """`skills_activated` is the answer's provenance, so it carries deliveries only.
 
     The register lifts ``SkillRuntime.activated`` onto the result and the
-    frontend renders it as "what shaped this answer". A skill that was forced
-    but never fetched shaped nothing — and the fact that it was asked for and
-    ignored is not lost either, it goes to the log, where it can be counted per
-    deployment ("the house voice reached 8 answers in 10").
+    frontend renders it as "what shaped this answer". A skill the model read
+    past in the catalog shaped nothing — and that is not a failure to log
+    either: the catalog is an offer, and declining one is the mechanism
+    working.
     """
     builder = _FakeBuilder({"web_search_tool": web_search_tool})
     config = ResearchAgentConfig(llm="research_llm", tools=["web_search_tool"], skills_enabled=True)
     resolved = (_skill("piloti-voice"), _skill("piloti-cards"))
-    runtime = _skill_runtime(resolved, ["piloti-voice", "piloti-cards"], activated=["piloti-voice"])
+    runtime = _skill_runtime(resolved, activated=["piloti-voice"])
 
     with (
         patch.object(register_module, "PilotiAgent", _make_agent_stub()),
@@ -408,11 +389,7 @@ async def test_a_forced_skill_the_model_never_opened_is_not_reported_as_used(cap
         result = await run_fn(ResearchAgentState(messages=[HumanMessage(content="Wie tief?")]))
 
         assert result.skills_activated == ["piloti-voice"]
-        unread = [m for m in caplog.messages if "Forced skills never loaded" in m]
-        assert unread and "piloti-cards" in unread[0], (
-            f"a forced skill the model ignored left no trace at all; warnings were {caplog.messages}"
-        )
-        assert "piloti-voice" not in unread[0].split("(activated")[0]
+        assert not [m for m in caplog.messages if "never loaded" in m]
         await gen.aclose()
 
 
@@ -493,7 +470,7 @@ async def test_the_skill_resolve_runs_off_the_event_loop():
     builder = _FakeBuilder({"web_search_tool": web_search_tool})
     config = ResearchAgentConfig(llm="research_llm", tools=["web_search_tool"], skills_enabled=True)
     resolved = (_skill("forecast-analysis"),)
-    runtime = _skill_runtime(resolved, [])
+    runtime = _skill_runtime(resolved)
     resolving_threads: list[str] = []
 
     def resolve(_org):

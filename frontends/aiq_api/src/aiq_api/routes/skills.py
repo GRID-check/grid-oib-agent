@@ -20,10 +20,15 @@ prompt on a timer), and the output kind is the user's choice on that job:
 * ``output='deep-research'`` → ``deep_researcher`` (the deep research agent)
 
 ``agent_type`` is an explicit escape hatch for future output kinds; when
-omitted the table above decides. The submitted job carries the skill names in
-``force_skills`` so the worker force-activates them (the agent-side consumer
-lives in ``src/aiq_agent``); a job may legitimately attach NO skill at all, in
-which case the list is empty and the run is the prompt alone.
+omitted the table above decides. A job may legitimately attach NO skill at all,
+in which case the list is empty and the run is the prompt alone.
+
+An attached skill reaches the run through ``input`` and nothing else: the BFF
+composes the job prompt WITH the skill's body before it calls this route.
+``skills`` is therefore a name list for the log and nothing is forced on the
+worker — no agent state carries a forced-skill list any more, because a skill
+is a working method the model picks from its catalog, and a body already in the
+prompt needs no tool call to arrive.
 
 Guarded by ``GRID_INTERNAL_API_TOKEN`` (the ``maintenance.py`` pattern) and,
 critically, NOT added to ``AuthMiddleware.EXTERNAL_ALLOWED_PATHS`` — so it is
@@ -92,7 +97,10 @@ class SkillSubmitPayload(BaseModel):
     )
     skills: list[str] = Field(
         default_factory=list,
-        description="Skill names to force-activate for this run; empty = no skill attached, the prompt runs alone",
+        description=(
+            "Names of the skills attached to this job, for the log. The skill BODY travels "
+            "composed into `input`; nothing is forced on the worker. Empty = no skill attached."
+        ),
     )
     # The wire field is `output`; `execution` is the pre-rename spelling, kept
     # readable for ONE release. The BFF and this service deploy separately, and
@@ -305,7 +313,6 @@ def add_skill_routes(router: APIRouter) -> None:
                 project_memory=body.project_memory,
                 model_overrides=body.model_overrides,
                 usage_context=usage_context,
-                force_skills=body.skills,
                 # The flag is the BFF's to evaluate (per organization); the
                 # reflection LLM ref is the worker's to resolve from its config.
                 memory_reflection_enabled=body.memory_reflection_enabled,
@@ -330,7 +337,7 @@ def add_skill_routes(router: APIRouter) -> None:
             raise HTTPException(500, "Failed to persist skill job authorization metadata")
 
         logger.info(
-            "Submitted skill %s job %s for org %s (owner %s, output %s, %d forced skill(s))",
+            "Submitted skill %s job %s for org %s (owner %s, output %s, %d attached skill(s))",
             agent_type,
             job_id,
             body.organization_id,

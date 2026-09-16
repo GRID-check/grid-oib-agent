@@ -96,6 +96,8 @@ whose schemas are a few hundred characters, and the tool-search apparatus costs
 
 ### NAT needed no shim
 
+*Amended 2026-09:* one exception has since been added. `llm_factory.disable_previous_response_id` turns `use_previous_response_id` back off for OpenRouter targets, whose Responses API rejects a non-null `previous_response_id` with a 400.
+
 `OpenAIModelConfig` inherits `api_type` from `LLMBaseConfig`, and
 `nat.plugins.langchain.llm.openai_langchain` already builds
 `ChatOpenAI(use_responses_api=True, use_previous_response_id=True)` when it is

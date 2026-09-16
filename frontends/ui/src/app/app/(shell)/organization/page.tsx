@@ -14,7 +14,7 @@
  * at all, only a pointer at who can change the rest, rather than a blank page.
  */
 
-import { Building2, Globe, Mail, ShieldAlert, Users } from 'lucide-react'
+import { Building2, Globe, Mail, MessageSquareText, ShieldAlert, Users } from 'lucide-react'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { isOrgAdmin } from '@/lib/authz/organizations'
 import {
@@ -22,11 +22,13 @@ import {
   getOrgSettings,
   type OrganizationOverview,
 } from '@/lib/organizations/service'
+import { getOrgInstructions } from '@/lib/org-instructions/service'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
 import { PageHeader } from '@/components/ui/page-header'
 import { SectionLabel } from '@/components/ui/section-label'
 import { getLocale, getTranslations } from '@/i18n/server'
+import { OrgInstructionsForm } from './org-instructions-form'
 import { OrgSettingsForm } from './org-settings-form'
 
 export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
@@ -75,6 +77,15 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
       settings = await getOrgSettings(session.organizationId)
     } catch {
       settingsError = true
+    }
+    // Same posture for the instruction block, and a SEPARATE read: it is a
+    // different row, and a failure on one card must not take the other down.
+    let instructions: Awaited<ReturnType<typeof getOrgInstructions>> | null = null
+    let instructionsError = false
+    try {
+      instructions = await getOrgInstructions(session.organizationId)
+    } catch {
+      instructionsError = true
     }
 
     const createdLabel = overview
@@ -173,6 +184,24 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
                 />
               ) : (
                 <EmptyState variant="bare" title={t('settings.loadError')} />
+              )}
+            </CardContent>
+          </Card>
+        )}
+        {(instructions || instructionsError) && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageSquareText className="size-4 text-muted-foreground" aria-hidden />
+                {t('instructions.title')}
+              </CardTitle>
+              <CardDescription>{t('instructions.description')}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {instructions ? (
+                <OrgInstructionsForm initialInstructions={instructions.instructions} />
+              ) : (
+                <EmptyState variant="bare" title={t('instructions.loadError')} />
               )}
             </CardContent>
           </Card>

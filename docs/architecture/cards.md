@@ -315,7 +315,7 @@ So the catalog is split the way the skills runtime already splits instructions
 | level | what it is | where |
 |---|---|---|
 | **L1 — always on** | one line per model-facing type: the `type` value and the first line of the card model's docstring, plus the interactive-card note. No shapes, no building blocks, no examples. | `render_card_index()`, rendered into the `emit_card` description |
-| **L2 — on demand** | the exact shape for the named types, the shared building blocks (`NormReference`, `DimensionCheck`, …) each defined once with field descriptions, the measurement note where a `DimensionCheck` is in play, and the worked example | `render_card_details(types)`, served by the **`describe_card`** tool |
+| **L2 — on demand** | the exact shape for the named types, the shared building blocks (`NormReference`, `DimensionCheck`, …) each defined once with field descriptions, the measurement note where a `DimensionCheck` is in play, and the worked example | `render_card_details(types)` — returned by a **failed `emit_card`** for the type that failed, by the **`describe_card`** tool where it is still bound, and by a skill declaring `grid-cards` |
 
 That took the `emit_card` description from ~5,209 to ~1,205 tokens per turn, and
 the marginal cost of a new card type from ~190 tokens on every turn to ~23. It is
@@ -326,6 +326,18 @@ and what stops the always-on half from diluting attention on a long turn.
 surfaces share. Post-hoc generation keeps taking it whole
 (`build_card_generation_prompt()`): it is a single batch call with no tool loop,
 so there is nothing there that could fetch L2 later.
+
+L2 is no longer fetched in advance on the chat path. `describe_card` was a
+charged round trip, and `emit_card`'s description had to talk the model into
+paying it on every turn, for every card — including the ones it would have
+filled in correctly. But a shape is only ever needed when the first attempt
+would have been wrong, so the RETRY carries it: a failed `emit_card` returns the
+same L2 entry for the type that failed, and `shape_hint_for` is now one line
+delegating to `render_card_details`. A card that was going to be right pays
+nothing; one that was not pays the same single round trip, knowing which field
+was wrong. `describe_card` stays registered and stays bound to
+`deep_research_agent`, whose writer composes one long report and pays the lookup
+once where a chat turn paid it per turn.
 
 `describe_card` **reports the names it did not recognise** rather than quietly
 rendering only what resolved — a silently shorter answer reads as "that card
@@ -472,10 +484,10 @@ submission.
 Two content cards is the doctrine's ceiling. For a long time it was also
 unreachable, for a reason that had nothing to do with the doctrine.
 
-Piloti forces synthesis at `tool_iteration_ceiling`
-(`max_tool_iterations`, five in production, plus a reserve sized to the standard
-skills the deployment forces on every turn), and every tool call was charged to
-it — `emit_card` and `describe_card` included. Those are the answer's OUTPUT
+Piloti forces synthesis at `tool_iteration_ceiling` (`max_tool_iterations`,
+seven in production — one number, with nothing reserved on top of it since no
+skill is forced on a turn), and every tool CALL used to be charged to it —
+`emit_card` and `describe_card` included. Those are the answer's OUTPUT
 channel, and they are called last, after the searching is done, so on any turn
 that actually researched, the ceiling landed on the cards rather than on the
 research. The forced-synthesis anchor then says "Do not attempt any further tool
@@ -483,15 +495,13 @@ calls", which made the second card unreachable by construction: the model had
 already decided to draw it, and nothing in the answer, the log or the
 `research_truncated` note said what had been lost.
 
-So the interaction tools have their own allowance
-(`_INTERACTION_TOOL_ALLOWANCE`, six — one shape lookup, three `emit_card` calls,
-a `remember`, and one spare for the retry a validation failure invites), spent
-before the research budget is touched. It is sized at the doctrine's most
-generous reading on purpose: it decides only when a card starts costing
-research, never how many cards an answer should carry. It is a CEILING on the
-exemption rather than a second budget: a call past it is charged to research
-again, so the tool loop still terminates where it always did. The counter is
-`interaction_iterations` on Piloti's state, per turn.
+The fix was the UNIT, not an exemption. The budget counts tool-calling ROUNDS
+now — one LLM decision that emitted tool calls, costing one whatever it asked
+for — so a round that draws a shape lookup and both cards costs exactly what
+the search before it cost, and the card channel needs no allowance of its own.
+The separate `_INTERACTION_TOOL_ALLOWANCE` and its `interaction_iterations`
+counter are gone with the per-call budget they existed to survive: a second
+currency is a second thing to keep in step, and this one now buys nothing.
 
 The rule this leaves is the one that was always meant to be in force: how many
 cards an answer carries is a judgement about the answer, decided by the doctrine
@@ -500,7 +510,7 @@ question happened to need.
 
 ### Which turns may emit a card
 
-Every turn. `emit_card` and `describe_card` are bound on every turn like every
+Every turn. `emit_card` is bound on every turn like every
 other tool (ADR-0052: there is no classifier and no narrowed "meta" binding in
 front of the answering agent), so whether a turn ships a card is decided by
 what the answer has to show, never by a label given before the answer.
@@ -518,10 +528,12 @@ What bounds it now is the prompt: **it says what a direct reply may put on a
 card.** A subject-matter question that merely landed in a short reply earns the
 card its content calls for; small talk, a formatting or memory request, a shelf
 listing and an off-topic decline get none. The always-on doctrine and the L1
-index ride in `emit_card`'s description on every turn — enough to NAME the
-right card; the shape costs one `describe_card` call. Skills, too, are bound on
-every turn (`use_skill`); there is no `requires_sources or force_skills` gate
-in front of the skill runtime any more, so a greeting that loads no skill is
+index ride in `emit_card`'s description on every turn, and so does the CRAFT
+that says how each of the generic cards is filled well — enough to name the
+right card AND to build it, with the shape arriving on the retry if a field
+comes out wrong. Skills, too, are bound on
+every turn (`use_skill`); there is no gate in front of the skill runtime any
+more, and no way to require a skill either, so a greeting that loads no skill is
 the model's judgment, pinned by the prompt.
 
 ### Every `emit_card` outcome is logged, refusals included
@@ -534,12 +546,14 @@ in `_emit` now logs: refusals at `warning` naming the card TYPE the model reache
 for, the success at `info` as before.
 
 Because the doctrine lives on the tool, Piloti's `<cards>` block
-no longer restates it. It points at the `emit_card` description and keeps only
-what is true of cards but not of the tool — cards are in addition to the written
-answer, so always write the prose too; and if asked whether Grid can render
-cards, say yes and demonstrate by emitting one. Two copies of a trigger list is
-two things to keep in step, and the prompt copy is the one that would silently
-fall behind the union.
+no longer restates it — and since the craft moved there too, it no longer
+restates that either. The prompt points at the `emit_card` description and keeps
+only what the tool cannot say, because it is a fact about the ANSWER rather than
+about the tool: the `[[card:N]]` placement marker contract, and that a verdict,
+the key takeaways and the callout are `answer_json` envelope fields rather than
+cards. Two copies of a rule is two things to keep in step, and the prompt copy
+is the one that silently falls behind — which is exactly what happened while the
+craft lived there.
 
 ### System cards: never the model's to fabricate
 
@@ -787,11 +801,13 @@ without re-plumbing generation or transport.
    `cards/catalog.py`) — which question calls for it, in the same
    "trigger → card" form as the rest. A type that is only listed in the index is
    a renderer nobody is asked for, which is a renderer nobody sees; that is
-   exactly how fifteen schematic cards sat behind a disclaimer. A trigger line,
-   and only a trigger line: the paragraph explaining when the card earns its
-   place belongs in the `<cards>` section of Piloti's prompt
-   (`piloti/prompts/piloti.j2`). A token ceiling on the tool
-   description fails if the doctrine drifts back into carrying craft.
+   exactly how fifteen schematic cards sat behind a disclaimer. The trigger row
+   and its CRAFT go in together, as one `_CARD_TRIGGERS` entry: "which card" and
+   "how that card is filled well" are a question and its answer, and the years
+   they spent in two files are why the prompt's copy grew a second budget and a
+   second restatement test beside the doctrine's. A generic shape needs craft; a
+   schematic one usually does not, because its renderer draws to scale from the
+   fields. A token ceiling on the tool description watches the total.
 7. For a **system** card (tool-emitted, never model-emitted): add it to
    `SYSTEM_CARD_TYPES` and register the emitting tool in the agent's `tools:`
    list in the config.

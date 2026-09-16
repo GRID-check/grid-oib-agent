@@ -1,0 +1,32 @@
+Found 2 relevant passage(s) in 2 document(s):
+Assumed Bundesland: W (from the question).
+[The complete document was added to the knowledge base as "Wiener Bauordnung.pdf" — read_passage reopens any other § of it.]
+
+--- Result 1 ---
+Source: Wiener Bauordnung
+Source URL: https://ris.bka.gv.at/eli/lgbl/W/1930/11/P63
+Collection: ris/lrw/wien
+Shelf: base
+Dokumentart: gesetz — Gesetz / Bauordnung
+Punkt: § 63 Abs 1
+Rechtlicher Hinweis: Konsolidierte Fassung ohne Gewaehr.
+Citation: Wiener Bauordnung, § 63 Abs 1 (Fassung 2026-03-14)
+Content Type: text
+Relevance Score: 1.00
+
+Der Bauwerber hat ...
+
+--- Result 2 ---
+Source: OIB-Gesetz
+Source URL: https://ris.bka.gv.at/eli/bgbl/2020/1
+Collection: ris/kons
+Shelf: base
+Dokumentart: gesetz — Gesetz / Bauordnung
+Citation: OIB-Gesetz
+Content Type: text
+Relevance Score: 0.90
+
+Ein Absatz ohne Punkt und ohne Hinweis.
+
+## Trace-Lanes
+{"lanes": [{"key": "baurecht_ris", "label": "Rechtsquelle (RIS)", "kind": "baurecht", "hitCount": 2, "sources": [{"name": "Wiener Bauordnung, § 63 Abs 1 (Fassung 2026-03-14)", "shelf": "base"}, {"name": "OIB-Gesetz", "shelf": "base"}]}]}

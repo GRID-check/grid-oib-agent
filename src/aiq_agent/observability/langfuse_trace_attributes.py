@@ -202,7 +202,13 @@ def reset_contributions() -> None:
 #    ``TokenUsageBaseModel`` at all), and the span exporter forwards only
 #    ``llm.token_count.prompt/completion/total``. The OpenRouter object —
 #    the only place ``cost`` lives — survives solely inside the span's
-#    ``nat.metadata`` JSON (``chat_responses[].message.response_metadata``).
+#    ``nat.metadata`` JSON (``chat_responses[].message.response_metadata``),
+#    and only on the chat-completions path: a role on ``api_type: responses``
+#    leaves nothing there but LangChain's normalized ``usage_metadata``,
+#    whose ``input_token_details.cache_read`` is the cached bucket under
+#    another name. Reading only the provider shape is what rendered every
+#    Piloti research generation with bare input/output/total and no cache
+#    bucket, however well the provider was caching.
 # 2. The turn's terminal ``ChatResponse`` is built with an empty
 #    ``Usage()`` (see ``aiq_agent.common._create_chat_response``), so even
 #    the API-level generation object carries no totals.
@@ -237,6 +243,82 @@ OBSERVATION_COST_DETAILS = "langfuse.observation.cost_details"
 OBSERVATION_MODEL_NAME = "langfuse.observation.model.name"
 
 
+# ---------------------------------------------------------------------------
+# Prompt linkage: which prompt version produced this generation
+# ---------------------------------------------------------------------------
+#
+# Langfuse renders `promptName`/`promptVersion` on a generation and lets the
+# trace list filter and aggregate on them — "did version 12 cost more than
+# version 11" is the question prompt management exists to answer, and until
+# something writes these two attributes both columns are null.
+#
+# The names are Langfuse's OTel property mapping, verified against its docs
+# (https://langfuse.com/integrations/native/opentelemetry) rather than guessed:
+# `langfuse.observation.prompt.name` and `langfuse.observation.prompt.version`,
+# in the same `langfuse.observation.*` namespace as the usage keys above, which
+# "always take precedence over the generic OpenTelemetry conventions".
+#
+# WHY A PROCESS GLOBAL AND NOT A ContextVar. What is being named here is the
+# PLATFORM prompt: one static text per process, identical for every tenant and
+# every turn, changing only when `common/prompt_store.py` refreshes it from
+# Langfuse. That makes it process state, not turn state — and a ContextVar
+# would be actively worse here: LangGraph runs each node in a context built
+# with `copy_context()`, so a value set where the prompt is rendered (the agent
+# node, and only on the first iteration, since later iterations reuse
+# `cached_system_prompt`) is written to a copy that dies at the node boundary.
+# The link would reach the first generation of a turn and no other.
+#
+# THE KNOWN OVER-BROADNESS: a generation from another agent in this process —
+# the clarifier, deep research — renders its own prompt, which nothing manages,
+# and still gets stamped with the platform prompt's identity. Accepted rather
+# than unnoticed: the remedy is to bring those prompts under the store too, at
+# which point each records its own link and this becomes a per-prompt map.
+OBSERVATION_PROMPT_NAME = "langfuse.observation.prompt.name"
+OBSERVATION_PROMPT_VERSION = "langfuse.observation.prompt.version"
+
+#: The prompt identity this process is currently serving; see the note above.
+_PROMPT_LINK: dict[str, str] = {}
+
+
+def record_prompt_link(*, name: str, version: str) -> None:
+    """Remember which prompt version this process renders with.
+
+    Called by the prompt store's caller every time the static half is
+    resolved, which is at boot and then whenever a refreshed version is served.
+    Best-effort like everything else here: telemetry bookkeeping must never
+    fail the render that was producing it.
+    """
+    try:
+        if not name or not version:
+            return
+        _PROMPT_LINK["name"] = str(name)
+        _PROMPT_LINK["version"] = str(version)
+    except Exception:
+        logger.debug("Failed to record the Langfuse prompt link", exc_info=True)
+
+
+def prompt_observation_attributes(*, name: str | None, version: str | None) -> dict[str, Any]:
+    """The two span attributes that link a generation to a prompt version.
+
+    Pure, so the mapping is testable without a span. Both or neither: a name
+    with no version renders as a prompt Langfuse cannot resolve to a text, and
+    a version with no name belongs to nothing.
+    """
+    if not name or not version:
+        return {}
+    return {OBSERVATION_PROMPT_NAME: str(name), OBSERVATION_PROMPT_VERSION: str(version)}
+
+
+def current_prompt_attributes() -> dict[str, Any]:
+    """The prompt link for the version this process is serving, or ``{}``."""
+    return prompt_observation_attributes(name=_PROMPT_LINK.get("name"), version=_PROMPT_LINK.get("version"))
+
+
+def reset_prompt_link() -> None:
+    """Forget the recorded prompt link. Test-only."""
+    _PROMPT_LINK.clear()
+
+
 def identity_attributes_enabled() -> bool:
     """Whether to stamp per-request identity onto spans.
 
@@ -254,32 +336,80 @@ def _as_count(value: Any) -> int:
         return 0
 
 
-def _find_provider_usage(node: Any, depth: int = 0) -> dict[str, Any] | None:
-    """First OpenRouter-shaped usage object under ``node``, or None.
+def _is_provider_usage(node: dict[str, Any]) -> bool:
+    """Whether ``node`` is OpenRouter's own usage object (the one carrying ``cost``)."""
+    return isinstance(node.get("prompt_tokens"), int | float) and isinstance(node.get("completion_tokens"), int | float)
+
+
+def _is_langchain_usage(node: dict[str, Any]) -> bool:
+    """Whether ``node`` is LangChain's normalized ``usage_metadata``.
+
+    The only usage a Responses-API call leaves in the span: langchain-openai
+    builds no ``llm_output`` there and keeps ``usage`` out of
+    ``response_metadata``, so the provider object never reaches the span and
+    the scan above found nothing — which is why every ``api_type: responses``
+    generation rendered with bare input/output/total and no cache bucket.
+    """
+    return isinstance(node.get("input_tokens"), int | float) and isinstance(node.get("output_tokens"), int | float)
+
+
+def _find_usage(node: Any, matches: Any, depth: int = 0) -> dict[str, Any] | None:
+    """First dict under ``node`` that ``matches``, or None.
 
     A bounded recursive scan (not a fixed path) because the span metadata
-    serializer normalizes shapes across NAT versions while the provider key
-    names (``prompt_tokens``/``completion_tokens``) are stable. Depth-capped
-    so a pathological payload cannot recurse.
+    serializer normalizes shapes across NAT versions while the usage key names
+    are stable. Depth-capped so a pathological payload cannot recurse.
     """
     if depth > 6 or node is None:
         return None
+    children: Any = None
     if isinstance(node, dict):
-        prompt = node.get("prompt_tokens")
-        completion = node.get("completion_tokens")
-        if isinstance(prompt, int | float) and isinstance(completion, int | float):
+        if matches(node):
             return node
-        for value in node.values():
-            found = _find_provider_usage(value, depth + 1)
-            if found is not None:
-                return found
+        children = node.values()
+    elif isinstance(node, list):
+        children = node
+    if children is None:
         return None
-    if isinstance(node, list):
-        for value in node:
-            found = _find_provider_usage(value, depth + 1)
-            if found is not None:
-                return found
+    for value in children:
+        found = _find_usage(value, matches, depth + 1)
+        if found is not None:
+            return found
     return None
+
+
+def _normalize_langchain_usage(usage: dict[str, Any]) -> dict[str, Any]:
+    """LangChain's ``usage_metadata`` reshaped into the provider key names.
+
+    ``input_token_details.cache_read`` is where langchain-openai puts
+    OpenRouter's ``input_tokens_details.cached_tokens`` (Responses) /
+    ``prompt_tokens_details.cached_tokens`` (Chat Completions). No ``cost``
+    exists on this shape, so none is claimed.
+    """
+    input_details = usage.get("input_token_details") or {}
+    output_details = usage.get("output_token_details") or {}
+    return {
+        "prompt_tokens": usage.get("input_tokens"),
+        "completion_tokens": usage.get("output_tokens"),
+        "total_tokens": usage.get("total_tokens"),
+        "prompt_tokens_details": {"cached_tokens": input_details.get("cache_read")},
+        "completion_tokens_details": {"reasoning_tokens": output_details.get("reasoning")},
+    }
+
+
+def _find_provider_usage(node: Any, depth: int = 0) -> dict[str, Any] | None:
+    """The best usage object under ``node``, or None.
+
+    Prefers OpenRouter's own object — it alone carries ``cost`` — and falls
+    back to LangChain's normalized one, which is all a Responses-API call
+    leaves behind. ``depth`` is accepted for the recursive-scan callers that
+    predate the split.
+    """
+    provider = _find_usage(node, _is_provider_usage, depth)
+    if provider is not None:
+        return provider
+    normalized = _find_usage(node, _is_langchain_usage, depth)
+    return _normalize_langchain_usage(normalized) if normalized is not None else None
 
 
 def extract_provider_usage(metadata_json: Any) -> dict[str, int | float] | None:
@@ -287,9 +417,18 @@ def extract_provider_usage(metadata_json: Any) -> dict[str, int | float] | None:
 
     Reads the OpenRouter ``usage`` object NAT keeps inside ``nat.metadata``
     (``chat_responses[].message.response_metadata.token_usage``): the only
-    span-side carrier of ``cost`` and of cached/reasoning detail. Returns the
-    counts with ``cost_usd`` (or None when the provider reported no cost), or
-    None when no usage object is present. Pure, so tests pin it without a span.
+    span-side carrier of ``cost`` and of cached/reasoning detail. Falls back to
+    LangChain's normalized ``usage_metadata`` on the same span, which is all a
+    Responses-API call leaves behind — counts including the cache bucket, no
+    cost. Returns the counts with ``cost_usd`` (or None when the provider
+    reported no cost), or None when no usage object is present. Pure, so tests
+    pin it without a span.
+
+    ``cache_discount`` is deliberately NOT returned: OpenRouter's ``cost`` is
+    already net of it ("The ``cache_discount`` field in the response body will
+    tell you how much the response saved on cache usage"), so emitting it as a
+    second cost bucket would bill the saving twice. The saving is visible where
+    it belongs — as ``input_cached_tokens`` priced at the cache-read rate.
     """
     if not isinstance(metadata_json, str) or not metadata_json:
         return None
@@ -382,6 +521,18 @@ def usage_observation_attributes(
     if isinstance(cost_usd, int | float):
         attributes[OBSERVATION_COST_DETAILS] = json.dumps({"total": float(cost_usd)}, separators=(",", ":"))
     return attributes
+
+
+def is_generation_span(attributes: dict[str, Any]) -> bool:
+    """Whether a span is an LLM call, i.e. a Langfuse *generation*.
+
+    NAT writes its event type under a namespaced key whose prefix varies with
+    the exporter, so the suffix is what is matched — the same test the usage
+    processor has always used, lifted here so both processors agree on what a
+    generation is rather than each carrying its own copy.
+    """
+    event_type = next((value for key, value in attributes.items() if key.endswith(".event_type")), None)
+    return isinstance(event_type, str) and event_type.startswith("LLM")
 
 
 def langfuse_attributes_for(
@@ -522,11 +673,7 @@ try:
             """
             try:
                 attributes = item.attributes or {}
-                event_type = next(
-                    (value for key, value in attributes.items() if key.endswith(".event_type")),
-                    None,
-                )
-                if not isinstance(event_type, str) or not event_type.startswith("LLM"):
+                if not is_generation_span(attributes):
                     return item
                 counts: dict[str, Any] | None = None
                 for key, value in attributes.items():
@@ -554,9 +701,37 @@ try:
                 logger.debug("Failed to stamp usage attributes onto a span", exc_info=True)
             return item
 
+    class PromptLinkProcessor(Processor[Span, Span]):
+        """Name the prompt version on every generation span.
+
+        Without it Langfuse renders `promptName`/`promptVersion` as null on
+        every observation, and prompt management is a store nothing reads back:
+        the version an answer was produced with is exactly what an operator
+        comparing two prompt versions needs the trace to carry.
+
+        Generations only. A retrieval or tool span has no prompt, and stamping
+        one would make Langfuse's per-prompt aggregates count spans that never
+        used it. Installed unconditionally like the usage processor — a prompt
+        name and a version number are not personal data — and ahead of
+        redaction, so an operator can still redact them if a prompt name ever
+        carries something they would rather not export.
+        """
+
+        async def process(self, item: Span) -> Span:
+            """Stamp the process's current prompt link onto one generation span."""
+            try:
+                if not is_generation_span(item.attributes or {}):
+                    return item
+                for key, value in current_prompt_attributes().items():
+                    item.set_attribute(key, value)
+            except Exception:
+                logger.debug("Failed to stamp the prompt link onto a span", exc_info=True)
+            return item
+
 except Exception:  # pragma: no cover - exercised only without the NAT extras
     # Mirrors the import guards in `otel_header_redaction_exporter.py`: the
     # pure mapping above stays importable (and testable) even where the NAT
     # observability extras are not installed.
     LangfuseTraceAttributeProcessor = None  # type: ignore[assignment,misc]
     UsageAttributeProcessor = None  # type: ignore[assignment,misc]
+    PromptLinkProcessor = None  # type: ignore[assignment,misc]

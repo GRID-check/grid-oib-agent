@@ -3,8 +3,16 @@
 Built ONCE per process (``register.py`` constructs it at boot): the prompt
 template is read once, the LangGraph is compiled once, and the boot tool set
 is bound once. What a turn may vary from that is a :class:`TurnConfig`: the
-model override (BYOK / ZDR / per-org model) and the tool set (data-source
-narrowing, the per-turn ``use_skill`` closure) with its reserved skill loads.
+model override (BYOK / ZDR / per-org model), the tool set (the per-turn
+``use_skill`` closure, the working directory) and the data sources this
+conversation has switched off — which narrow what the tools ANSWER, never what
+is bound.
+
+The loop is bounded twice, and the two bounds mean different things. ROUNDS
+(``max_tool_iterations``) bound how far the investigation goes: one LLM
+decision that emitted tool calls is one round, whatever it fanned out into.
+INPUT TOKENS (``max_input_tokens_per_turn``) bound what it costs, because a
+round stopped being a proxy for cost the moment it stopped being one call.
 ``run()`` binds those into a :class:`TurnBinding` that travels to the graph
 nodes on the LangGraph config, so a turn costs one ``bind_tools`` at most and
 never a prompt read or a graph compile.
@@ -16,10 +24,13 @@ The post-answer pipeline lives in :mod:`.answer_pipeline`, the repair pass in
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Iterable
+from collections.abc import Mapping
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import Any
 from typing import Protocol
 from typing import runtime_checkable
@@ -48,18 +59,26 @@ from aiq_agent.common.citation_verification import get_turn_captures
 from aiq_agent.common.citation_verification import record_turn_capture
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
+from aiq_agent.common.cost_tracking import grid_cost_tracker_var
+from aiq_agent.common.data_sources import disabled_source_notice
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
+from aiq_agent.common.grounding_block import begin_grounding_capture
+from aiq_agent.common.grounding_block import end_grounding_capture
+from aiq_agent.common.turn_status import FETCH_FAILED_MARKER
 from aiq_agent.common.turn_status import begin_lane_capture
 from aiq_agent.common.turn_status import emit_family_coverage
-from aiq_agent.common.turn_status import emit_fanout_capped
+from aiq_agent.common.turn_status import emit_input_budget_exhausted
+from aiq_agent.common.turn_status import emit_refused_source
+from aiq_agent.common.turn_status import emit_repeat_fetch
 from aiq_agent.common.turn_status import emit_research_truncated
 from aiq_agent.common.turn_status import emit_retrieval
 from aiq_agent.common.turn_status import emit_synthesis
+from aiq_agent.common.turn_status import emit_width_cap
 from aiq_agent.common.turn_status import end_lane_capture
+from aiq_agent.common.turn_status import fetch_signature
 from aiq_agent.common.turn_status import get_lane_captures
 from aiq_agent.common.turn_status import is_retrieval_round
-from aiq_agent.common.turn_status import is_search_call
 from aiq_agent.common.turn_status import record_round_announcement
 from aiq_agent.common.turn_status import retrieval_round_scope
 from aiq_agent.knowledge.already_read import merge_digest
@@ -91,81 +110,6 @@ logger = logging.getLogger(__name__)
 # (``tests/aiq_agent/agents/test_composer_subject_reaches_prompts.py``).
 _shelf_label = shelf_label
 
-# Interaction tools: `remember` (durable memory), `emit_card` and
-# `describe_card` (UI cards), the four verbs of the conversation's working
-# directory (`ls`, `read_file`, `write_file`, `edit_file` —
-# ``tools/documents``) and the four write-side workspace tools that propose a
-# file operation on a card (`move_document`, `rename_document`,
-# `create_folder`, `assign_document` — ``tools/files``) plus the
-# working directory's two doors into the project (`file_draft`, `submit_draft` —
-# ``tools/documents/register.py``) plus delegation (`create_task` —
-# ``tools/tasks/register.py``). Each
-# is an OUTPUT channel of the answer rather than a
-# way of learning something, so their calls are budgeted apart from research
-# (see ``_INTERACTION_TOOL_ALLOWANCE``). Matched on the tool's base name so an
-# MCP/group-qualified variant (e.g. ``mcp__remember``) is still recognized.
-_INTERACTION_TOOL_BASENAMES = frozenset(
-    {
-        "remember",
-        "emit_card",
-        "describe_card",
-        "ls",
-        "read_file",
-        "write_file",
-        "edit_file",
-        "move_document",
-        "rename_document",
-        "create_folder",
-        "assign_document",
-        "file_draft",
-        "submit_draft",
-        "create_task",
-    }
-)
-
-# How many interaction calls a turn may make WITHOUT spending research budget.
-# Sized from what the card doctrine sanctions, read at its most generous so the
-# budget is never the thing that decides: one `describe_card`, three
-# `emit_card` (the two content cards `_CARD_RESTRAINT` allows plus a verdict
-# header), one `remember`, and one spare for the retry `emit_card` invites by
-# returning a shape hint on a validation failure. Six.
-#
-# The working directory adds three on top, which is the more expensive of its
-# two turn shapes: writing a first draft costs one `write_file`, while revising
-# one costs a `read_file` and the two `edit_file` calls a "kürze Punkt 3 und
-# ergänze die Frist" turn really makes. Nine.
-#
-# The five file-operation tools add NOTHING on top, and that is the calibration
-# rather than an omission. A tidying turn proposes one or two operations —
-# „leg den Brandschutznachweis zu den Einreichunterlagen" is one call, „räum
-# die Einreichunterlagen zusammen" is a handful of `move_document` calls that
-# all land on ONE card — and it is not a turn that also writes a draft and
-# emits three cards. The two shapes are alternatives, so their ceilings are
-# not additive; raising the number for a turn that never happens would only
-# buy a runaway loop more room.
-#
-# `create_task` adds NOTHING, and the calibration is the clearest of the three:
-# a turn that DELEGATES is a turn that decided not to do the work now, so it
-# emits one card and one sentence and stops. There is no shape in which
-# delegating happens alongside a full drafting turn — the two are alternatives,
-# and a ceiling raised for a turn that never happens only buys a runaway loop
-# more room.
-#
-# `file_draft` and `submit_draft` add NOTHING either, for the same calibration
-# read one step further along. They are the END of a drafting turn, not a shape
-# of their own: the turn that files is the turn that wrote or revised, so the
-# call lands inside the three the working directory already has — one
-# `write_file` then one `file_draft` is two of three, and the expensive revision
-# shape (`read_file` + two `edit_file`) is not a turn that also files, because
-# the reader asked for a change and not for a handover. Raising the number for a
-# turn that does all five would only buy a runaway loop more room.
-#
-# It is a CEILING on the exemption, not a second budget to spend: a call past it
-# is charged to research exactly as before, so the tool loop still terminates on
-# the ceiling no matter what the model does with the card channel, the
-# working directory or the file verbs.
-_INTERACTION_TOOL_ALLOWANCE = 9
-
 # Cap on both tool-search caches (query → selection, selection → bound LLM).
 # A shared agent serves many requests, so each map is dropped WHOLE at the cap
 # rather than grown or LRU-tracked: a miss costs one re-rank (0.05 ms) or one
@@ -173,36 +117,76 @@ _INTERACTION_TOOL_ALLOWANCE = 9
 # worker costs memory forever.
 _MAX_CACHED_BINDINGS = 32
 
-#: How many SEARCHES the first fetch round may actually run.
-#:
-#: Two, and the derivation is the whole point: before it has read anything, the
-#: model knows only which CORPORA the question could live in — the regulation
-#: index, the reader's own files, the live law, the web — and one search per
-#: plausible corpus is the most that guess can be worth. A third parallel
-#: search on round zero is the same guess said a third time, in different
-#: words, against the same unread evidence.
-#:
-#: What it costs is the thing this branch exists to protect. Calls are charged
-#: when the model EMITS them and never refunded (see ``max_tool_iterations``'s
-#: comment in ``configs/config_oib_openrouter.yml``), so one greedy first batch
-#: of five spends five of seven before a single result has been observed, and
-#: the tighter second round — the one where precision comes from, the one PR
-#: 644 made permitted — is paid for out of what is left. Capping the guess is
-#: what makes the second round affordable.
-#:
-#: It is a cap on SEARCHES only. Interaction calls, ``use_skill`` and
-#: ``ask_user`` are never counted and never dropped (:func:`is_search_call`),
-#: and it applies to round zero alone: once the model has read something, a
-#: fan-out is informed and the budget ceiling is the right bound for it.
-_ROUND_ZERO_SEARCH_LIMIT = 2
+#: Cumulative INPUT tokens one turn may spend before synthesis is forced.
+#: Rounds bound how far the investigation goes; this bounds what it COSTS, and
+#: without it nothing does — a round is now one decision however many calls it
+#: fans out into. Sized well above the worst turn we have measured (288 583
+#: prompt tokens over eight calls, on „was weißt du über die OIB 2"), because a
+#: bound that fires on a hard question is a hobble; it is here to stop a
+#: runaway, not to shape a turn. 0 disables it.
+_DEFAULT_MAX_INPUT_TOKENS_PER_TURN = 600_000
 
-#: What the model is told about a call the cap did not run. In German because
-#: it lands in a German turn's transcript beside German tool output, and it has
-#: to read as an instruction rather than as an error: the next move is a
-#: targeted search after reading the hits, not a retry of the same one.
-_FANOUT_DROPPED_MESSAGE = (
-    "Nicht ausgeführt: erste Runde ist auf zwei Suchen begrenzt; nach dem Lesen der Treffer gezielt nachsuchen"
+#: The one line that goes in FRONT of the result a withheld repeat is answered
+#: with. The guard used to answer a repeat with a scolding and a pointer at the
+#: transcript ("das Ergebnis oben ist die Antwort"), which asks the model to go
+#: and find something it already asked for — and a model that cannot find it
+#: asks a third time. A tool delivers an answer, so the repeat is answered with
+#: the ANSWER: the first execution's own text, verbatim, labelled as the earlier
+#: result so nothing reads as a second, agreeing retrieval. Still uncharged,
+#: still never run again.
+_REPEAT_FETCH_PREFIX = (
+    "Wiederholter Aufruf: dieser Aufruf lief in diesem Zug bereits identisch und wurde nicht erneut "
+    "ausgeführt. Unten steht unverändert sein Ergebnis von damals — weiter mit einer anderen Stelle "
+    "oder einer anderen Frage."
 )
+
+#: The fallback when the turn no longer holds the first execution's text (the
+#: tools node was driven directly, or that call answered with nothing at all).
+#: German for the same reason as the prefix, and an INSTRUCTION for the same
+#: reason: a retry of the identical call would buy the turn nothing.
+_REPEAT_FETCH_MESSAGE = (
+    "Nicht ausgeführt: dieser Aufruf lief in diesem Zug bereits identisch; "
+    "das Ergebnis oben ist die Antwort — weiter mit einer anderen Stelle oder einer anderen Frage, "
+    "nicht mit einer Wiederholung"
+)
+
+#: What a same-batch repeat of a FAILED fetch is answered with. The turn holds
+#: no result for it — the first occurrence ran and the store did not answer —
+#: so :data:`_REPEAT_FETCH_MESSAGE` would point at a result that does not
+#: exist, which is the one thing the guard must never do (a failure signs
+#: nothing, precisely so the retry stays available). Says what happened and
+#: when the call may be made again.
+_FAILED_FETCH_REPEAT_MESSAGE = (
+    "Nicht ausgeführt: dieser Aufruf war in dieser Runde schon einmal enthalten, und dieser erste "
+    "Versuch ist fehlgeschlagen — es liegt kein Ergebnis vor. Du kannst ihn in der nächsten Runde "
+    "erneut stellen oder eine andere Stelle wählen."
+)
+
+#: How many tool calls ONE round may actually run. A runaway guard, not a
+#: doctrine: a round costs one whatever it fans out into, and a model opening
+#: all five members of a Richtlinien-Familie at once is using its round well.
+#: What this bounds is the shape nothing else sees — sixty parallel calls into
+#: the vector store, which ``max_input_tokens_per_turn`` only notices at the
+#: START of the next round, by which time the fan-out has already been served.
+#: 0 disables it.
+_DEFAULT_MAX_CALLS_PER_ROUND = 12
+
+#: What a call beyond the width cap is answered with. An INSTRUCTION, like the
+#: two notices above: the call was not refused, it was not RUN THIS ROUND, and
+#: the useful next move is to ask for it again in the next one.
+_WIDTH_CAP_MESSAGE = (
+    "Nicht ausgeführt: diese Runde hat mehr parallele Aufrufe angefordert, als eine Runde ausführen "
+    "darf. Die ersten Aufrufe der Runde sind gelaufen; dieser hier nicht. Stell ihn in der nächsten "
+    "Runde erneut, wenn du ihn nach den Ergebnissen oben noch brauchst."
+)
+
+#: Why the loop stopped early. Stable tokens, not prose: they are counted, and
+#: they name two different sizing questions. ``rounds`` is the investigation
+#: being cut off — the worst failure this product has. ``input_tokens`` is the
+#: turn getting expensive, which is the bound that replaced the per-call budget
+#: and should fire on a runaway, never on a hard question.
+CUTOFF_ROUNDS = "rounds"
+CUTOFF_INPUT_TOKENS = "input_tokens"
 
 #: Where the turn's binding rides on the LangGraph config (``configurable``),
 #: so the compiled graph is shared across turns and never rebuilt.
@@ -229,9 +213,17 @@ class TurnConfig:
 
     llm_provider: LLMProvider | None = None
     tools: Sequence[BaseTool] | None = None
-    #: Extra tool calls granted ON TOP of the research budget for the
-    #: ``use_skill`` calls this deployment forces (``delivery: standard``).
-    reserved_tool_iterations: int | None = None
+    #: Data sources this conversation may not consult — the org's ADR-0022
+    #: toggles plus whatever the request did not select. The tool set does NOT
+    #: shrink for them: a call to a switched-off source is answered with one
+    #: sentence saying so (:func:`disabled_source_notice`) instead of the tool
+    #: disappearing from the binding. Two reasons, both measured. A tool set
+    #: that varies per toggle combination is a separate ``prompt_cache_key``
+    #: shard (``common/prompt_caching.py``) on a workload that is ~99 % input
+    #: tokens and re-sends its prefix 3-8 times per turn; and a capability the
+    #: model is told about and then refused is a fact it can say out loud,
+    #: where an absent tool is one it has to infer.
+    disabled_sources: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -244,40 +236,27 @@ class TurnBinding:
     tools_info: list[dict[str, str]]
     tool_node: ToolNode
     source_tool_names: frozenset[str]
-    reserved_tool_iterations: int
-    #: The tool-call count at which synthesis is forced.
+    #: Tool-calling ROUNDS — LLM decisions that asked for tools — at which
+    #: synthesis is forced. Not calls: a round of five parallel fetches is the
+    #: model using its round well, and it costs one.
     ceiling: int
+    #: Cumulative INPUT tokens this turn may spend before synthesis is forced.
+    #: The bound that protects the user's bill, since rounds no longer do:
+    #: one round of twelve fetches is cheap in rounds and is not cheap.
+    max_input_tokens: int = 0
+    #: How many calls of ONE round are actually run. Read in BOTH nodes, like
+    #: :attr:`disabled_sources`, so the round the agent node charges is the
+    #: round the tools node executes. 0 disables the cap.
+    max_calls_per_round: int = 0
+    #: See :attr:`TurnConfig.disabled_sources`. Read in BOTH nodes, so the
+    #: round the agent node announces is the round the tools node runs.
+    disabled_sources: frozenset[str] = frozenset()
 
 
-def _count_interaction_calls(tool_calls: Iterable[Any]) -> int:
-    """How many of a round's tool calls are the answer's own output channel.
-
-    Interaction calls (``emit_card``, ``describe_card``, ``remember``, the
-    working directory's four file verbs, its two filing verbs and the five
-    file-operation proposals)
-    produce the answer's cards, its
-    durable memory and its drafts, not evidence, so they are counted
-    separately from the research budget. Matched on the BASE name, so a
-    NAT/MCP-qualified variant counts too. A call whose shape cannot be read
-    is counted as research: the conservative direction, it can only shorten a
-    turn's research, never let the loop run longer.
-    """
-    count = 0
-    for call in tool_calls or ():
-        name = call.get("name") if isinstance(call, dict) else getattr(call, "name", None)
-        if name and tool_basename(str(name)) in _INTERACTION_TOOL_BASENAMES:
-            count += 1
-    return count
-
-
-def _tool_call_rounds(messages: Sequence[Any]) -> int:
-    """How many LLM turns of this run asked for tools at all.
-
-    Rounds, not calls: the model emits its calls in parallel batches, so
-    "7 calls" says nothing about how far the investigation got and "3 rounds
-    of 7 calls" says everything.
-    """
-    return sum(1 for message in messages if getattr(message, "tool_calls", None))
+def _call_name(call: Any) -> str:
+    """The tool name one call addresses, however the provider spelled the call."""
+    name = call.get("name") if isinstance(call, dict) else getattr(call, "name", None)
+    return str(name or "")
 
 
 def _call_basenames(message: Any) -> list[str]:
@@ -308,58 +287,126 @@ def _tool_call_shape(messages: Sequence[Any], *, limit: int = 24) -> list[str]:
     return shape
 
 
-def _round_zero_overflow(calls: Sequence[Any], executing_round: int | None) -> list[Any]:
-    """The searches of a first round that are past the cap, in call order.
+def _repeat_fetches(calls: Sequence[Any], executed: Sequence[str]) -> list[Any]:
+    """The calls of this round that fetch something the turn already holds.
 
-    Empty for every other round, for a round that is not a fetch at all, and
-    for a first round that stayed within the cap — which is most of them.
+    Two kinds, one rule: a call whose signature is in ``executed`` (an earlier
+    round of this turn ran it) and a call that repeats an earlier call of the
+    SAME batch (the first occurrence runs, the rest are the same guess said
+    twice). Everything :func:`fetch_signature` declines to sign is absent from
+    the result and can never be withheld.
 
-    Both nodes call this with the SAME calls and the same round number, derived
-    the same way (:func:`is_retrieval_round` / :func:`_executing_retrieval_round`),
-    because the agent node decides what to CHARGE and the tools node decides
-    what to RUN. Two derivations would eventually charge for a call nothing
-    executed, or execute one nothing paid for.
+    Pure, and called with the same calls and the same ``executed`` in both
+    nodes: the agent node decides what to CHARGE and the tools node what to
+    RUN, and two derivations eventually disagree.
     """
-    if executing_round != 0:
+    seen = set(executed or ())
+    repeats: list[Any] = []
+    for call in calls:
+        signature = fetch_signature(call)
+        if signature is None:
+            continue
+        if signature in seen:
+            repeats.append(call)
+            continue
+        seen.add(signature)
+    return repeats
+
+
+def _over_width(running: Sequence[Any], max_calls: int) -> list[Any]:
+    """The tail of one round beyond the width cap, in the order the model emitted it.
+
+    Applied to what the other two guards left, because the cap bounds what
+    RUNS: a round of fifteen calls of which four are repeats asks the stores
+    for eleven, and eleven is what the cap has an opinion about. First N kept
+    rather than a sample — the model emits its most important call first, and a
+    guard that reordered the round would be making a research decision.
+    """
+    if max_calls <= 0 or len(running) <= max_calls:
         return []
-    searches = [call for call in calls if is_search_call(call)]
-    return searches[_ROUND_ZERO_SEARCH_LIMIT:]
+    return list(running[max_calls:])
 
 
-def _announced_round(calls: Sequence[Any], state: ResearchAgentState) -> int | None:
-    """The round the AGENT node is about to announce for these calls.
+def _withheld_calls(
+    calls: Sequence[Any],
+    state: ResearchAgentState,
+    disabled: frozenset[str],
+    max_calls: int = 0,
+) -> tuple[list[Any], list[tuple[Any, str]], list[Any]]:
+    """The three guards on this seam, applied once: ``(repeats, refused, over_width)``.
 
-    ``state.retrieval_round`` counts FETCHES, and an action-only round never
-    advanced it — so a turn that wrote a card before searching still has its
-    first search at round zero. ``None`` when this round is not a fetch, which
-    is the same answer :func:`_executing_retrieval_round` gives the tools node
-    for the same calls.
+    A fetch whose answer the turn already holds (:func:`_repeat_fetches`), a
+    call to a source this conversation switched off — each paired with the
+    sentence that answers it — and the calls past the round's width cap
+    (:func:`_over_width`). Repeats are decided first, so a call that is both is
+    counted once and answered as the repeat it is; the cap sees what the other
+    two left.
+
+    PURE, and the single derivation both nodes read. The agent node calls it to
+    decide what to ANNOUNCE, the tools node to decide what to RUN; two
+    derivations eventually announce a search nothing ran.
     """
-    return state.retrieval_round if is_retrieval_round([c for c in calls if isinstance(c, dict)]) else None
+    repeats = _repeat_fetches(calls, state.executed_fetches)
+    seen = {id(call) for call in repeats}
+    refused = [
+        (call, sentence)
+        for call in calls
+        if id(call) not in seen and (sentence := disabled_source_notice(_call_name(call), disabled)) is not None
+    ]
+    seen |= {id(call) for call, _ in refused}
+    over_width = _over_width([call for call in calls if id(call) not in seen], max_calls)
+    return repeats, refused, over_width
 
 
-def _drop_round_zero_overflow(calls: list[Any], state: ResearchAgentState) -> list[Any]:
-    """The calls that will actually RUN after the round-zero fan-out cap.
+def _drop_withheld(
+    calls: list[Any],
+    state: ResearchAgentState,
+    disabled: frozenset[str],
+    max_calls: int = 0,
+) -> list[Any]:
+    """The calls that will actually RUN, and the records the withholding leaves.
 
-    A first round that fanned out past the cap is charged for what runs, not
-    for the whole batch: charging everything would leave the cap protecting
-    nothing, since the budget would be spent on calls whose only answer is the
-    sentence telling the model why they were not made.
+    No guard charges anything — charging is per ROUND now, and the round is
+    charged whatever survives here — and all three keep their calls out of the
+    announcement, so a batch that is only withheld calls consumes no
+    ``status:retrieval:N`` slot and does not advance the round counter.
     """
-    dropped = _round_zero_overflow(calls, _announced_round(calls, state))
-    if not dropped:
+    repeats, refused, over_width = _withheld_calls(calls, state, disabled, max_calls)
+    if repeats:
+        emit_repeat_fetch(round_index=state.retrieval_round, withheld=len(repeats))
+        logger.info(
+            "Duplicate fetch withheld: %d call(s) answered with the earlier result, %d asked for (round=%d)",
+            len(repeats),
+            len(calls),
+            state.retrieval_round,
+        )
+    if refused:
+        emit_refused_source(round_index=state.retrieval_round, withheld=len(refused))
+        logger.info(
+            "Disabled source: %d call(s) answered with the refusal notice (round=%d)",
+            len(refused),
+            state.retrieval_round,
+        )
+    if over_width:
+        emit_width_cap(
+            round_index=state.retrieval_round,
+            kept=max_calls,
+            withheld=len(over_width),
+        )
+        logger.warning(
+            "Round width cap: %d of %d call(s) run, %d deferred to the next round (cap=%d, round=%d)",
+            max_calls,
+            len(calls),
+            len(over_width),
+            max_calls,
+            state.retrieval_round,
+        )
+    # By identity: two parallel calls to one tool can be equal dicts, and
+    # ``in`` would then drop the occurrence that is supposed to run.
+    withheld = {id(call) for call in (*repeats, *(call for call, _ in refused), *over_width)}
+    if not withheld:
         return calls
-    emit_fanout_capped(round_index=state.retrieval_round, kept=len(calls) - len(dropped), dropped=len(dropped))
-    logger.info(
-        "Round-zero fan-out capped: %d search(es) run, %d answered with the cap notice (limit=%d)",
-        _ROUND_ZERO_SEARCH_LIMIT,
-        len(dropped),
-        _ROUND_ZERO_SEARCH_LIMIT,
-    )
-    # By identity: two parallel calls to one tool can be equal dicts, and `in`
-    # would then drop both of them.
-    overflow = {id(call) for call in dropped}
-    return [call for call in calls if id(call) not in overflow]
+    return [call for call in calls if id(call) not in withheld]
 
 
 def _starts_synthesis(response: Any, state: ResearchAgentState) -> bool:
@@ -377,43 +424,70 @@ def _starts_synthesis(response: Any, state: ResearchAgentState) -> bool:
     text = " ".join(content_to_text(getattr(response, "content", "") or "").split())
     if not text:
         return False
-    return (state.tool_iterations + state.interaction_iterations) > 0
+    return state.tool_iterations > 0
+
+
+def _charge_empty_round(state: ResearchAgentState, ceiling: int) -> tuple[int, int, dict[str, Any] | None]:
+    """A round whose every call was withheld: one ROUND, no announcement.
+
+    Something has to be charged — the round cost an LLM call and two graph
+    steps and nothing ran to pay for them — and under a round budget there is
+    only one thing to charge: the round. The model asked for a round, it got
+    one, and one round is what it pays for. That is also what makes the loop
+    terminate when a model re-asks for the same passage forever.
+
+    Nothing is announced and the round counter does not move: no fetch ran, so
+    there is no layer of the spine to draw and no results to stamp.
+    """
+    rounds = state.tool_iterations + 1
+    logger.info(
+        "Round withheld in full (repeat or switched-off source); charged 1 round. Rounds spent: %d/%d",
+        rounds,
+        ceiling,
+    )
+    return rounds, state.retrieval_round, None
 
 
 def _charge_tool_calls(
-    response: Any, state: ResearchAgentState, ceiling: int
-) -> tuple[int, int, int, dict[str, Any] | None]:
-    """What this round COSTS and ANNOUNCED: ``(research, interaction, retrieval_round, record)``.
+    response: Any,
+    state: ResearchAgentState,
+    ceiling: int,
+    disabled: frozenset[str] = frozenset(),
+    max_calls: int = 0,
+) -> tuple[int, int, dict[str, Any] | None]:
+    """What this round COSTS and ANNOUNCED: ``(rounds, retrieval_round, record)``.
 
-    ``max_tool_iterations`` is the RESEARCH budget, but every call used to be
-    charged to it, ``emit_card`` and ``describe_card`` included. Those are
-    the answer's OUTPUT channel and are called last, so on any turn that
-    actually researched the ceiling landed on the cards rather than on the
-    research, and the second card the doctrine allows was unreachable by
-    construction. So the interaction channel gets its own allowance, spent
-    before the research budget is touched. Bounded rather than free: past the
-    allowance the calls are charged normally again.
+    ONE per round, whatever the round asked for. A round is one LLM decision
+    that emitted tool calls; the calls inside it are that decision being
+    carried out, and a model that opens all five members of a Richtlinien-
+    Familie in one parallel batch is using its round WELL. Charging each call
+    made exactly that turn — the family overview the prompt asks for — the one
+    that ran out of budget, and it made the second card of the card doctrine
+    unreachable on any turn that had actually searched.
+
+    So there is no second currency any more. The interaction allowance existed
+    only to hold `emit_card` / `remember` / the working directory's file verbs
+    out of a per-CALL budget; with a per-round budget an interaction-only round
+    is simply a round, and it costs one like every other. A repeat-only round
+    costs one too (:func:`_charge_empty_round`).
+
+    What the round pays for does not include a WITHHELD call — a repeat fetch,
+    a call to a switched-off source, or a call past the round's width cap is
+    neither run nor announced — but the round that asked for nothing else still
+    costs its one.
     """
     calls = getattr(response, "tool_calls", None) or []
     if not calls:
-        return state.tool_iterations, state.interaction_iterations, state.retrieval_round, None
-    calls = _drop_round_zero_overflow(calls, state)
-    interaction_calls = _count_interaction_calls(calls)
-    research_calls = len(calls) - interaction_calls
-    exempt = min(interaction_calls, max(0, _INTERACTION_TOOL_ALLOWANCE - state.interaction_iterations))
-    research = state.tool_iterations + research_calls + (interaction_calls - exempt)
-    interaction = state.interaction_iterations + interaction_calls
+        return state.tool_iterations, state.retrieval_round, None
+    calls = _drop_withheld(calls, state, disabled, max_calls)
+    if not calls:
+        return _charge_empty_round(state, ceiling)
+    rounds = state.tool_iterations + 1
     logger.info(
-        "Added %d tool calls (%d research, %d interaction of which %d free). "
-        "Research budget spent: %d/%d. Interaction spent: %d/%d",
+        "Round of %d tool call(s). Rounds spent: %d/%d",
         len(calls),
-        research_calls,
-        interaction_calls,
-        exempt,
-        research,
+        rounds,
         ceiling,
-        interaction,
-        _INTERACTION_TOOL_ALLOWANCE,
     )
     # The same fact, said to the USER instead of the log: one line per ROUND.
     # The checkpoint sentence rides as ``reason`` so the Herleitung can draw a
@@ -429,7 +503,7 @@ def _charge_tool_calls(
         conclusion=conclusion,
     )
     retrieval_round = state.retrieval_round + (1 if searched else 0)
-    # The stored half of the same announcement: same calls (post cap-drop),
+    # The stored half of the same announcement: same calls (post withholding),
     # same conclusion, same slot — the ledger join reads this, never a
     # re-derivation, so it cannot describe a different round than the frame.
     record = record_round_announcement(
@@ -437,10 +511,10 @@ def _charge_tool_calls(
         calls=calls,
         conclusion=conclusion,
     )
-    return research, interaction, retrieval_round, record
+    return rounds, retrieval_round, record
 
 
-def _executing_retrieval_round(state: ResearchAgentState) -> int | None:
+def _executing_retrieval_round(state: ResearchAgentState, ran: Sequence[Any]) -> int | None:
     """The round the tools node is about to execute, or ``None`` for no round.
 
     Off by one on purpose, and the reason is worth spelling out. The agent node
@@ -453,11 +527,14 @@ def _executing_retrieval_round(state: ResearchAgentState) -> int | None:
     rather than the previous fetch's number, which would file a card write
     under the search before it.
 
-    Both halves therefore read the SAME predicate off the SAME calls
-    (:func:`is_retrieval_round`) as the announcement did.
+    ``ran`` is what the guards LEFT (``_split_round(...).ran``), not what the
+    model asked for, because that is what the agent node counted: a round whose
+    every fetch was withheld and whose ``emit_card`` survived advanced no
+    counter, so reading the raw AIMessage here would file that card under the
+    previous round's search. Both halves therefore read the SAME predicate
+    (:func:`is_retrieval_round`) off the SAME calls as the announcement did.
     """
-    last = state.messages[-1] if state.messages else None
-    calls = [call for call in (getattr(last, "tool_calls", None) or []) if isinstance(call, dict)]
+    calls = [call for call in ran if isinstance(call, dict)]
     if not is_retrieval_round(calls):
         return None
     # max(): the graph always runs agent→tools, so 0 here means the announcement
@@ -519,28 +596,149 @@ def _last_tool_calls(state: ResearchAgentState) -> list[dict[str, Any]]:
 
 
 def _without_dropped_calls(state: ResearchAgentState, dropped: Sequence[Any]) -> ResearchAgentState:
-    """The state the ``ToolNode`` sees: the same round, minus the capped calls.
+    """The state the ``ToolNode`` sees: the same round, minus every withheld call.
+
+    ``dropped`` is the UNION of what the two guards took away — the repeat
+    fetches and the calls to a switched-off source — because the ``ToolNode``
+    is invoked once and has to be handed one list.
 
     A COPY — the state's own AIMessage keeps every call it made, because the
     transcript the model reads next has to show the calls it asked for beside
     the answer each of them got.
     """
-    overflow = {id(call) for call in dropped}
+    withheld = {id(call) for call in dropped}
     last = state.messages[-1]
-    kept = [call for call in (getattr(last, "tool_calls", None) or []) if id(call) not in overflow]
+    kept = [call for call in (getattr(last, "tool_calls", None) or []) if id(call) not in withheld]
     trimmed = last.model_copy(update={"tool_calls": kept})
     return state.model_copy(update={"messages": [*state.messages[:-1], trimmed]})
 
 
-def _cap_notices(dropped: Sequence[Any]) -> list[ToolMessage]:
-    """One ToolMessage per withheld call, saying why and what to do instead."""
+def _notice(call: Any, content: str) -> ToolMessage:
+    """The one result a withheld call gets, addressed to the call that asked."""
+    return ToolMessage(
+        content=content,
+        name=_call_name(call),
+        tool_call_id=str(call.get("id") or ""),
+    )
+
+
+def _repeat_answer(call: Any, results: Mapping[str, str], attempted: frozenset[str] = frozenset()) -> str:
+    """What a withheld repeat is answered with: the first execution's own result.
+
+    A tool delivers an answer. The guard's job is to stop the turn PAYING for
+    the same fetch twice, not to stop the model having the text — so the text
+    comes back, labelled, and the model has nothing left to retry.
+
+    With no result to hand back there are two different things to say, and
+    saying the wrong one is a lie the model acts on. ``attempted`` is the
+    signatures THIS round handed to the tools: a signature in it that produced
+    no result is a fetch that FAILED, and the repeat withheld beside it must be
+    told exactly that, or ``_REPEAT_FETCH_MESSAGE`` points at „das Ergebnis
+    oben" when there is no result above — the same lie a cross-round failure is
+    carefully kept from telling (a failure signs nothing, so its retry runs).
+    Everything else — the tools node driven directly, a first execution that
+    returned nothing at all — is the old fallback.
+    """
+    signature = fetch_signature(call)
+    cached = results.get(signature) if signature is not None else None
+    if cached:
+        return f"{_REPEAT_FETCH_PREFIX}\n\n{cached}"
+    if signature is not None and signature in attempted:
+        return _FAILED_FETCH_REPEAT_MESSAGE
+    return _REPEAT_FETCH_MESSAGE
+
+
+@dataclass(frozen=True)
+class _RoundSplit:
+    """One round cut into what RUNS and what is answered without running."""
+
+    ran: list[Any]
+    repeats: list[Any]
+    #: ``(call, the sentence that answers it)`` for every call addressing a
+    #: source this conversation switched off.
+    refused: list[tuple[Any, str]]
+    #: The calls past the round's width cap: not refused, just not run THIS
+    #: round, and the model is told it may ask again next round.
+    over_width: list[Any]
+
+    @property
+    def withheld(self) -> list[Any]:
+        """Every call the ``ToolNode`` must not be given."""
+        return [*self.repeats, *(call for call, _ in self.refused), *self.over_width]
+
+    @property
+    def attempted(self) -> frozenset[str]:
+        """The fetch signatures this round HANDS to the tools, failures included.
+
+        What :func:`_repeat_answer` needs to tell a same-batch repeat of a
+        failed fetch from one the turn simply does not hold: the signature was
+        tried here and there is no result, which is a failure and not an
+        earlier answer.
+        """
+        return frozenset(signature for call in self.ran if (signature := fetch_signature(call)) is not None)
+
+    def notices(self, results: Mapping[str, str]) -> list[ToolMessage]:
+        """The answer each withheld call gets."""
+        attempted = self.attempted
+        return [
+            *(_notice(call, _repeat_answer(call, results, attempted)) for call in self.repeats),
+            *(_notice(call, sentence) for call, sentence in self.refused),
+            *(_notice(call, _WIDTH_CAP_MESSAGE) for call in self.over_width),
+        ]
+
+
+def _split_round(state: ResearchAgentState, disabled: frozenset[str], max_calls: int = 0) -> _RoundSplit:
+    """What the tools node runs, derived the way the agent node derived its charge.
+
+    :func:`_withheld_calls`, reading the SAME calls, the SAME
+    ``executed_fetches``, the SAME disabled set and the SAME width cap the
+    agent node read — the agent node writes none of them — so what is charged
+    and what is executed cannot drift apart.
+    """
+    calls = _last_tool_calls(state)
+    repeats, refused, over_width = _withheld_calls(calls, state, disabled, max_calls)
+    withheld = {id(call) for call in (*repeats, *(call for call, _ in refused), *over_width)}
+    return _RoundSplit(
+        ran=[call for call in calls if id(call) not in withheld],
+        repeats=repeats,
+        refused=refused,
+        over_width=over_width,
+    )
+
+
+def _failed_call_ids(messages: Iterable[Any]) -> set[str]:
+    """The ids of the calls whose result is a FAILURE rather than a fetch.
+
+    Two shapes, because the tools answer a dead store two ways. A raised tool
+    gets ``status == "error"`` from the ``ToolNode``; a retrieval tool that
+    catches its own exception returns PROSE — deliberately, so the turn can say
+    it could not search instead of dying — and marks it with
+    :data:`FETCH_FAILED_MARKER`.
+    """
+    failed: set[str] = set()
+    for message in messages:
+        if not isinstance(message, ToolMessage):
+            continue
+        content = str(message.content or "")
+        if getattr(message, "status", None) == "error" or content.lstrip().startswith(FETCH_FAILED_MARKER):
+            failed.add(str(getattr(message, "tool_call_id", "") or ""))
+    return failed
+
+
+def _ran_signatures(ran: Sequence[Any], failed_ids: set[str]) -> list[str]:
+    """The fetch signatures of the calls that really RETURNED SOMETHING, in call order.
+
+    A call handed to the ``ToolNode`` is not the same thing as a fetch that
+    answered. Both retrieval tools respond to an unreachable store with a
+    sentence asking the model to retry the identical call — and the duplicate
+    guard is built to withhold exactly that call with "das Ergebnis oben ist die
+    Antwort", which in that case is a lie: nothing was read. So a failure signs
+    nothing, and the retry the tool asked for is allowed to run.
+    """
     return [
-        ToolMessage(
-            content=_FANOUT_DROPPED_MESSAGE,
-            name=str(call.get("name") or ""),
-            tool_call_id=str(call.get("id") or ""),
-        )
-        for call in dropped
+        signature
+        for call in ran
+        if str(call.get("id") or "") not in failed_ids and (signature := fetch_signature(call)) is not None
     ]
 
 
@@ -581,13 +779,83 @@ def _assistant_checkpoint(response: Any) -> str | None:
 def _recursion_limit(ceiling: int) -> int:
     """The LangGraph step guard, derived from the ceiling the loop really stops at.
 
-    Two graph steps per tool-call round (agent + tools), plus slack. The
-    interaction allowance is added because it buys rounds the research budget
-    no longer pays for: a model that emits its cards one call at a time must
-    reach the ceiling it is supposed to reach instead of a
-    ``GraphRecursionError`` on the way there.
+    Two graph steps per tool-calling round (agent + tools), plus slack. Nothing
+    is added on top of the ceiling any more: a round is a round whatever it
+    asked for, so the cards, the working directory and a batch of five parallel
+    fetches all cost one and the loop cannot outrun the ceiling by emitting its
+    calls one at a time. The interaction allowance that used to be added here
+    existed only to protect a per-CALL budget, and is gone with it.
+
+    A round whose every call was withheld — a repeat fetch, a switched-off
+    source — is charged one round (:func:`_charge_empty_round`), so a model
+    that emits the same fetch every round walks into the ceiling in at most
+    ``ceiling`` rounds and is forced into synthesis, never into a
+    ``GraphRecursionError``.
     """
-    return ((ceiling + _INTERACTION_TOOL_ALLOWANCE) * 2) + 10
+    return (ceiling * 2) + 10
+
+
+def _turn_input_tokens() -> int:
+    """Input tokens this turn has already paid for, off the cost tracker.
+
+    The one accumulator that already exists: ``GridCostTracker`` meters every
+    chat completion of the turn through LangChain's configure hook, so this
+    counts the agent's own rounds, the reranker and every post-answer stage
+    that has run so far, with no second meter to keep in step. Zero outside a
+    tracked turn (a CLI run, an eval, a unit test), which reads as "no budget
+    has been spent" and therefore never forces synthesis — the honest default
+    for a process that is not billing anyone.
+    """
+    tracker = grid_cost_tracker_var.get()
+    if tracker is None:
+        return 0
+    return tracker.prompt_tokens
+
+
+def _turn_cutoff(state: ResearchAgentState, binding: TurnBinding) -> str | None:
+    """Which bound (if any) this turn has already crossed.
+
+    Two bounds, checked in the same place and in this order. ROUNDS is the
+    budget the model spends and the one the config's traced floors are written
+    against. INPUT TOKENS is what actually protects the person paying: a round
+    ceiling says nothing about a round of twelve parallel fetches into an
+    80 000-token context, and rounds stopped being a proxy for cost the moment
+    a round stopped being one call.
+    """
+    if state.tool_iterations >= binding.ceiling:
+        return CUTOFF_ROUNDS
+    if binding.max_input_tokens > 0 and _turn_input_tokens() >= binding.max_input_tokens:
+        return CUTOFF_INPUT_TOKENS
+    return None
+
+
+def _fetch_results(
+    ran: Sequence[Any],
+    messages: Sequence[Any],
+    failed_ids: set[str],
+) -> dict[str, str]:
+    """Signature → the text each fetch of this round returned.
+
+    The other half of ``executed_fetches``, written from the same calls under
+    the same rule: a call that FAILED signs nothing, so its retry runs instead
+    of being answered with a result that does not exist. What this buys is the
+    duplicate guard's answer — the repeat gets the first execution's own text
+    back instead of a sentence telling it to go and find it.
+    """
+    by_id = {
+        str(getattr(message, "tool_call_id", "") or ""): str(message.content or "")
+        for message in messages
+        if isinstance(message, ToolMessage)
+    }
+    results: dict[str, str] = {}
+    for call in ran:
+        call_id = str(call.get("id") or "")
+        signature = fetch_signature(call)
+        content = by_id.get(call_id)
+        if call_id in failed_ids or signature is None or not content:
+            continue
+        results[signature] = content
+    return results
 
 
 def _capture_sources(
@@ -643,8 +911,8 @@ class PilotiAgent:
     """Fast, bounded research with tool-calling.
 
     A two-node LangGraph (``agent`` → ``tools`` → ``agent`` …) whose loop
-    terminates on the tool-iteration ceiling, followed by the post-answer
-    pipeline. NAT-independent: every dependency arrives via the constructor,
+    terminates on the ROUND ceiling or the turn's input-token ceiling, followed
+    by the post-answer pipeline. NAT-independent: every dependency arrives via the constructor,
     and what varies per turn arrives via :meth:`run`'s ``turn``.
 
     Example:
@@ -667,7 +935,8 @@ class PilotiAgent:
         *,
         system_prompt: str | None = None,
         max_tool_iterations: int = 5,
-        reserved_tool_iterations: int = 0,
+        max_input_tokens_per_turn: int = _DEFAULT_MAX_INPUT_TOKENS_PER_TURN,
+        max_calls_per_round: int = _DEFAULT_MAX_CALLS_PER_ROUND,
         callbacks: list[Any] | None = None,
         tool_search: ToolSearchSettings | None = None,
         deferred_tool_loading: DeferredToolLoadingSettings | None = None,
@@ -681,12 +950,23 @@ class PilotiAgent:
             tools: The boot tool set. A turn may narrow or extend it.
             system_prompt: Optional custom template; the default is
                 ``prompts/piloti.j2``, read once per process.
-            max_tool_iterations: The RESEARCH budget, tool calls the turn may
-                spend looking things up before synthesis is forced.
-            reserved_tool_iterations: Extra tool calls granted ON TOP of the
-                research budget for the ``use_skill`` calls a deployment
-                forces. Charged to the research budget they would shrink every
-                research chain by one per published standard skill.
+            max_tool_iterations: The RESEARCH budget, in tool-calling ROUNDS —
+                LLM decisions that asked for tools — the turn may spend before
+                synthesis is forced. A round costs one whatever it asked for:
+                five parallel ``read_passage`` opens are one round, and so is a
+                single ``use_skill``. The name is a wire name; see the field
+                note on ``ResearchAgentState.tool_iterations``.
+            max_input_tokens_per_turn: Cumulative INPUT tokens the turn may
+                spend before synthesis is forced, read off the cost tracker
+                that already meters them. The bound that protects the person
+                paying, now that rounds do not: 0 disables it.
+            max_calls_per_round: How many tool calls of ONE round are run. A
+                runaway guard and not a doctrine — a round costs one however
+                wide it fans out, and a wide round is usually the model using
+                it well — so it sits far above any batch the prompt asks for.
+                The calls past it are answered with a notice saying they may be
+                issued again next round, never deleted from the AIMessage. 0
+                disables it.
             callbacks: Optional LangGraph callbacks.
             tool_search: Optional retrieval-based tool narrowing. None (or
                 disabled) binds the full set.
@@ -706,7 +986,8 @@ class PilotiAgent:
         self.llm_provider = llm_provider
         self.tools = list(tools)
         self.max_tool_iterations = max_tool_iterations
-        self.reserved_tool_iterations = max(0, reserved_tool_iterations)
+        self.max_input_tokens_per_turn = max_input_tokens_per_turn
+        self.max_calls_per_round = max_calls_per_round
         self.callbacks = callbacks or []
         self.repair_pass = repair_pass
         self.tool_search = tool_search if (tool_search is not None and tool_search.enabled) else None
@@ -726,7 +1007,7 @@ class PilotiAgent:
         self._narrowed_bindings: dict[frozenset[str], Any] = {}
         # Query string → selection, so the retrieval runs once per run.
         self._tool_search_selections: dict[str, Any] = {}
-        self._boot = self._bind_turn(self.llm_provider, tuple(self.tools), self.reserved_tool_iterations)
+        self._boot = self._bind_turn(self.llm_provider, tuple(self.tools))
         self._graph = self._build_graph()
 
     # -- bindings ---------------------------------------------------------------
@@ -738,13 +1019,14 @@ class PilotiAgent:
 
     @property
     def tool_iteration_ceiling(self) -> int:
-        """The tool-call count at which synthesis is forced, for the boot budget.
+        """The ROUND count at which synthesis is forced: the research budget.
 
-        ``max_tool_iterations`` stays exactly what the config's traced floors
-        measure; the reserve on top pays for the ``use_skill`` calls the
-        deployment forces on every research turn.
+        One number, and it is the one the config's traced floors measure. There
+        is no reserve on top of it and no second currency beside it — a round
+        of cards costs what a round of searches costs, so nothing has to be
+        paid for separately.
         """
-        return self.max_tool_iterations + self.reserved_tool_iterations
+        return self.max_tool_iterations
 
     @property
     def graph(self) -> CompiledStateGraph:
@@ -764,7 +1046,7 @@ class PilotiAgent:
         """
         return bind_tools_deferred(llm, list(tools), settings=self.deferred_tool_loading, parallel_tool_calls=True)
 
-    def _bind_turn(self, provider: LLMProvider, tools: tuple[BaseTool, ...], reserved: int) -> TurnBinding:
+    def _bind_turn(self, provider: LLMProvider, tools: tuple[BaseTool, ...]) -> TurnBinding:
         """Resolve one tool set against one provider: the only per-turn cost, one ``bind_tools``."""
         llm = provider.get(LLMRole.RESEARCHER)
         boot_tools = tools == tuple(self.tools)
@@ -775,23 +1057,29 @@ class PilotiAgent:
             tools_info=self.tools_info if boot_tools else build_tools_info(tools),
             tool_node=ToolNode(list(tools)),
             source_tool_names=frozenset(t.name for t in tools),
-            reserved_tool_iterations=reserved,
-            ceiling=self.max_tool_iterations + reserved,
+            ceiling=self.max_tool_iterations,
+            max_input_tokens=self.max_input_tokens_per_turn,
+            max_calls_per_round=self.max_calls_per_round,
         )
 
     def _resolve_turn(self, turn: TurnConfig | None) -> TurnBinding:
-        """The boot binding when the turn varies nothing; a fresh one otherwise."""
+        """The boot binding when the turn varies nothing; a fresh one otherwise.
+
+        A turn's switched-off sources are attached to the binding without
+        rebinding anything, and that is the point of row 6: the tool set does
+        not change with a toggle, so neither does the payload the provider's
+        cache is keyed on. Only the model override and the turn's added tools
+        (``use_skill``, the working directory) ever cost a ``bind_tools``.
+        """
         if turn is None:
             return self._boot
         provider = turn.llm_provider or self.llm_provider
         tools = tuple(self.tools if turn.tools is None else turn.tools)
-        reserved = self._boot.reserved_tool_iterations
-        if turn.reserved_tool_iterations is not None:
-            reserved = max(0, turn.reserved_tool_iterations)
-        unchanged = provider is self.llm_provider and tools == self._boot.tools
-        if unchanged and reserved == self._boot.reserved_tool_iterations:
-            return self._boot
-        return self._bind_turn(provider, tools, reserved)
+        boot = provider is self.llm_provider and tools == self._boot.tools
+        base = self._boot if boot else self._bind_turn(provider, tools)
+        if turn.disabled_sources == base.disabled_sources:
+            return base
+        return replace(base, disabled_sources=frozenset(turn.disabled_sources))
 
     def _select_tools_for_query(self, messages: Sequence[Any]) -> Any:
         """Run (or replay) the tool-search retrieval for this run's question.
@@ -893,7 +1181,7 @@ class PilotiAgent:
         return (config.get("configurable") or {}).get(_TURN_BINDING_KEY) or self._boot
 
     async def _agent_node(self, state: ResearchAgentState, config: RunnableConfig) -> dict[str, Any]:
-        """One LLM call: the full binding (ADR-0052), or forced synthesis at the ceiling."""
+        """One LLM call: the full binding (ADR-0052), or forced synthesis at a ceiling."""
         binding = self._turn_binding(config)
         tools_info = state.tools_info if state.tools_info else binding.tools_info
         llm_with_tools, tools_info = self._research_tool_binding(state.messages, tools_info, binding)
@@ -902,9 +1190,18 @@ class PilotiAgent:
         # tool-loop iterations and the norm-block computation runs once.
         system_prompt = state.cached_system_prompt
         if system_prompt is None:
-            system_prompt = render_system_prompt(self.system_prompt, state, tools_info)
-        if state.tool_iterations >= binding.ceiling:
-            return await self._forced_synthesis(state, binding, system_prompt)
+            # In a THREAD, because the render resolves the static half through
+            # the prompt store: with Langfuse prompt management on, that is one
+            # bounded HTTP call (2 s) on the first render of a TTL window, and
+            # a blocking call inside a coroutine stalls every other turn this
+            # worker is serving, not only this one. ``to_thread`` copies the
+            # context, so every ContextVar the render reads is the turn's own,
+            # and nothing in it depends on the thread it runs on.
+            # ``register.py`` moves its blocking reads the same way.
+            system_prompt = await asyncio.to_thread(render_system_prompt, self.system_prompt, state, tools_info)
+        cutoff = _turn_cutoff(state, binding)
+        if cutoff is not None:
+            return await self._forced_synthesis(state, binding, system_prompt, cutoff=cutoff)
 
         messages = [SystemMessage(content=system_prompt), *state.messages]
         if self.envelope_json_mode_with_tools:
@@ -916,11 +1213,12 @@ class PilotiAgent:
         # the whole synthesis call.
         if _starts_synthesis(response, state):
             emit_synthesis()
-        research, interaction, retrieval_round, round_record = _charge_tool_calls(response, state, binding.ceiling)
+        rounds, retrieval_round, round_record = _charge_tool_calls(
+            response, state, binding.ceiling, binding.disabled_sources, binding.max_calls_per_round
+        )
         update: dict[str, Any] = {
             "messages": [response],
-            "tool_iterations": research,
-            "interaction_iterations": interaction,
+            "tool_iterations": rounds,
             "retrieval_round": retrieval_round,
             "cached_system_prompt": system_prompt,
         }
@@ -928,43 +1226,66 @@ class PilotiAgent:
             update["retrieval_rounds"] = [*state.retrieval_rounds, round_record]
         return update
 
+    def _record_cutoff(self, state: ResearchAgentState, binding: TurnBinding, cutoff: str) -> None:
+        """Say — in the log and on the technical channel — why the loop stopped.
+
+        Two bounds, two records, because they are two different sizing
+        questions. Rounds exhausted is "the investigation was cut off": the
+        worst failure this product has, counted against the traced floors in
+        ``configs/config_oib_openrouter.yml``. Input tokens exhausted is "the
+        turn got expensive": the bound that replaced the per-call budget, and
+        one that should fire on a runaway rather than on a hard question. What
+        is recorded either way is the SHAPE of the run, the ordered tool names,
+        because that is what makes the population answerable without logging
+        the reader's question.
+        """
+        shape = _tool_call_shape(state.messages)
+        input_tokens = _turn_input_tokens()
+        # The rule is a keyword match on "token" in a logged string; these are
+        # counts of input tokens against the turn's budget, not a credential.
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
+        logger.warning(
+            "Forcing synthesis (%s): ceiling=%d rounds_spent=%d input_tokens=%d/%d skill_calls=%d shape=%s",
+            cutoff,
+            binding.ceiling,
+            state.tool_iterations,
+            input_tokens,
+            binding.max_input_tokens,
+            shape.count("use_skill"),
+            ">".join(shape) or "-",
+        )
+        if cutoff == CUTOFF_INPUT_TOKENS:
+            emit_input_budget_exhausted(
+                limit=binding.max_input_tokens,
+                spent=input_tokens,
+                rounds=state.tool_iterations,
+                shape=shape,
+            )
+            return
+        emit_research_truncated(
+            ceiling=binding.ceiling,
+            research_budget=self.max_tool_iterations,
+            spent=state.tool_iterations,
+            rounds=state.tool_iterations,
+            shape=shape,
+        )
+
     async def _forced_synthesis(
         self,
         state: ResearchAgentState,
         binding: TurnBinding,
         system_prompt: str,
+        *,
+        cutoff: str,
     ) -> dict[str, Any]:
         """TRUNCATION: the turn ran out of budget mid-investigation.
 
-        The worst failure this product has (see the traced floors in
-        ``configs/config_oib_openrouter.yml``). What is recorded is the SHAPE
-        of the run, the ordered tool names, because that is what makes the
-        population answerable without logging the reader's question; the
-        answer carries ``research_truncated`` so the reader can be told too.
-        Forced synthesis is the tool-FREE call, so provider JSON mode is safe
-        here unconditionally.
+        The answer carries ``research_truncated`` whichever bound fired, so the
+        reader can be told that evidence-gathering was cut off rather than
+        finished. Forced synthesis is the tool-FREE call, so provider JSON mode
+        is safe here unconditionally.
         """
-        shape = _tool_call_shape(state.messages)
-        rounds = _tool_call_rounds(state.messages)
-        logger.warning(
-            "Research budget exhausted: forcing synthesis "
-            "(ceiling=%d research_budget=%d reserved=%d spent=%d rounds=%d skill_calls=%d shape=%s)",
-            binding.ceiling,
-            self.max_tool_iterations,
-            binding.reserved_tool_iterations,
-            state.tool_iterations,
-            rounds,
-            shape.count("use_skill"),
-            ">".join(shape) or "-",
-        )
-        emit_research_truncated(
-            ceiling=binding.ceiling,
-            research_budget=self.max_tool_iterations,
-            reserved=binding.reserved_tool_iterations,
-            spent=state.tool_iterations,
-            rounds=rounds,
-            shape=shape,
-        )
+        self._record_cutoff(state, binding, cutoff)
         # Anchored at the end to combat "Loss in the Middle".
         messages = [SystemMessage(content=system_prompt), *state.messages, HumanMessage(content=_SYNTHESIS_ANCHOR)]
         response = await ainvoke_with_envelope_json_mode(binding.llm, messages)
@@ -988,38 +1309,75 @@ class PilotiAgent:
         source: it produces no citable passage.
 
         The round stamp is set HERE, around the invocation, because this is the
-        node the tools actually run in — see :func:`_executing_retrieval_round`.
+        node the tools actually run in — a ``ContextVar`` set beside the LLM
+        call dies at the node boundary, while the tools run as children of THIS
+        node. It is derived from the calls that will RUN, never from the raw
+        AIMessage: see :func:`_executing_retrieval_round`.
 
-        The round-zero fan-out cap lands here too: the overflow searches are
-        withheld from the ``ToolNode`` and answered with
-        :data:`_FANOUT_DROPPED_MESSAGE` instead. The AIMessage keeps ALL of its
-        tool calls — a provider rejects a tool result with no matching call, and
-        it would reject the un-answered calls too — so every call still gets
-        exactly one result and the model reads why two of them are a sentence.
+        All three withholding guards land here: a fetch this turn already ran is
+        answered with its OWN earlier result, a call to a source this
+        conversation switched off with one sentence saying so, and a call past
+        the round's width cap with a notice saying it may be issued again next
+        round. All are derived from the same calls the agent node charged. The
+        AIMessage keeps ALL of its tool calls — a provider rejects a tool result
+        with no matching call, and it would reject the un-answered calls too —
+        so every call still gets exactly one result and the model reads why some
+        of them did not run.
+
+        What actually RETURNED is written back as ``executed_fetches`` and
+        ``fetch_results``, which is the only thing the duplicate guard may be
+        built from: signing the calls the model asked for would let a withheld
+        repeat record itself as done, and signing a call whose store never
+        answered would withhold the retry that tool's own message just asked
+        for.
         """
         binding = self._turn_binding(config)
-        executing_round = _executing_retrieval_round(state)
-        dropped = _round_zero_overflow(_last_tool_calls(state), executing_round)
+        split = _split_round(state, binding.disabled_sources, binding.max_calls_per_round)
+        withheld = split.withheld
+        executing_round = _executing_retrieval_round(state, split.ran)
         with retrieval_round_scope(executing_round):
-            result = await binding.tool_node.ainvoke(_without_dropped_calls(state, dropped) if dropped else state)
+            result = await binding.tool_node.ainvoke(_without_dropped_calls(state, withheld) if withheld else state)
         registry = get_session_registry()
         if registry is None:
             raise RuntimeError("PilotiAgent graph invoked outside run(): no source registry is bound")
+        ran_messages = list(result.get("messages", []))
+        measured = self._capture_round(ran_messages, binding, registry, state)
+        failed_ids = _failed_call_ids(ran_messages)
+        # Merged BEFORE the notices are built: a call repeated inside its own
+        # batch is answered with the result its first occurrence just returned.
+        fetch_results = {**state.fetch_results, **_fetch_results(split.ran, ran_messages, failed_ids)}
+        if withheld:
+            # AFTER the capture loop, deliberately: a withholding notice is not
+            # a tool result and must never be mined for citation keys — and it
+            # carries the earlier result verbatim now, so mining it would
+            # register every passage of that fetch a second time.
+            result = {**result, "messages": [*ran_messages, *split.notices(fetch_results)]}
+        result = {
+            **result,
+            "executed_fetches": [*state.executed_fetches, *_ran_signatures(split.ran, failed_ids)],
+            "fetch_results": fetch_results,
+        }
+        if measured:
+            return {**result, "answer_measurement_grounded": True}
+        return result
+
+    def _capture_round(
+        self,
+        messages: Sequence[Any],
+        binding: TurnBinding,
+        registry: SourceRegistry,
+        state: ResearchAgentState,
+    ) -> bool:
+        """Register this round's sources; return the sticky measurement flag."""
         measured = bool(state.answer_measurement_grounded)
-        for message in result.get("messages", []):
+        for message in messages:
             if not isinstance(message, ToolMessage) or not message.content:
                 continue
             tool_name = getattr(message, "name", "") or ""
             content = str(message.content)
             measured = measured or tool_result_is_measurement(tool_name, content)
             _capture_sources(tool_name, content, binding.source_tool_names, registry)
-        # AFTER the capture loop, deliberately: the cap notice is not a tool
-        # result and must never be mined for citation keys.
-        if dropped:
-            result = {**result, "messages": [*result.get("messages", []), *_cap_notices(dropped)]}
-        if measured:
-            return {**result, "answer_measurement_grounded": True}
-        return result
+        return measured
 
     # -- the turn ---------------------------------------------------------------
 
@@ -1081,12 +1439,17 @@ class PilotiAgent:
         turn_capture = begin_turn_capture()
         measurement_capture = begin_measurement_capture()
         lane_capture = begin_lane_capture()
+        # What each evidence tool STATED, filed under the bytes it returned, so
+        # the citation registry copies fields instead of re-parsing the text an
+        # evidence tool wrote (ADR-0061).
+        grounding_capture = begin_grounding_capture()
         try:
             graph_result = await self._graph.ainvoke(state, config=self._graph_config(binding))
             turn_sources = get_turn_captures()
             turn_measurements = get_measurement_captures()
             lane_hits = get_lane_captures()
         finally:
+            end_grounding_capture(grounding_capture)
             end_lane_capture(lane_capture)
             end_measurement_capture(measurement_capture)
             end_turn_capture(turn_capture)

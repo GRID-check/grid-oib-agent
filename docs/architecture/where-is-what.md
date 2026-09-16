@@ -51,7 +51,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | Agent-document provenance keys (`authored_by`, `approved_by`, `approved_at`, `producer`) | `src/aiq_agent/common/provenance.py` — `parse_agent_provenance` | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0054 |
 | The Piloti lane and its label | `src/aiq_agent/common/source_kinds.py` — `AGENT_AUTHORED_LANE` | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0026 |
 | Lane placement from stated provenance | `src/aiq_agent/common/norm_registry.py` — `lane_for_hit` | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0026, ADR-0047 |
-| The `Herkunft:` line in the grounding block | `sources/knowledge_layer/src/register.py` — `_format_results` | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0054 |
+| The `Herkunft:` line in the grounding block | `src/aiq_agent/common/grounding_block.py` — `_header_lines`, from the `provenance` a hit states | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0054, ADR-0061 |
 | A verdict may not rest on an agent-authored source | `src/aiq_agent/common/answer_envelope.py` — `_gate_verdict` | [`agent-document-provenance.md`](agent-document-provenance.md) | ADR-0054 |
 | The write-side workspace verbs (propose, never write) | `src/aiq_agent/tools/files/register.py` — `move_document`, `rename_document`, `create_folder`, `assign_document` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | ADR-0055 |
 | Resolving a file, folder or Dokumentart name against what the turn can see | `src/aiq_agent/tools/files/resolve.py` — `resolve_document`, `resolve_folder` | same | ADR-0047 |
@@ -74,7 +74,7 @@ does not exist, so a moved file is caught; a missing row is not.
 | Where a filed draft's document id is remembered | `src/aiq_agent/tools/documents/draft_store.py` — `FILING_KEYS`, `arecord_filing` | same | — |
 | The signed envelope as the Python tier receives it | `src/aiq_agent/project_context.py` — `GridRequestContext.envelope_header`, `get_request_envelope_from_context` | same | ADR-0054 |
 | Which conversation a version was filed from | `document_versions.origin_conversation_id` (migration `0084`), stamped in `frontends/ui/src/app/api/internal/document-versions/route.ts` from the verified envelope | [`docs/database/schema.md`](../database/schema.md) | ADR-0054 |
-| A reviewer's „Änderungen anfordern“ reaching the next turn of the same conversation | `frontends/ui/src/lib/documents/review-decisions.ts` — `buildReviewDecisionsBlock`; rendered beside `PROPOSAL_DECISIONS` in `src/aiq_agent/agents/piloti/prompts/piloti.j2` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | ADR-0051, ADR-0054 |
+| A reviewer's „Änderungen anfordern“ reaching the next turn of the same conversation | `frontends/ui/src/lib/documents/review-decisions.ts` — `buildReviewDecisionsBlock`; rendered beside `PROPOSAL_DECISIONS` inside `project_context` (`piloti.j2`); how the agent reads it is `src/aiq_agent/agents/piloti/prompts/piloti_static.md` `<project_record>` | [`docs/roadmap/piloti-writes-artifacts-and-approval.md`](../roadmap/piloti-writes-artifacts-and-approval.md) | ADR-0051, ADR-0054 |
 | The same decision becoming a `revision` task when nobody is in a conversation | `frontends/ui/src/lib/documents/lifecycle.ts` — the `openRevisionTask` effect | same | ADR-0051, ADR-0054 |
 | Which version a revision's bytes go into | `frontends/ui/src/lib/documents/revision.ts` — `openDraftForRevision` | same | ADR-0054 |
 | The draft card's filed state and its controls | `frontends/ui/src/features/grid-cards/components/DocumentDraftCard.tsx` | [`cards.md`](cards.md) | ADR-0030 |
@@ -162,8 +162,12 @@ does not exist, so a moved file is caught; a missing row is not.
 | Concept | Owning code | Doc of record | Decision |
 |---|---|---|---|
 | Piloti's tool loop | `src/aiq_agent/agents/piloti/agent.py` — `PilotiAgent.run` | [`backend-deep-dive.md`](backend-deep-dive.md) | ADR-0052 |
-| Research budget and the interaction allowance | `src/aiq_agent/agents/piloti/agent.py` — `_INTERACTION_TOOL_ALLOWANCE`; `max_tool_iterations` in `src/aiq_agent/agents/piloti/register.py` | same | ADR-0052 |
+| Research budget, in ROUNDS | `src/aiq_agent/agents/piloti/agent.py` — `_charge_tool_calls`; `max_tool_iterations` in `src/aiq_agent/agents/piloti/register.py` | same | ADR-0052 |
+| The turn's cost bound | `src/aiq_agent/agents/piloti/agent.py` — `_turn_cutoff`, `_turn_input_tokens`; `max_input_tokens_per_turn` in `src/aiq_agent/agents/piloti/register.py`, metered by `src/aiq_agent/common/cost_tracking.py` | same | ADR-0015 |
+| A data source switched off for a turn | `src/aiq_agent/common/data_sources.py` — `disabled_source_notice`, `unavailable_source_ids`, refused at the `ToolNode` boundary in `agent._split_round` | same | ADR-0022 |
 | Forced synthesis at the ceiling | `src/aiq_agent/agents/piloti/agent.py` — `_forced_synthesis`, `_SYNTHESIS_ANCHOR` | same | ADR-0052 |
+| Which limit on a turn is a ratchet, a budget or a hobble | `src/aiq_agent/agents/piloti/agent.py`, `configs/config_oib_openrouter.yml` — the register indexes them one by one and says what closed each | [Hobble register (2026-09)](hobble-register-2026-09.md) | ADR-0060 |
+| The office's standing instructions for every turn | `frontends/ui/src/lib/org-instructions/service.ts` — `saveOrgInstructions`; read back in `src/aiq_agent/project_context.py` — `normalize_org_instructions` | [`agent-skills.md`](agent-skills.md) | ADR-0060 |
 | The envelope-enforced LLM call | `src/aiq_agent/agents/piloti/envelope_call.py` — `ainvoke_with_envelope_json_mode` | same | ADR-0052 |
 | Answer envelope, Python | `src/aiq_agent/common/answer_envelope.py` — `extract_answer_envelope`, `gate_answer_meta` | [`docs/api/websocket-protocol.md`](../api/websocket-protocol.md) | ADR-0037 |
 | Answer envelope, TypeScript sanitizer | `frontends/ui/src/lib/conversations/message-answer-meta.ts` — `sanitizeAnswerMeta` | same | ADR-0037 |
@@ -190,6 +194,10 @@ does not exist, so a moved file is caught; a missing row is not.
 | `doc_class` (human-set, beats every filename guess) | `src/aiq_agent/knowledge/document_classification.py`; UI in `frontends/ui/src/lib/knowledge/doc-class.ts` | [`docs/superpowers/specs/2026-07-17-norm-registry-design.md`](../superpowers/specs/2026-07-17-norm-registry-design.md) | ADR-0025 |
 | Norm registry lanes | `src/aiq_agent/common/norm_registry.py` | same | ADR-0025 |
 | Citation verification | `src/aiq_agent/common/citation_verification.py` | [`citation-system-audit-2026-07.md`](citation-system-audit-2026-07.md) | ADR-0058 (retrieval correctness) |
+| The grounding block: the record, and the one renderer | `src/aiq_agent/common/grounding_block.py` — `GroundingHit`, `GroundingBlock`, `render_grounding_block` | [`backend-deep-dive.md`](backend-deep-dive.md) | ADR-0061 |
+| Building hits from retrieved chunks | `sources/knowledge_layer/src/register.py` — `_grounding_hit`, `_format_results` | same | ADR-0061 |
+| Building hits from RIS passages | `sources/ris_adapter/src/lookup/render.py` — `format_passages` | same | ADR-0061 |
+| Reading a tool result back as sources | `src/aiq_agent/common/citation_verification.py` — `extract_sources_from_tool_result`, `_entry_from_hit`; `_parse_knowledge_layer` is the text fallback for cached and replayed turns | same | ADR-0061 |
 | Citation persistence and export | `frontends/ui/src/lib/citations/service.ts` | same | ADR-0037 |
 | IFC tools for the agent | `src/aiq_agent/tools/bim/register.py` — `ifc_query` | [`docs/user-guides/bim-models.md`](../user-guides/bim-models.md) | ADR-0045 |
 | IFC models in the BFF | `frontends/ui/src/lib/bim/model-service.ts` | same | ADR-0045 |

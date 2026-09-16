@@ -103,15 +103,14 @@ def _resolve_skills_blocking(organization_id: str | None) -> tuple[Skill, ...]:
 
 
 def _skills_block(runtime: SkillRuntime) -> str | None:
-    """The writer's skills section: the catalog, then what is required of it.
+    """The writer's skills section: the L1 catalog it may pick from.
 
-    The same two blocks the researcher renders, from the same runtime,
-    so a skill that names both agents is presented to both of them in the same
-    words. None when the run resolved no skills — the writer prompt then shows
-    no skills section at all rather than an empty heading.
+    The same block the researcher renders, from the same runtime, so a skill
+    that names both agents is presented to both of them in the same words.
+    None when the run resolved no skills — the writer prompt then shows no
+    skills section at all rather than an empty heading.
     """
-    blocks = [block for block in (runtime.prompt_block(), runtime.forced_block()) if block]
-    return "\n\n".join(blocks) if blocks else None
+    return runtime.prompt_block()
 
 
 def _run_scoped_callbacks(callbacks: Sequence[Any], source_registry_middleware: SourceRegistryMiddleware) -> list[Any]:
@@ -238,7 +237,7 @@ class DeepResearcherAgent:
         with no platform skills, the shape of a run whose BFF did not answer.
         """
         if skill_runtime is None:
-            skill_runtime = SkillRuntime(force_names=state.force_skills)
+            skill_runtime = SkillRuntime()
         source_registry_middleware = SourceRegistryMiddleware(source_tool_names=self.source_tool_names)
         tool_set = build_deep_research_tool_set(
             self.tools,
@@ -287,10 +286,9 @@ class DeepResearcherAgent:
         and tenants. The organization comes off the STATE first — in a Dask
         worker ``get_organization_id_from_context()`` reads no headers because
         there is no request — and falls back to the request context for the
-        synchronous path and evaluation runs. ``force_skills`` is the user's
-        own instruction (a skill ticked in the composer, or named by a
-        schedule); passing it as ``force_names`` puts the skill's body in front
-        of the writer instead of merely listing its name.
+        synchronous path and evaluation runs. Every resolved skill is an OFFER:
+        the writer reads the catalog and calls ``use_skill`` for the one it
+        judges applies, and nothing here can put a body in front of it.
 
         The resolver is a SYNCHRONOUS HTTP call to the BFF. Run on the loop it
         stalled the Dask worker's heartbeat for as long as the BFF took to
@@ -301,15 +299,11 @@ class DeepResearcherAgent:
         """
         organization_id = state.organization_id or get_organization_id_from_context()
         skills = await asyncio.to_thread(_resolve_skills_blocking, organization_id)
-        runtime = SkillRuntime(skills=skills, force_names=state.force_skills)
+        runtime = SkillRuntime(skills=skills)
         if not skills:
             return runtime
         emit_skills_offered(runtime)
-        logger.info(
-            "Deep research resolved %d organization skill(s) for the writer; required: %s",
-            len(skills),
-            list(runtime.forced) or "none",
-        )
+        logger.info("Deep research resolved %d organization skill(s) for the writer", len(skills))
         return runtime
 
     # -- the run --------------------------------------------------------------

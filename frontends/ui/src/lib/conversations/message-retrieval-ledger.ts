@@ -4,11 +4,10 @@
  *
  * One entry per announced round: what the round was asked (query, tools),
  * what it returned (docs with title/detail/shelf), and what was NEW
- * (`newDocs`: names no earlier round showed). Carried for the Herleitung —
- * no renderer reads it yet (phase b) — and stored now so the record exists
- * from the first turn rather than from the release that renders it: the
- * backend states what the turn did, once, and every future surface reads the
- * same record.
+ * (`newDocs`: names no earlier round showed). The Herleitung spine draws each
+ * round's fan from it (`features/chat/lib/retrieval-rounds.ts` — `roundFan`),
+ * and it is stored so a reload draws the same one: the backend states what the
+ * turn did, once, and every surface reads that same record.
  *
  * **The client is not trusted with the bound**, exactly as `sanitizeAnswerMeta`
  * is not. This lands in message metadata/provenance — jsonb fed from a
@@ -96,7 +95,6 @@ const capList = (value: unknown, maxItems: number, maxChars: number): string[] |
 const int = (value: unknown): number | undefined =>
   typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : undefined
 
-/** Presentation compare matching the backend's own: case- and space-insensitive. */
 /** Presentation compare matching the backend's own: case- and space-insensitive. */
 const docKey = (name: string): string => name.trim().toLowerCase()
 

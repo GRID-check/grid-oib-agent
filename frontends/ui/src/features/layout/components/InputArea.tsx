@@ -1155,13 +1155,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           // One ternary, not a re-derivation: `sendMessageOptions` already chose
           // the case. Omitting the argument entirely is what keeps the fast path
           // the literal single-argument call it has always been.
-          const routed = sendMessageOptions(sent.routing)
-          // Resolved from the TEXT BEING SENT, not from state: the `/name` token
-          // can be edited away after it was picked, and what reaches the agent
-          // has to be what the message still says — the same discipline the
-          // mentions above follow.
-          const invoked = slash.skillsForSend(currentMessage)
-          const options = invoked ? { ...(routed ?? {}), skills: invoked } : routed
+          //
+          // A `/name` invocation adds NOTHING here any more. The picker writes
+          // the skill's name into the message text and that is the whole of it:
+          // the model reads the name and picks the skill out of its catalog,
+          // rather than the turn being handed a skill it must apply. What the
+          // office always wants applied is a standing instruction, and those
+          // live in the platform prompt and the organization's own instruction
+          // block — not in a per-message field somebody has to remember.
+          const options = sendMessageOptions(sent.routing)
           return options ? sendMessage(currentMessage, options) : sendMessage(currentMessage)
         })()
       )
@@ -1217,7 +1219,6 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     currentConversation,
     clearComposerDraft,
     onStoppedTyping,
-    slash,
     t,
     tCollab,
   ])

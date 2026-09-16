@@ -9,8 +9,8 @@ voice — never reached the writer of a five-thousand-word report.
 These tests pin both halves of the fix, and they are asserted against the REAL
 resolution path (only the BFF round trip is stubbed) because every layer between
 a row and the writer's context is somewhere the skill can quietly go missing:
-the ``grid-agents`` gate, the origin filter, the runtime's forcing of a standard
-skill, the writer's prompt, and the tool that carries the body.
+the ``grid-agents`` gate, the origin filter, the writer's prompt, and the tool
+that carries the body.
 
 The second test is the more important one. A skill is additive; a report is the
 product. If the BFF cannot be reached — an anonymous run, an unset
@@ -147,13 +147,14 @@ async def _prepare(agent: DeepResearcherAgent, graph: MagicMock, state: DeepRese
 
 
 @pytest.mark.asyncio
-async def test_a_standard_platform_skill_reaches_the_writer_as_a_requirement_and_a_body(llm_provider, graph):
-    """The voice is listed, required, and loadable — the three things it needs.
+async def test_a_platform_skill_reaches_the_writer_as_a_catalog_line_and_a_body(llm_provider, graph):
+    """The voice is listed and loadable — the two things it needs.
 
-    A catalog line alone would leave the model free to ignore it, and a tool
-    alone would leave it with nothing to call. ``delivery: 'standard'`` means the
-    platform decided for the fleet, so the writer is TOLD to load it, and what it
-    gets back is the body a platform owner edits in the dashboard.
+    A catalog line alone would leave the writer with nothing to call, and a tool
+    alone would leave it with no reason to. There is no third thing: the run
+    cannot be told to load a skill, so what the row buys is an offer the writer
+    takes up, and what it gets back is the body a platform owner edits in the
+    dashboard.
     """
     agent = DeepResearcherAgent(llm_provider=llm_provider, tools=[web_search_tool])
     state = DeepResearchAgentState(
@@ -167,10 +168,10 @@ async def test_a_standard_platform_skill_reaches_the_writer_as_a_requirement_and
     prompt = writer["system_prompt"]
     assert "## Available skills" in prompt
     assert "- `piloti-voice`:" in prompt
-    # Standard delivery is what makes it policy rather than an offer.
-    assert "## Active skills (apply to every answer with subject matter)" in prompt
-    assert "- `piloti-voice`" in prompt.split("## Active skills (apply to every answer with subject matter)")[1]
-    # The preflight has to tell the writer which of the two channels loads it.
+    # One block, and no second one telling the writer it MUST load anything:
+    # the `standard: True` on the row above is not read on this side any more.
+    assert "Active skills" not in prompt
+    # The catalog has to tell the writer what loads a body.
     assert "use_skill" in prompt
 
     use_skill = next(item for item in writer["tools"] if item.name == "use_skill")

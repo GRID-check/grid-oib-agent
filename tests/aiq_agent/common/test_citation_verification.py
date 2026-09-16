@@ -2384,6 +2384,23 @@ class TestKnowledgeLayerFieldsAreBlockScoped:
         assert "Trace-Lanes" not in (second.chunk_text or "")
         assert "lanes" not in (second.chunk_text or "")
 
+    def test_every_producer_of_the_grammar_is_read_as_evidence(self):
+        """Three tools render this grammar, and all three must parse as passages.
+
+        ``read_passage`` used to miss: the parser is registered on the substring
+        "knowledge" and that name does not contain it, so the locator's output
+        fell to the non-URL fallback and registered ONE source whose citation key
+        was the string "read_passage". Every citation to a passage the turn had
+        OPENED rather than searched was then dropped as
+        ``citation_key_not_in_registry``.
+        """
+        from aiq_agent.common.citation_verification import extract_sources_from_tool_result
+
+        content = "--- Result 1 ---\nSource: real.pdf\nCitation: real.pdf, p.1\nRelevance Score: 0.9\n\nbody\n"
+        for tool_name in ("knowledge_search", "ris_lookup", "read_passage"):
+            entries = extract_sources_from_tool_result(tool_name, content)
+            assert [(e.citation_key, e.source_type) for e in entries] == [("real.pdf, p.1", "knowledge_layer")]
+
     def test_block_without_a_citation_field_is_skipped(self):
         from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 
@@ -2856,6 +2873,38 @@ class TestKnowledgeLayerChunkTextCapture:
 
         hydrated = _registry_from_cached_entries([dataclasses.asdict(original)])
         assert hydrated.all_sources()[0].chunk_text == "round trip body"
+
+    def test_every_field_a_later_turn_reads_survives_the_cache(self):
+        """``punkt`` and ``score`` used not to, and both reach the wire.
+
+        A conversation that moved replica lost the locus and the match strength
+        off chips it had shown a minute earlier, and nothing failed: both fields
+        are optional everywhere they are read.
+        """
+        import dataclasses
+
+        from aiq_agent.common.citation_verification import SourceEntry
+        from aiq_agent.common.citation_verification import _registry_from_cached_entries
+
+        original = SourceEntry(
+            citation_key="oib-rl_2.pdf, p.12",
+            title="OIB-Richtlinie 2",
+            source_type="knowledge_layer",
+            tool_name="knowledge_search",
+            collection="oib_knowledge",
+            shelf="base",
+            doc_class="oib_richtlinie",
+            authored_by="agent",
+            chunk_text="Brandabschnitte sind so auszubilden.",
+            punkt="3.5.2",
+            score=0.87,
+            rank="oib_richtlinie",
+            binding_status="bindend",
+        )
+
+        hydrated = _registry_from_cached_entries([dataclasses.asdict(original)])
+
+        assert dataclasses.asdict(hydrated.all_sources()[0]) == dataclasses.asdict(original)
 
 
 class TestDocumentIdentityIsCollectionAndFilename:

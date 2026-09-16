@@ -35,10 +35,7 @@ class ResearchAgentState(BaseModel):
         focus_file_name: Filename of the composer's "Asking about <file>" subject.
         focus_shelf: Shelf that focused file sits on (session/project/archiv).
         collection_name: Knowledge collection name (for fetching documents).
-        tool_iterations: Counter for tool-calling iterations (the RESEARCH
-            budget; see ``interaction_iterations`` for the output channel).
-        interaction_iterations: Counter for interaction-tool calls (`emit_card`,
-            `describe_card`, `remember`), which are budgeted separately.
+        tool_iterations: Counter for tool-calling ROUNDS (the research budget).
         source_lookup_attempted: Whether the turn called a data-source tool at
             all. Set by ``run()``. With the self-assessment it is what the chat
             node reads the observed routing from: neither → a direct reply.
@@ -65,6 +62,18 @@ class ResearchAgentState(BaseModel):
     #: just-attached plan look exactly like a file that does not exist.
     in_flight_documents: list[str] | None = None
     collection_name: str | None = None
+    #: Tool-calling ROUNDS this turn has spent — LLM decisions that emitted tool
+    #: calls — against ``max_tool_iterations``. The NAME says iterations and is
+    #: kept deliberately: it is what the config key, the agent kwarg and the
+    #: suite all call this number, and renaming it would buy nothing but churn.
+    #: What changed is the UNIT. It used to be emitted CALLS, so a round of five
+    #: parallel ``read_passage`` opens — the family overview the prompt asks for
+    #: — cost five of seven and the commonest question the product answers ran
+    #: out of budget. A round is one decision; how many calls the model fans it
+    #: into is the model using the round well or badly, and that is not
+    #: something a budget should price. An interaction-only round (`emit_card`,
+    #: `remember`, the working directory's file verbs) costs one like every
+    #: other, which is why there is no second counter beside this one any more.
     tool_iterations: int = 0
     #: How many SEARCH rounds this turn has already announced. Distinct from
     #: ``tool_iterations`` so ``emit_card`` / ``remember`` cannot steal the
@@ -78,20 +87,33 @@ class ResearchAgentState(BaseModel):
     #: Plain dicts (see ``turn_status.record_round_announcement`` for the shape),
     #: never checkpointed — ``ResearchAgentState`` is one turn, not history.
     retrieval_rounds: list[dict[str, Any]] = []
-    # Interaction-tool calls spent this turn (`emit_card`, `describe_card`,
-    # `remember`). Counted APART from ``tool_iterations`` because those calls are
-    # the answer's output channel rather than research: charging them to the
-    # research budget made the turn's second card unreachable on any turn that
-    # had actually searched, since cards are emitted last and forced synthesis
-    # forbids further tool calls. The first
-    # ``agent._INTERACTION_TOOL_ALLOWANCE`` of them cost no research budget; the
-    # rest are charged normally, so the loop still terminates on the same
-    # ceiling. Per-turn: the chat node builds a fresh state each turn.
-    interaction_iterations: int = 0
+    #: Signatures (``turn_status.fetch_signature``) of the fetches this turn
+    #: has actually RUN, in execution order. Written by the TOOLS node, after
+    #: the ``ToolNode`` returned, from the calls it really executed — never
+    #: from the calls the model asked for, or a withheld repeat would mark
+    #: itself as done. Both nodes read it to derive the same withholding
+    #: (``agent._repeat_fetches``): the agent node decides what not to CHARGE,
+    #: the tools node what not to RUN. Per-turn like the round counter — the
+    #: chat node builds a fresh state each turn, and a fetch is only wasted
+    #: within the turn that already holds its result.
+    executed_fetches: list[str] = []
+    #: What each of those fetches RETURNED, signature → the tool's own text.
+    #: The other half of ``executed_fetches``, written by the same node from the
+    #: same calls under the same rule (a failure signs nothing). It exists so a
+    #: withheld repeat can be answered with the ORIGINAL RESULT instead of a
+    #: sentence pointing at the transcript: a tool delivers an answer, and a
+    #: model told to go and look further up asks a third time. Holds references
+    #: to strings the transcript already carries, so it costs the turn nothing
+    #: beyond the dict. Per-turn like the signatures beside it.
+    fetch_results: dict[str, str] = {}
     project_context: str | None = None
     # Anonymized fleet-wide failure patterns distilled from user feedback,
     # threaded through from ``ConversationState`` (see the note there).
     platform_lessons: str | None = None
+    # The office's standing instructions for this turn, threaded through from
+    # ``ConversationState`` (see the note there). Bounded at the header
+    # boundary; rendered below the KV-cache boundary as its own section.
+    org_instructions: str | None = None
     # The composer's "Asking about <file>" subject for this turn (filename +
     # shelf). Rendered into the system prompt so "summarize this document"
     # has an antecedent.
@@ -191,24 +213,18 @@ class ResearchAgentState(BaseModel):
     # None when no round was announced — a direct reply has no retrieval to
     # account for, and the wire field stays absent rather than null.
     retrieval_ledger: list[dict[str, Any]] | None = None
-    # Skill names FORCED for this turn by the incoming request (parsed from the
-    # WS content JSON's `skills` array by Piloti). Resolved
-    # against the run's skill set into the forced-activation list. None = no
-    # skills were forced.
-    force_skills: list[str] | None = None
     # Pre-rendered skills section for the system prompt (guarded in the
-    # template): the progressive-disclosure catalog plus the forced-skills
-    # block. Set by the register layer before ``run()`` when skills are
-    # enabled; None otherwise.
+    # template): the progressive-disclosure catalog the model picks from. Set
+    # by the register layer before ``run()`` when skills are enabled; None
+    # otherwise.
     skills_block: str | None = None
     # Ordered names of the skills whose BODY reached the model this turn, in
-    # delivery order, deduped. DELIVERED, not forced: the disclosure renders
-    # this as "what shaped this answer", and a forced skill contributes only
-    # its NAME to the prompt until the model calls ``use_skill`` — so a model
-    # that ignores the forced block has read nothing, and this list is empty.
-    # Set by the register layer after ``run()`` whenever skills are enabled on
-    # a research turn; None on meta turns / disabled config — the chat node
-    # lifts it onto the terminal ChatResponse only when present.
+    # delivery order, deduped. DELIVERED, not offered: the disclosure renders
+    # this as "what shaped this answer", and a skill the model read past in the
+    # catalog shaped nothing. Set by the register layer after ``run()`` whenever
+    # skills are enabled on a research turn; None on meta turns / disabled
+    # config — the chat node lifts it onto the terminal ChatResponse only when
+    # present.
     skills_activated: list[str] | None = None
     # The subset of ``skills_activated`` marked ``grid-hidden`` — a skill that
     # runs on every answer (the house voice) is named in the disclosure but

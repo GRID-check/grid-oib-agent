@@ -352,7 +352,11 @@ def _format_hit(index: int, hit: RisHit) -> str:
     if source_url:
         lines.append(f"Source: {source_url}")
     if hit.fetch_url:
-        lines.append(f"Fetch full text: ris_fetch_document with '{hit.document_number or hit.fetch_url}'")
+        # The ADDRESS of the full text, not an instruction to go and get it.
+        # The sequence this used to teach ("then call ris_fetch_document") is
+        # inside `ris_lookup` now; deep research, which still drives these three
+        # tools itself, needs the address and can read a fact.
+        lines.append(f"Full text at document number: {hit.document_number or hit.fetch_url}")
     if hit.full_law_url:
         lines.append(f"Entire consolidated law (all paragraphs): {hit.full_law_url}")
     return "\n".join(lines)
@@ -439,9 +443,9 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
         - Content of the OIB-Richtlinien themselves or user-uploaded documents → knowledge_search.
         - Non-Austrian law, news, products, or general facts → web search.
 
-        This returns document REFERENCES, not full texts. Never quote legal wording from these
-        snippets: pass the document number (or Source URL) to ris_fetch_document and read the
-        entire document before citing it.
+        This returns document REFERENCES — title, application, document number, citation URL —
+        and never the wording of a provision. Nothing here is quotable: a reference is an address,
+        and a legal answer is grounded in the document that address names.
 
         Args:
             query (str): German legal search terms, e.g. "Stellplatzverpflichtung Garage". Use
@@ -508,10 +512,9 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
                     ]
                     lines.extend(_format_catalog_entry(i, entry) + "\n" for i, entry in enumerate(shown, 1))
                     lines.append(
-                        "Fetch the full text with ris_fetch_document using the document number or the "
-                        "'Entire consolidated law' URL. This answer comes from the curated catalog; "
-                        "refine the query (e.g. name a court, set an explicit application, or a date) "
-                        "to force a live RIS search."
+                        "These are verified pointers — an address each, not the text at it. This answer "
+                        "comes from the curated catalog; refine the query (e.g. name a court, set an "
+                        "explicit application, or a date) to force a live RIS search."
                     )
                     return "\n".join(lines)
         # Live-search read-through cache: skips both the planner LLM and the RIS
@@ -611,8 +614,8 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
         if effective["application"] in _KONSOLIDIERT_APPLICATIONS:
             lines.append(_KONSOLIDIERT_NOTE)
         lines.append(
-            "To read a document in full, call ris_fetch_document with its document number or Source URL. "
-            "For the complete text of a law (all paragraphs), fetch the 'Entire consolidated law' URL."
+            "These are references. A document's own text lives at its Source URL, and the complete "
+            "text of a law (all paragraphs) at its 'Entire consolidated law' URL."
         )
         output = "\n".join(lines)
         # Only successful, non-empty results are cached (errors / "no documents
@@ -683,12 +686,12 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
         """Look up an Austrian building-law topic in the curated RIS catalog of verified norms.
 
         WHEN TO USE THIS TOOL:
-        - First stop for any question about Austrian building law: Bauordnungen,
+        - Any question about Austrian building law: Bauordnungen,
           Bautechnikgesetze/-verordnungen, and the adjacent federal acts. The catalog
           maps topics to VERIFIED RIS pointers (application, document number, citation
           URL, 'entire consolidated law' URL) - no keyword guessing, no wrong silo.
-        - Then call ris_fetch_document with the returned document number or the
-          'Entire consolidated law' URL to read the full text before citing anything.
+        - What it returns is an ADDRESS per norm, never the text at it and never a
+          requirement: a pointer is not a provision and cannot be cited as one.
 
         WHEN NOT TO USE:
         - The catalog covers only the core building-relevant norms. For case law,
@@ -740,8 +743,8 @@ async def ris_catalog_lookup(tool_config: RisCatalogLookupToolConfig, builder: B
         for i, entry in enumerate(matches, 1):
             lines.append(_format_catalog_entry(i, entry) + "\n")
         lines.append(
-            "These are verified pointers - fetch the full text with ris_fetch_document using the "
-            "document number or the 'Entire consolidated law' URL. No ris_search needed."
+            "These are verified pointers - an address each, not the text at it. They were checked "
+            "by a person, so no live RIS search is needed to find these norms."
         )
         return "\n".join(lines)
 
@@ -909,11 +912,11 @@ async def ris_fetch_document(tool_config: RisFetchDocumentToolConfig, builder: B
         """Fetch the ENTIRE text of an Austrian law or court decision from RIS on demand.
 
         WHEN TO USE THIS TOOL:
-        - Always after ris_search, before citing or quoting any legal provision. Search snippets
-          are references only — legal answers must be grounded in the full document text.
-        - To load a complete consolidated law (every paragraph) via the 'Entire consolidated law'
-          URL from ris_search results, e.g. before answering questions spanning multiple sections.
-        - To re-read a document the user or an earlier step referenced by document number or RIS URL.
+        - You hold a RIS ADDRESS — a document number or a ris.bka.gv.at URL — and need the text
+          at it. A reference is not quotable; this is what turns one into a document.
+        - To load a complete consolidated law (every paragraph) from its 'Entire consolidated law'
+          URL, e.g. for a question spanning several sections.
+        - To re-read a document the user or an earlier step referenced.
 
         WHEN NOT TO USE:
         - For documents not hosted on ris.bka.gv.at (this tool only fetches RIS).

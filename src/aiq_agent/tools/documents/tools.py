@@ -52,7 +52,8 @@ _TOOL_DESCRIPTIONS = {
         "Liest einen Entwurf aus dem Arbeitsordner. Die Ausgabe ist dem Text jeder Zeile eine "
         "Zeilennummer und ein Tabulator vorangestellt; beides gehört zur Anzeige und nicht zum "
         "Dokument. Vor einer Überarbeitung lesen, damit `old_string` wörtlich aus dem Dokument "
-        "stammt."
+        "stammt. Was hier steht, hat die Antwort selbst geschrieben; Belege kommen aus den "
+        "Quellen-Werkzeugen."
     ),
     "write_file": (
         "Schreibt ein NEUES Dokument in den Arbeitsordner dieser Unterhaltung, als Markdown "

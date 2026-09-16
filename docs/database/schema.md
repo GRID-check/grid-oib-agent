@@ -813,22 +813,22 @@ and what each organization decided about it. Schema:
     at all. A draft is invisible fleet-wide, which is what makes the dashboard a
     writing surface rather than a publish-on-save wire.
   - `delivery` text NOT NULL default **`'offer'`** (0050), constrained by
-    `platform_skills_delivery_check` to `offer | standard` — whether
-    organizations CHOOSE the skill or simply run it. `offer` puts it on every
-    org's Skills tab behind a switch; `standard` is fleet standard equipment:
-    resolved for every organization with no activation row, never listed, not
-    switchable, and not shadowable by an org row of the same name. A published
-    `standard` row is the only combination that imposes anything on a tenant.
+    `platform_skills_delivery_check` to the single value `offer` since 0088.
+    A published skill goes on every org's Skills tab behind a switch, and the
+    model chooses it from there. The second value, `standard`, was fleet
+    standard equipment: resolved for every organization with no activation
+    row, never listed, not switchable. It was retired by 0088 because forcing
+    a skill is a system-prompt edit in disguise (ADR-0060); what the platform
+    wants in every turn is the platform prompt, and what an office wants in
+    every turn is its `organization_instructions` row. 0088 rewrote the
+    surviving `standard` rows to `offer` and dropped the partial index
+    `idx_platform_skills_standard` that served the resolver's
+    `delivery = 'standard'` lookup.
 
-  The CHECK lives in the database and not only in the BFF's zod schema because
-  the resolver asks `delivery = 'standard'`: an unrecognised value would fail
-  toward "offer" and silently demote a fleet instruction rather than erroring.
-  That a tenant cannot WRITE this column is what makes `standard` an enforced
-  boundary rather than a convention — the RLS grant is SELECT and nothing else.
-  Partial index `idx_platform_skills_standard` on `(name)` WHERE
-  `delivery = 'standard' AND published` serves the point lookup the org write
-  boundary and the job-snapshot path make; drafts and offers are the bulk of a
-  mature catalogue and none can satisfy the predicate.
+  The CHECK stays in the database and not only in the BFF's zod schema so
+  that the retired value cannot come back through a tenant-side write: the
+  RLS grant is SELECT and nothing else, and an unrecognised value errors
+  rather than being read as an offer.
 
 - `curated_skill_activations` (0046): one organization's decision about one
   OFFER — PK `(organization_id, skill_name)`, `enabled` boolean NOT NULL default

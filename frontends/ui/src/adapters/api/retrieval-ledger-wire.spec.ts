@@ -2,9 +2,8 @@
  * The retrieval-ledger extra, from the terminal frame to the answer's props.
  *
  * The backend states what each retrieval round was asked, returned, and added
- * (`retrieval_ledger` on the terminal frame); the Herleitung will read it
- * (phase b — no renderer yet) instead of reconstructing rounds from step
- * names. Every link had a test for skills and the crossing did not — this file
+ * (`retrieval_ledger` on the terminal frame); the Herleitung spine builds each
+ * round's fan from it instead of reconstructing rounds from step names. Every link had a test for skills and the crossing did not — this file
  * is the ledger's crossing, in the same shape: frame → transparency bundle →
  * schema. The Python↔TS wire contract itself is pinned by the shared fixture,
  * asserted on both sides.

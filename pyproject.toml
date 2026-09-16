@@ -31,6 +31,11 @@ dependencies = [
     "aiofiles>=23.0.0",
     "python-multipart>=0.0.27,<0.1",
     "knowledge-layer[all]",
+    # Prompt management only (`common/prompt_store.py`): constructed with
+    # `tracing_enabled=False`, so it never registers a tracer provider or hangs
+    # a span processor on ours. Traces keep going out through NAT + the OTel
+    # collector.
+    "langfuse>=4.15.3,<5",
     # CVE version floors for transitive dependencies
     "cryptography>=50.0.0,<51",
     "pillow>=12.2.0,<13",
@@ -116,6 +121,13 @@ aiq_tasks = "aiq_agent.tools.tasks.register"
 # that package dissolved, `load_config` in a clean interpreter (the container's
 # `start_web.py`) raised ValidationError and the pod CrashLoopBackOff'd.
 # Discovery loads `nat.plugins`; without these they do not exist at runtime.
+# The RIS chat surface (`ris_lookup`). The three older RIS tools ride in on
+# `ris-adapter`'s own entry point (`sources/ris_adapter/pyproject.toml`); this
+# one is separate because `ris_adapter.lookup` hard-imports the knowledge layer
+# for the passage bound and the lane fan-out, and a deployment without it must
+# lose this tool alone rather than `ris_search` and `ris_fetch_document` with
+# it — the `aiq_bim_measure` split, for the same reason.
+aiq_ris_lookup = "ris_adapter.lookup"
 aiq_otel_logs = "aiq_agent.observability.otlp_logging_method"
 aiq_otel_redaction = "aiq_agent.observability.otel_header_redaction_exporter"
 

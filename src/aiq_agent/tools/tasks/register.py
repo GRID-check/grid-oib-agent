@@ -183,7 +183,9 @@ _CREATE_TASK_DESCRIPTION = (
     "`0 8 * * 1`, UTC): Damit wird ein Zeitplan angelegt statt eines einzelnen Laufs; er braucht die "
     "Berechtigung `project:skills:manage`, und ohne sie wird er abgelehnt. "
     "Der Auftrag läuft mit den Rechten der Nutzerin und kostet ihr Budget. Nach dem Aufruf ist die "
-    "Arbeit ANGELEGT, nicht erledigt."
+    "Arbeit ANGELEGT, nicht erledigt. "
+    "Ein Auftrag gehört zu einem Projekt: Ohne Projekt in dieser Unterhaltung entsteht keiner, sage "
+    "das dann der Nutzerin, statt es erneut zu versuchen."
 )
 
 

@@ -9,10 +9,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 
-from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_ALLOWANCE
 from aiq_agent.agents.piloti.agent import PilotiAgent
 from aiq_agent.agents.piloti.agent import _assistant_checkpoint
-from aiq_agent.agents.piloti.agent import _count_interaction_calls
 from aiq_agent.agents.piloti.answer_pipeline import append_minimal_citation
 from aiq_agent.agents.piloti.models import ResearchAgentState
 from aiq_agent.agents.piloti.repair import VerificationFailures
@@ -87,6 +85,51 @@ def describe_card(card_types: str) -> str:
     return f"Shapes for: {card_types}"
 
 
+def _piloti_prompt_source() -> str:
+    """Piloti's bundled prompt as ONE template, the way it was before the split.
+
+    `piloti.j2` holds the dynamic half and opens with `{{ static_block }}`; the
+    static half is `piloti_static.md`, the bundled fallback for the platform
+    prompt Langfuse serves. Substituting one into the other reproduces the
+    single template these tests were written against, so they keep asserting
+    about the whole prompt rather than silently about a third of it.
+    """
+    from pathlib import Path
+
+    from aiq_agent.agents.piloti import agent as piloti_agent
+
+    prompts = Path(piloti_agent.__file__).parent / "prompts"
+    static = (prompts / "piloti_static.md").read_text(encoding="utf-8")
+    return (prompts / "piloti.j2").read_text(encoding="utf-8").replace("{{ static_block }}\n", static, 1)
+
+
+def _bundled_static_block() -> str:
+    """The static half of Piloti's prompt, rendered the way the agent renders it.
+
+    The prompt is two files now: `piloti_static.md` (the bundled fallback for
+    the platform prompt Langfuse serves) and `piloti.j2` (the dynamic half,
+    which opens with `{{ static_block }}`). A test that renders the template
+    directly has to supply the half the prompt store would have resolved.
+    """
+    from aiq_agent.agents.piloti.prompt import bundled_static_block
+    from aiq_agent.agents.piloti.prompt import render_static_block
+
+    return render_static_block(bundled_static_block().text)
+
+
+def _bundled_prompt_text() -> str:
+    """Both halves as bundled, for a test that asks what the prompt SAYS.
+
+    `agent.system_prompt` is the dynamic template alone — everything above the
+    KV-cache boundary is resolved per render — so asserting prompt content
+    against it would silently stop seeing most of the prompt.
+    """
+    from aiq_agent.agents.piloti.prompt import bundled_static_block
+    from aiq_agent.agents.piloti.prompt import system_prompt_template
+
+    return bundled_static_block().text + "\n" + system_prompt_template()
+
+
 class TestPilotiAgent:
     """Tests for the PilotiAgent class."""
 
@@ -155,16 +198,15 @@ class TestPilotiAgent:
         assert agent.system_prompt == custom_system
 
     def test_init_with_custom_limits(self, mock_llm_provider, real_tool):
-        """The research budget plus the reserve is the ceiling; nothing else bounds the loop."""
+        """The research budget IS the ceiling; nothing else bounds the loop."""
         agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
             max_tool_iterations=3,
-            reserved_tool_iterations=1,
         )
 
         assert agent.max_tool_iterations == 3
-        assert agent.tool_iteration_ceiling == 4
+        assert agent.tool_iteration_ceiling == 3
 
     def test_init_with_callbacks(self, mock_llm_provider, real_tool):
         """Test PilotiAgent initialization with callbacks."""
@@ -648,37 +690,37 @@ class TestPilotiAgent:
 
     def test_default_prompt_requires_tool_result_references(self, mock_llm_provider, real_tool):
         """Default prompt tells the model to cite non-URL tool results by exact tool name."""
-        agent = PilotiAgent(
+        PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
         )
 
-        assert "When you used a tool result to answer" in agent.system_prompt
-        assert "exact tool name" in agent.system_prompt
-        assert "- [1] mcp_time__get_current_time" in agent.system_prompt
+        assert "When you used a tool result to answer" in _bundled_prompt_text()
+        assert "exact tool name" in _bundled_prompt_text()
+        assert "- [1] mcp_time__get_current_time" in _bundled_prompt_text()
 
     def test_default_prompt_matches_user_language(self, mock_llm_provider, real_tool):
         """Default prompt instructs the model to answer in the user's language."""
-        agent = PilotiAgent(
+        PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
         )
 
-        assert "Answer in the language of the user's request" in agent.system_prompt
+        assert "Answer in the language of the user's request" in _bundled_prompt_text()
         # German questions should get German answers.
-        assert "German" in agent.system_prompt
+        assert "German" in _bundled_prompt_text()
 
     def test_default_prompt_keeps_escalate_marker_language_independent(self, mock_llm_provider, real_tool):
         """Language matching must NOT disturb the literal escalation marker contract."""
-        agent = PilotiAgent(
+        PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool],
         )
 
         # The marker stays literal/language-independent alongside the new
         # language-matching instruction.
-        assert "[ESCALATE_TO_DEEP]" in agent.system_prompt
-        assert "exactly as written" in agent.system_prompt
+        assert "[ESCALATE_TO_DEEP]" in _bundled_prompt_text()
+        assert "exactly as written" in _bundled_prompt_text()
 
     def _render_default_prompt(
         self,
@@ -692,12 +734,12 @@ class TestPilotiAgent:
         agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
         return render_prompt_template(
             agent.system_prompt,
+            static_block=_bundled_static_block(),
             tools=[{"name": real_tool.name, "description": "Search the web"}],
             user_info=None,
             current_datetime="2026-07-15",
             available_documents=[],
             project_context=project_context,
-            ris_catalog=None,
         )
 
     def test_the_formatting_block_routes_a_diagram_to_a_drawing_card(self, mock_llm_provider, real_tool):
@@ -839,89 +881,47 @@ class TestPilotiAgent:
         mock_llm.ainvoke.assert_called()
 
     @pytest.mark.asyncio
-    async def test_a_card_call_does_not_spend_the_research_budget(self, mock_llm_provider, mock_llm, real_tool):
+    async def test_a_round_of_cards_costs_one_round(self, mock_llm_provider, mock_llm, real_tool):
         """The regression behind "an answer only ever carries one card".
 
-        One search, then one ``emit_card``, on a research budget of one. Every
-        tool call used to be charged to ``max_tool_iterations``, so the card
-        round met ``iterations >= ceiling`` and the turn was forced into
-        synthesis with "Do not attempt any further tool calls" — the card never
-        reached the registry, and nothing in the answer said why. Cards are
-        emitted LAST, after the searching, so the ceiling always landed on them
-        rather than on the research.
+        One search, then a shape lookup and two cards. Every tool CALL used to
+        be charged to ``max_tool_iterations``, so three calls of the answer's
+        own output channel ate three of the budget and the second card the
+        doctrine allows was unreachable on any turn that had actually searched.
+        Charging ROUNDS removes the problem at its cause rather than exempting
+        the card channel: the whole card round is one, like the search before
+        it, and no second currency has to be kept in step.
         """
         search_round = AIMessage(
             content="",
             tool_calls=[{"name": "web_search_tool", "args": {"query": "test"}, "id": "1"}],
         )
-        # A shape lookup and the first card, the way the tool description asks
-        # for them: one `describe_card` for the types the answer wants, then the
-        # cards. Three interaction calls in total across two rounds.
-        first_card_round = AIMessage(
+        # A shape lookup and both cards, the way the tool description asks for
+        # them: one `describe_card` for the types the answer wants, then the
+        # cards. Three calls, one decision, one round.
+        card_round = AIMessage(
             content="",
             tool_calls=[
                 {"name": "describe_card", "args": {"card_types": "verdict_header,typed_table"}, "id": "2"},
                 {"name": "emit_card", "args": {"card_json": "{}"}, "id": "3"},
+                {"name": "emit_card", "args": {"card_json": "{}"}, "id": "4"},
             ],
         )
-        second_card_round = AIMessage(
-            content="",
-            tool_calls=[{"name": "emit_card", "args": {"card_json": "{}"}, "id": "4"}],
-        )
-        mock_llm.ainvoke = AsyncMock(
-            side_effect=[search_round, first_card_round, second_card_round, AIMessage(content="Final answer")]
-        )
+        mock_llm.ainvoke = AsyncMock(side_effect=[search_round, card_round, AIMessage(content="Final answer")])
 
         agent = PilotiAgent(
             llm_provider=mock_llm_provider,
             tools=[real_tool, emit_card, describe_card],
-            max_tool_iterations=2,
+            max_tool_iterations=3,
         )
 
         result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Test query")]))
 
-        # Only the search was research, so the turn never reached its ceiling
-        # and was never cut off: the second card is emitted rather than refused.
-        assert result.tool_iterations == 1
-        assert result.interaction_iterations == 3
+        # Two rounds: the search and the cards. The turn never reached its
+        # ceiling and was never cut off, so both cards are emitted.
+        assert result.tool_iterations == 2
         assert result.research_truncated is None
         assert sum(1 for message in result.messages if getattr(message, "name", None) == "emit_card") == 2
-
-    @pytest.mark.asyncio
-    async def test_the_interaction_allowance_is_a_ceiling_not_a_free_pass(self, mock_llm_provider, mock_llm, real_tool):
-        """Past the allowance an interaction call is charged like any other.
-
-        Without this the tool loop would have no bound at all on the card
-        channel: a model looping on ``emit_card`` would never reach
-        ``tool_iteration_ceiling`` and would only stop at the recursion limit,
-        which is an exception rather than an answer.
-        """
-        card_round = AIMessage(
-            content="",
-            tool_calls=[{"name": "emit_card", "args": {"card_json": "{}"}, "id": "1"}],
-        )
-        mock_llm.ainvoke = AsyncMock(side_effect=[card_round, AIMessage(content="Final answer")])
-
-        agent = PilotiAgent(
-            llm_provider=mock_llm_provider,
-            tools=[real_tool, emit_card],
-            max_tool_iterations=5,
-        )
-
-        result = await agent.run(
-            ResearchAgentState(
-                messages=[HumanMessage(content="Test query")],
-                interaction_iterations=_INTERACTION_TOOL_ALLOWANCE,
-            )
-        )
-
-        assert result.tool_iterations == 1
-        assert result.interaction_iterations == _INTERACTION_TOOL_ALLOWANCE + 1
-
-    def test_state_has_interaction_iterations_field(self):
-        """The card channel's counter is per-turn state, defaulting to unspent."""
-        state = ResearchAgentState(messages=[])
-        assert state.interaction_iterations == 0
 
     def test_state_has_tool_iterations_field(self):
         """Test that ResearchAgentState has tool_iterations field."""
@@ -2447,16 +2447,10 @@ class TestClarificationGuidance:
     """
 
     def _render(self, *, project_context):
-        from pathlib import Path
 
-        from aiq_agent.agents.piloti import agent as piloti_agent
-        from aiq_agent.common import load_prompt
         from aiq_agent.common import render_prompt_template
 
-        prompt = load_prompt(
-            Path(piloti_agent.__file__).parent / "prompts",
-            "piloti",
-        )
+        prompt = _piloti_prompt_source()
         return render_prompt_template(
             prompt,
             tools=[{"name": "knowledge_search"}],
@@ -2464,8 +2458,6 @@ class TestClarificationGuidance:
             current_datetime="2026-07-23",
             available_documents=[],
             project_context=project_context,
-            ris_catalog=None,
-            norm_doctrine=None,
             parcel_note=None,
         )
 
@@ -2499,13 +2491,10 @@ class TestOffTopicDeclineShape:
     """
 
     def _render(self):
-        from pathlib import Path
 
-        from aiq_agent.agents.piloti import agent as piloti_agent
-        from aiq_agent.common import load_prompt
         from aiq_agent.common import render_prompt_template
 
-        prompt = load_prompt(Path(piloti_agent.__file__).parent / "prompts", "piloti")
+        prompt = _piloti_prompt_source()
         return render_prompt_template(
             prompt,
             tools=[],
@@ -2513,8 +2502,6 @@ class TestOffTopicDeclineShape:
             current_datetime="2026-07-23",
             available_documents=[],
             project_context=None,
-            ris_catalog=None,
-            norm_doctrine=None,
             parcel_note=None,
         )
 
@@ -2556,11 +2543,9 @@ class TestADirectReplyMayStillEmitACard:
         direct_shape = contract.split("An off-topic decline")[0]
         assert "every tool on every turn" in direct_shape
         assert "no tool calls" not in direct_shape
-        # A search is the model's call, and files the user wants to SEE are a
-        # surface call, not a list of names — the case that used to answer
-        # "the tool is not available in this session".
+        # A search is the model's call. Which tool shows a file is the tool
+        # description's business, not the prompt's.
         assert "A search is not wrong here" in direct_shape
-        assert "`surface_documents`" in direct_shape
 
     def test_the_off_topic_shape_still_forbids_every_tool_call(self):
         # The carve-out is for a turn that ANSWERS something. A decline has no
@@ -2585,7 +2570,7 @@ class TestADirectReplyMayStillEmitACard:
 
     def test_the_cards_block_says_out_loud_that_it_is_always_on(self):
         cards = self._render().split("\n<cards>\n")[1].split("\n</cards>\n")[0]
-        assert "on for EVERY turn" in cards
+        assert "a direct reply included" in cards
 
     def test_the_contract_names_the_four_kinds_and_earns_a_ruling(self):
         """A workspace turn is not a researched Bescheid by default.
@@ -2639,11 +2624,13 @@ class TestADirectReplyMayStillEmitACard:
         assert "Ich beantworte Fragen zu OIB" not in identity
         assert "OIB-Richtlinien, österreichischem Baurecht" not in identity
 
-    def test_the_research_budget_is_a_ceiling_not_a_two_call_cap(self):
-        """The runtime already loops; the old cap told the model not to.
+    def test_the_research_rules_state_outcomes_not_a_procedure(self):
+        """The rules say what must be true of a finished answer, never which
+        tool to call next or how many times.
 
-        A conclusion that names a file, Punkt or measure not yet opened
-        must fetch it. The numeric budget is the ceiling.
+        The budget is the graph's business and the prompt no longer names it;
+        a fetch the turn already ran is answered from the transcript, stated
+        as the fact it is; and the Herleitung checkpoint is a declared slot.
         """
         rendered = self._render()
         assert "Grid OIB Research Agent" not in rendered
@@ -2651,25 +2638,24 @@ class TestADirectReplyMayStillEmitACard:
         assert "not every question is a legal question" in rendered
         assert "commit to it; re-plan only" not in rendered
         rules = rendered.split("<research_rules>")[1].split("</research_rules>")[0]
-        assert "ceiling" in rules.lower() or "budget" in rules.lower()
-        assert "Punkt" in rules or "punkt" in rules.lower()
+        assert "retrieved or measured this turn" in rules
+        assert "never describe a document you did not open" in rules
         assert "Herleitung checkpoint" in rules
-        assert "files that fetch returned" in rules
-        # The checkpoint has a SLOT now, not just an instruction to narrate:
-        # a tool-calling model fills a declared argument far more reliably than
-        # it writes prose beside its calls.
         assert "`conclusion` argument" in rules
         assert "empty on your first call" in rules.lower()
-        # …and a conclusion that names its passage is opened, not searched for.
-        assert "`read_passage`" in rules
-        # The one place the prompt states a NUMBER, because the runtime enforces
-        # it: a model that is capped without being told reads the notice as a
-        # failure and retries the search it just lost.
-        assert "first round runs at most two searches" in rules
-        # A family question is not answered by opening most of the family. The
-        # inventory names the members; this is the rule that acts on them, and
-        # the escape hatch it leaves is naming a member, never describing one.
-        assert "open EVERY member the knowledge-base inventory lists" in rules
+        assert "not run a second time" in rules
+        assert "complete only when every member" in rules
+        assert "`read_passage(document=…)`" in rules
+        procedures = (
+            "at most two searches",
+            "ONE parallel round",
+            "per member",
+            "Choose sources in this order",
+            "rewrite the user's question",
+        )
+        for procedure in procedures:
+            assert procedure not in rendered, procedure
+        assert "every member the knowledge-base inventory lists" in rules
         assert "nicht gelesen" in rules
         stimme = rendered.split("<stimme>")[1].split("</stimme>")[0]
         assert "Folgerung der Herleitung" in stimme
@@ -2708,10 +2694,13 @@ class TestKnowledgeInventoryIsNotCitable:
 
     @staticmethod
     def _prompt(path: str) -> str:
+        """The prompt source at this path; for Piloti, both halves recombined."""
         from pathlib import Path
 
         import aiq_agent
 
+        if path == "piloti/prompts/piloti.j2":
+            return _piloti_prompt_source()
         return (Path(aiq_agent.__file__).parent / "agents" / path).read_text(encoding="utf-8")
 
     DOCUMENTS = [{"file_name": "oib-rl_2_ausgabe_mai_2023.pdf", "summary": "Brandschutz.", "tags": []}]
@@ -2833,13 +2822,10 @@ class TestTheModelCardsAreActuallyAskedFor:
     """
 
     def _render(self):
-        from pathlib import Path
 
-        from aiq_agent.agents.piloti import agent as piloti_agent
-        from aiq_agent.common import load_prompt
         from aiq_agent.common import render_prompt_template
 
-        prompt = load_prompt(Path(piloti_agent.__file__).parent / "prompts", "piloti")
+        prompt = _piloti_prompt_source()
         return render_prompt_template(
             prompt,
             tools=[{"name": "ifc_query"}, {"name": "emit_card"}],
@@ -2847,8 +2833,6 @@ class TestTheModelCardsAreActuallyAskedFor:
             current_datetime="2026-07-23",
             available_documents=[],
             project_context=None,
-            ris_catalog=None,
-            norm_doctrine=None,
             parcel_note=None,
         )
 
@@ -3193,36 +3177,19 @@ class TestMeasurementSourcesDoNotGroundCitations:
 # ---------------------------------------------------------------------------
 
 
-class TestTheResearchBudgetIsNotSpentOnForcedSkills:
-    """``max_tool_iterations`` is the RESEARCH ceiling, not the tool-call ceiling.
+class TestTheResearchBudgetIsOneNumber:
+    """``max_tool_iterations`` is the whole ceiling, and every call is charged to it.
 
-    The budget is charged per CALL (``new_iterations += len(response.tool_calls)``),
-    and the deployment forces two standard skills, so on this fleet the model
-    has to spend two of them on ``use_skill`` before it may read a single
-    source. The config's traced floors assume ONE, which is how an OIB 3
-    daylight chain — knowledge_search, find_elements, relations, overhang,
-    light_incidence — lands exactly on the ceiling and gets forced into
-    synthesis before the measurement that answers the question.
-
-    So the overhead the DEPLOYMENT imposes is reserved on top of the number,
-    and the research ceiling stops depending on how many house skills the
-    platform owner happens to have published.
+    It used to have a reserve on top, sized to the skills the deployment forced
+    onto every turn: those calls were overhead the question never asked for, and
+    charging them shortened every research chain in the product by one per
+    published house skill. Nothing is forced now — a ``use_skill`` call is one
+    the model chose, exactly like a search — so there is no overhead to
+    compensate, and the number the config's traced floors measure is the number
+    the turn gets.
     """
 
-    @pytest.fixture(autouse=True)
-    def _bypass_citation_pipeline(self):
-        with (
-            patch.object(SourceRegistry, "all_sources", return_value=[SourceEntry(url="https://example.com")]),
-            patch("aiq_agent.agents.piloti.answer_pipeline.verify_citations") as verify,
-            patch("aiq_agent.agents.piloti.answer_pipeline.sanitize_report") as sanitize,
-        ):
-            verify.side_effect = lambda content, reg, reference_sources=None: MagicMock(
-                verified_report=content, removed_citations=[]
-            )
-            sanitize.side_effect = lambda content: MagicMock(sanitized_report=content)
-            yield
-
-    def _agent(self, reserved: int, iterations: int = 3):
+    def _agent(self, iterations: int = 3):
         llm = MagicMock()
         llm.ainvoke = AsyncMock()
         llm.bind_tools = MagicMock(return_value=llm)
@@ -3230,66 +3197,20 @@ class TestTheResearchBudgetIsNotSpentOnForcedSkills:
         provider = MagicMock(spec=LLMProvider)
         provider.get = MagicMock(return_value=llm)
         return (
-            PilotiAgent(
-                llm_provider=provider,
-                tools=[web_search_tool],
-                max_tool_iterations=iterations,
-                reserved_tool_iterations=reserved,
-            ),
+            PilotiAgent(llm_provider=provider, tools=[web_search_tool], max_tool_iterations=iterations),
             llm,
         )
 
-    def test_the_reserve_is_added_to_the_ceiling_not_taken_from_it(self):
-        agent, _ = self._agent(reserved=2, iterations=7)
-        # The research budget is untouched — it is what the config's floors are
-        # traced against — and the forced-skill overhead rides on top of it.
+    def test_the_ceiling_is_the_budget(self):
+        agent, _ = self._agent(iterations=7)
         assert agent.max_tool_iterations == 7
-        assert agent.tool_iteration_ceiling == 9
-
-    def test_a_deployment_with_no_standard_skills_is_unchanged(self):
-        agent, _ = self._agent(reserved=0, iterations=7)
         assert agent.tool_iteration_ceiling == 7
 
-    @pytest.mark.asyncio
-    async def test_the_reserved_calls_do_not_end_the_research(self):
-        """The behaviour, not the arithmetic: two skill calls, then full research.
+    def test_the_agent_takes_no_reserve_at_all(self):
+        """Not "reserve zero": the knob is gone, so nothing can put one back."""
+        import inspect
 
-        With a 3-call research budget and two forced skills, a turn that opens
-        both skills must still get three research calls. Charge the skills to
-        the research budget and the third one never happens — the model is
-        handed the "you have exhausted your research budget" anchor instead,
-        with no tools bound, and whatever it had by then becomes the answer.
-        """
-        agent, llm = self._agent(reserved=2, iterations=3)
-        calls = [
-            AIMessage(content="", tool_calls=[{"name": "web_search_tool", "args": {"query": "a"}, "id": "c1"}]),
-            AIMessage(content="", tool_calls=[{"name": "web_search_tool", "args": {"query": "b"}, "id": "c2"}]),
-            AIMessage(content="", tool_calls=[{"name": "web_search_tool", "args": {"query": "c"}, "id": "c3"}]),
-            AIMessage(content="Die Antwort [1]."),
-        ]
-        llm.ainvoke = AsyncMock(side_effect=calls)
-
-        # Two `use_skill` calls are already charged when research begins.
-        state = ResearchAgentState(
-            messages=[HumanMessage(content="Wie tief ist der Lichteinfall?")],
-            tool_iterations=2,
-        )
-        await agent.run(state)
-
-        anchored = [
-            index
-            for index, call in enumerate(llm.ainvoke.call_args_list)
-            if any("exhausted your research budget" in str(m.content) for m in call.args[0])
-        ]
-        # Calls 0, 1 and 2 are the three research calls the budget promises;
-        # only call 3, with the budget genuinely spent, may be forced synthesis.
-        # Charge the two skill loads to the research budget and the anchor
-        # arrives on call 1 instead — two thirds of the research never happens.
-        assert anchored == [3], (
-            f"forced synthesis fired on LLM call(s) {anchored}; expected only the last. "
-            "The forced-skill calls were charged to the research budget."
-        )
-        assert llm.ainvoke.await_count == 4
+        assert "reserved_tool_iterations" not in inspect.signature(PilotiAgent.__init__).parameters
 
 
 class TestTruncationIsObservable:
@@ -3349,8 +3270,7 @@ class TestTruncationIsObservable:
         agent = PilotiAgent(
             llm_provider=provider,
             tools=[web_search_tool],
-            max_tool_iterations=3,
-            reserved_tool_iterations=2,
+            max_tool_iterations=5,
         )
         # A run that already spent its whole ceiling: two skill loads and three
         # searches — the shape of an OIB measurement chain walking into the wall.
@@ -3382,17 +3302,15 @@ class TestTruncationIsObservable:
         with caplog.at_level(logging.WARNING, logger="aiq_agent.agents.piloti.agent"):
             await self._truncated_run()
 
-        lines = [m for m in caplog.messages if "Research budget exhausted" in m]
+        lines = [m for m in caplog.messages if "Forcing synthesis (rounds)" in m]
         assert lines, f"the turn was cut off and left no countable record of it; warnings logged were {caplog.messages}"
         line = lines[0]
         # The numbers that make "how often" answerable per deployment…
         assert "ceiling=5" in line
-        assert "research_budget=3" in line
-        assert "reserved=2" in line
-        assert "spent=5" in line
-        # …rounds beside calls, because one greedy parallel batch and a long
-        # walk into the wall are different failures…
-        assert "rounds=3" in line
+        assert "rounds_spent=5" in line
+        # …and WHICH bound fired, because the other one is a cost stop and
+        # counting the two together makes either unanswerable.
+        assert "input_tokens=0/" in line
         assert "skill_calls=2" in line
         # …and the SHAPE, which is what makes "on which questions" answerable
         # without putting the reader's own words in a log line.
@@ -3410,9 +3328,15 @@ class TestTruncationIsObservable:
         )
         record = records[0]
         assert record["truncated"] is True
-        assert (record["ceiling"], record["research_budget"], record["reserved"]) == (5, 3, 2)
+        assert (record["ceiling"], record["research_budget"]) == (5, 5)
+        # Nothing was reserved, so the record carries no such field to read.
+        assert "reserved" not in record
+        # `spent` and `rounds` are the same number now: the budget is one unit
+        # per ROUND, so a greedy parallel batch cannot outspend its own round.
+        # Both stay on the payload so a record counted across the change reads
+        # the same way.
         assert record["spent"] == 5
-        assert record["rounds"] == 3
+        assert record["rounds"] == 5
         assert record["tools"][:2] == ["use_skill", "use_skill"]
         # Technical channel, and therefore no `key`: whether the READER is told
         # the answer stopped early is a product decision, and a live key would
@@ -3466,40 +3390,6 @@ class TestTruncationIsObservable:
         await agent.run(ResearchAgentState(messages=[HumanMessage(content="Kurz gefragt")]))
 
         assert [s for s in steps if s.get("slot") == "budget"] == []
-
-
-class TestInteractionCallCounting:
-    """``_count_interaction_calls`` — which calls the research budget skips."""
-
-    def test_it_counts_the_answers_own_output_channel(self):
-        calls = [
-            {"name": "emit_card", "args": {}, "id": "1"},
-            {"name": "describe_card", "args": {}, "id": "2"},
-            {"name": "remember", "args": {}, "id": "3"},
-        ]
-        assert _count_interaction_calls(calls) == 3
-
-    def test_it_does_not_count_research(self):
-        calls = [
-            {"name": "web_search_tool", "args": {}, "id": "1"},
-            {"name": "emit_card", "args": {}, "id": "2"},
-        ]
-        assert _count_interaction_calls(calls) == 1
-
-    def test_it_resolves_a_qualified_tool_name(self):
-        # NAT/MCP qualify a tool name; `tool_basename` resolves the base name
-        # the same way, and an unrecognised `emit_card` would be charged to
-        # research on exactly the deployments that qualify names.
-        assert _count_interaction_calls([{"name": "aiq_cards__emit_card", "args": {}, "id": "1"}]) == 1
-
-    def test_an_unreadable_call_counts_as_research(self):
-        # The conservative direction: it can shorten a turn's research, never
-        # let the tool loop run longer than its ceiling.
-        assert _count_interaction_calls([None, {"args": {}}, {"name": ""}]) == 0
-
-    def test_it_tolerates_no_calls(self):
-        assert _count_interaction_calls([]) == 0
-        assert _count_interaction_calls(None) == 0
 
 
 class TestAssistantCheckpoint:
@@ -3673,21 +3563,12 @@ class TestRepairRetrievalsRunTogether:
 # ---------------------------------------------------------------------------
 
 
-def _render_researcher_prompt(
-    *,
-    drafting_enabled: bool = False,
-    tidying_enabled: bool = False,
-    delegating_enabled: bool = False,
-) -> str:
-    """The default prompt, rendered with the working directory / the file verbs /
-    delegation on or off."""
-    from pathlib import Path
+def _render_researcher_prompt(*, drafting_enabled: bool = False) -> str:
+    """The default prompt, rendered with the working directory on or off."""
 
-    from aiq_agent.agents.piloti import agent as piloti_agent
-    from aiq_agent.common import load_prompt
     from aiq_agent.common import render_prompt_template
 
-    prompt = load_prompt(Path(piloti_agent.__file__).parent / "prompts", "piloti")
+    prompt = _piloti_prompt_source()
     return render_prompt_template(
         prompt,
         tools=[],
@@ -3695,12 +3576,8 @@ def _render_researcher_prompt(
         current_datetime="2026-09-10",
         available_documents=[],
         project_context=None,
-        ris_catalog=None,
-        norm_doctrine=None,
         parcel_note=None,
         drafting_enabled=drafting_enabled,
-        tidying_enabled=tidying_enabled,
-        delegating_enabled=delegating_enabled,
     )
 
 
@@ -3709,71 +3586,39 @@ def _entwuerfe_block() -> str:
 
 
 class TestTheWorkingDirectoryBlock:
-    """What the prompt says about drafting, and whether it says it at all."""
+    """What is LEFT in the prompt about drafting, after ADR-0060's amendment.
+
+    The block used to teach the whole drafting workflow: which verb writes,
+    which revises, when to file, when to submit, what a filed draft may be
+    called. Every one of those is a tool's own contract and now lives in the
+    tool description that owns it (see ``TestTheDraftingRulesLiveInTheTools``).
+    Two sentences stay here, because no tool description can carry them: what
+    „mach daraus ein File" refers to, and what happens with no project.
+    """
 
     def test_a_turn_without_the_tools_is_never_told_to_write(self):
         """A prompt describing a tool the model was not given is a promise it cannot keep."""
         assert "<entwuerfe>" not in _render_researcher_prompt(drafting_enabled=False)
 
-    def test_a_commissioned_document_is_written_not_described(self):
+    def test_the_anaphora_resolves_against_the_previous_answer(self):
+        """„kannst du daraus ein File machen" has an antecedent only the
+        transcript holds, so no tool description can resolve it."""
         block = _entwuerfe_block()
-        assert "`write_file`" in block
-        assert "/entwuerfe/" in block
-        # The five kinds the product commissions, named so the model recognises
-        # the request instead of judging every long answer to be one.
-        for kind in ("Aktenvermerk", "Protokoll", "Checkliste", "Flächenaufstellung", "Konzeptentwurf"):
-            assert kind in block
-        assert "nicht in der Antwort beschrieben" in block
-
-    def test_a_revision_edits_the_file_it_already_wrote(self):
-        block = _entwuerfe_block()
-        assert "`edit_file`" in block
-        assert "kein zweiter Entwurf" in block
-
-    def test_the_answer_still_says_what_happened(self):
-        """One sentence, not the document again: the draft is beside the answer."""
-        assert "EINEM Satz" in _entwuerfe_block()
-
-    def test_the_draft_is_not_a_source(self):
-        """The one thing that must not blur: a draft cannot ground an answer."""
-        assert "keine Fundstelle" in _entwuerfe_block()
-
-    def test_filing_happens_on_request_and_names_its_tool(self):
-        block = _entwuerfe_block()
-        assert "`file_draft`" in block
-        # The four ways a user asks for it, so the model recognises the request
-        # rather than filing after every write.
-        for phrase in ("leg das ins Projekt", "ablegen", "abspeichern"):
-            assert phrase in block
-        assert "Von selbst wird nichts abgelegt" in block
-
-    def test_submitting_is_its_own_gesture_and_needs_a_filed_draft(self):
-        block = _entwuerfe_block()
-        assert "`submit_draft`" in block
-        assert "bereits abgelegten Entwurf" in block
-        assert "ausdrücklichen Wunsch" in block
-
-    def test_a_named_person_is_passed_through_and_never_guessed(self):
-        """`reviewer` is a name this tier does not resolve, so the prompt has to
-        say both halves: pass the name the user said, and invent nothing."""
-        block = _entwuerfe_block()
-        assert "`reviewer`" in block
-        assert "unverändert" in block
-        assert "nicht raten" in block
-
-    def test_a_submit_with_nobody_named_says_where_it_went(self):
-        """Without a reviewer the BFF submits to the project's EDITORS. An answer
-        that only says „wartet auf eine Person" leaves the reader guessing which."""
-        assert "an die Bearbeiter des Projekts" in _entwuerfe_block()
-
-    def test_nothing_filed_may_be_called_approved(self):
-        """The claim that would reach a Bauherr: a draft is not a Freigabe."""
-        block = _entwuerfe_block()
-        assert "ENTWURF" in block
-        assert "Sage nie, es sei freigegeben, veröffentlicht" in block
+        assert "`daraus`/`davon`/`das`" in block
+        assert "vorige Antwort dieser Unterhaltung" in block
+        assert "ohne Rückfrage nach Format oder Inhalt" in block
 
     def test_a_conversation_without_a_project_is_told_what_happens(self):
-        assert "Ohne Projekt" in _entwuerfe_block()
+        block = _entwuerfe_block()
+        assert "Ohne Projekt" in block
+        assert "bleibt der Entwurf im Arbeitsordner" in block
+
+    def test_the_workflow_the_tools_own_is_no_longer_in_the_prompt(self):
+        """The cut itself. Each of these was a sentence about how to hold a
+        tool, charged on every call of every turn (ADR-0060 (d))."""
+        block = _entwuerfe_block()
+        for teaching in ("`write_file`", "`edit_file`", "`file_draft`", "`submit_draft`", "`reviewer`"):
+            assert teaching not in block, teaching
 
     def test_the_block_follows_the_tools_and_not_a_second_switch(self):
         """The flag is derived from what is bound, by the renderer itself."""
@@ -3795,132 +3640,125 @@ class TestTheWorkingDirectoryBlock:
         assert "<entwuerfe>" not in without
 
 
-def _delegieren_block() -> str:
-    return _render_researcher_prompt(delegating_enabled=True).split("<delegieren>")[1].split("</delegieren>")[0]
+class TestTheDraftingRulesLiveInTheTools:
+    """Every rule the `<entwuerfe>` block dropped, in the description that owns it.
+
+    A tool owns its whole contract (ADR-0060 (d)), so a rule deleted from the
+    prompt has to be findable in the schema the provider already sends. These
+    are the receipts for that move, one assertion per deleted sentence.
+    """
+
+    @staticmethod
+    def _draft_verbs() -> dict[str, str]:
+        from aiq_agent.tools.documents.tools import _TOOL_DESCRIPTIONS
+
+        return _TOOL_DESCRIPTIONS
+
+    def test_write_file_says_a_commissioned_document_is_written_not_described(self):
+        description = self._draft_verbs()["write_file"]
+        for kind in ("Aktenvermerk", "Protokoll", "Checkliste", "Flächenaufstellung", "Konzeptentwurf"):
+            assert kind in description
+        assert "nicht in der Antwort beschrieben" in description
+        # And the one sentence the answer owes the reader afterwards.
+        assert "in einem Satz" in description
+
+    def test_a_revision_edits_the_file_it_already_wrote(self):
+        verbs = self._draft_verbs()
+        assert "`edit_file` das Werkzeug" in verbs["write_file"]
+        assert "`write_file` verwenden" in verbs["edit_file"]
+
+    def test_read_file_says_the_working_directory_is_not_a_source(self):
+        """The one thing that must not blur: a draft cannot ground an answer.
+
+        It sits on `read_file` because that is the verb whose output is text a
+        model would otherwise cite. `ls` returns filenames, which nobody
+        quotes.
+        """
+        verbs = self._draft_verbs()
+        assert "hat die Antwort selbst geschrieben" in verbs["read_file"]
+        assert "Quellen-Werkzeugen" in verbs["read_file"]
+        assert "selbst geschrieben" not in verbs["ls"]
+
+    def test_file_draft_says_filing_happens_on_request(self):
+        from aiq_agent.tools.documents.register import _FILE_DRAFT_DESCRIPTION
+
+        for phrase in ("leg das ins Projekt", "ablegen", "abspeichern"):
+            assert phrase in _FILE_DRAFT_DESCRIPTION
+        assert "nicht von selbst nach jedem Schreiben" in _FILE_DRAFT_DESCRIPTION
+        # And nothing filed may be called approved — the claim that reaches a Bauherr.
+        assert "ENTWURF" in _FILE_DRAFT_DESCRIPTION
+        assert "niemand hat ihn freigegeben" in _FILE_DRAFT_DESCRIPTION
+
+    def test_submit_draft_needs_a_filed_draft_and_an_explicit_request(self):
+        from aiq_agent.tools.documents.register import _SUBMIT_DRAFT_DESCRIPTION
+
+        assert "bereits im Projekt abgelegten Entwurf" in _SUBMIT_DRAFT_DESCRIPTION
+        assert "Nur aufrufen, wenn die Nutzerin um Freigabe" in _SUBMIT_DRAFT_DESCRIPTION
+        # The reviewer name is passed through and never guessed…
+        assert "unverändert" in _SUBMIT_DRAFT_DESCRIPTION
+        # …and without one the draft goes to the project's editors, which the
+        # answer has to be able to say.
+        assert "an die Bearbeiter des Projekts" in _SUBMIT_DRAFT_DESCRIPTION
 
 
-class TestTheDelegationBlock:
-    """What the prompt says about handing work over, and whether it says it at all."""
+class TestTheDelegationRulesLiveInTheTool:
+    """`<delegieren>` is gone; `create_task`'s description carries what it said."""
 
-    def test_a_turn_without_the_tool_is_never_told_to_delegate(self):
-        """`create_task` refuses without a project AND without a signed envelope."""
-        assert "<delegieren>" not in _render_researcher_prompt(delegating_enabled=False)
+    @staticmethod
+    def _description() -> str:
+        from aiq_agent.tools.tasks.register import _CREATE_TASK_DESCRIPTION
 
-    def test_it_names_the_tool_and_the_delegatable_kinds(self):
+        return _CREATE_TASK_DESCRIPTION
+
+    def test_the_prompt_no_longer_teaches_delegation(self):
+        assert "<delegieren>" not in _render_researcher_prompt(drafting_enabled=True)
+
+    def test_it_names_the_delegatable_kinds(self):
         """All four kinds are delegatable: the retirement was the chat TOOL, not the kind.
 
         ``compliance_check`` was removed from the chat agent's tool list; it
         stays a durable task kind and runs as a delegated Normprüfung
-        (`delegation.ts::TASK_ENGINES`, `docs/architecture/system-overview.md`),
-        so the delegation block must offer it like the other three.
+        (`delegation.ts::TASK_ENGINES`, `docs/architecture/system-overview.md`).
         """
-        block = _delegieren_block()
-        assert "`create_task`" in block
+        description = self._description()
         for kind in ("compliance_check", "einreichcheck", "document", "revision"):
-            assert f"`{kind}`" in block
+            assert f"`{kind}`" in description
 
     def test_it_names_the_requests_a_person_actually_makes(self):
         """So the model recognises the handoff instead of judging every long task one."""
-        block = _delegieren_block()
-        assert "Einreichcheck bis Freitag" in block
-        assert "@Piloti prüf das" in block
+        description = self._description()
+        assert "Einreichcheck bis Freitag" in description
+        assert "@Piloti prüf das" in description
 
     def test_the_deadline_is_a_date_and_not_a_phrase(self):
         """A string nothing can compare is a deadline the scheduler never enforces."""
-        block = _delegieren_block()
-        assert "`JJJJ-MM-TT`" in block
-        assert "keinen Text eintragen" in block
+        description = self._description()
+        assert "`JJJJ-MM-TT`" in description
+        assert "gib keinen Text an" in description
 
     def test_the_answer_must_not_claim_the_work_is_done(self):
         """The sentence this whole tool exists to stop."""
-        block = _delegieren_block()
-        assert "EINEM Satz" in block
-        assert "Sage nie, die Arbeit sei erledigt" in block
+        assert "ANGELEGT, nicht erledigt" in self._description()
 
     def test_delegating_is_not_a_way_out_of_answering(self):
-        assert "keine Art, einer Recherche auszuweichen" in _delegieren_block()
+        assert "nicht für eine Frage, die sich jetzt beantworten lässt" in self._description()
 
-    def test_nothing_is_delegated_unasked(self):
-        assert "Von selbst wird kein Auftrag angelegt" in _delegieren_block()
-
-    def test_the_block_follows_the_tools_and_not_a_second_switch(self):
-        from aiq_agent.agents.piloti.prompt import render_system_prompt
-        from aiq_agent.agents.piloti.prompt import system_prompt_template
-
-        state = ResearchAgentState(messages=[HumanMessage(content="Mach den Einreichcheck bis Freitag")])
-        with_tool = render_system_prompt(
-            system_prompt_template(),
-            state,
-            [{"name": "create_task", "description": "Legt einen Auftrag an"}],
-        )
-        without = render_system_prompt(
-            system_prompt_template(),
-            state,
-            [{"name": "web_search_tool", "description": "Search"}],
-        )
-        assert "<delegieren>" in with_tool
-        assert "<delegieren>" not in without
+    def test_the_precondition_is_stated_where_the_model_reads_it(self):
+        """Without a project no task is created — the fact the deleted block
+        carried and the description did not."""
+        description = self._description()
+        assert "Ohne Projekt in dieser Unterhaltung entsteht keiner" in description
+        assert "statt es erneut zu versuchen" in description
 
 
 class TestTheWorkingDirectoryBudget:
-    """The file verbs are an OUTPUT channel, budgeted like cards and memory."""
+    """The file verbs cost one round like everything else — and cite nothing."""
 
-    def test_the_four_verbs_are_interaction_tools(self):
-        from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_BASENAMES
-
-        assert {"ls", "read_file", "write_file", "edit_file"} <= _INTERACTION_TOOL_BASENAMES
-
-    def test_the_two_filing_verbs_are_interaction_tools_too(self):
-        """Filing is the END of the answer's output channel, not a way of learning something."""
-        from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_BASENAMES
-
-        assert {"file_draft", "submit_draft"} <= _INTERACTION_TOOL_BASENAMES
-
-    def test_delegating_is_an_interaction_tool_too(self):
-        """A turn that delegates decided not to research; it must not cost research budget."""
-        from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_BASENAMES
-
-        assert "create_task" in _INTERACTION_TOOL_BASENAMES
-
-    def test_a_delegating_turn_fits_inside_the_allowance(self):
-        """The shape delegation actually has: one call, one card, one sentence."""
-        calls = [{"name": "create_task", "args": {}}, {"name": "emit_card", "args": {}}]
-        assert _count_interaction_calls(calls) <= _INTERACTION_TOOL_ALLOWANCE
-
-    def test_a_write_then_file_turn_fits_inside_the_allowance(self):
-        """The shape filing actually has: one draft written, then handed over."""
-        calls = [
-            {"name": "write_file", "args": {}},
-            {"name": "file_draft", "args": {}},
-            {"name": "submit_draft", "args": {}},
-            {"name": "emit_card", "args": {}},
-        ]
-        assert _count_interaction_calls(calls) <= _INTERACTION_TOOL_ALLOWANCE
-
-    def test_the_allowance_covers_the_more_expensive_turn_shape(self):
-        """Six for the card and memory channel, three for a revision turn."""
-        assert _INTERACTION_TOOL_ALLOWANCE == 9
-
-    def test_a_revision_turn_fits_inside_the_allowance(self):
-        """`read_file` + two `edit_file`, on top of the six already sanctioned."""
-        calls = [
-            {"name": "describe_card", "args": {}},
-            {"name": "emit_card", "args": {}},
-            {"name": "emit_card", "args": {}},
-            {"name": "emit_card", "args": {}},
-            {"name": "remember", "args": {}},
-            {"name": "emit_card", "args": {}},
-            {"name": "read_file", "args": {}},
-            {"name": "edit_file", "args": {}},
-            {"name": "edit_file", "args": {}},
-        ]
-        assert _count_interaction_calls(calls) == _INTERACTION_TOOL_ALLOWANCE
-
-    def test_the_recursion_limit_still_derives_from_the_allowance(self):
-        """Nothing else moves when the allowance does."""
+    def test_the_recursion_limit_derives_from_the_ceiling_alone(self):
+        """Nothing else moves when the ceiling does."""
         from aiq_agent.agents.piloti.agent import _recursion_limit
 
-        assert _recursion_limit(5) == ((5 + _INTERACTION_TOOL_ALLOWANCE) * 2) + 10
+        assert _recursion_limit(5) == (5 * 2) + 10
 
     def test_a_draft_read_back_is_never_a_source(self):
         """The safety property: nothing in the working directory can be cited.
@@ -4071,7 +3909,7 @@ class TestATurnThatWritesADraft:
         agent = PilotiAgent(
             llm_provider=provider,
             tools=[web_search_tool, *tools],
-            max_tool_iterations=1,
+            max_tool_iterations=3,
         )
 
         result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Schreib den Aktenvermerk")]))
@@ -4085,11 +3923,10 @@ class TestATurnThatWritesADraft:
             ("document_draft", 2, "Aktenvermerk"),
         ]
 
-        # Writing is not researching. On a research budget of ONE the turn
-        # would have been forced into synthesis after the first round if the
-        # file verbs were charged to it — and the edit would never have run.
-        assert result.tool_iterations == 0
-        assert result.interaction_iterations == 2
+        # A write and a revision are two rounds and cost two, like any other
+        # two rounds: there is no separate allowance for the file verbs and no
+        # exemption either. The turn finished inside its budget.
+        assert result.tool_iterations == 2
         assert result.research_truncated is None
 
     @pytest.mark.asyncio
@@ -4148,7 +3985,7 @@ class TestATurnThatWritesADraft:
         agent = PilotiAgent(
             llm_provider=provider,
             tools=[web_search_tool, *tools, file_draft_tool],
-            max_tool_iterations=1,
+            max_tool_iterations=3,
         )
         result = await agent.run(ResearchAgentState(messages=[HumanMessage(content="Leg das ins Projekt")]))
 
@@ -4165,11 +4002,8 @@ class TestATurnThatWritesADraft:
             "draft",
         )
 
-        # Filing is the END of a drafting turn, not research: on a research
-        # budget of ONE the turn would have been forced into synthesis before it
-        # if `file_draft` were charged there.
-        assert result.tool_iterations == 0
-        assert result.interaction_iterations == 2
+        # One write, one filing: two rounds, charged as two.
+        assert result.tool_iterations == 2
 
 
 # ---------------------------------------------------------------------------
@@ -4177,100 +4011,56 @@ class TestATurnThatWritesADraft:
 # ---------------------------------------------------------------------------
 
 
-def _aufraeumen_block() -> str:
-    return _render_researcher_prompt(tidying_enabled=True).split("<aufraeumen>")[1].split("</aufraeumen>")[0]
+def _file_verb_descriptions() -> dict[str, str]:
+    from aiq_agent.tools.files import register as files_register
+
+    return {
+        "move_document": files_register._MOVE_DESCRIPTION,
+        "rename_document": files_register._RENAME_DESCRIPTION,
+        "create_folder": files_register._CREATE_FOLDER_DESCRIPTION,
+        "assign_document": files_register._ASSIGN_DESCRIPTION,
+    }
 
 
-class TestTheTidyingBlock:
-    """What the prompt says about file operations, and whether it says it at all."""
+class TestTheTidyingRulesLiveInTheTools:
+    """`<aufraeumen>` is gone; the four descriptions carry what it said.
 
-    def test_a_turn_without_the_tools_is_never_told_to_tidy(self):
-        """The block names four tools; a turn that has none of them cannot obey it."""
-        assert "<aufraeumen>" not in _render_researcher_prompt(tidying_enabled=False)
+    The block taught four tools how to behave, in a paragraph charged on every
+    call of every turn. A tool owns its whole contract (ADR-0060 (d)), and
+    these four already said most of it — the assertions below are what the
+    move had to leave intact, plus the one rule two of them lacked.
+    """
 
-    def test_all_four_verbs_are_named(self):
-        block = _aufraeumen_block()
-        for verb in (
-            "`move_document`",
-            "`rename_document`",
-            "`create_folder`",
-            "`assign_document`",
-        ):
-            assert verb in block
+    def test_the_prompt_no_longer_teaches_tidying(self):
+        assert "<aufraeumen>" not in _render_researcher_prompt(drafting_enabled=True)
 
-    def test_the_block_does_not_offer_a_verb_that_is_not_bound(self):
-        """`set_doc_class` is gone; a prompt still naming it teaches a tool call
-        that fails, and a Dokumentart the reader could never accept."""
-        block = _aufraeumen_block()
-        assert "set_doc_class" not in block
-        assert "Dokumentart" not in block
+    def test_every_verb_says_it_changes_nothing(self):
+        """The one failure this rule exists to prevent: „ist verschoben"."""
+        for name, description in _file_verb_descriptions().items():
+            assert "SCHLÄGT VOR" in description, name
+            assert "Karte" in description, name
 
-    def test_nothing_may_be_claimed_as_done(self):
-        """The one failure this block exists to prevent: „ist verschoben"."""
-        block = _aufraeumen_block()
-        assert "ÄNDERN NICHTS" in block
-        assert "erst das Annehmen" in block
-        assert "Sage darum nie" in block
+    def test_every_verb_says_the_user_decides(self):
+        for name, description in _file_verb_descriptions().items():
+            decides = "die Nutzerin annimmt oder verwirft" in description or "Die Nutzerin entscheidet" in description
+            assert decides, name
+
+    def test_every_verb_is_asked_for_and_not_volunteered(self):
+        """The rule the block carried and `move_document` / `create_folder`
+        lacked: these answer a request, they are not a tidy-up nobody asked
+        for."""
+        for name, description in _file_verb_descriptions().items():
+            assert "Nur vorschlagen" in description or "nur vorschlagen" in description, name
+
+    def test_no_verb_offers_one_that_is_not_bound(self):
+        """`set_doc_class` is gone; a description still naming it teaches a tool
+        call that fails, and a Dokumentart the reader could never accept."""
+        for name, description in _file_verb_descriptions().items():
+            assert "set_doc_class" not in description, name
 
     def test_a_name_is_taken_from_the_inventory_and_never_invented(self):
-        block = _aufraeumen_block()
-        assert "Rate nicht" in block
-        assert "frage nach dem genauen Namen" in block
-
-    def test_tidying_is_asked_for_and_not_volunteered(self):
-        assert "keine Aufräumaktion, um die niemand gebeten hat" in _aufraeumen_block()
-
-    def test_the_block_follows_the_tools_and_not_a_second_switch(self):
-        """The flag is derived from what is bound, by the renderer itself."""
-        from aiq_agent.agents.piloti.prompt import render_system_prompt
-        from aiq_agent.agents.piloti.prompt import system_prompt_template
-
-        state = ResearchAgentState(messages=[HumanMessage(content="Leg das zu den Einreichunterlagen")])
-        with_tools = render_system_prompt(
-            system_prompt_template(),
-            state,
-            [{"name": "move_document", "description": "Schlägt vor …"}],
-        )
-        without = render_system_prompt(
-            system_prompt_template(),
-            state,
-            [{"name": "web_search_tool", "description": "Search"}],
-        )
-        assert "<aufraeumen>" in with_tools
-        assert "<aufraeumen>" not in without
-
-
-class TestTheTidyingBudget:
-    """The four verbs are an OUTPUT channel too — and they cost no extra room."""
-
-    def test_the_four_verbs_are_interaction_tools(self):
-        from aiq_agent.agents.piloti.agent import _INTERACTION_TOOL_BASENAMES
-
-        assert {
-            "move_document",
-            "rename_document",
-            "create_folder",
-            "assign_document",
-        } <= _INTERACTION_TOOL_BASENAMES
-        assert "set_doc_class" not in _INTERACTION_TOOL_BASENAMES
-
-    def test_the_allowance_did_not_move_for_them(self):
-        """A tidying turn proposes one or two operations and writes no draft.
-
-        The two shapes are alternatives rather than additions, so the ceiling
-        stays where the working directory left it — raising it for a turn that
-        does both would only give a runaway loop more room.
-        """
-        assert _INTERACTION_TOOL_ALLOWANCE == 9
-
-    def test_a_tidying_turn_fits_well_inside_the_allowance(self):
-        calls = [
-            {"name": "create_folder", "args": {}},
-            {"name": "move_document", "args": {}},
-            {"name": "move_document", "args": {}},
-            {"name": "emit_card", "args": {}},
-        ]
-        assert _count_interaction_calls(calls) == 4
+        moved = _file_verb_descriptions()["move_document"]
+        assert "genau so, wie er in der Dateiübersicht steht" in moved
 
 
 class TestTheRepairIsAnObservationTheModelCanSee:

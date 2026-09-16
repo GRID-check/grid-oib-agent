@@ -387,17 +387,9 @@ export const platform: typeof en.platform = {
     failedHint: 'Die Anfrage wurde nicht abgeschlossen, es wurde daher nichts gelöscht. Bitte erneut versuchen.',
   },
   skills: {
-    hint: 'Ein hier geschriebener Skill erreicht jede Organisation. Als Angebot entscheidet jede selbst, ob sie ihn einschaltet; als Standard führen ihn alle aus, ohne ihn auf ihrem Skills-Tab zu sehen oder abschalten zu können. Entwürfe bleiben unsichtbar, bis Sie sie veröffentlichen.',
+    hint: 'Ein hier geschriebener Skill wird jeder Organisation angeboten; jede entscheidet selbst, ob sie ihn einschaltet. Entwürfe bleiben unsichtbar, bis Sie sie veröffentlichen. Was für jede Antwort gelten soll, gehört nicht in einen Skill, sondern in den Plattform-Prompt.',
     new: 'Neuer kuratierter Skill',
     draft: 'Entwurf',
-    standardBadge: 'Standard',
-    deliveryOffer: 'Angebot',
-    deliveryStandard: 'Standard für alle',
-    deliveryAria: 'Auslieferung des Skills „{name}“ ändern',
-    deliveryNowStandard:
-      '„{name}“ ist jetzt Standard: Jede Organisation führt ihn aus, niemand kann ihn abschalten.',
-    deliveryNowOffer:
-      '„{name}“ ist jetzt ein Angebot: Er läuft erst wieder, wenn eine Organisation ihn einschaltet.',
     edit: 'Bearbeiten',
     delete: 'Löschen',
     deleted: '„{name}“ wurde gelöscht.',

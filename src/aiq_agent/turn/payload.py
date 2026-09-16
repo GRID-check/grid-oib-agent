@@ -70,25 +70,6 @@ def _extract_text_from_message(message: Any) -> str | None:
     return "\n".join(parts).strip() if parts else None
 
 
-def parse_skills(raw: Any) -> list[str] | None:
-    """Parse the forced-skills array from a request payload.
-
-    Mirrors ``parse_data_sources`` semantics: None when not specified
-    (nothing forced), [] when explicitly empty, otherwise the sanitized
-    name list. Comma-separated strings are accepted as a defensive
-    fallback exactly like data sources are.
-    """
-    if raw is None:
-        return None
-    if isinstance(raw, list):
-        parsed = [str(value).strip() for value in raw]
-        return [value for value in parsed if value]
-    if isinstance(raw, str):
-        parsed = [value.strip() for value in raw.split(",")]
-        return [value for value in parsed if value]
-    return None
-
-
 @dataclass(frozen=True)
 class SubjectVersion:
     """The document version the composer says this turn is about.
@@ -158,18 +139,22 @@ class TurnIntent:
 class ParsedQuery(NamedTuple):
     query_text: str
     data_sources: list[str] | None
-    skills: list[str] | None
     intent: TurnIntent
 
 
 def _extract_query_from_text(text: str) -> ParsedQuery:
     """Parse one message text, which may be an inline JSON payload carrying the
-    query plus data sources, forced skills and the turn intent.
+    query plus data sources and the turn intent.
+
+    A ``skills`` array is no longer read from anywhere on this wire. A skill is
+    a working method the model picks out of the L1 catalog, so nothing a
+    request says can require one; the composer's ``/name`` puts a mention in
+    the message TEXT, which is the only channel that reaches the model.
 
     A JSON blob without a ``query``/``text`` field is the user's message, not
     a payload: its ``data_sources`` would otherwise silently re-aim the turn.
     """
-    plain = ParsedQuery(text, None, None, TurnIntent())
+    plain = ParsedQuery(text, None, TurnIntent())
     trimmed = text.strip()
     if not (trimmed.startswith("{") and trimmed.endswith("}")):
         return plain
@@ -185,7 +170,6 @@ def _extract_query_from_text(text: str) -> ParsedQuery:
     return ParsedQuery(
         query_text.strip(),
         parse_data_sources(payload.get("data_sources")),
-        parse_skills(payload.get("skills")),
         TurnIntent(
             payload.get("focus_file_name"),
             payload.get("focus_shelf"),
@@ -201,7 +185,6 @@ class _PayloadShape:
 
     messages: list
     data_sources: list[str] | None
-    skills: list[str] | None
     fallback: Any = None
 
 
@@ -222,7 +205,6 @@ def _normalize_payload(payload: Any) -> _PayloadShape | None:
             data_sources=_first_present(
                 parse_data_sources(payload.get("data_sources")), parse_data_sources(content.get("data_sources"))
             ),
-            skills=_first_present(parse_skills(payload.get("skills")), parse_skills(content.get("skills"))),
             fallback=_first_present(payload.get("message"), payload.get("text")),
         )
     messages = getattr(payload, "messages", None)
@@ -231,7 +213,6 @@ def _normalize_payload(payload: Any) -> _PayloadShape | None:
     return _PayloadShape(
         messages=messages,
         data_sources=parse_data_sources(getattr(payload, "data_sources", None)),
-        skills=parse_skills(getattr(payload, "skills", None)),
     )
 
 
@@ -244,23 +225,22 @@ def _latest_user_text(messages: list) -> str | None:
 
 
 def _extract_query_and_sources(payload: Any) -> ParsedQuery:
-    """Extract query text, data sources, forced skills and intent from any payload form.
+    """Extract query text, data sources and intent from any payload form.
 
     ``data_sources`` is None when not specified (use all configured tools) and
-    a list when explicitly specified; ``skills`` mirrors that. Values stated on
-    the payload beat values stated inline in the message text.
+    a list when explicitly specified. Values stated on the payload beat values
+    stated inline in the message text.
     """
     shape = _normalize_payload(payload)
     if shape is None:
         return _extract_query_from_text(str(payload))
     query_text = _latest_user_text(shape.messages) or _extract_text_from_message(shape.fallback)
     if not query_text:
-        return ParsedQuery("", shape.data_sources, shape.skills, TurnIntent())
+        return ParsedQuery("", shape.data_sources, TurnIntent())
     inline = _extract_query_from_text(query_text)
     return ParsedQuery(
         inline.query_text,
         _first_present(shape.data_sources, inline.data_sources),
-        _first_present(shape.skills, inline.skills),
         inline.intent,
     )
 
@@ -275,7 +255,6 @@ class TurnInputs(NamedTuple):
 
     query_text: str
     data_sources: list[str] | None
-    force_skills: list[str] | None
     focus_file_name: str | None
     focus_shelf: str | None
     #: The subject's open version, or an empty :class:`SubjectVersion`. NOT read
@@ -294,7 +273,6 @@ def extract_turn_inputs(payload: Any) -> TurnInputs:
     return TurnInputs(
         parsed.query_text,
         parsed.data_sources,
-        parsed.skills,
         get_focused_file_name(),
         get_focused_shelf(),
         intent.subject,

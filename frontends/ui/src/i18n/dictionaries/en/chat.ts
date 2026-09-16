@@ -981,7 +981,6 @@ export const chat = {
     // travels verbatim: it is their name for their own method.
     skill: {
       activated: 'Applying the “{skill}” skill',
-      forced: 'Applying the “{skill}” skill you asked for',
     },
     // Compact "what actually ran" chips in the Herleitung basis — one chip per
     // executed agent/tool, without the technical-steps opt-in.
@@ -1090,6 +1089,10 @@ export const chat = {
       stepKindRead: 'Reading',
       stepKindFinding: 'Finding',
       stepKindConclusion: 'Conclusion',
+      // A layer that only opened passages of files the turn already had: it
+      // searched for nothing. Telling that round apart from a fresh fetch is
+      // the whole reason the word exists.
+      stepKindOpen: 'Open',
       // A folded layer keeps the scent of its fan: the count plus the top
       // filename(s), never a bare count — evidence hidden by default reads
       // as no evidence. Still never the query (PF-12).
@@ -1106,6 +1109,10 @@ export const chat = {
       // card's own text is a conclusion and makes a poor control name.
       roundFold: 'Collapse step {n}',
       roundUnfold: 'Expand step {n}',
+      // A file an earlier round already showed, where its hit count would be.
+      // The count is the whole turn's tally and therefore identical on every
+      // repeat — which is what made a re-read look like a second fetch.
+      roundDocRepeat: 'already retrieved',
       contextLabel: 'Context',
       sourcesTab: 'Sources',
       sourcesTitle: 'Sources examined',

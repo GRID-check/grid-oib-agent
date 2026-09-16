@@ -35,6 +35,7 @@ import {
   isCited,
   type CitedDocument,
 } from '../../lib/citations'
+import type { RoundLocus } from '../../lib/retrieval-rounds'
 import { Ruler } from 'lucide-react'
 import { SourcePreviewChip } from '../SourcePreview'
 
@@ -56,7 +57,17 @@ export const SourceCard: FC<{
   gapLabel: string
   /** The turn is still running — see the `live` note on the verdict below. */
   live?: boolean
-}> = ({ document: doc, hitLabel, gapLabel, live = false }) => {
+  /**
+   * What THIS round did with the document, when a ledger round built the fan.
+   *
+   * The card is the same card — same chip, same preview, same markers — but a
+   * fan slot under a round is a claim about that round, so the locus line
+   * states the round's own page/Punkt and a file an earlier round already
+   * showed says so instead of repeating the turn's hit count. Absent on the
+   * turn-level fan, where the aggregate IS the claim.
+   */
+  round?: RoundLocus
+}> = ({ document: doc, hitLabel, gapLabel, live = false, round }) => {
   const t = useTranslations('chat')
   // The tab states the document's provenance: its fine lane, else the SHELF the
   // wire carried (ADR-0047 — read as data, never prefix-matched off a collection
@@ -146,25 +157,41 @@ export const SourceCard: FC<{
         />
 
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+          {/* A file an earlier round already showed states THAT, muted, where
+              the count would be: the turn aggregate ("4 Treffer") is identical
+              on every repeat of the same file, which is exactly what made a
+              re-read indistinguishable from a new fetch. */}
           <span
             className={cn(
               'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
-              used ? 'bg-secondary tabular-nums text-muted-foreground' : 'bg-muted text-muted-foreground'
+              round?.repeat
+                ? 'bg-muted italic text-muted-foreground/80'
+                : used
+                  ? 'bg-secondary tabular-nums text-muted-foreground'
+                  : 'bg-muted text-muted-foreground'
             )}
           >
-            {hitsText}
+            {round?.repeat ? t('thinking.node.roundDocRepeat') : hitsText}
           </span>
-          {pages.length > 0 && (
-            <span className="text-xs tabular-nums text-muted-foreground">
-              {/* Singular and plural are two keys, as every other page line in
-                  the product already knows. German „S." is number-agnostic, so
-                  always taking the plural was invisible here and read „pp. 9"
-                  in English. */}
-              {pages.length === 1
-                ? t('answerSources.page', { page: pages[0]! })
-                : t('answerSources.pages', { pages: pages.join(', ') })}
-            </span>
-          )}
+          {/* The locus. Under a ledger round it is THAT round's page/Punkt, as
+              the backend stated it — and nothing at all when the round named
+              none, because the turn aggregate would be a claim about other
+              rounds. Everywhere else it stays the aggregate it always was. */}
+          {round
+            ? round.detail && (
+                <span className="text-xs tabular-nums text-muted-foreground">{round.detail}</span>
+              )
+            : pages.length > 0 && (
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {/* Singular and plural are two keys, as every other page line in
+                      the product already knows. German „S." is number-agnostic, so
+                      always taking the plural was invisible here and read „pp. 9"
+                      in English. */}
+                  {pages.length === 1
+                    ? t('answerSources.page', { page: pages[0]! })
+                    : t('answerSources.pages', { pages: pages.join(', ') })}
+                </span>
+              )}
           {/* Which markers in the answer this document carries — the link
               between "what was read" and "what was used" that the trace could
               not express before. A document the answer used but whose [N] the
@@ -190,3 +217,22 @@ export const SourceCard: FC<{
     </div>
   )
 }
+
+/**
+ * A ledger doc the turn's card model has no card for.
+ *
+ * The answer-repair pass reads files after the cards are built, and a name the
+ * model dropped is a name the fan would otherwise silently lose — so the slot
+ * survives as what the ledger actually knows: the name and the locus THAT round
+ * read. Deliberately bare: no chip, no preview, no markers. Every one of those
+ * would be a claim about a document this turn has no card for, and a control
+ * that opens nothing is worse than no control.
+ */
+export const BareSourceCard: FC<{ name: string; detail?: string }> = ({ name, detail }) => (
+  <div role="listitem" data-source-card className="flex min-w-0 flex-col">
+    <div className="min-w-0 flex-1 rounded-lg border border-dashed bg-card px-3 py-2.5 opacity-75 shadow-xs">
+      <p className="line-clamp-2 text-sm leading-snug text-foreground">{name}</p>
+      {detail && <p className="mt-1.5 text-xs tabular-nums text-muted-foreground">{detail}</p>}
+    </div>
+  </div>
+)
