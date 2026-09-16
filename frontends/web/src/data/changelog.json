@@ -32,6 +32,36 @@
   },
   "releases": [
     {
+      "id": "2026-09-16",
+      "kind": "date",
+      "version": null,
+      "date": "2026-09-16",
+      "summary": null,
+      "sections": [
+        {
+          "key": "improvements",
+          "notes": [
+            {
+              "en": "Die Herleitung zeigt pro Schritt zuerst, was Piloti vorhatte, und darunter jedes Dokument einmal, mit den Punkten oder Seiten, die dieser Schritt darin gelesen hat. Fünf geöffnete Punkte einer Richtlinie sind jetzt eine Karte mit fünf Adressen statt fünf gleich aussehender Karten.",
+              "de": "Die Herleitung zeigt pro Schritt zuerst, was Piloti vorhatte, und darunter jedes Dokument einmal, mit den Punkten oder Seiten, die dieser Schritt darin gelesen hat. Fünf geöffnete Punkte einer Richtlinie sind jetzt eine Karte mit fünf Adressen statt fünf gleich aussehender Karten."
+            },
+            {
+              "en": "„bereits abgerufen\" steht dort, wo dieselbe Stelle noch einmal geholt wurde oder wo Piloti in eine schon aufgeschlagene Datei zurückgegangen ist. Dass eine Suche ein Dokument nur gelistet hat, macht das spätere Aufschlagen nicht mehr zur Wiederholung.",
+              "de": "„bereits abgerufen\" steht dort, wo dieselbe Stelle noch einmal geholt wurde oder wo Piloti in eine schon aufgeschlagene Datei zurückgegangen ist. Dass eine Suche ein Dokument nur gelistet hat, macht das spätere Aufschlagen nicht mehr zur Wiederholung."
+            },
+            {
+              "en": "Eine Frage nach einer ganzen Richtlinie („Was weißt du über die OIB 2?“) beantwortet Piloti jetzt in einem Suchlauf mit allen Teilen, die im Bestand sind: je Teil der Geltungsbereich als zitierfähige Passage und darunter dessen Gliederung. Bisher zeigte die Suche zwei Dokumente, und die übrigen Teile wurden einzeln nachgeladen.",
+              "de": "Eine Frage nach einer ganzen Richtlinie („Was weißt du über die OIB 2?“) beantwortet Piloti jetzt in einem Suchlauf mit allen Teilen, die im Bestand sind: je Teil der Geltungsbereich als zitierfähige Passage und darunter dessen Gliederung. Bisher zeigte die Suche zwei Dokumente, und die übrigen Teile wurden einzeln nachgeladen."
+            },
+            {
+              "en": "In der Herleitung steht bei einer punktgenau gelesenen Stelle jetzt der Punkt („Pkt. 3.5.2“) vor der Seite. In einer Richtlinie ist die Nummer die Fundstelle, nach der gesucht wird.",
+              "de": "In der Herleitung steht bei einer punktgenau gelesenen Stelle jetzt der Punkt („Pkt. 3.5.2“) vor der Seite. In einer Richtlinie ist die Nummer die Fundstelle, nach der gesucht wird."
+            }
+          ]
+        }
+      ]
+    },
+    {
       "id": "2026-09-15",
       "kind": "date",
       "version": null,
