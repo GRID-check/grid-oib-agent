@@ -642,13 +642,24 @@ async def _read_member(target: PassageTarget, number: str) -> FamilyMember | Non
     )
 
 
+class FamilyUnreadable(RuntimeError):
+    """The corpus lists the family, and not one of its parts could be read.
+
+    Distinct from ``None``, which is "no such family here": a listed family
+    that yields nothing is an overview that was attempted and lost, and the
+    search that asked for it has to say so rather than look like an ordinary
+    two-document search.
+    """
+
+
 async def family_overview(entries: Sequence[Any], family_key: str) -> FamilyOverview | None:
     """Every part of Richtlinie ``family_key`` the corpus holds, in one object.
 
     ``entries`` is the turn's collection scope; the corpus is the base shelf,
     so a turn that may not read it gets ``None`` rather than an overview of
     somebody's own copy of a Richtlinie. ``None`` also when the corpus holds no
-    such family, and when no member of it could be read.
+    such family. A family it does hold, of which no member could be read,
+    raises :class:`FamilyUnreadable`.
     """
     from aiq_agent.common.source_kinds import Shelf
 
@@ -669,7 +680,7 @@ async def family_overview(entries: Sequence[Any], family_key: str) -> FamilyOver
         logger.warning("Family member skipped", exc_info=failure)
     members = tuple(item for item in read if isinstance(item, FamilyMember))
     if not members:
-        return None
+        raise FamilyUnreadable(f"no part of {family.label} could be read")
     chunks = tuple(chunk for member in members for chunk in member.chunks)
     logger.info("Family overview: %s read %d member(s)", family.label, len(members))
     return FamilyOverview(

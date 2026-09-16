@@ -408,6 +408,18 @@ class TestAnOverviewThatFailsSaysSo:
 
         assert "Hinweis:" not in out
 
+    async def test_a_listed_family_with_no_readable_part_is_a_lost_overview(self, corpus):
+        """No member read is not "no family": the corpus lists it, so the
+        search asked for an overview and got none, and the notice says so."""
+        store = corpus(MEMBERS)
+        for file_name in MEMBERS.values():
+            store.outlines[file_name] = []
+
+        out = await _search()
+
+        assert out.startswith("Hinweis: der Überblick über die Teile der OIB-Richtlinie 2 konnte nicht erstellt")
+        assert _citations(out) == [f"{MEMBERS['2']}, p.12", f"{MEMBERS['2.3']}, p.5"]
+
 
 class TestOneRoundNotFive:
     async def test_the_members_are_read_in_one_gathered_round(self, corpus):

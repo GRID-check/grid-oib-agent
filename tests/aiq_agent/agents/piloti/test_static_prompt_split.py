@@ -30,6 +30,7 @@ from aiq_agent.agents.piloti.prompt import bundled_static_block
 from aiq_agent.agents.piloti.prompt import record_static_prompt_metadata
 from aiq_agent.agents.piloti.prompt import render_static_block
 from aiq_agent.agents.piloti.prompt import resolve_static_block
+from aiq_agent.agents.piloti.prompt import stamp_static_prompt_for_turn
 from aiq_agent.agents.piloti.prompt import system_prompt_template
 from aiq_agent.common.prompt_store import PromptStore
 from aiq_agent.common.prompt_store import ResolvedPrompt
@@ -227,6 +228,23 @@ class TestPromptLink:
             "prompt_name": "git:prompts/piloti_static.md",
             "prompt_version": bundled_static_block().version,
         }
+
+    async def test_the_turn_stamp_names_what_this_turn_resolved(self, monkeypatch):
+        """
+        The identity is process state and the stamp is per turn, so the stamp
+        must follow a resolution made for this turn and not the one before:
+        a process that served a version and has since fallen back names the
+        fallback on this turn's trace, not nothing.
+        """
+        served = _FakeStore(ResolvedPrompt(text="MANAGED", name=STATIC_PROMPT_NAME, version="12"))
+        monkeypatch.setattr(prompt_module, "prompt_store", lambda: served)
+        resolve_static_block()
+        monkeypatch.setattr(prompt_module, "prompt_store", lambda: PromptStore(enabled=False))
+
+        await stamp_static_prompt_for_turn()
+
+        assert lta.current_prompt_attributes() == {}
+        assert lta.snapshot_contributions()["metadata"]["prompt_name"] == "git:prompts/piloti_static.md"
 
     def test_falling_back_stops_the_process_naming_the_version_it_served(self, monkeypatch):
         """

@@ -23,6 +23,7 @@ replaced.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import logging
 import os
@@ -140,14 +141,23 @@ def resolve_static_block() -> ResolvedPrompt:
     return resolved
 
 
-def record_static_prompt_metadata() -> None:
-    """Name a bundled-fallback render in this turn's trace metadata.
+async def stamp_static_prompt_for_turn() -> None:
+    """Resolve the static half for THIS turn, then name a fallback in its trace.
 
-    Call it on the event LOOP. :func:`resolve_static_block` runs inside
-    ``asyncio.to_thread``, which copies the context, so a ContextVar written
-    there dies with the thread and never reaches the span export. Never raises:
+    Awaited on the event loop at the start of a turn. The resolution runs in a
+    worker thread because the store may fetch; the stamp runs on the loop
+    because ``asyncio.to_thread`` copies the context, so a ContextVar written
+    in the thread dies with it. Resolving first is what makes the stamp this
+    turn's: the render that follows hits the store's cache and serves the same
+    identity. Never raises: the store never raises into a turn, and
     ``record_trace_metadata`` absorbs its own failures.
     """
+    await asyncio.to_thread(resolve_static_block)
+    record_static_prompt_metadata()
+
+
+def record_static_prompt_metadata() -> None:
+    """Name a bundled-fallback render in this turn's trace metadata, on the loop."""
     if not _FALLBACK_IDENTITY:
         return
     record_trace_metadata(

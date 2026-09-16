@@ -106,7 +106,12 @@ class TestTheRenderDoesNotRunOnTheLoopThread:
 
     async def test_the_render_still_happens_once_per_turn(self, store):
         """Three rounds, one render: the string is cached on the state, and a
-        thread hop per iteration would be a new cost, not a saved one."""
+        thread hop per iteration would be a new cost, not a saved one.
+
+        Two store reads, not one: the turn resolves the static half once at its
+        start, off the loop, so its trace names what THIS turn renders with,
+        and the render's own read is the second. Neither grows with rounds.
+        """
         agent = _agent(
             AIMessage(content="", tool_calls=[{"name": "knowledge_search", "args": {"query": "a"}, "id": "1"}]),
             AIMessage(content="", tool_calls=[{"name": "knowledge_search", "args": {"query": "b"}, "id": "2"}]),
@@ -116,4 +121,5 @@ class TestTheRenderDoesNotRunOnTheLoopThread:
         result = await _run(agent)
 
         assert result.tool_iterations == 2
-        assert len(store.threads) == 1
+        assert len(store.threads) == 2
+        assert threading.current_thread() not in store.threads

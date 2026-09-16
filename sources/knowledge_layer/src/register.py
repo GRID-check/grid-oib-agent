@@ -1642,10 +1642,14 @@ async def _family_branch(entries, family_key: str) -> _FamilyBranch:
     this module back; both directions are function-scoped, so neither package
     can be half-initialised by the other.
     """
-    try:
-        from .read_passage import family_overview
+    from .read_passage import FamilyUnreadable
+    from .read_passage import family_overview
 
+    try:
         return _FamilyBranch(overview=await family_overview(entries, family_key))
+    except FamilyUnreadable as exc:
+        logger.warning("Family overview skipped for Richtlinie %s: %s", family_key, exc)
+        return _FamilyBranch(failed=True)
     except Exception:  # noqa: BLE001 — the ranked passages are always a valid answer
         logger.warning("Family overview skipped for Richtlinie %s", family_key, exc_info=True)
         return _FamilyBranch(failed=True)
