@@ -84,6 +84,25 @@ describe('segmented ToggleGroup', () => {
     expect(pills(container)[0]!.getAttribute('data-pill-id')).toBe(before)
   })
 
+  it('moves the pill when the group is UNCONTROLLED too', async () => {
+    // The atom tracks `onValueChange` into local state when no `value` is
+    // passed, precisely so the pill follows clicks the way Radix's own
+    // `data-state` does. Without a test the controlled half could keep working
+    // while a `defaultValue` consumer got a pill frozen on the first segment.
+    const user = userEvent.setup()
+    const { container } = render(
+      <ToggleGroup type="single" defaultValue="list" segmented aria-label="View">
+        <ToggleGroupItem value="list">Liste</ToggleGroupItem>
+        <ToggleGroupItem value="timetable">Zeitplan</ToggleGroupItem>
+      </ToggleGroup>
+    )
+    expect(pills(container)[0]!.closest('button')).toHaveTextContent('Liste')
+
+    await user.click(screen.getByRole('radio', { name: 'Zeitplan' }))
+
+    expect(pills(container)[0]!.closest('button')).toHaveTextContent('Zeitplan')
+  })
+
   it('draws no pill at all when the group is not segmented', () => {
     const { container } = render(
       <ToggleGroup type="single" value="list" aria-label="View">

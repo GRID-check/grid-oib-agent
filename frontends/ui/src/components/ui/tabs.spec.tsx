@@ -65,6 +65,27 @@ describe('Tabs', () => {
     expect(ids[0]).not.toBe(ids[1])
   })
 
+  it('moves the pill when the strip is UNCONTROLLED too', async () => {
+    // Same contract as ToggleGroup: with no `value`, the wrapper tracks
+    // `onValueChange` itself so the pill still follows clicks.
+    const user = userEvent.setup()
+    const { container } = render(
+      <Tabs defaultValue="one">
+        <TabsList aria-label="A">
+          <TabsTrigger value="one">A one</TabsTrigger>
+          <TabsTrigger value="two">A two</TabsTrigger>
+        </TabsList>
+        <TabsContent value="one">first</TabsContent>
+        <TabsContent value="two">second</TabsContent>
+      </Tabs>
+    )
+    expect(pills(container)[0]!.closest('button')).toHaveTextContent('A one')
+
+    await user.click(screen.getByRole('tab', { name: 'A two' }))
+
+    expect(pills(container)[0]!.closest('button')).toHaveTextContent('A two')
+  })
+
   it('keeps ONE identity within a strip, so the pill travels rather than cross-fades', async () => {
     const user = userEvent.setup()
     const { container } = render(<Strip label="A" />)
