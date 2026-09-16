@@ -94,6 +94,14 @@
             {
               "en": "Ein Werkzeugaufruf, der fehlschlägt, taucht nicht mehr als Quelle in der Herleitung auf. Bisher landete die Fehlermeldung selbst in der Quellenliste, samt der Adresse, auf die sie verwies, und Piloti las den Fehlschlag als Fließtext statt als kurzen Hinweis, mit dem es den Aufruf korrigieren kann.",
               "de": "Ein Werkzeugaufruf, der fehlschlägt, taucht nicht mehr als Quelle in der Herleitung auf. Bisher landete die Fehlermeldung selbst in der Quellenliste, samt der Adresse, auf die sie verwies, und Piloti las den Fehlschlag als Fließtext statt als kurzen Hinweis, mit dem es den Aufruf korrigieren kann."
+            },
+            {
+              "en": "On a phone, the last filter in the Tasks list ran off the edge of the card and could not be reached. Filter rows and view switchers now stay inside their card and scroll sideways when the labels do not fit.",
+              "de": "On a phone, the last filter in the Tasks list ran off the edge of the card and could not be reached. Filter rows and view switchers now stay inside their card and scroll sideways when the labels do not fit."
+            },
+            {
+              "en": "The sliding marker on a filter row or view switcher now stays inside the control it belongs to. Where two sat on one screen — the Liste/Zeitplan switcher above the Tasks filters — pressing one made the marker fly across to the other and back.",
+              "de": "The sliding marker on a filter row or view switcher now stays inside the control it belongs to. Where two sat on one screen — the Liste/Zeitplan switcher above the Tasks filters — pressing one made the marker fly across to the other and back."
             }
           ]
         }
