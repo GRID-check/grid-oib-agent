@@ -273,8 +273,13 @@ export const TURN_EVENT_KEYS: Record<string, string> = {
   'status.repair': 'thinking.turnStatus.',
   'status.escalation': 'thinking.turnStatus.',
   // Skill keys drop the `skill.` segment: it is already the dictionary group.
+  //
+  // There is one. `skill.forced` was the other — the sentence for a skill the
+  // turn HAD to apply because the composer named it or the platform published
+  // it as fleet standard. Both mechanisms are gone (migration 0088), so every
+  // activation is now the model reaching for a capability, which is what
+  // `skill.activated` already said.
   'skill.activated': 'thinking.',
-  'skill.forced': 'thinking.',
 }
 
 /** Keys whose template has a `{corpus}` slot filled from a list of corpus ids. */

@@ -187,8 +187,13 @@ export interface ResearchTruncation {
   lastTool?: string
 }
 
-/** Step slot the backend emits the budget record under (`status:budget`). */
-const BUDGET_SLOT = 'budget'
+/**
+ * Step slots the backend emits a shallow-research cutoff under. `budget` is
+ * the round ceiling, `budget:input` the per-turn input-token ceiling; both
+ * mean the same thing to the reader — the research chain stopped before the
+ * model chose to stop.
+ */
+const BUDGET_SLOTS: readonly string[] = ['budget', 'budget:input']
 
 /**
  * The NEWEST status payload a predicate accepts, or `null`.
@@ -215,7 +220,7 @@ const lastStatusPayload = (
 export const researchTruncation = (steps: TurnEventStep[]): ResearchTruncation | null => {
   const payload = lastStatusPayload(
     steps,
-    (p) => p.slot === BUDGET_SLOT && p.truncated === true
+    (p) => typeof p.slot === 'string' && BUDGET_SLOTS.includes(p.slot) && p.truncated === true
   )
   if (!payload) return null
   const tools = payload.tools?.filter((name) => name.trim().length > 0) ?? []

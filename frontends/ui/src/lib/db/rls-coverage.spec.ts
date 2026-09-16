@@ -72,10 +72,15 @@ const BOUNDARY_MIGRATIONS = [
   // (follow-up to PR #659). Both tables are project-scoped tenant data; the
   // old three keep their 0043/0075 entries until a later migration drops them.
   '0086_task_definitions.sql',
+  // Adds organization_instructions — one standing instruction block per tenant,
+  // sent to the agent on every turn. Keyed directly by the organization, so it
+  // is secured exactly as `organizations` and `curated_skill_activations` are.
+  '0087_organization_instructions.sql',
   // Adds skill_categories — the shelves skills stand on. Mixed ownership:
   // NULL organization_id is a platform shelf (readable by every tenant),
   // a set one is that org's own, so the predicate carries a NULL arm.
-  '0087_skill_categories.sql',
+  // Renumbered from 0087: develop took 0087 and 0088 first.
+  '0089_skill_categories.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

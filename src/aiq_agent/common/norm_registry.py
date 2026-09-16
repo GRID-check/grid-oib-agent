@@ -582,9 +582,8 @@ def focus_entries(entries: list[NormEntry], bundesland: str | None) -> list[Norm
 
 _BLOCK_HEADER = (
     "Kuratierter Normenkatalog (verifizierte RIS-Verweise).\n"
-    "Für diese Normen KEINE RIS-Suche verwenden: das Dokument direkt über das RIS-Fetch-Tool\n"
-    "(Dokumentnummer oder 'Gesamt'-URL) laden. Für Themensuche im Katalog das\n"
-    "RIS-Catalog-Lookup-Tool verwenden."
+    "Die RIS-Werkzeuge kennen diesen Katalog und lösen einen Verweis selbst auf; ein Eintrag hier\n"
+    "ist eine Adresse, die im Aufruf genannt werden kann, keine Fundstelle."
 )
 
 OIB_CORPUS_NOTE = (
@@ -714,6 +713,11 @@ def parcel_note(available_documents: list[dict] | None, country: str | None = No
     tags). Returns None when the project holds no tagged parcel document — the
     static doctrine rule (demand the plan / point at the public portal) then
     applies unchanged.
+
+    The note is the FILE LIST and nothing else. What to do with a parcel
+    question is standing doctrine and lives in the prompt above the KV-cache
+    boundary (``prompts/piloti_static.md``, ``<dokumentrollen>``), so the
+    per-turn block carries only what varies: which documents this project has.
     """
     if not available_documents:
         return None
@@ -734,11 +738,6 @@ def parcel_note(available_documents: list[dict] | None, country: str | None = No
         if tag in by_tag:
             files = ", ".join(sorted(by_tag[tag]))
             lines.append(f"- {tag}: {files}")
-    lines.append(
-        "Diese Dokumente sind für parzellenbezogene Fragen die maßgebliche Quelle — VOR OIB und Bauordnung "
-        "heranziehen (knowledge_search). Generische Antworten auf Parzellen-Fragen sind unzulässig, solange "
-        "diese Dokumente nicht geprüft wurden."
-    )
     return "\n".join(lines)
 
 

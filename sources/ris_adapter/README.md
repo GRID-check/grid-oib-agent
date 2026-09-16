@@ -7,11 +7,45 @@ OGD-RIS is an open-government-data service.
 
 ## Tools
 
-| Tool | `_type` | Purpose |
-|------|---------|---------|
-| RIS search | `ris_search` | Search federal law (`BrKons`, `BgblAuth`, …), state law (`LrKons`, …), and case law (`Vfgh`, `Vwgh`, `Justiz`, `Bvwg`, `Lvwg`, …). Returns document references with citation URLs. |
-| RIS document fetch | `ris_fetch_document` | Fetch an **entire document on demand** — a law paragraph, a complete consolidated law (`GesamteRechtsvorschrift`), or a court decision — and return its full text to the agent. |
-| RIS catalog lookup | `ris_catalog_lookup` | Topic search in the **norm registry** — verified pointers plus rank/role/relations for the building-relevant norms, no keyword guessing. |
+| Tool | `_type` | Purpose | Bound on |
+|------|---------|---------|----------|
+| RIS lookup | `ris_lookup` | **Question in, citable passages out.** Runs address parse → candidates → fetch → extract inside ONE call and returns passages in the knowledge layer's grounding grammar (`Citation:`, `Punkt:`, `Dokumentart: gesetz`). | chat (Piloti) |
+| RIS search | `ris_search` | Search federal law (`BrKons`, `BgblAuth`, …), state law (`LrKons`, …), and case law (`Vfgh`, `Vwgh`, `Justiz`, `Bvwg`, `Lvwg`, …). Returns document references with citation URLs. | deep research |
+| RIS document fetch | `ris_fetch_document` | Fetch an **entire document on demand** — a law paragraph, a complete consolidated law (`GesamteRechtsvorschrift`), or a court decision — and return its full text to the agent. | deep research |
+| RIS catalog lookup | `ris_catalog_lookup` | Topic search in the **norm registry** — verified pointers plus rank/role/relations for the building-relevant norms, no keyword guessing. | deep research |
+
+### `ris_lookup`: one tool, because a tool delivers an answer
+
+The other three are a SEQUENCE the model used to run by hand — catalog, search,
+fetch — for two or three of its seven charged calls, ending in up to 40 000
+characters of law text that carried no `Citation:` key and no `Punkt:`. Nothing
+downstream could treat that as evidence: `citation_verification` fell through to
+the generic URL extractor, so the answer cited a link where it should have cited
+`§ 63 Abs 1`.
+
+`ris_lookup(question, conclusion, jurisdiction, instrument, application)` runs
+the same path internally, with its own bounds, one module per stage under
+[`src/lookup/`](src/lookup/):
+
+| Stage | Module | Bound |
+|---|---|---|
+| address parse (§/Art/Abs, named law, Bundesland) | `address.py` | — deterministic, no LLM |
+| candidates (norm registry, else a planned live search) | `candidates.py` | 3 |
+| fetch, in parallel, through the shared cache | `fetch.py` | 2 |
+| the paragraph grammar | `grammar.py` | passage ≤ the knowledge layer's `_CHUNK_TRUNCATE_CHARS`, cut on an Absatz boundary |
+| § selection — deterministic, else ONE call over § headings | `extract.py`, `picker.py` | 6 passages, 2 documents |
+| the grounding block / the miss | `passages.py`, `render.py`, `miss.py` | — |
+| session-collection ingest (so `read_passage` reopens the law) | `ingest.py` | — |
+
+Best case — a named §, a catalog hit, a warm cache — is one charged call and
+**zero** LLM calls. Worst case is one planner call plus one picker call, still
+one charged call. A miss is never empty: it states the terms actually searched,
+the Bundesland it assumed **and where that came from**, what matched but was not
+read (including the catalog's "Not in RIS" cases), and one concrete retry.
+
+Deep research keeps the three tools until its own consolidation: it plans
+retrieval across up to six researchers and has a different budget shape, and
+folding both surfaces in one change would make the loop-eval delta unreadable.
 
 ### Norm registry (deterministic pointers + legal metadata)
 

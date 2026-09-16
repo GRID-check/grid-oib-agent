@@ -82,8 +82,10 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "you cite a project or Büroarchiv file, do not also call "
     "`surface_documents`; the UI peeks the cited file. Live Austrian law "
     "(statutes, Bauordnungen) is the RIS tools, not this index. When you "
-    "already know the document AND the Punkt or page you need, that is "
-    "`read_passage` — a lookup, not a second search.\n"
+    "already know WHICH document you need, that is `read_passage` — with the "
+    "Punkt or page when you have one, with the document alone when you do not "
+    "(it then returns that document's scope and its outline). A lookup, not a "
+    "second search.\n"
     "HOW TO QUERY — rewrite the user question into a search query (topic + "
     "jurisdiction + implied year). Prefer one precise call over a broad dump. "
     "If a conclusion names a document and a Punkt or page you have not opened, "
@@ -566,22 +568,53 @@ def _resolve_target_collections(
     return [entry.collection for entry in _resolve_scoped_collections(config, session_id, base_collection)]
 
 
-def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: dict | None) -> dict | None:
-    """Base-collection metadata filter: configured file exclusions merged with caller filters.
+#: The ``chunking`` value the base corpus uses for text that is not evidence.
+#:
+#: ``punkt_documents`` (``llamaindex/punkt_chunking.py``) cuts a Punkt-structured
+#: Richtlinie into one chunk per numbered Punkt, tagged ``chunking: "punkt"``, and
+#: emits everything outside that run -- the cover page and the Impressum -- as
+#: per-page Documents tagged ``chunking: "page"``. Neither is citable: pdfplumber
+#: returns the cover's display type as garble, and the Impressum is furniture. A
+#: title-shaped query ("OIB-Richtlinie 2 Ausgabe Mai 2023") matched exactly those
+#: two, so an overview question came back as four cover pages at page 1 and the
+#: model learned nothing.
+#:
+#: The exclusion is a STORE filter rather than a post-retrieval drop because a
+#: dropped hit still costs its candidate slot. It is ``$ne`` rather than a
+#: whitelist of ``punkt`` on purpose: only Punkt-structured documents carry the
+#: key at all -- Begriffsbestimmungen, Zitierte Normen, project uploads and office
+#: files carry no ``chunking`` key -- and a whitelist would delete them from
+#: search. Measured against the deployed store (chromadb 1.5.9, the version
+#: ``deploy/`` pins): ``$ne`` KEEPS records that lack the key, so the keyless
+#: majority of the corpus is untouched. ``tests/knowledge_layer_tests/
+#: test_page_chunk_exclusion.py`` round-trips that through a real collection, so
+#: a version bump that changed the semantics fails a test rather than emptying
+#: the corpus silently.
+#:
+#: ``read_passage`` builds its own filters and is deliberately NOT subject to
+#: this: naming page 1 of a Richtlinie is an explicit request, not a similarity hit.
+_NON_EVIDENCE_CHUNKING = "page"
 
-    ``exclude_file_names`` becomes a ``file_name NOT IN [...]`` clause; the caller's
-    optional ``filters`` dict is AND-ed with it. Applied to the base collection only
-    (session/project collections are never filtered). Returns None when neither is set.
+
+def _base_collection_filters(config: KnowledgeRetrievalConfig, caller_filters: dict | None) -> dict:
+    """Base-collection metadata filter: the page-chunk exclusion, file exclusions, caller filters.
+
+    Three clauses, AND-ed, applied to the base collection only (session/project
+    collections are user content and are never filtered):
+
+    1. ``chunking != "page"``, always. See :data:`_NON_EVIDENCE_CHUNKING`.
+    2. ``exclude_file_names`` as a ``file_name NOT IN [...]`` clause, when configured.
+    3. the caller's optional ``filters`` dict, when given.
+
+    Never returns None: clause 1 holds for every base-corpus search.
     """
+    clauses: list[dict] = [{"chunking": {"$ne": _NON_EVIDENCE_CHUNKING}}]
     excluded = sorted(set(config.exclude_file_names))
-    clauses: list[dict] = []
     if excluded:
         clauses.append({"file_name": {"$nin": excluded}})
     if caller_filters:
         clauses.append(caller_filters)
 
-    if not clauses:
-        return None
     if len(clauses) == 1:
         return clauses[0]
     return {"$and": clauses}
@@ -1218,91 +1251,118 @@ def _trace_lanes_json(
     :func:`_resolve_doc_classes` and ``resolved_titles`` the stored display-title
     map from :func:`_resolve_display_titles`; when omitted they are computed here
     so the function stays usable standalone.
+
+    This is the CHUNK-facing entry point. It turns chunks into the same
+    :class:`~aiq_agent.common.grounding_block.GroundingHit` records the header
+    lines are rendered from and hands them to :func:`_trace_lanes_for_hits`, so
+    a hit's shelf, Dokumentart and title are derived once (ADR-0061).
+    """
+    try:
+        if resolved is None:
+            resolved = _resolve_doc_classes(chunks)
+        if resolved_titles is None:
+            resolved_titles = _resolve_display_titles(chunks)
+        hits = [
+            _grounding_hit(
+                chunk,
+                resolved=resolved,
+                resolved_titles=resolved_titles,
+                # Neither reaches the fan-out: it names documents by raw
+                # filename, so no citation key is built and no folder is read.
+                resolved_folders={},
+                ambiguous=set(),
+            )
+            for chunk in chunks
+        ]
+    except Exception:
+        logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
+        return '{"lanes":[]}'
+    return _trace_lanes_for_hits(hits)
+
+
+def _trace_lanes_for_hits(hits) -> str:
+    """The ``## Trace-Lanes`` fan-out for records that are already built.
+
+    Fail-open: never break tool output for the LLM. See :func:`_trace_lanes_json`
+    for what the payload means and why each field is on it.
     """
     try:
         import json
         from collections import OrderedDict
 
         from aiq_agent.common.norm_registry import lane_for_knowledge_hit
-        from aiq_agent.common.provenance import provenance_metadata
         from aiq_agent.common.source_kinds import kind_for_lane
 
-        if resolved is None:
-            resolved = _resolve_doc_classes(chunks)
-        if resolved_titles is None:
-            resolved_titles = _resolve_display_titles(chunks)
-
         lanes: OrderedDict[str, dict] = OrderedDict()
-        for chunk in chunks:
-            metadata = chunk.metadata or {}
-            collection = metadata.get("collection")
-            shelf = metadata.get("shelf")
-            doc_class = _hit_doc_class(chunk, resolved)
-            provenance = _hit_provenance(chunk)
+        for hit in hits:
             key, label = lane_for_knowledge_hit(
-                doc_class=doc_class,
-                file_name=chunk.file_name,
-                collection=collection,
-                shelf=shelf,
-                authored_by=provenance.authored_by if provenance else None,
+                doc_class=hit.doc_class,
+                file_name=hit.file_name,
+                collection=hit.collection,
+                shelf=hit.shelf,
+                authored_by=hit.authored_by,
             )
-            bucket = lanes.get(key)
-            if bucket is None:
-                bucket = {
-                    "key": key,
-                    "label": label,
-                    "kind": kind_for_lane(key),
-                    "hitCount": 0,
-                    "sources": [],
-                }
-                lanes[key] = bucket
+            bucket = lanes.setdefault(
+                key,
+                {"key": key, "label": label, "kind": kind_for_lane(key), "hitCount": 0, "sources": []},
+            )
             bucket["hitCount"] += 1
-            name = chunk.file_name or ""
-            detail = f"p.{chunk.page_number}" if chunk.page_number and chunk.page_number > 0 else None
-            # Deduplicate identical name+detail pairs inside a lane.
-            sig = (name, detail or "")
-            existing = {(s.get("name"), s.get("detail") or "") for s in bucket["sources"]}
-            if name and sig not in existing:
-                entry: dict[str, Any] = {"name": name}
-                title = _hit_display_title(chunk, resolved_titles)
-                if title and title != name:
-                    entry["title"] = title
-                if detail:
-                    entry["detail"] = detail
-                if isinstance(shelf, str) and shelf:
-                    entry["shelf"] = shelf
-                if provenance is not None:
-                    # The KEYS, not the German sentence: the fan-out is data,
-                    # and a frontend that wants "freigegeben von …" should build
-                    # it in the reader's own locale from the approver and the
-                    # ISO date rather than parse it back out of prose.
-                    entry["provenance"] = provenance_metadata(provenance)
-                try:
-                    from aiq_agent.common.turn_status import current_retrieval_round
-                    from aiq_agent.common.turn_status import record_lane_hit
-
-                    rnd = current_retrieval_round()
-                    capture = record_lane_hit
-                except Exception:  # noqa: BLE001 — a missing round stamp must not drop the hit
-                    rnd = None
-                    capture = None
-                if rnd is not None:
-                    entry["round"] = rnd
-                if capture is not None:
-                    # The per-round ledger reads this, never the prose: the
-                    # capture keeps every round's hits apart, while the
-                    # turn_sources log dedups documents across rounds.
-                    capture(
-                        name,
-                        title=entry.get("title"),
-                        detail=entry.get("detail"),
-                        shelf=entry.get("shelf"),
-                    )
-                bucket["sources"].append(entry)
+            _append_lane_source(bucket, hit)
         return json.dumps({"lanes": list(lanes.values())}, ensure_ascii=False)
     except Exception:
         logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
         return '{"lanes":[]}'
+
+
+def _append_lane_source(bucket: dict, hit) -> None:
+    """Add one hit to its lane's source list, unless the lane already names it."""
+    from aiq_agent.common.provenance import provenance_metadata
+
+    name = hit.file_name or ""
+    detail = f"p.{hit.page}" if hit.page is not None else None
+    # Deduplicate identical name+detail pairs inside a lane.
+    existing = {(source.get("name"), source.get("detail") or "") for source in bucket["sources"]}
+    if not name or (name, detail or "") in existing:
+        return
+    entry: dict[str, Any] = {"name": name}
+    if hit.display_title and hit.display_title != name:
+        entry["title"] = hit.display_title
+    if detail:
+        entry["detail"] = detail
+    if hit.shelf is not None:
+        entry["shelf"] = str(hit.shelf)
+    if hit.provenance is not None:
+        # The KEYS, not the German sentence: the fan-out is data, and a
+        # frontend that wants "freigegeben von …" should build it in the
+        # reader's own locale from the approver and the ISO date rather than
+        # parse it back out of prose.
+        entry["provenance"] = provenance_metadata(hit.provenance)
+    _stamp_and_capture_lane_source(entry)
+    bucket["sources"].append(entry)
+
+
+def _stamp_and_capture_lane_source(entry: dict) -> None:
+    """Stamp the entry with its retrieval round and note it on the turn's ledger.
+
+    The per-round ledger reads this, never the prose: the capture keeps every
+    round's hits apart, while the turn_sources log dedups documents across
+    rounds. A missing round stamp must not drop the hit.
+    """
+    try:
+        from aiq_agent.common.turn_status import current_retrieval_round
+        from aiq_agent.common.turn_status import record_lane_hit
+
+        round_index = current_retrieval_round()
+        if round_index is not None:
+            entry["round"] = round_index
+        record_lane_hit(
+            entry["name"],
+            title=entry.get("title"),
+            detail=entry.get("detail"),
+            shelf=entry.get("shelf"),
+        )
+    except Exception:  # noqa: BLE001 (the fan-out survives a missing status module)
+        logger.debug("Turn status unavailable; lane hit goes unstamped", exc_info=True)
 
 
 def _hit_provenance(chunk):
@@ -1354,155 +1414,160 @@ def _ambiguous_file_names(chunks) -> set[str]:
     return {name for name, shelves in shelves_by_name.items() if len(shelves) > 1}
 
 
-def _format_results(retrieval_result, query: str) -> str:
-    """
-    Format retrieval results for LLM consumption.
+def _citation_key_for(file_name: str, shelf, page: int | None, ambiguous: set[str]) -> str:
+    """The key the model copies: ``"filename, p.X"``, or just ``"filename"``.
 
-    Returns a structured string that provides context for the agent.
-    The format includes explicit citation fields so the LLM knows exactly
-    what to use in its References section.
+    It keeps the REAL filename, which is the document identity preview
+    resolution and source dedup use; only the human ``Source:`` label is
+    prettified. When the same filename arrived from two different shelves in
+    this very result set the name alone no longer identifies a document, so it
+    is qualified: ``Plan.pdf (Projektwissen), p.3``. The qualifier is
+    rendering, not transport, and an unknown shelf gets none.
     """
+    from aiq_agent.common.source_kinds import shelf_qualifier
+
+    name = file_name
+    qualifier = shelf_qualifier(shelf) if name and name.lower() in ambiguous else None
+    if qualifier:
+        name = f"{name} ({qualifier})"
+    return f"{name}, p.{page}" if page is not None else name
+
+
+def _stored_image_index(metadata: dict) -> int | None:
+    """The index of a raster the ingest pipeline stored beside the document.
+
+    ``None`` unless the chunk carries BOTH keys (``image_store.py``): the model
+    reads the index off the rendered line and passes it to
+    ``view_knowledge_image``, which then shows the embedded image itself rather
+    than a render of the page around it, and an index with no stored key names
+    nothing.
+    """
+    index = metadata.get("stored_image_index")
+    if index is None or not metadata.get("image_key"):
+        return None
+    try:
+        return int(index)
+    except (TypeError, ValueError):
+        logger.warning("Ignoring unreadable stored_image_index %r", index)
+        return None
+
+
+def _metadata_text(value: object) -> str | None:
+    """A chunk-metadata value as the string a grounding block states, or ``None``."""
+    return str(value) if value else None
+
+
+def _grounding_hit(chunk, *, resolved, resolved_titles, resolved_folders, ambiguous: set[str]):
+    """One retrieval chunk as the RECORD a grounding block is made of (ADR-0061).
+
+    The single place a chunk becomes citable fields, so the header lines, the
+    Trace-Lanes fan-out and the citation registry cannot disagree about a hit's
+    shelf, Dokumentart or title. Three fields are resolved against the document
+    metadata store rather than chunk metadata (``doc_class``, ``display_title``,
+    ``folder_path``): the store is authoritative and a folder rename must take
+    effect with no re-ingest (ADR-0049).
+    """
+    from aiq_agent.common.grounding_block import GroundingHit
+
+    metadata = chunk.metadata or {}
+    shelf = _chunk_shelf(chunk)
+    page = chunk.page_number if chunk.page_number and chunk.page_number > 0 else None
+    content = chunk.content
+    truncated = len(content) > _CHUNK_TRUNCATE_CHARS
+    return GroundingHit(
+        citation_key=_citation_key_for(chunk.file_name, shelf, page, ambiguous),
+        file_name=chunk.file_name,
+        page=page,
+        shelf=shelf,
+        collection=_metadata_text(metadata.get("collection")),
+        doc_class=_hit_doc_class(chunk, resolved),
+        display_title=_hit_display_title(chunk, resolved_titles) or chunk.file_name,
+        folder_path=_hit_folder_path(chunk, resolved_folders),
+        punkt=_metadata_text(metadata.get("punkt_id")),
+        score=chunk.score,
+        content_type=chunk.content_type.value,
+        provenance=_hit_provenance(chunk),
+        stored_image_index=_stored_image_index(metadata),
+        status_note=None,
+        source_url=None,
+        body=content[:_CHUNK_TRUNCATE_CHARS] if truncated else content,
+        body_truncated=truncated,
+    )
+
+
+def _grounding_hits(chunks) -> tuple:
+    """Every chunk of one result set as a record.
+
+    The three store reads are batched once per result set (one query per
+    in-scope collection), and which filenames are ambiguous is a property of
+    the whole set, so both belong here rather than in the per-chunk builder.
+    """
+    resolved = _resolve_doc_classes(chunks)
+    resolved_titles = _resolve_display_titles(chunks)
+    resolved_folders = _resolve_folder_paths(chunks)
+    ambiguous = _ambiguous_file_names(chunks)
+    return tuple(
+        _grounding_hit(
+            chunk,
+            resolved=resolved,
+            resolved_titles=resolved_titles,
+            resolved_folders=resolved_folders,
+            ambiguous=ambiguous,
+        )
+        for chunk in chunks
+    )
+
+
+def _format_results(retrieval_result, query: str, notice: str = "", trailer: str = "") -> str:
+    """Build this result set's grounding hits and render them for the LLM.
+
+    The layout itself lives in
+    :func:`~aiq_agent.common.grounding_block.render_grounding_block`, which also
+    files the records under the hash of the bytes it returns, so the citation
+    registry reads fields rather than re-parsing this text (ADR-0061). That is
+    why both decorations are rendered here and neither is glued on by the
+    caller: a byte added after rendering changes the hash, and the reader would
+    fall back to parsing the text. ``notice`` is the requery notice and goes
+    ahead of everything; ``trailer`` is ``read_passage``'s ``## Gliederung``
+    index and follows the fan-out.
+    """
+    # The two answers below carry no block, so they carry no hash to protect
+    # either; there the trailer is simply appended, which keeps it stated
+    # whichever answer this call has.
+    tail = f"\n{trailer}" if trailer else ""
+
     # Check for retrieval errors and surface them to the agent
     # getattr: callers pass duck-typed result-likes (e.g. SimpleNamespace in
     # tests) that may not carry the optional error_message field.
     if not retrieval_result.success:
         error_msg = getattr(retrieval_result, "error_message", None) or "Unknown error"
-        return f"Knowledge retrieval failed: {error_msg}\n\nQuery: '{query}'"
+        return f"Knowledge retrieval failed: {error_msg}\n\nQuery: '{query}'{tail}"
 
     # Degraded partial retrieval (e.g. the base corpus dropped out on an
     # embedding-fingerprint mismatch while other layers survived): the chunks
     # below are real, but they are NOT the full corpus. Without this banner the
     # LLM reads a partial answer as a complete one.
     degraded_detail = getattr(retrieval_result, "error_message", None)
-    degraded_banner = f"WARNING: {degraded_detail}\n\n" if degraded_detail else ""
+    degraded_banner = notice + (f"WARNING: {degraded_detail}\n\n" if degraded_detail else "")
 
     if not retrieval_result.chunks:
-        return f"{degraded_banner}No relevant documents found for query: '{query}'"
+        return f"{degraded_banner}No relevant documents found for query: '{query}'{tail}"
 
-    lines = [f"Found {len(retrieval_result.chunks)} relevant document(s):\n"]
+    from aiq_agent.common.grounding_block import GroundingBlock
+    from aiq_agent.common.grounding_block import render_grounding_block
 
-    # Resolve the authoritative doc_class per document once (store wins over chunk
-    # metadata) and reuse it for both the Dokumentart line and the Trace-Lanes
-    # fan-out so the two never disagree.
-    resolved = _resolve_doc_classes(retrieval_result.chunks)
-    # Resolve the user-facing display title per document once (stored override →
-    # derived default). This becomes the citation chip label so the answer never
-    # surfaces a raw corpus filename like "oib-rl_2_ausgabe_mai_2023.pdf".
-    resolved_titles = _resolve_display_titles(retrieval_result.chunks)
-    # Where each document is filed (ADR-0049) — one batched read per collection,
-    # same shape as the two above. The model needs it to say "der Plan im Ordner
-    # Brandschutz" rather than only naming the file.
-    resolved_folders = _resolve_folder_paths(retrieval_result.chunks)
-    # Names this result set holds on more than one shelf; only these are qualified.
-    ambiguous = _ambiguous_file_names(retrieval_result.chunks)
-
-    for i, chunk in enumerate(retrieval_result.chunks, 1):
-        # Build citation string: "filename, p.X" or just "filename". The Citation
-        # keeps the real filename — it is the document identity used for preview
-        # resolution and source dedup; only the human Source label is prettified.
-        # When the same filename arrived from two different shelves in this very
-        # result set, the name alone no longer identifies a document, so it is
-        # qualified: "Plan.pdf (Projektwissen), p.3".
-        shelf = _chunk_shelf(chunk)
-        name = chunk.file_name
-        if name and name.lower() in ambiguous:
-            from aiq_agent.common.source_kinds import shelf_qualifier
-
-            # Rendering, not transport: the qualifier is how the shelf READS in a
-            # key the model copies. An unknown shelf gets none (unattributed).
-            qualifier = shelf_qualifier(shelf)
-            if qualifier:
-                name = f"{name} ({qualifier})"
-        if chunk.page_number and chunk.page_number > 0:
-            citation = f"{name}, p.{chunk.page_number}"
-        else:
-            citation = name
-
-        # Header with source info. `Source:` carries the user-facing display name
-        # (parsed into the citation chip's title); it falls back to the filename
-        # for documents with no display title (project/Büroarchiv uploads).
-        display_title = _hit_display_title(chunk, resolved_titles) or chunk.file_name
-
-        lines.append(f"--- Result {i} ---")
-        lines.append(f"Source: {display_title}")
-        collection = (chunk.metadata or {}).get("collection")
-        if collection:
-            lines.append(f"Collection: {collection}")
-        # The shelf travels as DATA (ADR-0047): the citation payload states it so
-        # the source registry never re-derives it from the collection id. Omitted
-        # when unknown — the reader must see the absence, not a default.
-        if shelf is not None:
-            lines.append(f"Shelf: {shelf}")
-        # WHERE the user filed this document (ADR-0049). Resolved from the
-        # metadata store, not from chunk metadata, so a folder rename shows up
-        # here immediately. Omitted for a document at the shelf's root — an
-        # absent line is "no folder", never a default one.
-        folder_path = _hit_folder_path(chunk, resolved_folders)
-        if folder_path:
-            lines.append(f"Ordner: {folder_path}")
-        # Explicit per-document classification ("Dokumentart"). Emit the machine
-        # doc_class key first (the citation parser reads it) followed by the
-        # German label so the LLM is told the document's role in the norm
-        # hierarchy. The summary store is authoritative; chunk metadata is only a
-        # fallback (standalone deploys with no summary DB).
-        doc_class = _hit_doc_class(chunk, resolved)
-        if doc_class:
-            from aiq_agent.knowledge.document_classification import DOCUMENT_CLASS_LABELS
-
-            label = DOCUMENT_CLASS_LABELS.get(doc_class, doc_class)
-            lines.append(f"Dokumentart: {doc_class} — {label}")
-        # WHO WROTE IT, for the documents Piloti wrote and a person released.
-        # One line, no sentence: everything here is text the model may copy into
-        # an answer, and „Dieses Dokument wurde freigegeben von …" is a sentence
-        # that would arrive in one. Emitted only for a marked hit, so every
-        # human document's block is unchanged byte for byte.
-        provenance = _hit_provenance(chunk)
-        if provenance is not None:
-            from aiq_agent.common.provenance import provenance_label
-
-            lines.append(f"Herkunft: {provenance_label(provenance)}")
-        if chunk.page_number and chunk.page_number > 0:
-            lines.append(f"Page: {chunk.page_number}")
-        # The Punkt this excerpt belongs to, when the chunker established one. An
-        # Austrian building-law answer cites a requirement number ("OIB-RL 2, Pkt.
-        # 5.1.1"), and without this line the model has to read that number out of the
-        # excerpt text. That works for a Punkt that starts its own chunk and fails
-        # exactly where it matters: an over-long Punkt is split downstream by
-        # SentenceSplitter, and its continuation chunks inherit `punkt_id` in metadata
-        # while presenting to the model as anonymous prose with a page number. The
-        # model then guesses a number, and the prompt tells it to produce one.
-        #
-        # Stating it is also what makes the chunker's verified `punkt_id` reachable by
-        # anything downstream: until now it was computed, measured exactly against the
-        # corpus's contents pages, and then dropped before the citation the user reads.
-        punkt_id = (chunk.metadata or {}).get("punkt_id")
-        if punkt_id:
-            lines.append(f"Punkt: {punkt_id}")
-        lines.append(f"Citation: {citation}")
-        lines.append(f"Content Type: {chunk.content_type.value}")
-        # A raster the ingest pipeline stored beside the document (image_store.py).
-        # Present only when the chunk carries the key: the model reads the index
-        # off this line and passes it to `view_knowledge_image`, which then shows
-        # the embedded image itself rather than a render of the page around it.
-        stored_image_index = (chunk.metadata or {}).get("stored_image_index")
-        if (chunk.metadata or {}).get("image_key") and stored_image_index is not None:
-            lines.append(f"Image: stored (view_knowledge_image image_index={stored_image_index})")
-        lines.append(f"Relevance Score: {chunk.score:.2f}")
-        lines.append("")
-
-        content = chunk.content
-        if len(content) > _CHUNK_TRUNCATE_CHARS:
-            content = content[:_CHUNK_TRUNCATE_CHARS] + "... [truncated]"
-        lines.append(content)
-        lines.append("")
-
-    # Fan-out summary for the Herleitung UI (after chunk bodies so the LLM
-    # still sees citations first; parsers look for the marker explicitly).
-    lines.append("## Trace-Lanes")
-    lines.append(_trace_lanes_json(retrieval_result.chunks, resolved, resolved_titles))
-    lines.append("")
-
-    return degraded_banner + "\n".join(lines)
+    hits = _grounding_hits(retrieval_result.chunks)
+    return render_grounding_block(
+        GroundingBlock(
+            preamble=f"Found {len(hits)} relevant document(s):",
+            degraded_banner=degraded_banner,
+            hits=hits,
+            # Fan-out summary for the Herleitung UI, from the same records the
+            # header lines state.
+            lanes=_trace_lanes_for_hits(hits),
+            trailer=trailer,
+        )
+    )
 
 
 def _normalized_query_for_span(text: str) -> str:
@@ -2207,15 +2272,21 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # doc_class resolution plus pure-CPU string building; run it off the
             # event loop so the synchronous DB round-trips never block the loop
             # (and stall other concurrent turns).
-            formatted = await asyncio.to_thread(_format_results, merged, query)
+            formatted = await asyncio.to_thread(_format_results, merged, query, notice)
             logger.info(f"Knowledge search returned {len(merged.chunks)} chunks")
             logger.debug(f"Formatted result for LLM:\n{formatted[:500]}...")
-            return notice + formatted
+            return formatted
 
         except Exception as e:
+            from aiq_agent.common.turn_status import FETCH_FAILED_MARKER
+
             logger.error(f"Knowledge search failed: {e}")
+            # The marker is load-bearing, not decoration: the agent's
+            # duplicate-fetch guard reads it to tell a failed call from a
+            # fetched one, so the retry this sentence asks for is not
+            # withheld as a repeat (`FETCH_FAILED_MARKER`).
             return (
-                f"Knowledge search failed for query={query!r}. "
+                f"{FETCH_FAILED_MARKER} Knowledge search failed for query={query!r}. "
                 "Retry once with the same query; if it fails again, say you "
                 "could not search the knowledge base and do not invent a citation. "
                 f"Technical detail: {e}"

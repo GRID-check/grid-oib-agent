@@ -12,24 +12,29 @@ metadata:
 
 Die Werkzeugbeschreibungen sagen, **was** `ifc_query` und `ifc_measure` können,
 und sie sagen es ausführlich — jeden Operator, jeden Kennwert, jede Relation.
-Hier steht nur, was dort nicht steht: **wie viele Züge zur Verfügung stehen**,
-**wie eine Frage über viele Bauteile in einen davon passt**, und **woran man
+Hier steht nur, was dort nicht steht: **wie viele Runden zur Verfügung stehen**,
+**wie eine Frage über viele Bauteile in eine davon passt**, und **woran man
 merkt, dass eine Zahl etwas anderes misst als das, wonach gefragt wurde**. Der
 Fehler, den dieses Paket beseitigen soll, war nie eine falsche Formel — es war
 eine richtig gemessene Zahl unter einem falschen Namen.
 
-## 1. Das Budget: gezählt wird beim Abschicken
+## 1. Das Budget: gezählt wird die Runde
 
-Nach einer festen Zahl von Werkzeugaufrufen bricht dieser Agent den Werkzeugteil
-ab und formuliert die Antwort aus dem, was bis dahin dasteht. Gezählt wird, wenn
-der Aufruf **abgeschickt** wird, nicht wenn er etwas liefert:
+Nach einer festen Zahl von Runden bricht dieser Agent den Werkzeugteil ab und
+formuliert die Antwort aus dem, was bis dahin dasteht. Eine Runde ist alles, was
+auf einmal abgeschickt wird, und sie kostet einen, gleich wie viele Aufrufe in
+ihr stehen:
 
-- Ein Aufruf mit null Treffern kostet so viel wie einer, der antwortet. Nichts
-  wird zurückerstattet, auch ein abgelehnter Aufruf nicht.
-- **Mehrere Aufrufe in EINEM Zug kosten jeder einen.** Drei parallele Aufrufe
-  sind drei verbrauchte Züge, nicht einer — wer parallel arbeitet, hat deutlich
-  weniger Runden, als die Zahl vermuten lässt.
-- Diesen Skill zu laden war einer davon.
+- **Drei Aufrufe nebeneinander in einer Runde kosten zusammen einen.** Breit zu
+  fragen ist deshalb die billigste Art, an eine Messung zu kommen: `survey`,
+  `element_profile` und ein `briefing` in derselben Runde kosten so viel wie
+  `survey` allein.
+- Ein Aufruf mit null Treffern kostet dasselbe wie einer, der antwortet, und
+  eine Runde aus lauter abgelehnten Aufrufen kostet ihren einen ebenso.
+- Eine Runde läuft bis zur eingestellten Rundenbreite; was darüber hinaus in
+  derselben Runde steht, kommt mit dem Hinweis zurück, dass es in der nächsten
+  Runde erneut gestellt werden kann.
+- Diesen Skill zu laden war eine Runde.
 
 Eine Antwort, die vor der Messung abgeschnitten wird, fällt auf die deklarierten
 Werte der Datei zurück — auf genau die Zahlen, wegen deren Unzuverlässigkeit
@@ -42,12 +47,13 @@ kommentarlos an die Stelle der gemessenen zu setzen, ist die teuerste Art, das
 Budget zu überziehen — von außen ist sie von einer Messung nicht zu
 unterscheiden.
 
-Deshalb weicht die Reihenfolge hier von der Werkzeugbeschreibung ab, die
-„briefing zuerst" sagt: das gilt, wo Züge billig sind. Steht die Auswahl auch
-ohne Briefing — ein Typ, ein Namensteil, ein ganzes Gebäude —, dann wird
-gemessen. `briefing` ist der Zug, der einen ins Leere gelaufenen Aufruf rettet,
-wenn ein Geschoß- oder Merkmalsname nicht traf. Als Reparatur, nicht als
-Vorbereitung: kostenlos ist es an Rechenzeit, nicht am Budget.
+Die Werkzeugbeschreibung sagt „briefing zuerst". Das gilt, solange die Auswahl
+offen ist: Dann steht `briefing` in einer eigenen Runde davor und liefert die
+Geschoß- und Merkmalsnamen, aus denen die Argumente der Messung gebaut werden.
+Steht die Auswahl schon fest, etwa ein Typ, ein Namensteil oder ein ganzes
+Gebäude, dann fährt `briefing` in derselben Runde neben der Messung mit und
+kostet dort nichts; seine Namen sind das Material, mit dem ein ins Leere
+gelaufener Geschoß- oder Merkmalsname in der nächsten Runde trifft.
 
 ## 2. Eine Frage in der Mehrzahl ist eine Frage über viele Bauteile
 
@@ -76,7 +82,7 @@ einmal, jedes Bauteil mit eigener Antwort und eigener Toleranz.
 
 Und ist umgekehrt ein einzelnes Bauteil interessant geworden — der Ausreißer,
 den ein `survey` benannt hat —, dann nimmt `operation: "element_profile"` in
-EINEM Zug alle Maße, die für dieses Bauteil überhaupt gelten, statt sie einzeln
+EINEM Aufruf alle Maße, die für dieses Bauteil überhaupt gelten, statt sie einzeln
 zu erraten. Welche gelten, folgt aus dem IFC-Typ; die teuren (Fluchtweg,
 Erreichbarkeit, Wendekreis, Türanlauf) kommen nur mit `kind: "expensive"` dazu.
 
@@ -133,7 +139,7 @@ Richtlinie, die hier nicht steht, gilt 1 bis 4 genauso, und jede Kette wird
 kürzer, sobald ein Schritt über eine Menge statt über ein Bauteil geht.
 
 **„Reicht die Raumhöhe?" (OIB 3)** — ein `survey` mit `measure: "clearHeight"`
-über die Räume des Geschosses. Ein Zug, alle Räume, Spanne inklusive. Die
+über die Räume des Geschosses. Ein Aufruf, alle Räume, Spanne inklusive. Die
 Mindesthöhe kommt aus der Bestimmung, nicht aus dem Modell.
 
 **„Passt dieses Fenster mit dem Dach für den Lichteinfall?" (OIB 3)** — die
@@ -142,13 +148,13 @@ längste Kette hier, und sie beginnt nicht am Modell: `find_elements` mit
 `overhang` mit dem Dach als `global_id` und dieser Wand als `other_global_id` →
 `light_incidence` auf dem Fenster, mit `angle_deg` und `swivel_deg` aus der
 **Bestimmung** (für OIB 3: 45 und 30) — die also vorher aus der Wissensbasis
-geholt sein muss und selbst einen Zug kostet. Für Fläche und Prozentsatz liefert
+geholt sein muss und selbst eine Runde kostet. Für Fläche und Prozentsatz liefert
 `lightEntryArea` beides in einem Maß statt in zweien. Das ist die Kette, bei der
 das Budget zuerst knapp wird; wenn eine Auswahl daneben greift, gehört das
 Fehlende nach Abschnitt 1 in die Antwort, statt am Ende geraten zu werden.
 
 **„Wie lang ist der Fluchtweg, und wie breit sind die Türen darin?" (OIB 2)** —
-`measure: "egressPath"` am Raum nennt Räume, Türen und Länge in einem Zug; die
+`measure: "egressPath"` am Raum nennt Räume, Türen und Länge in einem Aufruf; die
 Türen daraus gehen als Id-Liste in einen einzigen `measure: "clearWidth"`. Bevor
 eine Aussage über *alle* Wege fällt, sagt `fire` mit `kind: "doorGraph"`, wie
 tragfähig die Grundlage überhaupt ist. Und zur
@@ -246,9 +252,10 @@ Keines davon ist eine Aussage über das Gebäude, und hinter jedem wartet ein
 Gezeichnet wird immer **ein Grundriss**; Schnitt und Ansicht gibt es **nicht**.
 Ein Überstand wird gemessen (`overhang`), nicht gezeichnet — also keinen Schnitt
 anbieten und keinen ankündigen. Und aus keinem Bild wird je ein Maß abgelesen:
-das ist geraten, auch wenn es zufällig stimmt. Ein Blick auf den Plan kostet
-einen vollen Zug; er lohnt sich, wenn unklar ist, welches Bauteil gemeint ist,
-und nicht als Illustration einer schon feststehenden Zahl.
+das ist geraten, auch wenn es zufällig stimmt. Ein Blick auf den Plan gehört in
+dieselbe Runde wie die Messung, zu der er gehört; eine eigene Runde lohnt er,
+wenn unklar ist, welches Bauteil gemeint ist, und nicht als Illustration einer
+schon feststehenden Zahl.
 
 ## 6. Wie die Zahl in die Antwort kommt
 

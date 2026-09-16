@@ -66,20 +66,55 @@ def test_the_image_tool_is_declared_with_its_own_type(functions: dict):
 
 
 def test_both_agents_reach_the_same_knowledge_and_ris_tools(config: dict):
-    """Shallow and deep answer the same questions; a tool on one and not the
+    """Shallow and deep answer the same questions; a CORPUS on one and not the
     other means the answer changes with the routing decision rather than with
-    the question."""
+    the question.
+
+    The corpus is the invariant, not the tool list. Since the RIS consolidation
+    the two surfaces reach Austrian law by different doors: chat has one
+    `ris_lookup_tool` that runs search → fetch → extract inside one charged
+    call, deep research still drives the three tools itself because it plans
+    retrieval across up to six researchers and has its own budget shape. Both
+    reach RIS; neither reaches a corpus the other cannot.
+    """
     shallow = set(_tools(config, "shallow_research_agent"))
     deep = set(_tools(config, "deep_research_agent"))
-    shared = {
-        "knowledge_search",
-        "view_knowledge_image",
+    shared = {"knowledge_search", "view_knowledge_image"}
+    assert shared <= shallow
+    assert shared <= deep
+    assert "ris_lookup_tool" in shallow
+    assert {"ris_search_tool", "ris_fetch_tool", "ris_catalog_lookup_tool"} <= deep
+
+
+def test_the_chat_surface_reaches_ris_through_one_tool(config: dict, functions: dict):
+    """The consolidation, as the line that would undo it.
+
+    Three tools plus a taught sequence cost two or three of seven charged calls
+    to reach one paragraph, and the 40 000-character blob at the end carried no
+    Citation key — so nothing downstream treated it as evidence. Putting any of
+    the three back on this list re-creates that, silently.
+    """
+    entry = functions.get("ris_lookup_tool")
+    assert entry is not None, "ris_lookup_tool must be declared under `functions:`"
+    assert entry["_type"] == "ris_lookup"
+    shallow = set(_tools(config, "shallow_research_agent"))
+    assert shallow.isdisjoint({"ris_search_tool", "ris_fetch_tool", "ris_catalog_lookup_tool"})
+
+
+def test_every_ris_tool_resolves_to_the_ris_data_source(config: dict):
+    """`_capture_sources` drops a result whose tool name resolves to no source.
+
+    All four names are listed, not just the bound one: a result arriving under
+    a name the registry does not know is never captured as citable, and the
+    answer's citations are then stripped as unsupported.
+    """
+    sources = {source["id"]: source for source in config["functions"]["data_sources"]["sources"]}
+    assert {
+        "ris_lookup_tool",
         "ris_search_tool",
         "ris_fetch_tool",
         "ris_catalog_lookup_tool",
-    }
-    assert shared <= shallow
-    assert shared <= deep
+    } <= set(sources["ris"]["tools"])
 
 
 def test_the_deep_researcher_can_show_a_file_and_not_only_cite_it(config: dict):

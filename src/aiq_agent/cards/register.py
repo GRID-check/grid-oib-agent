@@ -28,7 +28,6 @@ from aiq_agent.cards import surface_documents as _surface_documents  # noqa: F40
 # here; the definitions live in the framing-free catalog module.
 from aiq_agent.cards.catalog import CARD_EXAMPLES as _CARD_EXAMPLES  # noqa: F401
 from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
-from aiq_agent.cards.catalog import ENVELOPE_NOTE
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
 from aiq_agent.cards.catalog import model_facing_card_types
 from aiq_agent.cards.catalog import render_card_details
@@ -43,49 +42,50 @@ from nat.data_models.function import FunctionBaseConfig
 logger = logging.getLogger(__name__)
 
 
-# What only THIS surface can promise: a marker comes back from the tool call, and writing it into
-# the answer puts the card at that point in the text. Post-hoc generation is handed a report that
-# is already written, so it has nothing to place into — which is why this paragraph stays here and
-# the trigger table it follows does not (see `catalog.render_card_doctrine`).
-_PLACEMENT_CONTRACT = """\
-WHERE IT GOES. Every emit_card call hands you back a marker like [[card:2]]. Put that marker on a
-line of its own at the point in your answer the card belongs to, and the card is drawn there —
-the stair diagram beside the paragraph about the stair, not three screens above it. A marker you
-never write puts its card after the whole answer, which is also where every card lands if you
-place none: the reader scrolls past the drawings to reach the answer they asked for."""
-
-# The CONTRACT of the tool, and only that: which trigger takes which card, when to emit none, and
-# where a card lands. Every line here is paid on every turn whether or not a card is emitted, so
-# the CRAFT — which card actually improves an ordinary answer, and how to tell the three
-# table-shaped cards apart — lives in the `<cards>` section of Piloti's system prompt
-# (`piloti/prompts/piloti.j2`), where the `piloti-cards` platform skill used to
-# carry it before the house skills were folded into the prompts. A new card type earns a trigger
-# line in the shared doctrine; its craft paragraph belongs in that prompt section. The doctrine
-# itself moved to `catalog.py` when the post-hoc generator started rendering it too — a trigger
-# table that exists twice is a trigger table that will disagree with itself.
+# The WHOLE contract for calling this tool: which trigger takes which card, how that card is
+# filled well, what may go on one and when to emit none. It is one statement because it is one
+# decision — "a Verfahren -> process_map" and "stations must carry what each step requires" are a
+# question and its answer, and they were split across this file and the `<cards>` section of
+# Piloti's system prompt (`piloti/prompts/piloti.j2`). The prompt's half had since grown its own
+# sharpened triggers, its own two-card budget and its own restatement test beside the ones the
+# doctrine already carried, which is what a rule kept in two places always does. A new card type
+# now earns a trigger line AND its craft in `catalog._CARD_TRIGGERS`, together.
 #
-# The envelope redirect rides here and not in the shared doctrine: this is the surface where a
-# model that recognised "this answer has a verdict" could reach for a tool call, and the note
-# points it at the answer envelope's field instead. The post-hoc surface produces no envelope
-# cards and has no envelope, so it gets neither triggers nor note.
-_CARD_DOCTRINE = render_card_doctrine() + "\n\n" + ENVELOPE_NOTE + "\n\n" + _PLACEMENT_CONTRACT
+# Two things stayed in the prompt rather than moving here, because they are facts about the
+# ANSWER rather than about this tool: the `[[card:N]]` placement marker contract (the tool's own
+# success message repeats the marker per call, so nothing is lost by not paying for the paragraph
+# on turns that emit nothing), and the redirect saying a verdict, the key takeaways and the
+# callout are `answer_json` envelope fields rather than cards. The refusal below still names the
+# right channel for a model that reaches for one of those anyway.
+_CARD_DOCTRINE = render_card_doctrine()
 
 
 def _build_tool_description() -> str:
-    """Frame ``emit_card`` with the card INDEX; shapes are fetched on demand.
+    """Frame ``emit_card`` with the card INDEX; the shape arrives with the error.
 
     Rendering every shape and worked example here costs ~5,200 tokens on every
     turn whether or not a card is emitted, and grows ~190 per card type we add.
-    The index plus ``describe_card`` costs ~700 and ~23 respectively, which is
-    what makes a growing vocabulary affordable on a cost-optimised model tier.
+    The index costs ~900 and ~23 per new type, which is what makes a growing
+    vocabulary affordable on a cost-optimised model tier.
+
+    Learning a shape used to cost a charged ``describe_card`` round trip, which
+    this description then had to talk the model into paying — and the shape it
+    fetched was needed only when the first attempt would have been wrong. So the
+    RETRY carries it instead: a failed ``emit_card`` hands back the full shape,
+    the building blocks and the worked example for the type that failed, which
+    is exactly what ``describe_card`` returned. A card that would have been
+    filled in correctly pays nothing; one that would not pays the same one round
+    trip it used to pay in advance, and pays it knowing which field was wrong.
     """
     return (
         "Render a rich UI card alongside your answer, in addition to your written reply — always "
-        "write the prose too. You may call this several times to attach several cards.\n\n"
+        "write the prose too: delete the cards mentally and the answer must still answer. You may "
+        "call this several times to attach several cards.\n\n"
         + _CARD_DOCTRINE
         + "\n\nHOW. Pass `card_json`: a JSON object with a `type` field plus that type's fields. "
-        "Unless a card's exact shape is already in this conversation, call `describe_card` with the "
-        "type first — one call, several type names at once, so looking a shape up is never a reason "
+        "Fill it from the type's line below and the rules above; you are not shown every shape up "
+        "front, and you do not need to look one up first — if a field is wrong, the error hands "
+        "you that type's full shape and a worked example, so an unfamiliar shape is never a reason "
         "to skip a card the answer called for. Fields marked * are "
         "required; omit optional ones rather than passing null. Numbers are plain JSON numbers. For "
         "schematic cards, supply the measured/actual value from the question or project profile and "
@@ -99,6 +99,18 @@ _DESCRIBE_DESCRIPTION = (
     "card types, so you can fill `emit_card` in correctly on the first attempt. Pass `card_types`: "
     "one type name, or several separated by commas. Call this once for the types you intend to "
     "emit; the shapes stay in context afterwards."
+)
+
+
+# The redirect for a model that recognised "this answer has a verdict" and reached for a tool call
+# anyway. It used to be stated TWICE on this surface: once up front in the doctrine every turn
+# pays, and once here, on the one call that actually needed it. The up-front sentence is the
+# answering prompt's now — placement and the answer's own anatomy are facts about the answer being
+# written, and the post-hoc surface has neither — so this is the tool's whole statement of it, and
+# it is named rather than inline so a test can hold it to naming the channel.
+_ENVELOPE_REFUSAL = (
+    "Error: card type '{card_type}' is not emitted as a card. Put its content into the matching "
+    "field of your ```answer_json answer envelope instead (see the answer contract)."
 )
 
 
@@ -141,6 +153,10 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
             validated = grid_card_adapter.validate_python(payload).model_dump(exclude_none=True)
         except Exception as exc:
             card_type = payload.get("type", "?")
+            # The FULL shape, the building blocks, the field rules and the worked
+            # example — the whole of what `describe_card` used to be asked for in
+            # advance. The retry is the cheapest place to spend it: it is the one
+            # moment we know the model needs it and know which type it needs.
             hint = _shape_hint_for(card_type)
             # The TYPE is the load-bearing half: it says which card the model
             # knew it wanted, which is exactly what a silent turn cannot tell
@@ -149,8 +165,7 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
             logger.warning("emit_card rejected a '%s' card: it failed validation: %s", card_type, exc)
             return (
                 f"Error: card of type '{card_type}' failed validation: {exc}. "
-                + (f"Expected shape — {hint} " if hint else "")
-                + "Fix the fields and try again, or skip the card."
+                "Fix the fields and call emit_card again, or skip the card." + (f"\n\n{hint}" if hint else "")
             )
 
         # System cards (e.g. memory_proposal) are emitted only by their owning
@@ -167,10 +182,7 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
         # verdict" is redirected rather than merely refused.
         if validated["type"] in ENVELOPE_CARD_TYPES:
             logger.warning("emit_card rejected a '%s' card: that type is trailer-materialized", validated["type"])
-            return (
-                f"Error: card type '{validated['type']}' is not emitted as a card. Put its content into "
-                "the matching field of your ```answer_json answer envelope instead (see the answer contract)."
-            )
+            return _ENVELOPE_REFUSAL.format(card_type=validated["type"])
 
         registry = get_card_registry()
         if registry is None:

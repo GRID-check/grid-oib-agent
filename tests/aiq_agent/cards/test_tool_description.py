@@ -9,8 +9,10 @@ import pytest
 
 from aiq_agent.cards.catalog import _CARD_HONESTY
 from aiq_agent.cards.catalog import _CARD_RESTRAINT
-from aiq_agent.cards.catalog import _CARD_TRIGGER_TABLE
+from aiq_agent.cards.catalog import _CARD_TRIGGER_HEAD
+from aiq_agent.cards.catalog import _CARD_TRIGGERS
 from aiq_agent.cards.catalog import _MODEL_PICKER_NOTE
+from aiq_agent.cards.catalog import _MODEL_PICKER_ROW
 from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
 from aiq_agent.cards.catalog import INTERACTIVE_CARD_TYPES
 from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
@@ -219,9 +221,12 @@ class TestTheDoctrineStaysCalibrated:
     """
 
     #: Span-level polarity of the always-on doctrine PROSE, cl100k tokens.
-    #: Deliberately excludes the trigger rows and the card index: those are
-    #: vocabulary, and counting them would swamp the prose that sets the
-    #: disposition. Measured at 1.42 : 1 when written (invitation 167,
+    #: Deliberately excludes the trigger rows, their craft blocks and the card
+    #: index: those are vocabulary, and counting them would swamp the prose that
+    #: sets the disposition. The craft that came out of the prompt's `<cards>`
+    #: section is craft — how a card that has already been chosen is filled well
+    #: — so it moves neither side of this ratio, which is why the band held
+    #: through that move untouched. Measured at 1.42 : 1 when written (invitation 167,
     #: restraint 237), and 1.48 : 1 after the naming clause and the
     #: form-versus-facts discriminator went in together (invitation 198,
     #: restraint 293) — both edges of the band untouched, because each half of
@@ -244,7 +249,7 @@ class TestTheDoctrineStaysCalibrated:
         encoding = tiktoken.get_encoding("cl100k_base")
         count = lambda text: len(encoding.encode(text))  # noqa: E731
 
-        head = _CARD_TRIGGER_TABLE.split("The trigger, then the card:")[0]
+        head = _CARD_TRIGGER_HEAD
         picker_invitation = _MODEL_PICKER_NOTE.split("It renders")[0]
 
         invitation = count(head) + count(picker_invitation)
@@ -308,6 +313,44 @@ class TestTheDoctrineStaysCalibrated:
         assert "Shared facts alone never cut a card" in _CARD_RESTRAINT
         # The veto itself is untouched: same words, same shape still loses.
         assert "says in the same words" in _CARD_RESTRAINT
+
+    def test_every_craft_row_names_its_card_and_says_it_once(self):
+        # The consolidation's invariant: a card type with craft has ONE craft
+        # block, and it sits under the row that names it. Two blocks for one
+        # card is the split coming back — the prompt's `<cards>` section grew a
+        # second budget, a second restatement test and a second set of sharpened
+        # triggers beside the doctrine's, and nobody could see it in a diff
+        # because each copy read fine on its own.
+        doctrine = render_card_doctrine()
+        # The craft is wrapped to the doctrine's column when it is rendered, so
+        # compare on whitespace-normalised text rather than on line breaks.
+        flat = " ".join(doctrine.split())
+        crafted = [(card, craft) for _, card, craft in (*_CARD_TRIGGERS, _MODEL_PICKER_ROW) if craft]
+        assert crafted, "the doctrine carries no craft at all; the tool no longer owns its contract"
+
+        for card, craft in crafted:
+            # The trigger line naming that card is there...
+            assert f"-> {card}" in doctrine, card
+            # ...and so is the craft that fills it in.
+            said = flat.count(" ".join(craft.split()))
+            assert said == 1, f"{card}: craft stated {said} times"
+
+        # The generic shapes are the ones that needed it: the same content fits
+        # three of them and only one takes work off the reader.
+        crafted_types = {card for card, _ in crafted}
+        for card in ("condition_tree", "typed_table", "comparison_table", "calculation", "process_map"):
+            assert card in crafted_types, card
+        for card in ("document_checklist", "deadline_timeline", "change_impact", "norm_chain", "legal_basis"):
+            assert card in crafted_types, card
+
+    def test_the_craft_comes_off_when_the_surface_cannot_act_on_it(self):
+        # Post-hoc generation renders the rows without them: "mark `current_step`
+        # only where the conversation established it" is an instruction about an
+        # answer still being written.
+        rows_only = render_card_doctrine(include_craft=False)
+        assert "-> process_map" in rows_only
+        assert "Stations must CARRY something" not in rows_only
+        assert "Stations must CARRY something" in render_card_doctrine()
 
     def test_the_default_is_not_scoped_to_one_class_of_card(self):
         # The original defect, and the one thing the rewrite must not give back:
@@ -376,11 +419,34 @@ class TestTheDoctrineStaysCalibrated:
 
 
 class TestShapeHint:
-    @pytest.mark.parametrize("card_type", _CARD_TYPES)
-    def test_hint_for_every_type(self, card_type):
+    """What a failed ``emit_card`` hands back — the whole L2 entry, not a gist.
+
+    It used to be a one-line abbreviation: shape and blocks joined with "where",
+    example after a full stop, no field rules. A model that had just got a field
+    wrong was handed the same information more densely, so its retry was a guess
+    too, and the only way to actually learn a shape was a charged
+    ``describe_card`` call the tool description had to talk it into paying in
+    advance — on every turn, for every card, including the ones it would have
+    got right. The retry is the one moment we know a shape is needed and know
+    which type needs it, so that is where the tokens go.
+    """
+
+    @pytest.mark.parametrize("card_type", sorted(model_facing_card_types()))
+    def test_the_hint_is_what_describe_card_returns(self, card_type):
         hint = _shape_hint_for(card_type)
         assert hint is not None
         assert card_type in hint
+        # Byte-identical to the L2 entry, so the retry path cannot drift from
+        # the tool that still serves the deep-research writer.
+        assert hint == render_card_details([card_type])
+        # The four parts of an L2 entry a one-line gist did not carry.
+        assert "shape:" in hint
+        assert "Every text field is PLAIN TEXT" in hint
+
+    def test_the_hint_carries_the_worked_example_where_there_is_one(self):
+        hint = _shape_hint_for("daylight_incidence")
+        assert "Worked examples" in hint
+        assert '"type": "daylight_incidence"' in hint
 
     def test_hint_expands_referenced_blocks(self):
         hint = _shape_hint_for("daylight_incidence")
@@ -389,6 +455,13 @@ class TestShapeHint:
 
     def test_unknown_type_returns_none(self):
         assert _shape_hint_for("not_a_real_card") is None
+
+    @pytest.mark.parametrize("card_type", sorted(SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES))
+    def test_a_card_the_model_may_not_emit_is_taught_no_shape(self, card_type):
+        # The retry hint is teaching material, and teaching one of these would
+        # be teaching a card the very next check refuses. `_emit` names the right
+        # channel instead — the answer envelope's field, or nothing at all.
+        assert _shape_hint_for(card_type) is None
 
 
 class TestTheDescriptionStaysAffordable:
@@ -419,11 +492,25 @@ class TestTheDescriptionStaysAffordable:
     own account.
 
     Raising this number is a decision, not a fix. It should come with a
-    measurement of what the turn now costs in total.
+    measurement of what the turn now costs in total. The measurement that
+    raised it from 2,300 to 2,900, in o200k_base tokens per call:
+
+        emit_card's description   2,086 -> 2,600   (+514, the craft arriving)
+        piloti.j2's `<cards>`     1,272 ->   149   (-1,123, all but two sentences)
+        describe_card's schema       69 ->     0   (unbound from the chat surface)
+                                                   ---------
+        net per call                                   -678
+
+    So the ceiling went UP and the turn got CHEAPER, which is the only shape of
+    argument that may move this number. The craft was always paid on every turn;
+    it was paid in the system prompt, where nothing measured it.
     """
 
-    #: cl100k_base tokens. Measured at 1,745 when this was written.
-    MAX_TOKENS = 2_300
+    #: cl100k_base tokens. Measured at 2,655 after the craft moved in (1,745
+    #: before, under the old split). The slack is the same third-or-so it always
+    #: was: this fails when the description has grown by roughly a third, which
+    #: is far too much to arrive by accident.
+    MAX_TOKENS = 2_900
 
     def test_the_tool_description_stays_under_the_ceiling(self):
         tiktoken = pytest.importorskip("tiktoken")
@@ -434,6 +521,7 @@ class TestTheDescriptionStaysAffordable:
         assert cost <= self.MAX_TOKENS, (
             f"emit_card's description is {cost} tokens, over the {self.MAX_TOKENS} ceiling. "
             "Every turn pays this whether or not a card is emitted. If you added a card type, "
-            "its trigger line belongs in `cards.catalog`'s shared doctrine and its craft paragraph "
-            "belongs in the `piloti-cards` platform skill."
+            "its trigger line AND its craft belong in `cards.catalog._CARD_TRIGGERS`, together — "
+            "so what to cut is prose that repeats what another row already says, never the craft "
+            "moved back out into a prompt where nothing counts it."
         )

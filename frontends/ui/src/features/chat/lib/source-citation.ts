@@ -276,7 +276,9 @@ export const toFachtext = (ref: CitationRef, now: Date): string => {
   // profession writes: the requirement identifies itself, the page only says
   // where this edition prints it. The Punkt was dropped entirely, so the copied
   // citation named a page in a document architects cite by Punkt.
-  if (csl.section) parts.push(`Pkt. ${csl.section}`)
+  // A RIS locus already names its unit („§ 63 Abs 1"); only an OIB/ÖNORM
+  // Punkt needs the „Pkt." that the profession writes before a bare number.
+  if (csl.section) parts.push(csl.type === 'legislation' ? csl.section : `Pkt. ${csl.section}`)
   if (csl.page) parts.push(`S. ${csl.page}`)
 
   let text = parts.join(', ')

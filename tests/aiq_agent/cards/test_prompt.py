@@ -71,10 +71,18 @@ class TestCatalogSharedAcrossSurfaces:
         assert render_card_index() in description
         assert render_card_catalog() not in description
 
-    def test_the_tool_points_at_the_shape_lookup(self):
-        # Without this pointer the model guesses the nesting and burns a turn on
-        # a validation error, which costs more than the shapes it saved.
-        assert "describe_card" in _build_tool_description()
+    def test_the_tool_teaches_the_shape_on_the_RETRY_rather_than_in_advance(self):
+        # This used to point at `describe_card` and talk the model into paying
+        # for it up front — on every turn, for every card, including the ones it
+        # would have filled in correctly. The shape is only ever needed when the
+        # first attempt would have been wrong, so that is where it is spent now:
+        # a failed `emit_card` returns the same L2 entry `describe_card` did.
+        description = _build_tool_description()
+        assert "describe_card" not in description
+        assert "the error hands you that type's full shape and a worked example" in description
+        # And the reason the pointer existed at all is preserved: an unfamiliar
+        # shape must never be what stops a card being emitted.
+        assert "never a reason to skip a card the answer called for" in description
 
     def test_post_hoc_generation_embeds_the_catalog_minus_the_model_cards(self):
         assert render_card_catalog(include_model_backed=False) in build_card_generation_prompt()
@@ -172,10 +180,11 @@ class TestTheDoctrineReachesThePostHocPath:
 
     def test_both_surfaces_render_the_one_doctrine(self):
         # The pairing that keeps this from becoming a copy: neither surface
-        # holds the trigger table, both render it, and the only difference is
-        # the IFC triggers the post-hoc path cannot act on.
+        # holds the trigger table, both render it, and they differ only in what
+        # this path cannot act on — the IFC triggers, and the per-card craft,
+        # most of which instructs an agent still composing the answer.
         assert render_card_doctrine() in _build_tool_description()
-        assert render_card_doctrine(include_ifc_triggers=False) in build_card_generation_prompt()
+        assert render_card_doctrine(include_ifc_triggers=False, include_craft=False) in build_card_generation_prompt()
 
 
 class TestWhatThePostHocPathIsNotToldToDo:
@@ -246,6 +255,17 @@ class TestTheCraftThatCouldNotBeInherited:
     a TEST over a finished text, which is a fraction of the cost and all of the
     applicable judgement.
     """
+
+    def test_the_shared_craft_is_not_paid_here(self):
+        # `include_craft=False`. The doctrine's craft says things like "mark
+        # `current_step` only where the conversation established it" and "put the
+        # decisive passage in `original_text`" — moves that edit an answer this
+        # path cannot edit. What stands in is `_POST_HOC_CRAFT`, a test over the
+        # report as handed, at a fraction of the tokens.
+        prompt = build_card_generation_prompt()
+        assert "Stations must CARRY something" not in prompt
+        assert "-> process_map" in prompt
+        assert "WHICH ONE EARNS ITS PLACE" in prompt
 
     def test_the_generic_cards_carry_their_test(self):
         prompt = build_card_generation_prompt()

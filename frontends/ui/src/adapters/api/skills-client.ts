@@ -330,21 +330,23 @@ export const setCuratedSkillEnabled = async (
  * write it.
  */
 /**
- * How a curated skill reaches organizations.
+ * How a curated skill reaches organizations: it is OFFERED, and that is the
+ * only answer.
+ *
+ * Listed on every org's Skills tab, off until that org switches it on.
+ * (Chat-usable FILE offers are a different source and start on.)
+ *
+ * A second value, `standard`, used to mean "live for the whole fleet the moment
+ * it is published, not listed, not switchable" — and it FORCED the skill onto
+ * every run. Migration 0088 retired it: an instruction that always applies is
+ * not a capability, and it now lives in the platform prompt or in the
+ * organization's own instruction block instead.
  *
  * Declared here rather than imported from `@/lib/db/schema` on purpose — this
  * module mirrors the JSON contract so the UI stays decoupled from the server's
  * internals, exactly as the toolbox types above do.
- *
- *   offer     Listed on every org's Skills tab. A dashboard offer starts off
- *             until that org switches it on. The default, and what publishing
- *             meant before this existed. (Chat-usable FILE offers are a
- *             different source and start on.)
- *   standard  Live for the whole fleet the moment it is published. Not listed,
- *             not switchable, not shadowable — ours to write and ours to
- *             withdraw.
  */
-export type PlatformSkillDelivery = 'offer' | 'standard'
+export type PlatformSkillDelivery = 'offer'
 
 export interface PlatformSkillItem {
   id: string

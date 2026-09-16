@@ -14,6 +14,7 @@ the full header-inventory table and encodings). The two are pinned together
 by the cross-language contract fixture ``tests/fixtures/grid_request_context.json``::
 
     X-Grid-Project-Context: base64url(<project context string>)
+    X-Grid-Org-Instructions: base64url(<the office's standing instructions>)
 
 When a header is missing the system falls back to ``None``/defaults, and
 prompt templates skip the corresponding context block.
@@ -46,6 +47,35 @@ PROJECT_MEMORY_HEADER = "x-grid-project-memory"
 # cap is the sum with room for the separator — never a silent truncation of
 # the second block.
 MEMORY_HEADER_MAX_CHARS = 3000
+#: The office's own standing instructions for this turn, base64url-encoded like
+#: the two blocks above it (Node rejects newlines in a header value).
+#:
+#: Preferences on FORM, FOCUS and WORKFLOW — "Antworten kurz", "immer die
+#: Bauordnung zuerst", "Entwürfe in unsere Gliederung" — written by the
+#: organization and sent per turn. It is text the agent reads, never a decision
+#: it obeys: the prompt frames it below the rules it may not override, and an
+#: instruction can never supply a normative value (that comes from a document
+#: retrieved this turn, and from nowhere else).
+#:
+#: It replaced the two ways a skill used to be FORCED onto a turn (the fleet's
+#: ``delivery: standard`` tier and the request's ``skills`` array). A standing
+#: instruction is prompt text, cheap and always present; a skill is a working
+#: method the model picks out of its catalog when the question calls for one.
+ORG_INSTRUCTIONS_HEADER = "x-grid-org-instructions"
+
+#: Hard ceiling on the office block, applied HERE at decode rather than trusted
+#: from the sender: it lands in every turn's system prompt, so an unbounded
+#: value is unbounded cost on every question this organization ever asks (the
+#: repo rule for any prompt block built from rows — see ``AGENTS.md``). The
+#: same number is enforced BFF-side at the edit boundary; this one is the
+#: backstop for anything that reaches the tier another way.
+ORG_INSTRUCTIONS_MAX_CHARS = 1500
+
+#: What a cut block says about itself, in the English of the surrounding
+#: scaffolding. Present so the MODEL knows it is reading a fragment — an
+#: instruction that stops mid-sentence otherwise reads as a complete one.
+ORG_INSTRUCTIONS_TRUNCATED_MARKER = f"[Cut off at {ORG_INSTRUCTIONS_MAX_CHARS} characters — the rest was not sent.]"
+
 PROJECT_ID_HEADER = "x-grid-project-id"
 MEMORY_REFLECTION_FEATURE_HEADER = "x-grid-feature-memory-reflection"
 ORGANIZATION_ID_HEADER = "x-grid-organization-id"
@@ -185,6 +215,25 @@ def normalize_project_context(value: str | None, *, max_chars: int = 4000) -> st
         value = value[:max_chars]
         value = value.rsplit("\n", 1)[0]
     return value
+
+
+def normalize_org_instructions(value: str | None) -> str | None:
+    """Bound the office's instruction block, marking it when it had to be cut.
+
+    Separate from :func:`normalize_project_context` because the two degrade
+    differently. Project context is a brief the renderer may quietly shorten at
+    a line break; an instruction block is a list of things somebody asked for,
+    and dropping the last two without saying so leaves the model reading a
+    complete-looking set that is not the set the office wrote.
+    """
+    if not value:
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if len(text) <= ORG_INSTRUCTIONS_MAX_CHARS:
+        return text
+    return f"{text[:ORG_INSTRUCTIONS_MAX_CHARS].rstrip()}\n{ORG_INSTRUCTIONS_TRUNCATED_MARKER}"
 
 
 def _read_header(name: str) -> str | None:
@@ -348,6 +397,10 @@ class GridRequestContext:
     collection_scope_entries: list[Any] | None = None
     project_context: str | None = None
     project_memory: str | None = None
+    #: The organization's standing instructions for this turn, already bounded
+    #: (:data:`ORG_INSTRUCTIONS_MAX_CHARS`). Rendered as its own tenant-varying
+    #: prompt section; see :data:`ORG_INSTRUCTIONS_HEADER`.
+    org_instructions: str | None = None
     model_overrides: dict[str, str] | None = None
     budget: dict[str, Any] | None = None
     disabled_sources: list[str] | None = None
@@ -410,6 +463,7 @@ class GridRequestContext:
             project_memory=normalize_project_context(
                 _read_encoded_header(PROJECT_MEMORY_HEADER), max_chars=MEMORY_HEADER_MAX_CHARS
             ),
+            org_instructions=normalize_org_instructions(_read_encoded_header(ORG_INSTRUCTIONS_HEADER)),
             model_overrides=_as_str_dict(_read_json_header(MODEL_OVERRIDES_HEADER)),
             budget=_as_dict(_read_json_header(BUDGET_HEADER)),
             disabled_sources=_as_str_list(_read_json_header(DISABLED_SOURCES_HEADER)),
@@ -482,6 +536,7 @@ class GridRequestContext:
             collection_scope_entries=scope_entries,
             project_context=normalize_project_context(payload.get("projectContext"), max_chars=4000),
             project_memory=normalize_project_context(payload.get("projectMemory"), max_chars=MEMORY_HEADER_MAX_CHARS),
+            org_instructions=normalize_org_instructions(payload.get("orgInstructions")),
             model_overrides=_as_str_dict(payload.get("modelOverrides")),
             budget=_as_dict(payload.get("budget")),
             disabled_sources=_as_str_list(payload.get("disabledSources")),
@@ -556,6 +611,9 @@ class GridRequestContext:
             collection_scope_entries=scope_entries,
             project_context=text_field(PROJECT_CONTEXT_HEADER, 4000),
             project_memory=text_field(PROJECT_MEMORY_HEADER, 2000),
+            org_instructions=normalize_org_instructions(
+                _base64url_decode_text(raw(ORG_INSTRUCTIONS_HEADER) or "") or None
+            ),
             model_overrides=_as_str_dict(json_field(MODEL_OVERRIDES_HEADER)),
             budget=_as_dict(json_field(BUDGET_HEADER)),
             disabled_sources=_as_str_list(json_field(DISABLED_SOURCES_HEADER)),
@@ -604,6 +662,15 @@ def get_project_context_from_context() -> str | None:
     """
     ctx = GridRequestContext.from_context()
     return compose_project_context(ctx.project_context, ctx.project_memory)
+
+
+def get_org_instructions_from_context() -> str | None:
+    """Read the office's standing instructions (``X-Grid-Org-Instructions``).
+
+    Already bounded and marked when it was cut, so every caller renders the
+    same text and nothing downstream has to remember the cap.
+    """
+    return GridRequestContext.from_context().org_instructions
 
 
 def get_project_id_from_context() -> str | None:

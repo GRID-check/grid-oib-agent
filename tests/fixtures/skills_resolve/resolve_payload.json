@@ -33,7 +33,6 @@
       "grid-hidden": "true",
       "grid-cards": "legal_basis,calculation"
     },
-    "origin": "platform",
-    "standard": true
+    "origin": "platform"
   }
 ]

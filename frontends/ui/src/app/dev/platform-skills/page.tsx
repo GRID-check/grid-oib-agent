@@ -6,9 +6,11 @@ import type { SkillCategoryListItem } from '@/adapters/api/skills-client'
  * Dev preview for Platform → Skills: the catalogue Piloti writes for every
  * organization. Renders the REAL `PlatformSkillCatalog` with a fetch shim
  * serving `/api/platform/skills`, so every row state is reviewable without a
- * backend: a published OFFER (on every org's Skills tab, each deciding), a
- * published STANDARD (running for the whole fleet, on nobody's tab) and a draft
- * (invisible until the switch is flipped).
+ * backend: two published OFFERS (on every org's Skills tab, each deciding) and
+ * a draft (invisible until the switch is flipped).
+ *
+ * There used to be a third state, a published STANDARD row running for the
+ * whole fleet on nobody's tab. Migration 0088 retired the tier.
  *
  * The shim is installed at MODULE scope, not in an effect: a child's effect
  * fires first and would race a parent's fetch patch.
@@ -50,9 +52,7 @@ const SKILLS = [
     body: 'When you state that something is required, permitted or forbidden, name the OIB-Richtlinie and the exact clause number it comes from.',
     metadata: {},
     published: true,
-    // The state the tier exists for: live for every organization, on nobody's
-    // Skills tab, and nothing a tenant can switch off.
-    delivery: 'standard' as const,
+    delivery: 'offer' as const,
     categoryId: null,
     createdAt: '2026-08-12T09:00:00Z',
     updatedAt: '2026-08-12T09:00:00Z',

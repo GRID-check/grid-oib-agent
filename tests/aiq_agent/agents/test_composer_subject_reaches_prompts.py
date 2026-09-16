@@ -63,12 +63,16 @@ def real_tool():
 
 def _render(agent: PilotiAgent, **overrides) -> str:
     kwargs = {
+        # The static half is its own file now (`piloti_static.md`, the bundled
+        # fallback for the prompt Langfuse serves). The subject block this test
+        # is about sits BELOW the KV-cache boundary, so rendering the template
+        # with an empty static half changes nothing it asserts.
+        "static_block": "",
         "tools": [{"name": "knowledge_search", "description": "Search the knowledge base"}],
         "user_info": None,
         "current_datetime": "2026-08-18",
         "available_documents": [],
         "project_context": None,
-        "ris_catalog": None,
     }
     kwargs.update(overrides)
     return render_prompt_template(agent.system_prompt, **kwargs)
@@ -85,7 +89,20 @@ class TestPilotiPromptNamesTheSubject:
         # The point of the block: bare references resolve to THIS file, and the
         # model must not ask for it or ask the user to upload it.
         assert "never ask which file is meant" in rendered
-        assert f'file_name="{SUBJECT}"' in rendered
+
+    def test_the_block_states_the_fact_and_leaves_the_procedure_to_the_tool(self, mock_llm_provider, real_tool):
+        """How to retrieve the focused file is `knowledge_search`'s own rule
+        („pass `file_name=` that exact indexed name"), and it used to be
+        restated here on every turn with a focused file (ADR-0060 (d)).
+        """
+        from sources.knowledge_layer.src.register import _KNOWLEDGE_SEARCH_DESCRIPTION
+
+        agent = PilotiAgent(llm_provider=mock_llm_provider, tools=[real_tool])
+
+        rendered = _render(agent, focus_file_name=SUBJECT, focus_shelf_label="Projektwissen")
+
+        assert f'file_name="{SUBJECT}"' not in rendered
+        assert "`file_name=` that" in _KNOWLEDGE_SEARCH_DESCRIPTION
 
     def test_shelf_is_omitted_rather_than_invented(self, mock_llm_provider, real_tool):
         """An unknown shelf names the file alone — never a guessed shelf."""

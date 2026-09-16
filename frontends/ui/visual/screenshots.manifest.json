@@ -1070,6 +1070,16 @@
         "mention-pill.mobile.dark.png"
       ]
     },
+    "org-instructions": {
+      "route": "src/app/dev/org-instructions/page.tsx",
+      "routeHash": "807201de63ea03cdcedbbb50ec9460357015f184e3fe35dffdb06aa860765e6a",
+      "shots": [
+        "org-instructions.light.png",
+        "org-instructions.dark.png",
+        "org-instructions.mobile.light.png",
+        "org-instructions.mobile.dark.png"
+      ]
+    },
     "organization-access-people": {
       "route": "src/app/dev/organization-access/page.tsx",
       "routeHash": "a0062fcdeef3ecdae8f4ab457349bc7a07d2016a8181485ccb2b106679429ee9",
@@ -1248,7 +1258,7 @@
     },
     "platform-skills": {
       "route": "src/app/dev/platform-skills/page.tsx",
-      "routeHash": "d86ddeb2e6f116d1136b23e8d7d8eb1887f949efe88a2839817e9fe71a70d6ef",
+      "routeHash": "7fe0cabba60d2da5b1a6376356531968fce9688dda5900262674d8d414b228e1",
       "shots": [
         "platform-skills.light.png",
         "platform-skills.dark.png"

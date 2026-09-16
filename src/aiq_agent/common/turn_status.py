@@ -552,10 +552,9 @@ def _search_corpus(base: str) -> str | None:
 def is_search_call(call: Any) -> bool:
     """Does this ONE tool call fetch evidence from a corpus?
 
-    The atom under :func:`is_retrieval_round`, exported because the round-zero
-    fan-out cap counts and drops exactly these: an interaction call
-    (``emit_card``, ``remember``), a skill load or an ``ask_user`` is not a
-    search and must never be the call a cap takes away.
+    The atom under :func:`is_retrieval_round`: an interaction call
+    (``emit_card``, ``remember``), a skill load or an ``ask_user`` fetches no
+    evidence and is not a search.
     """
     if not isinstance(call, dict):
         return False
@@ -573,6 +572,121 @@ def is_retrieval_round(tool_calls: list[dict[str, Any]] | None) -> bool:
     drift apart by one.
     """
     return any(is_search_call(call) for call in tool_calls or ())
+
+
+#: Separator inside a fetch signature. A unit separator rather than a printable
+#: character: every part is a model-written string, and a "|" inside a query
+#: would otherwise let two different calls build the same signature.
+_SIGNATURE_SEPARATOR = "\x1f"
+
+
+def _argument_text(args: dict[str, Any], name: str, *, fold_case: bool = False) -> str:
+    """One argument as a comparable string; absent and empty are the same thing."""
+    value = args.get(name)
+    text = str(value).strip() if value is not None else ""
+    return text.casefold() if fold_case else text
+
+
+def _page_text(value: Any) -> str:
+    """A page number as its canonical decimal, or the raw text when it is not one."""
+    text = str(value).strip() if value is not None else ""
+    if not text:
+        return ""
+    try:
+        return str(int(text))
+    except ValueError:
+        return text
+
+
+def _search_signature(args: dict[str, Any]) -> str:
+    """What a ``knowledge_search`` call ASKS FOR: the query plus every narrowing.
+
+    The query is whitespace-folded and casefolded because the model rewrites
+    its own query between rounds and a changed capital is not a changed
+    question. Every narrowing argument is part of the identity: the same words
+    against a different ``file_name`` or ``folder`` is a different corpus and a
+    different answer, which is why (e) is not a repeat.
+    """
+    filters = args.get("filters")
+    canonical = (
+        json.dumps(filters, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str) if filters else ""
+    )
+    return _SIGNATURE_SEPARATOR.join(
+        [
+            "knowledge_search",
+            " ".join(str(args.get("query") or "").split()).casefold(),
+            _argument_text(args, "doc_class"),
+            _argument_text(args, "title_contains"),
+            _argument_text(args, "file_name", fold_case=True),
+            _argument_text(args, "folder"),
+            canonical,
+        ]
+    )
+
+
+def _passage_signature(args: dict[str, Any]) -> str:
+    """What a ``read_passage`` call OPENS: the document and the locus in it.
+
+    ``punkt`` loses its surrounding dots because "3.5.2." and "3.5.2" are the
+    same point printed two ways — the Richtlinien themselves print both — and
+    the page stays part of the identity, so the same document at a different
+    page is a different passage.
+    """
+    return _SIGNATURE_SEPARATOR.join(
+        [
+            "read_passage",
+            _argument_text(args, "document", fold_case=True),
+            _argument_text(args, "punkt").strip("."),
+            _page_text(args.get("page")),
+        ]
+    )
+
+
+#: What a retrieval tool puts at the FRONT of a result that is a failure rather
+#: than an answer.
+#:
+#: The duplicate-fetch guard withholds a call whose signature already ran this
+#: turn and tells the model the result is already above. That is only true when
+#: something was fetched. Both retrieval tools answer a dead store with a string
+#: that asks the model to retry the identical call — so the guard was answering
+#: "retry once" with "you already did", and the passage was never read at all.
+#:
+#: A marker rather than an exception because the tools deliberately return
+#: PROSE: a raised error kills the turn, while a sentence lets the model say it
+#: could not search. The marker is what makes that sentence machine-readable at
+#: the one place that needs to know (``piloti/agent.py::_tools_node``, which
+#: signs only the fetches that really returned something).
+FETCH_FAILED_MARKER = "[fetch failed]"
+
+
+def fetch_signature(call: Any) -> str | None:
+    """What this ONE call would fetch, as a comparable id — ``None`` when it is not a fetch.
+
+    The atom under the duplicate-fetch guard, and it lives here for the same
+    reason :func:`is_search_call` does: this module already owns what the
+    retrieval tools' arguments MEAN (:func:`_locator_line` reads
+    ``document``/``punkt``/``page``, :data:`_QUERY_KEYS` reads the query), and
+    a second reading of those argument names somewhere else would drift from
+    this one without anything failing.
+
+    Only the two tools that open a passage get a signature. Everything else is
+    ``None`` and is therefore never withheld: two ``emit_card`` calls are two
+    cards, two ``remember`` calls are two facts, and a repeated measurement or
+    web search is not the same bytes twice. A call whose ``args`` are missing
+    or not a dict is ``None`` as well — the conservative direction, since a
+    guard that cannot read a call must not take it away.
+    """
+    if not isinstance(call, dict):
+        return None
+    args = call.get("args")
+    if not isinstance(args, dict):
+        return None
+    base = tool_basename(str(call.get("name") or ""))
+    if base == "knowledge_search":
+        return _search_signature(args)
+    if base == "read_passage":
+        return _passage_signature(args)
+    return None
 
 
 def _locator_line(args: Any) -> tuple[str, dict[str, str]] | None:
@@ -1049,7 +1163,7 @@ def emit_answer_repair(*, citations_removed: int, quotes_failed: int) -> None:
     The two counts ride this SAME step as technical detail rather than a
     second, technical-channel step of their own: the frontend dedupes status
     steps by name, so ``status:repair`` twice loses one of the two — on exactly
-    the turns that had a repair (the lesson :data:`FANOUT_SLOT` records). The
+    the turns that had a repair. The
     live line renders from ``key``; ``citationsRemoved`` and ``quotesFailed``
     are what the opt-in Herleitung detail shows, and they are counts rather
     than text for the same reason every other record here is: a quote is the
@@ -1096,6 +1210,13 @@ def emit_synthesis() -> None:
 #: a retrieval line and the frontend's name dedupe keeps it apart.
 BUDGET_SLOT = "budget"
 
+#: Slot for the INPUT-TOKEN stop. Its own slot rather than :data:`BUDGET_SLOT`,
+#: for the reason ``budget:deep`` has one: two step records sharing a name
+#: collapse under the frontend's dedupe, and these two answer different
+#: questions — "the investigation was cut off" against "the turn got
+#: expensive". Counting them together would make either unanswerable.
+INPUT_BUDGET_SLOT = "budget:input"
+
 
 #: Slot prefix for the family-coverage record. The family key is part of the
 #: STEP NAME, like ``status:checkpoint:N`` and for the same reason: a turn that
@@ -1137,37 +1258,101 @@ def emit_family_coverage(*, family: str, listed: int, opened: int) -> None:
     )
 
 
-#: Slot for the round-zero fan-out cap. Its OWN slot rather than
-#: :data:`BUDGET_SLOT`: this is the budget being PROTECTED, not exhausted, and
-#: collapsing the two under one step name would make the frontend's name dedupe
-#: drop one of them — on exactly the turns that had both.
-FANOUT_SLOT = "budget:fanout"
+#: Slot prefix for the duplicate-fetch guard. The round is part of the STEP
+#: NAME, like ``status:checkpoint:N`` and for the same reason: a turn that
+#: re-asked for the same passage in three separate rounds must leave three
+#: countable records, and two steps sharing a name collapse into one under the
+#: frontend's dedupe.
+REPEAT_FETCH_SLOT = "repeat"
 
 
-def emit_fanout_capped(*, round_index: int, kept: int, dropped: int) -> None:
-    """Record that a first round asked for more searches than it may run.
+def emit_repeat_fetch(*, round_index: int, withheld: int) -> None:
+    """Record that a round asked again for something this turn already fetched.
 
-    Technical channel, and no ``key``: whether the reader should be told "two
-    of your three searches did not run" is a product decision, and shipping a
-    live key would make it silently. What this is for is the operator question
-    the cap creates — *how often does a first round fan out past two, and does
-    the second round then get its budget?* — which the truncation event alone
-    cannot answer, because a capped turn is precisely one that did NOT truncate.
+    Technical channel and no ``key``: whether the reader should be told "one of
+    your searches was a repeat" is a product decision, and shipping a live key
+    would make it silently. What this is for is the operator question the guard
+    creates — *how often does a model re-fetch inside one turn, and does the
+    budget it saves become another round?* — which the truncation event cannot
+    answer.
 
     Args:
-        round_index: The fetch round the cap applied to (zero, by construction).
-        kept: Search calls executed.
-        dropped: Search calls answered with the explanation instead.
+        round_index: The fetch round the guard applied to.
+        withheld: Calls answered with the explanation instead of being run.
     """
     push_custom_step(
-        f"{STATUS_STEP_PREFIX}{FANOUT_SLOT}",
+        f"{STATUS_STEP_PREFIX}{REPEAT_FETCH_SLOT}:{round_index}",
         {
             "kind": "status",
             "channel": CHANNEL_TECHNICAL,
-            "slot": FANOUT_SLOT,
+            "slot": f"{REPEAT_FETCH_SLOT}:{round_index}",
+            "round": round_index,
+            "withheld": withheld,
+        },
+    )
+
+
+#: Slot prefix for the switched-off-source refusal. Per round, like
+#: :data:`REPEAT_FETCH_SLOT` and for the same dedupe reason.
+REFUSED_SOURCE_SLOT = "refused"
+
+
+def emit_refused_source(*, round_index: int, withheld: int) -> None:
+    """Record that a round called a source this conversation switched off.
+
+    The counterpart of :func:`emit_repeat_fetch`, on the same channel and with
+    no ``key`` for the same reason: whether the READER is told "one of your
+    searches went to a source you turned off" is a product decision, and a live
+    key would make it silently. The operator question it answers is the one the
+    toggle creates — *how often does a turn reach for a switched-off source,
+    and does the refusal change what it does next?* — which nothing else
+    records, because a refused call runs nothing and announces nothing.
+
+    Args:
+        round_index: The round the refusal applied to.
+        withheld: Calls answered with the refusal instead of being run.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{REFUSED_SOURCE_SLOT}:{round_index}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": f"{REFUSED_SOURCE_SLOT}:{round_index}",
+            "round": round_index,
+            "withheld": withheld,
+        },
+    )
+
+
+#: Slot prefix for the per-round WIDTH cap. Per round for the dedupe reason
+#: above, and its own slot rather than :data:`BUDGET_SLOT`: the two answer
+#: different questions — "the turn ran out of budget" against "one round asked
+#: for more calls at once than a round may run".
+WIDTH_CAP_SLOT = "width"
+
+
+def emit_width_cap(*, round_index: int, kept: int, withheld: int) -> None:
+    """Record that a round asked for more parallel calls than the cap allows.
+
+    Technical channel and no ``key``, like the two guards beside it. A round
+    costs one whatever it fans out into, which is deliberate — but the width of
+    a fan-out is what the stores feel, and nothing else counts it: a 60-call
+    round and a 6-call round are the same single ``status:retrieval:N`` line.
+
+    Args:
+        round_index: The round the cap applied to.
+        kept: Calls handed to the tools, in the order the model emitted them.
+        withheld: Calls answered with the cap notice instead of being run.
+    """
+    push_custom_step(
+        f"{STATUS_STEP_PREFIX}{WIDTH_CAP_SLOT}:{round_index}",
+        {
+            "kind": "status",
+            "channel": CHANNEL_TECHNICAL,
+            "slot": f"{WIDTH_CAP_SLOT}:{round_index}",
             "round": round_index,
             "kept": kept,
-            "dropped": dropped,
+            "withheld": withheld,
         },
     )
 
@@ -1176,7 +1361,6 @@ def emit_research_truncated(
     *,
     ceiling: int,
     research_budget: int,
-    reserved: int,
     spent: int,
     rounds: int,
     shape: list[str] | None = None,
@@ -1191,14 +1375,19 @@ def emit_research_truncated(
     exist at all before it can be counted.
 
     Args:
-        ceiling: The tool-call count that triggered forced synthesis.
-        research_budget: ``max_tool_iterations`` — the part of the ceiling the
-            question itself was allowed to spend.
-        reserved: The part granted for forced-skill overhead.
-        spent: Tool calls charged when the ceiling was hit (≥ ceiling: a
-            parallel batch can cross it by more than one).
-        rounds: LLM turns that asked for tools — the pair with ``spent`` that
-            distinguishes one greedy batch from a long walk into the wall.
+        ceiling: The ROUND count that triggered forced synthesis.
+        research_budget: ``max_tool_iterations``. The same number as ``ceiling``
+            now that nothing is reserved on top of it; both are recorded so a
+            counted record stays readable across the change.
+        spent: Rounds charged when the ceiling was hit. Equal to ``rounds``
+            since the budget became one unit per ROUND rather than per emitted
+            call; both stay on the payload so a record counted before and after
+            the change reads the same way, and a reader never has to know which
+            release wrote it.
+        rounds: LLM turns that asked for tools. Was the pair with ``spent``
+            that told one greedy batch from a long walk into the wall — a
+            distinction the round budget removes, because a greedy batch is now
+            one round and costs one.
         shape: Ordered tool basenames of the run. Names only; a query string is
             the reader's own words and does not belong in telemetry.
     """
@@ -1209,13 +1398,52 @@ def emit_research_truncated(
         "truncated": True,
         "ceiling": ceiling,
         "research_budget": research_budget,
-        "reserved": reserved,
         "spent": spent,
         "rounds": rounds,
     }
     if shape:
         payload["tools"] = list(shape)
     push_custom_step(f"{STATUS_STEP_PREFIX}{BUDGET_SLOT}", payload)
+
+
+def emit_input_budget_exhausted(
+    *,
+    limit: int,
+    spent: int,
+    rounds: int,
+    shape: list[str] | None = None,
+) -> None:
+    """Record that a turn was cut off by what it COST, not by how far it got.
+
+    The other half of :func:`emit_research_truncated`, and technical for the
+    same reason: whether the reader is told "this answer stopped early" is a
+    product decision. What this is for is the operator question the bound
+    creates the moment it exists — *does it ever fire, and on what?* A stop
+    sized above every turn we have measured should be silent for releases at a
+    time; the day it is not is either a runaway worth seeing or a ceiling that
+    has gone stale, and nothing else in the log tells the two apart.
+
+    Args:
+        limit: ``max_input_tokens_per_turn``, the bound that fired.
+        spent: Cumulative input tokens the turn had metered when it fired
+            (≥ limit: the call that crossed it is never cut off mid-flight).
+        rounds: Rounds the turn had spent — the pair with ``spent`` that says
+            whether this was one enormous context or many ordinary ones.
+        shape: Ordered tool basenames of the run. Names only; a query string is
+            the reader's own words and does not belong in telemetry.
+    """
+    payload: dict[str, Any] = {
+        "kind": "status",
+        "channel": CHANNEL_TECHNICAL,
+        "slot": INPUT_BUDGET_SLOT,
+        "truncated": True,
+        "limit": limit,
+        "spent": spent,
+        "rounds": rounds,
+    }
+    if shape:
+        payload["tools"] = list(shape)
+    push_custom_step(f"{STATUS_STEP_PREFIX}{INPUT_BUDGET_SLOT}", payload)
 
 
 #: Slot for the DEEP researcher's own budget record. Its own slot rather than

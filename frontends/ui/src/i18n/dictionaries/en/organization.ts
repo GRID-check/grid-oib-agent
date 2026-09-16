@@ -131,6 +131,30 @@ export const organization = {
     saveError: 'Could not save organization settings. Please try again.',
     loadError: 'Could not load organization settings right now. Please refresh to try again.',
   },
+  /**
+   * Organization → Instructions: the standing block every answer in the
+   * organization is written under. The hint states the boundary out loud,
+   * because the boundary is the point: standing preferences on form, focus and
+   * workflow — never a rule that overrides Piloti, never a normative value.
+   */
+  instructions: {
+    title: 'Instructions',
+    description:
+      'What Piloti should keep in mind for your organization. Sent with every request.',
+    label: 'Standing instructions',
+    placeholder:
+      'e.g. Lead with the verdict, then the reasoning. Assume Vienna when no Bundesland is named. Always append a list of deficiencies to a review.',
+    hint: 'Standing preferences on form, focus and workflow. They never override Piloti’s own rules and never supply a normative value — an OIB requirement comes from the guideline, never from this box.',
+    remaining: '{used} of {max} characters',
+    overCap: '{over} characters over. Shorten the text before saving.',
+    save: 'Save instructions',
+    saving: 'Saving…',
+    saved: 'Instructions saved',
+    clear: 'Clear',
+    cleared: 'Instructions cleared',
+    saveError: 'Could not save the instructions. Please try again.',
+    loadError: 'Could not load the instructions right now. Please refresh to try again.',
+  },
   members: {
     title: 'Members',
     description: 'Invite people, assign roles, and manage who has access.',

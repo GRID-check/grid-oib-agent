@@ -29,6 +29,7 @@
  * | X-Grid-Collection-Scope               | base64url(JSON.stringify(string[]))     | `collection-scope.ts` buildCollectionScopeHeader          |
  * | X-Grid-Project-Context                | base64url(utf8 text)                    | server.js WS upgrade (~line 313)                         |
  * | X-Grid-Project-Memory                 | base64url(utf8 text)                    | server.js WS upgrade (~line 325)                         |
+ * | X-Grid-Org-Instructions               | base64url(utf8 text)                    | this module (added with `organization_instructions`)     |
  * | X-Grid-Model-Overrides                | base64url(JSON.stringify(Record))       | server.js (~342) / `model-config/header-encoding.ts`     |
  * | X-Grid-Budget                         | base64url(JSON.stringify(BudgetSnapshot))| server.js (~348) / `workflows/service.ts` buildBudgetHeader |
  * | X-Grid-Disabled-Sources               | base64url(JSON.stringify(string[]))     | server.js (~358), only set when non-empty                |
@@ -94,6 +95,28 @@ export interface GridRequestContextInput {
   projectContext?: string | null
   /** → `X-Grid-Project-Memory` (base64url text). Omitted when falsy/blank. */
   projectMemory?: string | null
+  /**
+   * → `X-Grid-Org-Instructions` (base64url text). Omitted when falsy/blank.
+   *
+   * The organization's standing instruction block
+   * (`organization_instructions`, migration 0087) — one bounded text an org
+   * admin writes under Organisation → Anweisungen, carried on every turn. Same
+   * encoding and same omission rule as `projectContext` for the same reason:
+   * it is multi-line, and Node rejects `\n` in a header value
+   * (`ERR_INVALID_CHAR`), which would kill the WS upgrade rather than drop a
+   * field.
+   *
+   * Capped at `ORG_INSTRUCTIONS_MAX_CHARS` (1500) by the write boundary, the
+   * SQL CHECK and the backend alike; this module does not re-cap it, because a
+   * bound restated on the wire is a bound that can disagree with the one that
+   * was enforced.
+   *
+   * This is what REPLACED forcing a skill onto a turn. The composer no longer
+   * sends a `skills` array and the platform no longer has a `standard`
+   * delivery tier; a standing instruction is a property of the organization,
+   * so it rides the context headers with the rest of them.
+   */
+  orgInstructions?: string | null
   /**
    * → `X-Grid-Model-Overrides` (base64url JSON object). Omitted when
    * null/undefined/empty — "no header" means "use the YAML defaults"
@@ -169,6 +192,7 @@ export const GRID_HEADER_NAMES = {
   COLLECTION_SCOPE: 'X-Grid-Collection-Scope',
   PROJECT_CONTEXT: 'X-Grid-Project-Context',
   PROJECT_MEMORY: 'X-Grid-Project-Memory',
+  ORG_INSTRUCTIONS: 'X-Grid-Org-Instructions',
   MODEL_OVERRIDES: 'X-Grid-Model-Overrides',
   BUDGET: 'X-Grid-Budget',
   DISABLED_SOURCES: 'X-Grid-Disabled-Sources',
@@ -246,6 +270,9 @@ export function buildGridRequestContextHeaders(input: GridRequestContextInput): 
   }
   if (input.projectMemory) {
     headers[GRID_HEADER_NAMES.PROJECT_MEMORY] = encodeGridTextHeader(input.projectMemory)
+  }
+  if (input.orgInstructions) {
+    headers[GRID_HEADER_NAMES.ORG_INSTRUCTIONS] = encodeGridTextHeader(input.orgInstructions)
   }
   if (input.modelOverrides && Object.keys(input.modelOverrides).length > 0) {
     headers[GRID_HEADER_NAMES.MODEL_OVERRIDES] = encodeModelOverridesHeader(input.modelOverrides)
@@ -361,6 +388,14 @@ export function buildGridRequestContextEnvelopePayload(input: GridRequestContext
   }
   if (input.issuedAt !== undefined && input.issuedAt !== null) {
     payload.issuedAt = input.issuedAt
+  }
+  // LAST in the key order, for the reason every field added since
+  // `memoryReflectionEnabled` has been last: every pre-existing fixture case's
+  // signed bytes stay byte-identical, so the precomputed `header`/`signature`
+  // values keep exact-matching on both sides of the language boundary. A new
+  // field inserted anywhere else would require recomputing all of them.
+  if (input.orgInstructions) {
+    payload.orgInstructions = input.orgInstructions
   }
 
   return payload

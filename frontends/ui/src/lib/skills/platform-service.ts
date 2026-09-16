@@ -36,7 +36,7 @@ export type PlatformSkillListItem = {
   body: string
   metadata: Record<string, string>
   published: boolean
-  /** `offer` — organizations choose it. `standard` — the whole fleet runs it. */
+  /** `offer`, and only `offer`: organizations choose it (migration 0088). */
   delivery: PlatformSkillDelivery
   /** The platform skill category this skill stands on, or null when unsorted. */
   categoryId: string | null
@@ -126,9 +126,9 @@ export async function createPlatformSkill(
     body: input.body,
     metadata: input.metadata ?? {},
     published: input.published ?? false,
-    // An OFFER unless the author says otherwise, for the same reason it is a
-    // draft unless they say otherwise: the closed default is the one where a
-    // half-considered save cannot impose an instruction on the whole fleet.
+    // The only value the column takes since 0088. Still written explicitly
+    // rather than left to the column default, so the row a caller gets back is
+    // the row this function decided on.
     delivery: input.delivery ?? 'offer',
     categoryId: await assertPlatformSkillCategory(input.categoryId),
     createdBy: author.userId,
@@ -138,28 +138,17 @@ export async function createPlatformSkill(
 }
 
 /**
- * Edit a curated skill — including publishing it, withdrawing it, and moving it
- * between the two deliveries.
+ * Edit a curated skill — including publishing it and withdrawing it.
  *
  * An edit reaches every organization that runs the skill immediately and without
  * anyone re-taking it. That is the property the removed clone flow could not
  * have: a copy stops being ours the moment it is made.
  *
- * Changing `delivery` changes who runs it, and the two directions are not
- * symmetrical:
- *
- *   offer → standard  Every organization starts running it, including the ones
- *                     that had explicitly switched it off. Their activation rows
- *                     are left alone but stop being consulted — a standard skill
- *                     asks nobody. This is the one edit here that imposes.
- *   standard → offer  Every organization stops running it until it switches the
- *                     skill on, and the activation rows come back into force, so
- *                     an org that switched the skill off back when it was an
- *                     offer stays off. A demotion is therefore a fleet-wide
- *                     deactivation, not a relabelling.
- *
- * Activation rows survive both moves precisely so that a promotion followed by a
- * demotion returns the fleet to where it started rather than to a blank slate.
+ * Nothing here can impose the skill on a tenant. `delivery` used to move a row
+ * between `offer` and `standard`, and promoting one took the decision away from
+ * every organization on the platform; migration 0088 retired that tier, so the
+ * only reachable value is `offer` and an organization always decides. What the
+ * platform wants applied to every turn goes in the platform prompt instead.
  */
 export async function updatePlatformSkill(
   skillId: string,

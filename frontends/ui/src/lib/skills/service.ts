@@ -81,17 +81,16 @@ type CuratedSkill = Pick<PlatformSkill, 'name' | 'description' | 'body' | 'metad
 }
 
 /**
- * The live platform catalogue, split by who decides whether it runs.
+ * The live platform catalogue: everything published TO organizations.
  *
- * One read, two audiences. Both halves are wanted together on the hot path, and
- * the catalogue is capped at 200 rows, so partitioning here beats a second
- * query keyed on `delivery`.
+ * One audience since migration 0088 retired the `standard` tier, which was the
+ * half nobody decided about. What the platform wants applied to every turn is a
+ * standing instruction now — the platform prompt — and a skill is a capability
+ * the model may reach for.
  */
 type LivePlatformSkills = {
   /** Published `delivery: 'offer'` rows, plus `grid-catalog: curated` files. */
   offers: CuratedSkill[]
-  /** Published `delivery: 'standard'` rows. Nobody's decision but ours. */
-  standard: CuratedSkill[]
 }
 
 function toCurated(row: {
@@ -111,9 +110,9 @@ function toCurated(row: {
 }
 
 /**
- * Everything the platform publishes, from both tiers, partitioned by delivery.
+ * Everything the platform publishes to organizations — a capability an
+ * organization may take or leave:
  *
- * OFFERS — a capability an organization may take or leave:
  *   - published `delivery: 'offer'` rows of `platform_skills`, written in
  *     Platform → Skills. We author a skill there, every organization can switch
  *     it on, and the body stays ours.
@@ -122,42 +121,19 @@ function toCurated(row: {
  *     Skills tab, on until the org turns them off. A dashboard offer still
  *     starts off.
  *
- * STANDARD — the fleet's own equipment, and NOT an offer:
- *   - published `delivery: 'standard'` rows. Every organization runs them, none
- *     of them is asked, and none of them can see the skill on its Skills tab or
- *     switch it off. It is the file tier's "machinery" property made available
- *     to the dashboard, so fleet policy stops requiring a deploy.
- *
- * Everything else under `builtin/` is the deep-research pipeline's machinery and
- * is likewise nobody's decision. Machinery is the DEFAULT there, so a builtin
+ * Everything else under `builtin/` is the deep-research pipeline's machinery
+ * and is nobody's decision. Machinery is the DEFAULT there, so a builtin
  * becomes org-facing only by saying so (see METADATA_CATALOG).
  *
- * A standard row named after a BUILTIN is dropped here, and that is the second
- * half of a guard whose first half cannot cover it.
- * `platform-service.ts::assertNameIsFree` refuses a row named after an existing
- * builtin, at create and at rename — but it only guards the row direction. The
- * other direction is a deploy: shipping a new `SKILL.md` whose name matches a
- * standard row somebody published months ago. No write boundary can see that
- * coming, and the consequence would be severe, because standard is merged after
- * the org's rows and therefore after the machinery: a dashboard row would
- * silently replace how deep research writes its report for every tenant at once,
- * and `resolveSkillSnapshot` would 404 the machinery a job needs to attach.
- *
- * So the collision is made INERT rather than destructive, and it is made inert
- * at READ time, where both resolvers see the same answer. Machinery wins; the
- * standard row simply does not exist while a builtin owns its name, and starts
- * working again if that builtin is ever removed. Dropping it against
- * `findPlatformSkill` — every builtin, not just the machinery — closes the
- * curated-file case in the same line: a `grid-catalog: curated` FILE and a
- * standard ROW sharing a name would otherwise put that name in BOTH halves,
- * which is exactly the state where a standard skill appears on the Skills tab
- * with a working switch.
+ * There is no third category. `delivery: 'standard'` — published rows every
+ * organization ran, unlisted and unswitchable, FORCED onto each run — was
+ * retired by migration 0088 along with the composer's `skills` array, because
+ * an instruction that always applies is not a capability and should not be
+ * shaped like one. The two homes for those are the platform prompt and
+ * `organization_instructions`.
  */
 async function livePlatformSkills(): Promise<LivePlatformSkills> {
-  const [offerRows, standardRows] = await Promise.all([
-    platformRepository.listPublishedOfferRows(),
-    platformRepository.listPublishedStandardRows(),
-  ])
+  const offerRows = await platformRepository.listPublishedOfferRows()
   const offers = new Map<string, CuratedSkill>()
   for (const file of listPlatformSkills()) {
     if (isCuratedPlatformSkill(file.metadata))
@@ -166,18 +142,12 @@ async function livePlatformSkills(): Promise<LivePlatformSkills> {
   // A dashboard row never replaces a shipped FILE of the same name. The write
   // boundary refuses that create, but the other direction is a deploy: a new
   // SKILL.md matching a row published months ago. The file is product code;
-  // the row is dashboard copy. Product wins, same as standard vs machinery.
+  // the row is dashboard copy. Product wins, same as an offer vs machinery.
   for (const row of offerRows) {
     if (findPlatformSkill(row.name)) continue
     offers.set(row.name, toCurated(row))
   }
-
-  const standard = new Map<string, CuratedSkill>()
-  for (const row of standardRows) {
-    if (findPlatformSkill(row.name)) continue
-    standard.set(row.name, toCurated(row))
-  }
-  return { offers: [...offers.values()], standard: [...standard.values()] }
+  return { offers: [...offers.values()] }
 }
 
 /** Just the half an organization gets to decide about. */
@@ -352,13 +322,12 @@ export async function listSkills(
  * Addressed by NAME because a platform skill has no id — it is a file. Only an
  * OFFER is addressable: the pipeline's machinery is not an offer, so asking to
  * switch it off is a 404 rather than a stored row that would quietly break deep
- * research, and the platform's STANDARD skills are refused by the same line for
- * the same reason. `curatedOffers()` holds neither, so both are unreachable here
- * by construction rather than by a second check somebody has to remember.
+ * research. `curatedOffers()` does not hold it, so it is unreachable here by
+ * construction rather than by a second check somebody has to remember.
  *
  * That is what makes "non-targetable" true rather than merely rendered. The org
- * UI never draws a switch for a standard skill, but the UI is not the boundary:
- * this is, and a hand-crafted PATCH naming one gets a 404.
+ * UI never draws a switch for machinery, but the UI is not the boundary: this
+ * is, and a hand-crafted PATCH naming one gets a 404.
  */
 export async function setCuratedSkillEnabled(
   session: AuthorizedSession,
@@ -411,16 +380,20 @@ export type InvocableSkill = {
  * Disabled skills are excluded. Any org member may list — invoking a skill is
  * using the product, not administering it; authoring stays `org:skills:manage`.
  *
- * The platform's STANDARD skills and the pipeline MACHINERY are excluded too
- * (`resolveSelectableSkills`). They resolve for this org and the model has them
- * in its catalogue, but they are not something a person picks: standard is
- * fleet policy, machinery loads on its own. Putting either in a `/` menu would
- * hand somebody a name they cannot look up, edit or switch off. Note the
+ * The pipeline MACHINERY is excluded (`resolveSelectableSkills`). It resolves
+ * for this org and the model has it in its catalogue, but it is not something a
+ * person picks: it loads on its own. Putting it in a `/` menu would hand
+ * somebody a name they cannot look up, edit or switch off. Note the
  * consequence: this list is also what `SkillsUsedDisclosure` reads for
- * descriptions, so if a standard or machinery skill is activated the disclosure
- * names it with no description rather than hiding it. That is deliberate — the
+ * descriptions, so if a machinery skill is activated the disclosure names it
+ * with no description rather than hiding it. That is deliberate — the
  * disclosure reports what shaped the answer, and a product built on traceable
  * sourcing must not have a class of instruction it declines to admit ran.
+ *
+ * Picking from this menu writes `/name ` into the composer and does nothing
+ * else: the name travels as TEXT and the model chooses the skill out of the
+ * same catalogue it always reads. Nothing here forces a skill onto a turn any
+ * more (migration 0088).
  */
 export async function listInvocableSkills(
   session: AuthorizedSession,
@@ -439,32 +412,18 @@ export async function listInvocableSkills(
  * metadata is validated by `createSkillSchema` at the route boundary; a
  * `clonedFrom` hint records a platform clone.
  */
-/**
- * Refuse a name the platform has standardised fleet-wide.
+/*
+ * The org write boundary used to refuse a name the platform had STANDARDISED
+ * fleet-wide (`assertNameNotStandardised`). That guard existed because a
+ * standard skill outranked an org row of the same name, so authoring one
+ * produced a green save and an agent that never once followed it.
  *
- * The narrow exception to "an org row shadows a platform skill of the same
- * name". That rule is right for machinery and for offers — the tenant's version
- * wins, ADR-0022's ordering — and wrong for a standard skill, which is platform
- * policy the org is not administering. So the resolver merges standard LAST and
- * the org row would never run. Accepting the save and silently ignoring the
- * result is the failure mode this codebase exists to avoid: the author would get
- * a skill in their toolbox, a green save, and an agent that never once follows
- * it, with nothing anywhere saying why.
- *
- * The message names no more than the collision. It does not say the skill is a
- * platform one, what it does, or that it exists — an org that cannot see a
- * standard skill should not learn its purpose from an error. The name itself is
- * unavoidable: it is the thing the author just typed.
- *
- * Only PUBLISHED standard skills reserve a name. A draft imposes nothing, so it
- * has no business taking a word out of a tenant's vocabulary.
+ * Migration 0088 removed the tier, and with it the collision. Every platform
+ * skill is an offer now, and an org row deliberately SHADOWS an offer of the
+ * same name — the tenant's version wins, ADR-0022's "explicit org value beats
+ * deployment default". So there is nothing left to refuse: a row named
+ * `piloti-voice` is the organization's own skill and it is the one that runs.
  */
-async function assertNameNotStandardised(name: string): Promise<void> {
-  const standard = await platformRepository.findStandardPlatformSkillRowByName(name)
-  if (standard) {
-    throw new ConflictError(`The name "${name}" is reserved. Please choose another.`)
-  }
-}
 
 /**
  * The category a skill write names, resolved or refused.
@@ -495,7 +454,6 @@ export async function createSkill(
   if (existing) {
     throw new ConflictError(`A skill named "${input.name}" already exists in this organization.`)
   }
-  await assertNameNotStandardised(input.name)
   const categoryId = await assertCategoryInScope(session.organizationId, input.categoryId)
 
   const skill = await repository.insertSkill({
@@ -525,24 +483,9 @@ export async function updateSkill(
   const existing = await repository.findSkill(skillId, session.organizationId)
   if (!existing) throw new NotFoundError('Skill not found.')
 
-  // The row's CURRENT name, checked on every edit and not only on a rename.
-  //
-  // A row that predates the standard skill wearing its name is inert: the
-  // resolver deletes that name before merging the platform's version, so nothing
-  // typed here will ever reach an agent. Letting the edit succeed is the exact
-  // "green save, and an agent that never once follows it" failure the create
-  // boundary exists to prevent — the same trap, reached by editing a row that
-  // was already there instead of by authoring a new one.
-  //
-  // Refused rather than hidden: the row stays on the Skills tab and `deleteSkill`
-  // still works, so the author can see what they have and remove it. Hiding it
-  // would leave an invisible row nobody can delete.
-  await assertNameNotStandardised(existing.name)
-
   if (patch.name !== undefined && patch.name !== existing.name) {
     const other = await repository.findSkillByName(patch.name, session.organizationId)
     if (other) throw new ConflictError(`A skill named "${patch.name}" already exists in this organization.`)
-    await assertNameNotStandardised(patch.name)
   }
 
   // A named category is resolved or refused; an explicit null removes it; an
@@ -687,31 +630,17 @@ export async function deleteSkillCategory(
 /**
  * Org row first, builtin platform fallback; unknown names 404.
  *
- * A name the platform has STANDARDISED is not resolvable at all, and the check
- * comes before every other lookup rather than after. Two things would go wrong
- * otherwise, and they are different bugs:
- *
- *   - The standard skill itself would have to be found somewhere to be attached,
- *     and it must not be: it is not in the org's vocabulary, so a job that named
- *     it would be a job built on a skill nobody in that org can see or edit.
- *   - A legacy ORG row wearing the same name would be found FIRST and snapshot
- *     ITS body — which the run would then never follow, because `resolveAll`
- *     merges standard last. A job would be pinned to instructions the agent has
- *     already been told to ignore.
+ * There used to be a guard ahead of all of it: a name the platform had
+ * STANDARDISED was not resolvable at all, because `resolveAll` merged the
+ * standard row last and a job pinned to the org's body would have been pinned
+ * to instructions the agent was told to ignore. Migration 0088 removed the
+ * tier, so the two resolvers agree again on the ordinary rule — the org's own
+ * row wins, and every platform skill is an offer.
  */
 export async function resolveSkillSnapshot(
   name: string,
   organizationId: string,
 ): Promise<SkillSnapshot> {
-  // Guarded on the builtin lookup, which is in-memory, for both correctness and
-  // cost. Correctness: `livePlatformSkills` drops a standard row whose name a
-  // builtin owns, so asking the catalogue here would 404 a machinery skill that
-  // the run itself still resolves — the two resolvers have to agree, and only
-  // this one runs when a job pins its snapshot. Cost: a machinery name never
-  // pays a `platform_skills` query to learn nothing.
-  if (!findPlatformSkill(name) && (await platformRepository.findStandardPlatformSkillRowByName(name))) {
-    throw new NotFoundError(`Unknown skill "${name}".`)
-  }
   const orgSkill = await repository.findSkillByName(name, organizationId)
   if (orgSkill) {
     return {
@@ -776,42 +705,33 @@ export type ResolvedSkill = {
   body: string
   metadata: Record<string, string>
   origin: SkillOrigin | 'platform'
-  /**
-   * Fleet standard equipment — a published `delivery: standard` platform row.
-   *
-   * On the wire because only the BFF can see `platform_skills`, and the backend
-   * needs the distinction to APPLY the skill rather than merely offer it: a
-   * standard skill is forced for the run, so its body is loaded instead of
-   * sitting in the catalog as a one-line description the model may never open.
-   * Without this the tier resolved everywhere and bound nowhere.
-   *
-   * Not derivable from `origin`, which is also `'platform'` for the machinery
-   * and for offers an org took up — neither of which imposes anything.
-   */
-  standard?: boolean
+  // There is deliberately no `standard` flag. It marked a published
+  // `delivery: 'standard'` row so the backend would FORCE the skill for the
+  // run rather than leave it in the catalog for the model to choose; migration
+  // 0088 retired the tier, and the backend no longer reads the key. Every skill
+  // in this set is one the model may reach for.
 }
 
 /**
- * The full resolution, with the platform's standard names kept to one side.
+ * The full resolution.
  *
- * Private, because those two facts answer different questions and only one of
- * them belongs on the wire. `resolveSkillsForAgent` is what a RUN gets — every
- * skill, standard included, because that is the set the agent may actually load.
- * `resolveSelectableSkills` is what a PERSON gets — the same set minus the
- * standard skills and the pipeline machinery, because those are not theirs to
- * pick, attach or see.
+ * Private, because the two callers want different subsets of it.
+ * `resolveSkillsForAgent` is what a RUN gets — every skill, because that is the
+ * set the agent may load. `resolveSelectableSkills` is what a PERSON gets — the
+ * same set minus the pipeline machinery, which is not theirs to pick, attach or
+ * see.
  */
 async function resolveAll(
   organizationId: string,
   agent?: string,
-): Promise<{ skills: ResolvedSkill[]; standardNames: Set<string> }> {
+): Promise<{ skills: ResolvedSkill[] }> {
   const [rows, activations, live] = await Promise.all([
     repository.listSkillsInOrg(organizationId),
     repository.listCuratedSkillActivations(organizationId),
     livePlatformSkills(),
   ])
   const byName = new Map<string, ResolvedSkill>()
-  const put = (skill: CuratedSkill, origin: SkillOrigin | 'platform', standard = false) => {
+  const put = (skill: CuratedSkill, origin: SkillOrigin | 'platform') => {
     // Platform metadata rides along VERBATIM. Sending `{}` here dropped the
     // reserved `grid-*` keys, and because the backend resolver merges this
     // payload OVER its own filesystem copy, the shipped
@@ -824,20 +744,15 @@ async function resolveAll(
       body: skill.body,
       metadata: { ...skill.metadata },
       origin,
-      ...(standard ? { standard: true } : {}),
     })
   }
 
   // The offers this org took up, then the machinery. Machinery before the org's
   // own rows but after the offers, so an offer can never replace how deep
-  // research writes its report.
+  // research writes its report. Nothing is merged after the org's rows any
+  // more: the one thing that used to be (a `delivery: 'standard'` row, which
+  // had to outrank them) is gone with the tier.
   //
-  // Note this ordering does NOT protect machinery from a standard skill, which
-  // is merged after the org's rows and so after this. Nothing here could: org
-  // rows deliberately shadow machinery (ADR-0022's "explicit org value beats
-  // deployment default"), and standard has to outrank org rows, so standard
-  // necessarily outranks machinery too. That collision is prevented by name
-  // instead — `livePlatformSkills` drops any standard row a builtin has named.
   // Machinery is uncategorized BY CONSTRUCTION: a category is something a
   // person files a curated offer under, and this is the pipeline's own
   // instructions — nobody browses it. `toCurated` is what states that, by
@@ -864,39 +779,18 @@ async function resolveAll(
     })
   }
 
-  // STANDARD LAST, and this is the one place the ordering is load-bearing rather
-  // than defensive. A standard skill is the platform's own instruction, imposed
-  // on the fleet and policed here; an org row that could shadow it would be a
-  // tenant editing platform policy by picking a name. `createSkill` refuses the
-  // name at the write boundary, so in practice nothing reaches this line — but
-  // the boundary only covers rows authored AFTER the standard skill was
-  // published, and this covers the ones that were already there.
-  //
-  // The rule is stated as a DELETE followed by a put, not as a put alone,
-  // because `grid-agents` still applies to standard skills and `put` returns
-  // early when it filters one out. Overwriting only would then leave a legacy
-  // org row standing on exactly the agents the platform's own instruction does
-  // not target — a tenant holding a standardised name on the chat agent because
-  // the platform scoped its version to deep research. A standardised name
-  // resolves to the platform's skill or to nothing; it never resolves to a
-  // tenant's.
-  //
-  // (The `grid-agents` gate itself is untouched: it answers which agent CAN run
-  // a skill, which is a different question from who decides that it runs. A
-  // standard skill written for deep research is still not handed to a chat turn.)
-  for (const platform of live.standard) {
-    byName.delete(platform.name)
-    put(platform, 'platform', true)
-  }
-
-  return { skills: [...byName.values()], standardNames: new Set(live.standard.map((s) => s.name)) }
+  return { skills: [...byName.values()] }
 }
 
 /**
- * The resolved skill set for a RUN: platform builtins and the fleet's standard
- * skills merged with the org's enabled rows and the offers it took up, filtered
- * by `grid-agents` when an agent is named (absent = all agents). No session —
- * the internal resolve route serves the backend's /v1/chat/skills.
+ * The resolved skill set for a RUN: the platform builtins merged with the org's
+ * enabled rows and the offers it took up, filtered by `grid-agents` when an
+ * agent is named (absent = all agents). No session — the internal resolve route
+ * serves the backend's /v1/chat/skills.
+ *
+ * Every entry is a skill the model MAY load, never one it must: nothing in this
+ * payload forces a skill onto the run since migration 0088 retired the
+ * `standard` tier.
  */
 export async function resolveSkillsForAgent(
   organizationId: string,
@@ -909,11 +803,11 @@ export async function resolveSkillsForAgent(
 /**
  * The resolved set a PERSON in this organization may act on.
  *
- * Everything `resolveSkillsForAgent` returns, minus fleet policy and pipeline
- * machinery. Those run for this org — they are in the agent's catalogue — but
- * they are not the org's to invoke by name or to attach to a job. Listing them
- * in a picker would offer a handle on something the org cannot see, cannot
- * edit and cannot switch off.
+ * Everything `resolveSkillsForAgent` returns, minus the pipeline machinery.
+ * That runs for this org — it is in the agent's catalogue — but it is not the
+ * org's to invoke by name or to attach to a job. Listing it in a picker would
+ * offer a handle on something the org cannot see, cannot edit and cannot switch
+ * off.
  *
  * Offers the org took up stay. An org row that shadows machinery stays too:
  * that copy is theirs. The file itself is not.
@@ -927,14 +821,12 @@ export async function resolveSelectableSkills(
   organizationId: string,
   agent?: string,
 ): Promise<{ skills: ResolvedSkill[] }> {
-  const { skills, standardNames } = await resolveAll(organizationId, agent)
+  const { skills } = await resolveAll(organizationId, agent)
   return {
     skills: skills.filter(
-      (skill) =>
-        !standardNames.has(skill.name) &&
-        // An org row that shadows machinery is still theirs to pick. The file
-        // itself is not: it is always on, and it has no switch.
-        (skill.origin !== 'platform' || !isBuiltinMachinery(skill.name)),
+      // An org row that shadows machinery is still theirs to pick. The file
+      // itself is not: it is always on, and it has no switch.
+      (skill) => skill.origin !== 'platform' || !isBuiltinMachinery(skill.name),
     ),
   }
 }

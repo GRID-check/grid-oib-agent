@@ -411,12 +411,14 @@ export const curatedSkillActivationSchema = z.object({
 export type CuratedSkillActivationInput = z.infer<typeof curatedSkillActivationSchema>
 
 /**
- * `delivery` — how a curated skill reaches organizations.
+ * `delivery` — how a curated skill reaches organizations. One value: `offer`.
  *
- * The DB constraint (`platform_skills_delivery_check`, 0049) says the same
- * thing; this is the boundary that turns a bad value into a 400 with a message
- * rather than a 500 from Postgres. Both are needed: the schema catches the
- * caller, the constraint catches everything that is not a caller.
+ * The DB constraint (`platform_skills_delivery_check`, narrowed by 0088) says
+ * the same thing; this is the boundary that turns a bad value into a 400 with a
+ * message rather than a 500 from Postgres. Both are needed: the schema catches
+ * the caller, the constraint catches everything that is not a caller — and a
+ * caller still sending `standard` from an older client gets a 400 rather than a
+ * silent acceptance of a tier that no longer exists.
  */
 export const platformSkillDeliverySchema = z.enum(PLATFORM_SKILL_DELIVERIES)
 
@@ -425,15 +427,13 @@ export const platformSkillDeliverySchema = z.enum(PLATFORM_SKILL_DELIVERIES)
  *
  * The same SKILL.md rules as an org skill, because it is the same document —
  * a curated skill is not a privileged shape, it is the same thing written one
- * tier up. Two extra fields, and both default closed:
+ * tier up. Two extra fields:
  *
- *   `published`  false. The dashboard is a writing surface, and a draft must
- *                not reach every tenant.
- *   `delivery`   `offer`. A skill that says nothing about its audience is one
- *                organizations may take or leave, never one imposed on them.
- *
- * Imposing on the fleet therefore takes two deliberate words, which is the
- * right price for the only combination a tenant cannot undo.
+ *   `published`  false by default. The dashboard is a writing surface, and a
+ *                draft must not reach every tenant.
+ *   `delivery`   `offer`, the only value. A published skill is one
+ *                organizations may take or leave; nothing here can impose an
+ *                instruction on them (migration 0088).
  */
 export const createPlatformSkillSchema = z.object({
   name: skillNameSchema,

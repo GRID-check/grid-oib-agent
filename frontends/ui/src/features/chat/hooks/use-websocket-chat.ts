@@ -100,15 +100,6 @@ export interface SendMessageOptions {
    * so a stale read costs a round trip and nothing else.
    */
   awaitingHuman?: boolean
-  /**
-   * Skill names the user invoked with `/name` in the composer.
-   *
-   * Structured, and reconciled against the composer text at send time rather
-   * than remembered — the same discipline `mentions` follows, for the same
-   * reason: the token can be edited away after it was inserted, and what is
-   * sent must be what the text still says.
-   */
-  skills?: readonly string[]
 }
 
 /** A refusal the composer can localise from `details.reason`. */
@@ -223,9 +214,6 @@ type PendingOutgoing =
       kind: 'message'
       content: string
       dataSources: string[]
-      /** Skills invoked with `/name`; travels WITH the payload so a frame that
-       *  is queued through a reconnect is replayed with its invocation intact. */
-      skills?: string[]
       focusFileName?: string
       focusShelf?: 'project' | 'archiv' | 'session'
       /** The subject document and, when it has one, its OPEN version — the
@@ -1267,7 +1255,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       const sendChatMessage = (): string | null => {
         if (payload.kind !== 'message') return null
         const extras = {
-          ...(payload.skills && payload.skills.length > 0 ? { skills: payload.skills } : {}),
           ...(payload.focusFileName ? { focusFileName: payload.focusFileName } : {}),
           ...(payload.focusShelf ? { focusShelf: payload.focusShelf } : {}),
           ...(payload.focusDocumentId ? { focusDocumentId: payload.focusDocumentId } : {}),
@@ -2301,8 +2288,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     (
       content: string,
       dataSourcesForMessage: string[],
-      conversationId: string | undefined,
-      skills?: string[]
+      conversationId: string | undefined
     ): boolean => {
       // thinkingSteps are NOT cleared here -- they persist per userMessageId
       // so chat history still renders prior thinking blocks.
@@ -2339,7 +2325,6 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         kind: 'message',
         content,
         dataSources: dataSourcesForMessage,
-        ...(skills && skills.length > 0 ? { skills } : {}),
         ...(focusFileName ? { focusFileName } : {}),
         ...(focusShelf ? { focusShelf } : {}),
         ...(focusDocumentId ? { focusDocumentId } : {}),
@@ -2560,12 +2545,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       // currentConversation may have just been created inside addUserMessage.
       const conversationId = useChatStore.getState().currentConversation?.id
 
-      return openAgentTurn(
-        content,
-        dataSourcesForMessage,
-        conversationId,
-        options?.skills ? [...options.skills] : undefined
-      )
+      return openAgentTurn(content, dataSourcesForMessage, conversationId)
     },
     [addUserMessage, collectSendMetadata, openAgentTurn, sendRuledMessage]
   )

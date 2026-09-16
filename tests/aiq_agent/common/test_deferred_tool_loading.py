@@ -118,6 +118,30 @@ def test_every_namespaced_function_carries_defer_loading():
     assert all(f["defer_loading"] is True for f in functions)
 
 
+def test_the_payload_is_byte_stable_across_builds():
+    """Two builds of one tool set must serialize identically.
+
+    The tool schemas are the largest single slice of the cached prefix, and
+    they are serialized into the request ahead of the messages. A build that
+    reordered a schema's keys between iterations would change the prefix by a
+    byte and cost the whole turn's cache — invisibly, because the payload still
+    means the same thing. (The agent builds this once per turn and reuses the
+    binding, so this is a ratchet on the builder, not a description of the
+    call path.)
+    """
+    first = build_deferred_tool_payload(TOOLS, settings=ON)
+    second = build_deferred_tool_payload(TOOLS, settings=ON)
+    assert json.dumps(first) == json.dumps(second)
+
+
+def test_the_payload_preserves_the_given_tool_order():
+    # Order is part of the prefix too, and OpenAI counts a reordered tool list
+    # as a changed prefix ("changes tool names, descriptions, schemas,
+    # ordering ... invalidate the cached prefix").
+    reversed_payload = build_deferred_tool_payload(list(reversed(TOOLS)), settings=ON)
+    assert [f["name"] for f in reversed_payload[1]["tools"]] == ["ris_search", "ifc_measure"]
+
+
 def test_no_function_tool_is_left_at_the_top_level():
     # THE gotcha: OpenRouter's FunctionTool schema has no `defer_loading`, so a
     # top-level function silently drops it and the request 400s with

@@ -34,6 +34,12 @@ class TurnContext:
     project_context: str | None
     #: The bounded PLATFORM_LESSONS digest, or None (fail-open, TTL-cached).
     platform_lessons: str | None
+    #: The office's standing instructions for this turn, read off the request
+    #: header and already bounded (``project_context.ORG_INSTRUCTIONS_HEADER``).
+    #: Its own field rather than part of ``project_context``: the profile is the
+    #: project's hard facts, this is how the office wants to be answered, and
+    #: they are rendered under different framing for that reason.
+    org_instructions: str | None
     #: The request-scoped half of the post-answer stages' facts, captured while
     #: the request context is live — the stage tasks run after it is gone.
     stage_facts: TurnFacts
@@ -144,6 +150,7 @@ async def _load_turn_context(
     return TurnContext(
         project_context=compose_project_context(request.project_context, memory_digest),
         platform_lessons=platform_lessons,
+        org_instructions=request.org_instructions,
         stage_facts=TurnFacts(
             conversation_id=conversation_id,
             ws_parent_id=get_user_message_id_from_context(),
@@ -180,4 +187,4 @@ async def load_turn_context(
         )
     except Exception:  # noqa: BLE001 - see above; an answer without context beats no answer
         logger.warning("Project-context load failed; continuing without live context", exc_info=True)
-        return TurnContext(project_context=None, platform_lessons=None, stage_facts=TurnFacts())
+        return TurnContext(project_context=None, platform_lessons=None, org_instructions=None, stage_facts=TurnFacts())

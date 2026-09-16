@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from aiq_agent.observability.langfuse_trace_attributes import LangfuseTraceAttributeProcessor
+from aiq_agent.observability.langfuse_trace_attributes import PromptLinkProcessor
 from aiq_agent.observability.langfuse_trace_attributes import UsageAttributeProcessor
 from aiq_agent.observability.langfuse_trace_attributes import identity_attributes_enabled
 from nat.builder.builder import Builder
@@ -155,6 +156,24 @@ async def otelcollector_redaction_telemetry_exporter(
             logger.warning(
                 "otelcollector_redaction: could not install the usage attribute "
                 "processor - generation observations will export without usage.",
+                exc_info=True,
+            )
+
+    # Prompt linkage: which prompt version produced each generation. Installed
+    # on the same terms as usage attribution — a prompt name and a version
+    # number are not personal data — and at `position=0` for the same reason,
+    # so the pair stays redactable like every other attribute we add.
+    if PromptLinkProcessor is not None:
+        try:
+            exporter.add_processor(
+                PromptLinkProcessor(),
+                name="grid_prompt_link",
+                position=0,
+            )
+        except Exception:
+            logger.warning(
+                "otelcollector_redaction: could not install the prompt link "
+                "processor - generations will export without a prompt version.",
                 exc_info=True,
             )
 

@@ -275,7 +275,7 @@ class ConversationGraph:
         deep_research_fn: Callable[[DeepResearchAgentState], Awaitable[DeepResearchAgentState]],
         clarifier_fn: ClarifyFn | None,
         *,
-        max_history_tokens: int = 8000,
+        max_history_tokens: int = 40000,
         deep_research_job_submitter: Callable[[ConversationState], Awaitable[str]] | None = None,
         checkpointer: BaseCheckpointSaver | None = None,
         validate_deep_research_tools_fn: Callable[[list[str] | None], tuple[bool, str]] | None = None,
@@ -336,12 +336,9 @@ class ConversationGraph:
             already_read_digest=list(state.already_read_digest) if state.already_read_digest else None,
             project_context=state.project_context,
             platform_lessons=state.platform_lessons,
+            org_instructions=state.org_instructions,
             focus_file_name=state.focus_file_name,
             focus_shelf=state.focus_shelf,
-            # The user-requested forced skills, resolved by Piloti's
-            # register layer against the run's skill set — never passed to deep
-            # research.
-            force_skills=state.force_skills,
         )
 
     async def _run_research(self, research_state: ResearchAgentState) -> ResearchAgentState | dict[str, Any]:

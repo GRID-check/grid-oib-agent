@@ -1,4 +1,4 @@
--- Reverse 0087: drop the shelves and unshelve every skill.
+-- Reverse 0089: drop the shelves and unshelve every skill.
 --
 -- Removing a shelf never removes the books: both FKs are ON DELETE SET NULL,
 -- so the down migration only drops the columns and the table. Category

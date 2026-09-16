@@ -23,7 +23,7 @@ The real path, end to end:
 | Resolution | `skills/resolver.py` | Per run: every non-`grid-catalog: curated` builtin, plus the org's rows from the BFF (which shadow builtins by name), then filtered by `grid-agents`. Fails **open** to the builtin set. |
 | Level 1 | `skills/runtime.py::prompt_block` | Renders `## Available skills` + one line per skill: `` - `name`: description ``, verbatim. This string becomes `state.skills_block` in the agent's system prompt (`agents/piloti/register.py`). |
 | Level 2 | `skills/runtime.py::build_tools` | A LangChain tool named `use_skill(skill_name)` returns the body. **The model must call it.** Nothing else loads a body. |
-| Forcing | `forced_block` | If the user pins a skill in the UI, a second block says it is active and MUST be loaded. This is the only non-model-driven path. |
+| Forcing | — | There is none. Nothing puts a skill's body in front of the model; the catalog is an offer and `use_skill` is the only path. A `/name` in the composer is a mention in the message text, which the model reads like any other part of the question. |
 
 Four consequences that matter more than any generic advice:
 

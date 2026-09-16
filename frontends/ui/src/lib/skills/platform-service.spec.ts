@@ -135,11 +135,11 @@ describe('createPlatformSkill', () => {
   })
 
   /**
-   * The second closed default, and the one that decides whether an organization
-   * gets a choice. A skill that says nothing about its audience is an OFFER —
-   * imposing on the fleet has to be a word somebody wrote.
+   * There is one delivery now, and this is where it is written down: a curated
+   * skill is OFFERED. Migration 0088 retired `standard`, the tier that forced
+   * a skill onto every run and gave no organization a choice.
    */
-  it('creates an OFFER unless standard delivery was asked for', async () => {
+  it('creates an OFFER, the only delivery there is', async () => {
     vi.mocked(repository.insertPlatformSkillRow).mockImplementation(async (values) =>
       makeRow(values as Partial<PlatformSkillRow>)
     )
@@ -148,14 +148,8 @@ describe('createPlatformSkill', () => {
       author
     )
     expect(skill.delivery).toBe('offer')
-
-    const { skill: standard } = await createPlatformSkill(
-      { name: 'house-style', description: 'd', body: 'b', delivery: 'standard' },
-      author
-    )
-    expect(standard.delivery).toBe('standard')
     expect(repository.insertPlatformSkillRow).toHaveBeenLastCalledWith(
-      expect.objectContaining({ delivery: 'standard' })
+      expect.objectContaining({ delivery: 'offer' })
     )
   })
 
@@ -242,26 +236,25 @@ describe('updatePlatformSkill', () => {
   })
 
   /**
-   * Promotion and demotion are the same call, and neither touches the document.
-   * A standard skill is the same SKILL.md as the offer it was a moment ago — the
-   * only thing that changed is who is running it.
+   * Publishing is the only move left that changes who runs a skill, and it does
+   * not touch the document: a published skill is the same SKILL.md as the draft
+   * it was a moment ago.
+   *
+   * There is no promotion to promote to. `delivery` used to move a row between
+   * `offer` and `standard`, and the promotion took the choice away from every
+   * organization on the platform; 0088 retired the tier.
    */
-  it('moves a skill between the two deliveries', async () => {
-    vi.mocked(repository.findPlatformSkillRow).mockResolvedValue(makeRow({ published: true }))
-    vi.mocked(repository.updatePlatformSkillRow).mockResolvedValue(
-      makeRow({ published: true, delivery: 'standard' })
-    )
-    const { skill } = await updatePlatformSkill('ps-1', { delivery: 'standard' })
-    expect(skill.delivery).toBe('standard')
-    expect(repository.updatePlatformSkillRow).toHaveBeenCalledWith(
-      'ps-1',
-      expect.objectContaining({ delivery: 'standard' })
-    )
+  it('publishes without touching the document', async () => {
+    vi.mocked(repository.findPlatformSkillRow).mockResolvedValue(makeRow({ published: false }))
+    vi.mocked(repository.updatePlatformSkillRow).mockResolvedValue(makeRow({ published: true }))
+    const { skill } = await updatePlatformSkill('ps-1', { published: true })
+    expect(skill.published).toBe(true)
+    expect(skill.delivery).toBe('offer')
     // The body, description and metadata are not in the patch: nothing about the
     // instruction itself changes when its audience does.
     const [, patch] = vi.mocked(repository.updatePlatformSkillRow).mock.calls[0]
     expect(patch).not.toHaveProperty('body')
-    expect(patch).not.toHaveProperty('published')
+    expect(patch).not.toHaveProperty('description')
   })
 
   it('404s an unknown id', async () => {

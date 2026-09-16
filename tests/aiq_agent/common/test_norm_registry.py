@@ -645,8 +645,21 @@ class TestParcelNote:
         assert note is not None
         assert "Bebauungsplan: bplan_7602.pdf" in note
         assert "Flächenwidmungsplan: fwp_wien.pdf" in note
-        assert "maßgebliche Quelle" in note
+        # The heading names what these documents govern; that is the whole claim.
+        assert "maßgeblich für Widmung, Bauklasse, Gebäudehöhe, Fluchtlinien" in note
         assert "gutachten.pdf" not in note
+
+    def test_the_note_is_the_file_list_and_not_the_doctrine(self):
+        """What to DO with a parcel document is standing doctrine and lives
+        above the KV-cache boundary (`prompts/piloti_static.md`). Repeating it
+        under the file list charged the same three sentences on every call of
+        every turn that had one (ADR-0060 amendment)."""
+        note = nr.parcel_note([{"file_name": "bplan_7602.pdf", "tags": ["Bebauungsplan"]}])
+
+        assert note is not None
+        assert "knowledge_search" not in note
+        assert "unzulässig" not in note
+        assert note.count("\n") == 1
 
     def test_corpus_collection_field_defaults_and_loads(self, tmp_path):
         import yaml

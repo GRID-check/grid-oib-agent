@@ -21,12 +21,18 @@ one process; they are pinned to shared fixture files instead — see
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from ris_adapter.lookup.address import Address
+from ris_adapter.lookup.passages import SCORE_ADDRESSED
+from ris_adapter.lookup.passages import SCORE_RANKED_TOP
+from ris_adapter.lookup.passages import Passage
+from ris_adapter.lookup.render import format_passages
 
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
@@ -75,6 +81,11 @@ class Hit:
     Carries exactly the attributes ``_format_results`` reads off a chunk
     (``file_name``, ``page_number``, ``content``, ``content_type.value``,
     ``score``, ``metadata``) plus the parsed identity it must come back as.
+
+    The fields below ``body`` are the OPTIONAL half of the grounding grammar.
+    They default to absent, so every test written before them produces the same
+    bytes it did; they exist so one test can state them all at once and compare
+    what the two readers make of a fully populated hit.
     """
 
     file_name: str
@@ -82,21 +93,46 @@ class Hit:
     collection: str | None = None
     doc_class: str | None = None
     body: str = "Passage."
+    shelf: str | None = None
+    punkt: str | None = None
+    agent_authored: bool = False
+    image_index: int | None = None
+    content_type: str = "text"
+    score: float = 0.87
 
     def chunk(self) -> SimpleNamespace:
-        metadata: dict[str, str] = {}
-        if self.collection:
-            metadata["collection"] = self.collection
-        if self.doc_class:
-            metadata["doc_class"] = self.doc_class
         return SimpleNamespace(
             file_name=self.file_name,
             page_number=self.page,
             content=self.body,
-            content_type=SimpleNamespace(value="text"),
-            score=0.87,
-            metadata=metadata,
+            content_type=SimpleNamespace(value=self.content_type),
+            score=self.score,
+            metadata=self.metadata(),
         )
+
+    def metadata(self) -> dict[str, object]:
+        metadata: dict[str, object] = {}
+        for key, value in (
+            ("collection", self.collection),
+            ("doc_class", self.doc_class),
+            ("shelf", self.shelf),
+            ("punkt_id", self.punkt),
+        ):
+            if value:
+                metadata[key] = value
+        if self.image_index is not None:
+            metadata["image_key"] = f"img/{self.file_name}"
+            metadata["stored_image_index"] = self.image_index
+        if self.agent_authored:
+            metadata.update(
+                {
+                    "authored_by": "agent",
+                    "approved_by": "Maria Muster",
+                    "approved_at": "2026-02-03",
+                    "producer": "piloti",
+                }
+            )
+        return metadata
 
     @property
     def citation_key(self) -> str:
@@ -412,6 +448,191 @@ class TestGoldenPathToWire:
             "doc:oib_knowledge:oib-rl_2_ausgabe_mai_2023.pdf",
             "doc:proj_abc:einreichplan_og.pdf",
         ]
+
+
+class TestTheNoticeIsInsideTheBytes:
+    """A search that widened prepends a requery notice to its result.
+
+    The reader looks a block up under the hash of the exact bytes the tool
+    returned, so a notice glued on AFTER rendering would send every widened
+    search back to the text parser. The producer renders the notice as part of
+    the block instead, and this pins that the records are found under the
+    text that carries it.
+    """
+
+    def test_a_widened_search_is_still_read_from_the_records(self):
+        from aiq_agent.common.grounding_block import begin_grounding_capture
+        from aiq_agent.common.grounding_block import end_grounding_capture
+        from aiq_agent.common.grounding_block import get_grounding_block
+
+        hit = Hit(file_name="oib-rl_2_ausgabe_mai_2023.pdf", page=12, collection="oib_knowledge")
+        result = SimpleNamespace(success=True, error_message=None, chunks=[hit.chunk()])
+        token = begin_grounding_capture()
+        try:
+            text = _format_results(result, "Brandschutz", "Hinweis: die Suche wurde erweitert.\n\n")
+            block = get_grounding_block(text)
+        finally:
+            end_grounding_capture(token)
+
+        assert text.startswith("Hinweis: die Suche wurde erweitert.")
+        assert block is not None
+        assert [entry.citation_key for entry in block.hits] == [hit.citation_key]
+
+
+class TestTheTwoReadersAgree:
+    """The structured reader and the text parser must produce the same entries.
+
+    ADR-0061 moved the live path off the text: a rendered block is filed under
+    its own bytes and the registry copies fields off the records. The text
+    parser stays for everything that holds the bytes without the records: a
+    registry hydrated from the shared cache, a turn replayed out of Postgres,
+    the job runner's callback.
+
+    That makes the two paths a pair, and a pair drifts. Here they read the SAME
+    bytes off a real producer, one with the capture open and one without, and
+    every field of every entry has to match.
+
+    Both evidence producers are read this way. RIS states fields the corpus
+    never does (a source URL, a Rechtlicher Hinweis, a Punkt that is a §), and
+    it is the producer whose fan-out deliberately names a document differently
+    from its ``Source:`` line, so it is the one where a drift would be easiest
+    to argue away.
+    """
+
+    RICH_HITS = [
+        Hit(
+            file_name="oib-rl_2_ausgabe_mai_2023.pdf",
+            page=12,
+            collection="oib_knowledge",
+            doc_class="oib_richtlinie",
+            shelf="base",
+            punkt="3.5.2",
+            image_index=4,
+            body="Brandabschnitte sind so auszubilden.",
+        ),
+        Hit(
+            file_name="konzept_piloti.md",
+            page=2,
+            collection="proj_abc",
+            shelf="project",
+            agent_authored=True,
+            content_type="table",
+            body="Von Piloti verfasst, von einer Person freigegeben.",
+        ),
+        # Nothing optional stated at all: the absences must survive both readers.
+        Hit(file_name="lose_notiz.pdf", body="Handnotiz ohne alles."),
+        # A body the producer had to cut, whose marker neither reader may keep.
+        Hit(
+            file_name="langer_bericht.pdf",
+            page=1,
+            collection="proj_abc",
+            shelf="project",
+            body="A" * (_CHUNK_TRUNCATE_CHARS + 100),
+        ),
+    ]
+
+    def read_both_ways(self, hits: list[Hit]) -> tuple[list[SourceEntry], list[SourceEntry]]:
+        """The same tool output, read once off the records and once off the text."""
+        from aiq_agent.common.grounding_block import begin_grounding_capture
+        from aiq_agent.common.grounding_block import end_grounding_capture
+
+        token = begin_grounding_capture()
+        try:
+            tool_output = format_hits(hits)
+            structured = extract_sources_from_tool_result("knowledge_search", tool_output)
+        finally:
+            end_grounding_capture(token)
+        return structured, extract_sources_from_tool_result("knowledge_search", tool_output)
+
+    def test_the_golden_hits_read_identically_field_by_field(self):
+        structured, parsed = self.read_both_ways(GOLDEN_HITS)
+        assert [dataclasses.asdict(entry) for entry in structured] == [dataclasses.asdict(entry) for entry in parsed]
+
+    def test_a_fully_stated_hit_reads_identically_field_by_field(self):
+        """Punkt, score, doc_class, shelf, authored_by, content type, truncation."""
+        structured, parsed = self.read_both_ways(self.RICH_HITS)
+        assert [dataclasses.asdict(entry) for entry in structured] == [dataclasses.asdict(entry) for entry in parsed]
+
+    def test_the_structured_read_carries_the_fields_it_claims_to(self):
+        """Guards the premise above: two empty lists would also be equal."""
+        structured, _ = self.read_both_ways(self.RICH_HITS)
+        oib, piloti, lose, langer = structured
+        assert (oib.punkt, oib.shelf, oib.doc_class, oib.score) == ("3.5.2", "base", "oib_richtlinie", 0.87)
+        assert (piloti.authored_by, piloti.shelf) == ("agent", "project")
+        assert (lose.collection, lose.shelf, lose.doc_class, lose.punkt) == (None, None, None, None)
+        assert langer.chunk_text == "A" * _CHUNK_TRUNCATE_CHARS
+
+    def test_the_record_keeps_a_precision_the_rendered_line_rounds_away(self):
+        """The one place the two readers differ, written down rather than found.
+
+        ``Relevance Score:`` prints two decimals, so the text parser can never
+        recover more than two; the structured reader copies what retrieval
+        measured. No surface renders a score today, which is why this is a
+        difference and not a defect. A surface that starts to render one will
+        find it stated here.
+        """
+        structured, parsed = self.read_both_ways([Hit(file_name="a.pdf", page=1, score=0.8712)])
+        assert (structured[0].score, parsed[0].score) == (0.8712, 0.87)
+
+    def test_the_records_are_read_in_block_order(self):
+        """``SourceRegistry.add`` merges a repeated page onto the entry that came first."""
+        structured, _ = self.read_both_ways(self.RICH_HITS)
+        assert [entry.citation_key for entry in structured] == [
+            "oib-rl_2_ausgabe_mai_2023.pdf, p.12",
+            "konzept_piloti.md, p.2",
+            "lose_notiz.pdf",
+            "langer_bericht.pdf, p.1",
+        ]
+
+    #: One § the caller addressed, with the disclaimer a consolidated version
+    #: carries, and one the picker ranked, with none.
+    RIS_PASSAGES = [
+        Passage(
+            title="Bauordnung für Wien",
+            url="https://www.ris.bka.gv.at/Bauordnung-Wien",
+            collection="ris/LrKons/Wien",
+            punkt_label="§ 63 Abs 1",
+            citation="Bauordnung für Wien, § 63 Abs 1",
+            body="Dem Ansuchen um Baubewilligung sind anzuschließen …",
+            score=SCORE_ADDRESSED,
+            status_note="Konsolidierte Fassung. Maßgeblich ist das Landesgesetzblatt.",
+        ),
+        Passage(
+            title="Wiener Garagengesetz",
+            url="https://www.ris.bka.gv.at/Garagengesetz",
+            collection="ris/LrKons/Wien",
+            punkt_label="§ 50",
+            citation="Wiener Garagengesetz, § 50",
+            body="Stellplätze sind in der erforderlichen Anzahl herzustellen.",
+            score=SCORE_RANKED_TOP,
+        ),
+    ]
+
+    def read_ris_both_ways(self) -> tuple[list[SourceEntry], list[SourceEntry]]:
+        """The RIS producer's output, read once off the records and once off the text."""
+        from aiq_agent.common.grounding_block import begin_grounding_capture
+        from aiq_agent.common.grounding_block import end_grounding_capture
+
+        address = Address(kind="§", number="63", absatz="1", bundesland="W", bundesland_source="the question")
+        token = begin_grounding_capture()
+        try:
+            tool_output = format_passages(self.RIS_PASSAGES, None, address)
+            structured = extract_sources_from_tool_result("ris_lookup", tool_output)
+        finally:
+            end_grounding_capture(token)
+        return structured, extract_sources_from_tool_result("ris_lookup", tool_output)
+
+    def test_a_ris_block_reads_identically_field_by_field(self):
+        structured, parsed = self.read_ris_both_ways()
+        assert [dataclasses.asdict(entry) for entry in structured] == [dataclasses.asdict(entry) for entry in parsed]
+
+    def test_the_structured_read_carries_what_ris_stated(self):
+        """Guards the premise above, and pins the § as the Punkt it is."""
+        structured, _ = self.read_ris_both_ways()
+        wien, garagen = structured
+        assert (wien.punkt, wien.doc_class, wien.shelf, wien.score) == ("§ 63 Abs 1", "gesetz", "base", 1.0)
+        assert (garagen.punkt, garagen.doc_class, garagen.shelf) == ("§ 50", "gesetz", "base")
+        assert wien.citation_key == "Bauordnung für Wien, § 63 Abs 1"
 
 
 class TestDocumentKey:

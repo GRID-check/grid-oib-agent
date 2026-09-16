@@ -7,9 +7,11 @@ import { describe, test, expect } from 'vitest'
 import {
   documentsForRound,
   retrievalRounds,
-  unassignedDocuments,
+  roundFan,
+  type RetrievalRound,
   type RoundStep,
 } from './retrieval-rounds'
+import { sanitizeRetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import type { ThinkingStep } from '../types'
 import type { CitedDocument } from './citations/model'
 
@@ -224,18 +226,6 @@ describe('documentsForRound', () => {
     }
     expect(documentsForRound(round0, [oib, plan]).map((c) => c.id)).toEqual(['oib'])
     expect(documentsForRound(round1, [oib, plan]).map((c) => c.id)).toEqual(['plan'])
-    expect(unassignedDocuments([round0, round1], [oib, plan])).toEqual([])
-  })
-
-  test('a citation with no retrieval step is unassigned, not dropped', () => {
-    const extra = doc('extra', 'Notiz.pdf')
-    const round: ReturnType<typeof retrievalRounds>[number] = {
-      index: 0,
-      key: 'status.retrieval.plain',
-      tools: [],
-      sourceNames: ['oib-rl_2.pdf'],
-    }
-    expect(unassignedDocuments([round], [extra]).map((c) => c.id)).toEqual(['extra'])
   })
 })
 
@@ -289,4 +279,95 @@ describe('the backend fixture, read by the round walker', () => {
     const names = fixture.map((step) => step.functionName)
     expect(names.indexOf('knowledge_search')).toBeLessThan(names.indexOf('status:retrieval:1'))
   })
+})
+
+/**
+ * The fan under a round, once the backend states what that round returned.
+ *
+ * `documentsForRound` matches filenames, so every round that touched a file
+ * drew the same turn-level card: the same aggregate count, the same cited
+ * page. A second round re-opening four files at new pages was four identical
+ * cards a second time. The ledger says which docs a round returned and at what
+ * locus; `roundFan` prefers it and falls back to the filename match for any
+ * round it does not cover.
+ */
+describe('roundFan', () => {
+  const doc = (id: string, fileName: string): CitedDocument => ({
+    id,
+    title: id,
+    fileName,
+    kind: 'baurecht',
+    tint: 'law',
+    loci: [{ key: 'whole', isCited: true }],
+  })
+
+  const oib = doc('oib', 'OIB-RL_2.pdf')
+  const konzept = doc('konzept', 'Brandschutzkonzept.pdf')
+
+  const round = (index: number, sourceNames: string[]): RetrievalRound => ({
+    index,
+    key: 'status.retrieval.withQuery',
+    tools: ['knowledge_search'],
+    sourceNames,
+  })
+
+  /**
+   * The wire the Python half writes, not a copy of it — the same fixture
+   * `message-retrieval-ledger.spec.ts` pins the sanitizer against. Sanitized
+   * first, because that is the only shape a renderer ever sees.
+   */
+  const ledger = sanitizeRetrievalLedger(
+    JSON.parse(
+      readFileSync(
+        fileURLToPath(
+          new URL(
+            '../../../../../../tests/fixtures/herleitung/retrieval_ledger_wire.json',
+            import.meta.url
+          )
+        ),
+        'utf-8'
+      )
+    )
+  )!
+
+  const rounds = [round(0, ['OIB-RL_2.pdf']), round(1, ['OIB-RL_2.pdf'])]
+
+  test('a ledger round draws ITS docs, at the locus IT read', () => {
+    const fan = roundFan(rounds[1]!, [oib, konzept], ledger)
+    expect(fan.map((slot) => slot.card?.id)).toEqual(['oib', 'konzept'])
+    expect(fan.map((slot) => slot.round?.detail)).toEqual(['p.12', 'p.3'])
+  })
+
+  test('a doc no earlier round showed is new; the second round re-opening it is not', () => {
+    expect(roundFan(rounds[0]!, [oib, konzept], ledger).map((s) => s.round?.repeat)).toEqual([
+      false,
+      false,
+    ])
+    expect(roundFan(rounds[1]!, [oib, konzept], ledger).map((s) => s.round?.repeat)).toEqual([
+      true,
+      true,
+    ])
+  })
+
+  test('a ledger doc with no card keeps its slot and its locus', () => {
+    // The answer-repair pass reads after the cards are built; a slot dropped
+    // here would have the round claim it read one file when it read two.
+    const fan = roundFan(rounds[1]!, [oib], ledger)
+    expect(fan.map((slot) => slot.card?.id)).toEqual(['oib', undefined])
+    expect(fan[1]).toMatchObject({ name: 'Brandschutzkonzept.pdf', round: { detail: 'p.3' } })
+  })
+
+  test('without a ledger the fan is the filename match, and no round speaks for a slot', () => {
+    const fan = roundFan(rounds[1]!, [oib, konzept])
+    expect(fan.map((slot) => slot.card?.id)).toEqual(['oib'])
+    expect(fan[0]?.round).toBeUndefined()
+  })
+
+  test('a round the ledger does not have falls back on its own', () => {
+    const missing = round(7, ['Brandschutzkonzept.pdf'])
+    const fan = roundFan(missing, [oib, konzept], ledger)
+    expect(fan.map((slot) => slot.card?.id)).toEqual(['konzept'])
+    expect(fan[0]?.round).toBeUndefined()
+  })
+
 })

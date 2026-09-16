@@ -79,18 +79,18 @@ class TestLocatorEligible:
 
 
 class TestCapRetryAndRepair:
-    def test_fanout_cap_with_two_rounds_is_a_retry(self):
+    def test_width_cap_with_two_rounds_is_a_retry(self):
         payloads = loop_eval._status_payloads(
             _steps(
                 ("status:retrieval:0", {"tools": ["knowledge_search"]}),
-                ("status:budget:fanout", {"kept": 2, "dropped": 1}),
+                ("status:width:0", {"kept": 12, "withheld": 1}),
                 ("status:retrieval:1", {"tools": ["knowledge_search"]}),
             )
         )
         assert loop_eval.flag_cap_retry(payloads) == "yes"
 
     def test_cap_without_a_second_round_is_not_a_retry(self):
-        payloads = loop_eval._status_payloads(_steps(("status:budget:fanout", {})))
+        payloads = loop_eval._status_payloads(_steps(("status:width:0", {})))
         assert loop_eval.flag_cap_retry(payloads) == "no"
 
     def test_repair_step_flags_a_repair_fetch(self):

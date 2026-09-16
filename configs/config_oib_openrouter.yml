@@ -128,19 +128,54 @@ llms:
     max_tokens: 65536
     max_retries: 2
     request_timeout: 120
-    # low (not medium): the shallow tier is the quick-answer path; on reasoning
-    # models (e.g. grok-4.5 via org override) medium spent a large hidden-token
-    # "think" budget before emitting the first answer token — the dominant slice
-    # of the synthesis-call latency observed in the profiler (final synth ≈29s on
-    # a simple meta-ish query). Shallow retrieval+synthesis does not need deep
-    # deliberation; deep_* roles keep medium for the genuinely hard reasoning.
-    reasoning_effort: low
+    # medium, like every other role in this file. This is the role that decides
+    # WHAT TO RETRIEVE — with no results in hand, which of four corpora holds the
+    # answer — and the whole round budget is then spent executing that decision.
+    # It was the only role denied deliberation.
+    #
+    # The traces price the trade, and it is not close. Output is 0.4-1.4 % of a
+    # turn's tokens and ~2 % of its cost; one wasted retrieval round costs
+    # ~40 000 INPUT tokens, i.e. ~14 % of a turn, plus a round off a budget that
+    # truncates. Tripling output tokens at medium is single-digit percent of a
+    # turn; one round saved pays for it many times over.
+    #
+    # The previous note argued LATENCY, not cost: "medium spent a large
+    # hidden-token think budget before emitting the first answer token (final
+    # synth ≈29s on a simple meta-ish query)". That is a real effect measured on
+    # the case where deliberation is worth least. Re-measure it on the loop eval,
+    # which is the question set this role is for, not on a meta query — and
+    # weigh it knowing that a truncated answer at 27 s is worse than a complete
+    # one at 35 s.
+    reasoning_effort: medium
     # The Responses API, for `shallow_research_agent.deferred_tool_loading`
     # below: that feature needs it and fails the workflow build without it,
     # deliberately, rather than sending the tool schemas anyway (ADR-0048).
     # Nothing else in this file needs it; the default (chat_completion) is what
     # every other role runs on. Turn both off together.
     api_type: responses
+    # ── PROMPT CACHING: nothing to configure here, and that is the point ──
+    # This role re-sends ~35 KB of identical prefix (system prompt + tool
+    # schemas) on each of a turn's 3-6 calls. Two facts decide what that costs,
+    # and BOTH are handled in code, not by a key in this block:
+    #
+    # 1. USAGE ACCOUNTING IS ALWAYS ON. OpenRouter returns `cost`,
+    #    `cache_discount` and `prompt_tokens_details.cached_tokens` on every
+    #    response; its `usage: {include: true}` request option "[is] deprecated
+    #    and [has] no effect". Do not add one. What a `responses` role loses is
+    #    the *carrier*, not the flag — langchain-openai builds no `llm_output`
+    #    on that path, so only LangChain's normalized `usage_metadata` (counts
+    #    + cache bucket, no cost) reaches the ledger; `cost_tracking` reads it.
+    # 2. THE CACHE KEY IS DERIVED, NOT CONFIGURED. Caching itself is automatic
+    #    for the OpenAI family (≥1024 prompt tokens, no `cache_control`
+    #    breakpoint); what needs a request field is landing twice on the SAME
+    #    upstream endpoint. `common/prompt_caching.py` derives a `session_id` +
+    #    `prompt_cache_key` from the org, the model, the system prompt and the
+    #    tool set, and `common/llm_factory.py` attaches them to every OpenRouter
+    #    call — so this works unchanged when an admin re-points the group at
+    #    another model (ADR-0014). Never pin `provider.order` here to "help":
+    #    a manual order DISABLES OpenRouter's sticky routing, which is the
+    #    mechanism the key exists to drive.
+    # https://openrouter.ai/docs/guides/best-practices/prompt-caching
 
   # HITL Clarification & Planning — clarify ambiguity, generate the research plan.
   clarifier_llm:
@@ -349,6 +384,11 @@ functions:
         name: "RIS – Österreichisches Recht"
         description: "Search Austrian federal/state law and case law in the official RIS (Rechtsinformationssystem des Bundes) and fetch entire documents on demand."
         tools:
+          # All four, deliberately: `get_source_id_for_tool` must resolve the
+          # name a tool result arrives under, or nothing it returned is captured
+          # as a citable source. `ris_lookup_tool` is the chat surface's one RIS
+          # tool; the other three are deep research's (and its own internals).
+          - ris_lookup_tool
           - ris_search_tool
           - ris_fetch_tool
           - ris_catalog_lookup_tool
@@ -404,6 +444,18 @@ functions:
   ris_fetch_tool:
     _type: ris_fetch_document
     max_chars: 40000
+    ingest_into_knowledge: true
+
+  # The chat surface's single RIS tool: question in, citable passages out.
+  # Its bounds are its own (candidates 3, fetches 2, passages 6) and live in
+  # `sources/ris_adapter/src/lookup/`, one module per stage — they are not
+  # tunable here, because each is a claim about what one charged call may cost.
+  # `planner_llm` serves BOTH internal LLM calls: planning a live search and
+  # picking the answering §§ out of a law's headings. Neither happens when the
+  # catalog answers and the caller named a §.
+  ris_lookup_tool:
+    _type: ris_lookup
+    planner_llm: ris_planner_llm
     ingest_into_knowledge: true
 
   # Norm registry (configs/norms/<country>/registry.yml, override via
@@ -548,6 +600,13 @@ functions:
   # this returns the exact nesting and a worked example for the type actually
   # being emitted. Rendering all 27 shapes up front costs ~5,200 tokens on every
   # turn whether or not a card is emitted, and ~190 more for each type we add.
+  #
+  # NOT bound to `shallow_research_agent` any more. On the chat path a failed
+  # `emit_card` now returns this same L2 entry for the type that failed, so the
+  # shape is learned on the retry that needed it instead of in a charged round
+  # trip the prompt had to talk the model into paying in advance. The deep
+  # research worker still binds it: its writer composes one long report and pays
+  # the lookup once, where a chat turn paid it per turn.
   describe_card:
     _type: describe_card
 
@@ -660,12 +719,16 @@ functions:
       - knowledge_search
       - read_passage
       - view_knowledge_image
-      - ris_search_tool
-      - ris_fetch_tool
-      - ris_catalog_lookup_tool
+      # ONE RIS tool on the chat surface. Search → pick → fetch → find the
+      # paragraph was three charged calls and a 40 000-character blob that
+      # carried no Citation key, so nothing downstream could treat it as
+      # evidence; `ris_lookup` runs that path inside itself and returns passages
+      # in the knowledge layer's own grounding grammar. The other three stay
+      # registered and stay bound to deep research below, which has its own
+      # budget shape.
+      - ris_lookup_tool
       - remember
       - emit_card
-      - describe_card
       - surface_documents
       - move_document
       - rename_document
@@ -678,66 +741,107 @@ functions:
       - ifc_measure
       - ask_user
     verbose: true
-    max_llm_turns: 10
-    # A CEILING, NOT A QUOTA — and the number is the floor of the longest chain
-    # this surface documents, plus one repair.
+    # A CEILING ON ROUNDS, NOT A QUOTA ON CALLS — and the number is the floor of
+    # the longest chain this surface documents, plus one repair.
     #
-    # The accounting is `new_iterations += len(response.tool_calls)` in
-    # `piloti/agent.py`, charged when the model EMITS the call and
+    # The accounting is one unit per ROUND in `piloti/agent.py`: a round is one
+    # LLM decision that emitted tool calls, charged when the model emits it and
     # never refunded. Three consequences that are not obvious from the name:
-    #   * a call that comes back with 0 hits costs what one that answers costs;
-    #   * PARALLEL calls each cost one, so a model emitting three per turn gets
-    #     two round trips out of five, not five — and this surface runs frontier
-    #     models, which emit parallel calls routinely;
-    #   * `use_skill` is a real tool call — but the skills this DEPLOYMENT
-    #     forces (`delivery: standard`, currently piloti-voice and
-    #     piloti-cards) are no longer charged here. The register reserves one
-    #     iteration per standard skill on top of this number
-    #     (`reserved_tool_iterations`), because otherwise publishing a second
-    #     house skill in the dashboard silently shortens every research chain
-    #     in the product by one, with no deploy and nothing to notice it. The
-    #     floors below still count ONE `use_skill` — the one the QUESTION
-    #     spends, on a skill the model or the user chose.
+    #   * a round that comes back with 0 hits costs what one that answers costs;
+    #   * PARALLEL calls inside one round cost ONE between them. That is the
+    #     point: a model that opens all five members of a Richtlinien-Familie in
+    #     one batch is using its round well, and „was weißt du über die OIB 2"
+    #     — one `knowledge_search` plus five parallel `read_passage` — used to
+    #     exhaust a budget of seven on the single most ordinary question the
+    #     product answers. The prompt asks for that fan-out; the budget used to
+    #     forbid it;
+    #   * `use_skill` is a real round when the model spends one on it, and is
+    #     charged like any other. Nothing is reserved on top of this number: no
+    #     skill is forced on a turn, so every `use_skill` round is one the
+    #     QUESTION spent on a skill the model chose to open — which is what the
+    #     floors below already count. A standing instruction that used to arrive
+    #     as a forced skill is prompt text now (the platform prompt, and the
+    #     office's own `X-Grid-Org-Instructions` block), and prompt text costs
+    #     no round.
     #
-    # Floors traced against the tool surface as it now stands (survey landed
-    # since the number was last touched, and it shortened exactly one shape):
-    #   „wie hoch ist der Keller"  use_skill + survey                       = 2
-    #     ...plus a storey-name miss repaired by briefing, plus emit_card    = 5
-    #   OIB 3 Lichteinfall         use_skill + knowledge_search (the clause
+    # There is no second currency beside this one. The interaction allowance
+    # that used to hold `emit_card` / `remember` / the working directory's file
+    # verbs out of the budget existed only because the budget counted CALLS; a
+    # round of three cards is one round, so nothing has to be exempted and
+    # nothing has to be kept in step.
+    #
+    # Floors traced against the tool surface as it now stands, IN ROUNDS. The
+    # chains are the same; what changed is that a step needing two or three
+    # parallel calls is one round, so each floor is the number of think-act
+    # cycles rather than the number of calls:
+    #   „wie hoch ist der Keller"  use_skill, survey                        = 2
+    #     ...plus a storey-name miss repaired by briefing, plus emit_card    = 4
+    #   OIB 3 Lichteinfall         use_skill, knowledge_search (the clause
     #     supplies angle_deg/swivel_deg, which light_incidence refuses to
-    #     default) + find_elements + relations + overhang + light_incidence  = 6
-    #   OIB 2 Fluchtweg            use_skill + knowledge_search + find_elements
-    #     + egressPath + clearWidth over the door list + fire/doorGraph      = 6
+    #     default), find_elements+relations, overhang, light_incidence       = 5
+    #   OIB 2 Fluchtweg            use_skill, knowledge_search,
+    #     find_elements, egressPath+clearWidth over the door list,
+    #     fire/doorGraph                                                    = 5
+    #   „was weißt du über die OIB 2"  knowledge_search, then the family
+    #     opened in one parallel batch of read_passage, then emit_card       = 3
     #
-    # At 5 the two multi-element chains truncate AT OR BEFORE the measurement
-    # that answers the question, and forced synthesis then writes an answer from
-    # declared values — the 3,00-m-instead-of-2,70-m failure this whole branch
-    # started from. Truncation is still silent TO THE READER — the synthesis
-    # anchor says „exhausted your research budget" to the MODEL and asks for no
-    # disclosure, and `[CONFIDENCE:…]` grades SOURCE grounding, not whether
-    # evidence-gathering was cut off — but it is no longer invisible to US: it
-    # now emits a `status:budget` telemetry step and a `Research budget
-    # exhausted` warning carrying the ceiling, the spend, the round count and
-    # the ordered tool shape, so "how often, and on which questions" is a query
-    # rather than a guess. Whether the READER is told is a product decision.
+    # Truncation is still silent TO THE READER — the synthesis anchor says
+    # „exhausted your research budget" to the MODEL and asks for no disclosure,
+    # and `[CONFIDENCE:…]` grades SOURCE grounding, not whether
+    # evidence-gathering was cut off — but it is not invisible to US: it emits a
+    # `status:budget` telemetry step and a `Forcing synthesis (rounds)` warning
+    # carrying the ceiling, the rounds spent, the input tokens and the ordered
+    # tool shape, so "how often, and on which questions" is a query rather than
+    # a guess. Whether the READER is told is a product decision.
     #
-    # 6 is the bare floor with no repair budget, and a storey-name miss is the
-    # commonest repair on this surface. 7 = floor + one repair. Higher buys a
-    # second repair nothing traced here needs, and every iteration is a full
-    # round trip carrying ~9 000 tokens of tool schema plus the grown history.
+    # 5 is the bare floor with no repair budget, and a storey-name miss is the
+    # commonest repair on this surface. 7 = floor + two repairs. The number is
+    # kept at 7 rather than lowered with the unit: the floors moved because
+    # parallel calls stopped costing, and reading that as headroom to take back
+    # would re-introduce the failure this change removes. Every round is a full
+    # round trip carrying ~9 000 tokens of tool schema plus the grown history,
+    # and what bounds THAT is `max_input_tokens_per_turn` below, not this.
     #
     # Raising a ceiling costs nothing on a query that never reaches it — the
     # short shapes above still stop at 2. The only new cost is a confused model
     # wandering, bounded at two extra round trips. Set against that, truncation
     # before the measurement is the worst failure this product has.
     #
-    # 7 serial iterations = 15 node visits + forced synthesis, well under
-    # `recursion_limit` 30 (`max_llm_turns * 2 + 10`), so this does not need
-    # max_llm_turns moved with it. The two reserved skill iterations take the
-    # worst case to 9 = 19 node visits + synthesis, still under 30 — and a
-    # third standard skill would take it to 21, so the reserve is bounded by
-    # what the platform owner publishes and wants watching if that grows.
+    # 7 rounds = 14 node visits + forced synthesis, under the graph's
+    # `recursion_limit`, which is derived from this number alone and is
+    # `(max_tool_iterations * 2) + 10` = 24. Nothing else bounds the loop, and
+    # there is no `max_llm_turns` to move with it — that key was dead for
+    # releases and is gone.
     max_tool_iterations: 7
+    # The bound that protects the person paying, and the reason the round
+    # ceiling is free to be generous. Rounds say how far the investigation goes;
+    # they say nothing about what it costs now that one round can fan out into
+    # twelve calls against an 80 000-token context. Read off the cost tracker
+    # that already meters every call of the turn (`common/cost_tracking.py`),
+    # checked at the top of the agent node beside the round ceiling, and
+    # answered the same way: forced synthesis, with its own
+    # `status:budget:input` record so a firing is countable.
+    #
+    # 600 000 is well above the worst turn measured — 288 583 prompt tokens
+    # across eight calls, on „was weißt du über die OIB 2" — and that headroom
+    # is deliberate. A bound that fires on a hard question is a hobble; this one
+    # exists to stop a runaway, and a firing should be rare enough that the
+    # record is worth reading. Lower it only against measurement, never to
+    # "save money" on a distribution nobody has looked at. 0 disables it.
+    max_input_tokens_per_turn: 600000
+    # A RUNAWAY GUARD, not a doctrine. Nothing caps the width of a round on
+    # purpose — a round costs one whatever it fans out into, and the family
+    # overview the prompt asks for is five parallel opens in one batch — but
+    # "no cap at all" means one confused decision can put sixty concurrent
+    # calls into the vector store, and the token bound above only sees that at
+    # the START of the next round, after the fan-out has been served. 12 sits
+    # far above every batch the prompt asks for, so a normal turn never meets
+    # it. The calls past it are not refused: each is answered with a notice
+    # saying it was not run THIS round and may be issued again in the next one,
+    # and it stays on the message (a provider rejects an un-answered call).
+    # Each firing leaves a `status:width:N` record, so a cap that fires on real
+    # turns is visible rather than inferred. 0 disables it.
+    max_calls_per_round: 12
     # The turn's one repair (roadmap loop L0): when a citation or a quote fails
     # verification, one more retrieval aimed at the failing text and one rewrite,
     # re-verified; the better answer ships. Off = ship the markers as before.
@@ -906,6 +1010,14 @@ functions:
 workflow:
   _type: chat_deepresearcher_agent
   verbose: true
+  # The conversation window, in tokens, trimmed before the agent runs. Set
+  # explicitly rather than left to the default, because this is the number the
+  # deployment is choosing: it is the one part of the context nobody can
+  # reconstruct. A single call on this surface carries 37-84k input tokens and
+  # the static prompt alone is ~14k, so 8 000 trimmed the user's own words and
+  # their corrections while re-sending everything else. See the field docstring
+  # in `piloti/conversation_register.py`.
+  max_history_tokens: 40000
   enable_clarifier: true
   # The clarification step that confirms a research plan before deep research
   # runs. A block on the workflow rather than its own function: it has one

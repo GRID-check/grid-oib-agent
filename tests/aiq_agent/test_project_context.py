@@ -16,6 +16,11 @@ _INPUT_FIELD_MAP = {
     "collectionScope": "collection_scope",
     "projectContext": "project_context",
     "projectMemory": "project_memory",
+    # The office's standing instructions. Mapped BEFORE the fixture carries a
+    # case for it on purpose: with no key on either side both read None, and
+    # the day the TS builder starts sending `X-Grid-Org-Instructions` without
+    # this side parsing it (or the reverse), this map is what fails.
+    "orgInstructions": "org_instructions",
     "modelOverrides": "model_overrides",
     "budget": "budget",
     "disabledSources": "disabled_sources",
@@ -515,3 +520,88 @@ class TestBundeslandField:
     def test_from_headers_legacy_individual_headers_never_populate_bundesland(self):
         ctx = pc.GridRequestContext.from_headers({pc.ORGANIZATION_ID_HEADER: "org_1"})
         assert ctx.bundesland is None
+
+
+class TestOrgInstructions:
+    """The office's standing instructions: one header, bounded at the door.
+
+    They replaced the two ways a skill could be FORCED onto a turn. A standing
+    instruction is prompt text — always present, costing no tool call, and
+    impossible to half-apply — so what arrives here lands in every turn's
+    system prompt for this organization, which is exactly why the cap is
+    enforced on this side rather than trusted from the sender.
+    """
+
+    @staticmethod
+    def _encoded(text: str) -> str:
+        return base64.urlsafe_b64encode(text.encode("utf-8")).decode("ascii").rstrip("=")
+
+    def _read(self, monkeypatch, raw: str | None) -> pc.GridRequestContext:
+        monkeypatch.setattr(pc, "_read_header", lambda name: raw if name == pc.ORG_INSTRUCTIONS_HEADER else None)
+        return pc.GridRequestContext.from_context()
+
+    def test_the_header_name_is_the_one_the_bff_sends(self):
+        assert pc.ORG_INSTRUCTIONS_HEADER == "x-grid-org-instructions"
+
+    def test_a_multi_line_block_decodes_verbatim(self, monkeypatch):
+        """Base64url for the reason the other two text headers use it: Node
+        rejects newlines in a header value, and an office writes a list."""
+        text = "Antworten kurz halten.\nImmer die Wiener Bauordnung zuerst prüfen."
+        ctx = self._read(monkeypatch, self._encoded(text))
+        assert ctx.org_instructions == text
+
+    def test_an_absent_or_blank_header_is_no_instruction_at_all(self, monkeypatch):
+        assert self._read(monkeypatch, None).org_instructions is None
+        assert self._read(monkeypatch, self._encoded("   \n  ")).org_instructions is None
+
+    def test_a_block_past_the_cap_is_cut_and_says_so(self, monkeypatch):
+        """Truncating silently would hand the model a complete-looking set of
+        instructions that is not the set the office wrote."""
+        text = "A" * (pc.ORG_INSTRUCTIONS_MAX_CHARS + 500)
+        value = self._read(monkeypatch, self._encoded(text)).org_instructions
+
+        assert value is not None
+        head, marker = value.rsplit("\n", 1)
+        assert len(head) == pc.ORG_INSTRUCTIONS_MAX_CHARS
+        assert marker == pc.ORG_INSTRUCTIONS_TRUNCATED_MARKER
+        assert str(pc.ORG_INSTRUCTIONS_MAX_CHARS) in marker
+
+    def test_a_block_at_the_cap_is_left_alone(self, monkeypatch):
+        text = "A" * pc.ORG_INSTRUCTIONS_MAX_CHARS
+        assert self._read(monkeypatch, self._encoded(text)).org_instructions == text
+
+    def test_the_cap_is_the_number_the_prompt_budget_was_written_for(self):
+        assert pc.ORG_INSTRUCTIONS_MAX_CHARS == 1500
+
+    def test_the_signed_envelope_carries_it_too(self):
+        """The envelope WINS over the individual headers wherever it is present,
+        so a field it cannot carry is a field the chat path never sees."""
+        payload = {"organizationId": "org_1", "orgInstructions": "Kurz antworten."}
+        header = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("ascii").rstrip("=")
+
+        ctx = pc.GridRequestContext.from_envelope(header, None, None)
+
+        assert ctx is not None
+        assert ctx.org_instructions == "Kurz antworten."
+
+    def test_the_envelope_applies_the_same_cap(self):
+        payload = {"orgInstructions": "A" * (pc.ORG_INSTRUCTIONS_MAX_CHARS + 10)}
+        header = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("ascii").rstrip("=")
+
+        ctx = pc.GridRequestContext.from_envelope(header, None, None)
+
+        assert ctx is not None
+        assert ctx.org_instructions is not None
+        assert ctx.org_instructions.endswith(pc.ORG_INSTRUCTIONS_TRUNCATED_MARKER)
+
+    def test_from_headers_reads_it_case_insensitively(self):
+        ctx = pc.GridRequestContext.from_headers({"X-Grid-Org-Instructions": self._encoded("Kurz antworten.")})
+        assert ctx.org_instructions == "Kurz antworten."
+
+    def test_the_accessor_returns_what_the_parse_bounded(self, monkeypatch):
+        monkeypatch.setattr(
+            pc,
+            "_read_header",
+            lambda name: self._encoded("Kurz antworten.") if name == pc.ORG_INSTRUCTIONS_HEADER else None,
+        )
+        assert pc.get_org_instructions_from_context() == "Kurz antworten."

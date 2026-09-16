@@ -379,17 +379,9 @@ export const platform = {
   },
   /** Platform → Skills: the catalogue curated for every organization. */
   skills: {
-    hint: 'A skill written here reaches every organization. As an offer, each one decides whether to switch it on; as a standard, all of them run it without seeing it on their Skills tab or being able to switch it off. Drafts stay invisible until you publish them.',
+    hint: 'A skill written here is offered to every organization, and each one decides whether to switch it on. Drafts stay invisible until you publish them. Anything that should apply to every answer belongs in the platform prompt, not in a skill.',
     new: 'New curated skill',
     draft: 'Draft',
-    standardBadge: 'Standard',
-    deliveryOffer: 'Offered',
-    deliveryStandard: 'Standard for all',
-    deliveryAria: 'Change how the skill “{name}” is delivered',
-    deliveryNowStandard:
-      '“{name}” is now standard: every organization runs it and none can switch it off.',
-    deliveryNowOffer:
-      '“{name}” is now an offer: it runs again only where an organization switches it on.',
     edit: 'Edit',
     delete: 'Delete',
     deleted: '“{name}” deleted.',

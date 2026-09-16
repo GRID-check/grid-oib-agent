@@ -24,9 +24,11 @@ the report does not carry what a card needs, emit no card: the report already an
 without it."""
 
 # The CRAFT, in the only form this path can use: the part that is a TEST over a finished text
-# rather than an instruction about writing one. The answering agent's card craft lives in the
-# `<cards>` section of its system prompt; post-hoc generation is a separate LLM call over a
-# finished report, so it carries only what the model can decide by reading the text it was handed.
+# rather than an instruction about writing one. The answering agent's card craft rides with the
+# triggers in the shared doctrine now (`catalog._CARD_TRIGGERS`), and this path renders that
+# doctrine with `include_craft=False`: most of what is written there — mark `current_step` only
+# where the conversation established it, put the decisive passage in `original_text` — is an
+# instruction about an answer still being written, which a post-hoc call cannot act on.
 #
 # The `follow_ups` paragraph was removed when the card was retired
 # (`SYSTEM_CARD_TYPES`, docs/architecture/post-answer-stages.md §7.10), and the three envelope
@@ -85,9 +87,10 @@ def build_card_generation_prompt() -> str:
       ordering rule, because there is no text to place a marker into.
     * The IFC triggers are withheld (``include_ifc_triggers=False``), matching
       the model-backed cards this path is already not shown.
-    * The grounding rule leads, and a short form of the card craft stands in for
-      the ``piloti-cards`` skill, which applies to the answering agents and
-      cannot reach a bare LLM call.
+    * The per-card craft is withheld (``include_craft=False``) and the grounding
+      rule leads instead, with a short post-hoc-truthful craft block standing in:
+      the shared craft is written for an agent still composing the answer, and
+      the only judgement available here is a test over the report as handed.
 
     The IFC cards are withheld because this path is handed only the question
     and the finished answer TEXT — no tool output. Every field that identifies
@@ -111,7 +114,7 @@ def build_card_generation_prompt() -> str:
         + _POST_HOC_GROUNDING
         + "\n\nFields marked * are required; omit optional fields you cannot fill (do NOT pass null "
         "for optional objects).\n\n"
-        + render_card_doctrine(include_ifc_triggers=False)
+        + render_card_doctrine(include_ifc_triggers=False, include_craft=False)
         + "\n\n"
         + _POST_HOC_CRAFT
         + "\n\n"

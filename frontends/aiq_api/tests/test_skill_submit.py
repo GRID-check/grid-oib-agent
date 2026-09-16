@@ -12,8 +12,9 @@ and manual skill runs. It must:
   explicit ``agent_type`` as the only override;
 - accept the pre-rename ``execution`` spelling for one release, with ``output``
   winning when both arrive (the BFF and this service deploy separately);
-- thread the forced skill names through to ``submit_agent_job`` as
-  ``force_skills`` (the same path ``data_sources`` travels);
+- accept the attached skill NAMES and forward none of them: the skill's body
+  is already inside the composed ``input``, and no agent state carries a forced
+  skill any more;
 - reconstitute the skill owner's identity into the Principal, owner, and
   usage_context handed to ``submit_agent_job`` (org-scoped admission + cost
   attribution);
@@ -172,26 +173,20 @@ def test_unknown_legacy_execution_value_422(client, prod_token):
 # --- skills are optional: a job is a prompt, a skill is attached on top -----
 
 
-def test_missing_skills_submits_with_no_forced_skills(client, prod_token, submit_mock):
+def test_missing_skills_submits_the_prompt_alone(client, prod_token, submit_mock):
     """A job need not have a skill at all — the prompt runs on its own."""
     body = _valid_body()
     del body["skills"]
     resp = _post(client, body)
     assert resp.status_code == 200
-    assert submit_mock.await_args.kwargs["force_skills"] == []
+    assert "force_skills" not in submit_mock.await_args.kwargs
 
 
-def test_empty_skills_submits_with_no_forced_skills(client, prod_token, submit_mock):
-    """An empty list is "no skill attached", not a malformed payload.
-
-    It is forwarded as-is rather than normalised to None: everything downstream
-    already treats an empty force list identically to no list
-    (``SkillRuntime(force_names=[])`` iterates ``force_names or ()``, and the
-    shallow register layer's wiring check is a plain truthiness test).
-    """
+def test_an_empty_skills_list_is_accepted_not_rejected(client, prod_token, submit_mock):
+    """An empty list is "no skill attached", not a malformed payload."""
     resp = _post(client, _valid_body(skills=[]))
     assert resp.status_code == 200
-    assert submit_mock.await_args.kwargs["force_skills"] == []
+    assert "force_skills" not in submit_mock.await_args.kwargs
 
 
 # --- deterministic agent selection ----------------------------------------
@@ -276,15 +271,17 @@ def test_successful_submit_returns_job_id(client, prod_token, submit_mock):
     submit_mock.assert_awaited_once()
 
 
-def test_successful_submit_forwards_identity_scope_and_forced_skills(client, prod_token, submit_mock):
+def test_successful_submit_forwards_identity_and_scope(client, prod_token, submit_mock):
     resp = _post(client, _valid_body())
     assert resp.status_code == 200
 
     kwargs = submit_mock.await_args.kwargs
     assert kwargs["agent_type"] == "deep_researcher"
     assert kwargs["input_text"] == "Act as a building-physics advisor: check the OIB thermal requirements."
-    # The forced skill names ride the same path data_sources travels.
-    assert kwargs["force_skills"] == ["oib-thermal-check", "building-physics-advisor"]
+    # The skill names are NOT forwarded: the attached skill's body is already
+    # composed into `input` above, and nothing on the worker can be told to
+    # load a skill any more.
+    assert "force_skills" not in kwargs
     # Owner is the owner's email (principal.email or principal.sub).
     assert kwargs["owner"] == "creator@example.com"
     # Collection scope is forwarded verbatim; the project collection is derived
@@ -325,10 +322,10 @@ def test_owner_falls_back_to_user_id_when_no_email(client, prod_token, submit_mo
     assert kwargs["principal"].email is None
 
 
-def test_chat_output_forwards_a_single_forced_skill(client, prod_token, submit_mock):
+def test_chat_output_accepts_an_attached_skill_without_forcing_it(client, prod_token, submit_mock):
     resp = _post(client, _valid_body(output="chat", skills=["only-one"]))
     assert resp.status_code == 200
-    assert submit_mock.await_args.kwargs["force_skills"] == ["only-one"]
+    assert "force_skills" not in submit_mock.await_args.kwargs
 
 
 def test_unknown_data_source_ids_422_via_registry_fallback(client, prod_token, submit_mock, monkeypatch):

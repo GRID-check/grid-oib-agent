@@ -106,6 +106,13 @@ function buildGridRequestContextEnvelopeHeaders(input) {
   // GRID_REQUEST_CONTEXT_MAX_AGE_MS by `verifyGridRequestContextEnvelope`).
   if (input.conversationId) payload.conversationId = input.conversationId
   if (input.issuedAt !== undefined && input.issuedAt !== null) payload.issuedAt = input.issuedAt
+  // `orgInstructions` — the organization's standing instruction block
+  // (`organization_instructions`, migration 0087), appended LAST in key order
+  // for the reason every field added since `memoryReflectionEnabled` has been
+  // last: every pre-existing signed payload stays byte-identical. Pinned to
+  // `buildGridRequestContextEnvelopePayload` in request-context.ts, as this
+  // whole function is.
+  if (input.orgInstructions) payload.orgInstructions = input.orgInstructions
 
   const json = JSON.stringify(payload)
   const headers = {
@@ -706,6 +713,18 @@ const startServer = async () => {
               'utf8'
             ).toString('base64url')
           }
+          // The organization's standing instruction block — one bounded text an
+          // org admin writes under Organisation -> Anweisungen, carried on every
+          // turn. Base64url for the same reason projectContext/projectMemory are:
+          // it is multi-line, and Node rejects '\n' in a header value
+          // (ERR_INVALID_CHAR), which would kill the upgrade. Absent header =
+          // the organization has written none.
+          if (result.data?.orgInstructions) {
+            req.headers['x-grid-org-instructions'] = Buffer.from(
+              result.data.orgInstructions,
+              'utf8'
+            ).toString('base64url')
+          }
           // Feature flag: whether the async memory-reflection stage is enabled
           // for this caller (WorkOS flag per-org, or the env fallback). Always
           // forwarded so the backend fails closed when the header is absent.
@@ -777,6 +796,7 @@ const startServer = async () => {
               collectionScope: result.data?.scopedCollections ?? result.data?.scope,
               projectContext: result.data?.projectContext,
               projectMemory: result.data?.projectMemory,
+              orgInstructions: result.data?.orgInstructions,
               modelOverrides: result.data?.modelOverrides,
               budget: result.data?.budget,
               disabledSources: result.data?.disabledSources,

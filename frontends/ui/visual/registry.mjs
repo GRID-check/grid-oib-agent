@@ -760,10 +760,18 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="report-outline"]',
   },
   {
+    id: 'org-instructions',
+    mobile: true,
+    path: '/dev/org-instructions',
+    description:
+      "Organisation \u2192 Anweisungen \u2014 the standing instruction block every turn in the organization carries, and what replaced forcing a skill onto a turn (the composer's `skills` array and the platform's `standard` delivery tier, both retired). Two states: a written block with the counter part-used, and one pasted past the 1500-character cap, where the counter says by how much and Save stays refused rather than the text being truncated \u2014 an instruction cut mid-sentence says something its author never wrote. The hint under the box is the boundary, not chrome: standing preferences on form, focus and workflow, never a rule that overrides Piloti and never a normative value.",
+    waitFor: '[data-testid="org-instructions-preview"] textarea',
+  },
+  {
     id: 'platform-skills',
     path: '/dev/platform-skills',
     description:
-      'Platform \u2192 Skills \u2014 the catalogue Piloti writes for every organization, and the surface that replaced the per-tenant "clone a platform skill" button. Three row states, because they are the whole model: a published OFFER (on every org\'s Skills tab, each deciding whether to switch it on), a published STANDARD (running for the whole fleet, on nobody\'s tab, and not something a tenant can switch off or shadow) and a DRAFT (invisible fleet-wide, which is what makes this usable as a writing surface rather than a publish-on-save wire). The switch means published, not enabled; the select beside it is the one control that decides whether an organization gets a choice at all.',
+      'Platform \u2192 Skills \u2014 the catalogue Piloti writes for every organization, and the surface that replaced the per-tenant "clone a platform skill" button. Two row states, because they are now the whole model: a published OFFER (on every org\'s Skills tab, each deciding whether to switch it on) and a DRAFT (invisible fleet-wide, which is what makes this usable as a writing surface rather than a publish-on-save wire). The switch means published, not enabled. There is no delivery control any more: the STANDARD tier, which ran a skill for the whole fleet with no tenant decision in it and forced it onto every run, was retired by migration 0088 \u2014 what should apply to every answer belongs in the platform prompt, not in a skill.',
     waitFor: '[data-testid="platform-skills-preview"] [role="switch"]',
   },
   {

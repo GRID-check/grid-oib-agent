@@ -1,4 +1,4 @@
--- 0087: skill categories — the categories skills stand in.
+-- 0089: skill categories — the categories skills stand in.
 --
 -- ## The gap this closes
 --

@@ -9,15 +9,20 @@
  * and in `../lib/slash-command`: the component keeps a picker, a handful of
  * props, and no decisions.
  *
- * ## No invocation state
+ * ## The text IS the invocation
  *
- * There is deliberately none. The invoked skill is DERIVED from the composer
- * text on every render (`resolveSlashInvocation`), so deleting the `/name`
- * token removes the invocation with no bookkeeping, and no state can drift from
- * what the user can see. `@` mentions cannot do this — two people can share a
- * display name, so a mention must remember which person was picked — but a
- * skill name is unique and exact, which makes the text a complete record of the
- * invocation.
+ * There is deliberately no state, and since forcing a skill onto a turn was
+ * removed there is nothing else either: picking from the `/` menu writes
+ * `/name ` into the composer and that is the whole effect. Nothing structured
+ * leaves with the message — the model reads the name in the text and picks the
+ * skill out of the same catalog it always chooses from.
+ *
+ * So `invokedSkill` is DERIVED from the composer text on every render
+ * (`resolveSlashInvocation`), deleting the token removes the reference with no
+ * bookkeeping, and no state can drift from what the user can see. `@` mentions
+ * cannot do this — two people can share a display name, so a mention must
+ * remember which person was picked — but a skill name is unique and exact,
+ * which is what lets the text be the complete record.
  */
 
 import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from 'react'
@@ -60,11 +65,9 @@ export interface UseSlashCommandResult {
    * consumed and the composer must do nothing else with it.
    */
   handleKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>, onSubmit: () => void) => boolean
-  /** The skill this message currently invokes, or null. Derived from the text. */
+  /** The skill this message currently names, or null. Derived from the text. */
   invokedSkill: SlashCommandSkill | null
-  /** What to put on the wire: the invoked names, or undefined for none. */
-  skillsForSend: (text: string) => string[] | undefined
-  /** Drop the invocation from the message, keeping everything else typed. */
+  /** Drop the skill's name from the message, keeping everything else typed. */
   clearInvocation: () => void
   /** Close the panel without touching the text (Escape, a click outside). */
   dismiss: () => void
@@ -164,15 +167,6 @@ export function useSlashCommand({
     [open],
   )
 
-  const skillsForSend = useCallback(
-    (sentText: string): string[] | undefined => {
-      if (!enabled) return undefined
-      const invocation = resolveSlashInvocation(sentText, names)
-      return invocation ? [invocation.skillName] : undefined
-    },
-    [enabled, names],
-  )
-
   const dismiss = useCallback(() => setDismissed(true), [])
 
   const clearInvocation = useCallback(() => {
@@ -199,7 +193,6 @@ export function useSlashCommand({
     select,
     handleKeyDown,
     invokedSkill,
-    skillsForSend,
     clearInvocation,
     dismiss,
   }
