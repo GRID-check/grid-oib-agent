@@ -1,0 +1,7 @@
+---
+improvements:
+  - >
+    Die Tiefenrecherche legt ihre Herleitung so offen wie Piloti im Chat: pro
+    Runde, was sie klären wollte und welche Fundstellen sie dafür aufgeschlagen
+    hat. Eine Stelle, die schon gelesen wurde, wird nicht erneut abgerufen,
+    sondern aus der Runde davor beantwortet.

@@ -192,6 +192,15 @@ condition, both ways, and that the effect is on exactly one transition),
 and `tests/aiq_agent/tools/tasks/` (echo-never-sign, and every refusal before
 the call).
 
+### Addendum (2026-09-16): a run is a message in its thread
+
+The run conversation this record took for granted (one per fire, created by
+the job service) is gone: a run is one assistant message in the conversation
+the work was commissioned in, carrying its own ledger, and a scheduled
+definition owns one thread that its fires append to. The row stays what this
+record made it; what changed is where its run shows up. Decided in
+[ADR-0062](0062-a-run-is-a-message-in-the-thread-that-commissioned-it.md).
+
 ## More Information
 
 - The row's columns and their reasons: `frontends/ui/src/lib/db/schema/tasks.ts`.

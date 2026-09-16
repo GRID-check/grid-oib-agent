@@ -1,0 +1,12 @@
+---
+features:
+  - >
+    Ein Auftrag läuft jetzt in der Unterhaltung, in der er erteilt wurde. Wer
+    eine Tiefenrecherche startet oder eine Aufgabe übergibt, findet Fortschritt
+    und Bericht als eine Nachricht im eigenen Verlauf statt in einer separaten
+    Unterhaltung. Ein wiederkehrender Auftrag bekommt eine eigene Unterhaltung
+    „Aufgabe: …“, in der jede Ausführung unter der vorigen erscheint.
+  - >
+    Was ein Auftrag getan hat, bleibt beim Bericht: die Phasen, die Absicht
+    jeder Recherche-Runde und die dabei aufgeschlagenen Dokumente werden mit
+    der Nachricht aufbewahrt und verfallen nicht mehr nach 24 Stunden.
