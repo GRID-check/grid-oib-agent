@@ -684,3 +684,20 @@ Two properties a client should rely on:
 `job.phase` keeps its own shape (`{"phase": ..., "batch_index": ...,
 "batch_size": ..., "conclusion": ...}`); the ledger is what those events fold
 into, and the status pill still reads them directly.
+
+**How the browser consumes it.** The block in the thread
+(`frontends/ui/src/features/runs/hooks/use-run-ledger.ts`) does exactly what the
+two properties above allow and nothing more. It starts from the ledger stored on
+the run's message (`metadata.run_ledger`, read back sanitised by the message
+mapper); if that ledger is not terminal it reads
+`GET /api/projects/[id]/runs/[runId]` for `backendJobId`, opens the stream
+through the same-origin proxy (`/api/jobs/async/job/[jobId]/stream`, the SSE
+client in `frontends/ui/src/adapters/api/deep-research-client.ts`) with **no**
+`last_event_id`, so the replay runs from the first flush and the newest snapshot
+lands last, and wires only `onLedger`. Every snapshot goes through
+`sanitizeRunLedger` and **replaces** what is held, unless its `updatedAt` is older
+than what is already shown (the stored ledger can be ahead of the replay's first
+frames). On a terminal status the client disconnects; on unmount it disconnects.
+Each block holds its own subscription, keyed by run id — several live runs in one
+thread are the normal case. A refused read or a stream that never opens leaves the
+stored ledger on screen; a reload shows the same block either way.

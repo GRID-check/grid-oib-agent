@@ -53,24 +53,12 @@ describe('TaskCreatedCard — what it reports', () => {
   })
 })
 
-describe('TaskCreatedCard — the link to the run', () => {
-  it('opens the conversation through the one URL this app resolves by id', () => {
+describe('TaskCreatedCard — no link to a run that lives right here', () => {
+  it('offers no conversation link: the run block follows the card in this thread', () => {
+    // ADR-0062: the run is a message in the commissioning thread, so a link to
+    // „the conversation" would open the one the reader is already in.
     render(<TaskCreatedCard {...TASK} />)
-
-    const link = screen.getByTestId('task-created-open')
-    expect(link).toHaveTextContent('Open conversation')
-    // `/app/chat?session=` — what `lib/sharing/registry` emits for a
-    // conversation whose project the caller does not know, and what the
-    // `/app/chat` route resolves. `/chat/<id>` routed nowhere.
-    expect(link).toHaveAttribute(
-      'href',
-      `/app/chat?session=${encodeURIComponent(TASK.conversationId)}`,
-    )
-  })
-
-  it('offers no link at all when the run has no conversation', () => {
-    // The degraded shape a scheduled job has always had: announce the task,
-    // promise nothing that cannot be opened.
+    expect(screen.queryByTestId('task-created-open')).not.toBeInTheDocument()
     render(<TaskCreatedCard {...TASK} conversationId={null} />)
     expect(screen.queryByTestId('task-created-open')).not.toBeInTheDocument()
   })

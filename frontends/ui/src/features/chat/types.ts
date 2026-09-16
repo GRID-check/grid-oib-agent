@@ -532,6 +532,14 @@ export interface ChatMessage {
    */
   runLedger?: RunLedger
   /**
+   * The run's title, for the block's header: the task's title or the question
+   * a deep-research run was asked. Set once by the BFF when the run's message
+   * is minted (`metadata.run_title`); absent on every ordinary turn and on a
+   * run minted before it was recorded, where the block shows its own word for
+   * an untitled run.
+   */
+  runTitle?: string
+  /**
    * The WS turn id (`parent_id`) this answer belongs to
    * (`docs/architecture/post-answer-stages.md` §1.6, §4.1).
    *

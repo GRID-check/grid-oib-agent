@@ -25,6 +25,25 @@ const mockSetComposerPrefill = vi.fn()
 const mockGetThinkingStepsForMessage = vi.fn((_messageId: string): ThinkingStep[] => [])
 const mockChatThinking = vi.fn((_props: unknown) => <div data-testid="chat-thinking">Thinking...</div>)
 
+// The run block's data half is mocked so the dispatch test asserts WHERE a run
+// message goes without opening a stream; the hook's own behaviour is covered
+// in features/runs/hooks/use-run-ledger.spec.ts. The block itself is stubbed
+// to its two testable facts (status, title) for the same reason.
+const mockUseRunLedger = vi.fn((input: { message: ChatMessage }) => ({
+  ledger: input.message.runLedger ?? null,
+  live: false,
+}))
+vi.mock('@/features/runs/hooks/use-run-ledger', () => ({
+  useRunLedger: (input: { message: ChatMessage }) => mockUseRunLedger(input),
+}))
+vi.mock('@/features/runs/components/RunBlock', () => ({
+  RunBlock: ({ ledger, title }: { ledger: { status: string }; title?: string | null }) => (
+    <div data-testid="run-block" data-status={ledger.status}>
+      {title}
+    </div>
+  ),
+}))
+
 /** A real `ThinkingStep`; the stubbed `ChatThinking` only reads how many there are. */
 const thinkingStep = (overrides: Partial<ThinkingStep> = {}): ThinkingStep => ({
   id: 'step-1',
@@ -415,6 +434,56 @@ describe('ChatArea', () => {
     render(<ChatArea isAuthenticated={true} />)
 
     expect(screen.getByTestId('agent-response')).toHaveTextContent('Here is your answer')
+  })
+
+  /**
+   * A message that carries a run ledger IS a run (ADR-0062): it goes to the
+   * block, keyed to the active project, and its content is the report beneath
+   * the block once there is one — a live run shows the block alone.
+   */
+  test('dispatches a message with a run ledger to the run block', () => {
+    const runLedger = {
+      runId: 'run-1',
+      status: 'laeuft' as const,
+      phases: [],
+      steps: [],
+      startedAt: '2026-09-16T08:00:00.000Z',
+      updatedAt: '2026-09-16T08:00:00.000Z',
+    }
+    vi.mocked(useChatStore).mockImplementation((selector?: StoreSelector<ChatStoreWithHydration>) => {
+      const state: ChatStoreFixture = {
+        currentConversation: {
+          messages: [
+            {
+              id: 'msg-run',
+              role: 'assistant',
+              content: 'Der Bericht',
+              messageType: 'agent_response',
+              runLedger,
+              runTitle: 'Normprüfung: Fluchtwege',
+            },
+          ],
+        },
+        projectId: mockProjectId,
+        isLoading: false,
+        hasHydrated: true,
+        isStreaming: false,
+        respondToPrompt: mockRespondToPrompt,
+        dismissErrorCard: mockDismissErrorCard,
+      }
+      return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
+    })
+
+    render(<ChatArea isAuthenticated={true} />)
+
+    const block = screen.getByTestId('run-block')
+    expect(block).toHaveAttribute('data-status', 'laeuft')
+    expect(block).toHaveTextContent('Normprüfung: Fluchtwege')
+    expect(mockUseRunLedger).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: mockProjectId, message: expect.objectContaining({ id: 'msg-run' }) }),
+    )
+    // Still going: the report is not shown yet, only the block.
+    expect(screen.queryByTestId('agent-response')).not.toBeInTheDocument()
   })
 
   test('renders file messages', () => {

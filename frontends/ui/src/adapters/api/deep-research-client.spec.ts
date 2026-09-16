@@ -133,6 +133,51 @@ describe('deep research SSE client', () => {
       expect(onError).not.toHaveBeenCalled()
     })
   })
+
+  describe('run.ledger handling', () => {
+    const ledger = {
+      runId: 'run-1',
+      status: 'laeuft',
+      phases: [{ phase: 'recherchieren', startedAt: '2026-09-16T08:00:00Z' }],
+      steps: [],
+      startedAt: '2026-09-16T08:00:00Z',
+      updatedAt: '2026-09-16T08:00:05Z',
+    }
+
+    test('hands the snapshot over unparsed, from under `data` or flat', () => {
+      const onLedger = vi.fn()
+      const { source } = connectWithFakeEventSource({ onLedger })
+
+      source.emit('run.ledger', { data: { ledger } })
+      source.emit('run.ledger', { ledger })
+
+      expect(onLedger).toHaveBeenCalledTimes(2)
+      expect(onLedger.mock.calls[0][0]).toEqual(ledger)
+      expect(onLedger.mock.calls[1][0]).toEqual(ledger)
+    })
+
+    test('ignores an event that carries no ledger', () => {
+      const onLedger = vi.fn()
+      const { source } = connectWithFakeEventSource({ onLedger })
+
+      source.emit('run.ledger', { data: {} })
+
+      expect(onLedger).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('job.phase handling', () => {
+    // Regression: the case existed and the listener did not, so the browser
+    // never subscribed to the named event and `onPhase` never fired.
+    test('reaches onPhase through a registered listener', () => {
+      const onPhase = vi.fn()
+      const { source } = connectWithFakeEventSource({ onPhase })
+
+      source.emit('job.phase', { data: { phase: 'research_started', batch_index: 1 } })
+
+      expect(onPhase).toHaveBeenCalledWith('research_started', { phase: 'research_started', batch_index: 1 })
+    })
+  })
 })
 
 describe('deep research REST client', () => {

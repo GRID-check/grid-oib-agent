@@ -736,6 +736,22 @@ export const SCREENSHOT_TARGETS = [
     waitFor: '[data-testid="task-list-preview"]',
   },
   {
+    id: 'run-block',
+    mobile: true,
+    path: '/dev/run-block',
+    description:
+      'The Laufblock — a run as ONE element in the thread that commissioned it, in all seven states plus the collapsed form and the compact line. Judge the header first: it must read as a bar of the Herleitung’s family (glyph in a fixed slot, the bold state word, the title, muted phase · rounds · documents, the elapsed pill, the chevron) with the one action that fits the state at its right end and NO other number. Then the rail: five swatches, the filled check for a done phase, the ring for the live one, border-grey for the rest — readable as a position without reading a word. Then the live phase under it: each research round as the runner’s own sentence, the documents it reached as the same „Belegt durch“ chips the answer wears (law family with OIB/RIS badge, project, office), a re-read document saying so inside its chip, and the open points in plain words — an analyst at work, not a log. A failed run must state its reason and what was already done in ONE quiet red line, so nobody commissions the research twice; a cancelled one must not be red at all. The collapsed done block must be small enough to sit above the report it produced. The four compact rows at the bottom must agree with the headers above them word for word.',
+    waitFor: '[data-testid="run-block-lines"]',
+  },
+  {
+    id: 'run-block-transition',
+    mobile: true,
+    path: '/dev/run-block?variant=transition',
+    description:
+      'The handover as the thread shows it in the first seconds: the person’s message, the task-created card that acknowledges it, and directly beneath it the Laufblock in „Wird gestartet“ with every phase pending and the sentence naming where the result will be filed. Judge that the three read as one exchange in one column — nothing opens elsewhere, nothing asks to be clicked to follow — and that the block already looks like the element the run will live in rather than a placeholder waiting to be replaced.',
+    waitFor: '[data-testid="run-block-transition"]',
+  },
+  {
     id: 'file-operation-proposal-card',
     mobile: true,
     path: '/dev/file-operation-proposal-card',

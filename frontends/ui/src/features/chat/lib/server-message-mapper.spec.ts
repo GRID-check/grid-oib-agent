@@ -414,6 +414,22 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     expect(bad!.runLedger).toBeUndefined()
   })
 
+  it('reads the run title back as one bounded line, and drops one that is not a string', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        metadata: { run_title: `Normprüfung:\n  Fluchtwege ${'x'.repeat(300)}` },
+      }),
+    )
+    expect(mapped!.runTitle).toMatch(/^Normprüfung: Fluchtwege x+$/)
+    expect(mapped!.runTitle).toHaveLength(200)
+
+    const bad = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { run_title: { de: 'Titel' } } }),
+    )
+    expect(bad!.runTitle).toBeUndefined()
+  })
+
   it('ignores a provenance blob written by some other build', () => {
     // Narrowed, not cast: the server bounds this on write, but a row written
     // earlier is whatever it was, and a bad value must not reach a renderer.

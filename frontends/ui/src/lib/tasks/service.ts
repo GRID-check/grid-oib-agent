@@ -33,7 +33,7 @@ import { openDraftForRevision } from '@/lib/documents/revision'
 import { fileResearchReport } from '@/lib/documents/research-report'
 import { resolvePeople } from '@/lib/sharing/directory'
 import type { TaskWireRow } from '@/features/tasks/lib/task-view'
-import { toTaskWireRow } from './list-projection'
+import { loadRunSummaries, toTaskWireRow } from './list-projection'
 import * as repository from './repository'
 import type { ReviewTaskInput } from './types'
 
@@ -306,11 +306,15 @@ export async function listTaskViews(
 ): Promise<TaskWireRow[]> {
   const runs = await listTasks(session, projectId)
   if (runs.length === 0) return []
-  const people = await resolvePeople(
-    session.organizationId,
-    [...new Set(runs.map((run) => run.requesterUserId))],
+  const [people, summaries] = await Promise.all([
+    resolvePeople(session.organizationId, [...new Set(runs.map((run) => run.requesterUserId))]),
+    // What each ACTIVE run is doing, off its message's ledger — one bounded
+    // query for the page (`list-projection.ts`).
+    loadRunSummaries(runs),
+  ])
+  return runs.map((run) =>
+    toTaskWireRow(run, people.get(run.requesterUserId)?.name ?? null, summaries.get(run.id) ?? null),
   )
-  return runs.map((run) => toTaskWireRow(run, people.get(run.requesterUserId)?.name ?? null))
 }
 
 /**

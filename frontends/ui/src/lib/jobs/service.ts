@@ -538,6 +538,12 @@ export interface AgentRunSpec {
   /** Whose identity the run carries — pinned, never `'scheduler'`. */
   userId: string
   ownerEmail: string | null
+  /**
+   * What the run's block in the thread is headed with: the definition's title
+   * or the delegated task's. Null when the caller has none; the block then
+   * shows its own word for an untitled run.
+   */
+  title: string | null
   /** The prompt exactly as it is submitted, skill body and decisions included. */
   prompt: string
   /** The attached skill, or null for a plain prompt. */
@@ -645,7 +651,9 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
   )
 
   const { jobId } = await submitJob(payload, contextHeaders)
-  const runMessageId = conversationId ? await mintRunMessage(conversationId, spec.runId) : null
+  const runMessageId = conversationId
+    ? await mintRunMessage(conversationId, spec.runId, spec.title)
+    : null
   return { backendJobId: jobId, conversationId, runMessageId }
 }
 
@@ -658,9 +666,13 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
  * (`jobs/conversation_output.py`), so the answer reaches the reader either way —
  * what is lost is the live ledger, not the work.
  */
-async function mintRunMessage(conversationId: string, runId: string): Promise<string | null> {
+async function mintRunMessage(
+  conversationId: string,
+  runId: string,
+  title: string | null,
+): Promise<string | null> {
   try {
-    const message = await createRunMessage(conversationId, runId)
+    const message = await createRunMessage(conversationId, runId, { title })
     return message.id
   } catch (err) {
     console.warn('[runs] could not create the run message for run', runId, err)
@@ -709,6 +721,7 @@ export async function fireJob(
       projectId,
       userId: definition.requesterUserId,
       ownerEmail: definition.requesterEmail,
+      title: definition.title,
       prompt: firePrompt,
       skillSnapshot: skill,
       output: definition.kind === 'deep-research' ? 'deep-research' : 'chat',

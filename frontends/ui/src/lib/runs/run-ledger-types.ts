@@ -120,6 +120,14 @@ export const MAX_OPEN_POINT_CHARS = 200
  */
 export const MAX_ERROR_REASON_CHARS = 400
 export const MAX_REFERENCE_ID_CHARS = 128
+/**
+ * The run's title as the block's header shows it (`metadata.run_title`): a
+ * task's title or the question a deep-research run was asked. The same 200 a
+ * `task_runs.title` is cut to, so the thread and the Aufträge index name one
+ * run the same way. Not part of the ledger schema: it is known at submit time,
+ * before the worker has said anything, and it never changes.
+ */
+export const MAX_RUN_TITLE_CHARS = 200
 /** An ISO-8601 instant with an offset is at most this long. */
 export const MAX_TIMESTAMP_CHARS = 40
 

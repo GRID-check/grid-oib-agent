@@ -22,6 +22,7 @@ import { research } from './research'
 import { skills } from './skills'
 import { jobs } from './jobs'
 import { tasks } from './tasks'
+import { runs } from './runs'
 import { members } from './members'
 import { onboarding } from './onboarding'
 import { organization } from './organization'
@@ -52,6 +53,7 @@ export const de: Dictionary = {
   skills,
   jobs,
   tasks,
+  runs,
   members,
   onboarding,
   organization,

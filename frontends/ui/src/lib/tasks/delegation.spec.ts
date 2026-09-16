@@ -107,6 +107,9 @@ describe('delegateTask', () => {
       projectId: PROJECT,
       userId: 'user_asker',
       output: 'chat',
+      // The run's title heads its block in the thread — the same string the
+      // Aufträge card shows, so both surfaces name one run the same way.
+      title: 'Dokument: Schreib den Aktenvermerk',
     })
     expect(insertedRun.conversationId).toBeNull()
     // The conversation id comes back from the submission and is recorded, so

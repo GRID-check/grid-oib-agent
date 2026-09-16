@@ -562,7 +562,9 @@ describe('fireJob', () => {
       })
     )
     const inserted = vi.mocked(repository.insertRun).mock.calls[0][0]
-    expect(createRunMessage).toHaveBeenCalledWith(thread, inserted.id)
+    // The definition's title heads the block in the thread, so a reader of the
+    // task thread sees WHICH standing task this run is before it has said anything.
+    expect(createRunMessage).toHaveBeenCalledWith(thread, inserted.id, { title: 'Wochencheck' })
     expect(inserted.runMessageId).toBe(`msg-${inserted.id}`)
   })
 

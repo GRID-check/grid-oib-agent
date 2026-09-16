@@ -115,7 +115,7 @@ describe('createRunMessage', () => {
   it('mints an empty assistant message that carries the run and an empty ledger', async () => {
     vi.mocked(insertMessages).mockResolvedValue([message(null)])
 
-    await createRunMessage(CONVERSATION, RUN, T0)
+    await createRunMessage(CONVERSATION, RUN, { at: T0 })
 
     const [[[row]]] = vi.mocked(insertMessages).mock.calls
     expect(row).toMatchObject({
@@ -126,6 +126,23 @@ describe('createRunMessage', () => {
       content: '',
     })
     expect((row.metadata as Record<string, unknown>).run_ledger).toEqual(emptyRunLedger(RUN, T0))
+    // No title given, no key: the block falls back to its own word for an
+    // untitled run, and an empty string would be a title that is empty.
+    expect(row.metadata as Record<string, unknown>).not.toHaveProperty('run_title')
+  })
+
+  it('writes the title as one bounded line, for the block to head itself with', async () => {
+    vi.mocked(insertMessages).mockResolvedValue([message(null)])
+
+    await createRunMessage(CONVERSATION, RUN, {
+      at: T0,
+      title: `  Normprüfung:\n\tBrandschutzkonzept   Fluchtwege ${'x'.repeat(300)}`,
+    })
+
+    const [[[row]]] = vi.mocked(insertMessages).mock.calls
+    const title = (row.metadata as Record<string, unknown>).run_title
+    expect(title).toMatch(/^Normprüfung: Brandschutzkonzept Fluchtwege x+$/)
+    expect((title as string).length).toBe(200)
   })
 
   it('derives the id from the run, so a retried submit is a no-op', async () => {
@@ -136,7 +153,7 @@ describe('createRunMessage', () => {
     vi.mocked(insertMessages).mockResolvedValue([])
     vi.mocked(findMessageInConversation).mockResolvedValue(message(null))
 
-    const again = await createRunMessage(CONVERSATION, RUN, T1)
+    const again = await createRunMessage(CONVERSATION, RUN, { at: T1 })
 
     expect(again.id).toBe(runMessageId(RUN))
     expect(findMessageInConversation).toHaveBeenCalledWith(CONVERSATION, runMessageId(RUN))

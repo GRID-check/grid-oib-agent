@@ -40,6 +40,7 @@ import {
   MAX_OPEN_POINT_CHARS,
   MAX_REFERENCE_ID_CHARS,
   MAX_RUN_ID_CHARS,
+  MAX_RUN_TITLE_CHARS,
   MAX_SHELF_CHARS,
   MAX_STEPS,
   MAX_STEP_ID_CHARS,
@@ -286,6 +287,21 @@ export function sanitizeRunLedger(input: unknown): RunLedger | null {
   const finishedAt = instant(input.finishedAt)
   if (finishedAt !== undefined) ledger.finishedAt = finishedAt
   return ledger
+}
+
+/**
+ * The run's title, as `metadata.run_title` may carry it, or undefined.
+ *
+ * One line: whitespace runs (a newline in a task goal, a tab from a paste)
+ * collapse to one space, control characters are dropped, and the result is cut
+ * to {@link MAX_RUN_TITLE_CHARS}. Applied on write (`createRunMessage`) and on
+ * read (`server-message-mapper`), like the ledger beside it.
+ */
+export function sanitizeRunTitle(input: unknown): string | undefined {
+  if (typeof input !== 'string') return undefined
+  // eslint-disable-next-line no-control-regex -- dropping them is the point
+  const oneLine = input.replace(/[ -]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return oneLine.length > 0 ? oneLine.slice(0, MAX_RUN_TITLE_CHARS) : undefined
 }
 
 /** The ledger of a run that has just been submitted and has done nothing yet. */

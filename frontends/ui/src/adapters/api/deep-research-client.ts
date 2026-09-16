@@ -43,6 +43,7 @@ export type DeepResearchEventType =
   | 'tool.start'
   | 'tool.end'
   | 'artifact.update'
+  | 'run.ledger'
 
 /** Artifact types in artifact.update events */
 export type ArtifactType = 'todo' | 'citation_source' | 'citation_use' | 'file' | 'output'
@@ -254,6 +255,14 @@ export interface DeepResearchCallbacks {
   onHeartbeat?: (uptimeSeconds: number) => void
   /** Called on coarse deep-research phase transitions (planning/research/writing/…) */
   onPhase?: (phase: string, data?: Record<string, unknown>) => void
+  /**
+   * A `run.ledger` snapshot arrived: the run's WHOLE account of itself as of
+   * this moment (`docs/api/websocket-protocol.md`). Handed over unparsed — the
+   * consumer runs `sanitizeRunLedger` and REPLACES what it holds; it never folds
+   * a delta, because the fold lives on the producer's side and a second one
+   * here would be a second account of the same run.
+   */
+  onLedger?: (ledger: unknown) => void
   /** Called when job completes successfully */
   onComplete?: () => void
   /** Called on errors */
@@ -601,6 +610,21 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
         break
       }
 
+      case 'run.ledger': {
+        // The ledger sits under `data` like every other event's payload, or flat
+        // when the producer wrote it without the envelope. Not validated here:
+        // `sanitizeRunLedger` is the one bound, and it runs where the ledger is
+        // stored, so the wire and the row are checked by the same function.
+        const ledgerWrapper = rawData as { data?: { ledger?: unknown }; ledger?: unknown }
+        const ledger = ledgerWrapper.data?.ledger ?? ledgerWrapper.ledger
+        if (ledger !== undefined) {
+          callbacks.onLedger?.(ledger)
+        } else if (process.env.NODE_ENV === 'development') {
+          console.warn('[SSE:run.ledger] Ignoring event without a ledger')
+        }
+        break
+      }
+
       default:
         // Unknown event type - log in dev
         if (process.env.NODE_ENV === 'development') {
@@ -647,6 +671,11 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
       'tool.start',
       'tool.end',
       'artifact.update',
+      // `job.phase` had a `case` above and no listener here, so the named event
+      // the browser never subscribed to never reached the switch. The spec
+      // drives every listed type through a fake EventSource for that reason.
+      'job.phase',
+      'run.ledger',
     ]
 
     eventTypes.forEach((eventType) => {

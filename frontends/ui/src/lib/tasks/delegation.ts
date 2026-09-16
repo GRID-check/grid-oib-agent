@@ -404,6 +404,9 @@ async function dispatchRun(
       projectId: run.projectId,
       userId: run.requesterUserId,
       ownerEmail: run.requesterEmail,
+      // The run's own title („Normprüfung: …"), the same string the Aufträge
+      // index shows, so the block in the thread and the card name one run alike.
+      title: run.title,
       prompt: run.plan.prompt,
       skillSnapshot: run.skillSnapshot.name ? run.skillSnapshot : null,
       // Every delegated kind runs as a chat output: the work lands in a real

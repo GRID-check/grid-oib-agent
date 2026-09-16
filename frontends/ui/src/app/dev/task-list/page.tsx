@@ -55,6 +55,7 @@ const TASKS: TaskWireRow[] = [
     goal: 'Die Fluchtweglänge im Atrium stimmt nicht; OIB 2.3 gilt hier, nicht 2.',
     status: 'running',
     requesterName: 'Maria Huber',
+    runSummary: { status: 'laeuft', phase: 'recherchieren', rounds: 3, docs: 9 },
   }),
   row({
     id: 'task-1b',

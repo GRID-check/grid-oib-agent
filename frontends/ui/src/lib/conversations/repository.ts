@@ -12,7 +12,7 @@
  */
 
 import 'server-only'
-import { and, desc, eq, exists, inArray, isNull, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, exists, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { stripJsonNullBytes } from '@/lib/text/jsonb'
 import {
@@ -454,6 +454,34 @@ export async function listRecentMessagesWithCardDecisions(
     .limit(limit)
   // Raw column values are not runtime-validated — coerce at the boundary.
   return rows.map((row) => ({ metadata: row.metadata, createdAt: new Date(row.createdAt) }))
+}
+
+/**
+ * The stored `run_ledger` of each run message named, by message id
+ * (ADR-0062). Only the ledger column crosses, not the message: the Tasks list
+ * reads a phase and two tallies off it, and a run's report can be long.
+ *
+ * Bounded by the caller's list — the ids of one page of `task_runs` — and by
+ * `LIMIT` to the same number, so a widened caller cannot turn this into a
+ * table scan. `run_id IS NOT NULL` is the partial index's own predicate
+ * (`idx_messages_run_id`), so the lookup rides it. Tenant-scoped by the
+ * caller's context; the ids come off rows RLS already filtered.
+ *
+ * The values are UNSANITISED jsonb — `sanitizeRunLedger` at the consumer, as
+ * every other reader of this column does.
+ */
+export async function listRunLedgersByMessageIds(
+  messageIds: readonly string[],
+): Promise<Map<string, unknown>> {
+  const ids = [...new Set(messageIds)]
+  if (ids.length === 0) return new Map()
+  const db = getDb()
+  const rows = await db
+    .select({ id: messages.id, ledger: sql<unknown>`${messages.metadata} -> 'run_ledger'` })
+    .from(messages)
+    .where(and(inArray(messages.id, ids), isNotNull(messages.runId)))
+    .limit(ids.length)
+  return new Map(rows.map((row) => [row.id, row.ledger]))
 }
 
 export async function listMessagesForConversation(

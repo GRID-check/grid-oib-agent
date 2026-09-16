@@ -12,13 +12,36 @@
  * project's task list needs — and `filingDetail` is marked operator-facing in
  * the schema's own comment. A projection that spread the row would ship both to
  * every viewer of a project.
+ *
+ * ## The run summary
+ *
+ * An active row also carries what its run is doing, read off the run message's
+ * ledger (ADR-0062) — the one muted line the card shows under its title. It is
+ * a SECOND query, not a join: `task_runs` and `messages` are joined by an id
+ * the run row holds, one page of runs is at most `RUN_LIST_LIMIT` rows, and
+ * only the ACTIVE ones among them are looked up, because that is the only
+ * state the card shows the line in. Four numbers cross the wire per row, never
+ * the ledger: a run that has read fifty documents has a ledger the size of a
+ * report, and a list of a hundred rows must not carry a hundred of them.
  */
 
 import 'server-only'
-import type { TaskWireRow } from '@/features/tasks/lib/task-view'
+import type { TaskRunSummary, TaskWireRow } from '@/features/tasks/lib/task-view'
+import { listRunLedgersByMessageIds } from '@/lib/conversations/repository'
 import type { TaskRun } from '@/lib/db/schema'
+import { sanitizeRunLedger } from '@/lib/runs/run-ledger'
+import type { RunLedger } from '@/lib/runs/run-ledger-types'
+import { activePhase, runDisplayStatus, runTallies } from '@/lib/runs/run-vocabulary'
+import { RUN_LIST_LIMIT } from './repository'
 
-export function toTaskWireRow(task: TaskRun, requesterName: string | null): TaskWireRow {
+/** The rows whose card shows the line. The same set `isActiveTask` draws. */
+const SUMMARISED_STATUSES: ReadonlySet<TaskRun['status']> = new Set(['queued', 'running'])
+
+export function toTaskWireRow(
+  task: TaskRun,
+  requesterName: string | null,
+  runSummary: TaskRunSummary | null = null,
+): TaskWireRow {
   return {
     id: task.id,
     kind: task.kind,
@@ -55,5 +78,38 @@ export function toTaskWireRow(task: TaskRun, requesterName: string | null): Task
     createdAt: task.createdAt.toISOString(),
     finishedAt: task.finishedAt?.toISOString() ?? null,
     error: task.error,
+    runSummary,
   }
+}
+
+/** The four facts the card line needs, derived the way the block derives them. */
+export function runSummaryOf(ledger: RunLedger | null): TaskRunSummary | null {
+  if (!ledger) return null
+  const { rounds, docs } = runTallies(ledger)
+  return { status: runDisplayStatus(ledger), phase: activePhase(ledger), rounds, docs }
+}
+
+/**
+ * The run summary of every ACTIVE run on the page that has a run message,
+ * keyed by run id. One query, bounded to the page; a row whose ledger is
+ * missing or unreadable simply has no entry.
+ */
+export async function loadRunSummaries(runs: readonly TaskRun[]): Promise<Map<string, TaskRunSummary>> {
+  const messageIdByRun = new Map<string, string>()
+  for (const run of runs.slice(0, RUN_LIST_LIMIT)) {
+    if (SUMMARISED_STATUSES.has(run.status) && run.runMessageId) {
+      messageIdByRun.set(run.id, run.runMessageId)
+    }
+  }
+  if (messageIdByRun.size === 0) return new Map()
+
+  const ledgers = await listRunLedgersByMessageIds([...messageIdByRun.values()])
+  const summaries = new Map<string, TaskRunSummary>()
+  for (const [runId, messageId] of messageIdByRun) {
+    // Re-sanitised on read like every other reader of this column: the row
+    // may have been written by another build.
+    const summary = runSummaryOf(sanitizeRunLedger(ledgers.get(messageId)))
+    if (summary) summaries.set(runId, summary)
+  }
+  return summaries
 }

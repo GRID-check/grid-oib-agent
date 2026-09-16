@@ -172,10 +172,15 @@ import { stepNameLabel } from '../../lib/executed-steps'
 import { retrievalRounds, roundFan, type FanCard } from '../../lib/retrieval-rounds'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import type { ChoicePrompt } from './citations'
+import { TIMELINE_STROKE } from '@/components/ui/timeline'
 
 /** Hidden connection handle (edges anchor to it; the dot itself is invisible). */
 const H = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 'none', background: 'transparent' } as const
-const EDGE_STROKE = 'color-mix(in oklch, var(--foreground) 18%, transparent)'
+/**
+ * The edge ink is the kit's timeline stroke: the run block's phase list draws
+ * its connector in the same mix, so "connected" looks the same on both.
+ */
+const EDGE_STROKE = TIMELINE_STROKE
 
 /** One anchor point on a banner edge: a handle id + its x offset within the node. */
 type HandleSpec = { id: string; left: string }

@@ -51,11 +51,25 @@ import {
   applyRunLedgerFinish,
   emptyRunLedger,
   sanitizeRunLedger,
+  sanitizeRunTitle,
 } from './run-ledger'
 import type { RunLedger, RunLedgerRequest, RunLedgerResponse, RunView } from './run-ledger-types'
 
 /** Where the ledger lives on the message. Wire spelling, like `retrieval_ledger`. */
 export const RUN_LEDGER_METADATA_KEY = 'run_ledger'
+/**
+ * Where the run's title lives on the message: the task's title, or the
+ * question a deep-research run was asked. Set once at mint time and never
+ * merged over — the ledger route writes `run_ledger` and nothing else.
+ */
+export const RUN_TITLE_METADATA_KEY = 'run_title'
+
+/** What `createRunMessage` takes beside the two ids. */
+export interface CreateRunMessageOptions {
+  /** The block's header line. Sanitised to one line of at most 200 characters. */
+  title?: string | null
+  at?: Date
+}
 
 /**
  * The id of the message a run writes into, derived from the run id.
@@ -86,9 +100,15 @@ export function runMessageId(runId: string): string {
 export async function createRunMessage(
   conversationId: string,
   runId: string,
-  at: Date = new Date(),
+  options: CreateRunMessageOptions = {},
 ): Promise<Message> {
+  const at = options.at ?? new Date()
   const id = runMessageId(runId)
+  // The title is what the block's header shows while the ledger is still
+  // empty, so it is written with the ledger rather than by a later flush. Absent
+  // rather than empty when the caller has none: the block falls back to its own
+  // word for an untitled run, and an empty string would be a title that is empty.
+  const title = sanitizeRunTitle(options.title)
   const [inserted] = await insertMessages([
     {
       id,
@@ -99,6 +119,7 @@ export async function createRunMessage(
       metadata: {
         messageType: 'agent_response',
         [RUN_LEDGER_METADATA_KEY]: emptyRunLedger(runId, at),
+        ...(title ? { [RUN_TITLE_METADATA_KEY]: title } : {}),
       },
       createdAt: at,
     },

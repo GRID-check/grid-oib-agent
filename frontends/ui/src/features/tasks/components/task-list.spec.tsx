@@ -61,6 +61,38 @@ describe('a task card', () => {
     expect(screen.getByTestId('task-status')).toHaveTextContent('Running')
   })
 
+  test('says what the run is doing while it is doing it, and nothing once it is done', () => {
+    const runSummary = { status: 'laeuft' as const, phase: 'recherchieren' as const, rounds: 3, docs: 9 }
+    const { rerender } = list({ tasks: [task({ status: 'running', runSummary })] })
+    expect(screen.getByTestId('task-run-summary')).toHaveTextContent('Researching · 3 rounds · 9 documents')
+
+    // A run that is starting has no phase yet: the status word stands in, and
+    // zero tallies are left out rather than shown as zeros.
+    rerender(
+      <TaskList
+        projectId="p1"
+        tasks={[task({ status: 'queued', runSummary: { status: 'angelegt', phase: null, rounds: 0, docs: 0 } })]}
+        filter={'all' as TaskFilter}
+        onFilterChange={vi.fn()}
+        onSelectTask={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('task-run-summary')).toHaveTextContent(/^Starting$/)
+
+    // Finished: the card is about the task again; the block in the thread is
+    // where the run is read.
+    rerender(
+      <TaskList
+        projectId="p1"
+        tasks={[task({ status: 'succeeded', runSummary })]}
+        filter={'all' as TaskFilter}
+        onFilterChange={vi.fn()}
+        onSelectTask={vi.fn()}
+      />,
+    )
+    expect(screen.queryByTestId('task-run-summary')).not.toBeInTheDocument()
+  })
+
   test('the WHOLE card opens the detail, not a hover-underlined title', async () => {
     const user = userEvent.setup()
     const { onSelectTask } = list()

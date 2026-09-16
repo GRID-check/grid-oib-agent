@@ -42,11 +42,24 @@ import type { LucideIcon } from 'lucide-react'
 import { Chip } from '@/components/ui/chip'
 import { RaisedCard, RaisedCardBody, RaisedCardFooter } from '@/components/ui/raised-card'
 import { Spinner } from '@/components/ui/spinner'
-import { useLocale, useTranslations } from '@/i18n'
+import { useLocale, useTranslations, type Translator } from '@/i18n'
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/format'
 import type { TaskRunStatus } from '@/lib/tasks/task-vocabulary'
 import { cn } from '@/lib/utils'
-import { isActiveTask, taskResultTarget, type TaskWireRow } from '../lib/task-view'
+import { isActiveTask, taskResultTarget, type TaskRunSummary, type TaskWireRow } from '../lib/task-view'
+
+/**
+ * "Recherchieren · 3 Runden · 9 Dokumente" — what the run is doing, as words.
+ * The phase when one is open, else the status word (a run that is starting has
+ * no phase yet); a tally only when it is above zero, because "0 Runden" is a
+ * number that changes nothing for the reader.
+ */
+function runSummaryLine(tRuns: Translator, summary: TaskRunSummary): string {
+  const parts = [summary.phase ? tRuns(`phase.${summary.phase}`) : tRuns(`status.${summary.status}`)]
+  if (summary.rounds > 0) parts.push(tRuns('tallies.rounds', { count: summary.rounds }))
+  if (summary.docs > 0) parts.push(tRuns('tallies.docs', { count: summary.docs }))
+  return parts.join(' · ')
+}
 
 /**
  * The chip tone per status — a `Record`, so a status added to the tuple has to
@@ -131,6 +144,7 @@ export interface TaskCardProps {
 
 export function TaskCard({ projectId, task, onSelect }: TaskCardProps): JSX.Element {
   const t = useTranslations('tasks')
+  const tRuns = useTranslations('runs')
   const { locale } = useLocale()
   const ReviewIcon = task.review ? REVIEW_ICON[task.review] : null
   const result = taskResultTarget(projectId, task)
@@ -212,6 +226,16 @@ export function TaskCard({ projectId, task, onSelect }: TaskCardProps): JSX.Elem
                   </Chip>
                 )}
               </div>
+
+              {/* What the run is doing right now, while it is doing it: the
+                  phase and the two tallies off the run's ledger (ADR-0062).
+                  Muted and one line — the card is about the task, and the
+                  block in the thread is where the run is followed. */}
+              {active && task.runSummary && (
+                <p className="text-muted-foreground text-xs leading-relaxed" data-testid="task-run-summary">
+                  {runSummaryLine(tRuns, task.runSummary)}
+                </p>
+              )}
 
               {/* The requester's own sentence, clamped: in a column of cards an
                   unclamped goal sets the height of the whole list. A scheduled

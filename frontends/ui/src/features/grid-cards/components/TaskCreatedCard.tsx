@@ -19,20 +19,15 @@
  * the conversation the run writes into — a real `<a>`, so middle-click and „copy
  * link address" work, exactly as the draft card's „Im Projekt öffnen" does.
  *
- * ## Where „Unterhaltung öffnen" goes
+ * ## Why there is no „Unterhaltung öffnen" any more
  *
- * `/app/chat?session=<id>`, which is the ONE way this product opens a
- * conversation by id and the same URL the inbox emits (`lib/sharing/registry`'s
- * conversation `deepLink`). A conversation lives on its project's chat surface,
- * and the card does not know the project — the task's run does — so it uses the
- * container-less form, and `/app/chat` resolves the project for a reader who may
- * open the thread and lands them on `/app/projects` when they may not.
- *
- * It used to be `/chat/<id>`: a path with no route behind it anywhere in the
- * app, so the one control on the card 404'd. The sharing registry has the
- * comment that names the same class of mistake one tier down („this used to
- * invent `?conversation=`, which nothing anywhere parsed"), and the rule both
- * of them are: a deep link is only ever the string some surface already reads.
+ * A run is one message in the thread that commissioned it (ADR-0062), and it
+ * appears right under this card as the run block. The link used to open the
+ * run's own conversation; that conversation no longer exists, and a link to
+ * the thread the reader is already in is a control that does nothing. The
+ * `conversationId` still arrives on the wire (the tool result names the
+ * thread) and is accepted so an older backend's payload stays valid; it is
+ * not rendered.
  *
  * ## Why it says „läuft" and not „erledigt"
  *
@@ -74,7 +69,6 @@ export const TaskCreatedCard: FC<TaskCreatedCardProps> = ({
   title,
   goal,
   dueAt,
-  conversationId,
 }) => {
   const t = useTranslations('chat')
   const { locale } = useLocale()
@@ -123,19 +117,6 @@ export const TaskCreatedCard: FC<TaskCreatedCardProps> = ({
           )}
         </span>
 
-        {conversationId && (
-          <a
-            href={`/app/chat?session=${encodeURIComponent(conversationId)}`}
-            data-testid="task-created-open"
-            className={cn(
-              'inline-flex min-h-11 items-center rounded-sm font-medium text-primary',
-              'transition-colors duration-quick ease-out motion-reduce:transition-none',
-              'hover:text-primary/80 focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2',
-            )}
-          >
-            {t('cards.taskCreated.open')}
-          </a>
-        )}
       </p>
     </Card>
   )

@@ -1356,6 +1356,26 @@
         "ris-source-unreachable.dark.png"
       ]
     },
+    "run-block": {
+      "route": "src/app/dev/run-block/page.tsx",
+      "routeHash": "574dcedd8e12459c132e8dd953f576414cf93144b92c8cebaed52890198c4ba4",
+      "shots": [
+        "run-block.light.png",
+        "run-block.dark.png",
+        "run-block.mobile.light.png",
+        "run-block.mobile.dark.png"
+      ]
+    },
+    "run-block-transition": {
+      "route": "src/app/dev/run-block/page.tsx",
+      "routeHash": "574dcedd8e12459c132e8dd953f576414cf93144b92c8cebaed52890198c4ba4",
+      "shots": [
+        "run-block-transition.light.png",
+        "run-block-transition.dark.png",
+        "run-block-transition.mobile.light.png",
+        "run-block-transition.mobile.dark.png"
+      ]
+    },
     "schedule-panel": {
       "route": "src/app/dev/schedule-panel/page.tsx",
       "routeHash": "d8e7478b4c1f80a08e668a732d5979c38d23bc3fb8216e1d217d7c7fe397a761",
@@ -1608,7 +1628,7 @@
     },
     "task-list": {
       "route": "src/app/dev/task-list/page.tsx",
-      "routeHash": "b93fc1851cc0d0fad2eb381261be258114062653b4568aaaf6ee7fa73a1141ea",
+      "routeHash": "34fcb39d1f3f8b0b85a25272038c1058680b87cdb3aab02e2a5d47d4bfce9d08",
       "shots": [
         "task-list.light.png",
         "task-list.dark.png",
