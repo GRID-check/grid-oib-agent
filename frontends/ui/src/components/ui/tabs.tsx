@@ -16,10 +16,23 @@ import { motion, springGlide } from '@/components/motion'
  */
 const TabsValueContext = React.createContext<string | undefined>(undefined)
 
+/**
+ * This strip's shared-layout identity, one per mounted `Tabs`.
+ *
+ * A `layoutId` names ONE travelling element across the whole tree, so the
+ * constant this used to be made every tab strip on screen the same element:
+ * two strips mounted together (a dialog over a page, two panels side by side)
+ * and the pill flew between them instead of sliding inside the one that was
+ * clicked. `useId` per instance keeps the glide local. Same rule as
+ * `ToggleGroup`, and as the sidebar rail's `railActivePillId` before both.
+ */
+const TabsPillContext = React.createContext<string>('tabs-pill')
+
 const Tabs = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.Root>,
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.Root>
 >(({ className, value, defaultValue, onValueChange, children, ...props }, ref) => {
+  const pillId = React.useId()
   const [uncontrolled, setUncontrolled] = React.useState<string | undefined>(defaultValue)
   const resolved = value !== undefined ? value : uncontrolled
   const handleValueChange = React.useCallback(
@@ -38,7 +51,9 @@ const Tabs = React.forwardRef<
       onValueChange={handleValueChange}
       {...props}
     >
-      <TabsValueContext.Provider value={resolved}>{children}</TabsValueContext.Provider>
+      <TabsPillContext.Provider value={pillId}>
+        <TabsValueContext.Provider value={resolved}>{children}</TabsValueContext.Provider>
+      </TabsPillContext.Provider>
     </TabsPrimitive.Root>
   )
 })
@@ -68,6 +83,7 @@ const TabsTrigger = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger>
 >(({ className, value, children, ...props }, ref) => {
   const activeValue = React.useContext(TabsValueContext)
+  const pillId = React.useContext(TabsPillContext)
   const isActive = value !== undefined && activeValue === value
   return (
     <TabsPrimitive.Trigger
@@ -91,9 +107,13 @@ const TabsTrigger = React.forwardRef<
     >
       {isActive && (
         <motion.span
-          layoutId="tabs-pill"
+          layoutId={pillId}
           aria-hidden
           data-slot="tabs-pill"
+          // Mirrored into the DOM because `layoutId` never reaches it: without
+          // this, two strips sharing an identity is invisible to devtools and
+          // to a test, and only shows as a pill flying across the screen.
+          data-pill-id={pillId}
           // The exact chip the active trigger wore before — `bg-card shadow-xs`
           // — lifted onto its own element so it can travel. Unbounded travel
           // (adjacent tabs or across the strip) is why this is `springGlide`

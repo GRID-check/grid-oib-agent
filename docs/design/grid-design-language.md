@@ -303,7 +303,7 @@ Tabbed shells (Organisation, Platform) are **one place**, not a stack of submenu
 
 **Search** — `SearchField` (`components/ui/search-field.tsx`) is the one magnifier + input + clear control. Archiv composes it inside `FileSearchBar` (sticky band, run button, result banner). Files composes the bare `FileSearchField` in the page header instead — no sticky band, no run button (Enter alone commits the semantic search), no banner (the results are the report); `useFileSearch` owns the two-mode query state one level above both the field and `FileBrowserPane`. Admin lists compose `SearchField` inside `DataToolbar`. Do not hand-roll another `relative` + `Search` icon + `Input`.
 
-**Exclusive / multi filters** — `ToggleGroup` (`components/ui/toggle-group.tsx`). Segmented icon clusters (Files view switcher) use `segmented`. Inverted pills (folder / category chips) use `variant="inverted"`. Exclusive form choices with a description (job output) use `RadioGroup`, not a toggle row.
+**Exclusive / multi filters** — `ToggleGroup` (`components/ui/toggle-group.tsx`). Segmented icon clusters (Files view switcher) use `segmented`. Inverted pills (folder / category chips) use `variant="inverted"`. Exclusive form choices with a description (job output) use `RadioGroup`, not a toggle row. A `segmented` cluster **hugs its segments** (`w-fit`) and scrolls rather than overflowing when they do not fit — `flex` alone is block-level, which left a tray stretched across a `max-w-3xl` column with a dead zone bolted to its right, and at phone width ran the last segment off the card where nobody could press it.
 
 **Form field** — `Field` + `FieldLabel` + `FieldDescription` + `FieldError`. TanStack-backed forms wrap the same anatomy through `FieldShell`. Raw `<label>` next to an `Input` is a leftover.
 
@@ -404,6 +404,18 @@ which on a 38px row pitch is the pill barging into the row above its target.
 overshoot is in budget at *any* distance (0.44px at 288px, 0.69px at 448px)
 rather than up to a ceiling. It shares `springDrawer`'s natural frequency, so
 only the landing differs, not the arrival time.
+
+**A `layoutId` is global, so it has to be scoped by hand.** `layoutId` names
+ONE travelling element across the entire React tree, not one per component —
+two mounted at once are the same element, and the pill flies between them. This
+shipped twice: `ToggleGroup` used the constant `"toggle-pill"` while the Tasks
+tab mounts two segmented groups together (the view switcher above the status
+filter row), and `Tabs` used `"tabs-pill"` for every strip on the page. Both
+now take a `React.useId()` per instance, the way the nav rail already keyed its
+own pill by rail width (`railActivePillId`). The rule: **one shared-layout id
+per mounted group, never a module constant.** Since the id never reaches the
+DOM, both atoms mirror it onto `data-pill-id` so a collision is visible in
+devtools and assertable in a test rather than only in the animation.
 
 **And why a sheet takes a tween.** Past roughly 300px of travel there is no
 spring left to pick: anything with a perceptible overshoot percentage is out of
