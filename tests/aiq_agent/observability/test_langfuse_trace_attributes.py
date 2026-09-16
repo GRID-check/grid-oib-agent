@@ -520,7 +520,8 @@ class TestExtractProviderUsage:
 
         from aiq_agent.observability.langfuse_trace_attributes import extract_provider_usage
 
-        metadata = json.dumps({"token_usage": {"prompt_tokens": 10, "completion_tokens": 5}})
+        token_usage = {"prompt_tokens": 10, "completion_tokens": 5}
+        metadata = json.dumps({"chat_responses": [{"message": {"response_metadata": {"token_usage": token_usage}}}]})
 
         usage = extract_provider_usage(metadata)
         assert usage is not None
@@ -532,6 +533,94 @@ class TestExtractProviderUsage:
         assert extract_provider_usage('{"chat_responses": []}') is None
         assert extract_provider_usage("not-json") is None
         assert extract_provider_usage(None) is None
+
+
+class TestUsageComesFromTheResponseSideOnly:
+    """Only ``chat_responses`` may be read: the input side is an older call's usage.
+
+    A span's ``nat.metadata`` is the LLM_START payload merged with the LLM_END
+    one (``nat/observability/exporter/span_exporter.py``), so it holds both
+    ``chat_inputs`` — the whole prompt, earlier AIMessages and the
+    ``response_metadata``/``usage_metadata`` of the calls that produced them
+    included — and ``chat_responses``, this call's output. Scanning the whole
+    payload for a usage object let the prompt history answer for the response:
+    a Responses-API generation leaves only LangChain's normalized usage on its
+    own side, the provider-preferred pass found none there and took the
+    provider-shaped one out of an earlier message instead. Five generations in
+    one production turn then reported byte-identical counts (30511/77,
+    reasoning 38) while the context grew every round.
+    """
+
+    PREVIOUS_ANSWER = {
+        "prompt_tokens": 30511,
+        "completion_tokens": 77,
+        "total_tokens": 30588,
+        "completion_tokens_details": {"reasoning_tokens": 38},
+    }
+    THIS_ANSWER = {
+        "input_tokens": 41204,
+        "output_tokens": 512,
+        "total_tokens": 41716,
+        "input_token_details": {"cache_read": 30208},
+        "output_token_details": {"reasoning": 256},
+    }
+
+    def _metadata(self, *, inputs: bool, responses: bool) -> str:
+        payload: dict = {}
+        if responses:
+            payload["chat_responses"] = [
+                {
+                    "type": "ChatGeneration",
+                    "message": {
+                        "content": "this answer",
+                        "response_metadata": {"model_name": "vendor/model"},
+                        "usage_metadata": self.THIS_ANSWER,
+                    },
+                }
+            ]
+        if inputs:
+            payload["chat_inputs"] = [
+                {"type": "system", "content": "..."},
+                {
+                    "type": "ai",
+                    "content": "the previous answer",
+                    "response_metadata": {"token_usage": self.PREVIOUS_ANSWER},
+                },
+                {"type": "tool", "content": "..."},
+            ]
+        return json.dumps(payload)
+
+    def test_the_prompt_history_never_answers_for_this_call(self):
+        from aiq_agent.observability.langfuse_trace_attributes import extract_provider_usage
+
+        usage = extract_provider_usage(self._metadata(inputs=True, responses=True))
+
+        assert usage == {
+            "prompt_tokens": 41204,
+            "completion_tokens": 512,
+            "total_tokens": 41716,
+            "cached_tokens": 30208,
+            "reasoning_tokens": 256,
+            "cost_usd": None,
+        }
+
+    def test_usage_only_on_the_input_side_is_absent(self):
+        """Falling through to ``llm.token_count.*`` beats reporting another call's numbers."""
+        from aiq_agent.observability.langfuse_trace_attributes import extract_provider_usage
+
+        assert extract_provider_usage(self._metadata(inputs=True, responses=False)) is None
+
+    def test_tool_inputs_are_not_read_either(self):
+        from aiq_agent.observability.langfuse_trace_attributes import extract_provider_usage
+
+        metadata = json.dumps(
+            {
+                "tool_inputs": {"messages": [{"response_metadata": {"token_usage": self.PREVIOUS_ANSWER}}]},
+                "span_inputs": {"usage_metadata": {"input_tokens": 9, "output_tokens": 9}},
+            }
+        )
+
+        assert extract_provider_usage(metadata) is None
 
 
 class TestResponsesApiSpanUsage:
@@ -682,13 +771,21 @@ class TestUsageAttributeProcessor:
 
         metadata = json.dumps(
             {
-                "token_usage": {
-                    "prompt_tokens": 1204,
-                    "completion_tokens": 331,
-                    "total_tokens": 1535,
-                    "cost": 0.00214,
-                    "prompt_tokens_details": {"cached_tokens": 512},
-                }
+                "chat_responses": [
+                    {
+                        "message": {
+                            "response_metadata": {
+                                "token_usage": {
+                                    "prompt_tokens": 1204,
+                                    "completion_tokens": 331,
+                                    "total_tokens": 1535,
+                                    "cost": 0.00214,
+                                    "prompt_tokens_details": {"cached_tokens": 512},
+                                }
+                            }
+                        }
+                    }
+                ]
             }
         )
         span = await UsageAttributeProcessor().process(self._llm_span(**{"nat.metadata": metadata}))
@@ -708,7 +805,13 @@ class TestUsageAttributeProcessor:
 
         from aiq_agent.observability.langfuse_trace_attributes import UsageAttributeProcessor
 
-        metadata = json.dumps({"token_usage": {"prompt_tokens": 40, "completion_tokens": 8}})
+        metadata = json.dumps(
+            {
+                "chat_responses": [
+                    {"message": {"response_metadata": {"token_usage": {"prompt_tokens": 40, "completion_tokens": 8}}}}
+                ]
+            }
+        )
         span = self._llm_span(**{"nat.metadata": metadata})
         span.attributes["llm.token_count.prompt"] = 0
         span.attributes["llm.token_count.completion"] = 0
