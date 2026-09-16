@@ -617,6 +617,28 @@ class TestParserDispatcher:
         assert len(entries) == 1
         assert entries[0].url == "https://example.com"
 
+    def test_a_knowledge_text_without_a_citation_line_yields_nothing(self):
+        """A URL in a knowledge result is not a source, and never was.
+
+        The knowledge parser used to hand a citation-less text to the generic
+        URL extractor. A rejected tool call carries pydantic's link to its own
+        error index, so the Herleitung drew a web source card for
+        ``errors.pydantic.dev`` on a turn whose search had not run.
+        """
+        content = (
+            "Error: the call was rejected. punkt: Input should be a valid string. "
+            "For further information visit https://errors.pydantic.dev/2.13/v/missing"
+        )
+
+        for tool_name in ("knowledge_search", "ris_lookup", "read_passage"):
+            assert extract_sources_from_tool_result(tool_name, content, source_id="knowledge_layer") == []
+
+    def test_a_tool_with_no_parser_still_gives_up_its_urls(self):
+        """The generic extractor is what a web search is read with; it stays."""
+        entries = extract_sources_from_tool_result("advanced_web_search_tool", "Treffer: https://www.oib.or.at/rl2")
+
+        assert [entry.url for entry in entries] == ["https://www.oib.or.at/rl2"]
+
     def test_custom_parser_takes_priority(self):
         """Registered parsers take priority over generic fallback."""
 

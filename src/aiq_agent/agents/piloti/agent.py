@@ -65,6 +65,7 @@ from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.grounding_block import begin_grounding_capture
 from aiq_agent.common.grounding_block import end_grounding_capture
+from aiq_agent.common.tool_errors import render_tool_error
 from aiq_agent.common.turn_status import FETCH_FAILED_MARKER
 from aiq_agent.common.turn_status import begin_lane_capture
 from aiq_agent.common.turn_status import emit_family_coverage
@@ -1055,7 +1056,7 @@ class PilotiAgent:
             llm_with_tools=self._bind_research_tools(llm, tools),
             tools=tools,
             tools_info=self.tools_info if boot_tools else build_tools_info(tools),
-            tool_node=ToolNode(list(tools)),
+            tool_node=ToolNode(list(tools), handle_tool_errors=render_tool_error),
             source_tool_names=frozenset(t.name for t in tools),
             ceiling=self.max_tool_iterations,
             max_input_tokens=self.max_input_tokens_per_turn,
@@ -1368,10 +1369,20 @@ class PilotiAgent:
         registry: SourceRegistry,
         state: ResearchAgentState,
     ) -> bool:
-        """Register this round's sources; return the sticky measurement flag."""
+        """Register this round's sources; return the sticky measurement flag.
+
+        A call that FAILED contributes neither: its text is an error message,
+        not evidence.
+        """
         measured = bool(state.answer_measurement_grounded)
         for message in messages:
             if not isinstance(message, ToolMessage) or not message.content:
+                continue
+            if getattr(message, "status", None) == "error":
+                # A call that raised returned no evidence, whatever its text
+                # says. Read as a result it contributes the error's own words:
+                # a pydantic message links to its error index, and that link
+                # used to register as a web source card nobody had searched.
                 continue
             tool_name = getattr(message, "name", "") or ""
             content = str(message.content)

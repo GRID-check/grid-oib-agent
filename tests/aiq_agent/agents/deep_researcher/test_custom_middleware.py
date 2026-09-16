@@ -467,6 +467,26 @@ class TestSourceRegistryMiddleware:
         assert len(middleware.registry.all_sources()) == 0
 
     @pytest.mark.asyncio
+    async def test_a_failed_call_contributes_no_source(self, middleware):
+        """An errored result is the failure's own words, not evidence.
+
+        Piloti hit this first: a call rejected by argument validation returned
+        pydantic's message, whose ``https://errors.pydantic.dev/...`` line was
+        captured as a web source and drawn as a source card. The gate is the
+        message STATUS, so it holds whatever the error happens to say.
+        """
+        content = (
+            "Error: the call was rejected. query: Field required. "
+            "For further information visit https://errors.pydantic.dev/2.13/v/missing"
+        )
+        handler = AsyncMock(return_value=ToolMessage(content=content, tool_call_id="tc1", status="error"))
+        request = self._make_request("advanced_web_search_tool")
+
+        await middleware.awrap_tool_call(request, handler)
+
+        assert middleware.registry.all_sources() == []
+
+    @pytest.mark.asyncio
     async def test_unknown_tool_ignored(self, middleware):
         """Tools not in the allowlist are ignored."""
         content = "https://unknown.com/data"

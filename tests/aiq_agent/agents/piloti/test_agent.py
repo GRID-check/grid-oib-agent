@@ -3777,6 +3777,72 @@ class TestTheWorkingDirectoryBudget:
         assert list(registry.all_sources()) == []
 
 
+class TestAFailedCallIsNotASource:
+    """The round loop reads the message STATUS, never the error text.
+
+    A retrieval call rejected by argument validation came back as pydantic's
+    own message, and the ``https://errors.pydantic.dev/...`` line in it was
+    mined as a URL: the Herleitung then showed a web card for a host nobody had
+    searched, on a turn whose search had not run at all. The tool here is the
+    web one on purpose, because that is the tool whose results are read for
+    URLs at all.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _web_search_is_a_data_source(self):
+        reset_registry()
+        populate_from_config(
+            [
+                {
+                    "id": "web_search",
+                    "name": "Web Search",
+                    "description": "Search the web.",
+                    "tools": ["web_search_tool"],
+                }
+            ],
+        )
+        yield
+        reset_registry()
+
+    @staticmethod
+    def _captured(message) -> list:
+        from types import SimpleNamespace
+
+        registry = SourceRegistry()
+        binding = SimpleNamespace(source_tool_names=frozenset({"web_search_tool"}))
+        state = ResearchAgentState(messages=[])
+        # ``self`` is unread: the capture loop is a function of the four.
+        PilotiAgent._capture_round(None, [message], binding, registry, state)
+        return list(registry.all_sources())
+
+    def test_an_errored_result_registers_nothing(self):
+        from langchain_core.messages import ToolMessage
+
+        message = ToolMessage(
+            content=(
+                "Error: the call was rejected. query: Field required. "
+                "For further information visit https://errors.pydantic.dev/2.13/v/missing"
+            ),
+            tool_call_id="call_1",
+            name="web_search_tool",
+            status="error",
+        )
+
+        assert self._captured(message) == []
+
+    def test_a_result_that_succeeded_is_still_read(self):
+        """The other half: the gate is the status, not the text and not the tool."""
+        from langchain_core.messages import ToolMessage
+
+        message = ToolMessage(
+            content="Treffer: https://www.oib.or.at/richtlinie-2",
+            tool_call_id="call_2",
+            name="web_search_tool",
+        )
+
+        assert [entry.url for entry in self._captured(message)] == ["https://www.oib.or.at/richtlinie-2"]
+
+
 def _bind_signed_turn(monkeypatch, *, conversation_id: str) -> None:
     """A project-scoped chat turn carrying a valid signed envelope, as the WS upgrade leaves it."""
     import base64

@@ -34,6 +34,7 @@ from aiq_agent.cards.catalog import render_card_details
 from aiq_agent.cards.catalog import render_card_doctrine
 from aiq_agent.cards.catalog import render_card_index
 from aiq_agent.cards.catalog import shape_hint_for as _shape_hint_for
+from aiq_agent.common.tool_errors import render_error_detail
 from nat.builder.builder import Builder
 from nat.builder.function_info import FunctionInfo
 from nat.cli.register_workflow import register_function
@@ -160,11 +161,14 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
             hint = _shape_hint_for(card_type)
             # The TYPE is the load-bearing half: it says which card the model
             # knew it wanted, which is exactly what a silent turn cannot tell
-            # you. The validation message rides along on one line so the shape
-            # it tripped over is readable without reproducing the turn.
-            logger.warning("emit_card rejected a '%s' card: it failed validation: %s", card_type, exc)
+            # you. The validation message rides along as one clause per rejected
+            # field, so the shape it tripped over is readable without
+            # reproducing the turn, and pydantic's link to its own error index
+            # never reaches the model (see ``common/tool_errors.py``).
+            detail = render_error_detail(exc)
+            logger.warning("emit_card rejected a '%s' card: it failed validation: %s", card_type, detail)
             return (
-                f"Error: card of type '{card_type}' failed validation: {exc}. "
+                f"Error: card of type '{card_type}' failed validation: {detail}. "
                 "Fix the fields and call emit_card again, or skip the card." + (f"\n\n{hint}" if hint else "")
             )
 

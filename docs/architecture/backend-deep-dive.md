@@ -996,7 +996,12 @@ The text parsers in `citation_verification`
 (`_parse_knowledge_layer` and the eleven `_KL_*` regexes) stay for the callers
 that hold the bytes without the records: a registry hydrated from the shared
 cache, a turn replayed out of Postgres, and the job runner's callback in
-`frontends/aiq_api/src/aiq_api/jobs/callbacks.py`. The contract test asserts the
+`frontends/aiq_api/src/aiq_api/jobs/callbacks.py`. A text those parsers find no
+`Citation:` line in carries no sources at all; the generic URL extractor beneath
+them reads the tools with no registered parser (web search), never a passage
+body. Nothing reads a FAILED call either: both capture loops skip a
+`ToolMessage` whose `status` is `error`, so the words a tool failure returns are
+the model's to act on and nobody's evidence. The contract test asserts the
 two readers produce the same entries
 (`tests/aiq_agent/common/test_citation_pipeline_contract.py`).
 

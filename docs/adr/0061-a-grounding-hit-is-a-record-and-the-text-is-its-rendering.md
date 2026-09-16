@@ -75,7 +75,9 @@ forget to make it readable back.
 
 `extract_sources_from_tool_result` looks the block up by that hash first and
 builds `SourceEntry`s by field copy, in block order. A miss falls through to the
-text parsers, which stay.
+text parsers, which stay. Their answer is final, including an empty one: a text
+with no `Citation:` line states no source and registers none. The generic URL
+extractor below them reads the tools that have no parser at all.
 
 `ToolMessage.artifact` was measured on the installed versions and rejected. NAT
 builds the LangChain tool itself, in `nat/plugins/langchain/tool_wrapper.py`:
