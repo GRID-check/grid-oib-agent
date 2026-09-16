@@ -258,15 +258,18 @@ OBSERVATION_MODEL_NAME = "langfuse.observation.model.name"
 # in the same `langfuse.observation.*` namespace as the usage keys above, which
 # "always take precedence over the generic OpenTelemetry conventions".
 #
-# WHY A PROCESS GLOBAL AND NOT A ContextVar. What is being named here is the
+# PROCESS STATE, WITH A PER-TURN BOX ON TOP. What is being named here is the
 # PLATFORM prompt: one static text per process, identical for every tenant and
 # every turn, changing only when `common/prompt_store.py` refreshes it from
-# Langfuse. That makes it process state, not turn state — and a ContextVar
-# would be actively worse here: LangGraph runs each node in a context built
-# with `copy_context()`, so a value set where the prompt is rendered (the agent
-# node, and only on the first iteration, since later iterations reuse
-# `cached_system_prompt`) is written to a copy that dies at the node boundary.
-# The link would reach the first generation of a turn and no other.
+# Langfuse. So the identity lives in a process global. What a TURN's spans
+# carry is the identity that turn rendered with, which a refresh between the
+# render and the span export could otherwise misname: `begin_turn_prompt_link`
+# binds a mutable box in the turn's own context, every resolution writes into
+# it IN PLACE, and the span processor reads the box first. In place matters:
+# `asyncio.to_thread` copies the context, so a `.set()` from the render thread
+# would die with it, while a mutation of the shared dict is what the loop sees.
+# LangGraph nodes copy the context too, which is why the box is bound in
+# `PilotiAgent.run` and not where the prompt is rendered.
 #
 # THE KNOWN OVER-BROADNESS: a generation from another agent in this process —
 # the clarifier, deep research — renders its own prompt, which nothing manages,
@@ -277,24 +280,61 @@ OBSERVATION_PROMPT_NAME = "langfuse.observation.prompt.name"
 OBSERVATION_PROMPT_VERSION = "langfuse.observation.prompt.version"
 
 #: The prompt identity this process is currently serving; see the note above.
-_PROMPT_LINK: dict[str, str] = {}
+_PROMPT_LINK: dict[str, Any] = {}
+
+#: The identity THIS turn rendered with, when a turn bound one; see the note.
+_TURN_PROMPT_LINK: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "grid_turn_prompt_link", default=None
+)
 
 
-def record_prompt_link(*, name: str, version: str) -> None:
-    """Remember which prompt version this process renders with.
+def begin_turn_prompt_link() -> contextvars.Token[dict[str, Any] | None]:
+    """Bind a fresh per-turn box; the turn's resolutions fill it, its spans read it."""
+    return _TURN_PROMPT_LINK.set({})
 
-    Called by the prompt store's caller every time the static half is
-    resolved, which is at boot and then whenever a refreshed version is served.
-    Best-effort like everything else here: telemetry bookkeeping must never
-    fail the render that was producing it.
+
+def end_turn_prompt_link(token: contextvars.Token[dict[str, Any] | None]) -> None:
+    """Unbind the turn's box, restoring whatever was bound before."""
+    _TURN_PROMPT_LINK.reset(token)
+
+
+def _link_targets() -> list[dict[str, Any]]:
+    """The process global, plus the turn's box when one is bound."""
+    box = _TURN_PROMPT_LINK.get()
+    return [_PROMPT_LINK] if box is None else [_PROMPT_LINK, box]
+
+
+def record_prompt_link(*, name: str, version: str, is_fallback: bool = False) -> None:
+    """Remember which prompt this process, and the current turn, renders with.
+
+    Called by the prompt store's caller on every resolution — at boot, on every
+    refresh, and on a fallback. A fallback names no prompt Langfuse holds, so
+    it becomes no LINK (:func:`current_prompt_attributes` yields ``{}``) and is
+    read back by :func:`current_fallback_identity` for the trace metadata
+    instead. Recording it, rather than clearing, is what keeps both facts on
+    the same per-turn record: a transition in another turn cannot swap this
+    turn's fallback for a served version, or the reverse.
+
+    The version is stored as it arrived, so that
+    :func:`prompt_observation_attributes` is the one place deciding what a
+    version becomes on a span. Best-effort like everything else here:
+    telemetry bookkeeping must never fail the render that was producing it.
     """
     try:
         if not name or not version:
             return
-        _PROMPT_LINK["name"] = str(name)
-        _PROMPT_LINK["version"] = str(version)
+        for target in _link_targets():
+            target["name"] = str(name)
+            target["version"] = version
+            target["is_fallback"] = bool(is_fallback)
     except Exception:
         logger.debug("Failed to record the Langfuse prompt link", exc_info=True)
+
+
+def _current_link() -> dict[str, Any]:
+    """This turn's record when a turn bound one, else the process's."""
+    link = _TURN_PROMPT_LINK.get()
+    return _PROMPT_LINK if link is None else link
 
 
 def prompt_observation_attributes(*, name: str | None, version: str | None) -> dict[str, Any]:
@@ -303,20 +343,45 @@ def prompt_observation_attributes(*, name: str | None, version: str | None) -> d
     Pure, so the mapping is testable without a span. Both or neither: a name
     with no version renders as a prompt Langfuse cannot resolve to a text, and
     a version with no name belongs to nothing.
+
+    The version is an INT because Langfuse's ingestion schema declares
+    ``promptVersion`` as one. While a string went out here, no GENERATION
+    observation reached production and the rest of every trace arrived intact. A version that is not a number is the
+    bundled fallback's git blob hash, which names no prompt Langfuse holds, so
+    it yields no link at all; Langfuse's own SDK links no fallback either.
     """
-    if not name or not version:
+    if not name or not version or not isinstance(version, int | str):
         return {}
-    return {OBSERVATION_PROMPT_NAME: str(name), OBSERVATION_PROMPT_VERSION: str(version)}
+    try:
+        numeric = int(version)
+    except ValueError:
+        return {}
+    return {OBSERVATION_PROMPT_NAME: str(name), OBSERVATION_PROMPT_VERSION: numeric}
 
 
 def current_prompt_attributes() -> dict[str, Any]:
-    """The prompt link for the version this process is serving, or ``{}``."""
-    return prompt_observation_attributes(name=_PROMPT_LINK.get("name"), version=_PROMPT_LINK.get("version"))
+    """The prompt link for THIS turn's render when a turn bound a box, else the process's.
+
+    A fallback render is no link at all, whichever record holds it.
+    """
+    link = _current_link()
+    if link.get("is_fallback"):
+        return {}
+    return prompt_observation_attributes(name=link.get("name"), version=link.get("version"))
+
+
+def current_fallback_identity() -> tuple[str, Any] | None:
+    """The bundled fallback's ``(name, version)`` when that is what renders, else ``None``."""
+    link = _current_link()
+    if not link.get("is_fallback"):
+        return None
+    return str(link.get("name")), link.get("version")
 
 
 def reset_prompt_link() -> None:
-    """Forget the recorded prompt link. Test-only."""
-    _PROMPT_LINK.clear()
+    """Forget the recorded prompt identity, in the process record and the turn's box."""
+    for target in _link_targets():
+        target.clear()
 
 
 def identity_attributes_enabled() -> bool:

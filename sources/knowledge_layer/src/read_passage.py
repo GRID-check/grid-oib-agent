@@ -642,13 +642,24 @@ async def _read_member(target: PassageTarget, number: str) -> FamilyMember | Non
     )
 
 
+class FamilyUnreadable(RuntimeError):
+    """The corpus lists the family, and not one of its parts could be read.
+
+    Distinct from ``None``, which is "no such family here": a listed family
+    that yields nothing is an overview that was attempted and lost, and the
+    search that asked for it has to say so rather than look like an ordinary
+    two-document search.
+    """
+
+
 async def family_overview(entries: Sequence[Any], family_key: str) -> FamilyOverview | None:
     """Every part of Richtlinie ``family_key`` the corpus holds, in one object.
 
     ``entries`` is the turn's collection scope; the corpus is the base shelf,
     so a turn that may not read it gets ``None`` rather than an overview of
     somebody's own copy of a Richtlinie. ``None`` also when the corpus holds no
-    such family, and when no member of it could be read.
+    such family. A family it does hold, of which no member could be read,
+    raises :class:`FamilyUnreadable`.
     """
     from aiq_agent.common.source_kinds import Shelf
 
@@ -669,7 +680,7 @@ async def family_overview(entries: Sequence[Any], family_key: str) -> FamilyOver
         logger.warning("Family member skipped", exc_info=failure)
     members = tuple(item for item in read if isinstance(item, FamilyMember))
     if not members:
-        return None
+        raise FamilyUnreadable(f"no part of {family.label} could be read")
     chunks = tuple(chunk for member in members for chunk in member.chunks)
     logger.info("Family overview: %s read %d member(s)", family.label, len(members))
     return FamilyOverview(
@@ -908,7 +919,7 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
 
     async def _read(
         document: str,
-        punkt: str | None = None,
+        punkt: str | int | None = None,
         page: int | str | None = None,
         conclusion: str = "",
     ) -> str:
@@ -925,8 +936,10 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
             document (str): The document's exact indexed file name or display
                 title, as the inventory or a previous hit printed it. Never
                 invented, never a fragment.
-            punkt (str | None): Optional. The Punkt number alone, e.g. "3.5.2" —
-                no "Pkt.", no title. Omit it, and `page`, for the outline.
+            punkt (str | int | None): Optional. The Punkt number alone, e.g.
+                "3.5.2" — no "Pkt.", no title. A top-level Punkt often arrives
+                as a number (`3`) and is read as its digits, the way `page`
+                accepts a numeric string. Omit it, and `page`, for the outline.
             page (int | str | None): Optional. The page number, 1-based. May be
                 combined with `punkt` to read that Punkt on that page. ``''`` is
                 treated as omitted (#656: providers send empty string for "no
@@ -949,7 +962,7 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
         # `register.search`. It is a checkpoint channel read off the tool CALL,
         # never an input to what gets opened.
         document = (document or "").strip()
-        punkt = (punkt or "").strip().strip(".") or None
+        punkt = str(punkt if punkt is not None else "").strip().strip(".") or None
         page = _coerce_page(page)
         if not document:
             return (

@@ -65,6 +65,7 @@ from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.grounding_block import begin_grounding_capture
 from aiq_agent.common.grounding_block import end_grounding_capture
+from aiq_agent.common.tool_errors import render_tool_error
 from aiq_agent.common.turn_status import FETCH_FAILED_MARKER
 from aiq_agent.common.turn_status import begin_lane_capture
 from aiq_agent.common.turn_status import emit_family_coverage
@@ -82,6 +83,8 @@ from aiq_agent.common.turn_status import is_retrieval_round
 from aiq_agent.common.turn_status import record_round_announcement
 from aiq_agent.common.turn_status import retrieval_round_scope
 from aiq_agent.knowledge.already_read import merge_digest
+from aiq_agent.observability.langfuse_trace_attributes import begin_turn_prompt_link
+from aiq_agent.observability.langfuse_trace_attributes import end_turn_prompt_link
 from aiq_agent.tools.bim.measurement_sources import begin_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import end_measurement_capture
 from aiq_agent.tools.bim.measurement_sources import get_measurement_captures
@@ -96,6 +99,7 @@ from .models import ResearchAgentState
 from .prompt import build_tools_info
 from .prompt import render_system_prompt
 from .prompt import shelf_label
+from .prompt import stamp_static_prompt_for_turn
 from .prompt import system_prompt_template
 from .repair import VerificationFailures
 from .repair import repair_answer
@@ -1055,7 +1059,7 @@ class PilotiAgent:
             llm_with_tools=self._bind_research_tools(llm, tools),
             tools=tools,
             tools_info=self.tools_info if boot_tools else build_tools_info(tools),
-            tool_node=ToolNode(list(tools)),
+            tool_node=ToolNode(list(tools), handle_tool_errors=render_tool_error),
             source_tool_names=frozenset(t.name for t in tools),
             ceiling=self.max_tool_iterations,
             max_input_tokens=self.max_input_tokens_per_turn,
@@ -1368,10 +1372,20 @@ class PilotiAgent:
         registry: SourceRegistry,
         state: ResearchAgentState,
     ) -> bool:
-        """Register this round's sources; return the sticky measurement flag."""
+        """Register this round's sources; return the sticky measurement flag.
+
+        A call that FAILED contributes neither: its text is an error message,
+        not evidence.
+        """
         measured = bool(state.answer_measurement_grounded)
         for message in messages:
             if not isinstance(message, ToolMessage) or not message.content:
+                continue
+            if getattr(message, "status", None) == "error":
+                # A call that raised returned no evidence, whatever its text
+                # says. Read as a result it contributes the error's own words:
+                # a pydantic message links to its error index, and that link
+                # used to register as a web source card nobody had searched.
                 continue
             tool_name = getattr(message, "name", "") or ""
             content = str(message.content)
@@ -1435,6 +1449,16 @@ class PilotiAgent:
         next to it (see ``bim.measurement_sources``).
         """
         binding = self._resolve_turn(turn)
+        # Which static half THIS turn renders, when it is the bundled fallback:
+        # that is no prompt link, because it names no prompt Langfuse holds, so
+        # the trace metadata is where an operator sees it. Resolved and stamped
+        # here, in the turn's own context, because the render itself runs in a
+        # worker thread whose copied context discards every ContextVar write.
+        # The box is bound BEFORE the resolve, so the identity this turn renders
+        # with, including the render thread's own resolution, lands in it and
+        # is what this turn's generation spans name.
+        prompt_link = begin_turn_prompt_link()
+        await stamp_static_prompt_for_turn()
         registry, registry_token = _bind_registry()
         turn_capture = begin_turn_capture()
         measurement_capture = begin_measurement_capture()
@@ -1453,6 +1477,7 @@ class PilotiAgent:
             end_lane_capture(lane_capture)
             end_measurement_capture(measurement_capture)
             end_turn_capture(turn_capture)
+            end_turn_prompt_link(prompt_link)
             if registry_token is not None:
                 reset_session_registry(registry_token)
 

@@ -208,6 +208,24 @@ class TestARefusedCardIsVisibleAfterTheTurn:
         assert "rejected" in records[0].getMessage()
 
     @pytest.mark.asyncio
+    async def test_a_validation_refusal_carries_no_link(self):
+        """Pydantic links to its error index from every message it renders.
+
+        The refusal is a tool result, and a URL in a tool result used to be
+        captured as a web source: the reader got a source card for
+        ``errors.pydantic.dev`` beside an answer nothing had searched the web
+        for. The model needs the field and the problem, never the link.
+        """
+        reg = get_or_create_card_registry("conv-refusal-5")
+        reg.clear()
+
+        msg = await self._emit_real(reg, {"type": "process_map", "title": "Bauverfahren"})
+
+        assert msg.startswith("Error: card of type 'process_map' failed validation:")
+        assert "http" not in msg
+        assert "For further information" not in msg
+
+    @pytest.mark.asyncio
     async def test_unparseable_json_logs_too(self, caplog):
         reg = get_or_create_card_registry("conv-refusal-2")
         reg.clear()

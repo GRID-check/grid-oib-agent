@@ -386,6 +386,9 @@ class SourceRegistryMiddleware(AgentMiddleware):
     async def awrap_tool_call(self, request, handler):
         """Capture sources from tool results after execution.
 
+        A result whose ``status`` is ``"error"`` is skipped: the call raised,
+        so its text is the failure and not a passage.
+
         Tools that resolve to a configured data source via
         :func:`get_source_id_for_tool` get a ``source_id`` label. Tools passed
         directly to the agent without a data-source declaration are still
@@ -395,6 +398,11 @@ class SourceRegistryMiddleware(AgentMiddleware):
         """
         result = await handler(request)
         if not isinstance(result, ToolMessage) or not result.content:
+            return result
+        if getattr(result, "status", None) == "error":
+            # A failed call returned an error message, not evidence. Mining it
+            # registered whatever URL the message happened to carry, and a
+            # pydantic validation error links to its own error index.
             return result
         tool_call = getattr(request, "tool_call", None)
         tool_name = tool_call.get("name", "") if isinstance(tool_call, dict) else ""

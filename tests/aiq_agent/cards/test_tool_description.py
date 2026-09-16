@@ -106,6 +106,16 @@ class TestToolDescription:
     def test_returns_string(self):
         assert isinstance(_build_tool_description(), str)
 
+    def test_several_cards_are_one_round(self):
+        # Two cards used to arrive as two emit_card rounds, each a full pass over
+        # the turn's context. The width rule is stated here and nowhere else:
+        # the doctrine owns the ceiling, this owns how the cards are issued.
+        desc = _build_tool_description()
+        assert "Several cards are one call each, issued in the same round" in desc
+        assert "a round costs one however many calls it holds" in desc
+        assert "several times" not in desc
+        assert "same round" not in render_card_doctrine()
+
     def test_lists_every_card_type(self):
         desc = _build_tool_description()
         for card_type in _CARD_TYPES:

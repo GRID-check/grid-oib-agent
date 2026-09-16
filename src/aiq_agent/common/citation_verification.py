@@ -787,9 +787,13 @@ def extract_sources_from_tool_result(
        copy the fields off the records the producer stated (ADR-0061). No
        parsing, and nothing the passage body can forge.
     1. If a registered parser matches the tool name, use it (for special
-       formats like knowledge layer citation keys).
-    2. Otherwise, fall back to the generic URL extractor which finds all
-       URLs in any tool output regardless of format.
+       formats like knowledge layer citation keys). Its answer is final,
+       including an empty one: a knowledge, RIS or read_passage text with no
+       ``Citation:`` line states no source, and the URLs it happens to contain
+       belong to a passage body or to an error message.
+    2. For a tool with no registered parser (web search and anything new), fall
+       back to the generic URL extractor, which finds all URLs in any tool
+       output regardless of format.
     3. If neither produces entries, register the tool result itself as a
        non-URL citation source.
 
@@ -1245,8 +1249,8 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
     Extracts citation keys (filename + page), the retrieval ``Collection:``
     each hit came from (threaded by the KB tool so ``source_lane`` can place
     the hit deterministically), the explicit ``Dokumentart:`` classification,
-    and the retrieved passage body. Falls back to generic URL extraction if no
-    Citation: fields found.
+    and the retrieved passage body. A text with no ``Citation:`` field carries
+    no sources, and says so with an empty list.
 
     Fields are read PER ``--- Result N ---`` BLOCK, never by zipping separate
     whole-document ``findall`` lists. ``_format_results`` emits ``Collection:``
@@ -1306,8 +1310,11 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
                 )
             )
 
-    if not entries:
-        return _parse_generic_urls(content, tool_name)
+    # No Citation: line, no sources. A URL in a passage body is part of the
+    # retrieved text, and a knowledge tool that FAILED returns an error message
+    # whose links are nobody's evidence. Both used to register as web sources
+    # through the generic URL extractor, which is why a turn that tripped a
+    # pydantic validation error showed a source card for errors.pydantic.dev.
     return entries
 
 

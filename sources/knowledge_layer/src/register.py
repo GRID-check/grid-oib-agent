@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 from contextlib import suppress
+from dataclasses import dataclass
 from typing import Any
 from typing import Literal
 
@@ -1555,9 +1556,10 @@ def _format_results(retrieval_result, query: str, notice: str = "", trailer: str
     registry reads fields rather than re-parsing this text (ADR-0061). That is
     why both decorations are rendered here and neither is glued on by the
     caller: a byte added after rendering changes the hash, and the reader would
-    fall back to parsing the text. ``notice`` is the requery notice and goes
-    ahead of everything; ``trailer`` is ``read_passage``'s ``## Gliederung``
-    index and follows the fan-out.
+    fall back to parsing the text. ``notice`` is what the model must read before
+    the results (the requery widening, a family overview that could not be
+    built) and goes ahead of everything; ``trailer`` is ``read_passage``'s
+    ``## Gliederung`` index and follows the fan-out.
 
     ``preamble_note`` is what the CALL was, when that is more than a count: the
     family a family-shaped query resolved to, and where its parts sit in the
@@ -1604,20 +1606,53 @@ def _format_results(retrieval_result, query: str, notice: str = "", trailer: str
     )
 
 
-async def _family_overview_or_none(entries, family_key: str):
+#: The one line the model reads when the overview raised. Without it a family
+#: question answered by ranked passages is indistinguishable from an ordinary
+#: two-document search, in the result and in the Herleitung built from it. It
+#: names the way back rather than an instruction: the parts are still readable,
+#: one call each.
+_FAMILY_OVERVIEW_FAILED_NOTICE = (
+    "Hinweis: der Überblick über die Teile der OIB-Richtlinie {key} konnte nicht erstellt werden; "
+    "es folgen nur die gerankten Treffer, die Teile sind einzeln mit `read_passage(document=…)` "
+    "zu öffnen.\n\n"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _FamilyBranch:
+    """What the family branch produced: an overview, or the fact that it broke.
+
+    "This query names no family the corpus holds" and "the overview raised"
+    both used to arrive as ``None``, so the tool result could not say which had
+    happened, and neither could a trace of it.
+    """
+
+    overview: Any = None
+    failed: bool = False
+
+
+#: No family branch ran: an ordinary search, with nothing to say about one.
+_NO_FAMILY_BRANCH = _FamilyBranch()
+
+
+async def _family_branch(entries, family_key: str) -> _FamilyBranch:
     """The family branch, fail-open: a broken overview keeps the ordinary search.
 
     Imported here rather than at module scope because ``read_passage`` imports
     this module back; both directions are function-scoped, so neither package
     can be half-initialised by the other.
     """
-    try:
-        from .read_passage import family_overview
+    from .read_passage import FamilyUnreadable
+    from .read_passage import family_overview
 
-        return await family_overview(entries, family_key)
+    try:
+        return _FamilyBranch(overview=await family_overview(entries, family_key))
+    except FamilyUnreadable as exc:
+        logger.warning("Family overview skipped for Richtlinie %s: %s", family_key, exc)
+        return _FamilyBranch(failed=True)
     except Exception:  # noqa: BLE001 — the ranked passages are always a valid answer
         logger.warning("Family overview skipped for Richtlinie %s", family_key, exc_info=True)
-        return None
+        return _FamilyBranch(failed=True)
 
 
 def _without_chunks(chunks, exclude) -> list:
@@ -1921,9 +1956,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         from aiq_agent.common.norm_registry import family_query_number
 
         family_key = None if (file_name or folder) else family_query_number(query)
-        family_task = (
-            asyncio.create_task(_family_overview_or_none(target_collections, family_key)) if family_key else None
-        )
+        family_task = asyncio.create_task(_family_branch(target_collections, family_key)) if family_key else None
 
         # Per-turn requery budget: one firing per turn. Reset per turn id when
         # the NAT context states one (user message id), falling back to the
@@ -2247,7 +2280,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # the cap and the floor: they are addressed, not ranked, so neither
             # budget decides whether a part of the Richtlinie is shown. A
             # passage the search also found is one passage, not two.
-            overview = await family_task if family_task is not None else None
+            branch = await family_task if family_task is not None else _NO_FAMILY_BRANCH
+            overview = branch.overview
             if not merged.success:
                 # A fan-out that FAILED is reported as a failure. Decorating it
                 # with an overview would render a complete-looking block over a
@@ -2342,6 +2376,11 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             from knowledge_layer.requery import requery_notice
 
             notice = requery_notice(requery_queries)
+            # The overview raised, and the passages below are what is left of
+            # the family question. Said only where there ARE passages: an empty
+            # or failed search already tells the model the stronger thing.
+            if branch.failed and merged.chunks:
+                notice += _FAMILY_OVERVIEW_FAILED_NOTICE.format(key=family_key)
 
             # After the floor, not before: the floor is the only thing that can empty a
             # non-empty result set, and this message is the vocabulary for saying so.

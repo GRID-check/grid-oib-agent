@@ -573,3 +573,21 @@ class TestTheOutlineIsReadAsRecords:
         entries = extract_sources_from_tool_result("read_passage", await _read(document=OIB))
 
         assert [entry.chunk_text for entry in entries] == ["Diese Richtlinie gilt für …", "… und ist so zu lesen."]
+
+
+class TestANumericPunkt:
+    """A whole-numbered Punkt arrives as a number, and must open that Punkt.
+
+    Providers answer the schema's type, so `punkt=3` is what a top-level Punkt
+    looks like on the wire. Typed `str` only, the call died in argument
+    validation before the tool ran, and the model was handed pydantic's own
+    message instead of a passage.
+    """
+
+    async def test_an_int_punkt_opens_that_punkt(self, store):
+        store.outline_chunks = [_punkt_chunk("3", 5, "Brandschutz", 2)]
+
+        out = await _read(document=OIB, punkt=3)
+
+        assert "Brandschutz" in out
+        assert {"punkt_id": {"$eq": "3"}} in store.calls[-1]["filters"]["$and"]

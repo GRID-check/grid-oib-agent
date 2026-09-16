@@ -1,0 +1,11 @@
+---
+improvements:
+  - >
+    Antworten mit mehreren Karten sind schneller da: Piloti erzeugt die Karten
+    einer Antwort jetzt zusammen statt eine nach der anderen. Bei zwei Karten
+    spart das einen kompletten Durchlauf über die Antwort.
+  - >
+    Lässt sich der Überblick über eine Richtlinien-Familie einmal nicht
+    erstellen, sagt Piloti das in der Herleitung und schlägt die Teile
+    stattdessen einzeln auf. Bisher kamen kommentarlos weniger Dokumente
+    zurück, und die Antwort sah aus wie eine gewöhnliche Suche.

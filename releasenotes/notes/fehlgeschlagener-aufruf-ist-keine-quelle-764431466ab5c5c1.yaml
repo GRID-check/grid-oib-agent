@@ -1,0 +1,8 @@
+---
+fixes:
+  - >
+    Ein Werkzeugaufruf, der fehlschlägt, taucht nicht mehr als Quelle in der
+    Herleitung auf. Bisher landete die Fehlermeldung selbst in der
+    Quellenliste, samt der Adresse, auf die sie verwies, und Piloti las den
+    Fehlschlag als Fließtext statt als kurzen Hinweis, mit dem es den Aufruf
+    korrigieren kann.

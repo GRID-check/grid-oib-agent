@@ -23,6 +23,7 @@ replaced.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import logging
 import os
@@ -43,7 +44,9 @@ from aiq_agent.common.prompt_utils import PromptError
 from aiq_agent.common.source_kinds import SHELF_QUALIFIERS
 from aiq_agent.common.source_kinds import parse_shelf
 from aiq_agent.knowledge.already_read import render_already_read_block
+from aiq_agent.observability.langfuse_trace_attributes import current_fallback_identity
 from aiq_agent.observability.langfuse_trace_attributes import record_prompt_link
+from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
 
 from .models import ResearchAgentState
 
@@ -72,8 +75,8 @@ def system_prompt_template() -> str:
     The static half is resolved here too, although the return value does not
     carry it. That is deliberate: this function is called once, at boot, so the
     store's first fetch — the only one that can block on the network — is paid
-    where nobody is waiting on a turn, and the process starts with its prompt
-    link already recorded for the traces.
+    where nobody is waiting on a turn, and the process starts with the identity
+    its traces will name already resolved.
     """
     resolve_static_block()
     return load_prompt(PROMPTS_DIR, PROMPT_NAME)
@@ -105,6 +108,12 @@ def resolve_static_block() -> ResolvedPrompt:
     credentials are present, and Langfuse answered — see
     ``common/prompt_store.py`` for the budget that guarantees a turn never
     waits on it twice.
+
+    Only a Langfuse version becomes a prompt LINK. The bundled fallback names
+    no prompt Langfuse holds and is versioned by a git blob hash where the
+    ingestion schema wants an int, and a generation carrying that is dropped
+    whole. It is recorded as a fallback instead and reaches the trace as
+    free-form metadata through :func:`record_static_prompt_metadata`.
     """
     resolved = prompt_store().get(STATIC_PROMPT_NAME, fallback=bundled_static_block())
     if not resolved.is_fallback and not _renders(resolved.text):
@@ -114,8 +123,40 @@ def resolve_static_block() -> ResolvedPrompt:
         # would otherwise fail every turn on every replica for as long as the
         # version is published. The bundled file is the floor here too.
         resolved = bundled_static_block()
-    record_prompt_link(name=resolved.name, version=resolved.version)
+    # One record for both outcomes: a fallback is recorded AS a fallback, which
+    # is no link and is what the trace metadata names; a served version is the
+    # link. Recording the fallback rather than clearing is what stops a process
+    # that served a version and then fell back from naming it on generations.
+    record_prompt_link(name=resolved.name, version=resolved.version, is_fallback=resolved.is_fallback)
     return resolved
+
+
+async def stamp_static_prompt_for_turn() -> None:
+    """Resolve the static half for THIS turn, then name a fallback in its trace.
+
+    Awaited on the event loop at the start of a turn. The resolution runs in a
+    worker thread because the store may fetch; the stamp runs on the loop
+    because ``asyncio.to_thread`` copies the context, so a ContextVar written
+    in the thread dies with it. Resolving first is what makes the stamp this
+    turn's: the render that follows hits the store's cache and serves the same
+    identity. Never raises: the store never raises into a turn, and
+    ``record_trace_metadata`` absorbs its own failures.
+    """
+    await asyncio.to_thread(resolve_static_block)
+    record_static_prompt_metadata()
+
+
+def record_static_prompt_metadata() -> None:
+    """Name a bundled-fallback render in this turn's trace metadata, on the loop.
+
+    Reads the turn's own record, so a transition another turn makes between
+    this turn's resolve and its stamp names nothing here.
+    """
+    fallback = current_fallback_identity()
+    if fallback is None:
+        return
+    name, version = fallback
+    record_trace_metadata(prompt_name=name, prompt_version=version)
 
 
 @functools.lru_cache(maxsize=4)
