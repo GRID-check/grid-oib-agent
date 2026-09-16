@@ -80,8 +80,9 @@ def _build_tool_description() -> str:
     """
     return (
         "Render a rich UI card alongside your answer, in addition to your written reply — always "
-        "write the prose too: delete the cards mentally and the answer must still answer. You may "
-        "call this several times to attach several cards.\n\n"
+        "write the prose too: delete the cards mentally and the answer must still answer. Several "
+        "cards are one call each, issued in the same round: a round costs one however many calls "
+        "it holds.\n\n"
         + _CARD_DOCTRINE
         + "\n\nHOW. Pass `card_json`: a JSON object with a `type` field plus that type's fields. "
         "Fill it from the type's line below and the rules above; you are not shown every shape up "
