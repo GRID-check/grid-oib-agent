@@ -37,11 +37,18 @@ def _announcement(index, tools, corpora, query=None, reason=None, key="status.re
     return record
 
 
-def _hit(round_index, name, detail=None):
-    """A captured lane hit shaped like the emitter records it."""
+def _hit(round_index, name, detail=None, tool=None):
+    """A captured lane hit shaped like the emitter records it.
+
+    ``tool`` is the stamp ``lane_tool_scope`` puts on a hit. Left off, the hit
+    is the shape a tool that never enters the scope records — which is what
+    the ledger's coarse fallback is for.
+    """
     hit = {"round": round_index, "name": name}
     if detail is not None:
         hit["detail"] = detail
+    if tool is not None:
+        hit["tool"] = tool
     return hit
 
 
@@ -111,6 +118,71 @@ def test_a_round_that_re_lists_one_passage_and_finds_another_marks_only_the_firs
         ("p.60", False),
     ]
     assert ledger[1]["new_docs"] == ["oib-rl_2.pdf"]
+
+
+def test_a_mixed_round_opens_only_what_its_locator_call_returned():
+    """The case the tool stamp exists for.
+
+    Round 0 searched up A and B and opened A in the same batch. Each hit says
+    which tool produced it, so A is opened and B is only ranked: reopening A at
+    a NEW Punkt in round 1 is a re-fetch, and the first open of B is not.
+    Crediting the whole round — all this ledger could do before the stamp —
+    marked B as already retrieved on the first time anybody read it.
+    """
+    announcements = [
+        _announcement(0, ["knowledge_search", "read_passage"], ["knowledge"], query="Fluchtweg"),
+        _announcement(1, ["read_passage"], ["knowledge"]),
+    ]
+    hits = [
+        _hit(0, "a.pdf", tool="knowledge_search"),
+        _hit(0, "b.pdf", tool="knowledge_search"),
+        _hit(0, "a.pdf", "Pkt. 1", tool="read_passage"),
+        _hit(1, "b.pdf", "Pkt. 2", tool="read_passage"),
+        _hit(1, "a.pdf", "Pkt. 2", tool="read_passage"),
+    ]
+    ledger = build_retrieval_ledger(announcements, hits)
+    assert ledger is not None
+    assert [(doc["name"], doc["detail"], doc["repeat"]) for doc in ledger[1]["docs"]] == [
+        ("b.pdf", "Pkt. 2", False),
+        ("a.pdf", "Pkt. 2", True),
+    ]
+    assert ledger[1]["new_docs"] == ["b.pdf"]
+
+
+def test_the_tool_stamp_never_reaches_the_wire():
+    """``tool`` is how the verdict is derived, not something the reader is shown."""
+    announcements = [_announcement(0, ["knowledge_search"], ["knowledge"], query="Fluchtweg")]
+    ledger = build_retrieval_ledger(announcements, [_hit(0, "a.pdf", "p.1", tool="knowledge_search")])
+    assert ledger is not None
+    assert ledger[0]["docs"] == [{"name": "a.pdf", "detail": "p.1", "repeat": False}]
+
+
+def test_hits_with_no_tool_stamp_fall_back_to_the_coarse_rule():
+    """A tool that never enters the scope still gets an honest verdict.
+
+    Nothing here says which call returned what, so a round that both searched
+    and opened credits nothing — under-marking, which is the safe direction.
+    """
+    announcements = [
+        _announcement(0, ["knowledge_search", "read_passage"], ["knowledge"], query="Fluchtweg"),
+        _announcement(1, ["read_passage"], ["knowledge"]),
+    ]
+    hits = [_hit(0, "a.pdf"), _hit(0, "b.pdf"), _hit(1, "b.pdf", "Pkt. 2"), _hit(1, "a.pdf", "Pkt. 2")]
+    ledger = build_retrieval_ledger(announcements, hits)
+    assert ledger is not None
+    assert [doc["repeat"] for doc in ledger[1]["docs"]] == [False, False]
+
+
+def test_an_action_tool_beside_a_locator_still_counts_as_opening():
+    """``emit_card`` returns no hits, so it cannot confuse the attribution."""
+    announcements = [
+        _announcement(0, ["read_passage", "emit_card"], ["knowledge"]),
+        _announcement(1, ["read_passage"], ["knowledge"]),
+    ]
+    hits = [_hit(0, "a.pdf", "Pkt. 1"), _hit(1, "a.pdf", "Pkt. 9")]
+    ledger = build_retrieval_ledger(announcements, hits)
+    assert ledger is not None
+    assert [doc["repeat"] for doc in ledger[1]["docs"]] == [True]
 
 
 def test_the_same_passage_opened_twice_is_a_repeat():

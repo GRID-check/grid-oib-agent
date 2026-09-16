@@ -942,6 +942,9 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
             `knowledge_search` returns, with Citation keys to copy verbatim —
             followed by the Gliederung when no Punkt and no page was named.
         """
+        from aiq_agent.common.turn_status import READ_PASSAGE_TOOL
+        from aiq_agent.common.turn_status import lane_tool_scope
+
         # `conclusion` is unread here on purpose — see the note in
         # `register.search`. It is a checkpoint channel read off the tool CALL,
         # never an input to what gets opened.
@@ -954,9 +957,16 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
                 "(from the inventory or a previous hit). To find out WHICH document holds a "
                 "fact, call `knowledge_search` instead."
             )
-        if punkt is None and page is None:
-            return await _outline(document)
-        return await _open(document, punkt, page)
+        # Every branch below renders through `register._format_results`, which
+        # is where lane hits are recorded — and it is the SAME renderer
+        # `knowledge_search` uses, so the hit cannot say which tool fetched it
+        # unless the tool says so here. The scope wraps the awaits rather than
+        # sitting inside them: `_format_results` runs in `asyncio.to_thread`,
+        # which copies the context at call time.
+        with lane_tool_scope(READ_PASSAGE_TOOL):
+            if punkt is None and page is None:
+                return await _outline(document)
+            return await _open(document, punkt, page)
 
     async def _open(document: str, punkt: str | None, page: int | None) -> str:
         from .register import _format_results

@@ -141,8 +141,29 @@ describe('SourceCard — a ledger round speaks for its own slot', () => {
     expect(screen.queryByText('pp. 4, 9')).not.toBeInTheDocument()
   })
 
+  test('a bare slot draws the same repeat verdict a carded slot does', () => {
+    const { rerender } = render(
+      <BareSourceCard name="Reparatur.pdf" loci={[{ detail: 'p. 1', repeat: true }]} />
+    )
+    expect(screen.getByText('already retrieved')).toBeInTheDocument()
+
+    rerender(
+      <BareSourceCard
+        name="Reparatur.pdf"
+        loci={[
+          { detail: 'p. 1', repeat: true },
+          { detail: 'p. 4', repeat: false },
+        ]}
+      />
+    )
+    // Mixed: no pill, and the marker sits on the passage that was re-fetched.
+    expect(screen.queryByText('already retrieved')).not.toBeInTheDocument()
+    expect(screen.getByText('(already retrieved)')).toBeInTheDocument()
+    expect(screen.getByText('p. 1, p. 4')).toBeInTheDocument()
+  })
+
   test('a ledger doc with no card is a name and a locus, and nothing that claims more', () => {
-    render(<BareSourceCard name="Reparatur.pdf" detail="p. 1" />)
+    render(<BareSourceCard name="Reparatur.pdf" loci={[{ detail: 'p. 1', repeat: false }]} />)
 
     expect(screen.getByText('Reparatur.pdf')).toBeInTheDocument()
     expect(screen.getByText('p. 1')).toBeInTheDocument()

@@ -447,12 +447,6 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
         // once; a bare ledger slot has no card identity and never animates.
         const card = fanCard.card
         const slot = card ? data.enterOrder.get(card.id) : undefined
-        // A bare slot has no card to print loci per line, so its loci become
-        // one line, in the round's own order.
-        const bareDetail = fanCard.loci
-          ?.map((locus) => locus.detail)
-          .filter(Boolean)
-          .join(', ')
         const entering = slot !== undefined
         return (
           <div key={fanCard.key} className="flex flex-col">
@@ -492,7 +486,7 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
               ) : (
                 <BareSourceCard
                   name={documentShortName(fanCard.name, fanCard.title)}
-                  {...(bareDetail ? { detail: bareDetail } : {})}
+                  {...(fanCard.loci ? { loci: fanCard.loci } : {})}
                 />
               )}
             </div>

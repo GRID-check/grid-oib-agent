@@ -263,16 +263,40 @@ export const SourceCard: FC<{
  *
  * The answer-repair pass reads files after the cards are built, and a name the
  * model dropped is a name the fan would otherwise silently lose — so the slot
- * survives as what the ledger actually knows: the name and the locus THAT round
- * read. Deliberately bare: no chip, no preview, no markers. Every one of those
- * would be a claim about a document this turn has no card for, and a control
- * that opens nothing is worse than no control.
+ * survives as what the ledger actually knows: the name and the loci THAT round
+ * read, with the same repeat verdict a carded slot draws. Deliberately bare
+ * otherwise: no chip, no preview, no citation markers. Every one of those would
+ * be a claim about a document this turn has no card for, and a control that
+ * opens nothing is worse than no control.
  */
-export const BareSourceCard: FC<{ name: string; detail?: string }> = ({ name, detail }) => (
-  <div role="listitem" data-source-card className="flex min-w-0 flex-col">
-    <div className="min-w-0 flex-1 rounded-lg border border-dashed bg-card px-3 py-2.5 opacity-75 shadow-xs">
-      <p className="line-clamp-2 text-sm leading-snug text-foreground">{name}</p>
-      {detail && <p className="mt-1.5 text-xs tabular-nums text-muted-foreground">{detail}</p>}
+export const BareSourceCard: FC<{ name: string; loci?: RoundLocus[] }> = ({ name, loci }) => {
+  const t = useTranslations('chat')
+  // The same verdict the carded slot draws, through the same component — a
+  // slot without a card still knows what its round did, and dropping the
+  // marker here would make a re-fetch look like a first read on exactly the
+  // documents the reader can check least.
+  const allRepeat = !!loci && loci.length > 0 && loci.every((locus) => locus.repeat)
+  return (
+    <div role="listitem" data-source-card className="flex min-w-0 flex-col">
+      <div className="min-w-0 flex-1 rounded-lg border border-dashed bg-card px-3 py-2.5 opacity-75 shadow-xs">
+        <p className="line-clamp-2 text-sm leading-snug text-foreground">{name}</p>
+        {loci && loci.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {/* No hit tally to stand in for: a bare slot has no card, so the
+                pill appears only when there is a repeat to declare. */}
+            {allRepeat && (
+              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium italic text-muted-foreground/80">
+                {t('thinking.node.roundDocRepeat')}
+              </span>
+            )}
+            <RoundLoci
+              loci={loci}
+              marked={!allRepeat}
+              repeatLabel={t('thinking.node.roundDocRepeat')}
+            />
+          </div>
+        )}
+      </div>
     </div>
-  </div>
-)
+  )
+}

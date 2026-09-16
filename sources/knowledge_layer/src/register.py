@@ -1369,6 +1369,12 @@ def _stamp_and_capture_lane_source(entry: dict) -> None:
     The per-round ledger reads this, never the prose: the capture keeps every
     round's hits apart, while the turn_sources log dedups documents across
     rounds. A missing round stamp must not drop the hit.
+
+    ``record_lane_hit`` builds its OWN record and stamps the producing tool on
+    it from the scope the tool opened. That stamp stays in the capture: the
+    ``entry`` below is the Trace-Lanes payload the model and the frontend read,
+    and which tool fetched a passage is how a repeat is DERIVED, not something
+    either of them is shown.
     """
     try:
         from aiq_agent.common.turn_status import current_retrieval_round
@@ -2343,9 +2349,13 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # back as success=False, partial loss as error_message set — both must
             # reach `_format_results`, which renders the failure/warning, rather
             # than the retry-hint below, which would read as "nothing matched".
+            from aiq_agent.common.turn_status import KNOWLEDGE_SEARCH_TOOL
+            from aiq_agent.common.turn_status import lane_tool_scope
+
             if not merged.chunks:
                 if not merged.success or getattr(merged, "error_message", None):
-                    return notice + _format_results(merged, query)
+                    with lane_tool_scope(KNOWLEDGE_SEARCH_TOOL):
+                        return notice + _format_results(merged, query)
                 return notice + _empty_search_message(
                     query,
                     file_name=file_name,
@@ -2358,14 +2368,21 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # doc_class resolution plus pure-CPU string building; run it off the
             # event loop so the synchronous DB round-trips never block the loop
             # (and stall other concurrent turns).
-            formatted = await asyncio.to_thread(
-                _format_results,
-                merged,
-                query,
-                notice,
-                overview.trailer if overview is not None else "",
-                family_note,
-            )
+            #
+            # The lane-tool scope is entered HERE, outside the await, not inside
+            # `_format_results`: `asyncio.to_thread` copies the context when the
+            # call is made, so a scope opened in the worker thread would be a
+            # copy nobody reads back. The family branch renders through this
+            # same call, so it is stamped with it.
+            with lane_tool_scope(KNOWLEDGE_SEARCH_TOOL):
+                formatted = await asyncio.to_thread(
+                    _format_results,
+                    merged,
+                    query,
+                    notice,
+                    overview.trailer if overview is not None else "",
+                    family_note,
+                )
             logger.info(f"Knowledge search returned {len(merged.chunks)} chunks")
             logger.debug(f"Formatted result for LLM:\n{formatted[:500]}...")
             return formatted

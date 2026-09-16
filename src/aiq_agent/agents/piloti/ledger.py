@@ -23,6 +23,7 @@ from aiq_agent.common.citation_verification import source_entry_to_wire
 from aiq_agent.common.citation_verification import source_label
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.turn_status import LOCATOR_TOOL_BASENAMES
+from aiq_agent.common.turn_status import tool_fetches_evidence
 from aiq_agent.tools.bim.measurement_sources import MeasurementSource
 from aiq_agent.tools.bim.measurement_sources import measurement_sources_to_wire
 
@@ -223,18 +224,35 @@ def _locus_key(doc: dict[str, Any]) -> tuple[str, str]:
     return (_lane_doc_key(doc["name"]), str(doc.get("detail") or "").strip().casefold())
 
 
-def _opened_documents(announced: dict[str, Any], docs: Sequence[dict[str, Any]]) -> set[str]:
+def _opened_documents(announced: dict[str, Any], hits: Sequence[dict[str, Any]]) -> set[str]:
     """The document keys this round OPENED, as opposed to merely ranked.
 
-    A round that called a locator tool read into the files it returned; a
-    search round only listed them. The distinction is the whole repeat rule:
-    ranking a file the reader has never seen opened is not work anybody has
-    done yet.
+    A locator call reads into the file it names; a search call only lists what
+    it found. The distinction is the whole repeat rule: ranking a file nobody
+    has opened is not work anybody has done yet.
+
+    Read off the RAW hits rather than the round's wire docs, because the answer
+    is per hit: each one carries the tool that produced it (``turn_status``
+    stamps it from the scope the tool opened), so a round that searched and
+    opened in one batch credits only the documents its locator calls returned.
+    That mixed round is why the stamp exists — crediting the whole round marked
+    every document the search half merely ranked as already opened.
+
+    Hits with no stamp fall back to the coarser question the announcement can
+    answer: was EVERY tool that returned anything a locator? Tools that produce
+    no hits (``emit_card``, ``remember``) do not count against it, and a tool
+    that records hits without entering the scope (RIS, web, the surfacing
+    tools) is correctly not a locator. The fallback under-marks a mixed round,
+    which is the safe direction: over-marking is the bug.
     """
-    tools = {str(tool) for tool in (announced.get("tools") or [])}
-    if tools.isdisjoint(LOCATOR_TOOL_BASENAMES):
+    stamped = [hit for hit in hits if isinstance(hit.get("tool"), str) and hit["tool"].strip()]
+    if stamped:
+        opened = {_lane_doc_key(str(hit.get("name") or "")) for hit in stamped if hit["tool"] in LOCATOR_TOOL_BASENAMES}
+        return opened - {""}
+    fetchers = [str(tool) for tool in (announced.get("tools") or []) if tool_fetches_evidence(str(tool))]
+    if not fetchers or any(tool not in LOCATOR_TOOL_BASENAMES for tool in fetchers):
         return set()
-    return {_lane_doc_key(doc["name"]) for doc in docs}
+    return {_lane_doc_key(str(hit.get("name") or "")) for hit in hits} - {""}
 
 
 def _with_repeat_marks(
@@ -285,11 +303,13 @@ def _round_entry(
     seen_loci: set[tuple[str, str]],
     opened_docs: set[str],
 ) -> dict[str, Any]:
-    """One ledger entry: what the round was, what it returned, what was new."""
+    """One ledger entry: what the round was, what it returned, what was new.
+
+    Reads the two running sets; :func:`build_retrieval_ledger` advances them
+    after, so a round is never measured against itself.
+    """
     marked = _with_repeat_marks(docs, seen_loci, opened_docs)
     new_docs = _new_documents(marked)
-    opened_docs.update(_opened_documents(announced, docs))
-    seen_loci.update(_locus_key(doc) for doc in docs)
     entry: dict[str, Any] = {
         "index": announced.get("index"),
         "key": announced.get("key"),
@@ -333,15 +353,18 @@ def build_retrieval_ledger(
     hits_by_round = _hits_by_round(lane_hits or [])
     seen_loci: set[tuple[str, str]] = set()
     opened_docs: set[str] = set()
-    return [
-        _round_entry(
-            announced,
-            _docs_for_round(hits_by_round.get(announced.get("index"), [])),
-            seen_loci,
-            opened_docs,
-        )
-        for announced in rounds
-    ]
+    entries: list[dict[str, Any]] = []
+    for announced in rounds:
+        # The raw hits carry the producing tool; `_docs_for_round` copies only
+        # name/title/detail/shelf, which is what keeps that in-process field
+        # off the wire. `_opened_documents` therefore reads the hits, the entry
+        # reads the docs.
+        hits = hits_by_round.get(announced.get("index"), [])
+        docs = _docs_for_round(hits)
+        entries.append(_round_entry(announced, docs, seen_loci, opened_docs))
+        opened_docs.update(_opened_documents(announced, hits))
+        seen_loci.update(_locus_key(doc) for doc in docs)
+    return entries
 
 
 def assemble_result(

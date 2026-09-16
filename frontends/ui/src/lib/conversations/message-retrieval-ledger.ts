@@ -56,9 +56,9 @@ export interface RetrievalLedgerEntry {
   reason?: string
   docs: RetrievalLedgerDoc[]
   /**
-   * The documents this round did work no earlier round had done: a passage
-   * nobody had fetched, in a file nobody had opened. A search that merely
-   * ranked a document does not make the later open of it a repeat.
+   * The documents with at least one passage in `docs` that was not a repeat.
+   * A file an earlier round opened is still listed here when this round
+   * reached a passage of it that nobody had fetched.
    */
   newDocs: string[]
   /** Document entries in `docs` (the same file at two pages counts twice). */

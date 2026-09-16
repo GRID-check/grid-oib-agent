@@ -206,9 +206,10 @@ search query.
 the step number is Piloti's own: why this fetch happened. Under it stands one
 card per document, listing the Punkte or pages that step read in it. Five
 Punkte of the OIB-Richtlinie 2 are one card with five addresses, not five cards.
-„bereits abgerufen" appears only where a passage was fetched a second time. A
-step that opens a file an earlier search merely listed is doing new work, and
-says nothing about repeating.
+„bereits abgerufen" marks a passage the step fetched again: either that exact
+page or Punkt had already come back, or the step went back into a file an
+earlier step had opened. A file an earlier search merely *listed* does not
+count. Opening it is new work, and carries no marker.
 
 **Every step folds.** Clicking a step (or reaching it with Tab and pressing
 Enter — it is a real button and reports its state through `aria-expanded`)

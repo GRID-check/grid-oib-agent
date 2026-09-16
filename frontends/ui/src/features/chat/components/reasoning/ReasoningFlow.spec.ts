@@ -1199,7 +1199,9 @@ describe('a ledger round draws its own fan', () => {
     const slots = fanSlots(g, 1)
     expect(slots.map((s) => s.card?.id)).toEqual(['a', undefined])
     expect(slots[1]!.name).toBe('Reparatur.pdf')
-    expect(slots[1]!.loci?.map((l) => l.detail)).toEqual(['S. 1'])
+    // The verdict reaches the bare slot too — it is the slot whose document
+    // the reader can check least, so losing the marker there costs most.
+    expect(slots[1]!.loci).toEqual([{ detail: 'S. 1', repeat: true }])
   })
 
   test('no ledger: the fan is the filename match, exactly as before', () => {

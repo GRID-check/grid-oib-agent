@@ -396,8 +396,15 @@ interface RetrievalLedgerEntry {
   query?: string
   /** The round's own words, verbatim — narration, never a verdict. */
   reason?: string
-  docs: { name: string; title?: string; detail?: string; shelf?: string }[]
-  /** Names no earlier round showed. Empty means the round added no files. */
+  /**
+   * One entry per PASSAGE. `repeat` is the backend's verdict on that passage;
+   * it is absent on turns stored before the backend stamped it.
+   */
+  docs: { name: string; title?: string; detail?: string; shelf?: string; repeat?: boolean }[]
+  /**
+   * The documents with at least one passage that was not a repeat. Empty
+   * means the round re-fetched everything it returned.
+   */
   new_docs: string[]
   /** Entries in `docs` (one file at two pages counts twice). */
   hits: number
