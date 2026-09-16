@@ -65,8 +65,12 @@ from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import bind_tools_deferred
 from aiq_agent.common.grounding_block import begin_grounding_capture
 from aiq_agent.common.grounding_block import end_grounding_capture
+from aiq_agent.common.retrieval_rounds import assistant_checkpoint
+from aiq_agent.common.retrieval_rounds import failed_call_ids
+from aiq_agent.common.retrieval_rounds import ran_signatures
+from aiq_agent.common.retrieval_rounds import repeat_fetches
+from aiq_agent.common.retrieval_rounds import signatures_of
 from aiq_agent.common.tool_errors import render_tool_error
-from aiq_agent.common.turn_status import FETCH_FAILED_MARKER
 from aiq_agent.common.turn_status import begin_lane_capture
 from aiq_agent.common.turn_status import emit_family_coverage
 from aiq_agent.common.turn_status import emit_input_budget_exhausted
@@ -291,32 +295,6 @@ def _tool_call_shape(messages: Sequence[Any], *, limit: int = 24) -> list[str]:
     return shape
 
 
-def _repeat_fetches(calls: Sequence[Any], executed: Sequence[str]) -> list[Any]:
-    """The calls of this round that fetch something the turn already holds.
-
-    Two kinds, one rule: a call whose signature is in ``executed`` (an earlier
-    round of this turn ran it) and a call that repeats an earlier call of the
-    SAME batch (the first occurrence runs, the rest are the same guess said
-    twice). Everything :func:`fetch_signature` declines to sign is absent from
-    the result and can never be withheld.
-
-    Pure, and called with the same calls and the same ``executed`` in both
-    nodes: the agent node decides what to CHARGE and the tools node what to
-    RUN, and two derivations eventually disagree.
-    """
-    seen = set(executed or ())
-    repeats: list[Any] = []
-    for call in calls:
-        signature = fetch_signature(call)
-        if signature is None:
-            continue
-        if signature in seen:
-            repeats.append(call)
-            continue
-        seen.add(signature)
-    return repeats
-
-
 def _over_width(running: Sequence[Any], max_calls: int) -> list[Any]:
     """The tail of one round beyond the width cap, in the order the model emitted it.
 
@@ -339,7 +317,7 @@ def _withheld_calls(
 ) -> tuple[list[Any], list[tuple[Any, str]], list[Any]]:
     """The three guards on this seam, applied once: ``(repeats, refused, over_width)``.
 
-    A fetch whose answer the turn already holds (:func:`_repeat_fetches`), a
+    A fetch whose answer the turn already holds (:func:`repeat_fetches`), a
     call to a source this conversation switched off — each paired with the
     sentence that answers it — and the calls past the round's width cap
     (:func:`_over_width`). Repeats are decided first, so a call that is both is
@@ -350,7 +328,7 @@ def _withheld_calls(
     decide what to ANNOUNCE, the tools node to decide what to RUN; two
     derivations eventually announce a search nothing ran.
     """
-    repeats = _repeat_fetches(calls, state.executed_fetches)
+    repeats = repeat_fetches(calls, state.executed_fetches)
     seen = {id(call) for call in repeats}
     refused = [
         (call, sentence)
@@ -500,7 +478,7 @@ def _charge_tool_calls(
     # tools declare (what the prompt asks for), and — passed here — the prose
     # the model wrote beside its calls, which is the fallback for a model that
     # narrates instead of filling the slot.
-    conclusion = _assistant_checkpoint(response)
+    conclusion = assistant_checkpoint(response)
     searched = emit_retrieval(
         calls,
         round_index=state.retrieval_round,
@@ -679,7 +657,7 @@ class _RoundSplit:
         tried here and there is no result, which is a failure and not an
         earlier answer.
         """
-        return frozenset(signature for call in self.ran if (signature := fetch_signature(call)) is not None)
+        return signatures_of(self.ran)
 
     def notices(self, results: Mapping[str, str]) -> list[ToolMessage]:
         """The answer each withheld call gets."""
@@ -710,42 +688,6 @@ def _split_round(state: ResearchAgentState, disabled: frozenset[str], max_calls:
     )
 
 
-def _failed_call_ids(messages: Iterable[Any]) -> set[str]:
-    """The ids of the calls whose result is a FAILURE rather than a fetch.
-
-    Two shapes, because the tools answer a dead store two ways. A raised tool
-    gets ``status == "error"`` from the ``ToolNode``; a retrieval tool that
-    catches its own exception returns PROSE — deliberately, so the turn can say
-    it could not search instead of dying — and marks it with
-    :data:`FETCH_FAILED_MARKER`.
-    """
-    failed: set[str] = set()
-    for message in messages:
-        if not isinstance(message, ToolMessage):
-            continue
-        content = str(message.content or "")
-        if getattr(message, "status", None) == "error" or content.lstrip().startswith(FETCH_FAILED_MARKER):
-            failed.add(str(getattr(message, "tool_call_id", "") or ""))
-    return failed
-
-
-def _ran_signatures(ran: Sequence[Any], failed_ids: set[str]) -> list[str]:
-    """The fetch signatures of the calls that really RETURNED SOMETHING, in call order.
-
-    A call handed to the ``ToolNode`` is not the same thing as a fetch that
-    answered. Both retrieval tools respond to an unreachable store with a
-    sentence asking the model to retry the identical call — and the duplicate
-    guard is built to withhold exactly that call with "das Ergebnis oben ist die
-    Antwort", which in that case is a lie: nothing was read. So a failure signs
-    nothing, and the retry the tool asked for is allowed to run.
-    """
-    return [
-        signature
-        for call in ran
-        if str(call.get("id") or "") not in failed_ids and (signature := fetch_signature(call)) is not None
-    ]
-
-
 def _turn_index(state: ResearchAgentState) -> int:
     """The 1-indexed conversation turn this run is, read off its human turns.
 
@@ -758,26 +700,6 @@ def _turn_index(state: ResearchAgentState) -> int:
         return max(1, sum(1 for message in state.messages if isinstance(message, HumanMessage)))
     except Exception:  # noqa: BLE001 — a turn number must never take a turn down
         return 1
-
-
-def _assistant_checkpoint(response: Any) -> str | None:
-    """The one-sentence conclusion the model wrote as PROSE before this round.
-
-    The fallback channel. The prompt now asks for the sentence in the retrieval
-    tools' ``conclusion`` argument, because a tool-calling model fills a
-    declared slot far more reliably than it narrates — but a model that
-    narrates anyway must not lose its checkpoint, and neither must a deployment
-    pinned to an older prompt. ``emit_retrieval`` ranks the two.
-
-    Empty when the model wrote no prose. The Herleitung then keeps the round as
-    a layer without a body — it must not invent a conclusion, and it must not
-    fall back to the search query (PF-12). A fenced ``answer_json`` is the final
-    answer, not a checkpoint.
-    """
-    text = " ".join(content_to_text(getattr(response, "content", "") or "").split())
-    if not text or text.startswith("```"):
-        return None
-    return text
 
 
 def _recursion_limit(ceiling: int) -> int:
@@ -1346,7 +1268,7 @@ class PilotiAgent:
             raise RuntimeError("PilotiAgent graph invoked outside run(): no source registry is bound")
         ran_messages = list(result.get("messages", []))
         measured = self._capture_round(ran_messages, binding, registry, state)
-        failed_ids = _failed_call_ids(ran_messages)
+        failed_ids = failed_call_ids(ran_messages)
         # Merged BEFORE the notices are built: a call repeated inside its own
         # batch is answered with the result its first occurrence just returned.
         fetch_results = {**state.fetch_results, **_fetch_results(split.ran, ran_messages, failed_ids)}
@@ -1358,7 +1280,7 @@ class PilotiAgent:
             result = {**result, "messages": [*ran_messages, *split.notices(fetch_results)]}
         result = {
             **result,
-            "executed_fetches": [*state.executed_fetches, *_ran_signatures(split.ran, failed_ids)],
+            "executed_fetches": [*state.executed_fetches, *ran_signatures(split.ran, failed_ids)],
             "fetch_results": fetch_results,
         }
         if measured:
