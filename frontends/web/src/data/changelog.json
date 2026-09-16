@@ -39,6 +39,19 @@
       "summary": null,
       "sections": [
         {
+          "key": "features",
+          "notes": [
+            {
+              "en": "The Automation section now has two tabs: Tasks and Skills. A task can carry its own schedule, and the week timetable is a view inside Tasks rather than a place of its own — old Zeitplan links keep working.",
+              "de": "The Automation section now has two tabs: Tasks and Skills. A task can carry its own schedule, and the week timetable is a view inside Tasks rather than a place of its own — old Zeitplan links keep working."
+            },
+            {
+              "en": "A task can now run once, on a date you choose. Creating one asks when as a choice of three — once, recurring, or manual only — so \"check the Einreichplanung the day before the Abgabe\" no longer means building a weekly schedule and remembering to delete it. A one-off task shows its date on its card and in the week timetable.",
+              "de": "A task can now run once, on a date you choose. Creating one asks when as a choice of three — once, recurring, or manual only — so \"check the Einreichplanung the day before the Abgabe\" no longer means building a weekly schedule and remembering to delete it. A one-off task shows its date on its card and in the week timetable."
+            }
+          ]
+        },
+        {
           "key": "improvements",
           "notes": [
             {
@@ -48,6 +61,14 @@
             {
               "en": "„bereits abgerufen\" steht dort, wo dieselbe Stelle noch einmal geholt wurde oder wo Piloti in eine schon aufgeschlagene Datei zurückgegangen ist. Dass eine Suche ein Dokument nur gelistet hat, macht das spätere Aufschlagen nicht mehr zur Wiederholung.",
               "de": "„bereits abgerufen\" steht dort, wo dieselbe Stelle noch einmal geholt wurde oder wo Piloti in eine schon aufgeschlagene Datei zurückgegangen ist. Dass eine Suche ein Dokument nur gelistet hat, macht das spätere Aufschlagen nicht mehr zur Wiederholung."
+            },
+            {
+              "en": "Skills can now be arranged into categories, curated by Piloti or by your own organization. The Skills tab groups both halves onto them, with search, counts and a detail view for every skill.",
+              "de": "Skills can now be arranged into categories, curated by Piloti or by your own organization. The Skills tab groups both halves onto them, with search, counts and a detail view for every skill."
+            },
+            {
+              "en": "Finishing a new task now offers \"Create and run now\", so you can see the first result immediately instead of waiting for the next scheduled time to find out whether the request says what you meant.",
+              "de": "Finishing a new task now offers \"Create and run now\", so you can see the first result immediately instead of waiting for the next scheduled time to find out whether the request says what you meant."
             },
             {
               "en": "Eine Frage nach einer ganzen Richtlinie („Was weißt du über die OIB 2?“) beantwortet Piloti jetzt in einem Suchlauf mit allen Teilen, die im Bestand sind: je Teil der Geltungsbereich als zitierfähige Passage und darunter dessen Gliederung. Bisher zeigte die Suche zwei Dokumente, und die übrigen Teile wurden einzeln nachgeladen.",
