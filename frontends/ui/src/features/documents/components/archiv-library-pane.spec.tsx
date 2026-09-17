@@ -84,16 +84,19 @@ describe('ArchivLibraryPane — card grid', () => {
     expect(screen.getByText('Failed')).toBeInTheDocument()
   })
 
-  it('marks the selected card with aria-pressed and forwards selection toggles', async () => {
+  // Clicking the open row re-opens it rather than closing it. Closing is the
+  // overlay's job — its X, Escape, the scrim — and a row that sometimes opens
+  // and sometimes closes is a row you have to remember the state of.
+  it('marks the open card with aria-current, and a click always opens', async () => {
     const user = userEvent.setup()
     const onSelectFile = vi.fn()
     renderPane({ selectedFileId: 'a1', onSelectFile })
     const cards = screen.getAllByTestId('archiv-document-card')
     const selected = cards.find((c) => within(c).queryByText('brandschutz-detail.pdf'))!
-    expect(selected).toHaveAttribute('aria-pressed', 'true')
+    expect(selected).toHaveAttribute('aria-current', 'true')
 
     await user.click(selected)
-    expect(onSelectFile).toHaveBeenCalledWith(null)
+    expect(onSelectFile).toHaveBeenCalledWith('a1')
   })
 })
 

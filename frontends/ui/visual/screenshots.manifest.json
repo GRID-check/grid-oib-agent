@@ -274,7 +274,7 @@
     },
     "chat-toolbar": {
       "route": "src/app/dev/chat-toolbar/page.tsx",
-      "routeHash": "ddb765d054a8714e368f87391fad9e7f5a014872e08e1472f850a12906c87285",
+      "routeHash": "4aa5c0dbd04aa842df3994874bad787b376ee09d01b494c54f30e0e6b0236b84",
       "shots": [
         "chat-toolbar.light.png",
         "chat-toolbar.dark.png",
@@ -284,7 +284,7 @@
     },
     "chat-toolbar-running": {
       "route": "src/app/dev/chat-toolbar/page.tsx",
-      "routeHash": "ddb765d054a8714e368f87391fad9e7f5a014872e08e1472f850a12906c87285",
+      "routeHash": "4aa5c0dbd04aa842df3994874bad787b376ee09d01b494c54f30e0e6b0236b84",
       "shots": [
         "chat-toolbar-running.light.png",
         "chat-toolbar-running.dark.png",
@@ -1398,7 +1398,7 @@
     },
     "schedule-wizard": {
       "route": "src/app/dev/schedule-wizard/page.tsx",
-      "routeHash": "706c12046eb6e04d980654ac6fb5dc91537d32cfa9fe93a19e55e7d3e3b263b3",
+      "routeHash": "5921a8855792bce8715736541abc05f89a1b2fdad09e683e8131ffde3d9e2436",
       "shots": [
         "schedule-wizard.light.png",
         "schedule-wizard.dark.png",
@@ -1408,7 +1408,7 @@
     },
     "schedule-wizard-timing": {
       "route": "src/app/dev/schedule-wizard/page.tsx",
-      "routeHash": "706c12046eb6e04d980654ac6fb5dc91537d32cfa9fe93a19e55e7d3e3b263b3",
+      "routeHash": "5921a8855792bce8715736541abc05f89a1b2fdad09e683e8131ffde3d9e2436",
       "shots": [
         "schedule-wizard-timing.light.png",
         "schedule-wizard-timing.dark.png"

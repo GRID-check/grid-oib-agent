@@ -1,16 +1,16 @@
 'use client'
 
 /**
- * Dev preview — the four-step schedule wizard, at the step `?step=` names.
+ * Dev preview — the three-step schedule wizard, at the step `?step=` names.
  *
- * Four steps means four screens and one screenshot each, so the page drives
+ * Three steps means three screens and one screenshot each, so the page drives
  * itself to the requested one by pressing the wizard's own "Weiter" — the same
  * path a person takes, which is also the only way the step's state is real
- * (step 4 summarises what steps 1–3 answered, and a wizard teleported to it
+ * (step 3 summarises what steps 1–2 answered, and a wizard teleported to it
  * would summarise nothing).
  *
  * `?step=1` is the default and is what the flow opens on: one required answer,
- * a name that proposes itself, and nothing else on the screen. `?step=3` is the
+ * a name that proposes itself, and nothing else on the screen. `?step=2` is the
  * one worth the most attention — the cadence chips, the time, and the three
  * real fire times underneath that turn the setting into something a person can
  * check before committing to it.
@@ -27,7 +27,7 @@ import { SCHEDULES, installScheduleShim } from '../_fixtures/schedules'
 
 installScheduleShim('__scheduleWizardShim')
 
-/** The fullest schedule in the fixture — a skill, a source, a monthly cadence. */
+/** The fullest schedule in the fixture — a source and a monthly cadence. */
 const EDITING = SCHEDULES[1]
 
 export default function ScheduleWizardPreview(): JSX.Element {

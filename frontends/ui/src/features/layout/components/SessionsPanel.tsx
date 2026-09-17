@@ -418,16 +418,21 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     [resolvedDeepResearchJobs]
   )
 
-  // The chat page's ?job= loader resolves any job id; failed runs deep-link to
-  // the thinking tab (no report to show) so the run can still be diagnosed.
-  // Both read the EFFECTIVE status (see below), so a dismissed run links to
-  // the tab matching what it became, not what the stale list still claims.
+  // A run opens the thread it was commissioned in, whatever became of it: its
+  // report, its progress and, on a failure, what it tried are one message there
+  // now (ADR-0062). The `?job=` links this used to build — plus `&tab=thinking`
+  // for a failed run — addressed the deep-research side panel, so they read as
+  // live links and land on a chat that does nothing with them.
+  //
+  // Null when the run names no conversation, which a headless or CLI job does
+  // not: this list has the backend job id and nothing that resolves it to a
+  // thread, so the row says what the run became and offers no door.
   const runHref = useCallback(
-    (run: ResearchRun): string => {
-      const base = `/app/projects/${projectId}/chat?job=${run.job_id}`
-      return effectiveRunStatus(run) === 'failed' ? `${base}&tab=thinking` : base
-    },
-    [projectId, effectiveRunStatus]
+    (run: ResearchRun): string | null =>
+      run.conversation_id
+        ? `/app/projects/${projectId}/chat?session=${encodeURIComponent(run.conversation_id)}`
+        : null,
+    [projectId]
   )
 
   // The search covers runs as well as chats: one query over the whole past.
@@ -709,6 +714,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                     // status, so a dismissed run cannot show a terminal badge
                     // beside a running spinner.
                     const status = effectiveRunStatus(run)
+                    const href = runHref(run)
                     return (
                     <Item key={run.job_id} as="li" className="relative items-start py-3.5">
                       {/* The media disc mirrors the inbox anatomy; a failed run
@@ -729,20 +735,34 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                         <div className="flex min-w-0 items-start justify-between gap-2">
                           {/* Stretched link: the whole row is the target. The
                               truncation lives on an inner span so the overlay
-                              pseudo-element cannot be clipped by it. */}
-                          <Link
-                            href={runHref(run)}
-                            onClick={handleClose}
-                            aria-label={t('sessionsPanel.deepResearchRunLabel', {
-                              label: runLabel(run),
-                              status: t(runStatusKey(status)),
-                            })}
-                            className="min-w-0 flex-1 rounded-sm text-sm font-medium leading-snug outline-none after:absolute after:inset-0 after:content-[''] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
-                          >
-                            <span className="block truncate" title={runLabel(run)}>
+                              pseudo-element cannot be clipped by it.
+
+                              A run with no thread to open keeps the same line
+                              without the link and without the overlay: the row
+                              still names the run and states its status, and it
+                              no longer promises a click it cannot honour. */}
+                          {href ? (
+                            <Link
+                              href={href}
+                              onClick={handleClose}
+                              aria-label={t('sessionsPanel.deepResearchRunLabel', {
+                                label: runLabel(run),
+                                status: t(runStatusKey(status)),
+                              })}
+                              className="min-w-0 flex-1 rounded-sm text-sm font-medium leading-snug outline-none after:absolute after:inset-0 after:content-[''] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
+                            >
+                              <span className="block truncate" title={runLabel(run)}>
+                                {runLabel(run)}
+                              </span>
+                            </Link>
+                          ) : (
+                            <span
+                              className="min-w-0 flex-1 truncate text-sm font-medium leading-snug"
+                              title={runLabel(run)}
+                            >
                               {runLabel(run)}
                             </span>
-                          </Link>
+                          )}
                           <time
                             className="text-muted-foreground shrink-0 text-xs"
                             dateTime={run.created_at}

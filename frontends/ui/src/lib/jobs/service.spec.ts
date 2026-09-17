@@ -229,7 +229,7 @@ beforeEach(() => {
 
 describe('createJob', () => {
   it('needs only project:edit to create a manual definition', async () => {
-    await createJob(session, PROJECT, { name: 'Wochencheck', prompt: 'Prüf das', output: 'chat' })
+    await createJob(session, PROJECT, { name: 'Wochencheck', prompt: 'Prüf das' })
 
     expect(requireProjectAccess).toHaveBeenCalledTimes(1)
     expect(requireProjectAccess).toHaveBeenCalledWith(session, PROJECT, 'project:edit')
@@ -242,7 +242,6 @@ describe('createJob', () => {
     await createJob(session, PROJECT, {
       name: 'Wochencheck',
       prompt: 'Prüf das',
-      output: 'chat',
       scheduleCron: '0 8 * * 1',
       scheduleTimezone: 'Europe/Vienna',
     })
@@ -262,7 +261,6 @@ describe('createJob', () => {
     await createJob(session, PROJECT, {
       name: 'Vor der Abgabe',
       prompt: 'Prüf die Einreichplanung.',
-      output: 'chat',
       dueAt,
     })
 
@@ -286,7 +284,6 @@ describe('createJob', () => {
       createJob(session, PROJECT, {
         name: 'Zu spät',
         prompt: 'Prüf das',
-        output: 'chat',
         dueAt: new Date(Date.now() - 60_000),
       })
     ).rejects.toThrow(/future/i)
@@ -299,7 +296,6 @@ describe('createJob', () => {
     await createJob(session, PROJECT, {
       name: 'Vorbereitet, noch nicht scharf',
       prompt: 'Prüf das',
-      output: 'chat',
       dueAt,
       enabled: false,
     })
@@ -317,7 +313,6 @@ describe('createJob', () => {
     await createJob(session, PROJECT, {
       name: 'Wochencheck',
       prompt: 'Prüf das',
-      output: 'chat',
       skillName: 'einreichcheck',
       dataSources: ['web'],
     })
@@ -325,8 +320,11 @@ describe('createJob', () => {
     const insert = vi.mocked(repository.insertDefinition).mock.calls[0][0]
     expect(resolveSkillSnapshot).toHaveBeenCalledWith('einreichcheck', 'org_1')
     expect(insert.plan.skill).toEqual(skillSnapshot)
-    // knowledge_layer is always included; the stored list is "additional".
-    expect(insert.plan.dataSources).toEqual(['knowledge_layer', 'web'])
+    // The always-on sources are always included; the stored list is
+    // "additional". RIS joined the knowledge layer there: the law a project's
+    // documents are judged against is not a preference, and a run with it off
+    // answers a different question in the same words.
+    expect(insert.plan.dataSources).toEqual(['knowledge_layer', 'ris', 'web'])
   })
 })
 
@@ -470,7 +468,6 @@ describe('getJob', () => {
     expect(job).toMatchObject({
       name: 'Wochencheck',
       prompt: 'Prüf das',
-      output: 'chat',
       skillName: 'einreichcheck',
       scheduleCron: '0 8 * * 1',
       createdBy: 'user_1',

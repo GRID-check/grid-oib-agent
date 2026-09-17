@@ -41,9 +41,11 @@ describe('normalizeTaskStatus', () => {
  * Where a finished task's result lives.
  *
  * The order is the point: the filed DOCUMENT is the durable artefact the rest
- * of the product treats as real, a conversation is the thing you continue, and
- * the run's own report is the fallback that stops a finished research task from
- * being a dead end — which is exactly what it was before this existed.
+ * of the product treats as real, and the THREAD at the run's own message is
+ * everything else a run produced — its report, its account of the work and,
+ * when it broke, what it tried (ADR-0062). There is no third place: the
+ * `?job=` report and thinking URLs addressed the deep-research side panel,
+ * which is gone, so a row with neither destination says so.
  */
 describe('taskResultTarget', () => {
   const row = (overrides: Partial<TaskWireRow> = {}): TaskWireRow => ({
@@ -99,27 +101,37 @@ describe('taskResultTarget', () => {
     })
   })
 
-  test('a finished run that filed nothing still opens its report', () => {
-    expect(taskResultTarget('p1', row({ backendJobId: 'bj-1' }))).toEqual({
-      kind: 'report',
-      href: '/app/projects/p1/chat?job=bj-1',
+  /**
+   * The status used to choose between three `?job=` URLs — the report, the
+   * thinking tab and the progress tab. Every one of them was read by the
+   * research panel and by nothing else, so all three now resolve to the run's
+   * message, and a run that has no thread has no destination at all.
+   */
+  test('a finished run that filed nothing and has no thread points nowhere', () => {
+    expect(taskResultTarget('p1', row({ backendJobId: 'bj-1' }))).toBeNull()
+  })
+
+  test('a failure points at its own message, where what it tried is written', () => {
+    expect(
+      taskResultTarget(
+        'p1',
+        row({ id: 'run-3', status: 'failed', conversationId: 'conv-1', runMessageId: 'msg-3' }),
+      ),
+    ).toEqual({
+      kind: 'conversation',
+      href: '/app/projects/p1/chat?session=conv-1&run=run-3#message-msg-3',
     })
   })
 
-  test('a failure opens its thinking — there is no report to read', () => {
-    expect(taskResultTarget('p1', row({ status: 'failed', backendJobId: 'bj-1' }))).toEqual({
-      kind: 'thinking',
-      href: '/app/projects/p1/chat?job=bj-1&tab=thinking',
-    })
-    expect(taskResultTarget('p1', row({ status: 'error', backendJobId: 'bj-1' }))?.kind).toBe(
-      'thinking',
-    )
-  })
-
-  test('a run still going is followed live', () => {
-    expect(taskResultTarget('p1', row({ status: 'running', backendJobId: 'bj-1' }))).toEqual({
-      kind: 'report',
-      href: '/app/projects/p1/chat?job=bj-1&tab=tasks',
+  test('a run still going is followed in its thread, not in a panel', () => {
+    expect(
+      taskResultTarget(
+        'p1',
+        row({ id: 'run-4', status: 'running', conversationId: 'conv-1', runMessageId: 'msg-4' }),
+      ),
+    ).toEqual({
+      kind: 'conversation',
+      href: '/app/projects/p1/chat?session=conv-1&run=run-4#message-msg-4',
     })
   })
 

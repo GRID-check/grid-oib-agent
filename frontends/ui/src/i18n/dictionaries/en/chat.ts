@@ -784,13 +784,6 @@ export const chat = {
     responseCancelled: 'Research cancelled',
     responseRejected: 'Plan rejected',
   },
-  agentResponse: {
-    viewProgress: 'View Progress',
-    viewReport: 'View Report',
-    loading: 'Loading...',
-    loadingLabel: 'Loading',
-    errorTitle: 'Error: {message}',
-  },
   // The single disclosure in the answer footer that holds everything past the
   // sources row and the copy actions (confidence, memory note, skills used,
   // verification notes, feedback, timestamp).

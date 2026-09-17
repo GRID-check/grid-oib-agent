@@ -39,7 +39,7 @@ export const files: typeof en.files = {
     row: {
       queued: 'Wartet',
       uploading: 'Wird gesendet',
-      processing: 'Wird gelesen',
+      processing: 'Wird verarbeitet',
       ready: 'Zitierbar',
       canceled: 'Abgebrochen',
       failed: 'Fehlgeschlagen',
@@ -446,8 +446,8 @@ export const files: typeof en.files = {
     // gemeldet hat.
     status: {
       failed: 'Fehlgeschlagen',
-      processing: 'In Arbeit',
-      ready: 'Zitierfähig',
+      processing: 'Wird verarbeitet',
+      ready: 'Zitierbar',
     },
     originLabel: 'Herkunft',
     kindLabel: 'Dateityp',

@@ -1,20 +1,22 @@
 /**
  * AgentResponse Component
  *
- * Displays a completed agent response in the chat area.
- * Used for short answers that don't need the full report panel.
- * Left-aligned with distinct styling from user messages.
+ * Displays a completed agent response in the chat area: the prose, the cards it
+ * placed, the sources it stands on and the footer beneath them. Left-aligned
+ * with distinct styling from user messages.
+ *
+ * It is the WHOLE rendering of an answer. A run's report is this same card,
+ * drawn under the run's block in the thread that commissioned it (ADR-0062), so
+ * there is no other surface an answer can send the reader to and no control here
+ * that offers one.
  */
 
 'use client'
 
 import { type FC, memo, useCallback, useId, useMemo, useState } from 'react'
-import { Check, ChevronDown, ChevronRight, FileText, MessageCircle } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Check, ChevronDown, FileText, MessageCircle } from 'lucide-react'
 import { Chip } from '@/components/ui/chip'
 import { SectionLabel } from '@/components/ui/section-label'
-import { Spinner } from '@/components/ui/spinner'
-import { useShallow } from 'zustand/react/shallow'
 import type { PluggableList } from 'unified'
 import { useLocale, useTranslations } from '@/i18n'
 import type { Translator } from '@/i18n'
@@ -22,7 +24,6 @@ import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { remarkCitationMarkers } from '@/features/layout/lib/citation-markers'
 import { remarkFileReferences } from '@/features/layout/lib/file-reference-markers'
 import { formatTime } from '@/shared/utils/format-time'
-import { useLayoutStore } from '@/features/layout/store'
 import { GridCardItem, GridCards } from '@/features/grid-cards/components/GridCards'
 import { CardSetProvider } from '@/features/grid-cards/card-set'
 import {
@@ -42,7 +43,6 @@ import {
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import { useChatStore } from '../store'
-import { useLoadJobData } from '../hooks'
 import { useAnswerFileReferences } from '../hooks/use-answer-file-references'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -111,16 +111,8 @@ export interface AgentResponseProps {
   content: string
   /** Timestamp of the response (Date or ISO string from persisted state) */
   timestamp?: Date | string
-  /** Whether to show a button to view the full report */
-  showViewReport?: boolean
   /** Display variant - 'default' has box styling, 'inline' has no box (for use inside containers) */
   variant?: 'default' | 'inline'
-  /** Deep research job ID for loading report data on-demand */
-  jobId?: string
-  /** Whether this message has active (streaming) deep research */
-  isDeepResearchActive?: boolean
-  /** Job status for determining button behavior */
-  deepResearchJobStatus?: 'submitted' | 'running' | 'success' | 'failure' | 'interrupted'
   /**
    * Grid cards attached to this answer. Each is drawn where the answer placed
    * it with a `[[card:N]]` marker (N is 1-based over this array); the ones no
@@ -684,11 +676,7 @@ const AnswerDetails: FC<{
 const AgentResponseComponent: FC<AgentResponseProps> = ({
   content,
   timestamp,
-  showViewReport = false,
   variant = 'default',
-  jobId,
-  isDeepResearchActive = false,
-  deepResearchJobStatus,
   cards,
   citations,
   conversationId,
@@ -713,8 +701,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   routingDecision,
 }) => {
   const t = useTranslations('chat')
-  const openRightPanel = useLayoutStore((s) => s.openRightPanel)
-  const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
   const projectId = useChatStore((s) => s.projectId)
   // An answer that ends in a written "## Quellen" list used to state its sources
   // TWICE — that list AND the "Belegt durch" chips, each holding half the truth
@@ -881,15 +867,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // "the evidence gathered up to that point" beside a row saying there is none.
   const hasAnswerSources = useMemo(() => answerDocuments(documents).length > 0, [documents])
 
-  const { reportContent, deepResearchJobId, isDeepResearchStreaming, deepResearchStreamLoaded } =
-    useChatStore(useShallow((s) => ({
-      reportContent: s.reportContent,
-      deepResearchJobId: s.deepResearchJobId,
-      isDeepResearchStreaming: s.isDeepResearchStreaming,
-      deepResearchStreamLoaded: s.deepResearchStreamLoaded,
-  })))
-  const reconnectToActiveJob = useChatStore((s) => s.reconnectToActiveJob)
-  const { loadResearchPanelTab, isLoading, error } = useLoadJobData()
   // Computed here, not inside MemoryNotedChip: the merged footer's meta row only
   // renders when it has something to hold, and "Piloti noted N" is one of those
   // things — a memory-only turn (both chip flags off, no timestamp) must still
@@ -907,59 +884,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     () => turnMemoryItems({ stages, cards, cardInteractions }),
     [stages, cards, cardInteractions]
   )
-
-  // Determine if we should show the action button
-  // Show "View Progress" for active jobs, "View Report" for completed jobs
-  const isJobActive = isDeepResearchActive || deepResearchJobStatus === 'submitted' || deepResearchJobStatus === 'running'
-  const isJobComplete = deepResearchJobStatus === 'success' || deepResearchJobStatus === 'failure' || deepResearchJobStatus === 'interrupted'
-  const shouldShowButton = showViewReport || (jobId && (isJobActive || isJobComplete))
-  const buttonText = isJobActive ? t('agentResponse.viewProgress') : t('agentResponse.viewReport')
-
-  // Check if a different job is currently streaming (in progress)
-  const isAnotherJobStreaming = isDeepResearchStreaming && deepResearchJobId && deepResearchJobId !== jobId
-
-  const handleViewReport = useCallback(async () => {
-    // For active jobs, ensure stream is connected and open the panel
-    if (isJobActive) {
-      // Reconnect to active job if not already streaming this job
-      if (!isDeepResearchStreaming || deepResearchJobId !== jobId) {
-        await reconnectToActiveJob()
-      }
-      setResearchPanelTab('tasks')
-      openRightPanel('research')
-      return
-    }
-
-    // If another job is actively streaming, just open the panel to show current progress
-    // Don't load this report's data as it would interrupt the active research
-    if (isAnotherJobStreaming) {
-      setResearchPanelTab('tasks')
-      openRightPanel('research')
-      return
-    }
-
-    // For completed jobs, check if we have ALL research data for THIS specific job
-    // Important: must verify job ID matches to avoid showing wrong data
-    const hasExistingDataForThisJob =
-      jobId &&
-      deepResearchJobId === jobId &&
-      deepResearchStreamLoaded &&
-      reportContent &&
-      reportContent.trim().length > 0
-
-    if (hasExistingDataForThisJob) {
-      setResearchPanelTab('report')
-      openRightPanel('research')
-      return
-    }
-
-    if (jobId) {
-      await loadResearchPanelTab(jobId, 'report')
-    } else {
-      setResearchPanelTab('report')
-      openRightPanel('research')
-    }
-  }, [jobId, deepResearchJobId, reportContent, deepResearchStreamLoaded, isJobActive, isAnotherJobStreaming, isDeepResearchStreaming, loadResearchPanelTab, reconnectToActiveJob, setResearchPanelTab, openRightPanel])
 
   const hasCards = cardCount > 0
 
@@ -1080,10 +1004,10 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             the body SO FAR: a card whose `[[card:N]]` has not been typed out yet
             looks unplaced, would render here, and would then jump up the answer
             the moment its marker arrives.
-            `mt-1` for the same reason the action button below carries one: this
-            column's `gap-2` is 8px and the markdown body's paragraph rhythm is
-            12px, so without it an UNPLACED card hugged the prose 4px tighter
-            than a placed one — visible the moment an answer carries both. */}
+            `mt-1` because this column's `gap-2` is 8px and the markdown body's
+            paragraph rhythm is 12px, so without it an UNPLACED card hugged the
+            prose 4px tighter than a placed one — visible the moment an answer
+            carries both. */}
         {/* The anatomy below the prose: the callout (unless its marker placed
             it inline), then the takeaways. */}
         {!stillArriving && anatomyBelow.length > 0 && (
@@ -1103,34 +1027,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               projectId={projectId}
               messageId={messageId}
             />
-          </div>
-        )}
-
-        {/* Optional action button */}
-        {shouldShowButton && (
-          <div className="mt-1 flex items-center justify-end">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleViewReport}
-              disabled={isLoading}
-              aria-label={isLoading ? t('agentResponse.loading') : buttonText}
-              title={error ? t('agentResponse.errorTitle', { message: error }) : isLoading ? t('agentResponse.loading') : buttonText}
-            >
-              <span className="flex items-center gap-1">
-                {isLoading ? (
-                  <>
-                    <Spinner size="sm" label={t('agentResponse.loadingLabel')} className="size-3" />
-                    <span className="text-xs">{t('agentResponse.loading')}</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-xs">{buttonText}</span>
-                    <ChevronRight className="size-3" aria-hidden="true" />
-                  </>
-                )}
-              </span>
-            </Button>
           </div>
         )}
 
@@ -1279,11 +1175,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
 
           {/* Cards no marker claimed. AFTER the body, never before it: an answer
               that opens with three diagrams has pushed itself below the fold.
-              `mt-1` for the same reason the action button below carries one:
-              this column's `gap-2` is 8px and the markdown body's paragraph
-              rhythm is 12px, so without it an UNPLACED card hugged the prose 4px
-              tighter than a placed one — visible the moment an answer carries
-              both, which is what /dev/chat-turn?variant=two-cards shows. */}
+              `mt-1` because this column's `gap-2` is 8px and the markdown
+              body's paragraph rhythm is 12px, so without it an UNPLACED card
+              hugged the prose 4px tighter than a placed one — visible the
+              moment an answer carries both, which is what
+              /dev/chat-turn?variant=two-cards shows. */}
           {/* The anatomy below the prose: the callout (unless its marker placed
               it inline), then the takeaways. */}
           {!stillArriving && anatomyBelow.length > 0 && (
@@ -1303,34 +1199,6 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 projectId={projectId}
                 messageId={messageId}
               />
-            </div>
-          )}
-
-          {/* Optional action button stays inside the block */}
-          {shouldShowButton && (
-            <div className="mt-1 flex items-center justify-end">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleViewReport}
-                disabled={isLoading}
-                aria-label={isLoading ? t('agentResponse.loading') : buttonText}
-                title={error ? t('agentResponse.errorTitle', { message: error }) : isLoading ? t('agentResponse.loading') : buttonText}
-              >
-                <span className="flex items-center gap-1">
-                  {isLoading ? (
-                    <>
-                      <Spinner size="sm" label={t('agentResponse.loadingLabel')} className="size-3" />
-                      <span className="text-xs">{t('agentResponse.loading')}</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-xs">{buttonText}</span>
-                      <ChevronRight className="size-3" aria-hidden="true" />
-                    </>
-                  )}
-                </span>
-              </Button>
             </div>
           )}
         </div>

@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event'
 import { vi, describe, test, expect, beforeEach } from 'vitest'
 import { AgentResponse } from './AgentResponse'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
-import type { LayoutStore } from '@/features/layout/types'
 import type { ChatStoreWithHydration } from '../store'
 import type { SourcePreviewChipProps } from './SourcePreview'
 import type { MessageStages } from '@/lib/conversations/message-stages'
@@ -20,31 +19,12 @@ const NOTED: MessageStages = {
   },
 }
 
-// Mock the layout store
-const mockOpenRightPanel = vi.fn()
-const mockSetResearchPanelTab = vi.fn()
-
-vi.mock('@/features/layout/store', () => ({
-  useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
-    const state: DeepPartial<LayoutStore> = {
-      openRightPanel: mockOpenRightPanel,
-      setResearchPanelTab: mockSetResearchPanelTab,
-    }
-    return selector ? selector(asStoreState<LayoutStore>(state)) : state
-  }),
-}))
-
 // Mock the chat store
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
     const state: DeepPartial<ChatStoreWithHydration> = {
-      reportContent: '',
-      deepResearchJobId: null,
-      isDeepResearchStreaming: false,
-      deepResearchStreamLoaded: false,
       currentConversation: null,
       patchConversationMessage: vi.fn(),
-      reconnectToActiveJob: vi.fn(),
     }
     return selector ? selector(asStoreState<ChatStoreWithHydration>(state)) : state
   }),
@@ -59,21 +39,6 @@ vi.mock('@/adapters/api', () => ({
 vi.mock('@/adapters/auth', () => ({
   useAuth: () => ({
     accessToken: null,
-  }),
-}))
-
-// Mock the useLoadJobData hook
-const mockImportJobStream = vi.fn()
-const mockLoadResearchPanelTab = vi.fn()
-
-vi.mock('../hooks', () => ({
-  useLoadJobData: () => ({
-    loadReport: vi.fn(),
-    importJobStream: mockImportJobStream,
-    loadResearchPanelTab: mockLoadResearchPanelTab,
-    isLoading: false,
-    error: null,
-    clearError: vi.fn(),
   }),
 }))
 
@@ -102,8 +67,6 @@ vi.mock('@/shared/components/MarkdownRenderer', () => ({
 describe('AgentResponse', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockImportJobStream.mockClear()
-    mockLoadResearchPanelTab.mockClear()
   })
 
   test('renders response content', () => {
@@ -144,27 +107,15 @@ describe('AgentResponse', () => {
     expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
   })
 
-  test('shows "View Report" button when showViewReport is true', () => {
-    render(<AgentResponse content="Response" showViewReport={true} />)
+  // An answer card sends the reader nowhere. The report of a run is this same
+  // card drawn under the run's block in the thread that commissioned it
+  // (ADR-0062), so a control offering a second place to read it would be a door
+  // over the thing it points at.
+  test('offers no way out of the thread', () => {
+    render(<AgentResponse content="Response" />)
 
-    expect(screen.getByRole('button', { name: 'View Report' })).toBeInTheDocument()
-  })
-
-  test('hides "View Report" button when showViewReport is false', () => {
-    render(<AgentResponse content="Response" showViewReport={false} />)
-
-    expect(screen.queryByRole('button', { name: 'View Report' })).not.toBeInTheDocument()
-  })
-
-  test('clicking "View Report" opens research panel with report tab', async () => {
-    const user = userEvent.setup()
-
-    render(<AgentResponse content="Response" showViewReport={true} />)
-
-    await user.click(screen.getByRole('button', { name: 'View Report' }))
-
-    expect(mockSetResearchPanelTab).toHaveBeenCalledWith('report')
-    expect(mockOpenRightPanel).toHaveBeenCalledWith('research')
+    expect(screen.queryByRole('button', { name: /report|bericht/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /progress|fortschritt/i })).not.toBeInTheDocument()
   })
 
   test('renders without timestamp', () => {
@@ -182,17 +133,6 @@ describe('AgentResponse', () => {
 
     // Verify content is rendered (container should have content)
     expect(container.textContent).toContain('This is a very long response. ')
-  })
-
-  test('uses shared research panel loader when clicking "View Report" with jobId', async () => {
-    const user = userEvent.setup()
-
-    render(<AgentResponse content="Response" showViewReport={true} jobId="test-job-123" />)
-
-    await user.click(screen.getByRole('button', { name: 'View Report' }))
-
-    expect(mockLoadResearchPanelTab).toHaveBeenCalledWith('test-job-123', 'report')
-    expect(mockImportJobStream).not.toHaveBeenCalled()
   })
 
   test('renders the confidence chip for each level', async () => {

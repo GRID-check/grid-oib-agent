@@ -34,21 +34,10 @@ import { AgentResponse } from './AgentResponse'
 import { normalizeAgentAnswerMetadata } from '@/lib/conversations/agent-answer-metadata'
 import type { MessageProvenance } from '@/lib/conversations/message-provenance'
 import { asStoreState, type DeepPartial, type StoreSelector } from '@/test-utils/store-fixtures'
-import type { LayoutStore } from '@/features/layout/types'
 import type { ChatStoreWithHydration } from '../store'
 
 vi.mock('../hooks/use-conversation-memory', () => ({
   useConversationMemory: () => ({ items: [], loading: false }),
-}))
-
-vi.mock('@/features/layout/store', () => ({
-  useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
-    const state: DeepPartial<LayoutStore> = {
-      openRightPanel: vi.fn(),
-      setResearchPanelTab: vi.fn(),
-    }
-    return selector ? selector(asStoreState<LayoutStore>(state)) : state
-  }),
 }))
 
 vi.mock('../store', () => ({
@@ -68,17 +57,6 @@ vi.mock('../store', () => ({
 
 vi.mock('@/adapters/api', () => ({ cancelJob: vi.fn() }))
 vi.mock('@/adapters/auth', () => ({ useAuth: () => ({ accessToken: null }) }))
-vi.mock('../hooks', () => ({
-  useLoadJobData: () => ({
-    loadReport: vi.fn(),
-    importJobStream: vi.fn(),
-    loadResearchPanelTab: vi.fn(),
-    isLoading: false,
-    error: null,
-    clearError: vi.fn(),
-  }),
-}))
-
 vi.mock('@/shared/components/MarkdownRenderer', () => ({
   MarkdownRenderer: ({ content }: { content: string }) => <span>{content}</span>,
 }))

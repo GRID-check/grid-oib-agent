@@ -268,10 +268,17 @@ export function FileCard({
           {actions}
         </div>
       )}
+      {/* `aria-current`, not `aria-pressed`: pressing this OPENS the file, it
+          does not toggle anything. The card used to close the preview when you
+          clicked the row you were already looking at — the one surface in the
+          product that did — and `aria-pressed` was at least honest about that.
+          The behaviour was the bug; a row opens, and closing is the overlay's
+          job. `aria-current` says the remaining true thing: this is the one on
+          screen. */}
       <button
         type="button"
         onClick={onSelect}
-        aria-pressed={isSelected}
+        aria-current={isSelected ? 'true' : undefined}
         aria-label={ariaLabel}
         aria-busy={isBusy}
         data-testid={testId}

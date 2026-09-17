@@ -2,14 +2,13 @@
  * Tasks with timing — a request, optionally on a timer, and the week it makes.
  *
  * A task fires its prompt into a fresh run the way a person opening a new
- * chat and typing would — once, or on the rhythm from step 3. A skill MAY be
- * attached on top, exactly as typing `/name` before the message would attach
- * it — the empty state (no skill) is the common case, and the copy below says
- * so. The skill toolbox itself lives in the `skills` namespace; nothing here
- * is about authoring skills.
+ * chat and typing would — once, or on the rhythm from step 2. A skill is
+ * reached the same way it is in a chat: by typing `/name` into the request,
+ * which the model then chooses to use. Nothing here attaches one, and the
+ * skill toolbox itself lives in the `skills` namespace.
  *
  * Two things this namespace now owns that it did not: the TIMETABLE's copy,
- * and a four-step WIZARD's. Both exist because a rhythm is the one thing in
+ * and a three-step WIZARD's. Both exist because a rhythm is the one thing in
  * the product a person cannot check by looking at it — so the surface spends
  * its words on making the commitment legible ("Every Monday at 06:00", the next
  * three real dates) rather than on naming cron fields.
@@ -25,7 +24,7 @@ export const jobs = {
     empty: {
       title: 'No tasks yet',
       description:
-        'A task is a request with or without a rhythm. Write it once, choose whether it produces a chat or a report, and let Piloti work while you are somewhere else.',
+        'A task is a request with or without a rhythm. Write it once, say when it runs, and let Piloti research and file the report while you are somewhere else.',
       action: 'New task',
     },
     manualOnly: 'Manual only',
@@ -116,19 +115,16 @@ export const jobs = {
   },
 
   builder: {
-    /** The rail. Four steps, one required decision each — see the wizard's docstring. */
+    /** The rail. Three steps, one required decision each — see the wizard's docstring. */
     stepsLabel: 'Steps',
     stepProgress: 'Step {current} of {total}',
     steps: {
       task: 'Task',
-      output: 'Result',
       schedule: 'When',
       review: 'Review',
       taskTitle: 'What should Piloti do?',
       taskHint:
         'Write it exactly as you would type it into a new chat. Piloti starts with no other context.',
-      outputTitle: 'What should come out of it?',
-      outputHint: 'This also decides which skills the task can use.',
       scheduleTitle: 'When should it run?',
       scheduleHint:
         'Once, recurring or on request — the next times are shown underneath, to check before you commit.',
@@ -155,36 +151,14 @@ export const jobs = {
     promptRequired: 'A request is required.',
     promptTooLong: 'The request is too long (max 8000 characters).',
 
-    outputSection: 'Result',
-    outputLabel: 'What comes out of it',
-    output: {
-      chatLabel: 'Chat',
-      chatHint: 'A conversation you can open and keep going.',
-      chatNoun: 'a chat',
-      deepResearchLabel: 'Report',
-      deepResearchHint: 'A researched document, filed in the project.',
-      deepResearchNoun: 'a report',
-    },
-
     /** Everything behind the one disclosure per step. */
-    advancedOutput: 'Data sources',
+    advancedSources: 'Data sources',
     advancedSchedule: 'Timezone and cron',
-
-    skillSection: 'Skill',
-    skillLabel: 'Attached skill',
-    skillSummary: 'Skill: {name}',
-    skillNone: 'No skill',
-    skillNoneHint: 'The request runs on its own. Most tasks need no skill.',
-    skillPlaceholder: 'No skill',
-    skillsLoading: 'Loading skills…',
-    skillsError: 'The skills could not be loaded — the task can still be saved without one.',
-    skillsEmpty: 'No skill can run with this result kind.',
-    // Shown inline when switching the result kind drops the attached skill.
-    skillDetached: '“{name}” cannot run as {output}, so it was detached.',
 
     sourcesSection: 'Data sources',
     sourcesSummary: '{count} extra sources',
-    knowledgeAlways: 'Project documents & OIB knowledge base — always included in every run',
+    knowledgeAlways:
+      'Project documents, the OIB knowledge base and Austrian law (RIS) — always included in every run',
     additionalSourcesLabel: 'Additional sources',
     sourcesHint:
       'Add sources beyond the knowledge base. Leave all unchecked to allow every available source.',
@@ -234,10 +208,15 @@ export const jobs = {
     enabledLabel: 'Active',
     enabledHint: 'A paused task never fires and cannot be run by hand.',
 
-    /** The review step's one sentence. */
-    reviewSentence: 'Piloti produces {output} {cadence}.',
-    reviewSentenceOnce: 'Piloti produces {output} — once, on {dueAt}.',
-    reviewSentenceManual: 'Piloti produces {output}, each time you start it by hand.',
+    /**
+     * The review step's one sentence. A task always produces the same thing —
+     * a researched report, filed in the project — so the noun is part of the
+     * sentence rather than a slot the wizard once filled from a choice.
+     */
+    reviewSentence: 'Piloti researches a report {cadence} and files it in the project.',
+    reviewSentenceOnce: 'Piloti researches a report and files it in the project — once, on {dueAt}.',
+    reviewSentenceManual:
+      'Piloti researches a report and files it in the project, each time you start it by hand.',
 
     createAndRun: 'Create and run now',
     saveAndRun: 'Save and run now',
@@ -259,11 +238,14 @@ export const jobs = {
     loading: 'Loading tasks…',
     loadError: 'The history could not be loaded.',
     empty: 'This task has not run yet.',
-    viewReport: 'View report',
-    /** A `chat` run landed in a conversation — the run's output IS that chat. */
+    /**
+     * Both doors lead to the same place, the thread the run narrates itself in
+     * (ADR-0062) — the words differ because a live run is watched and a
+     * finished one is read. „View report" and „View thinking" went with the
+     * side panel that held them apart.
+     */
     openChat: 'Open chat',
     viewProgress: 'View progress',
-    viewThinking: 'View thinking',
     scheduler: 'Scheduler',
     trigger: {
       manual: 'Manual',

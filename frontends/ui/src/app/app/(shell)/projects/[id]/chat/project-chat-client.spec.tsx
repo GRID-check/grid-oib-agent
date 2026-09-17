@@ -80,7 +80,6 @@ vi.mock('@/features/chat', () => ({
       selector ? selector(asStoreState<ChatStoreWithHydration>(chatState)) : chatState,
     { getState: () => chatState }
   ),
-  useLoadJobData: () => ({ loadResearchPanelTab: vi.fn() }),
   useDeepResearchTitle: vi.fn(),
 }))
 

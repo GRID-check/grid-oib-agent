@@ -54,10 +54,12 @@ export const tasks: typeof en.tasks = {
   },
   result: {
     document: 'Dokument öffnen',
+    /**
+     * Die eigene Nachricht des Laufs im Verlauf — Bericht, Herleitung und
+     * Fehlschlag in einem (ADR-0062). „Bericht öffnen" und „Gedankengang
+     * ansehen" sind mit dem Panel verschwunden, das beides getrennt zeigte.
+     */
     conversation: 'Im Chat fortsetzen',
-    report: 'Bericht öffnen',
-    /** Ein Fehlschlag hat keinen Bericht; gefragt ist, was er versucht hat. */
-    thinking: 'Gedankengang ansehen',
   },
   detail: {
     close: 'Details schließen',

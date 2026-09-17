@@ -8,7 +8,6 @@ import { chat as enChat } from '@/i18n/dictionaries/en/chat'
 import { chat as deChat } from '@/i18n/dictionaries/de/chat'
 import type { DeepPartial, StoreSelector } from '@/test-utils/store-fixtures'
 import { asStoreState } from '@/test-utils/store-fixtures'
-import type { LayoutStore } from '@/features/layout/types'
 import type { ChatStoreWithHydration } from '../store'
 import { AgentResponse } from './AgentResponse'
 import { EvidenceBlock } from './EvidenceBlock'
@@ -25,16 +24,6 @@ import { EvidenceBlock } from './EvidenceBlock'
  * inline) is the crossing `answer-card-placement.spec.tsx` proves against the
  * real parser.
  */
-
-vi.mock('@/features/layout/store', () => ({
-  useLayoutStore: vi.fn((selector?: StoreSelector<LayoutStore>) => {
-    const state: DeepPartial<LayoutStore> = {
-      openRightPanel: vi.fn(),
-      setResearchPanelTab: vi.fn(),
-    }
-    return selector ? selector(asStoreState<LayoutStore>(state)) : state
-  }),
-}))
 
 vi.mock('../store', () => ({
   useChatStore: vi.fn((selector?: StoreSelector<ChatStoreWithHydration>) => {
@@ -58,17 +47,6 @@ vi.mock('@/adapters/api', () => ({
 vi.mock('@/adapters/auth', () => ({
   useAuth: () => ({
     accessToken: null,
-  }),
-}))
-
-vi.mock('../hooks', () => ({
-  useLoadJobData: () => ({
-    loadReport: vi.fn(),
-    importJobStream: vi.fn(),
-    loadResearchPanelTab: vi.fn(),
-    isLoading: false,
-    error: null,
-    clearError: vi.fn(),
   }),
 }))
 

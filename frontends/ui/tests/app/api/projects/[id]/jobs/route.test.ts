@@ -43,8 +43,8 @@ function makeParams(id: string): { params: Promise<{ id: string }> } {
   return { params: Promise.resolve({ id }) }
 }
 
-/** A job is a prompt + an output kind; the skill is optional. */
-const validBody = { name: 'Weekly', prompt: 'Fasse die Woche zusammen.', output: 'chat' }
+/** A job is a name and a prompt. Nothing else is required. */
+const validBody = { name: 'Weekly', prompt: 'Fasse die Woche zusammen.' }
 
 function req(body?: unknown): Request {
   return new Request('http://localhost/api/projects/proj_1/jobs', {
@@ -89,18 +89,21 @@ describe('POST /api/projects/[id]/jobs', () => {
 
   it('returns 400 when the prompt is missing', async () => {
     process.env.GRID_SKILLS_ENABLED = 'true'
-    const res = await POST(req({ name: 'no prompt', output: 'chat' }), makeParams('proj_1'))
+    const res = await POST(req({ name: 'no prompt' }), makeParams('proj_1'))
     expect(res.status).toBe(400)
     expect(mockCreate).not.toHaveBeenCalled()
   })
 
-  it('returns 400 when the output kind is missing or unknown', async () => {
+  // The body no longer carries an output kind at all: a task is always a
+  // research run that files a report, so the service writes that itself. A
+  // caller that still sends one is not refused — the field is dropped, which is
+  // what keeps a stale client from 400ing on a question nobody asks any more.
+  it('drops an output kind the caller still sends, rather than refusing it', async () => {
     process.env.GRID_SKILLS_ENABLED = 'true'
-    expect((await POST(req({ name: 'W', prompt: 'p' }), makeParams('proj_1'))).status).toBe(400)
-    expect(
-      (await POST(req({ ...validBody, output: 'report' }), makeParams('proj_1'))).status
-    ).toBe(400)
-    expect(mockCreate).not.toHaveBeenCalled()
+    mockCreate.mockResolvedValue(asJob({ id: 'job-new', name: 'Weekly' }))
+    const res = await POST(req({ ...validBody, output: 'report' }), makeParams('proj_1'))
+    expect(res.status).toBe(201)
+    expect(mockCreate.mock.calls[0][2]).not.toHaveProperty('output')
   })
 
   it('creates a skill-less job (201) on a valid body', async () => {
@@ -112,7 +115,7 @@ describe('POST /api/projects/[id]/jobs', () => {
     expect(mockCreate).toHaveBeenCalledWith(
       session,
       'proj_1',
-      expect.objectContaining({ name: 'Weekly', prompt: 'Fasse die Woche zusammen.', output: 'chat' })
+      expect.objectContaining({ name: 'Weekly', prompt: 'Fasse die Woche zusammen.' })
     )
   })
 

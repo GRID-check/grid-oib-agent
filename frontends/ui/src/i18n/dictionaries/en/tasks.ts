@@ -57,10 +57,12 @@ export const tasks = {
   /** Where a result lives — one word per destination, on the card and in the drawer. */
   result: {
     document: 'Open document',
+    /**
+     * The run's own message in its thread, which is the report, the account of
+     * the work and the failure alike (ADR-0062) — so „Open report" and „View
+     * thinking" are gone with the panel that used to show them separately.
+     */
     conversation: 'Continue in chat',
-    report: 'Open report',
-    /** A failure has no report; what a person wants is what it tried. */
-    thinking: 'View thinking',
   },
   detail: {
     close: 'Close details',

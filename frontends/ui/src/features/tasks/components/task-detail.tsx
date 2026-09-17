@@ -50,7 +50,7 @@
  */
 
 import Link from 'next/link'
-import { ArrowRight, CalendarPlus, FileText, MessageSquare, MessagesSquare, ScrollText } from 'lucide-react'
+import { ArrowRight, CalendarPlus, FileText, MessageSquare, MessagesSquare } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -65,11 +65,15 @@ import { RunBlock } from '@/features/runs/components/RunBlock'
 import { useTaskRun } from '../hooks/use-task-run'
 import { isActiveTask, taskResultTarget, taskThreadHref, type TaskWireRow } from '../lib/task-view'
 
-const RESULT_ICON: Record<'document' | 'conversation' | 'report' | 'thinking', LucideIcon> = {
+/**
+ * One icon per place a result can live. Two of them, because a run's report and
+ * its thinking are no longer destinations of their own: both lived behind
+ * `?job=` in the side panel, and both are the run's own message in its thread
+ * now (ADR-0062) — which the block above this button already renders.
+ */
+const RESULT_ICON: Record<'document' | 'conversation', LucideIcon> = {
   document: FileText,
   conversation: MessageSquare,
-  report: ScrollText,
-  thinking: ScrollText,
 }
 
 interface TaskDetailProps {

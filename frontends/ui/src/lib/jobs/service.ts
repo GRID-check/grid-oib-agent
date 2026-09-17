@@ -60,7 +60,7 @@ import { taskThreadConversationId } from '@/lib/tasks/task-thread'
 import { createRunMessage } from '@/lib/runs/service'
 import {
   emptySkillSnapshot,
-  withAlwaysOnKnowledge,
+  withAlwaysOnSources,
   type CreateJobInput,
   type PatchJobInput,
 } from './types'
@@ -330,13 +330,18 @@ export async function createJob(
   const definition = await repository.insertDefinition({
     projectId,
     organizationId: session.organizationId,
-    kind: input.output,
+    // Always a research run. The wizard used to ask „Chat oder Bericht?", but
+    // since ADR-0062 both land in a thread and the only surviving difference
+    // was whether anything was FILED — and a standing task whose result is not
+    // a deliverable is a standing task nobody reads. An older `chat` definition
+    // keeps its kind and keeps firing as one; nothing new is created that way.
+    kind: 'deep-research',
     title: input.name,
     plan: {
       prompt: input.prompt,
       skill: attached.skillSnapshot,
       // knowledge_layer is always included; the stored list is "additional sources".
-      dataSources: withAlwaysOnKnowledge(input.dataSources ?? null),
+      dataSources: withAlwaysOnSources(input.dataSources ?? null),
     },
     requesterUserId: session.userId,
     requesterEmail: session.email,
@@ -397,7 +402,7 @@ export async function updateJob(
       skill: attached.skillSnapshot,
       dataSources:
         patch.dataSources !== undefined
-          ? withAlwaysOnKnowledge(patch.dataSources)
+          ? withAlwaysOnSources(patch.dataSources)
           : plan.dataSources,
     }
   }
@@ -588,7 +593,7 @@ export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgent
     // The run this job is, so the worker folds its ledger onto the run's own
     // message instead of narrating into the void (ADR-0062).
     run_id: spec.runId,
-    data_sources: withAlwaysOnKnowledge(spec.dataSources ?? null),
+    data_sources: withAlwaysOnSources(spec.dataSources ?? null),
     collection_scope: collectionScope,
     project_context: projectContext,
     project_memory: projectMemory,

@@ -226,7 +226,7 @@ export function FileBrowserPane({
       <FileCard
         file={file}
         isSelected={selectedFileId === file.id}
-        onSelect={() => onSelectFile(selectedFileId === file.id ? null : file.id)}
+        onSelect={() => onSelectFile(file.id)}
         locale={locale}
         match={extra.match}
         footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
@@ -588,7 +588,7 @@ export function FileBrowserPane({
               semantic
               files={semantic.hits}
               selectedFileId={selectedFileId}
-              onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
+              onSelectFile={onSelectFile}
               renderActions={renderActions}
               wrapRow={wrapFileRow}
             />
@@ -626,7 +626,7 @@ export function FileBrowserPane({
             <FileListView
               files={filteredFiles}
               selectedFileId={selectedFileId}
-              onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
+              onSelectFile={onSelectFile}
               renderActions={renderActions}
               wrapRow={wrapFileRow}
               sort={sort}
@@ -674,7 +674,7 @@ export function FileBrowserPane({
               <FileListView
                 files={orderedFiles}
                 selectedFileId={selectedFileId}
-                onSelectFile={(id) => onSelectFile(selectedFileId === id ? null : id)}
+                onSelectFile={onSelectFile}
                 renderActions={renderActions}
                 wrapRow={wrapFileRow}
                 sort={sort}

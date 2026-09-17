@@ -4,9 +4,8 @@ import { type ReactNode, Suspense, useEffect, useRef } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/adapters/auth'
 import { MainLayout } from '@/features/layout'
-import { useChatStore, useLoadJobData, useDeepResearchTitle } from '@/features/chat'
+import { useChatStore, useDeepResearchTitle } from '@/features/chat'
 import { conversationMatchesProject } from '@/features/chat/lib/project-scope'
-import type { ResearchPanelTab } from '@/features/layout/types'
 import { newChatDropsFilePreview } from '@/features/documents/lib/ask-arrival'
 import { fileItemFromStatus } from '@/features/documents/lib/document-question'
 import { isUuid } from '@/lib/ids'
@@ -63,19 +62,14 @@ const ProjectChatContent = ({
   const sessionServerLoaded = useChatStore((s) => s.serverConversationsLoaded)
   const sessionUserId = useChatStore((s) => s.currentUserId)
 
-  // Deep link from the project Research page: /projects/:id/chat?job=<jobId>
-  // loads that job's report into the research panel. An optional &tab= selects
-  // which panel tab to open — failed runs deep-link to `thinking` so the run
-  // can be diagnosed even though it has no report.
+  // The deep links this route answers are `?session=`, `?run=`, `?ask=`,
+  // `?doc=`, `?file=` and `?new=` — every one of them lands the reader in the
+  // thread. `?job=<jobId>&tab=` used to open the legacy research panel instead;
+  // a run is read in the thread that commissioned it now (ADR-0062), so the
+  // params resolve to nothing and the panel has no door left.
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
-  const jobId = searchParams?.get('job') ?? null
-  const tabParam = searchParams?.get('tab')
-  const jobTab: ResearchPanelTab =
-    tabParam === 'thinking' || tabParam === 'tasks' ? tabParam : 'report'
-  const { loadResearchPanelTab } = useLoadJobData()
-  const loadedJobRef = useRef<string | null>(null)
 
   // While a deep-research job streams, reflect its progress in the tab title.
   // The base "<Project> · Chat — Piloti" title comes from route metadata
@@ -294,14 +288,6 @@ const ProjectChatContent = ({
       cancelled = true
     }
   }, [subjectId, projectId, projectName, canCollaborate])
-
-  useEffect(() => {
-    if (!isAuthenticated || !jobId) return
-    // Guard against re-loading the same job across re-renders.
-    if (loadedJobRef.current === jobId) return
-    loadedJobRef.current = jobId
-    void loadResearchPanelTab(jobId, jobTab)
-  }, [isAuthenticated, jobId, jobTab, loadResearchPanelTab])
 
   return (
     <MainLayout

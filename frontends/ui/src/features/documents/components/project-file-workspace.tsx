@@ -789,6 +789,14 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     [folders, projectId, loadFolders, t]
   )
 
+  /**
+   * Open a file's preview.
+   *
+   * It does NOT touch the URL. `?doc=` has one writer — the reconciler below —
+   * because the preview can also be opened from a link and shut by three
+   * controls this function never hears about, and a second writer here is what
+   * made the two disagree.
+   */
   const handleSelectFile = useCallback(
     (id: string | null) => {
       if (id === null) {
@@ -857,13 +865,74 @@ export function ProjectFileWorkspace({ projectId, projectName, collectionName, s
     ],
   )
 
+  const previewFileId = useFilePreviewStore((state) => state.file?.id ?? null)
+  const previousDocRef = useRef<string | null>(null)
+  const previousPreviewRef = useRef<string | null>(null)
+
+  /**
+   * Keep `?doc=` and the open preview saying the same thing, in both
+   * directions.
+   *
+   * This was two effects pulling one way each, and the transition neither of
+   * them owned was the one the change exists for: the opener returned when
+   * `?doc=` was absent, the closer returned while the preview was still up, so
+   * pressing Back dropped the parameter and left the file open. Back did
+   * nothing.
+   *
+   * One effect, and the rule is WHICH SIDE MOVED. The snapshot alone cannot
+   * tell a Back from a `router.push` that has not landed yet — in both, the URL
+   * names no file while the preview shows one — so the effect compares each
+   * side against what it was, and the side that changed is the cause. The other
+   * follows it. When the preview moved, the URL is rewritten: opening pushes
+   * (on a phone, back is how anyone dismisses a full-screen overlay) and
+   * closing replaces, so shutting the preview leaves no entry back would
+   * re-open. When the URL moved, the preview is opened or shut to match, and
+   * the row highlight goes with it — a card wearing `aria-current` under a
+   * closed preview points at nothing.
+   */
   useEffect(() => {
-    if (!docParam || files.length === 0) return
-    if (useFilePreviewStore.getState().file?.id === docParam) return
-    if (files.some((file) => file.id === docParam)) {
-      handleSelectFile(docParam)
+    const wanted = docParam ?? null
+    const urlMoved = previousDocRef.current !== wanted
+    const previewMoved = previousPreviewRef.current !== previewFileId
+    previousPreviewRef.current = previewFileId
+
+    if (wanted === previewFileId) {
+      previousDocRef.current = wanted
+      return
     }
-  }, [docParam, files, handleSelectFile])
+
+    if (previewMoved) {
+      previousDocRef.current = wanted
+      const params = new URLSearchParams(searchParams?.toString() ?? '')
+      const path = pathname ?? ''
+      if (previewFileId === null) {
+        setSelectedFileId(null)
+        params.delete('doc')
+        const query = params.toString()
+        router.replace(query ? `${path}?${query}` : path, { scroll: false })
+      } else {
+        params.set('doc', previewFileId)
+        router.push(`${path}?${params.toString()}`, { scroll: false })
+      }
+      return
+    }
+
+    if (!urlMoved) return
+
+    if (wanted === null) {
+      previousDocRef.current = wanted
+      setSelectedFileId(null)
+      useFilePreviewStore.getState().close()
+      return
+    }
+
+    // A link, or Back onto an entry that names a file. The rows may still be
+    // loading, and then this is NOT yet handled: `previousDocRef` is left
+    // behind on purpose so the render that has them still counts as a move.
+    if (!files.some((file) => file.id === wanted)) return
+    previousDocRef.current = wanted
+    handleSelectFile(wanted)
+  }, [docParam, previewFileId, files, handleSelectFile, pathname, router, searchParams])
 
   // This session's own uploads for this project's corpus — every phase, so the
   // tray can carry a batch all the way from queued to its "added" summary

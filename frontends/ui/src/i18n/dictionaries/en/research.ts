@@ -46,7 +46,6 @@ export const research = {
     /** Trigger for the thread menu that holds every non-primary header action. */
     moreActions: 'More actions',
     renameSession: 'Rename chat',
-    researchReport: 'Research report',
   },
 
   dataSources: {

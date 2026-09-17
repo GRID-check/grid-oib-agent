@@ -5,13 +5,13 @@ import type { en } from '../en'
  * daraus wird.
  *
  * Eine Aufgabe feuert ihren Prompt in einen frischen Lauf, so wie jemand einen
- * neuen Chat öffnet und tippt — einmalig, oder nach dem Rhythmus aus Schritt 3.
- * Ein Skill KANN obendrauf hängen, genau wie ein vorangestelltes „/name“ — der
- * Normalfall ist kein Skill, und die Texte unten sagen das. Die
+ * neuen Chat öffnet und tippt — einmalig, oder nach dem Rhythmus aus Schritt 2.
+ * Ein Skill wird genau wie im Chat erreicht: „/name“ im Auftrag, den das Modell
+ * dann von sich aus verwendet. Hier hängt nichts einen Skill an, und die
  * Skill-Werkstatt selbst liegt im Namensraum `skills`.
  *
  * Zwei Dinge gehören diesem Namensraum neu: die Texte des STUNDENPLANS und die
- * des vierteiligen ASSISTENTEN. Beide gibt es, weil ein Rhythmus das Einzige im
+ * des dreiteiligen ASSISTENTEN. Beide gibt es, weil ein Rhythmus das Einzige im
  * Produkt ist, das man nicht durch Hinsehen prüfen kann — also gehen die Wörter
  * dorthin, wo die Festlegung lesbar wird („Jeden Montag um 06:00“, die nächsten
  * drei echten Termine), statt in die Namen von Cron-Feldern.
@@ -27,7 +27,7 @@ export const jobs: typeof en.jobs = {
     empty: {
       title: 'Noch keine Aufgaben',
       description:
-        'Eine Aufgabe ist ein Auftrag mit oder ohne Rhythmus. Einmal schreiben, festlegen, ob ein Chat oder ein Bericht herauskommt — und Piloti arbeitet, während Sie woanders sind.',
+        'Eine Aufgabe ist ein Auftrag mit oder ohne Rhythmus. Einmal schreiben, festlegen, wann sie läuft — und Piloti recherchiert und legt den Bericht ab, während Sie woanders sind.',
       action: 'Neue Aufgabe',
     },
     manualOnly: 'Nur manuell',
@@ -114,14 +114,11 @@ export const jobs: typeof en.jobs = {
     stepProgress: 'Schritt {current} von {total}',
     steps: {
       task: 'Auftrag',
-      output: 'Ergebnis',
       schedule: 'Wann',
       review: 'Prüfen',
       taskTitle: 'Was soll Piloti tun?',
       taskHint:
         'Schreiben Sie es genau so, wie Sie es in einen neuen Chat tippen würden. Piloti startet ohne weiteren Kontext.',
-      outputTitle: 'Was soll dabei herauskommen?',
-      outputHint: 'Das entscheidet auch, welche Skills die Aufgabe nutzen kann.',
       scheduleTitle: 'Wann soll es laufen?',
       scheduleHint:
         'Einmal, wiederkehrend oder nur auf Zuruf — die nächsten Termine stehen darunter, zum Prüfen vor der Festlegung.',
@@ -148,34 +145,12 @@ export const jobs: typeof en.jobs = {
     promptRequired: 'Ein Auftrag ist erforderlich.',
     promptTooLong: 'Der Auftrag ist zu lang (max. 8000 Zeichen).',
 
-    outputSection: 'Ergebnis',
-    outputLabel: 'Was dabei herauskommt',
-    output: {
-      chatLabel: 'Chat',
-      chatHint: 'Ein Gespräch, das Sie öffnen und weiterführen können.',
-      chatNoun: 'einen Chat',
-      deepResearchLabel: 'Bericht',
-      deepResearchHint: 'Ein recherchiertes Dokument, im Projekt abgelegt.',
-      deepResearchNoun: 'einen Bericht',
-    },
-
-    advancedOutput: 'Datenquellen',
+    advancedSources: 'Datenquellen',
     advancedSchedule: 'Zeitzone und Cron',
-
-    skillSection: 'Skill',
-    skillLabel: 'Angehängter Skill',
-    skillSummary: 'Skill: {name}',
-    skillNone: 'Kein Skill',
-    skillNoneHint: 'Der Auftrag läuft für sich. Die meisten Aufgaben brauchen keinen Skill.',
-    skillPlaceholder: 'Kein Skill',
-    skillsLoading: 'Skills werden geladen…',
-    skillsError: 'Die Skills konnten nicht geladen werden — die Aufgabe lässt sich trotzdem speichern.',
-    skillsEmpty: 'Zu dieser Ergebnisart passt kein Skill.',
-    skillDetached: '„{name}“ kann nicht als {output} laufen und wurde abgehängt.',
 
     sourcesSection: 'Datenquellen',
     sourcesSummary: '{count} zusätzliche Quellen',
-    knowledgeAlways: 'Projektdokumente & OIB-Wissensbasis — jedes Mal dabei',
+    knowledgeAlways: 'Projektdokumente, OIB-Wissensbasis & RIS-Rechtstexte — jedes Mal dabei',
     additionalSourcesLabel: 'Zusätzliche Quellen',
     sourcesHint:
       'Quellen über die Wissensbasis hinaus. Nichts angehakt heißt: alle verfügbaren Quellen sind erlaubt.',
@@ -218,9 +193,11 @@ export const jobs: typeof en.jobs = {
     enabledLabel: 'Aktiv',
     enabledHint: 'Eine pausierte Aufgabe feuert nie und lässt sich nicht von Hand starten.',
 
-    reviewSentence: 'Piloti erstellt {cadence} {output}.',
-    reviewSentenceOnce: 'Piloti erstellt {output} — einmal, am {dueAt}.',
-    reviewSentenceManual: 'Piloti erstellt {output}, jedes Mal wenn Sie es von Hand starten.',
+    reviewSentence: 'Piloti recherchiert {cadence} einen Bericht und legt ihn im Projekt ab.',
+    reviewSentenceOnce:
+      'Piloti recherchiert einen Bericht und legt ihn im Projekt ab — einmal, am {dueAt}.',
+    reviewSentenceManual:
+      'Piloti recherchiert einen Bericht und legt ihn im Projekt ab, jedes Mal wenn Sie es von Hand starten.',
 
     createAndRun: 'Anlegen und jetzt ausführen',
     saveAndRun: 'Speichern und jetzt ausführen',
@@ -242,10 +219,8 @@ export const jobs: typeof en.jobs = {
     loading: 'Tasks werden geladen…',
     loadError: 'Der Verlauf konnte nicht geladen werden.',
     empty: 'Diese Aufgabe ist noch nie gelaufen.',
-    viewReport: 'Bericht ansehen',
     openChat: 'Chat öffnen',
     viewProgress: 'Fortschritt ansehen',
-    viewThinking: 'Gedankengang ansehen',
     scheduler: 'Zeitplaner',
     trigger: {
       manual: 'Manuell',
