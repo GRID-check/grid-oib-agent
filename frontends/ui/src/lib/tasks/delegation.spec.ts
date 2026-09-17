@@ -7,6 +7,7 @@ vi.mock('server-only', () => ({}))
 vi.mock('./repository', () => ({
   insertDefinition: vi.fn(),
   insertDefinitionWithRun: vi.fn(),
+  insertRun: vi.fn(),
   updateRun: vi.fn(),
 }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
@@ -26,7 +27,12 @@ import { JobSubmitError } from '@/lib/jobs/backend-client'
 import { createTaskThread, submitAgentRun } from '@/lib/jobs/service'
 import { resolveSkillSnapshot } from '@/lib/skills/service'
 import * as repository from './repository'
-import { delegateTask, isDelegatableTaskKind, TASK_GOAL_MAX_CHARS } from './delegation'
+import {
+  commissionResearchRun,
+  delegateTask,
+  isDelegatableTaskKind,
+  TASK_GOAL_MAX_CHARS,
+} from './delegation'
 
 const session = {
   userId: 'user_asker',
@@ -63,6 +69,10 @@ beforeEach(() => {
       conversationId: null,
     } as TaskRun
     return { definition: insertedDefinition, run: insertedRun }
+  })
+  vi.mocked(repository.insertRun).mockImplementation(async (values) => {
+    insertedRun = { ...values, id: 'run-1', conversationId: null } as TaskRun
+    return insertedRun
   })
   vi.mocked(repository.updateRun).mockImplementation(async (_id, _org, patch) => ({ ...insertedRun, ...patch }) as TaskRun)
   vi.mocked(createTaskThread).mockResolvedValue('s_definition_thread')
@@ -354,7 +364,11 @@ describe('what a delegated run is told to produce', () => {
         insertedRun = { ...runValues, definitionId: insertedDefinition.id, id: 'run-1' } as TaskRun
         return { definition: insertedDefinition, run: insertedRun }
       })
-      vi.mocked(repository.updateRun).mockImplementation(async (_id, _org, patch) => ({ ...insertedRun, ...patch }) as TaskRun)
+      vi.mocked(repository.insertRun).mockImplementation(async (values) => {
+    insertedRun = { ...values, id: 'run-1', conversationId: null } as TaskRun
+    return insertedRun
+  })
+  vi.mocked(repository.updateRun).mockImplementation(async (_id, _org, patch) => ({ ...insertedRun, ...patch }) as TaskRun)
       vi.mocked(submitAgentRun).mockResolvedValue({
         backendJobId: 'b',
         conversationId: null,
@@ -371,5 +385,95 @@ describe('what a delegated run is told to produce', () => {
       // The answer IS the document, which is what `completeRunForOutcome` files.
       expect(insertedDefinition.plan.prompt).toContain('Markdown')
     }
+  })
+})
+
+
+describe('commissionResearchRun — an escalated question becomes a run', () => {
+  const THREAD = 's_where_it_was_asked'
+  const QUESTION = 'Gilt für das Atrium in Haus A OIB 2 oder OIB 2.3? Bitte mit den Wiener Abweichungen.'
+
+  it('writes one run with no definition behind it, in the thread it was asked in', async () => {
+    const result = await commissionResearchRun(session, {
+      projectId: PROJECT,
+      conversationId: THREAD,
+      question: QUESTION,
+    })
+
+    const inserted = vi.mocked(repository.insertRun).mock.calls[0][0]
+    expect(inserted).toMatchObject({
+      definitionId: null,
+      kind: 'deep-research',
+      trigger: 'delegated',
+      triggeredBy: 'user_asker',
+      status: 'queued',
+      requesterUserId: 'user_asker',
+      projectId: PROJECT,
+    })
+    // The question is the prompt, verbatim: a rewritten one is a different run.
+    expect(inserted.plan?.prompt).toBe(QUESTION)
+    // The title is the question's first sentence, so a list row names the work.
+    expect(inserted.title).toBe('Gilt für das Atrium in Haus A OIB 2 oder OIB 2.3?')
+
+    expect(vi.mocked(submitAgentRun).mock.calls[0][0]).toMatchObject({
+      output: 'deep-research',
+      conversationId: THREAD,
+      runId: 'run-1',
+    })
+    // Never a thread of its own: an escalation always has the one it came from.
+    expect(createTaskThread).not.toHaveBeenCalled()
+
+    expect(result).toEqual({
+      runId: 'run-1',
+      runMessageId: 'msg-run-1',
+      conversationId: THREAD,
+      status: 'running',
+    })
+  })
+
+  it('asks for the same permissions handing over a task asks for', async () => {
+    await commissionResearchRun(session, { projectId: PROJECT, conversationId: THREAD, question: QUESTION })
+    expect(requireProjectAccess).toHaveBeenCalledWith(session, PROJECT, [
+      'project:edit',
+      'project:documents:write',
+    ])
+  })
+
+  it('refuses a question that says nothing, and one past the bound', async () => {
+    await expect(
+      commissionResearchRun(session, { projectId: PROJECT, conversationId: THREAD, question: '   ' }),
+    ).rejects.toBeInstanceOf(UnprocessableError)
+    await expect(
+      commissionResearchRun(session, {
+        projectId: PROJECT,
+        conversationId: THREAD,
+        question: 'x'.repeat(TASK_GOAL_MAX_CHARS + 1),
+      }),
+    ).rejects.toBeInstanceOf(UnprocessableError)
+    expect(repository.insertRun).not.toHaveBeenCalled()
+  })
+
+  it('records a refused submission as a failed run instead of throwing', async () => {
+    vi.mocked(submitAgentRun).mockRejectedValue(new JobSubmitError('backend unreachable', 502))
+
+    const result = await commissionResearchRun(session, {
+      projectId: PROJECT,
+      conversationId: THREAD,
+      question: QUESTION,
+    })
+
+    expect(result.status).toBe('failed')
+    expect(vi.mocked(repository.updateRun).mock.calls[0][2]).toMatchObject({
+      status: 'failed',
+      error: 'backend unreachable',
+    })
+  })
+
+  it('lets a refused gate through: there is no run to record yet', async () => {
+    vi.mocked(requireProjectAccess).mockRejectedValueOnce(new NotFoundError('Unknown project'))
+    await expect(
+      commissionResearchRun(session, { projectId: PROJECT, conversationId: THREAD, question: QUESTION }),
+    ).rejects.toBeInstanceOf(NotFoundError)
+    expect(repository.insertRun).not.toHaveBeenCalled()
   })
 })

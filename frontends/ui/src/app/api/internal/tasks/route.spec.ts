@@ -14,7 +14,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/tasks/delegation', () => ({ delegateTask: vi.fn() }))
+vi.mock('@/lib/tasks/delegation', () => ({ delegateTask: vi.fn(), commissionResearchRun: vi.fn() }))
 vi.mock('@/lib/auth/pinned-session', () => ({ resolvePinnedRequesterSession: vi.fn() }))
 // Partial: the factory itself opens a request-scoped slot, and replacing that
 // would test a handler the app does not run.
@@ -31,7 +31,7 @@ import {
   GRID_REQUEST_CONTEXT_MAX_AGE_MS,
 } from '@/lib/request-context'
 import { DELEGATABLE_TASK_KINDS } from '@/lib/db/schema'
-import { delegateTask } from '@/lib/tasks/delegation'
+import { commissionResearchRun, delegateTask } from '@/lib/tasks/delegation'
 import { internalTaskRequestSchema, parseTaskDue } from '@/lib/tasks/wire'
 import { POST } from './route'
 
@@ -116,6 +116,12 @@ beforeEach(() => {
   process.env.GRID_INTERNAL_API_TOKEN = SECRET
   vi.mocked(resolvePinnedRequesterSession).mockResolvedValue(session)
   vi.mocked(delegateTask).mockResolvedValue({ definition: oneOffDefinition, run: task } as never)
+  vi.mocked(commissionResearchRun).mockResolvedValue({
+    runId: 'run-1',
+    runMessageId: 'msg-run-1',
+    conversationId: 's_conv_1',
+    status: 'running',
+  })
 })
 
 describe('identity', () => {
@@ -170,16 +176,19 @@ describe('tenancy', () => {
 })
 
 describe('the op set', () => {
-  it('is `create` and nothing else', () => {
-    // A machine may ASK for work. Judging it is `reviewTask`, a session route:
-    // a machine that could accept its own output would close the loop ADR-0051
-    // exists to open.
-    expect(internalTaskRequestSchema.options).toHaveLength(1)
-    expect(internalTaskRequestSchema.options[0].shape.op.value).toBe('create')
+  it('is the two asking verbs and nothing else', () => {
+    // A machine may ASK for work, in either shape. Judging it is `reviewTask`,
+    // a session route: a machine that could accept its own output would close
+    // the loop ADR-0051 exists to open.
+    expect(internalTaskRequestSchema.options.map((option) => option.shape.op.value)).toEqual([
+      'create',
+      'research',
+    ])
   })
 
   it('refuses an unknown op and an unknown kind', async () => {
     expect((await call({ ...CREATE, op: 'review' })).status).toBe(400)
+    expect(commissionResearchRun).not.toHaveBeenCalled()
     expect((await call({ ...CREATE, kind: 'kostenschaetzung' })).status).toBe(400)
     expect(delegateTask).not.toHaveBeenCalled()
   })
@@ -276,5 +285,61 @@ describe('the project the body names must be the project the envelope names', ()
 
     expect(response.status).toBe(201)
     expect(vi.mocked(delegateTask).mock.calls[0][1]).toMatchObject({ projectId: other })
+  })
+})
+
+
+describe('the research op — an escalated question becomes a run', () => {
+  const RESEARCH = {
+    op: 'research',
+    projectId: PROJECT,
+    question: 'Gilt für das Atrium OIB 2 oder OIB 2.3?',
+  }
+
+  it('commissions the run in the thread the ENVELOPE names, and answers with where it narrates', async () => {
+    const response = await call(RESEARCH)
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toEqual({
+      runId: 'run-1',
+      runMessageId: 'msg-run-1',
+      conversationId: 's_conv_1',
+      status: 'running',
+    })
+    expect(vi.mocked(commissionResearchRun).mock.calls[0][1]).toEqual({
+      projectId: PROJECT,
+      // From the signed envelope, never the body: a thread a caller could name
+      // would be a block written into a conversation nobody asked about.
+      conversationId: 's_conv_1',
+      question: RESEARCH.question,
+    })
+    expect(delegateTask).not.toHaveBeenCalled()
+  })
+
+  it('refuses a body that names its own thread or a second project', async () => {
+    expect((await call({ ...RESEARCH, conversationId: 's_somewhere_else' })).status).toBe(400)
+    expect(
+      (await call({ ...RESEARCH, projectId: '44444444-4444-4444-8444-444444444444' })).status,
+    ).toBe(400)
+    expect(commissionResearchRun).not.toHaveBeenCalled()
+  })
+
+  it('refuses a question that says nothing', async () => {
+    expect((await call({ ...RESEARCH, question: '   ' })).status).toBe(400)
+    expect(commissionResearchRun).not.toHaveBeenCalled()
+  })
+
+  it('answers 409 when the envelope carries no thread: there is nowhere to narrate', async () => {
+    const { header, signature } = buildGridRequestContextEnvelope(
+      { organizationId: 'org_1', userId: 'user_requester', projectId: PROJECT, issuedAt: Date.now() },
+      SECRET,
+    )
+    const response = await call(RESEARCH, {
+      [GRID_HEADER_NAMES.REQUEST_CONTEXT]: header,
+      [GRID_HEADER_NAMES.REQUEST_CONTEXT_SIG]: signature ?? '',
+    })
+
+    expect(response.status).toBe(409)
+    expect(commissionResearchRun).not.toHaveBeenCalled()
   })
 })

@@ -42,6 +42,7 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type {
   DelegatableTaskKind,
+  JobOutput,
   NewTaskDefinition,
   TaskDefinition,
   TaskPlan,
@@ -70,6 +71,16 @@ export { TASK_GOAL_MAX_CHARS }
  * are put for it.
  */
 export const REVISION_SOURCE_MAX_CHARS = 60_000
+
+/**
+ * What it takes to hand Piloti work in a project.
+ *
+ * One constant, because a second list is a second policy: commissioning a
+ * research run from a chat question and delegating „@Piloti prüf das" are the
+ * same act — a person spending the project's budget and adding to its record —
+ * and they must never drift into two different answers to the same question.
+ */
+export const COMMISSION_PERMISSIONS = ['project:edit', 'project:documents:write'] as const
 
 /** What one task kind runs on. `skill` and `instruction` are alternatives. */
 interface TaskEngine {
@@ -255,7 +266,7 @@ export async function delegateTask(
   session: AuthorizedSession,
   input: DelegateTaskInput,
 ): Promise<DelegateTaskResult> {
-  await requireProjectAccess(session, input.projectId, ['project:edit', 'project:documents:write'])
+  await requireProjectAccess(session, input.projectId, [...COMMISSION_PERMISSIONS])
 
   const goal = input.goal.trim()
   if (!goal) throw new UnprocessableError('A task needs a goal')
@@ -379,6 +390,133 @@ export async function delegateTask(
 }
 
 /**
+ * What an escalated chat question needs to become a run of its own.
+ *
+ * No kind and no skill: the question IS the prompt, and the deep researcher is
+ * the engine. `conversationId` is the thread the person asked in — an
+ * escalation always has one, which is why this never mints a thread the way a
+ * reviewer's send-back does.
+ */
+export interface CommissionResearchInput {
+  projectId: string
+  conversationId: string
+  /** The question as the turn restated it for the researcher. It IS the prompt. */
+  question: string
+}
+
+/** Where the commissioned run narrates itself, for the turn that commissioned it. */
+export interface CommissionedResearchRun {
+  runId: string
+  /** The run's message in the thread, or null when it could not be minted. */
+  runMessageId: string | null
+  conversationId: string
+  /** `queued` never survives this call: `running` when the worker took it, `failed` when it refused. */
+  status: TaskRun['status']
+}
+
+/**
+ * Commission a research run from a question somebody asked in a thread
+ * (ADR-0062: a run is one message in the thread that commissioned it).
+ *
+ * ## Why an escalated question is a run at all
+ *
+ * It was one already, in every way except the record: minutes of work, a
+ * budget, a report that outlives the turn. What it lacked was a row, so it
+ * could not be listed, stopped, filed, resumed or even named — the thread held
+ * a stub sentence and a job id, and nothing else knew it existed. One row fixes
+ * all of that at once, because every surface already reads runs.
+ *
+ * ## No definition
+ *
+ * A standing intent is something a person stated once and expects again; a
+ * question asked in passing is not that. The row therefore carries no
+ * `definitionId` — the column is nullable for exactly this case — and the run
+ * is its own whole story: `plan.prompt` is the question, `title` is the
+ * question shortened, and the Aufträge index shows it beside the scheduled
+ * ones with nothing missing but a cadence it never had.
+ *
+ * ## The gate is the delegation gate
+ *
+ * `COMMISSION_PERMISSIONS`, the same list `delegateTask` asks for. Escalating a
+ * question spends the project's budget and adds to its record exactly as
+ * handing over a task does, and a second, softer answer here would be a way
+ * around the first one.
+ *
+ * Never throws for a submission that failed: the run is a `failed` row with
+ * the reason, and the block in the thread says so. It DOES throw when the
+ * caller may not commission at all — that is the turn's answer to change, not
+ * a run to record.
+ */
+export async function commissionResearchRun(
+  session: AuthorizedSession,
+  input: CommissionResearchInput,
+): Promise<CommissionedResearchRun> {
+  await requireProjectAccess(session, input.projectId, [...COMMISSION_PERMISSIONS])
+
+  const question = input.question.trim()
+  if (!question) throw new UnprocessableError('A research run needs a question')
+  if (question.length > TASK_GOAL_MAX_CHARS) {
+    throw new UnprocessableError(`A question is at most ${TASK_GOAL_MAX_CHARS} characters`)
+  }
+
+  const plan: TaskPlan = {
+    prompt: question,
+    skill: emptySkillSnapshot(),
+    dataSources: null,
+    goal: question,
+    subject: null,
+  }
+  const queued = await repository.insertRun({
+    organizationId: session.organizationId,
+    projectId: input.projectId,
+    // No definition: see above.
+    definitionId: null,
+    kind: 'deep-research',
+    title: researchTitle(question),
+    plan,
+    requesterUserId: session.userId,
+    requesterEmail: session.email,
+    trigger: 'delegated',
+    triggeredBy: session.userId,
+    status: 'queued',
+    skillSnapshot: emptySkillSnapshot(),
+  })
+
+  await recordAuditEvent({
+    organizationId: session.organizationId,
+    actor: { userId: session.userId, email: session.email },
+    action: 'task.created',
+    targetType: 'task',
+    targetId: queued.id,
+    metadata: { projectId: input.projectId, kind: 'deep-research', trigger: 'delegated' },
+  })
+
+  const run = await submitQueuedRun(queued, {
+    thread: () => Promise.resolve(input.conversationId),
+    output: 'deep-research',
+  })
+  return {
+    runId: run.id,
+    runMessageId: run.runMessageId,
+    conversationId: run.conversationId ?? input.conversationId,
+    status: run.status,
+  }
+}
+
+/**
+ * The question as a run's title: its first sentence, bounded.
+ *
+ * A title is read in a list, so it is the shortest thing that still names the
+ * work. The question's own first sentence is that — no rewrite, because a
+ * rewritten title is a second account of what was asked.
+ */
+function researchTitle(question: string): string {
+  const firstSentence = question.split(/(?<=[.?!])\s/)[0]?.trim() || question
+  const shown = firstSentence.length > 0 ? firstSentence : question
+  return shown.length > 200 ? `${shown.slice(0, 199).trimEnd()}…` : shown
+}
+
+/**
  * Submit a queued run and record what came back.
  *
  * Never throws: a run that could not be submitted is a `failed` row with the
@@ -392,13 +530,34 @@ async function dispatchRun(
   run: TaskRun,
   originConversationId: string | null,
 ): Promise<TaskRun> {
+  // The thread the work was commissioned in. „@Piloti prüf das" belongs in the
+  // conversation it was said in — that is where the person is looking, and
+  // where the follow-up question will be asked. Only a delegation nobody typed
+  // (a reviewer's send-back on a version filed outside any thread) needs a
+  // place of its own, and then the definition's own thread is that place.
+  return submitQueuedRun(run, {
+    thread: () => (originConversationId ? Promise.resolve(originConversationId) : createTaskThread(definition)),
+    // Every delegated kind runs as a chat output: the work lands in a real
+    // thread, which is where a draft card and a follow-up question can live.
+    output: 'chat',
+  })
+}
+
+/** How a queued run reaches the worker: which thread it narrates in, and what runs it. */
+interface DispatchTarget {
+  /** The conversation the run's block goes in, resolved only once the submit begins. */
+  thread: () => Promise<string | null>
+  output: JobOutput
+}
+
+/**
+ * Submit one queued run and record what came back — the half both callers share.
+ *
+ * Never throws, for the reason above: the failure has to survive as a row.
+ */
+async function submitQueuedRun(run: TaskRun, target: DispatchTarget): Promise<TaskRun> {
   try {
-    // The thread the work was commissioned in. „@Piloti prüf das" belongs in the
-    // conversation it was said in — that is where the person is looking, and
-    // where the follow-up question will be asked. Only a delegation nobody typed
-    // (a reviewer's send-back on a version filed outside any thread) needs a
-    // place of its own, and then the definition's own thread is that place.
-    const conversation = originConversationId ?? (await createTaskThread(definition))
+    const conversation = await target.thread()
     const { backendJobId, conversationId, runMessageId } = await submitAgentRun({
       organizationId: run.organizationId,
       projectId: run.projectId,
@@ -409,9 +568,7 @@ async function dispatchRun(
       title: run.title,
       prompt: run.plan.prompt,
       skillSnapshot: run.skillSnapshot.name ? run.skillSnapshot : null,
-      // Every delegated kind runs as a chat output: the work lands in a real
-      // thread, which is where a draft card and a follow-up question can live.
-      output: 'chat',
+      output: target.output,
       dataSources: run.plan.dataSources,
       runId: run.id,
       conversationId: conversation,
@@ -432,7 +589,7 @@ async function dispatchRun(
         : error instanceof Error
           ? error.message
           : 'Unexpected error while preparing the run'
-    console.error('[runs] could not submit the run for definition', definition.id, error)
+    console.error('[runs] could not submit run', run.id, error)
     return (
       (await repository.updateRun(run.id, run.organizationId, {
         status: 'failed',

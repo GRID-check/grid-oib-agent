@@ -21,15 +21,18 @@
  * The task's `requester_user_id` is that person, which is the whole point: an
  * unattended run files as somebody, and the somebody is whoever asked.
  *
- * ## The op set is `create`, and there is no second verb
+ * ## Two verbs, both of them asking
  *
- * A machine may ASK for work. It may not judge it: `reviewTask` is a session
- * route because a review is a person's statement about the project's own record,
- * and a machine that could accept its own output would close the loop ADR-0051
- * exists to open. The union in `lib/tasks/wire.ts` is what says so, and the
- * route's spec asserts it has exactly one member.
+ * `create` states a standing intent („@Piloti prüf das bis Freitag"), and
+ * `research` commissions one run for a question asked in the thread — the
+ * escalation, which used to be a job the product had no row for (ADR-0062).
+ * Both are a machine ASKING for work. Neither judges it: `reviewTask` is a
+ * session route because a review is a person's statement about the project's
+ * own record, and a machine that could accept its own output would close the
+ * loop ADR-0051 exists to open.
  */
 
+import { ConflictError } from '@/lib/api/errors'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
 import {
   requireEnvelopeProject,
@@ -37,7 +40,7 @@ import {
   requireVerifiedContext,
 } from '@/lib/api/internal-envelope'
 import { withTenant } from '@/lib/db/tenant-context'
-import { delegateTask } from '@/lib/tasks/delegation'
+import { commissionResearchRun, delegateTask } from '@/lib/tasks/delegation'
 import { internalTaskRequestSchema, parseTaskDue } from '@/lib/tasks/wire'
 
 export const POST = internalApiRoute(
@@ -51,6 +54,24 @@ export const POST = internalApiRoute(
     // replayed envelope pointed at a second project would be work nobody asked
     // for, attributed to somebody who did not ask for it.
     requireEnvelopeProject(context, body.projectId)
+
+    if (body.op === 'research') {
+      // A run is one message in the THREAD that commissioned it. An escalation
+      // without a conversation is a run with nowhere to narrate itself, and the
+      // caller is the one holding the envelope that should have carried one.
+      if (!context.conversationId) {
+        throw new ConflictError('A research run needs the thread it was asked in')
+      }
+      const conversationId = context.conversationId
+      return withTenant({ organizationId: context.organizationId }, () =>
+        commissionResearchRun(session, {
+          projectId: body.projectId,
+          conversationId,
+          question: body.question,
+        }),
+      )
+    }
+
     const dueAt = parseTaskDue(body.due)
 
     // The tenant slot comes from the VERIFIED envelope and never from the body,
