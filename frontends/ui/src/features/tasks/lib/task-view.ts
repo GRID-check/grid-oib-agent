@@ -13,7 +13,7 @@
  * two ends from drifting.
  */
 
-import type { RunPhase, RunStatus } from '@/lib/runs/run-ledger-types'
+import type { RunStatus } from '@/lib/runs/run-ledger-types'
 import type {
   TaskKind,
   TaskReview,
@@ -72,18 +72,17 @@ export interface TaskWireRow {
   /** The sanitized, user-safe error the worker reported. */
   error: string | null
   /**
-   * What the run is doing right now, read off its message's ledger
-   * (ADR-0062): the one muted line a card shows under its title while the
-   * task is active. Filled only for active rows that have a run message —
-   * absent or null otherwise, and the card shows nothing.
+   * What the run did, read off its message's ledger (ADR-0062): the compact
+   * run line a card shows under its title — the same glyph, word and tallies
+   * as the block's header in the thread. Filled for every row on the page that
+   * has a run message; absent or null otherwise, and the card shows no line.
    */
   runSummary?: TaskRunSummary | null
 }
 
-/** The four facts a card line needs from a ledger; nothing a block would. */
+/** The three facts the card's run line needs from a ledger; nothing a block would. */
 export interface TaskRunSummary {
   status: RunStatus
-  phase: RunPhase | null
   rounds: number
   docs: number
 }

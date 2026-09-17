@@ -8,7 +8,9 @@
  *     fortnight: something running, something waiting for a person, something
  *     that was sent back with words, something that failed. What the shot is
  *     for is the CARD — the status swatch on the title line (the same rounded
- *     square the timetable's legend uses), the unreviewed dot, the recency
+ *     square the timetable's legend uses), the compact run line under the
+ *     title (the block's own glyph, word and tallies, on the running, the
+ *     finished and the failed card alike), the unreviewed dot, the recency
  *     headings that group the column, the filter row with its counts, and the
  *     one result link on the tray that is the only thing inside the card that
  *     is not the card's own click target.
@@ -55,7 +57,7 @@ const TASKS: TaskWireRow[] = [
     goal: 'Die Fluchtweglänge im Atrium stimmt nicht; OIB 2.3 gilt hier, nicht 2.',
     status: 'running',
     requesterName: 'Maria Huber',
-    runSummary: { status: 'laeuft', phase: 'recherchieren', rounds: 3, docs: 9 },
+    runSummary: { status: 'laeuft', rounds: 3, docs: 9 },
   }),
   row({
     id: 'task-1b',
@@ -73,6 +75,9 @@ const TASKS: TaskWireRow[] = [
     goal: 'Fasse zusammen, was für die Einreichung an Stellplätzen nachzuweisen ist',
     filedDocumentId: 'doc-9',
     review: 'accepted',
+    conversationId: 'conv-2',
+    runMessageId: 'msg-2',
+    runSummary: { status: 'fertig', rounds: 4, docs: 11 },
   }),
   row({
     id: 'task-3',
@@ -93,6 +98,10 @@ const TASKS: TaskWireRow[] = [
     error: 'Das Budget war aufgebraucht, bevor die Prüfung fertig war.',
     requesterName: null,
     createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(),
+    finishedAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000 + 20 * 60 * 1000).toISOString(),
+    conversationId: 'conv-4',
+    runMessageId: 'msg-4',
+    runSummary: { status: 'fehlgeschlagen', rounds: 2, docs: 5 },
   }),
 ]
 

@@ -80,14 +80,13 @@ beforeEach(() => {
 })
 
 describe('runSummaryOf', () => {
-  it('names the open phase and counts rounds and DISTINCT documents', () => {
-    expect(runSummaryOf(ledger())).toEqual({ status: 'laeuft', phase: 'recherchieren', rounds: 2, docs: 2 })
+  it('names the display status and counts rounds and DISTINCT documents', () => {
+    expect(runSummaryOf(ledger())).toEqual({ status: 'laeuft', rounds: 2, docs: 2 })
   })
 
-  it('has no phase for a run that has not started one, and nothing for no ledger', () => {
+  it('counts nothing for a run that has not started, and nothing for no ledger', () => {
     expect(runSummaryOf(ledger({ phases: [], steps: [], status: 'angelegt' }))).toEqual({
       status: 'angelegt',
-      phase: null,
       rounds: 0,
       docs: 0,
     })
@@ -96,8 +95,13 @@ describe('runSummaryOf', () => {
 })
 
 describe('loadRunSummaries', () => {
-  it('looks up only the active rows that have a run message, in one query bounded to the page', async () => {
-    vi.mocked(listRunLedgersByMessageIds).mockResolvedValue(new Map([['msg-1', ledger()]]))
+  it('looks up every row that has a run message, finished or not, in one query bounded to the page', async () => {
+    vi.mocked(listRunLedgersByMessageIds).mockResolvedValue(
+      new Map([
+        ['msg-1', ledger()],
+        ['msg-2', ledger({ status: 'fertig' })],
+      ]),
+    )
 
     const summaries = await loadRunSummaries([
       run(),
@@ -107,14 +111,19 @@ describe('loadRunSummaries', () => {
     ])
 
     expect(listRunLedgersByMessageIds).toHaveBeenCalledTimes(1)
-    expect(listRunLedgersByMessageIds).toHaveBeenCalledWith(['msg-1', 'msg-4'])
-    expect(summaries.get('run-1')).toEqual({ status: 'laeuft', phase: 'recherchieren', rounds: 2, docs: 2 })
+    expect(listRunLedgersByMessageIds).toHaveBeenCalledWith(['msg-1', 'msg-2', 'msg-4'])
+    expect(summaries.get('run-1')).toEqual({ status: 'laeuft', rounds: 2, docs: 2 })
+    // A finished row keeps its tallies: that is how much work stands behind it.
+    expect(summaries.get('run-2')).toEqual({ status: 'fertig', rounds: 2, docs: 2 })
     // A row whose ledger is missing simply has no entry.
     expect(summaries.has('run-4')).toBe(false)
   })
 
-  it('makes no query when nothing on the page is active', async () => {
-    const summaries = await loadRunSummaries([run({ status: 'succeeded' }), run({ id: 'r2', status: 'failed' })])
+  it('makes no query when nothing on the page has a run message', async () => {
+    const summaries = await loadRunSummaries([
+      run({ status: 'succeeded', runMessageId: null }),
+      run({ id: 'r2', status: 'failed', runMessageId: null }),
+    ])
 
     expect(summaries.size).toBe(0)
     expect(listRunLedgersByMessageIds).not.toHaveBeenCalled()
