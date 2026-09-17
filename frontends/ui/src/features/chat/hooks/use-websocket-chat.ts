@@ -31,6 +31,7 @@ import {
   type NATIntermediateStepContent,
   type NATErrorContent,
   type NATResponseTransparency,
+  type CommissionedRunRef,
   type NATStageMessage,
   HumanPromptType,
 } from '@/adapters/api/websocket-client'
@@ -50,6 +51,7 @@ import { useDocumentsStore } from '@/features/documents/store'
 import { isLikelyAuthRelatedTransportError } from '../lib/transport-auth-signals'
 import { validateGridCards } from '@/shared/cards/schemas'
 import { citationsFromWireList } from '../lib/wire-citation'
+import { fetchRunMessage } from '../lib/commissioned-run'
 import { isDeepResearchLive } from '../lib/session-activity'
 import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
 import type { GridCard } from '@/shared/cards/schemas'
@@ -762,7 +764,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const setTurnWsParentId = useChatStore((s) => s.setTurnWsParentId)
   const applyStageFrame = useChatStore((s) => s.applyStageFrame)
   const discardStreamingAssistantMessage = useChatStore((s) => s.discardStreamingAssistantMessage)
-  const addAgentResponseWithMeta = useChatStore((s) => s.addAgentResponseWithMeta)
+  const adoptRunMessage = useChatStore((s) => s.adoptRunMessage)
   const addThinkingStep = useChatStore((s) => s.addThinkingStep)
   const appendToThinkingStep = useChatStore((s) => s.appendToThinkingStep)
   const completeThinkingStep = useChatStore((s) => s.completeThinkingStep)
@@ -781,11 +783,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   const setCurrentUser = useChatStore((s) => s.setCurrentUser)
   const storeSelectConversation = useChatStore((s) => s.selectConversation)
   const respondToPrompt = useChatStore((s) => s.respondToPrompt)
-  const startDeepResearch = useChatStore((s) => s.startDeepResearch)
-  const addDeepResearchBanner = useChatStore((s) => s.addDeepResearchBanner)
   const addPlanMessage = useChatStore((s) => s.addPlanMessage)
   const updatePlanMessageResponse = useChatStore((s) => s.updatePlanMessageResponse)
-  const updateConversationTitle = useChatStore((s) => s.updateConversationTitle)
   const maybeGenerateConversationName = useChatStore((s) => s.maybeGenerateConversationName)
 
   // Sync authenticated user ID to store when auth state changes
@@ -1304,7 +1303,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
         isFinal: boolean,
         parentId?: string,
         cards?: unknown[],
-        deepResearchJobId?: string,
+        commissionedRun?: CommissionedRunRef,
         answerConfidence?: 'low' | 'medium' | 'high',
         sources?: unknown[],
         transparency?: NATResponseTransparency
@@ -1388,116 +1387,30 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
           return
         }
 
-        // Deep research escalation signal. Prefer the STRUCTURED job id sent
-        // as a dedicated field; fall back to regex-parsing the response prose
-        // only for older backends that don't emit the structured field.
-        const deepResearchMatch = content?.match(
-          /Deep research job submitted\. Job ID: ([a-f0-9-]+)/i
-        )
-        const resolvedJobId = deepResearchJobId ?? deepResearchMatch?.[1]
-
-        if (resolvedJobId) {
-          const jobId = resolvedJobId
-          // Get current state for plan messages and conversation
-          const state = useChatStore.getState()
-          const currentPlanMessages = state.planMessages
-          const currentConversation = state.currentConversation
-
-          // Derive a conversation title from the plan (preferred) or fall
-          // back to the last user message.
-          if (currentConversation) {
-            let extractedTitle: string | null = null
-
-            // First, look at all plan messages for a title
-            for (const planMsg of currentPlanMessages) {
-              if (extractedTitle) break
-
-              // Pattern 1: JSON report_title field
-              const jsonTitleMatch = planMsg.text.match(/"report_title":\s*"([^"]+)"/i)
-              if (jsonTitleMatch) {
-                extractedTitle = jsonTitleMatch[1]
-                break
-              }
-
-              // Pattern 2: Markdown Report Title heading
-              const reportTitleMatch =
-                planMsg.text.match(/\*\*Report Title[:\s]*\*\*\s*\n?\s*\*?([^*\n]+)/i) ||
-                planMsg.text.match(/Report Title[:\s]*\n?\s*\*?([^*\n]+)/i)
-              if (reportTitleMatch) {
-                extractedTitle = reportTitleMatch[1].trim()
-                break
-              }
-
-              // Pattern 3: First markdown heading
-              const mdHeadingMatch = planMsg.text.match(/^#+\s+(.+?)(?:\n|$)/m)
-              if (mdHeadingMatch) {
-                extractedTitle = mdHeadingMatch[1].trim()
-                break
-              }
-            }
-
-            // Fallback: Use the last user message if no title found in plan
-            if (!extractedTitle) {
-              const userMessages = currentConversation.messages.filter((m) => m.role === 'user')
-              const lastUserMsg = userMessages[userMessages.length - 1]
-              // Skip simple greetings.
-              if (lastUserMsg && lastUserMsg.content.length > 10) {
-                extractedTitle = lastUserMsg.content
-              }
-            }
-
-            if (extractedTitle) {
-              // Clean up the title
-              const cleanTitle = extractedTitle
-                .replace(/^\*+|\*+$/g, '')
-                .replace(/^["']|["']$/g, '')
-                .trim()
-
-              // Truncate to reasonable length
-              const title =
-                cleanTitle.length > 80 ? cleanTitle.substring(0, 77) + '...' : cleanTitle
-
-              if (title.length > 0) {
-                updateConversationTitle(currentConversation.id, title)
-              }
-            }
+        // The turn commissioned a run instead of answering (ADR-0062). The run's
+        // message already exists in this thread — the BFF wrote it before the
+        // worker was asked for anything — so the whole of the client's work is
+        // to put that message on screen: the block renders from its ledger and
+        // subscribes to the run's own stream by itself. No banner, no panel, no
+        // tracking message, and nothing to parse out of prose.
+        if (commissionedRun) {
+          const conversationId = useChatStore.getState().currentConversation?.id
+          if (conversationId) {
+            void fetchRunMessage(conversationId, commissionedRun.runMessageId).then((message) => {
+              if (message) adoptRunMessage(message)
+            })
           }
-
-          // Add 'starting' banner as a persistent message. When this turn
-          // escalated shallow→deep, the escalation reason rides above the
-          // banner (contract: `Eskaliert zur Tiefenrecherche: <reason>`).
-          addDeepResearchBanner(
-            'starting',
-            jobId,
-            undefined,
-            undefined,
-            transparency?.escalationReason
-          )
-
-          // Empty-content tracking message carries job metadata for session
-          // restoration; AgentResponse returns null for empty content so it
-          // won't render.
-          const messageId = addAgentResponseWithMeta(
-            '',
-            false,
-            {
-              deepResearchJobId: jobId,
-              deepResearchJobStatus: 'submitted',
-              isDeepResearchActive: true,
-              planMessages: currentPlanMessages.length > 0 ? [...currentPlanMessages] : undefined,
-            },
-            validatedCards
-          )
-          // Start deep research SSE streaming bound to this message
-          startDeepResearch(jobId, messageId)
-          // Hand off to the deep-research SSE stream: it drives its own
-          // progress signal, so the WS inactivity watchdog must stand down
-          // (no WS frames arrive during deep research).
-          clearStreamingWatchdog()
-          // Keep isStreaming=true to block input -- deep research SSE will
-          // release it on completion.
+          // The turn is over for the composer: what happens next happens in the
+          // block, on the run's own stream, and the reader may keep typing.
+          discardStreamingAssistantMessage()
+          setCurrentStatus(null)
+          setStreaming(false)
           setLoading(false)
-          // Don't add this as final response - let SSE handle the rest
+          clearStreamingWatchdog()
+          clearPendingInteraction()
+          lastSentOutgoingRef.current = null
+          pendingOutgoingRef.current = null
+          clearUnacknowledgedOutgoing()
           return
         }
 
@@ -1997,7 +1910,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     setTurnWsParentId,
     applyStageFrame,
     discardStreamingAssistantMessage,
-    addAgentResponseWithMeta,
+    adoptRunMessage,
     addThinkingStep,
     appendToThinkingStep,
     completeThinkingStep,
@@ -2011,10 +1924,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
     clearPendingInteraction,
     setLoading,
     setStreaming,
-    startDeepResearch,
-    addDeepResearchBanner,
     addPlanMessage,
-    updateConversationTitle,
     maybeGenerateConversationName,
     getTransportFailure,
     rotateSocket,

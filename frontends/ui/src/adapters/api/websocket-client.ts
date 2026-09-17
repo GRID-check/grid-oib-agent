@@ -167,6 +167,19 @@ export interface ConnectionChangeContext {
   intentional?: boolean
 }
 
+/**
+ * The run a turn commissioned instead of answering itself (ADR-0062).
+ *
+ * Both ids or neither: a run with no message is a run the reader cannot see,
+ * and the client would have nothing to show. The BFF minted the message before
+ * the worker was asked for anything, so by the time this reaches the client the
+ * message exists.
+ */
+export interface CommissionedRunRef {
+  runId: string
+  runMessageId: string
+}
+
 /** Callbacks for NAT WebSocket client */
 export interface NATWebSocketClientCallbacks {
   /** Called when a system response message arrives (final or streaming content) */
@@ -176,7 +189,7 @@ export interface NATWebSocketClientCallbacks {
     isFinal: boolean,
     parentId?: string,
     cards?: unknown[],
-    deepResearchJobId?: string,
+    commissionedRun?: CommissionedRunRef,
     answerConfidence?: 'low' | 'medium' | 'high',
     sources?: unknown[],
     transparency?: ResponseTransparency
@@ -725,7 +738,9 @@ export class NATWebSocketClient {
             isFinal,
             message.parent_id,
             message.cards,
-            message.deep_research_job_id,
+            message.run_id && message.run_message_id
+              ? { runId: message.run_id, runMessageId: message.run_message_id }
+              : undefined,
             message.answer_confidence,
             message.sources,
             transparency

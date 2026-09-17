@@ -565,8 +565,8 @@ def _chunk_finish_reason(value: Any) -> str | None:
 # answer_confidence. Each is surfaced only when present.
 _TRANSPARENCY_EXTRA_FIELDS = (
     "routing_decision",
-    # The run this turn commissioned instead of answering itself, and the
-    # message that run narrates itself in (ADR-0062). The client finds the block
+    # The run this turn commissioned instead of answering itself — ADR-0062 —
+    # and the message that run narrates itself in. The client finds the block
     # by them; there is no prose to parse any more.
     "run_id",
     "run_message_id",

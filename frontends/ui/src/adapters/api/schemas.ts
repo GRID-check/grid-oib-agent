@@ -353,9 +353,13 @@ export const NATSystemResponseMessageSchema = z.object({
   ]),
   timestamp: z.string().optional(),
   cards: z.array(z.unknown()).optional(),
-  // Structured deep-research job id (present when the turn dispatched an async
-  // job). Preferred over regex-parsing the response prose.
-  deep_research_job_id: z.string().optional(),
+  // The run this turn commissioned instead of answering itself, and the message
+  // that run narrates itself in (ADR-0062). Present together; the frame's own
+  // content is then empty, because the run's BLOCK is the narration. They
+  // replace `deep_research_job_id`, which carried a job id the client had to
+  // hang a panel off and a prose stub it had to regex.
+  run_id: z.string().optional(),
+  run_message_id: z.string().optional(),
   // The model's guarded self-assessment of how well the answer is grounded in
   // its sources. Absent on error/escalation/marker-less turns → no chip. An
   // out-of-enum value degrades to `undefined` (no chip) via `.catch` rather than
@@ -374,7 +378,7 @@ export const NATSystemResponseMessageSchema = z.object({
   // All optional + per-field `.catch(undefined)`: one malformed extra degrades
   // to "absent" and NEVER kills the whole frame (the response text survives).
   // These ride the same terminal-chunk "extras lift" as answer_confidence /
-  // sources / deep_research_job_id.
+  // sources / run_id.
 
   // Which path the turn turned out to take, observed after the answer: `meta`
   // is a direct reply with no source consulted and no self-assessment.

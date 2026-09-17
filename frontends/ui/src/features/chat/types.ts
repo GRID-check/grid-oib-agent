@@ -1282,6 +1282,12 @@ export interface ChatActions {
     meta: Partial<ChatMessage>,
     cards?: (GridCard | undefined)[]
   ) => string
+  /**
+   * Put a run's own message into the open thread with the id the SERVER gave
+   * it (ADR-0062): the run's message already exists, so this adopts a row
+   * rather than minting a second block for one run. Idempotent by that id.
+   */
+  adoptRunMessage: (message: ChatMessage) => void
   /** Patch a specific message in a conversation */
   patchConversationMessage: (
     conversationId: string,
