@@ -10,6 +10,12 @@
  * expiry is bucketed.
  *
  * Thin handler; verification, tenancy and streaming live in the service.
+ *
+ * Failures deflect to a static placeholder image (200) rather than refusing
+ * with a 403/404: the optimizer ignores status codes and sniffs every
+ * non-empty body as image bytes, so an error envelope became "isn't a valid
+ * image … received null" (#366). All deflections answer identically with
+ * static bytes, so nothing leaks and nothing is oracle-able.
  */
 
 import { publicApiRoute } from '@/lib/api/handler'

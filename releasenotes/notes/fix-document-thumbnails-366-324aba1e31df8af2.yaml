@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    Document thumbnails no longer break when a preview link outlives its
+    validity period. Cards keep showing their preview instead of a
+    "preview unavailable" tile after long-open file views.

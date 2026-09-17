@@ -1,6 +1,8 @@
 /**
- * Document thumbnail API — presign a browser-facing thumbnail URL
+ * Document thumbnail API - presign a browser-facing thumbnail URL
  * (null url signals no thumbnail available).
+ * `expiresAtMs` is when the URL stops authorizing; the card re-resolves past
+ * it instead of replaying a dead URL into the optimizer (#366).
  * Thin handler; all logic lives in `@/lib/documents/service`.
  */
 

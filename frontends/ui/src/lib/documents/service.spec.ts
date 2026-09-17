@@ -153,6 +153,7 @@ import { __resetBucketCache, tenantBucketName } from '@/lib/storage/bucket'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { buildDocumentImageUrl } from '@/lib/images/signed-image-url'
+import { fallbackImageBytes } from '@/lib/images/image-fallback'
 
 const session: AuthorizedSession = {
   userId: 'user-1',
@@ -1767,7 +1768,10 @@ describe('thumbnails ignore empty objects', () => {
   it('getDocumentThumbnail returns null when the thumbnail object is empty', async () => {
     vi.mocked(s3Client.send).mockResolvedValue({ ContentLength: 0 } as never)
 
-    await expect(getDocumentThumbnail(session, 'doc-1')).resolves.toEqual({ url: null })
+    await expect(getDocumentThumbnail(session, 'doc-1')).resolves.toEqual({
+      url: null,
+      expiresAtMs: null,
+    })
     // No signing attempted: there is nothing to point at.
     expect(vi.mocked(getSignedUrl)).not.toHaveBeenCalled()
   })
@@ -1775,18 +1779,39 @@ describe('thumbnails ignore empty objects', () => {
   it('getDocumentThumbnail still serves a non-empty thumbnail', async () => {
     vi.mocked(s3Client.send).mockResolvedValue({ ContentLength: 48211 } as never)
 
-    await expect(getDocumentThumbnail(session, 'doc-1')).resolves.toEqual({
-      url: 'https://seaweedfs.internal/presigned',
-    })
+    // The presigned fallback: signing is disabled in this spec (no
+    // GRID_INTERNAL_API_TOKEN), so the URL comes from the object store with
+    // its own TTL — reported beside it so the card can refresh in time.
+    const before = Date.now()
+    const result = await getDocumentThumbnail(session, 'doc-1')
+
+    expect(result.url).toBe('https://seaweedfs.internal/presigned')
+    expect(result.expiresAtMs).toBeGreaterThanOrEqual(before + 3600_000)
+    expect(result.expiresAtMs).toBeLessThanOrEqual(Date.now() + 3600_000)
   })
 
-  it('streamDocumentImage 404s an empty thumbnail object', async () => {
+  it('getDocumentThumbnail reports when its signed URL stops authorizing', async () => {
+    // The card re-resolves past this instant instead of replaying a dead URL
+    // into the optimizer (#366).
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'test-secret')
+    vi.mocked(s3Client.send).mockResolvedValue({ ContentLength: 48211 } as never)
+    const before = Date.now()
+
+    const result = await getDocumentThumbnail(session, 'doc-1')
+
+    expect(result.url).toMatch(/^\/api\/documents\/doc-1\/image\?.*v=thumb/)
+    expect(result.expiresAtMs).toBeGreaterThan(before)
+  })
+
+  it('streamDocumentImage deflects an empty thumbnail object to the placeholder', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'test-secret')
     const imageUrl = new URL(buildDocumentImageUrl('org-1', 'doc-1', 'thumb')!, 'https://grid.test')
     vi.mocked(s3Client.send).mockResolvedValue({ ContentLength: 0, Body: undefined } as never)
 
-    await expect(streamDocumentImage('doc-1', imageUrl.searchParams)).rejects.toBeInstanceOf(
-      NotFoundError
-    )
+    const response = await streamDocumentImage('doc-1', imageUrl.searchParams)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Content-Type')).toBe('image/png')
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(fallbackImageBytes())
   })
 })
