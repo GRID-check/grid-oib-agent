@@ -732,8 +732,26 @@ export const SCREENSHOT_TARGETS = [
     mobile: true,
     path: '/dev/task-list',
     description:
-      "The Tasks list \u2014 a project's delegated work (ADR-0051) as the product's own card, which is what the rewrite is for: the row it replaced offered a 200px hover-underlined title as its only click target, in a line of chips and links that looked exactly as clickable. Three panels. (1) A MIXED list, which is what a project looks like after a fortnight of using Piloti: something running, a scheduled run, something accepted, something sent back with the reviewer's own words under it, and one failure carrying the worker's sanitized error. Judge the STATUS RAIL down each card's left edge (one sweep down one column finds the red one), the dot marking finished work nobody has judged, the recency headings that turn a list into a timeline, the filter row whose counts say what is behind each chip before it is pressed \u2014 `Ungepr\u00fcft` is the number a person should want at zero \u2014 and the single result link on the tray, the one thing inside the card that is not the card's own target. (2) The empty state, which must read as an invitation rather than as a list that failed to load. (3) The failure state, which is that same distinction from the other side: \u201eNoch nichts \u00fcbergeben\u201c over a failed request is the one lie this surface could tell that somebody would act on.",
+      "The Tasks list \u2014 a project's delegated work (ADR-0051) as the product's own card, which is what the rewrite is for: the row it replaced offered a 200px hover-underlined title as its only click target, in a line of chips and links that looked exactly as clickable. Three panels. (1) A MIXED list, which is what a project looks like after a fortnight of using Piloti: something running, a scheduled run, something accepted, something sent back with the reviewer's own words under it, and one failure carrying the worker's sanitized error. Judge the STATUS SWATCH on each card's title line \u2014 the same 10px rounded square the timetable's legend uses, so one sweep down the column finds the red one \u2014 the compact run line under the title, which is where the status is now stated IN WORDS (the chip that used to say it beside this line said the same fact in a second vocabulary, `succeeded` next to \u201eFertig\u201c), the dot marking finished work nobody has judged, the recency headings that turn a list into a timeline, the filter row whose counts say what is behind each chip before it is pressed \u2014 `Ungepr\u00fcft` is the number a person should want at zero \u2014 and the single result link on the tray, the one thing inside the card that is not the card's own target. (2) The empty state, which must read as an invitation rather than as a list that failed to load. (3) The failure state, which is that same distinction from the other side: \u201eNoch nichts \u00fcbergeben\u201c over a failed request is the one lie this surface could tell that somebody would act on.",
     waitFor: '[data-testid="task-list-preview"]',
+  },
+  {
+    id: 'task-detail',
+    mobile: true,
+    path: '/dev/task-detail',
+    description:
+      "The Auftr\u00e4ge drawer \u2014 the run block, and the two doors out of it. This is the decision the shot is evidence of: clicking a row opens the ACCOUNT of the work rather than a second description of the row. It used to restate the card it was opened from (kind chip, status chip, goal, review reason, error), which made the bigger surface say strictly less about the run than the row that opened it \u2014 the card at least carried the run line. Now the body IS `RunBlock`, off the run's own ledger, read once through the same door the thread uses and opened rather than folded, because the click on the row IS the request to see inside. Judge whether the block sits in a sheet as well as it sits in a thread, and whether the result, \u201eIm Verlauf \u00f6ffnen\u201c and \u201eals stehende Aufgabe speichern\u201c read as a ladder rather than as three equal ways out.",
+    // The block's body animates its height open; the stand paints before it
+    // has. The footer is the last row inside the fold, so waiting on it waits
+    // for the expand rather than for the block's first frame.
+    waitFor: '[data-testid="run-footer"]',
+  },
+  {
+    id: 'task-detail-legacy',
+    path: '/dev/task-detail?state=legacy',
+    description:
+      "The same drawer over a run from before run messages existed. There is no ledger to render, so it falls back to exactly the paragraphs it always showed \u2014 status, the requester's own sentence, the reviewer's words. Judge that this reads as \u201ethis is all there is\u201c rather than as a surface that failed to load: the distinction matters because a refused READ says something different again, and the two must not look alike.",
+    waitFor: '[data-testid="task-detail-goal"]',
   },
   {
     id: 'run-block',

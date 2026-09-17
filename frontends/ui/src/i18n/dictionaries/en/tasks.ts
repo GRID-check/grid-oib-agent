@@ -90,6 +90,12 @@ export const tasks = {
     goneTitle: 'Not found',
     /** The title while a deep link is still being checked — no finding yet. */
     loadingTitle: 'Loading',
+    /** While the run's own account is being fetched for the block. */
+    runLoading: 'Loading what this run did…',
+    /** The read was refused. The row's own facts are shown instead. */
+    runUnavailable: 'The full account of this run could not be loaded.',
+    /** To the thread, beside the result — reading a run is not following one. */
+    openThread: 'Open in the conversation',
   },
   list: {
     emptyTitle: 'Nothing delegated yet',

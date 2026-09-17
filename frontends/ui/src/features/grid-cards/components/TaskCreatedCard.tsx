@@ -29,11 +29,14 @@
  * thread) and is accepted so an older backend's payload stays valid; it is
  * not rendered.
  *
- * ## Why it says „läuft" and not „erledigt"
+ * ## Why it no longer says „läuft"
  *
- * The card states the state, so the answer beside it cannot quietly overstate
- * it. The status line is the product's own promise read back: work was handed
- * over, it is running, and somebody will hear when it is done.
+ * It used to, so that the answer beside it could not quietly overstate the
+ * work. The run block directly beneath it now says the state — and keeps
+ * saying it, which a card frozen at „läuft" cannot — so this card is the
+ * COMMISSIONING RECEIPT and nothing more: what was handed over, of what kind,
+ * and by when it is wanted. Two adjacent claims about one run's state are
+ * how a thread starts disagreeing with itself the moment the run moves on.
  */
 
 import type { FC } from 'react'
@@ -103,10 +106,6 @@ export const TaskCreatedCard: FC<TaskCreatedCardProps> = ({
           <span data-testid="task-created-kind">
             {t(`cards.taskCreated.kind.${KIND_LABEL[kind]}` as 'cards.taskCreated.kind.einreichcheck')}
           </span>
-          <span aria-hidden className="text-muted-foreground/40">
-            ·
-          </span>
-          <span data-testid="task-created-status">{t('cards.taskCreated.running')}</span>
           {dueLabel && (
             <>
               <span aria-hidden className="text-muted-foreground/40">

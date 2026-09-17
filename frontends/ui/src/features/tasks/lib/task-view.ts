@@ -158,6 +158,20 @@ function conversationQuery(task: TaskWireRow): string {
   return `${session}&run=${encodeURIComponent(task.id)}#message-${encodeURIComponent(task.runMessageId)}`
 }
 
+/**
+ * The thread at this run, or null when the task never minted one.
+ *
+ * A SECOND destination beside `taskResultTarget`, and deliberately not folded
+ * into it: the result answers „what came out", the thread answers „how it got
+ * there", and a run that filed a document has both. `taskResultTarget` ranks
+ * the document first and would otherwise hide the account of the work behind
+ * the artefact — which is the one thing the run block exists to show.
+ */
+export function taskThreadHref(projectId: string, task: TaskWireRow): string | null {
+  if (!task.conversationId) return null
+  return `/app/projects/${encodeURIComponent(projectId)}/chat?${conversationQuery(task)}`
+}
+
 export function taskResultTarget(projectId: string, task: TaskWireRow): TaskResultTarget {
   const project = encodeURIComponent(projectId)
   if (task.filedDocumentId) {

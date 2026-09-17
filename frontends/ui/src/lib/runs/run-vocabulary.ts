@@ -119,11 +119,19 @@ function ms(instant: string | undefined): number | null {
  * `startedAt`, never negative, and zero for a ledger whose instants do not
  * parse — an unreadable timestamp is a bug to fix upstream, not a negative
  * number to render.
+ *
+ * `wartet` stops the clock at `updatedAt`, which IS the instant the run asked
+ * its question: nothing folds into the ledger between the ask and the answer,
+ * so that timestamp is the last thing the run did. Running it on to `now`
+ * would make the pill read „68 h" on a Monday morning — a true number about
+ * the wrong subject, because the pill says how long the WORK took and that
+ * one would be saying how long the reader took.
  */
 export function elapsedMs(ledger: RunLedger, now: number): number {
   const started = ms(ledger.startedAt)
   if (started === null) return 0
-  const ended = ms(ledger.finishedAt) ?? now
+  const waiting = runDisplayStatus(ledger) === 'wartet' ? ms(ledger.updatedAt) : null
+  const ended = ms(ledger.finishedAt) ?? waiting ?? now
   return Math.max(0, ended - started)
 }
 

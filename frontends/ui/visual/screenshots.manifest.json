@@ -1636,6 +1636,24 @@
         "task-created-card.mobile.dark.png"
       ]
     },
+    "task-detail": {
+      "route": "src/app/dev/task-detail/page.tsx",
+      "routeHash": "76029f1349282c4af1954415a5da9e0e5575ddcc5921f33c7fbd13d9e82b3cc2",
+      "shots": [
+        "task-detail.light.png",
+        "task-detail.dark.png",
+        "task-detail.mobile.light.png",
+        "task-detail.mobile.dark.png"
+      ]
+    },
+    "task-detail-legacy": {
+      "route": "src/app/dev/task-detail/page.tsx",
+      "routeHash": "76029f1349282c4af1954415a5da9e0e5575ddcc5921f33c7fbd13d9e82b3cc2",
+      "shots": [
+        "task-detail-legacy.light.png",
+        "task-detail-legacy.dark.png"
+      ]
+    },
     "task-list": {
       "route": "src/app/dev/task-list/page.tsx",
       "routeHash": "aa2f4c12d27c19dc521d3e3ee891d3a5472e10b5a715174e6d30134035e8d8a3",

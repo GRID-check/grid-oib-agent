@@ -167,6 +167,15 @@ describe('elapsedMs and phaseDurationMs', () => {
     expect(elapsedMs(done, at(500).getTime())).toBe(90_000)
   })
 
+  // A run that asked a question on Friday afternoon showed „68 h" on Monday:
+  // a true number about the wrong subject. The pill says how long the WORK
+  // took, and between the ask and the answer the run is doing none.
+  it('stops the clock at the ask while a run is waiting for an answer', () => {
+    const asking = setRunStatus(researching(), 'wartet', at(102))
+    expect(elapsedMs(asking, at(102).getTime())).toBe(102_000)
+    expect(elapsedMs(asking, at(60_000).getTime())).toBe(102_000)
+  })
+
   it('never goes negative and reads zero for an instant it cannot parse', () => {
     expect(elapsedMs(researching(), at(-5).getTime())).toBe(0)
     expect(elapsedMs({ ...researching(), startedAt: 'gestern' }, at(10).getTime())).toBe(0)

@@ -441,11 +441,10 @@ export const chat: typeof en.chat = {
     },
     // Ein Auftrag, den Piloti nach diesem Gespräch selbständig erledigt
     // (ADR-0051). Die Karte bietet nichts an: die Zeile existiert schon, wenn
-    // sie erscheint. „läuft" ist deshalb der wichtigste Text auf ihr — die
-    // Antwort daneben darf nicht so klingen, als sei die Arbeit getan.
+    // sie erscheint, und der Laufblock darunter sagt, wie es steht — die Karte
+    // ist die Quittung (was, welcher Art, bis wann) und nennt keinen Status.
     taskCreated: {
       eyebrow: 'Auftrag',
-      running: 'läuft',
       due: 'bis {date}',
       open: 'Unterhaltung öffnen',
       // Die vier Arten, in den Worten, in denen die Nutzerin sie beauftragt hat.

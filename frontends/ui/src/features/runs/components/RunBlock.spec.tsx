@@ -263,8 +263,8 @@ describe('RunBlock — the fold', () => {
 })
 
 describe('RunBlock — the line and the affordances', () => {
-  it('names the filing destination while starting, when the run files to a project', () => {
-    render(<RunBlock ledger={emptyRunLedger('run-0', T0)} title={TITLE} projectId="p1" />)
+  it('names the filing destination while starting, when the caller says it files', () => {
+    render(<RunBlock ledger={emptyRunLedger('run-0', T0)} title={TITLE} projectId="p1" filesToProject />)
     expect(screen.getByTestId('run-status-line')).toHaveTextContent(
       'Starting · result goes to the project',
     )
@@ -275,6 +275,14 @@ describe('RunBlock — the line and the affordances', () => {
     const line = screen.getByTestId('run-status-line')
     expect(line).toHaveTextContent('Starting')
     expect(line).not.toHaveTextContent('project')
+  })
+
+  // The regression the default `!!projectId` caused: an escalated chat
+  // question runs inside a project and files NOTHING, and was promised the
+  // project anyway — then contradicted by its own `fertig` line.
+  it('promises no destination for a run in a project that never claimed to file', () => {
+    render(<RunBlock ledger={emptyRunLedger('run-0', T0)} title={TITLE} projectId="p1" />)
+    expect(screen.getByTestId('run-status-line')).not.toHaveTextContent('project')
   })
 
   it('has no closing rows while running', () => {

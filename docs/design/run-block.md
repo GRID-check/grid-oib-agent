@@ -144,9 +144,63 @@ word, the same tallies. The Aufträge index and the task cards compose it rather
 than writing their own sentence — two renderers for one run is one token retune
 away from two different stories.
 
+The card therefore states the status ONCE more than it used to and once fewer
+than it did: the swatch on the title line is the pre-reading scan anchor, the
+run line is the word, and the status chip that used to sit beside the run line
+is gone. It said the same fact in the task vocabulary (`succeeded`) next to the
+run vocabulary („Fertig"), and two adjacent labels for one state stop reading as
+one state. A row with no run keeps the chip, because there the swatch would
+otherwise be the only carrier and colour never travels alone.
+
+## Where the block appears
+
+Three surfaces, one organism:
+
+1. **The thread** (`RunBlockMessage`). The only one that holds a subscription —
+   this is where a live run is watched, where „Abbrechen" is offered, and where
+   a `wartet` question is answered.
+2. **The Aufträge drawer** (`TaskDetail`). The block again, fetched once through
+   `GET /api/projects/[id]/runs/[runId]` and re-read only when the panel's poll
+   moves the row. Opened rather than folded: the click on the row IS the request
+   to see inside. It yields its own „Im Projekt anzeigen" to the drawer's result
+   button, and keeps a link to the thread beside it — reading a run is not
+   following one, and the drawer must never become the only door.
+3. **The card and the index** (`RunBlockLine`), as above.
+
+A fourth rendering was considered and rejected. The drawer used to restate the
+card it was opened from — kind chip, status chip, goal, review reason, error —
+which made the bigger, more deliberate surface say strictly LESS about the run
+than the row that opened it, and put a run's state on the Aufträge tab four
+times. A surface that shows what another surface shows composes the same atoms
+or reuses the organism (`frontends/ui/AGENTS.md`); it does not assemble a
+lookalike out of `SheetTitle` and `SectionLabel`.
+
+The drawer keeps those paragraphs for exactly one case: a run from before run
+messages existed, which has no ledger, so they are the only account there is. A
+read that was REFUSED says something different again, and the two must not look
+alike.
+
+## What the block never promises
+
+`filesToProject` is a claim a caller makes, never an inference from „there is a
+project". It used to default to `!!projectId`, which made every freshly
+commissioned run in a chat say „Ergebnis kommt ins Projekt" — including an
+escalated question whose report lands inline in the thread, and whose own
+`fertig` line then said so. A block that promises one destination at the start
+and names a different one at the end has spent the reader's trust to say
+nothing.
+
+The clock stops when the run does, and `wartet` counts as stopped: elapsed runs
+to `updatedAt`, which is the instant the run asked its question, because nothing
+folds into the ledger between the ask and the answer. Running it on to now made
+a run that asked on Friday read „68 h" on Monday — a true number about the wrong
+subject. The pill says how long the work took, not how long the reader took.
+
 ## Evidence
 
 `/dev/run-block` shows every state, `?variant=transition` shows the handover as
 the thread sees it, and `?variant=motion` walks a real ledger frame by frame
 through the same fold helpers production uses, so the choreography can be watched
-rather than argued about. All three are captured in `visual/screenshots/`.
+rather than argued about. `/dev/task-detail` is the block inside the Aufträge
+drawer and `?state=legacy` is the drawer with no run to read. All are captured in
+`visual/screenshots/`.

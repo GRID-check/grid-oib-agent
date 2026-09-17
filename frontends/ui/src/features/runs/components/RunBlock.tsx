@@ -130,7 +130,11 @@ export interface RunBlockProps {
   title?: string | null
   /** Enables „Im Projekt anzeigen" on a filed result. */
   projectId?: string | null
-  /** The angelegt line names the filing destination. Defaults to `!!projectId`. */
+  /**
+   * This run's result WILL be filed into the project. Only the commissioning
+   * side knows — a task run files, an escalated chat question answers inline —
+   * so it is never inferred here, and an unclaimed run promises no destination.
+   */
   filesToProject?: boolean
   review?: RunBlockReview | null
   /** A stream is attached. Affects nothing visible: state comes from the ledger. */
@@ -619,7 +623,15 @@ export function RunBlock({
       ? t(`connection.${connection}`)
       : null
 
-  const line = statusLine(t, ledger, status, tallies, filesToProject ?? !!projectId)
+  // `filesToProject` is a CLAIM a caller makes, never inferred. It used to
+  // default to „there is a project", which made every freshly-commissioned run
+  // in a chat promise „Ergebnis kommt ins Projekt" — including an escalated
+  // question whose report lands inline in the thread, which the `fertig` line
+  // then correctly contradicts (`fertigFiled` vs `fertigInline`). A block that
+  // promises a destination at the start and names a different one at the end
+  // has spent the reader's trust to say nothing. Unclaimed, it says only that
+  // the run is angelegt, which is the part that is true either way.
+  const line = statusLine(t, ledger, status, tallies, filesToProject ?? false)
   const before =
     status === 'fehlgeschlagen' || status === 'abgebrochen'
       ? completedBeforeLabel(t, ledger, tallies)

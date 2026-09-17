@@ -30,16 +30,21 @@ const TASK = {
 }
 
 describe('TaskCreatedCard — what it reports', () => {
-  it('names the kind, the goal and the deadline, and says the work is running', () => {
+  it('names the kind, the goal and the deadline — the receipt and nothing else', () => {
     render(<TaskCreatedCard {...TASK} />)
 
     expect(screen.getByText(TASK.title)).toBeInTheDocument()
     expect(screen.getByText(TASK.goal)).toBeInTheDocument()
     expect(screen.getByTestId('task-created-kind')).toHaveTextContent('Submission check')
-    // The most important string on the card: the answer beside it must not
-    // read as though the work is done.
-    expect(screen.getByTestId('task-created-status')).toHaveTextContent('running')
     expect(screen.getByTestId('task-created-due')).toHaveTextContent('by Sep 18, 2026')
+  })
+
+  // The run block renders directly beneath this card and keeps saying how the
+  // work is going. A status frozen at „läuft" beside it is a second claim about
+  // one run that stops being true the moment the run moves on.
+  it('states no status of its own', () => {
+    render(<TaskCreatedCard {...TASK} />)
+    expect(screen.queryByTestId('task-created-status')).not.toBeInTheDocument()
   })
 
   it('says nothing about a deadline nobody named', () => {

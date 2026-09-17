@@ -1231,11 +1231,15 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
       // beneath it once the run has one. Nothing else about the message
       // changes — same row, same id, same deep-link target.
       //
+      // An escalated chat question now mints a run message like any other run,
+      // so this path no longer has a second rendering to fall back to.
       // `DeepResearchBanner`, `ResearchPanel` and the store's
-      // `deepResearchJobId` slice stay for now: an ESCALATED chat question
-      // (an answer that turned into a deep-research job mid-turn) mints no
-      // run message until PR 3, and those surfaces are all that path has.
-      // They go, not get hidden, when it does.
+      // `deepResearchJobId` slice are kept DELIBERATELY and not because
+      // anything new needs them: threads written before run messages existed
+      // still hold messages whose only account of a run is those surfaces, and
+      // deleting them would blank work a reader can still open. The retirement
+      // is recorded in ADR-0062; the `deepResearch*` props below are what the
+      // legacy messages carry.
       if (message.runLedger) {
         return <RunBlockMessage message={message} projectId={projectId} answer={answer} />
       }
