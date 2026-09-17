@@ -470,9 +470,12 @@ jobs:
       # contains quotes, backticks and $(…), and interpolating it into a shell
       # command is a script injection.
       #
-      # ONE-TIME SETUP: create the `no-visual-evidence` label. Until it exists
-      # the escape hatch this job's failure message points at cannot be applied,
-      # and a pixel-free change under these paths has no way past the gate.
+      # Two escape hatches, because one of them needs no repository setup: the
+      # `no-visual-evidence` LABEL (skips this step entirely, via the `if`), or
+      # `<!-- no-visual-evidence: why -->` in the PR body, which the script
+      # reads. Both demand a reason — a bare marker does not silence it, the
+      # same rule `visual-coverage` had for `// no-visual`. The label does not
+      # exist yet; create it if you prefer labels to markers.
       - name: Require a capture for user-visible changes
         if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'no-visual-evidence')
         env:
