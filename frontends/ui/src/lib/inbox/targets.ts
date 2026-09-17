@@ -57,6 +57,22 @@ export interface InboxTargetLinkContext {
    * target's own page.
    */
   taskId?: string | null
+  /**
+   * The run's own message in its thread, when the run has one (ADR-0062).
+   *
+   * Carried from `payload.conversationId` / `runId` / `runMessageId` by the
+   * read path. With all three the row lands ON the run block — the thread
+   * scrolled to the message and the block marked — which is where the report,
+   * the question or the error is. Without them the task drawer is the fallback.
+   */
+  run?: RunMessageRef | null
+}
+
+/** Where a run narrates itself: its thread, its id, its message. */
+export interface RunMessageRef {
+  conversationId: string
+  runId: string
+  messageId: string
 }
 
 /**
@@ -152,13 +168,15 @@ const shareableTargets = Object.fromEntries(
 /**
  * A project — the target of a background run's outcome.
  *
- * A job is project-scoped work, and its report is filed in the project, so the
- * place a "your run is done" row lands is the project's automation page, where
- * the run history already shows every run with its live status. When the row's
- * payload names the delegated task (`taskId`), the link lands on that task's
- * detail drawer (`?tab=tasks&task=`), where the result and the filed document
- * already wait — otherwise it lands on the schedules view, which is never
- * wrong, only less specific. Access is the same question the page itself asks
+ * A run is one message in the thread that commissioned it (ADR-0062), so when
+ * the row's payload names that message the link lands ON the run block:
+ * `?session=` selects the thread, `?run=` names the run and `#message-` scrolls
+ * to and marks the block — the same query `taskResultTarget` builds for the
+ * Aufträge index, so one mechanism carries every deep link into a run. A run
+ * from before run messages existed has no message; then the row lands on the
+ * task's detail drawer (`?tab=tasks&task=`) where the result and the filed
+ * document wait — and without even a task id, on the schedules view, which is
+ * never wrong, only less specific. Access is the same question the page itself asks
  * (`project:view`, re-derived at read time per spec IB-13): a member removed
  * from the project since the run ended sees a redacted row rather than a link
  * into a project they can no longer open. `requireProjectAccess` throws for
@@ -175,6 +193,7 @@ const projectTarget: InboxTargetDescriptor = {
     }
     return {
       deepLink: (context) => {
+        if (context.run) return runDeepLink(resourceId, context.run)
         const taskId = context.taskId?.trim() ? context.taskId.trim() : null
         if (taskId) {
           return `/app/projects/${resourceId}/automation?tab=tasks&task=${encodeURIComponent(taskId)}`
@@ -183,6 +202,14 @@ const projectTarget: InboxTargetDescriptor = {
       },
     }
   },
+}
+
+/** The thread at the run: the shape `features/tasks/lib/task-view.ts` builds. */
+function runDeepLink(projectId: string, run: RunMessageRef): string {
+  const session = encodeURIComponent(run.conversationId)
+  const runId = encodeURIComponent(run.runId)
+  const message = encodeURIComponent(run.messageId)
+  return `/app/projects/${projectId}/chat?session=${session}&run=${runId}#message-${message}`
 }
 
 export const INBOX_TARGET_REGISTRY: Record<InboxTargetType, InboxTargetDescriptor> = {

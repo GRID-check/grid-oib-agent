@@ -126,6 +126,20 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     gate: 'operational',
   },
   /*
+    A run has a question for the person who asked for it (ADR-0062, `wartet`).
+    Actionable, because the run is stopped until they answer and the badge is
+    what makes a stopped run visible; resolved by the ledger leaving `wartet`
+    (`lib/runs/service.ts`), so it never sits in the badge for good. Anchored
+    on the RUN: a second question from the same run folds into the row it
+    already has, which is the row the reader is about to open anyway.
+  */
+  'job.waiting': {
+    actionable: true,
+    grouping: 'per-anchor',
+    retentionDays: 30,
+    gate: 'operational',
+  },
+  /*
     A version is waiting for a decision (ADR-0054). Actionable, because it IS an
     outstanding request against the recipient and the badge is what makes it
     visible; `per-anchor` on the VERSION, because two review rounds on one

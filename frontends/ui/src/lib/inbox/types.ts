@@ -77,6 +77,7 @@ export interface InboxTypePresentation {
     | 'check-circle'
     | 'hard-drive'
     | 'alert-triangle'
+    | 'clock'
   /** i18n key under `inbox.types.<key>.title` / `.body`. */
   readonly i18nKey: string
   /**
@@ -105,6 +106,9 @@ export const INBOX_TYPE_PRESENTATION: Record<InboxItemType, InboxTypePresentatio
   'document.assigned_to_you': { icon: 'user-plus', i18nKey: 'documentAssigned', tone: 'info' },
   'job.completed': { icon: 'check-circle', i18nKey: 'jobCompleted', tone: 'info' },
   'job.failed': { icon: 'alert-triangle', i18nKey: 'jobFailed', tone: 'warning' },
+  // The clock is the run block's own glyph for `wartet`, so the row and the
+  // block say "waiting for you" with one shape.
+  'job.waiting': { icon: 'clock', i18nKey: 'jobWaiting', tone: 'request' },
   'document.review_requested': {
     icon: 'check-circle',
     i18nKey: 'documentReviewRequested',

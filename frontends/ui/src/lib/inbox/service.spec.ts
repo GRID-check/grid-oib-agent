@@ -84,6 +84,7 @@ const ALL_TYPES = [
   'document.assigned_to_you',
   'job.completed',
   'job.failed',
+  'job.waiting',
   'document.review_requested',
 ] as const satisfies readonly InboxItemType[]
 
@@ -92,6 +93,9 @@ const OPERATIONAL_TYPES = [
   'storage.quota_warning',
   'job.completed',
   'job.failed',
+  // A run stopped to ask its requester something: the same operational class
+  // as a run that finished or failed, and invisible without the badge.
+  'job.waiting',
   // A Freigabe is not a chat feature (ADR-0054): an office that never bought
   // collaboration still has documents to approve, and gating the one review
   // queue in the product would make it invisible for exactly them.

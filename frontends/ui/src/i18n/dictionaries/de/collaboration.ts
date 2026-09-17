@@ -252,6 +252,10 @@ export const collaboration: typeof en.collaboration = {
         title: '„{subject}" ist fehlgeschlagen',
         body: 'Der Auftrag konnte nicht abgeschlossen werden. Die Laufhistorie im Projekt nennt den Grund.',
       },
+      jobWaiting: {
+        title: '„{subject}" wartet auf Sie',
+        body: 'Piloti hat eine Rückfrage zu diesem Auftrag. Antworten Sie im Verlauf, dann läuft er weiter.',
+      },
       // Eine Fassung eines Dokuments wartet auf eine Entscheidung (ADR-0054).
       // {subject} ist das Dokument, {actor} wer sie eingereicht hat.
       documentReviewRequested: {
